@@ -96,8 +96,17 @@ pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f
         AnimKind::FadeOut           => (0.0, 0.0, 1.0, 1.0 - te),
         // ZoomIn grows 0 → 100% (eased; Elastic overshoots past 100% and settles).
         AnimKind::ZoomIn            => (0.0, 0.0, te.max(0.001), te),
-        // ZoomOut bounces: 100% → 25% → 120% → 100%.
-        AnimKind::ZoomOut           => (0.0, 0.0, zoomout_scale(t), 1.0),
+        // ZoomOut dips and returns: 100% → 25% → 100%. With Elastic easing this
+        // becomes a damped multi-bounce (overshoots 3–4 times before settling).
+        AnimKind::ZoomOut           => {
+            let scale = if matches!(anim.easing, EasingKind::Elastic) {
+                zoomout_scale(t)
+            } else {
+                // Smooth single dip-and-return (no overshoot), timed by the easing.
+                (1.0 - 0.75 * (std::f32::consts::PI * te).sin()).max(0.02)
+            };
+            (0.0, 0.0, scale, 1.0)
+        }
         AnimKind::Bounce            => {
             let dy = -50.0 * (std::f32::consts::PI * t * 3.0).sin().abs() * inv;
             (0.0, dy, 1.0, 1.0)
@@ -4547,9 +4556,10 @@ mod anim_behavior_tests {
     }
 
     #[test]
-    fn zoom_out_damped_multi_bounce() {
-        // ZoomOut: starts 100%, dips toward ~25%, bounces 3–4 times, settles 100%.
-        let a = anim(AnimKind::ZoomOut);
+    fn zoom_out_elastic_is_a_damped_multi_bounce() {
+        // With Elastic easing: starts 100%, dips toward ~25%, bounces 3–4 times,
+        // settles 100%.
+        let a = AnimationDef { easing: EasingKind::Elastic, ..anim(AnimKind::ZoomOut) };
         let s = |t: f32| anim_transform(&a, W, H, t).2;
         assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
         assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
@@ -4573,6 +4583,21 @@ mod anim_behavior_tests {
             }
         }
         assert!(crossings >= 4, "should bounce several times, got {crossings} baseline crossings");
+    }
+
+    #[test]
+    fn zoom_out_non_elastic_is_a_single_dip_and_return() {
+        // Linear (or any non-Elastic) easing: a single smooth dip — 100% → 25% →
+        // 100% — with no overshoot above 100%.
+        let a = anim(AnimKind::ZoomOut); // Linear
+        let s = |t: f32| anim_transform(&a, W, H, t).2;
+        assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
+        assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
+        assert!((s(0.5) - 0.25).abs() < 0.02, "deepest dip ≈25% at midpoint, got {}", s(0.5));
+        // Never overshoots above 100%.
+        for i in 0..=100 {
+            assert!(s(i as f32 / 100.0) <= 1.0001, "no overshoot expected");
+        }
     }
 
     #[test]
