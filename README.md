@@ -6,10 +6,8 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-<h1 align="center">PowerRustCOBOL</h1>
-
 <p align="center">
-  <img src="docs/assets/powerrustcobol-mascot.png" alt="PowerRustCOBOL mascot — a chibi samurai robot" width="260">
+  <img src="docs/assets/powerrustcobol-mascot.png" alt="PowerRustCOBOL — a chibi samurai robot mascot" width="360">
 </p>
 
 <p align="center">
