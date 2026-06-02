@@ -6,64 +6,252 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# PowerRustCOBOL
+<h1 align="center">PowerRustCOBOL</h1>
 
-**PowerRustCOBOL** is a Rust-based RAD (Rapid Application Development) environment
-for **RustCOBOL** — a modern COBOL dialect — with a visual form designer, an
-interpreter/runtime, a code generator, a debugger, and a single-binary compiler.
+<p align="center">
+  <img src="docs/assets/powerrustcobol-mascot.png" alt="PowerRustCOBOL mascot — a chibi samurai robot" width="260">
+</p>
+
+<p align="center">
+  <em>A modern, Rust-powered RAD (Rapid Application Development) environment for COBOL —<br>
+  design forms visually, run them on a fast tree-walking runtime, and compile to a single self-contained binary.</em>
+</p>
+
+<p align="center">
+  <a href="#license"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-orange.svg">
+  <img alt="Status: active development" src="https://img.shields.io/badge/status-active%20development-success.svg">
+</p>
+
+---
+
+## Overview
+
+**PowerRustCOBOL** brings COBOL into a modern desktop development experience. It pairs a
+practical subset of the **COBOL-85 standard** with a visual form designer, a rich widget
+toolbox, an interactive debugger, and a compiler that turns a project into one
+**self-contained native binary** — no COBOL source shipped inside it.
 
 | Name | Role |
 |------|------|
-| **RustCOBOL** | The language / compiler |
-| **PowerRustCOBOL** | The RAD IDE (desktop app) |
-| **rcrun** | The CLI runtime binary |
+| **RustCOBOL** | The language and compiler (a COBOL dialect with visual RAD extensions). |
+| **PowerRustCOBOL** | The RAD IDE — the desktop application you design and build with. |
+| **rcrun** | The command-line runtime/build tool. |
 
-## Quick start
+> ⚠️ COBOL data-item names, paragraph names, and all generated COBOL source always remain
+> in **English**, regardless of the IDE's selected interface language.
+
+## Goals
+
+- **Make COBOL approachable** with a visual, drag-and-drop form designer and live preview.
+- **Run COBOL fast** on a clean tree-walking interpreter — no external runtime required.
+- **Ship real apps**: compile a project into a single native executable that embeds its
+  forms and program logic.
+- **Stay self-contained**: the default toolchain needs no system COBOL, no FFmpeg, and no
+  proprietary dependencies.
+- **Be honest about scope**: implement the parts of COBOL-85 that matter for building
+  applications today, and clearly mark what is partial or out of scope.
+
+## What's implemented
+
+### The IDE (PowerRustCOBOL)
+- **Visual form designer** with a glass/"liquid" theme, grid snapping, drag-resize of
+  controls *and* the form canvas, multi-select, alignment tools, and z-ordering.
+- **34 widgets** across Common, Container, Data, Graphics, Menu, Non-visual, Charts and
+  Dialog categories — including a new **Animator** widget that plays **GIF / WebP / APNG**
+  animations natively.
+- **Properties inspector**, **toolbox** with vector icons, **forms list**, **project tree**,
+  and an **output panel**.
+- **System-font picker**: choose any installed font (rendered in its own typeface), applied
+  live in the canvas, preview and run windows, with an Arial fallback.
+- **Interactive debugger**: breakpoints, step controls, and a variable watch.
+- **Multi-window** preview/run via per-form OS windows (egui multi-viewport).
+- **Internationalised UI** in 5 languages (English, Spanish, Portuguese, Japanese, Chinese).
+- **Non-blocking native file dialogs** (open/save/browse) that never stall the event loop.
+
+### The RustCOBOL language & runtime
+- **Fixed-form and free-form** source.
+- **Divisions**: IDENTIFICATION, ENVIRONMENT (INPUT-OUTPUT / FILE-CONTROL), DATA, PROCEDURE.
+- **DATA sections**: WORKING-STORAGE, LOCAL-STORAGE, LINKAGE, FILE.
+- **Data description**: `PIC` X / A / 9 / S / V with `(n)` repetition; `USAGE` DISPLAY,
+  COMP/BINARY, COMP-1/2, COMP-3/PACKED-DECIMAL, COMP-5, INDEX, POINTER; `OCCURS`
+  (fixed and `DEPENDING ON`); level numbers incl. 01/77/88; `VALUE`; group items; `FILLER`;
+  88-level condition names.
+- **Verbs**: MOVE, DISPLAY, ACCEPT (`FROM DATE/TIME/DAY/DAY-OF-WEEK/ENVIRONMENT`),
+  ADD / SUBTRACT / MULTIPLY / DIVIDE (incl. `REMAINDER`) / COMPUTE, IF…ELSE…END-IF,
+  EVALUATE…WHEN / WHEN OTHER, PERFORM (inline, `TIMES`, `UNTIL`, `VARYING…AFTER`, `THRU`),
+  GO TO, CONTINUE, STOP RUN, GOBACK, EXIT, STRING, UNSTRING, INSPECT (`TALLYING`/`REPLACING`).
+- **CALL**: COBOL-85 **nested programs** *and* multiple sequential program units in one file,
+  plus a library of runtime built-ins (see below).
+- **Intrinsic functions**: `LENGTH`, `UPPER-CASE`, `LOWER-CASE`, `NUMVAL`, `NUMVAL-C`,
+  `MAX`, `MIN`, `SQRT`, `MOD`, `REM`, `ABS`, `INTEGER`, `INTEGER-PART`, `RANDOM`,
+  `CURRENT-DATE`, `TRIM`, `REVERSE`, `CONCATENATE`.
+- COBOL-correct alphanumeric comparison (space-padded) and figurative constants
+  (SPACES, ZEROS, HIGH/LOW-VALUES, QUOTES, NULLS).
+
+### File I/O
+- **`ORGANIZATION IS SEQUENTIAL`** (fixed-length records) and **`LINE SEQUENTIAL`**
+  (newline-terminated text; trailing spaces dropped on write).
+- `SELECT … ASSIGN TO … ORGANIZATION … [ACCESS MODE …] [FILE STATUS IS …]`.
+- `OPEN INPUT/OUTPUT/EXTEND/I-O`, `READ … [INTO] [AT END / NOT AT END]`,
+  `WRITE … [FROM]`, `CLOSE`, with **FILE STATUS** codes (00/10/30/35/…).
+
+### Built-in integrations (runtime `CALL`s and `INVOKE`)
+- **SQL (SQLite)** — open/exec/fetch/row-count/close.
+- **HTTP / REST** — GET/POST/PUT/DELETE with custom headers.
+- **GUI** — `COBOL-WAIT-EVENT`, `COBOL-SET-PROPERTY`, `COBOL-GET-PROPERTY`, `COBOL-INIT-FORM`.
+- **Charts** — 6 chart types bound to COBOL tables (bar/line/pie/area/scatter/donut).
+- **Text files** — `COBOL-APPEND-FILE` / `COBOL-WRITE-FILE` helpers.
+- **Timers** and an **AI agent** object hook.
+
+### The compiler (single-binary)
+- Serialises the program AST with `bincode` + `flate2`, embeds it and all forms via
+  `include_bytes!`, builds with `cargo build --release`, and emits one native binary in
+  `bin/` — **with no `.cbl` source included**.
+- The output `bin/` automatically receives `LICENSE`, `NOTICE`, and a redistribution
+  notice, so distributions carry the required Apache-2.0 notices.
+
+## Running applications
+
+A PowerRustCOBOL **project** is a directory with a `cobolt.toml` manifest plus its
+`.cbl` sources and `.cfrm` forms:
+
+```toml
+[project]
+name = "MyApp"
+version = "1.0.0"
+main = "main.cbl"
+
+[files]
+sources = ["main.cbl"]
+forms   = ["main-form.cfrm"]
+assets  = []
+```
+
+### Launch the IDE
+
+```sh
+cargo run -p cobolt-ide
+```
+
+### Run / check a program from the CLI (`rcrun`)
+
+```sh
+# Run a COBOL program
+cargo run -p cobolt-cli -- run main.cbl
+
+# Parse + semantic analysis only (no execution)
+cargo run -p cobolt-cli -- check main.cbl
+```
+
+### Generate a standalone binary
+
+```sh
+# From inside the project directory:
+cargo run -p cobolt-cli -- build cobolt.toml
+#   → produces ./bin/<app-name>  (self-contained native executable)
+#   → plus ./bin/LICENSE, ./bin/NOTICE, ./bin/POWERRUSTCOBOL-NOTICE.txt
+
+# Then just run it — no IDE, no source, no runtime install:
+./bin/<app-name>
+```
+
+If the project has forms, the binary launches the GUI application; otherwise it runs
+headless. The compressed AST and forms are embedded inside the executable.
+
+### Package a project for distribution
+
+```sh
+cargo run -p cobolt-cli -- package cobolt.toml --output myapp.zip
+```
+
+The zip bundles the manifest, sources, forms, assets, an optional runner, and the
+required `LICENSE` / `NOTICE` / runtime-notice files.
+
+> Prefer a short command? Build once with `cargo build --release` and use the produced
+> `target/release/rcrun` binary directly: `rcrun run main.cbl`, `rcrun build cobolt.toml`, …
+
+## COBOL-85 standard support
+
+PowerRustCOBOL targets a **practical, application-oriented subset** of COBOL-85 plus
+visual RAD extensions. It is **not** (yet) a certified COBOL-85 implementation. Here is an
+honest map of where things stand.
+
+### ✅ Supported
+- Fixed-form & free-form source; all four divisions.
+- WORKING-STORAGE / LOCAL-STORAGE / LINKAGE / FILE sections.
+- PICTURE (X/A/9/S/V with repetition counts), USAGE clauses, OCCURS, 01/77/88 levels,
+  VALUE, group items, FILLER, condition-names.
+- The procedural verbs and intrinsic functions listed above.
+- Nested programs and multiple program units; `CALL` dispatch.
+- **SEQUENTIAL** and **LINE SEQUENTIAL** file I/O with FILE STATUS.
+
+### 🚧 Partial / in progress
+- **Numeric precision** — decimal arithmetic is supported, but full 18/31-digit
+  fixed-point semantics are not guaranteed everywhere yet.
+- **Numeric-edited PICTUREs** (`Z`, `$`, `,`, `B`, `0`, `/`, CR/DB…) — limited editing.
+- **`COPY` / `REPLACE`** copybooks — limited.
+- **`ACCESS MODE RANDOM/DYNAMIC`** — parsed, but only sequential access executes today.
+- **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed
+  (the visual form designer supersedes it).
+
+### ⛔ Not yet implemented (planned)
+- **INDEXED** and **RELATIVE** file organizations; `REWRITE`, `DELETE`, `START`.
+- **`SORT` / `MERGE`**.
+- File sharing / record locking.
+- The complete intrinsic-function library.
+- Object-Oriented COBOL **class/method definitions** (`INVOKE` is supported for GUI and
+  runtime objects only).
+
+### 🚫 Explicitly out of scope — by design (will never be implemented)
+- **COMMUNICATION SECTION** (`CD` entries, message control / teleprocessing).
+- **REPORT WRITER SECTION** (`RD` entries, `GENERATE` / `INITIATE` / `TERMINATE`).
+- **ActiveX / OLE / COM** controls.
+
+## Repository layout
+
+PowerRustCOBOL is a Rust workspace. The internal build crates use a `cobolt-*` prefix
+(build-only identifiers; the product is **PowerRustCOBOL**, the language **RustCOBOL**,
+the CLI **rcrun**):
+
+| Crate | Responsibility |
+|-------|----------------|
+| `cobolt-lexer` | COBOL tokenizer (fixed + free form). |
+| `cobolt-ast` | AST node types. |
+| `cobolt-parser` | Recursive-descent parser. |
+| `cobolt-semantic` | Semantic analysis / diagnostics. |
+| `cobolt-runtime` | Tree-walking interpreter, file I/O, SQL/HTTP/GUI built-ins. |
+| `cobolt-stdlib` | Standard-library support. |
+| `cobolt-forms` | `.cfrm` form model + XML serialization. |
+| `cobolt-media` | Animated-image (GIF/WebP/APNG) decode + playback for the Animator. |
+| `cobolt-codegen` | Form → RustCOBOL source generator. |
+| `cobolt-compiler` | Embed-and-bundle single-binary compiler. |
+| `cobolt-cli` | The `rcrun` command-line tool. |
+| `cobolt-ide` | The PowerRustCOBOL desktop app (egui/eframe). |
 
 ```sh
 # Build everything
 cargo build
 
-# Launch the PowerRustCOBOL IDE
-cargo run -p cobolt-ide
-
-# Run a RustCOBOL program with the CLI
-cargo run -p cobolt-cli -- run myprogram.cbl
-
-# Check a program (parse + semantic analysis only)
-cargo run -p cobolt-cli -- check myprogram.cbl
-
-# Compile a project into a single native binary
-cargo run -p cobolt-cli -- build cobolt.toml
+# Run the test suite
+cargo test
 ```
 
-## License and generated applications
+## License
 
-PowerRustCOBOL is licensed under the Apache License, Version 2.0.
+PowerRustCOBOL is licensed under the **Apache License, Version 2.0**.
 
-Applications, source code, forms, assets, project files, binaries, packages, and
-other artifacts created by users with PowerRustCOBOL are owned by their
-respective authors and may be licensed under any terms chosen by those authors,
-including proprietary commercial terms.
+Applications, source code, forms, assets, project files, binaries, and packages **created
+by users** with PowerRustCOBOL are owned by their respective authors and may be licensed
+under any terms they choose, including proprietary commercial terms.
 
-The use of PowerRustCOBOL to create, edit, compile, debug, package, or distribute
-software does not impose the PowerRustCOBOL project license on the user's own
-application code.
+PowerRustCOBOL's own components (runtime, standard library, compiler support code,
+generated support modules, form-engine components, templates, helper libraries, and any
+other PowerRustCOBOL-provided components bundled with a user application) remain
+PowerRustCOBOL components licensed under the Apache License, Version 2.0. Distributions
+that include them must preserve the required copyright, license, attribution, and NOTICE
+information.
 
-However, PowerRustCOBOL itself, including its runtime, standard library, compiler
-support code, generated support modules, form engine components, runtime modules,
-templates, helper libraries, and any other PowerRustCOBOL-provided components
-included, linked, copied, embedded, or bundled with a user application, remain
-PowerRustCOBOL components licensed under the Apache License, Version 2.0.
-
-Distribution of applications that include PowerRustCOBOL components must preserve
-the required copyright notices, license notices, patent notices, trademark
-notices, attribution notices, and NOTICE file contents where applicable.
-
-Using PowerRustCOBOL does not transfer ownership of PowerRustCOBOL components to
-the application author.
-
-See [`LICENSE`](LICENSE) for the full Apache-2.0 text and [`NOTICE`](NOTICE) for
-the project notice. Additional details are in
-[`docs/licensing/`](docs/licensing/) (runtime license, generated-code policy,
-third-party notices, and the per-file header templates).
+See [`LICENSE`](LICENSE), [`NOTICE`](NOTICE), and [`docs/licensing/`](docs/licensing/)
+(runtime license, generated-code policy, third-party notices, and per-file header
+templates) for the full details.
