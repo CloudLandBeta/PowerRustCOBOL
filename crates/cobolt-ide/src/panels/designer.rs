@@ -64,26 +64,18 @@ impl AnimState {
     pub(crate) fn stop(&mut self) { self.playing = false; self.t = 1.0; }
 }
 
-/// Smoothstep ease (zero velocity at both ends).
-fn smoothstep(x: f32) -> f32 {
-    let x = x.clamp(0.0, 1.0);
-    x * x * (3.0 - 2.0 * x)
-}
-
-/// ZoomOut "bounce" scale over progress `t`: starts at 100%, shrinks to 25%,
-/// bounces back up to 120%, then settles at 100%. Segments are eased with
-/// smoothstep so the joins at each keyframe are smooth.
+/// ZoomOut "bounce" scale over progress `t`: a damped oscillation that starts at
+/// 100%, dips toward 25%, then bounces 3–4 times with decreasing amplitude,
+/// settling exactly at 100%.
 fn zoomout_scale(t: f32) -> f32 {
-    const KEYS: [(f32, f32); 4] = [(0.0, 1.00), (0.45, 0.25), (0.75, 1.20), (1.0, 1.00)];
-    for w in KEYS.windows(2) {
-        let (t0, s0) = w[0];
-        let (t1, s1) = w[1];
-        if t <= t1 {
-            let k = if t1 > t0 { (t - t0) / (t1 - t0) } else { 1.0 };
-            return s0 + (s1 - s0) * smoothstep(k);
-        }
-    }
-    1.0
+    // N half-cycles (→ ~3–4 visible bounces); A sets the first dip (≈25%);
+    // D damps each successive bounce. sin(Nπ·t) = 0 at t=0 and t=1, so the curve
+    // begins and ends exactly at 100%.
+    const N: f32 = 5.0;
+    const A: f32 = 1.06;
+    const D: f32 = 3.5;
+    let osc = (N * std::f32::consts::PI * t).sin();
+    (1.0 - A * (-D * t).exp() * osc).max(0.02)
 }
 
 /// Compute offset in canvas-space for an animation at progress t.
@@ -4555,23 +4547,32 @@ mod anim_behavior_tests {
     }
 
     #[test]
-    fn zoom_out_bounces_100_25_120_100() {
-        // ZoomOut: 100% → 25% → 120% → 100%.
+    fn zoom_out_damped_multi_bounce() {
+        // ZoomOut: starts 100%, dips toward ~25%, bounces 3–4 times, settles 100%.
         let a = anim(AnimKind::ZoomOut);
         let s = |t: f32| anim_transform(&a, W, H, t).2;
         assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
         assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
-        assert!((s(0.45) - 0.25).abs() < 0.02, "should shrink to ≈25%, got {}", s(0.45));
-        assert!((s(0.75) - 1.20).abs() < 0.02, "should bounce to ≈120%, got {}", s(0.75));
-        // Sampled extremes over the whole timeline.
-        let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
-        for i in 0..=100 {
-            let v = s(i as f32 / 100.0);
-            mn = mn.min(v);
-            mx = mx.max(v);
+
+        // First dip drops well below 100% (toward ~25%).
+        let mut mn = f32::INFINITY;
+        for i in 0..=200 {
+            mn = mn.min(s(i as f32 / 200.0));
         }
-        assert!((mn - 0.25).abs() < 0.02, "minimum ≈25%, got {mn}");
-        assert!((mx - 1.20).abs() < 0.02, "maximum ≈120%, got {mx}");
+        assert!(mn < 0.35, "should shrink toward ~25%, got {mn}");
+
+        // Counts how often the scale crosses the 100% baseline — each crossing is
+        // an over/undershoot, so several crossings ⇒ multiple bounces.
+        let mut crossings = 0;
+        let mut prev = (s(0.001) - 1.0).signum();
+        for i in 1..=400 {
+            let cur = (s(i as f32 / 400.0) - 1.0).signum();
+            if cur != 0.0 && cur != prev {
+                crossings += 1;
+                prev = cur;
+            }
+        }
+        assert!(crossings >= 4, "should bounce several times, got {crossings} baseline crossings");
     }
 
     #[test]
