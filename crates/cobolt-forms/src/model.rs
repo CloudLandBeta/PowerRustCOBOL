@@ -750,6 +750,9 @@ impl Control {
                 props.insert("ImageAlign".into(), PropValue::String("MiddleCenter".into()));
                 props.insert("BorderStyle".into(),PropValue::String("None".into()));
                 props.insert("BorderColor".into(),PropValue::String("#888888".into()));
+                // When false, the surrounding frame/background is not drawn — only
+                // the image shows (transparent PNG areas reveal what's behind).
+                props.insert("ShowFrame".into(),  PropValue::Bool(true));
             }
             ControlType::Animator => {
                 // Plays an animated image (GIF / WebP / APNG) or a still image.

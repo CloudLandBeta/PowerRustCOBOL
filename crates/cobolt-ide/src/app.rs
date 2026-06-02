@@ -1890,10 +1890,10 @@ impl CoboltApp {
                             draw_glass(&painter, fill_rect, Color32::from_rgb(40, 180, 120), 6.0, false, alpha_mul);
                         }
                         CT::PictureBox => {
-                            draw_glass(&painter, screen_rect, Color32::from_rgb(20, 30, 60), 4.0, false, alpha_mul * 0.7);
-                            painter.text(screen_rect.center(), egui::Align2::CENTER_CENTER,
-                                "🖼", egui::FontId::proportional(32.0),
-                                Color32::from_rgba_premultiplied(160, 160, 200, 160));
+                            let image_path = ctrl.get_prop("ImagePath").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                            let size_mode  = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                            let show_frame = ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
+                            draw_picturebox(&painter, screen_rect, &image_path, &size_mode, show_frame, alpha_mul);
                         }
                         CT::Animator => {
                             let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -2300,10 +2300,10 @@ impl CoboltApp {
                         }
 
                         CT::PictureBox => {
-                            draw_glass(&painter, screen_rect, Color32::from_rgb(20,30,60), 4.0, false, alpha * 0.7);
-                            painter.text(screen_rect.center(), egui::Align2::CENTER_CENTER,
-                                "🖼", egui::FontId::proportional(32.0),
-                                Color32::from_rgba_premultiplied(160,160,200,160));
+                            let image_path = state.get("ImagePath").trim().to_owned();
+                            let size_mode  = state.get("SizeMode").to_owned();
+                            let show_frame = !matches!(state.get("ShowFrame"), "0" | "false" | "False");
+                            draw_picturebox(&painter, screen_rect, &image_path, &size_mode, show_frame, alpha);
                         }
 
                         CT::Animator => {
@@ -3055,6 +3055,60 @@ fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHa
         .collect();
     let ci = egui::ColorImage { size: [w, h], pixels };
     Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR))
+}
+
+/// Load (and cache in egui memory) a PictureBox image texture, so it isn't
+/// re-read from disk and re-uploaded every frame.
+fn picturebox_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
+    if path.trim().is_empty() {
+        return None;
+    }
+    let id = egui::Id::new(("pb_img", path));
+    if let Some(h) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
+        return Some(h);
+    }
+    let h = load_image_texture(ctx, path)?;
+    ctx.memory_mut(|m| m.data.insert_temp(id, h.clone()));
+    Some(h)
+}
+
+/// Map a PictureBox `SizeMode` to the scaling modes understood by `media_dest_rect`.
+fn pic_size_mode(m: &str) -> &'static str {
+    match m {
+        "Stretch" | "StretchImage" => "Stretch",
+        "Zoom" | "Fit"             => "Fit",
+        "Fill"                     => "Fill",
+        _                          => "Center", // Normal / CenterImage / AutoSize
+    }
+}
+
+/// Render a PictureBox into `rect`: an optional frame (card + border) plus the
+/// image, honouring `SizeMode`, opacity (`alpha_mul`), and `ShowFrame`. When the
+/// frame is hidden, transparent PNG areas reveal whatever is behind the control.
+fn draw_picturebox(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    image_path: &str,
+    size_mode: &str,
+    show_frame: bool,
+    alpha_mul: f32,
+) {
+    use crate::panels::designer::{draw_glass, media_dest_rect};
+    if show_frame {
+        draw_glass(painter, rect, egui::Color32::from_rgb(20, 30, 60), 4.0, false, alpha_mul * 0.7);
+    }
+    let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
+    if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
+        let dest = media_dest_rect(rect, tex.size_vec2(), pic_size_mode(size_mode));
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        painter.with_clip_rect(rect).image(tex.id(), dest, uv, egui::Color32::from_white_alpha(a));
+    } else if show_frame {
+        painter.text(
+            rect.center(), egui::Align2::CENTER_CENTER, "🖼",
+            egui::FontId::proportional(32.0),
+            egui::Color32::from_rgba_premultiplied(160, 160, 200, (160.0 * alpha_mul) as u8),
+        );
+    }
 }
 
 /// Parse `#RRGGBB` / `#RRGGBBAA` (or without `#`) into a Color32.

@@ -2783,14 +2783,17 @@ fn draw_control(
 
     let is_label = matches!(ctrl.control_type, CT::Label);
 
-    if is_label {
-        // Labels have no visible border by design.
-        // When selected, show a lightweight dashed selection indicator.
+    // A PictureBox with ShowFrame = false draws no card/background/border —
+    // only the image (so transparent PNG areas reveal what's behind).
+    let pic_frameless = matches!(ctrl.control_type, CT::PictureBox)
+        && !ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
+
+    if is_label || pic_frameless {
+        // No visible frame. When selected, show a lightweight selection outline.
         if selected {
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
             painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c));
         }
-        // (No fill — label background is always transparent)
     } else if glass {
         draw_glass(painter, rect, fill, corner, selected, alpha_mul);
     } else {

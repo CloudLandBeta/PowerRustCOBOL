@@ -936,6 +936,14 @@ impl PropertiesPanel {
                     &["TopLeft","TopCenter","TopRight",
                       "MiddleLeft","MiddleCenter","MiddleRight",
                       "BottomLeft","BottomCenter","BottomRight"]);
+                {
+                    // Frame toggle — when off, only the image is shown (transparent
+                    // PNG areas reveal whatever is behind the control).
+                    let mut show = ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
+                    if ui.checkbox(&mut show, "Show frame (uncheck = image only)").changed() {
+                        action.set_props.push((id.to_owned(), "ShowFrame".into(), PropValue::Bool(show)));
+                    }
+                }
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
