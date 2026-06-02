@@ -64,6 +64,28 @@ impl AnimState {
     pub(crate) fn stop(&mut self) { self.playing = false; self.t = 1.0; }
 }
 
+/// Smoothstep ease (zero velocity at both ends).
+fn smoothstep(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// ZoomOut "bounce" scale over progress `t`: starts at 100%, shrinks to 25%,
+/// bounces back up to 120%, then settles at 100%. Segments are eased with
+/// smoothstep so the joins at each keyframe are smooth.
+fn zoomout_scale(t: f32) -> f32 {
+    const KEYS: [(f32, f32); 4] = [(0.0, 1.00), (0.45, 0.25), (0.75, 1.20), (1.0, 1.00)];
+    for w in KEYS.windows(2) {
+        let (t0, s0) = w[0];
+        let (t1, s1) = w[1];
+        if t <= t1 {
+            let k = if t1 > t0 { (t - t0) / (t1 - t0) } else { 1.0 };
+            return s0 + (s1 - s0) * smoothstep(k);
+        }
+    }
+    1.0
+}
+
 /// Compute offset in canvas-space for an animation at progress t.
 /// Returns (dx, dy, scale, alpha_mul) where alpha_mul is 0..1.
 pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f32) -> (f32, f32, f32, f32) {
@@ -80,8 +102,10 @@ pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f
         AnimKind::FlyFromBottomRight=> ( form_w * inv,  form_h * inv, 1.0, 1.0),
         AnimKind::FadeIn            => (0.0, 0.0, 1.0, te),
         AnimKind::FadeOut           => (0.0, 0.0, 1.0, 1.0 - te),
+        // ZoomIn grows 0 → 100% (eased; Elastic overshoots past 100% and settles).
         AnimKind::ZoomIn            => (0.0, 0.0, te.max(0.001), te),
-        AnimKind::ZoomOut           => (0.0, 0.0, (1.0 - te).max(0.001), 1.0 - te),
+        // ZoomOut bounces: 100% → 25% → 120% → 100%.
+        AnimKind::ZoomOut           => (0.0, 0.0, zoomout_scale(t), 1.0),
         AnimKind::Bounce            => {
             let dy = -50.0 * (std::f32::consts::PI * t * 3.0).sin().abs() * inv;
             (0.0, dy, 1.0, 1.0)
@@ -4531,7 +4555,28 @@ mod anim_behavior_tests {
     }
 
     #[test]
+    fn zoom_out_bounces_100_25_120_100() {
+        // ZoomOut: 100% → 25% → 120% → 100%.
+        let a = anim(AnimKind::ZoomOut);
+        let s = |t: f32| anim_transform(&a, W, H, t).2;
+        assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
+        assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
+        assert!((s(0.45) - 0.25).abs() < 0.02, "should shrink to ≈25%, got {}", s(0.45));
+        assert!((s(0.75) - 1.20).abs() < 0.02, "should bounce to ≈120%, got {}", s(0.75));
+        // Sampled extremes over the whole timeline.
+        let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
+        for i in 0..=100 {
+            let v = s(i as f32 / 100.0);
+            mn = mn.min(v);
+            mx = mx.max(v);
+        }
+        assert!((mn - 0.25).abs() < 0.02, "minimum ≈25%, got {mn}");
+        assert!((mx - 1.20).abs() < 0.02, "maximum ≈120%, got {mx}");
+    }
+
+    #[test]
     fn zoom_in_ramps_scale_0_to_1() {
+        // Original ZoomIn: grows from nothing to full size (with a fade-in).
         let a = anim(AnimKind::ZoomIn);
         let (_, _, s0, _) = anim_transform(&a, W, H, 0.0);
         let (_, _, s1, _) = anim_transform(&a, W, H, 1.0);
