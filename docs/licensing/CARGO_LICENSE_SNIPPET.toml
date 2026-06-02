@@ -1,0 +1,10 @@
+# Recommended workspace package metadata
+
+[workspace.package]
+license = "Apache-2.0"
+
+# Optional alternative if you decide to keep Rust ecosystem dual licensing:
+# license = "MIT OR Apache-2.0"
+#
+# If the main goal is maximum clarity for proprietary commercial applications
+# that depend on the runtime, Apache-2.0 is the cleaner single-license choice.

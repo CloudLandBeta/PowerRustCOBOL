@@ -1,0 +1,172 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# Per-widget property tests for PowerRustCOBOL forms.
+#
+# Standalone package (its own `[workspace]`) so it doesn't disturb the main
+# workspace. Each widget has its own test file, runnable individually, e.g.:
+#
+#     cargo test --manifest-path tests/widgets/Cargo.toml --test button -- --nocapture
+#
+# Or run them all:
+#     cargo test --manifest-path tests/widgets/Cargo.toml
+#
+[package]
+name    = "widget-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Detach from the parent PowerRustCOBOL workspace.
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+cobolt-forms = { path = "../../crates/cobolt-forms" }
+
+# ── One test binary per widget ────────────────────────────────────────────────
+
+[[test]]
+name = "agentobject"
+path = "agentobject.rs"
+
+[[test]]
+name = "animator"
+path = "animator.rs"
+
+[[test]]
+name = "areachart"
+path = "areachart.rs"
+
+[[test]]
+name = "barchart"
+path = "barchart.rs"
+
+[[test]]
+name = "button"
+path = "button.rs"
+
+[[test]]
+name = "checkbox"
+path = "checkbox.rs"
+
+[[test]]
+name = "combobox"
+path = "combobox.rs"
+
+[[test]]
+name = "datagrid"
+path = "datagrid.rs"
+
+[[test]]
+name = "datetimepicker"
+path = "datetimepicker.rs"
+
+[[test]]
+name = "donutchart"
+path = "donutchart.rs"
+
+[[test]]
+name = "groupbox"
+path = "groupbox.rs"
+
+[[test]]
+name = "label"
+path = "label.rs"
+
+[[test]]
+name = "line"
+path = "line.rs"
+
+[[test]]
+name = "linechart"
+path = "linechart.rs"
+
+[[test]]
+name = "listbox"
+path = "listbox.rs"
+
+[[test]]
+name = "menubar"
+path = "menubar.rs"
+
+[[test]]
+name = "modalwindow"
+path = "modalwindow.rs"
+
+[[test]]
+name = "numericupdown"
+path = "numericupdown.rs"
+
+[[test]]
+name = "panel"
+path = "panel.rs"
+
+[[test]]
+name = "picturebox"
+path = "picturebox.rs"
+
+[[test]]
+name = "piechart"
+path = "piechart.rs"
+
+[[test]]
+name = "progressbar"
+path = "progressbar.rs"
+
+[[test]]
+name = "radiobutton"
+path = "radiobutton.rs"
+
+[[test]]
+name = "restclient"
+path = "restclient.rs"
+
+[[test]]
+name = "scatterchart"
+path = "scatterchart.rs"
+
+[[test]]
+name = "shape"
+path = "shape.rs"
+
+[[test]]
+name = "slider"
+path = "slider.rs"
+
+[[test]]
+name = "splitter"
+path = "splitter.rs"
+
+[[test]]
+name = "sqldatabase"
+path = "sqldatabase.rs"
+
+[[test]]
+name = "statusbar"
+path = "statusbar.rs"
+
+[[test]]
+name = "tabcontrol"
+path = "tabcontrol.rs"
+
+[[test]]
+name = "textbox"
+path = "textbox.rs"
+
+[[test]]
+name = "timer"
+path = "timer.rs"
+
+[[test]]
+name = "toolbar"
+path = "toolbar.rs"
+
+[[test]]
+name = "treeview"
+path = "treeview.rs"

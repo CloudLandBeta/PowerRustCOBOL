@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-forms"
+description = "Cobolt — form and control data model with XML serialization (.cfrm files)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+serde       = { workspace = true }
+quick-xml   = { workspace = true }
+indexmap    = { workspace = true }
+thiserror   = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

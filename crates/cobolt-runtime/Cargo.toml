@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-runtime"
+description = "Cobolt COBOL — tree-walking interpreter, value system, and EXEC RUST executor"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+cobolt-lexer    = { path = "../cobolt-lexer" }
+cobolt-ast      = { path = "../cobolt-ast" }
+cobolt-semantic = { path = "../cobolt-semantic" }
+thiserror       = { workspace = true }
+indexmap        = { workspace = true }
+tracing         = { workspace = true }
+# Phase 8 — SQLite database runtime (bundled = no system library required)
+rusqlite        = { version = "0.31", features = ["bundled"] }
+# Phase 10 — REST client runtime (blocking HTTP, no async required)
+ureq            = { version = "2", features = ["json"] }
+
+[dev-dependencies]
+cobolt-lexer      = { path = "../cobolt-lexer" }
+cobolt-parser     = { path = "../cobolt-parser" }
+pretty_assertions = { workspace = true }

@@ -1,0 +1,15 @@
+PowerRustCOBOL
+Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors.
+
+PowerRustCOBOL is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+PowerRustCOBOL includes an IDE, compiler, runtime, standard library, form engine, code generator, CLI, debugger, project system, generated support modules, templates, and related components.
+
+Applications, source code, forms, assets, project files, and binaries created by users with PowerRustCOBOL are owned by their respective authors.
+
+However, PowerRustCOBOL itself, including its runtime, standard library, compiler support code, generated support modules, form engine components, runtime modules, templates, helper libraries, and any other PowerRustCOBOL-provided components included, linked, copied, embedded, or bundled with a user application, remain PowerRustCOBOL components licensed under the Apache License, Version 2.0.
+
+Use of PowerRustCOBOL to create, edit, compile, debug, package, or distribute an application does not transfer ownership of PowerRustCOBOL components to the application author.
+
+PowerRustCOBOL and the PowerRustCOBOL name may not be used to imply endorsement of derived products or user applications without prior written permission, except as required for reasonable and customary attribution.

@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[workspace]
+members = [
+    "crates/cobolt-lexer",
+    "crates/cobolt-ast",
+    "crates/cobolt-parser",
+    "crates/cobolt-semantic",
+    "crates/cobolt-runtime",
+    "crates/cobolt-stdlib",
+    "crates/cobolt-cli",
+    "crates/cobolt-forms",
+    "crates/cobolt-media",      # Animator widget — animated-image decode + playback
+    "crates/cobolt-codegen",
+    "crates/cobolt-compiler",   # Phase 11 — embed+bundle binary compiler
+    # "crates/cobolt-plugin-api",
+    # "crates/cobolt-plugin-loader",
+    "crates/cobolt-ide",
+]
+resolver = "2"
+
+# ── Shared package metadata ────────────────────────────────────────────────────
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.75"
+license      = "Apache-2.0"
+repository   = "https://github.com/yourusername/cobolt"
+homepage     = "https://github.com/yourusername/cobolt"
+keywords     = ["cobol", "ide", "interpreter", "powercobol"]
+categories   = ["development-tools", "compilers"]
+
+# ── Shared dependencies (version pinned once here) ────────────────────────────
+[workspace.dependencies]
+# Lexer
+logos       = "0.14"
+
+# Error handling
+thiserror   = "2"
+
+# Serialization (used by forms / project config)
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+quick-xml   = { version = "0.36", features = ["serialize"] }
+toml        = "0.8"
+
+# Data structures
+indexmap    = { version = "2", features = ["serde"] }
+
+# Logging
+tracing              = "0.1"
+tracing-subscriber   = { version = "0.3", features = ["env-filter"] }
+
+# Phase 11 — binary compiler (AST serialization + compression)
+bincode = "1"
+flate2  = "1"
+
+# Dev / test utilities
+pretty_assertions = "1"

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-ast"
+description = "Cobolt COBOL — Abstract Syntax Tree node types"
+version.workspace     = true
+edition.workspace     = true
+rust-version.workspace = true
+license.workspace     = true
+repository.workspace  = true
+
+[dependencies]
+# Re-export Span / SpannedToken from the lexer so callers only need one import.
+cobolt-lexer = { path = "../cobolt-lexer" }
+serde        = { workspace = true }
+indexmap     = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

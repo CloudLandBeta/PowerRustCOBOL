@@ -1,0 +1,12 @@
+# Rust build artifacts (large — ~1.5 GB)
+target/
+
+# macOS
+.DS_Store
+
+# Local agent / editor settings
+.claude/
+
+# Editor/OS cruft
+*.swp
+*~

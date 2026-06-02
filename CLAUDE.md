@@ -1,0 +1,228 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+
+Licensed under the Apache License, Version 2.0.
+See the LICENSE file in the project root for full license information.
+-->
+
+# PowerRustCOBOL — Agent Context
+
+This file is the single source of truth for any AI agent continuing development
+on this project. Read it fully before touching any code.
+
+---
+
+## Product Names (CRITICAL — never use "cobolt" in user-facing text)
+
+| Name | Role |
+|------|------|
+| **RustCOBOL** | The language / compiler |
+| **PowerRustCOBOL** | The RAD IDE (desktop app) |
+| **rcrun** | The CLI runtime binary |
+
+Internal crate names (`cobolt-lexer`, `cobolt-runtime`, etc.) are build-only
+and are **not** user-facing — do NOT rename them.
+
+---
+
+## CRITICAL Constraint
+
+**COBOL data-item names, paragraph names, and all generated COBOL source code
+must always remain in English, regardless of the selected UI language.**
+The i18n system translates the IDE interface only.
+
+---
+
+## Version Convention  x.y.z
+
+- **x** — new platform component added (Web/WASM, Android, iOS, etc.)
+- **y** — new features: new widgets, properties, IDE panels, language features
+- **z** — bug fixes, polish, performance
+
+Current version: **1.0.0**
+
+---
+
+## Project Layout
+
+```
+PowerRustCOBOL/
+├── Cargo.toml                  ← workspace root
+├── CHANGELOG.md                ← versioned changelog
+├── BUGS.md                     ← bug tracker (open + resolved)
+├── tools/
+│   └── check_bugs.sh           ← automated cargo check + BUGS.md updater
+├── crates/
+│   ├── cobolt-lexer/           ← COBOL tokenizer (fixed + free form)
+│   ├── cobolt-ast/             ← AST types (Serialize/Deserialize already derived)
+│   ├── cobolt-parser/          ← recursive-descent parser
+│   ├── cobolt-semantic/        ← semantic analyser / diagnostics
+│   ├── cobolt-runtime/         ← tree-walking interpreter
+│   │   ├── src/interpreter.rs  ← main executor, all built-in CALLs
+│   │   ├── src/db_runtime.rs   ← SQLite engine (DbRegistry)
+│   │   ├── src/http_runtime.rs ← REST client (HttpClient)
+│   │   ├── src/debugger.rs     ← debug channels (DebugCmd/DebugEvent)
+│   │   └── src/channels.rs     ← FormEvent / StateUpdate GUI channels
+│   ├── cobolt-stdlib/          ← standard library stubs
+│   ├── cobolt-forms/           ← .cfrm form model + XML serialization
+│   │   └── src/model.rs        ← Control, Form, ControlType, animations, props
+│   ├── cobolt-codegen/         ← Form → RustCOBOL source generator
+│   ├── cobolt-compiler/        ← embed+bundle binary compiler (Phase 11)
+│   │   └── src/lib.rs          ← build_project(), AST serialization pipeline
+│   ├── cobolt-cli/             ← rcrun CLI binary
+│   │   └── src/main.rs         ← run/check/build/package commands
+│   └── cobolt-ide/             ← PowerRustCOBOL desktop app (egui/eframe)
+│       ├── src/main.rs         ← window title "PowerRustCOBOL v{VERSION}"
+│       ├── src/version.rs      ← VERSION constant
+│       ├── src/app.rs          ← CoboltApp, update loop, all dialog state
+│       ├── src/form_runtime.rs ← FormRuntime (live form interpreter thread)
+│       ├── src/runner.rs       ← Runner + DebugRunner background threads
+│       ├── src/i18n.rs         ← Tr struct, Language enum, 5 languages
+│       ├── src/project_model.rs ← CoboltProject, package_project()
+│       └── src/panels/
+│           ├── designer.rs     ← DesignerPanel, canvas, draw_control(),
+│           │                      glass_combo_header/popup, draw_chart_preview
+│           ├── editor.rs       ← CodeEditor, breakpoint gutter
+│           ├── properties.rs   ← properties inspector
+│           ├── toolbox.rs      ← drag-and-drop widget toolbox
+│           ├── debugger.rs     ← DebuggerPanel (var watch, step controls)
+│           ├── output.rs       ← OutputPanel
+│           ├── project.rs      ← ProjectPanel (file tree / project mode)
+│           ├── toolbar.rs      ← main IDE toolbar (rcrun run/stop/check)
+│           └── forms_list.rs   ← forms list sidebar
+```
+
+---
+
+## Architecture Decisions
+
+### Multi-viewport (egui 0.29)
+Each open form designer and each running form lives in its **own OS window**
+via `ctx.show_viewport_immediate()`. All viewports share one egui Context.
+
+### Channels for cross-thread communication
+- `FormEvent` / `StateUpdate` — GUI ↔ interpreter (Run Form)
+- `DebugCmd` / `DebugEvent` — debugger panel ↔ interpreter
+- `display_tx` — DISPLAY output from interpreter to IDE output panel
+
+### RustCOBOL built-in CALLs (interpreter.rs exec_call)
+**SQL (Phase 8):**
+`COBOL-OPEN-DB`, `COBOL-EXEC-SQL`, `COBOL-FETCH-ROW`,
+`COBOL-NEXT-ROW`, `COBOL-ROW-COUNT`, `COBOL-CLOSE-DB`
+
+**HTTP (Phase 10):**
+`COBOL-HTTP-GET`, `COBOL-HTTP-POST`, `COBOL-HTTP-PUT`,
+`COBOL-HTTP-DELETE`, `COBOL-HTTP-SET-HEADER`, `COBOL-HTTP-CLEAR-HEADERS`
+
+**GUI (Phase 6):**
+`COBOL-WAIT-EVENT`, `COBOL-SET-PROPERTY`, `COBOL-GET-PROPERTY`
+
+### Form Designer — Custom Glass ComboBox
+`glass_combo_header()` and `glass_combo_popup()` in `designer.rs` are
+`pub(crate)` shared utilities used by **both** Preview and Run Form.
+The system `egui::ComboBox` is NOT used in those surfaces.
+State is stored in `DesignerPanel::preview_combo_open` and
+`FormRuntime::combo_open` respectively.
+
+### Glass / Liquid UI Theme
+`apply_glass_visuals(ctx)` in `app.rs` sets the glass theme every frame.
+`draw_glass()` and `draw_glass_circle()` in `designer.rs` are the primitive
+painters used everywhere. The form preview/run windows use
+`.with_transparent(true)` + `clear_color = [0,0,0,0]` so the OS desktop
+shows through the form background.
+
+### Binary Compiler (Phase 11)
+`cobolt_compiler::build_project()` serializes the AST with `bincode`+`flate2`,
+generates a temp Cargo project that embeds everything via `include_bytes!`,
+runs `cargo build --release`, and copies the binary to `bin/`.
+
+---
+
+## i18n Keys (Tr struct in i18n.rs)
+All 5 languages (EN/ES/PT/JA/ZH) must have every key. When adding a new key:
+1. Add `pub field_name: &'static str` to `struct Tr`
+2. Add the value in all 5 language blocks (`tr_english`, `tr_spanish`, etc.)
+
+---
+
+## Form File Format (.cfrm)
+XML serialized by `cobolt_forms::save_form()` / `load_form()`.
+Key types: `Form`, `Control`, `ControlType`, `PropValue`, `EventBinding`,
+`AnimationDef`, `AnimTrigger`, `BgImageMode`.
+
+**Caption property rules:**
+- Only Label, Button, CheckBox, RadioButton, GroupBox have Caption
+- TextBox uses "Text"
+- All other controls use control-type-specific props ("Value", "Items", etc.)
+
+---
+
+## Pending Tasks
+
+| # | Task | Notes |
+|---|------|-------|
+| ~~69~~ | ✅ **DONE** — form canvas resize by dragging border | `designer.rs`: `DragState::ResizingForm` + `FormEdge{Right,Bottom,Corner}`, `detect_form_edge()`/`form_edge_cursor()`, `press_form_edge` capture, live `form.width/height` update with grid snap + `FORM_MIN_SIZE` clamp, visible grips via `draw_form_resize_grips()`. Tested: `form_resize_tests`. |
+| ~~70~~ | ✅ **DONE** — double-click event para name → jump to COBOL editor | Event row in `properties.rs` now reports `(clicked, double_clicked)`; double-click sets `InspectorAction::open_event_in_code`. `app.rs::jump_to_event_code()` resolves the paragraph (binding or `derive_paragraph_name`), regenerates+opens the `.cbl`, queues `pending_goto_paragraph`; `editor.rs::goto_paragraph()` scrolls to the paragraph/PROGRAM-ID definition (reusing search-scroll). i18n key `hint_dblclick_event` (5 langs). Tested: `goto_tests`. |
+| ~~129~~ | ✅ **DONE** — preview animations apply `scale` from anim_transform to rect | `show_preview_window` now scales the rect about its centre via the shared `designer::scale_rect_about_center()` (also used by `draw_control`), so zoom/spin/flip resize widgets in preview. Tested: `anim_behavior_tests::scale_rect_shrinks_and_grows_about_centre`. |
+| ~~140~~ | ✅ **DONE** — DateTimePicker interactive **calendar popup** at runtime | Implemented in `render_run_control` (field → month-grid popup via `egui::Area`; nav ◀▶; day click sets `Value` + fires `Change`). Tested: `run_interaction_tests::datetimepicker_calendar_opens_and_picks_a_day`. |
+| ~~141~~ | ✅ **DONE** — DataGrid **runtime cell rendering** with typed values | `render_run_control` parses `Columns` ("Name:Type") + `Rows` (TAB-separated; new prop) and paints a header + typed cells: string=left, number=right-aligned, datetime=reformatted "DD Mon YYYY", **image=loaded texture (`load_image_texture`, cached in egui memory)**, with alternating rows + grid lines. Tested: `run_interaction_tests::datagrid_renders_typed_cells` + `datagrid_renders_image_cells`. |
+| ~~142~~ | ✅ **DONE** — runtime rendering for the remaining widgets | Added to `render_run_control`: RadioButton + NumericUpDown (interactive), TabControl (clickable tabs), TreeView (indented items), Splitter, MenuBar/ToolBar/StatusBar (item bars), and all 6 charts (reusing `draw_chart_preview` via a state→`Control` rebuild). Routed through the shared arm in `show_running_form_window`. Tested in `run_interaction_tests` (radiobutton/tabcontrol interaction + numericupdown/menubar/treeview/chart render). |
+
+> **Testing:** `tests/widgets/` has property round-trip tests for all 34 widgets.
+> Behavioral tests live in `cobolt-ide` (`cargo test -p cobolt-ide`):
+> design-time render (`render_behavior_tests`), animations (`anim_behavior_tests`),
+> i18n (`i18n_tests`), and runtime interaction (`run_interaction_tests`, driving the
+> shared `render_run_control`).
+
+> The unified 50px Form Designer icon toolbar is **done** — implemented as
+> `designer.rs::draw_icon_toolbar()` and mounted from the `app.rs` "dtb_{idx}"
+> `TopBottomPanel`. The old `draw_toolbar()` and `show_toolbar` field have been
+> removed.
+
+---
+
+## Build Instructions
+
+```bash
+# Build everything
+cargo build
+
+# Run PowerRustCOBOL IDE
+cargo run -p cobolt-ide
+
+# Run rcrun CLI
+cargo run -p cobolt-cli -- run myprogram.cbl
+
+# Check for compiler errors (updates BUGS.md)
+./tools/check_bugs.sh
+```
+
+**Note:** The `target/` directory is ~1.5 GB of build artifacts.
+Run `cargo clean` to remove it. The source code itself is ~50 MB.
+
+---
+
+## How to Use with Claude Code (no zip needed)
+
+Claude Code works directly on the local filesystem — no zip or upload required.
+
+```bash
+# Install Claude Code if not already installed
+npm install -g @anthropic-ai/claude-code
+
+# Navigate to project and launch
+cd /Users/emersonlopes/Documents/PowerRustCOBOL
+claude
+```
+
+The 1.6 GB size is almost entirely `target/` (Rust build cache).
+`cargo clean` reduces the project to ~50 MB.
+To create a minimal archive: `cargo clean && tar -czf PowerRustCOBOL.tar.gz .`
+
+---
+
+## Key Contacts / Repo
+- Developer: Emerson Lopes (emersonlopes@gmail.com)
+- Repo placeholder: https://github.com/yourusername/cobolt
+  (update when real repo is created)

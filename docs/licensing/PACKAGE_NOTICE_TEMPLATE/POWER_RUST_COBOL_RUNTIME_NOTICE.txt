@@ -1,0 +1,11 @@
+This application includes PowerRustCOBOL runtime/support components.
+
+PowerRustCOBOL runtime/support components are licensed under the Apache License, Version 2.0.
+
+PowerRustCOBOL components remain the property of the PowerRustCOBOL project and its contributors. They are licensed for use and distribution under the Apache License, Version 2.0.
+
+Using, linking, embedding, copying, packaging, or bundling PowerRustCOBOL components with this application does not transfer ownership of those components to the application author or distributor.
+
+The application author's own code, forms, assets, and business logic may be licensed separately by the application author.
+
+See the accompanying LICENSE and NOTICE files for details.

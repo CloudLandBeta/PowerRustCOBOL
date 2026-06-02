@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-semantic"
+description = "Cobolt COBOL — semantic analysis: name resolution, type checking, EXEC RUST binding"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+cobolt-lexer = { path = "../cobolt-lexer" }
+cobolt-ast   = { path = "../cobolt-ast" }
+thiserror    = { workspace = true }
+indexmap     = { workspace = true }
+
+[dev-dependencies]
+cobolt-parser     = { path = "../cobolt-parser" }
+pretty_assertions = { workspace = true }

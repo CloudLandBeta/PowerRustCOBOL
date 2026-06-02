@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name        = "cobolt-stdlib"
+description = "Cobolt COBOL — standard library: intrinsic functions, I/O backend, and console helpers"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+cobolt-lexer    = { path = "../cobolt-lexer" }
+cobolt-ast      = { path = "../cobolt-ast" }
+cobolt-runtime  = { path = "../cobolt-runtime" }
+thiserror       = { workspace = true }
+indexmap        = { workspace = true }
+tracing         = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
