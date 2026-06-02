@@ -34,6 +34,16 @@ use crate::{
     token::{RawToken, Token},
 };
 
+/// Parse a `digits.digits` literal into an exact `(mantissa, scale)` fixed-point
+/// decimal. Returns `None` only if the combined digits overflow `i128`.
+fn parse_decimal_token(text: &str) -> Option<(i128, u8)> {
+    let (int_s, frac_s) = text.split_once('.')?;
+    let scale = frac_s.len().min(u8::MAX as usize) as u8;
+    let digits = format!("{int_s}{}", &frac_s[..scale as usize]);
+    let mantissa: i128 = digits.parse().ok()?;
+    Some((mantissa, scale))
+}
+
 // ── LexError ──────────────────────────────────────────────────────────────────
 
 /// Errors that can be produced by the lexer.
@@ -240,7 +250,18 @@ impl<'src> Lexer<'src> {
                 Token::StringLiteral(s)
             }
 
-            RawToken::Float(Some(v)) => Token::FloatLiteral(v),
+            RawToken::Float(Some(text)) => {
+                // Parse the raw digits into an exact (mantissa, scale) fixed-point
+                // decimal. The regex guarantees `digits.digits`, so this only
+                // fails if the value overflows i128 (~38 digits).
+                match parse_decimal_token(&text) {
+                    Some((mantissa, scale)) => Token::DecimalLiteral { mantissa, scale },
+                    None => {
+                        self.errors.push(LexError::IntegerOverflow { span, text: text.clone() });
+                        Token::Error(text)
+                    }
+                }
+            }
             RawToken::Float(None) => {
                 let text = self.preprocessed
                     .get(span.start..span.end)

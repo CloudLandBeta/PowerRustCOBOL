@@ -141,7 +141,9 @@ impl<'a> TypeCtx<'a> {
             Stmt::Move { from, to, .. } => {
                 let from_is_numeric_lit = matches!(
                     from,
-                    Expr::Literal(Literal::Integer(_), _) | Expr::Literal(Literal::Float(_), _)
+                    Expr::Literal(Literal::Integer(_), _)
+                        | Expr::Literal(Literal::Float(_), _)
+                        | Expr::Literal(Literal::Decimal(_, _), _)
                 );
                 if from_is_numeric_lit {
                     for t in to {

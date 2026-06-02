@@ -61,7 +61,10 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
     match p.peek().clone() {
         Token::StringLiteral(s)  => { p.advance(); Some((Literal::String(s),  span)) }
         Token::IntegerLiteral(n) => { p.advance(); Some((Literal::Integer(n), span)) }
-        Token::FloatLiteral(f)   => { p.advance(); Some((Literal::Float(f),   span)) }
+        Token::DecimalLiteral { mantissa, scale } => {
+            p.advance();
+            Some((Literal::Decimal(mantissa, scale), span))
+        }
         _ => None,
     }
 }

@@ -183,11 +183,16 @@ honest map of where things stand.
 - The procedural verbs and intrinsic functions listed above.
 - Nested programs and multiple program units; `CALL` dispatch.
 - **SEQUENTIAL** and **LINE SEQUENTIAL** file I/O with FILE STATUS.
+- **Exact fixed-point arithmetic** — `ADD`/`SUBTRACT`/`MULTIPLY`/`DIVIDE`/`COMPUTE`
+  run on an `i128` integer mantissa (no `f64` round-trips), so up to **18-digit**
+  standard and **31-digit** extended precision stay exact. `ROUNDED` (round half
+  away from zero) and `ON SIZE ERROR` / `NOT ON SIZE ERROR` are honored, and
+  decimal literals are carried exactly from the lexer. Verified end-to-end by the
+  COBOL suite at [`tests/cobol/numprec.cbl`](tests/cobol/numprec.cbl).
 
 ### 🚧 Partial / in progress
-- **Numeric precision** — decimal arithmetic is supported, but full 18/31-digit
-  fixed-point semantics are not guaranteed everywhere yet.
 - **Numeric-edited PICTUREs** (`Z`, `$`, `,`, `B`, `0`, `/`, CR/DB…) — limited editing.
+  (`DISPLAY` of plain numeric items is not yet zero-padded to PIC width.)
 - **`COPY` / `REPLACE`** copybooks — limited.
 - **`ACCESS MODE RANDOM/DYNAMIC`** — parsed, but only sequential access executes today.
 - **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed

@@ -251,6 +251,8 @@ fn stmt_add() {
         to: vec![Expr::Identifier("WS-TOTAL".into(), dummy_span())],
         giving: None,
         rounded: false,
+        on_size_error: vec![],
+        not_on_size_error: vec![],
         span: dummy_span(),
     };
     let _ = format!("{s:?}");
@@ -267,6 +269,8 @@ fn stmt_compute() {
             span: dummy_span(),
         },
         rounded: false,
+        on_size_error: vec![],
+        not_on_size_error: vec![],
         span: dummy_span(),
     };
     let _ = format!("{s:?}");

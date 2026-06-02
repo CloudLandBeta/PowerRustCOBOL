@@ -63,8 +63,10 @@ pub enum RawToken {
     // Note: signed literals (+3.14, -0.5) are NOT handled here — the lexer
     // emits the sign as a separate Plus/Minus token and the parser folds it.
     // This avoids ambiguity with `COMPUTE X = Y - 3.14`.
-    #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
-    Float(Option<f64>),
+    // Capture the raw digits so the parser can build an *exact* fixed-point
+    // decimal (parsing to f64 here would lose precision before arithmetic runs).
+    #[regex(r"[0-9]+\.[0-9]+", |lex| Some(lex.slice().to_string()))]
+    Float(Option<String>),
 
     #[regex(r"[0-9]+", |lex| lex.slice().parse::<u64>().ok())]
     Integer(Option<u64>),
@@ -462,8 +464,9 @@ pub enum Token {
     /// Integer literal, e.g. `42` or `007`.
     IntegerLiteral(i64),
 
-    /// Floating-point literal, e.g. `3.14` or `-0.5`.
-    FloatLiteral(f64),
+    /// Fixed-point decimal literal, e.g. `3.14` → `{ mantissa: 314, scale: 2 }`.
+    /// Stored exactly (integer mantissa + decimal scale) — no `f64` rounding.
+    DecimalLiteral { mantissa: i128, scale: u8 },
 
     /// String literal (contents without the surrounding quotes), e.g. `Hello`.
     StringLiteral(String),
@@ -528,7 +531,7 @@ impl Token {
         match self {
             Token::Identifier(_)      => "identifier",
             Token::IntegerLiteral(_)  => "integer literal",
-            Token::FloatLiteral(_)    => "float literal",
+            Token::DecimalLiteral { .. } => "decimal literal",
             Token::StringLiteral(_)   => "string literal",
             Token::LevelNumber(_)     => "level number",
             Token::ExecRustBlock(_)   => "EXEC RUST block",
@@ -549,7 +552,20 @@ impl std::fmt::Display for Token {
         match self {
             Token::Identifier(s)       => write!(f, "{s}"),
             Token::IntegerLiteral(n)   => write!(f, "{n}"),
-            Token::FloatLiteral(v)     => write!(f, "{v}"),
+            Token::DecimalLiteral { mantissa, scale } => {
+                if *scale == 0 {
+                    write!(f, "{mantissa}")
+                } else {
+                    let s = mantissa.unsigned_abs().to_string();
+                    let sc = *scale as usize;
+                    let padded = if s.len() <= sc {
+                        format!("{}{}", "0".repeat(sc + 1 - s.len()), s)
+                    } else { s };
+                    let at = padded.len() - sc;
+                    write!(f, "{}{}.{}", if *mantissa < 0 { "-" } else { "" },
+                           &padded[..at], &padded[at..])
+                }
+            }
             Token::StringLiteral(s)    => write!(f, "\"{s}\""),
             Token::LevelNumber(n)      => write!(f, "{n:02}"),
             Token::Comment(c)          => write!(f, "*> {c}"),

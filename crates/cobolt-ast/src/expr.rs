@@ -17,6 +17,9 @@ pub enum Literal {
     String(String),
     Integer(i64),
     Float(f64),
+    /// Exact fixed-point decimal: `value = mantissa × 10^(-scale)`.
+    /// e.g. `3.14` → `Decimal(314, 2)`. Preserves up to 31 significant digits.
+    Decimal(i128, u8),
     Figurative(FigurativeConstant),
 }
 

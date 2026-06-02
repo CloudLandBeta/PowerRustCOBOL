@@ -69,20 +69,32 @@ fn large_integer() {
 }
 
 #[test]
-fn float_literal() {
+fn decimal_literal_is_exact() {
     let t = toks("COMPUTE WS-PI = 3.14159.");
-    let float_tok = t.iter().find(|t| matches!(t, Token::FloatLiteral(_)));
-    assert!(float_tok.is_some(), "expected a FloatLiteral token");
-    if let Some(Token::FloatLiteral(v)) = float_tok {
-        assert!((v - 3.14159).abs() < 1e-5);
+    let tok = t.iter().find(|t| matches!(t, Token::DecimalLiteral { .. }));
+    assert!(tok.is_some(), "expected a DecimalLiteral token");
+    if let Some(Token::DecimalLiteral { mantissa, scale }) = tok {
+        assert_eq!(*mantissa, 314159);
+        assert_eq!(*scale, 5);
     }
 }
 
 #[test]
-fn float_zero_decimal() {
+fn decimal_literal_zero_fraction() {
     let t = toks("MOVE 1.0 TO WS-X.");
-    let float_tok = t.iter().find(|t| matches!(t, Token::FloatLiteral(_)));
-    assert!(matches!(float_tok, Some(Token::FloatLiteral(v)) if (*v - 1.0).abs() < f64::EPSILON));
+    let tok = t.iter().find(|t| matches!(t, Token::DecimalLiteral { .. }));
+    assert!(matches!(tok, Some(Token::DecimalLiteral { mantissa: 10, scale: 1 })));
+}
+
+#[test]
+fn decimal_literal_preserves_31_digits() {
+    // 18 integer + 13 fractional digits must survive exactly (f64 cannot).
+    let t = toks("MOVE 123456789012345678.1234567890123 TO WS-X.");
+    let tok = t.iter().find_map(|t| match t {
+        Token::DecimalLiteral { mantissa, scale } => Some((*mantissa, *scale)),
+        _ => None,
+    });
+    assert_eq!(tok, Some((1234567890123456781234567890123_i128, 13)));
 }
 
 #[test]
