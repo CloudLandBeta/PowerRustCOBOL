@@ -128,6 +128,69 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 - The output `bin/` automatically receives `LICENSE`, `NOTICE`, and a redistribution
   notice, so distributions carry the required Apache-2.0 notices.
 
+## Getting started
+
+Get from a clean machine to the running IDE in four steps.
+
+### 1. Install the requirements
+
+| Requirement | Why | Install |
+|-------------|-----|---------|
+| **Rust toolchain** (stable) | builds the whole workspace | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| **Git** | clone the repository | [git-scm.com](https://git-scm.com/downloads) |
+| **A C toolchain + native GUI libraries** | the desktop IDE (egui/eframe) and native file dialogs | see the per-OS notes below |
+
+Per-OS native dependencies:
+
+- **macOS** — install the Xcode Command Line Tools: `xcode-select --install`. Nothing else is needed.
+- **Windows** — install the **Visual Studio C++ Build Tools** (the "Desktop development with C++" workload). rustup selects the MSVC toolchain automatically.
+- **Linux (Debian/Ubuntu)** — install the build + GUI/dialog libraries:
+
+  ```sh
+  sudo apt update && sudo apt install -y \
+      build-essential pkg-config \
+      libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+      libxkbcommon-dev libssl-dev
+  ```
+
+  (Fedora: `gtk3-devel`, `libxcb-devel`, `libxkbcommon-devel`, `openssl-devel`, `@development-tools`.)
+
+Verify Rust is ready:
+
+```sh
+rustc --version && cargo --version
+```
+
+### 2. Download the code
+
+```sh
+git clone https://github.com/emerson-github/PowerRustCOBOL.git
+cd PowerRustCOBOL
+```
+
+### 3. Build (downloads + compiles all dependencies)
+
+```sh
+cargo build
+```
+
+> The first build fetches every crate and compiles the workspace, so it takes a
+> few minutes and the `target/` cache grows to ~1.5 GB. Later builds are
+> incremental and fast. Run `cargo clean` to reclaim the space at any time.
+
+### 4. Launch the IDE
+
+```sh
+cargo run -p cobolt-ide
+```
+
+> **Tip:** for the smoothest UI, run a release build: `cargo run --release -p cobolt-ide`
+> (slower to compile the first time, much faster at runtime).
+
+That's it — the **PowerRustCOBOL** window opens and you can start designing forms
+and writing RustCOBOL. To work from the command line instead, see
+[Run / check a program from the CLI](#run--check-a-program-from-the-cli-rcrun) below.
+
 ## Running applications
 
 A PowerRustCOBOL **project** is a directory with a `cobolt.toml` manifest plus its
