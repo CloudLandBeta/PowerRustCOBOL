@@ -1,0 +1,1 @@
+           MOVE "PROC-COPIED" TO PROC-RESULT.

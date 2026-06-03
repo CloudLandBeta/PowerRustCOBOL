@@ -19,12 +19,26 @@ fn cobol_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol/copy-replace")
 }
 
+/// Fixed vs free by column structure (mirrors the CLI): a line with a non-blank
+/// indicator in column 7 over a blank/digit sequence number marks fixed form.
+fn detect_format(src: &str) -> SourceFormat {
+    let looks_fixed = src.lines().any(|line| {
+        let b = line.as_bytes();
+        b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
+    });
+    if looks_fixed { SourceFormat::Fixed } else { SourceFormat::Free }
+}
+
 /// Read a `.cbl` from tests/cobol, expand copybooks (resolved from that dir),
 /// run it, and return captured DISPLAY lines.
 fn run_file(name: &str) -> Vec<String> {
     let dir = cobol_dir();
     let src = std::fs::read_to_string(dir.join(name)).expect("read .cbl");
-    let expanded = expand_copybooks(&src, &dir, SourceFormat::Free);
+    // Detect fixed vs free the way the CLI does — by real column structure, so a
+    // free-form file isn't truncated at column 72 (which would split DISPLAY
+    // strings) while a fixed-form file's `*` comments still flatten to `*>`.
+    let fmt = detect_format(&src);
+    let expanded = expand_copybooks(&src, &dir, fmt);
     assert!(expanded.errors.is_empty(), "copybook errors: {:?}", expanded.errors);
 
     let tokens = tokenize(&expanded.text, SourceFormat::Free);
@@ -49,6 +63,17 @@ fn copytest_suite_reports_pass() {
     let out = run_file("copytest.cbl").join("\n");
     assert!(out.contains("RESULT       : PASS"), "copytest failed:\n{out}");
     assert_eq!(out.matches("PASS T0").count(), 3, "expected 3 PASS lines:\n{out}");
+}
+
+#[test]
+fn tcpyrep_suite_reports_pass() {
+    // The full COPY / REPLACE suite: data + procedure COPY, REPLACING with
+    // pseudo-text (incl. PIC/VALUE/quoted-literal), repeated COPY of one
+    // template, partial-word non-replacement, and COPY REPLACING arithmetic.
+    let out = run_file("tcpyrep.cbl").join("\n");
+    assert!(out.contains("RESULT       : PASS"), "tcpyrep suite failed:\n{out}");
+    assert!(!out.contains("FAIL T"), "tcpyrep reported failures:\n{out}");
+    assert_eq!(out.matches("PASS T").count(), 11, "expected 11 PASS lines:\n{out}");
 }
 
 #[test]
