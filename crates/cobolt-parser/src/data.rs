@@ -398,8 +398,7 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
             | Token::Redefines | Token::Justified
             | Token::Synchronized | Token::Blank
             | Token::Sign | Token::Global | Token::External
-            | Token::Period | Token::Eof
-            | Token::LevelNumber(_)
+            | Token::Eof | Token::LevelNumber(_)
             | Token::WorkingStorage | Token::LocalStorage
             | Token::Linkage | Token::Screen
             | Token::Procedure | Token::Environment | Token::Identification => break,
@@ -408,6 +407,24 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
             Token::Display | Token::Binary | Token::Comp
             | Token::Comp1 | Token::Comp2 | Token::Comp3 | Token::Comp5
             | Token::PackedDecimal | Token::Index | Token::Pointer => break,
+
+            // A `.` is the editing decimal point when more picture characters
+            // follow it (e.g. `ZZ9.99`); otherwise it terminates the clause.
+            Token::Period => {
+                if pic_continues(p.peek_at(1)) {
+                    p.advance();
+                    template.push('.');
+                } else {
+                    break;
+                }
+            }
+            // `9.99`, `99.99` are lexed as one decimal literal — rebuild the text.
+            Token::DecimalLiteral { mantissa, scale } => {
+                p.advance();
+                template.push_str(&decimal_to_pic(mantissa, scale));
+            }
+            // '$' currency is lexed as an error token.
+            Token::Error(ref s) if s == "$" => { p.advance(); template.push('$'); }
 
             // Collect template characters
             Token::Identifier(s) => {
@@ -422,8 +439,9 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
             Token::Minus   => { p.advance(); template.push('-'); }
             Token::Slash   => { p.advance(); template.push('/'); }
             Token::Star    => { p.advance(); template.push('*'); }
+            // `**` is lexed as the exponentiation token; in a PIC it is two stars.
+            Token::Power   => { p.advance(); template.push_str("**"); }
             Token::Comma   => { p.advance(); template.push(','); }
-            // '$' is lexed as an error token or identifier — handle gracefully
             _ => break,
         }
     }
@@ -435,6 +453,33 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
 
     let (kind, digits, decimals) = analyze_pic(&template);
     Some(PicClause { template, kind, digits, decimals, span })
+}
+
+/// True if `tok` can be part of a PICTURE string (used to tell an editing decimal
+/// point apart from the clause-terminating period).
+fn pic_continues(tok: &Token) -> bool {
+    matches!(
+        tok,
+        Token::IntegerLiteral(_)
+            | Token::DecimalLiteral { .. }
+            | Token::Identifier(_)
+            | Token::LParen
+            | Token::Star
+            | Token::Power
+            | Token::Plus
+            | Token::Minus
+            | Token::Slash
+            | Token::Comma
+    ) || matches!(tok, Token::Error(s) if s == "$")
+}
+
+/// Rebuild the picture text for a decimal literal token (`9.99`, `99.99`).
+fn decimal_to_pic(mantissa: i128, scale: u8) -> String {
+    if scale == 0 {
+        return mantissa.to_string();
+    }
+    let p = 10_i128.pow(scale as u32);
+    format!("{}.{:0width$}", mantissa / p, (mantissa % p).abs(), width = scale as usize)
 }
 
 /// Classify a raw PIC template string.
@@ -450,8 +495,13 @@ fn analyze_pic(template: &str) -> (PicKind, u16, u16) {
     // "9(3)V99" → ['9','9','9','V','9','9'] and "X(20)" → twenty 'X'es.
     let expanded = expand_pic_template(&t);
 
-    // Editing characters imply edited categories.
-    let has_editing = expanded.iter().any(|&c| matches!(c, 'Z' | 'B' | '*' | '+' | '/' | ',' | '$'));
+    // Editing characters imply edited categories. A `.` (actual decimal point),
+    // sign, slash, zero/blank insertion, CR/DB and currency all qualify.
+    let has_editing = expanded
+        .iter()
+        .any(|&c| matches!(c, 'Z' | 'B' | '*' | '+' | '-' | '/' | ',' | '.' | '0' | '$'))
+        || t.contains("CR")
+        || t.contains("DB");
     let count = |pred: &dyn Fn(char) -> bool| -> u16 {
         expanded.iter().filter(|&&c| pred(c)).count().min(u16::MAX as usize) as u16
     };

@@ -38,6 +38,9 @@ pub struct CobolEnvironment {
     /// `name → (integer-digit capacity, decimal places)` for numeric items,
     /// used to detect ON SIZE ERROR overflow at store time.
     field_caps: IndexMap<String, (u8, u8)>,
+    /// `name → raw PIC template` for numeric-edited items. A numeric value stored
+    /// into such a field is run through the edit engine and kept as a string.
+    edited_templates: IndexMap<String, String>,
 }
 
 impl CobolEnvironment {
@@ -81,6 +84,16 @@ impl CobolEnvironment {
             // Skip FILLER (anonymous items)
             let upper = name.to_ascii_uppercase();
             if upper != "FILLER" {
+                // Numeric-edited items are stored as their edited string form.
+                if let Some(pic) = &decl.picture {
+                    if pic.kind == PicKind::NumericEdited {
+                        self.init_edited(&upper, &pic.template, decl.value.as_ref());
+                        for child in &decl.children {
+                            self.init_decl(child);
+                        }
+                        return;
+                    }
+                }
                 let default = default_value(decl);
                 let value = if let Some(lit) = &decl.value {
                     apply_literal(lit, &default)
@@ -89,7 +102,7 @@ impl CobolEnvironment {
                 };
                 // Record numeric integer-digit capacity for ON SIZE ERROR checks.
                 if let Some(pic) = &decl.picture {
-                    if matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited) {
+                    if pic.kind == PicKind::Numeric {
                         let int_digits = pic.digits.min(u8::MAX as u16) as u8;
                         let decimals = pic.decimals.min(u8::MAX as u16) as u8;
                         self.field_caps.insert(upper.clone(), (int_digits, decimals));
@@ -101,6 +114,26 @@ impl CobolEnvironment {
         for child in &decl.children {
             self.init_decl(child);
         }
+    }
+
+    /// Initialise a numeric-edited item: remember its template and store the
+    /// edited string form of any VALUE (or spaces when there is none).
+    fn init_edited(&mut self, name: &str, template: &str, value: Option<&Literal>) {
+        let width = crate::numedit::edited_width(template);
+        let v = match value {
+            Some(Literal::String(s)) => CobolValue::from_str(s, width),
+            Some(Literal::Integer(n)) => CobolValue::from_str(
+                &crate::numedit::format_edited(template, *n as i128, 0),
+                width,
+            ),
+            Some(Literal::Decimal(m, s)) => CobolValue::from_str(
+                &crate::numedit::format_edited(template, *m, *s),
+                width,
+            ),
+            _ => CobolValue::spaces(width),
+        };
+        self.edited_templates.insert(name.to_string(), template.to_string());
+        self.store.insert(name.to_string(), v);
     }
 
     // ── Data access ───────────────────────────────────────────────────────────
@@ -142,6 +175,16 @@ impl CobolEnvironment {
     /// If the item does not exist it is inserted directly.
     pub fn set(&mut self, name: &str, value: CobolValue) {
         let key = name.to_ascii_uppercase();
+        // Storing a numeric into a numeric-edited field runs the edit engine and
+        // keeps the result as the edited string.
+        if let Some(template) = self.edited_templates.get(&key).cloned() {
+            if let Some(num) = value.as_exact() {
+                let width = crate::numedit::edited_width(&template);
+                let edited = crate::numedit::format_edited(&template, num.mantissa, num.decimals);
+                self.store.insert(key, CobolValue::from_str(&edited, width));
+                return;
+            }
+        }
         if let Some(existing) = self.store.get_mut(&key) {
             existing.assign(&value);
         } else {
