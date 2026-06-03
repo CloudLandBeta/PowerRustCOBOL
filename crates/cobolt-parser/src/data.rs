@@ -236,12 +236,21 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
                 if level == 88 {
                     // 88-level: collect one or more values/ranges
                     condition_values = parse_88_values(p);
-                } else if let Some((lit, _)) = parse_literal(p) {
-                    value = Some(lit);
-                    // THRU literal (ignore for now)
-                    if p.at(&Token::Through) {
-                        p.advance();
-                        parse_literal(p);
+                } else {
+                    // Fold an optional leading sign (the lexer emits it separately).
+                    let neg = if p.eat(&Token::Minus) {
+                        true
+                    } else {
+                        p.eat(&Token::Plus);
+                        false
+                    };
+                    if let Some((lit, _)) = parse_literal(p) {
+                        value = Some(if neg { negate_literal(lit) } else { lit });
+                        // THRU literal (ignore for now)
+                        if p.at(&Token::Through) {
+                            p.advance();
+                            parse_literal(p);
+                        }
                     }
                 }
             }
@@ -591,6 +600,16 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
 }
 
 // ── 88-level condition values ─────────────────────────────────────────────────
+
+/// Negate a numeric literal (for a signed `VALUE`).
+fn negate_literal(lit: Literal) -> Literal {
+    match lit {
+        Literal::Integer(n)    => Literal::Integer(-n),
+        Literal::Decimal(m, s) => Literal::Decimal(-m, s),
+        Literal::Float(f)      => Literal::Float(-f),
+        other                  => other,
+    }
+}
 
 fn parse_88_values(p: &mut Parser) -> Vec<ConditionValue> {
     let mut values = Vec::new();

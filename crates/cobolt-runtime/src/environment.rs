@@ -115,6 +115,21 @@ impl CobolEnvironment {
         self.field_caps.get(&name.to_ascii_uppercase()).map(|(d, _)| *d)
     }
 
+    /// Render a data item for `DISPLAY`. A USAGE-DISPLAY numeric item is shown as
+    /// its full fixed-width digit string — leading zeros to the PIC width, the
+    /// implied decimal point (`V`) not shown, and a leading `-` for negatives —
+    /// i.e. the characters as they are stored. Non-numeric items render verbatim.
+    pub fn display_string(&self, name: &str) -> Option<String> {
+        let key = name.to_ascii_uppercase();
+        let val = self.store.get(&key)?;
+        if let CobolValue::Numeric(n) = val {
+            if let Some(&(int_digits, _)) = self.field_caps.get(&key) {
+                return Some(format_display_numeric(n, int_digits));
+            }
+        }
+        Some(val.as_display_string())
+    }
+
     /// Get a mutable reference to a data item's value.
     pub fn get_mut(&mut self, name: &str) -> Option<&mut CobolValue> {
         self.store.get_mut(&name.to_ascii_uppercase())
@@ -255,6 +270,24 @@ fn collect_global_items(decl: &DataDecl, out: &mut Vec<(String, CobolValue)>) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Format a numeric value as its fixed-width DISPLAY digit string: zero-padded to
+/// `int_digits` + scale, no decimal point (the `V` is implied), leading `-` if
+/// negative.
+fn format_display_numeric(n: &CobolNumeric, int_digits: u8) -> String {
+    let total = int_digits as usize + n.decimals as usize;
+    let digits = n.mantissa.unsigned_abs().to_string();
+    let padded = if digits.len() < total {
+        format!("{}{}", "0".repeat(total - digits.len()), digits)
+    } else {
+        digits
+    };
+    if n.mantissa < 0 {
+        format!("-{padded}")
+    } else {
+        padded
+    }
+}
 
 /// Build the default (zero / spaces) value for a data declaration.
 fn default_value(decl: &DataDecl) -> CobolValue {

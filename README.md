@@ -191,8 +191,9 @@ honest map of where things stand.
   COBOL suite at [`tests/cobol/numprec.cbl`](tests/cobol/numprec.cbl).
 
 ### 🚧 Partial / in progress
-- **Numeric-edited PICTUREs** (`Z`, `$`, `,`, `B`, `0`, `/`, CR/DB…) — limited editing.
-  (`DISPLAY` of plain numeric items is not yet zero-padded to PIC width.)
+- **Numeric-edited PICTUREs** (`Z`, `$`, `,`, `B`, `0`, `/`, CR/DB…) — recognized by the
+  parser but the edit symbols are not yet applied on `MOVE`/`DISPLAY` into an edited field.
+  (Plain numeric `DISPLAY` *is* now rendered at full PIC width with leading zeros.)
 - **`COPY` / `REPLACE`** copybooks — limited.
 - **`ACCESS MODE RANDOM/DYNAMIC`** — parsed, but only sequential access executes today.
 - **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed
