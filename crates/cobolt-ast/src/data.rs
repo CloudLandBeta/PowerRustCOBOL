@@ -123,6 +123,8 @@ pub struct DataDecl {
     pub is_global:   bool,
     /// EXTERNAL clause — item is shared across all programs in the run unit.
     pub is_external: bool,
+    /// BLANK WHEN ZERO — an edited field is blanked when its value is zero.
+    pub blank_when_zero: bool,
     /// Nested subordinate data items (group items only).
     pub children: Vec<DataDecl>,
     pub span: Span,

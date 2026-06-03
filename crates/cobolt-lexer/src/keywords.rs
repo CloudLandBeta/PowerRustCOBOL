@@ -92,7 +92,10 @@ pub fn lookup(word: &str) -> Option<Token> {
         "COMP-1" | "COMPUTATIONAL-1" => Token::Comp1,
         "COMP-2" | "COMPUTATIONAL-2" => Token::Comp2,
         "COMP-3" | "COMPUTATIONAL-3" => Token::Comp3,
+        "COMP-4" | "COMPUTATIONAL-4" => Token::Comp, // binary, like COMP
         "COMP-5" | "COMPUTATIONAL-5" => Token::Comp5,
+        "COMP-X" | "COMPUTATIONAL-X" => Token::Comp5, // unsigned binary
+
         "PACKED-DECIMAL"            => Token::PackedDecimal,
         "POINTER"                   => Token::Pointer,
         "INDEX"                     => Token::Index,

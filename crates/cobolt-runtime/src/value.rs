@@ -475,10 +475,12 @@ impl CobolValue {
                     dst.set_f64(v);
                 }
             }
-            // Anything ← Unset → zero-fill
-            (dst, CobolValue::Unset) => {
-                *dst = CobolValue::Unset;
-            }
+            // Anything ← Unset: an uninitialised source moves as zeros (numeric)
+            // or spaces (alphanumeric). It must NOT propagate Unset, or the
+            // receiving field would silently swallow every later MOVE.
+            (CobolValue::Numeric(dst), CobolValue::Unset) => dst.mantissa = 0,
+            (CobolValue::Float(dst), CobolValue::Unset)   => *dst = 0.0,
+            (CobolValue::String { bytes, .. }, CobolValue::Unset) => bytes.fill(b' '),
             _ => {} // best-effort for edge cases
         }
     }

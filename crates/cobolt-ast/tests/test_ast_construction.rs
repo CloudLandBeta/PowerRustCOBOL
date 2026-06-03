@@ -147,6 +147,7 @@ fn data_decl_elementary() {
         condition_values: vec![],
         is_global: false,
         is_external: false,
+        blank_when_zero: false,
         children: vec![],
         span: dummy_span(),
     };
@@ -174,6 +175,7 @@ fn data_decl_group() {
         condition_values: vec![],
         is_global: false,
         is_external: false,
+        blank_when_zero: false,
         children: vec![],
         span: dummy_span(),
     };
@@ -188,6 +190,7 @@ fn data_decl_group() {
         condition_values: vec![],
         is_global: false,
         is_external: false,
+        blank_when_zero: false,
         children: vec![child],
         span: dummy_span(),
     };
@@ -220,6 +223,7 @@ fn data_decl_table() {
         condition_values: vec![],
         is_global: false,
         is_external: false,
+        blank_when_zero: false,
         children: vec![],
         span: dummy_span(),
     };
@@ -397,6 +401,7 @@ fn program_construction() {
                 condition_values: vec![],
                 is_global: false,
                 is_external: false,
+                blank_when_zero: false,
                 children: vec![],
                 span: dummy_span(),
             }])],

@@ -59,6 +59,51 @@ fn numedit_suite_reports_pass() {
 }
 
 #[test]
+fn numeddot_suite_reports_pass() {
+    // The full regular-decimal-point suite: edit symbols × source kinds
+    // (DISPLAY/COMP/COMP-1..4/COMP-X/SIGN SEPARATE/arithmetic) + BLANK WHEN ZERO.
+    let src = include_str!("../../../tests/cobol/numeddot.cbl");
+    let out = run_capture(src).join("\n");
+    assert!(out.contains("RESULT       : PASS"), "numeddot suite failed:\n{out}");
+    assert!(!out.contains("FAIL T0"), "numeddot reported failures:\n{out}");
+    assert_eq!(out.matches("PASS T0").count(), 43, "expected 43 PASS lines:\n{out}");
+}
+
+#[test]
+fn numeric_to_alphanumeric_left_justifies_with_pic_width() {
+    // MOVE of a plain numeric (PIC 9(4)=789) to an alphanumeric receiver de-edits
+    // to the full zero-padded digit string "0789", left-justified.
+    assert_eq!(
+        edit("X(8)", "       01 S PIC 9(4) VALUE 789.", "           MOVE S TO E"),
+        "[0789    ]"
+    );
+}
+
+#[test]
+fn blank_when_zero_blanks_only_zero() {
+    assert_eq!(
+        edit("ZZ9.99 BLANK WHEN ZERO",
+             "       01 S PIC 9(5)V99 VALUE 0.", "           MOVE S TO E"),
+        "[      ]"
+    );
+    assert_eq!(
+        edit("ZZ9.99 BLANK WHEN ZERO",
+             "       01 S PIC 9(5)V99 VALUE 12.30.", "           MOVE S TO E"),
+        "[ 12.30]"
+    );
+}
+
+#[test]
+fn comp1_comp2_float_sources_edit() {
+    // COMP-2 (PIC-less float) into a fixed-sign edited field.
+    assert_eq!(
+        edit("+9999", "       01 S USAGE COMP-2.",
+             "           MOVE -1234 TO S\n           MOVE S TO E"),
+        "[-1234]"
+    );
+}
+
+#[test]
 fn zero_suppression_and_comma() {
     assert_eq!(
         edit("ZZZ,ZZ9.99", "       01 S PIC 9(6)V99 VALUE 1234.50.", "           MOVE S TO E"),

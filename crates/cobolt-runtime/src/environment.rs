@@ -41,6 +41,9 @@ pub struct CobolEnvironment {
     /// `name → raw PIC template` for numeric-edited items. A numeric value stored
     /// into such a field is run through the edit engine and kept as a string.
     edited_templates: IndexMap<String, String>,
+    /// Names of edited items declared `BLANK WHEN ZERO` — storing a zero value
+    /// blanks the whole field.
+    blank_when_zero: std::collections::HashSet<String>,
 }
 
 impl CobolEnvironment {
@@ -87,7 +90,7 @@ impl CobolEnvironment {
                 // Numeric-edited items are stored as their edited string form.
                 if let Some(pic) = &decl.picture {
                     if pic.kind == PicKind::NumericEdited {
-                        self.init_edited(&upper, &pic.template, decl.value.as_ref());
+                        self.init_edited(&upper, &pic.template, decl.value.as_ref(), decl.blank_when_zero);
                         for child in &decl.children {
                             self.init_decl(child);
                         }
@@ -118,8 +121,11 @@ impl CobolEnvironment {
 
     /// Initialise a numeric-edited item: remember its template and store the
     /// edited string form of any VALUE (or spaces when there is none).
-    fn init_edited(&mut self, name: &str, template: &str, value: Option<&Literal>) {
+    fn init_edited(&mut self, name: &str, template: &str, value: Option<&Literal>, blank_when_zero: bool) {
         let width = crate::numedit::edited_width(template);
+        if blank_when_zero {
+            self.blank_when_zero.insert(name.to_string());
+        }
         let v = match value {
             Some(Literal::String(s)) => CobolValue::from_str(s, width),
             Some(Literal::Integer(n)) => CobolValue::from_str(
@@ -146,6 +152,43 @@ impl CobolEnvironment {
     /// Integer-digit capacity of a numeric field, if known (for ON SIZE ERROR).
     pub fn integer_capacity(&self, name: &str) -> Option<u8> {
         self.field_caps.get(&name.to_ascii_uppercase()).map(|(d, _)| *d)
+    }
+
+    /// The de-edited character form of a plain numeric field for a MOVE to an
+    /// alphanumeric receiver: absolute zero-padded digits, no sign, no point.
+    /// `None` if the item isn't a plain numeric.
+    pub fn deedited_digits(&self, name: &str) -> Option<String> {
+        let key = name.to_ascii_uppercase();
+        let (int_digits, _) = *self.field_caps.get(&key)?;
+        if let Some(CobolValue::Numeric(n)) = self.store.get(&key) {
+            let total = int_digits as usize + n.decimals as usize;
+            let digits = n.mantissa.unsigned_abs().to_string();
+            let padded = if digits.len() < total {
+                format!("{}{}", "0".repeat(total - digits.len()), digits)
+            } else {
+                digits
+            };
+            Some(padded)
+        } else {
+            None
+        }
+    }
+
+    /// `true` if the named item is a plain alphanumeric field (not numeric-edited).
+    pub fn is_alphanumeric_field(&self, name: &str) -> bool {
+        let key = name.to_ascii_uppercase();
+        !self.edited_templates.contains_key(&key)
+            && matches!(self.store.get(&key), Some(CobolValue::String { .. }))
+    }
+
+    /// Store `s` left-justified (space-padded) into an alphanumeric field.
+    pub fn set_str_left(&mut self, name: &str, s: &str) {
+        let key = name.to_ascii_uppercase();
+        let cap = match self.store.get(&key) {
+            Some(CobolValue::String { capacity, .. }) => *capacity,
+            _ => s.len(),
+        };
+        self.store.insert(key, CobolValue::from_str(s, cap));
     }
 
     /// Render a data item for `DISPLAY`. A USAGE-DISPLAY numeric item is shown as
@@ -178,15 +221,31 @@ impl CobolEnvironment {
         // Storing a numeric into a numeric-edited field runs the edit engine and
         // keeps the result as the edited string.
         if let Some(template) = self.edited_templates.get(&key).cloned() {
-            if let Some(num) = value.as_exact() {
+            // Accept any numeric source (incl. COMP-1/COMP-2 floats) for editing.
+            let num = match &value {
+                CobolValue::Float(f) => {
+                    Some(CobolNumeric::new((*f * 1e9_f64).round() as i128, 9))
+                }
+                other => other.as_exact(),
+            };
+            if let Some(num) = num {
                 let width = crate::numedit::edited_width(&template);
-                let edited = crate::numedit::format_edited(&template, num.mantissa, num.decimals);
+                let edited = if self.blank_when_zero.contains(&key) && num.mantissa == 0 {
+                    " ".repeat(width)
+                } else {
+                    crate::numedit::format_edited(&template, num.mantissa, num.decimals)
+                };
                 self.store.insert(key, CobolValue::from_str(&edited, width));
                 return;
             }
         }
         if let Some(existing) = self.store.get_mut(&key) {
-            existing.assign(&value);
+            if matches!(existing, CobolValue::Unset) {
+                // Replace an uninitialised slot outright so the value isn't lost.
+                *existing = value;
+            } else {
+                existing.assign(&value);
+            }
         } else {
             self.store.insert(key, value);
         }
@@ -334,8 +393,12 @@ fn format_display_numeric(n: &CobolNumeric, int_digits: u8) -> String {
 
 /// Build the default (zero / spaces) value for a data declaration.
 fn default_value(decl: &DataDecl) -> CobolValue {
-    // Group items with no PIC → treat as spaces of total subordinate width
+    // COMP-1 / COMP-2 are PIC-less floating point — default to 0.0, not Unset.
     if decl.picture.is_none() {
+        if matches!(decl.usage, Usage::Comp1 | Usage::Comp2) {
+            return CobolValue::Float(0.0);
+        }
+        // Group items with no PIC → treat as uninitialised.
         return CobolValue::Unset;
     }
     let pic = decl.picture.as_ref().unwrap();

@@ -210,6 +210,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
     let mut condition_values: Vec<ConditionValue> = Vec::new();
     let mut is_global   = false;
     let mut is_external = false;
+    let mut blank_when_zero = false;
 
     // Parse clauses until the period that terminates this item.
     loop {
@@ -300,11 +301,12 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
                 p.eat(&Token::Right);
             }
 
-            // BLANK WHEN ZERO — ignored
+            // BLANK WHEN ZERO
             Token::Blank => {
                 p.advance();
                 p.eat(&Token::When);
                 p.eat(&Token::Zeros);
+                blank_when_zero = true;
             }
 
             // SIGN IS LEADING/TRAILING [SEPARATE] — ignored
@@ -360,6 +362,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         condition_values,
         is_global,
         is_external,
+        blank_when_zero,
         children: Vec::new(), // filled in by build_tree
         span,
     }

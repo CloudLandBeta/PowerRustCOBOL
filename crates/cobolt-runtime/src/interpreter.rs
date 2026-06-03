@@ -616,9 +616,20 @@ impl Interpreter {
 
     fn exec_move(&mut self, from: &Expr, to: &[Expr]) -> Result<(), RuntimeError> {
         let val = self.eval_expr(from, from.span())?;
+        // A numeric source moved to an alphanumeric receiver de-edits to its
+        // zero-padded digit string (left-justified), per COBOL MOVE rules.
+        let src_digits = match from {
+            Expr::Identifier(s, _) => self.env.deedited_digits(s),
+            _ => None,
+        };
         for target in to {
             let name = self.expr_to_name(target);
-            self.env.set(&name, val.clone());
+            match &src_digits {
+                Some(digits) if self.env.is_alphanumeric_field(&name) => {
+                    self.env.set_str_left(&name, digits);
+                }
+                _ => self.env.set(&name, val.clone()),
+            }
         }
         Ok(())
     }
