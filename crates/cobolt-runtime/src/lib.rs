@@ -51,7 +51,10 @@ pub use db_runtime::DbRegistry;
 pub use debugger::{Breakpoints, DebugCmd, DebugEvent, VarSnapshot, new_breakpoints};
 pub use error::RuntimeError;
 pub use http_runtime::HttpClient;
-pub use indexed::IndexedEngine;
+pub use indexed::{
+    IndexedEngine, IndexedFileInfo, KeyDescriptor, KeyEncoding, KeyList, KeyOrdering, KeyPart,
+    RecordFormat,
+};
 pub use interpreter::Interpreter;
 pub use environment::CobolEnvironment;
 pub use objects::ObjectRegistry;

@@ -155,8 +155,17 @@ planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
   Key fields → `KeySpec { offset, len, duplicates }`.
 - `cobolt-runtime/src/indexed.rs` — the **INDEXED (ISAM) engine**
   (`IndexedFile`): `BTreeMap` primary store + alternate-key indexes, ascending
-  key order, `PRCISAM1` on-disk container, journaled `commit`/`rollback`, record
-  locking, `status` module (00/02/10/22/23/…). No external deps.
+  key order, journaled `commit`/`rollback`, record locking, `status` module
+  (00/02/10/22/23/35/39/…). No external deps.
+- **On-disk format `PRCIDX1`** — self-describing container: header + full key
+  schema (`IndexedFileInfo`/`KeyDescriptor`: composite byte-ranged parts,
+  `KeyEncoding`, `KeyOrdering`, duplicates, COBOL field name) + records + CRC-32.
+  Models Fujitsu `cobfa_indexinfo()` metadata so a **future Fujitsu importer**
+  (out of scope) can write faithful files. Legacy records-only `PRCISAM1` still
+  reads (upgraded on next write). `IndexedFile::inspect_path()` discovers the
+  schema without I/O. Strict OPEN validation → FS 39 (schema mismatch) / 35
+  (missing INPUT) / 90 (CRC). NOT byte-compatible with Fujitsu. Spec:
+  `docs/indexed-file-format.md`. NEVER claim Fujitsu binary compatibility.
 - **Engine selection:** `IndexedEngine { Rust, RmCobol85, Fujitsu }`, chosen by
   `rcrun --indexed-engine <name>` (or `-I`) / `COBOL_INDEXED_ENGINE` env, default
   `rust`. `Interpreter::set_indexed_engine()`. rm/fujitsu currently delegate to

@@ -214,12 +214,20 @@ fn make_indexed_engine(
         .as_deref()
         .and_then(|k| layout.key_spec(k, false))
         .unwrap_or(KeySpec { offset: 0, len: reclen, duplicates: false });
-    let alts = spec
-        .alternate_keys
-        .iter()
-        .filter_map(|ak| layout.key_spec(&ak.field, ak.with_duplicates))
-        .collect();
-    Box::new(IndexedFile::new(path, reclen, primary, alts))
+    // Build alternate KeySpecs and their field names in lock-step (skipping any
+    // alternate key field that isn't present in the FD record layout).
+    let mut alts = Vec::new();
+    let mut names: Vec<Option<String>> = vec![spec.record_key.clone()];
+    for ak in &spec.alternate_keys {
+        if let Some(ks) = layout.key_spec(&ak.field, ak.with_duplicates) {
+            alts.push(ks);
+            names.push(Some(ak.field.clone()));
+        }
+    }
+    let mut engine = IndexedFile::new(path, reclen, primary, alts);
+    // Persist the COBOL key-field names in the file schema (descriptive only).
+    engine.set_key_names(names);
+    Box::new(engine)
 }
 
 /// Translate a COBOL relational operator (from `START`) to a key search op.

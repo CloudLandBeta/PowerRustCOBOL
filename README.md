@@ -101,6 +101,11 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
     (00/02/10/22/23/…).
   - Engine selectable via `rcrun --indexed-engine <rust|rm-cobol85|fujitsu>` or
     the `COBOL_INDEXED_ENGINE` env var (all behaviour-compatible; `rust` default).
+  - **Self-describing `PRCIDX1` container** — embeds the file schema (record
+    format + key descriptors) so files are discoverable and a future Fujitsu
+    importer can write faithful data; strict open-time validation maps schema
+    mismatch → `39`, missing file → `35`. Not byte-compatible with Fujitsu. See
+    [`docs/indexed-file-format.md`](docs/indexed-file-format.md).
 - `SELECT … ASSIGN TO … ORGANIZATION … [ACCESS MODE …] [RECORD KEY …] [FILE STATUS IS …]`.
 - File verbs are dispatched by each file's declared `ORGANIZATION` (per its
   `SELECT`), so sequential and indexed files share `OPEN`/`CLOSE`/`READ`/`WRITE`

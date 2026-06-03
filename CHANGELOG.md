@@ -19,8 +19,20 @@ The IDE interface is unchanged; all generated COBOL source stays in English.
 - **Built-in keyed-file engine** (`cobolt-runtime/src/indexed.rs`) — a
   dependency-free ISAM store: primary `RECORD KEY` plus
   `ALTERNATE RECORD KEY [WITH DUPLICATES]`, records held in ascending key order,
-  a journaled write log with `COMMIT` / `ROLLBACK`, and record locking. Its own
-  compact on-disk container (`PRCISAM1`) — no external libraries.
+  a journaled write log with `COMMIT` / `ROLLBACK`, and record locking. No
+  external libraries.
+- **Self-describing `PRCIDX1` container** — the on-disk format now embeds the
+  full file schema (record format + every key's byte-ranged composite parts,
+  encoding, ordering, duplicate policy, and COBOL field name) plus timestamps
+  and a CRC-32 trailer, modelled on Fujitsu's `cobfa_indexinfo()` metadata so a
+  future Fujitsu importer can write faithful files. The legacy records-only
+  `PRCISAM1` container is still read (and upgraded to `PRCIDX1` on next write).
+  - **Discovery API** `IndexedFile::inspect_path()` reads a file's schema
+    (`IndexedFileInfo`) without opening it for I/O.
+  - **Strict open-time validation**: declared `SELECT`/`FD` keys + record format
+    are checked against the stored schema → FILE STATUS **39** on mismatch;
+    `OPEN INPUT` of a missing file → **35**; corrupt container (CRC) → **90**.
+  - Format documented in [`docs/indexed-file-format.md`](docs/indexed-file-format.md).
 - **Verbs dispatched by `ORGANIZATION`.** `OPEN` / `CLOSE` / `READ` / `WRITE`
   are wired to each file's declared organization (from its `SELECT`), not a
   single hard-coded type, so SEQUENTIAL / LINE SEQUENTIAL / INDEXED share the
