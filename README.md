@@ -90,7 +90,21 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 ### File I/O
 - **`ORGANIZATION IS SEQUENTIAL`** (fixed-length records) and **`LINE SEQUENTIAL`**
   (newline-terminated text; trailing spaces dropped on write).
-- `SELECT … ASSIGN TO … ORGANIZATION … [ACCESS MODE …] [FILE STATUS IS …]`.
+- **`ORGANIZATION IS INDEXED`** (ISAM) — a built-in, **dependency-free** keyed-file
+  engine: primary `RECORD KEY` + `ALTERNATE RECORD KEY [WITH DUPLICATES]`,
+  records kept in ascending key order on disk, journaled with `COMMIT`/`ROLLBACK`.
+  - `ACCESS MODE SEQUENTIAL / RANDOM / DYNAMIC` all execute.
+  - `READ` (random by key, and `READ … NEXT/PREVIOUS` sequential), `WRITE`,
+    `REWRITE`, `DELETE`, and `START … KEY IS = / > / >= / < / <=` (incl.
+    `GREATER/LESS THAN`, `NOT LESS THAN`, …).
+  - `INVALID KEY` / `NOT INVALID KEY` phrases and full **FILE STATUS** codes
+    (00/02/10/22/23/…).
+  - Engine selectable via `rcrun --indexed-engine <rust|rm-cobol85|fujitsu>` or
+    the `COBOL_INDEXED_ENGINE` env var (all behaviour-compatible; `rust` default).
+- `SELECT … ASSIGN TO … ORGANIZATION … [ACCESS MODE …] [RECORD KEY …] [FILE STATUS IS …]`.
+- File verbs are dispatched by each file's declared `ORGANIZATION` (per its
+  `SELECT`), so sequential and indexed files share `OPEN`/`CLOSE`/`READ`/`WRITE`
+  while each honours its own organization-specific semantics.
 - `OPEN INPUT/OUTPUT/EXTEND/I-O`, `READ … [INTO] [AT END / NOT AT END]`,
   `WRITE … [FROM]`, `CLOSE`, with **FILE STATUS** codes (00/10/30/35/…).
 
@@ -182,32 +196,40 @@ honest map of where things stand.
   VALUE, group items, FILLER, condition-names.
 - The procedural verbs and intrinsic functions listed above.
 - Nested programs and multiple program units; `CALL` dispatch.
-- **SEQUENTIAL** and **LINE SEQUENTIAL** file I/O with FILE STATUS.
+- **SEQUENTIAL**, **LINE SEQUENTIAL** and **INDEXED** (ISAM) file I/O with FILE STATUS.
 - **Exact fixed-point arithmetic** — `ADD`/`SUBTRACT`/`MULTIPLY`/`DIVIDE`/`COMPUTE`
   run on an `i128` integer mantissa (no `f64` round-trips), so up to **18-digit**
   standard and **31-digit** extended precision stay exact. `ROUNDED` (round half
   away from zero) and `ON SIZE ERROR` / `NOT ON SIZE ERROR` are honored, and
   decimal literals are carried exactly from the lexer. Verified end-to-end by the
-  COBOL suite at [`tests/cobol/numprec.cbl`](tests/cobol/numprec.cbl).
+  COBOL suite at [`tests/cobol/numeric-precision/numprec.cbl`](tests/cobol/numeric-precision/numprec.cbl).
 - **Numeric-edited PICTUREs** — the edit engine applies `Z` zero-suppression,
   `*` check-protection, fixed and floating `$`, fixed and floating `+`/`-` signs,
   `,` and `.` insertion, `B`/`0`/`/` insertion, and `CR`/`DB` on `MOVE`/`DISPLAY`
   into an edited field (e.g. `PIC ZZZ,ZZ9.99`, `$$$,$$9.99`, `9(6).99CR`). Plain
   numeric `DISPLAY` is rendered at full PIC width with leading zeros. Verified by
-  [`tests/cobol/numedit.cbl`](tests/cobol/numedit.cbl).
+  [`tests/cobol/numeric-edited-pic/numedit.cbl`](tests/cobol/numeric-edited-pic/numedit.cbl).
 - **`COPY` / `REPLACE` copybooks** — a preprocessor expands `COPY name [OF lib]
   [REPLACING ==a== BY ==b== …]` (pseudo-text and word replacement), resolves
   copybooks next to the source (`.cpy`/`.cbl`/`.cob`/…, case-insensitive),
   expands nested `COPY` recursively, and applies `REPLACE … BY …` / `REPLACE
-  OFF` to following text. Verified by [`tests/cobol/copytest.cbl`](tests/cobol/copytest.cbl).
+  OFF` to following text. Verified by
+  [`tests/cobol/copy-replace/copytest.cbl`](tests/cobol/copy-replace/copytest.cbl).
+- **`INDEXED` (ISAM) files** — a built-in, dependency-free keyed-file engine with
+  primary + alternate keys, ascending on-disk key order, journaled
+  `COMMIT`/`ROLLBACK`, record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
+  and the full `READ`/`WRITE`/`REWRITE`/`DELETE`/`START` verb set with
+  `INVALID KEY` phrases. File verbs dispatch by each `SELECT`'s declared
+  `ORGANIZATION`. Engine selectable (`--indexed-engine` / `COBOL_INDEXED_ENGINE`).
+  Verified by
+  [`tests/cobol/indexed-files/idxbasic.cbl`](tests/cobol/indexed-files/idxbasic.cbl).
 
 ### 🚧 Partial / in progress
-- **`ACCESS MODE RANDOM/DYNAMIC`** — parsed, but only sequential access executes today.
 - **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed
   (the visual form designer supersedes it).
 
 ### ⛔ Not yet implemented (planned)
-- **INDEXED** and **RELATIVE** file organizations; `REWRITE`, `DELETE`, `START`.
+- **RELATIVE** file organization.
 - **`SORT` / `MERGE`**.
 - File sharing / record locking.
 - The complete intrinsic-function library.

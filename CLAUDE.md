@@ -40,7 +40,7 @@ The i18n system translates the IDE interface only.
 - **y** — new features: new widgets, properties, IDE panels, language features
 - **z** — bug fixes, polish, performance
 
-Current version: **1.0.0**
+Current version: **1.2.0**
 
 ---
 
@@ -63,7 +63,11 @@ PowerRustCOBOL/
 │   │   ├── src/db_runtime.rs   ← SQLite engine (DbRegistry)
 │   │   ├── src/http_runtime.rs ← REST client (HttpClient)
 │   │   ├── src/debugger.rs     ← debug channels (DebugCmd/DebugEvent)
-│   │   └── src/channels.rs     ← FormEvent / StateUpdate GUI channels
+│   │   ├── src/channels.rs     ← FormEvent / StateUpdate GUI channels
+│   │   ├── src/files.rs        ← RecordLayout (materialize/distribute), KeySpec
+│   │   ├── src/indexed.rs      ← INDEXED/ISAM engine (IndexedFile, IndexedEngine)
+│   │   ├── src/numedit.rs      ← numeric-edited PICTURE edit engine
+│   │   └── src/copybook.rs     ← COPY / REPLACE preprocessor
 │   ├── cobolt-stdlib/          ← standard library stubs
 │   ├── cobolt-forms/           ← .cfrm form model + XML serialization
 │   │   └── src/model.rs        ← Control, Form, ControlType, animations, props
@@ -136,6 +140,33 @@ shows through the form background.
 `cobolt_compiler::build_project()` serializes the AST with `bincode`+`flate2`,
 generates a temp Cargo project that embeds everything via `include_bytes!`,
 runs `cargo build --release`, and copies the binary to `bin/`.
+
+### File I/O — verb dispatch by ORGANIZATION (Phase 12)
+**CRITICAL:** file verbs (`OPEN`/`CLOSE`/`READ`/`WRITE`/`REWRITE`/`DELETE`/
+`START`) are NOT hard-wired to one file type. Each is dispatched by the file's
+declared `ORGANIZATION` (from its `SELECT`), so SEQUENTIAL / LINE SEQUENTIAL /
+INDEXED share the common verbs while each keeps its own semantics. RELATIVE is
+planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
+`Reader`/`Writer`/`Indexed`; `exec_open/close/read/write/rewrite/delete/start`).
+
+- `cobolt-runtime/src/files.rs` — `RecordLayout` (`compute_layout`) gives each
+  FD record's byte layout; `materialize(env)` builds the record buffer from
+  subfields (WRITE/REWRITE) and `distribute(env, buf)` scatters it back (READ).
+  Key fields → `KeySpec { offset, len, duplicates }`.
+- `cobolt-runtime/src/indexed.rs` — the **INDEXED (ISAM) engine**
+  (`IndexedFile`): `BTreeMap` primary store + alternate-key indexes, ascending
+  key order, `PRCISAM1` on-disk container, journaled `commit`/`rollback`, record
+  locking, `status` module (00/02/10/22/23/…). No external deps.
+- **Engine selection:** `IndexedEngine { Rust, RmCobol85, Fujitsu }`, chosen by
+  `rcrun --indexed-engine <name>` (or `-I`) / `COBOL_INDEXED_ENGINE` env, default
+  `rust`. `Interpreter::set_indexed_engine()`. rm/fujitsu currently delegate to
+  the Rust container (behaviour-identical) until native formats land. NEVER
+  mention CICS in code or user-facing text (the locking model is VSAM/RLS-style).
+- `READ … NEXT/PREVIOUS` = sequential; unqualified `READ` = random (by RECORD
+  KEY) under RANDOM/DYNAMIC. `INVALID KEY`/`NOT INVALID KEY` phrases parse on
+  `READ`/`WRITE`/`REWRITE`/`DELETE`/`START` (`Stmt` fields + `run_key_outcome`).
+- Tests: `tests/cobol/indexed-files/idxbasic.cbl` (13 cases),
+  `crates/cobolt-runtime/tests/test_indexed.rs`, unit tests in `indexed.rs`.
 
 ---
 

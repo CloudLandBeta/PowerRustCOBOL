@@ -65,6 +65,47 @@ pub enum ReadDir {
     Previous,
 }
 
+/// Which indexed (ISAM) file engine backs `ORGANIZATION IS INDEXED` files.
+///
+/// Selectable per run via `rcrun --indexed-engine <name>` or the
+/// `COBOL_INDEXED_ENGINE` environment variable. All engines are required to
+/// present *identical* observable COBOL behaviour (file-status codes, key
+/// ordering, locking, COMMIT/ROLLBACK); they differ only in their on-disk
+/// container format. Only [`IndexedEngine::Rust`] has a native container today,
+/// so `RmCobol85` / `Fujitsu` currently delegate to it (behaviour-compatible)
+/// until their native formats land.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum IndexedEngine {
+    /// The built-in, dependency-free Rust ISAM engine (KSDS-style, journaled).
+    #[default]
+    Rust,
+    /// RM/COBOL-85 indexed files (delegates to the Rust engine for now).
+    RmCobol85,
+    /// Fujitsu COBOL-85 indexed files (delegates to the Rust engine for now).
+    Fujitsu,
+}
+
+impl IndexedEngine {
+    /// Parse an engine name (case-insensitive). Accepts a few common aliases.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().replace(['_', ' '], "-").as_str() {
+            "rust" | "rstcobol" | "rustcobol" | "native" | "default" => Some(Self::Rust),
+            "rm" | "rm-cobol" | "rm-cobol85" | "rmcobol" | "rmcobol85" => Some(Self::RmCobol85),
+            "fujitsu" | "fujitsu-cobol" | "fujitsu-cobol85" | "fj" => Some(Self::Fujitsu),
+            _ => None,
+        }
+    }
+
+    /// Canonical lower-case name.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Rust => "rust",
+            Self::RmCobol85 => "rm-cobol85",
+            Self::Fujitsu => "fujitsu",
+        }
+    }
+}
+
 /// Relational operator for `START`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StartOp {
@@ -457,6 +498,11 @@ impl IndexedFile {
     }
 
     /// Ordered list of primary keys in the current key-of-reference ordering.
+    #[doc(hidden)]
+    pub fn debug_keys(&self) -> Vec<String> {
+        self.records.keys().map(|k| String::from_utf8_lossy(k).to_string()).collect()
+    }
+
     fn ordered_primary_keys(&self) -> Vec<Bytes> {
         if self.kor == 0 {
             self.records.keys().cloned().collect()
@@ -718,5 +764,23 @@ mod tests {
         assert_eq!(f.read_key(b"00002").1, status::NOT_FOUND);
         let (r, _) = f.read_key(b"00001");
         assert_eq!(&r.unwrap()[5..10], b"ALICE");
+    }
+
+    #[test]
+    fn engine_name_parsing_and_aliases() {
+        use IndexedEngine as E;
+        assert_eq!(IndexedEngine::default(), E::Rust);
+        assert_eq!(E::parse("rust"), Some(E::Rust));
+        assert_eq!(E::parse("RUST"), Some(E::Rust));
+        assert_eq!(E::parse("default"), Some(E::Rust));
+        assert_eq!(E::parse("rm-cobol85"), Some(E::RmCobol85));
+        assert_eq!(E::parse("RM_COBOL85"), Some(E::RmCobol85));
+        assert_eq!(E::parse("rmcobol"), Some(E::RmCobol85));
+        assert_eq!(E::parse("fujitsu"), Some(E::Fujitsu));
+        assert_eq!(E::parse("Fujitsu COBOL85"), Some(E::Fujitsu));
+        assert_eq!(E::parse("bogus"), None);
+        assert_eq!(E::Rust.name(), "rust");
+        assert_eq!(E::RmCobol85.name(), "rm-cobol85");
+        assert_eq!(E::Fujitsu.name(), "fujitsu");
     }
 }

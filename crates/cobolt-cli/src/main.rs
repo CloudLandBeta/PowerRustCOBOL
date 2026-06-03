@@ -42,7 +42,7 @@ use serde::Deserialize;
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
-use cobolt_runtime::Interpreter;
+use cobolt_runtime::{IndexedEngine, Interpreter};
 use cobolt_semantic::{analyze, Severity};
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -127,6 +127,7 @@ fn cmd_run(args: &[String]) {
 
     // Execute.
     let mut interp = Interpreter::new(program);
+    interp.set_indexed_engine(resolve_indexed_engine(args));
     match interp.run() {
         Ok(()) => {}
         Err(e) if e.is_exit_signal() => {}
@@ -187,6 +188,7 @@ fn cmd_help() {
         "\n",
         "USAGE:\n",
         "  rcrun run     <file.cbl>              Run a COBOL program\n",
+        "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu\n",
         "  rcrun check   <file.cbl>              Parse and analyse without running\n",
         "  rcrun build   [cobolt.toml]           Compile project → bin/<name> (single executable)\n",
         "         [--quiet]                       Suppress build progress output\n",
@@ -196,8 +198,9 @@ fn cmd_help() {
         "  rcrun help                            Print this message\n",
         "\n",
         "ENVIRONMENT:\n",
-        "  COBOLT_LOG    Logging filter (e.g. warn, debug, cobolt-runtime=trace)\n",
-        "  COBOLT_FIXED  Set to '1' to force fixed-form source parsing\n",
+        "  COBOLT_LOG            Logging filter (e.g. warn, debug, cobolt-runtime=trace)\n",
+        "  COBOLT_FIXED          Set to '1' to force fixed-form source parsing\n",
+        "  COBOL_INDEXED_ENGINE  Indexed (ISAM) engine: rust | rm-cobol85 | fujitsu\n",
     ));
 }
 
@@ -519,12 +522,54 @@ fn find_cobolt_binary() -> Option<PathBuf> {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn require_path(args: &[String], cmd: &str) -> PathBuf {
-    match args.first() {
-        Some(p) => PathBuf::from(p),
-        None => {
-            eprintln!("cobolt {cmd}: missing <file> argument");
-            process::exit(2);
+    // The first non-flag argument is the source path. Skip recognised options
+    // (and their values) so e.g. `--indexed-engine rust file.cbl` works.
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "--indexed-engine" || a == "-I" {
+            i += 2; // skip the flag and its separate value
+            continue;
         }
+        if a.starts_with("--indexed-engine=") || a.starts_with('-') {
+            i += 1; // skip `--flag=value` or any other lone flag
+            continue;
+        }
+        return PathBuf::from(a);
+    }
+    eprintln!("cobolt {cmd}: missing <file> argument");
+    process::exit(2);
+}
+
+/// Resolve the indexed (ISAM) engine: `--indexed-engine <name>` /
+/// `--indexed-engine=<name>` (or `-I`) takes priority, then the
+/// `COBOL_INDEXED_ENGINE` environment variable, then the default (Rust).
+fn resolve_indexed_engine(args: &[String]) -> IndexedEngine {
+    let mut chosen: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(v) = a.strip_prefix("--indexed-engine=") {
+            chosen = Some(v.to_string());
+        } else if a == "--indexed-engine" || a == "-I" {
+            chosen = args.get(i + 1).cloned();
+            i += 1;
+        }
+        i += 1;
+    }
+    let chosen = chosen.or_else(|| std::env::var("COBOL_INDEXED_ENGINE").ok());
+    match chosen {
+        Some(name) => match IndexedEngine::parse(&name) {
+            Some(e) => e,
+            None => {
+                eprintln!(
+                    "cobolt: unknown indexed engine '{name}' \
+                     (expected: rust | rm-cobol85 | fujitsu); using rust"
+                );
+                IndexedEngine::Rust
+            }
+        },
+        None => IndexedEngine::Rust,
     }
 }
 

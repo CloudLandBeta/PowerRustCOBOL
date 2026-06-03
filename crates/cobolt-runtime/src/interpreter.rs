@@ -31,7 +31,7 @@ use std::sync::mpsc;
 use cobolt_ast::{
     expr::{ArithOp, Condition, CmpOp, DataClass, Expr, FigurativeConstant, Literal,
            SignCond, UnaryOp},
-    program::{FileOrganization, ProcedureBody, Program},
+    program::{AccessMode, AlternateKey, FileOrganization, ProcedureBody, Program},
     stmt::{
         AcceptSource, CallArg, EvalSubject, InspectSpec, OpenMode, PerformTarget,
         ReplaceWhat, Stmt, TallyFor, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
@@ -58,16 +58,29 @@ struct FileSpec {
     /// holds the path (resolved at OPEN time).
     assign: String,
     organization: FileOrganization,
+    /// ACCESS MODE (SEQUENTIAL / RANDOM / DYNAMIC).
+    access: AccessMode,
     /// FILE STATUS data-item name (receives the 2-char status code), if any.
     status_field: Option<String>,
     /// The FD's 01-level record names (the buffer WRITE/READ act on).
     record_names: Vec<String>,
+    /// RECORD KEY field name (INDEXED files).
+    record_key: Option<String>,
+    /// ALTERNATE RECORD KEY entries (INDEXED files).
+    alternate_keys: Vec<AlternateKey>,
+    /// Byte layout of the primary FD record (subfield offsets/widths).
+    layout: crate::files::RecordLayout,
 }
 
-/// A currently-open file handle.
+/// A currently-open file handle. The variant follows the file's ORGANIZATION,
+/// so the verbs dispatch by file type (RELATIVE will add a variant here).
 enum OpenFile {
+    /// SEQUENTIAL / LINE SEQUENTIAL, opened for output/extend.
     Writer { w: std::io::BufWriter<std::fs::File>, org: FileOrganization },
+    /// SEQUENTIAL / LINE SEQUENTIAL, opened for input.
     Reader { r: std::io::BufReader<std::fs::File>, org: FileOrganization },
+    /// INDEXED (ISAM) — the keyed engine handles every verb.
+    Indexed(Box<crate::indexed::IndexedFile>),
 }
 
 // ── Nested program registry ───────────────────────────────────────────────────
@@ -125,8 +138,9 @@ fn build_file_specs(
     let mut specs: HashMap<String, FileSpec> = HashMap::new();
     let mut record_to_file: HashMap<String, String> = HashMap::new();
 
-    // Collect each FD's 01-record names, keyed by (uppercased) file name.
+    // Collect each FD's 01-record names + the primary record's byte layout.
     let mut fd_records: HashMap<String, Vec<String>> = HashMap::new();
+    let mut fd_layout: HashMap<String, crate::files::RecordLayout> = HashMap::new();
     if let Some(data) = &program.data {
         for section in &data.sections {
             if let DataSection::FileSection(fds) = section {
@@ -135,7 +149,11 @@ fn build_file_specs(
                         .filter_map(|r| r.name.clone())
                         .map(|n| n.to_ascii_uppercase())
                         .collect();
-                    fd_records.insert(fd.name.to_ascii_uppercase(), names);
+                    let fkey = fd.name.to_ascii_uppercase();
+                    if let Some(first) = fd.records.first() {
+                        fd_layout.insert(fkey.clone(), crate::files::compute_layout(first));
+                    }
+                    fd_records.insert(fkey, names);
                 }
             }
         }
@@ -152,14 +170,70 @@ fn build_file_specs(
                 specs.insert(key.clone(), FileSpec {
                     assign: fc.assign.clone(),
                     organization: fc.organization,
+                    access: fc.access,
                     status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
                     record_names,
+                    record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
+                    alternate_keys: fc.alternate_keys.clone(),
+                    layout: fd_layout.get(&key).cloned().unwrap_or_default(),
                 });
             }
         }
     }
 
     (specs, record_to_file)
+}
+
+/// Map the AST open mode onto the indexed engine's.
+fn map_open_mode(m: OpenMode) -> crate::indexed::OpenMode {
+    use crate::indexed::OpenMode as I;
+    match m {
+        OpenMode::Input => I::Input,
+        OpenMode::Output => I::Output,
+        OpenMode::Extend => I::Extend,
+        OpenMode::InputOutput => I::Io,
+    }
+}
+
+/// Build an indexed engine for `spec` from its layout + key fields.
+fn make_indexed_engine(
+    spec: &FileSpec,
+    path: &str,
+    engine: crate::indexed::IndexedEngine,
+) -> Box<crate::indexed::IndexedFile> {
+    use crate::indexed::{IndexedEngine, IndexedFile, KeySpec};
+    // RM/COBOL-85 and Fujitsu currently delegate to the Rust container; the
+    // engine selector is honoured here once their native formats are added.
+    let _ = match engine {
+        IndexedEngine::Rust | IndexedEngine::RmCobol85 | IndexedEngine::Fujitsu => engine,
+    };
+    let layout = &spec.layout;
+    let reclen = layout.len.max(1);
+    let primary = spec
+        .record_key
+        .as_deref()
+        .and_then(|k| layout.key_spec(k, false))
+        .unwrap_or(KeySpec { offset: 0, len: reclen, duplicates: false });
+    let alts = spec
+        .alternate_keys
+        .iter()
+        .filter_map(|ak| layout.key_spec(&ak.field, ak.with_duplicates))
+        .collect();
+    Box::new(IndexedFile::new(path, reclen, primary, alts))
+}
+
+/// Translate a COBOL relational operator (from `START`) to a key search op.
+fn map_start_op(op: cobolt_ast::expr::CmpOp) -> crate::indexed::StartOp {
+    use crate::indexed::StartOp as S;
+    use cobolt_ast::expr::CmpOp;
+    match op {
+        CmpOp::Eq => S::Eq,
+        CmpOp::Gt => S::Gt,
+        CmpOp::Ge => S::Ge,
+        CmpOp::Lt => S::Lt,
+        CmpOp::Le => S::Le,
+        CmpOp::Ne => S::Ge, // not standard for START; treat as ≥
+    }
 }
 
 // ── Interpreter ───────────────────────────────────────────────────────────────
@@ -214,6 +288,8 @@ pub struct Interpreter {
     record_to_file: HashMap<String, String>,
     /// Logical file name → currently-open handle.
     open_files: HashMap<String, OpenFile>,
+    /// Selected indexed (ISAM) file engine (default: the built-in Rust engine).
+    indexed_engine: crate::indexed::IndexedEngine,
 }
 
 const MAX_PERFORM_DEPTH: usize = 512;
@@ -262,7 +338,21 @@ impl Interpreter {
             file_specs,
             record_to_file,
             open_files: HashMap::new(),
+            indexed_engine: crate::indexed::IndexedEngine::default(),
         }
+    }
+
+    /// Select the indexed (ISAM) file engine for this run. All engines present
+    /// identical observable COBOL behaviour; only the on-disk container differs.
+    pub fn set_indexed_engine(&mut self, engine: crate::indexed::IndexedEngine) {
+        if engine != crate::indexed::IndexedEngine::Rust {
+            tracing::info!(
+                "indexed engine '{}' selected; delegating to the Rust engine \
+                 (behaviour-compatible) — native container not yet available",
+                engine.name()
+            );
+        }
+        self.indexed_engine = engine;
     }
 
     /// Create an interpreter wired to the GUI Form Runtime Engine channels.
@@ -516,13 +606,17 @@ impl Interpreter {
                 self.exec_open(*mode, files, *span),
             Stmt::Close { files, .. } =>
                 self.exec_close(files),
-            Stmt::Write { record, from, span, .. } =>
-                self.exec_write(record, from.as_ref(), *span),
-            Stmt::Read { file, into, at_end, not_at_end, span, .. } =>
-                self.exec_read(file, into.as_ref(), at_end, not_at_end, *span),
-            Stmt::Rewrite { .. } | Stmt::Delete { .. } | Stmt::Start { .. } => {
-                tracing::warn!("REWRITE/DELETE/START not yet implemented — statement skipped");
-                Ok(())
+            Stmt::Write { record, from, invalid_key, not_invalid_key, span, .. } =>
+                self.exec_write(record, from.as_ref(), invalid_key, not_invalid_key, *span),
+            Stmt::Read { file, into, key, direction, at_end, not_at_end, invalid_key, not_invalid_key, span } =>
+                self.exec_read(file, into.as_ref(), key.as_ref(), *direction,
+                    at_end, not_at_end, invalid_key, not_invalid_key, *span),
+            Stmt::Rewrite { record, from, invalid_key, not_invalid_key, span } =>
+                self.exec_rewrite(record, from.as_ref(), invalid_key, not_invalid_key, *span),
+            Stmt::Delete { file, invalid_key, not_invalid_key, span } =>
+                self.exec_delete(file, invalid_key, not_invalid_key, *span),
+            Stmt::Start { file, key, invalid_key, not_invalid_key, span } => {
+                self.exec_start(file, key.as_ref(), invalid_key, not_invalid_key, *span)
             }
 
             // ── String handling ───────────────────────────────────────────────
@@ -1338,6 +1432,16 @@ impl Interpreter {
             let path = self.resolve_assign_path(&spec.assign);
             let org  = spec.organization;
 
+            // ── INDEXED: dispatch to the keyed engine ──────────────────────
+            if org == FileOrganization::Indexed {
+                let mut engine = make_indexed_engine(&spec, &path, self.indexed_engine);
+                let code = engine.open(map_open_mode(mode));
+                self.open_files.insert(file.clone(), OpenFile::Indexed(engine));
+                self.set_file_status(&file, code);
+                continue;
+            }
+
+            // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
             let result: std::io::Result<OpenFile> = match mode {
                 OpenMode::Output =>
                     std::fs::File::create(&path)
@@ -1374,10 +1478,12 @@ impl Interpreter {
         for raw in files {
             let file = raw.to_ascii_uppercase();
             if let Some(mut handle) = self.open_files.remove(&file) {
-                if let OpenFile::Writer { w, .. } = &mut handle {
-                    let _ = w.flush();
-                }
-                self.set_file_status(&file, "00");
+                let code = match &mut handle {
+                    OpenFile::Writer { w, .. } => { let _ = w.flush(); "00" }
+                    OpenFile::Reader { .. } => "00",
+                    OpenFile::Indexed(engine) => engine.close(),
+                };
+                self.set_file_status(&file, code);
             } else {
                 self.set_file_status(&file, "42"); // CLOSE of a file not open
             }
@@ -1385,8 +1491,30 @@ impl Interpreter {
         Ok(())
     }
 
-    fn exec_write(&mut self, record: &Expr, from: Option<&Expr>, _span: Span)
-        -> Result<(), RuntimeError>
+    /// Run the `INVALID KEY` / `NOT INVALID KEY` imperative phrase of a keyed
+    /// file verb according to its resulting status. Success is "00" (or "02",
+    /// duplicate-alternate created) → NOT INVALID KEY; anything else → INVALID KEY.
+    fn run_key_outcome(
+        &mut self,
+        code: &str,
+        invalid_key: &[Stmt],
+        not_invalid_key: &[Stmt],
+    ) -> Result<(), RuntimeError> {
+        if code == "00" || code == "02" {
+            self.exec_stmts(not_invalid_key)
+        } else {
+            self.exec_stmts(invalid_key)
+        }
+    }
+
+    fn exec_write(
+        &mut self,
+        record: &Expr,
+        from: Option<&Expr>,
+        invalid_key: &[Stmt],
+        not_invalid_key: &[Stmt],
+        _span: Span,
+    ) -> Result<(), RuntimeError>
     {
         use std::io::Write as _;
         // WRITE rec FROM src ⇒ move src into the record buffer first.
@@ -1398,80 +1526,250 @@ impl Interpreter {
             tracing::warn!("WRITE: record '{}' is not part of any FD", rec_name);
             return Ok(());
         };
-        let bytes = self.env.get_string(&rec_name).unwrap_or_default();
-
-        let res = if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&file) {
-            match org {
-                FileOrganization::LineSequential =>
-                    writeln!(w, "{}", bytes.trim_end()),
-                _ => w.write_all(bytes.as_bytes()),
-            }
-        } else {
-            tracing::warn!("WRITE to '{}' which is not open for output", file);
-            self.set_file_status(&file, "48");
-            return Ok(());
+        // Materialize the record buffer from its subfields (works for group and
+        // elementary records alike).
+        let buf = match self.file_specs.get(&file) {
+            Some(spec) => spec.layout.materialize(&self.env),
+            None => self.env.get_string(&rec_name).unwrap_or_default().into_bytes(),
         };
 
-        match res {
-            Ok(()) => self.set_file_status(&file, "00"),
-            Err(e) => { tracing::warn!("WRITE failed: {}", e); self.set_file_status(&file, "30"); }
-        }
+        let code = match self.open_files.get_mut(&file) {
+            // ── INDEXED ────────────────────────────────────────────────────
+            Some(OpenFile::Indexed(engine)) => engine.write(&buf),
+            // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
+            Some(OpenFile::Writer { w, org }) => {
+                let r = match org {
+                    FileOrganization::LineSequential => {
+                        let s = String::from_utf8_lossy(&buf);
+                        writeln!(w, "{}", s.trim_end())
+                    }
+                    _ => w.write_all(&buf),
+                };
+                match r {
+                    Ok(()) => "00",
+                    Err(e) => { tracing::warn!("WRITE failed: {e}"); "30" }
+                }
+            }
+            _ => {
+                tracing::warn!("WRITE to '{}' which is not open for output", file);
+                "48"
+            }
+        };
+        self.set_file_status(&file, code);
+        self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_read(
         &mut self,
         file_name: &str,
         into: Option<&Expr>,
+        key: Option<&Expr>,
+        direction: cobolt_ast::stmt::ReadDirection,
         at_end: &[Stmt],
         not_at_end: &[Stmt],
+        invalid_key: &[Stmt],
+        not_invalid_key: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
         use std::io::BufRead as _;
+        use cobolt_ast::stmt::ReadDirection;
+        use crate::indexed::{status, ReadDir};
 
         let file = file_name.to_ascii_uppercase();
-        let rec_name = match self.file_specs.get(&file) {
-            Some(spec) => spec.record_names.first().cloned(),
-            None => {
-                tracing::warn!("READ: unknown file '{}'", file_name);
-                return Ok(());
-            }
+        let Some(spec) = self.file_specs.get(&file).cloned() else {
+            tracing::warn!("READ: unknown file '{}'", file_name);
+            return Ok(());
+        };
+        let rec_name = spec.record_names.first().cloned();
+
+        // Pre-compute indexed inputs (immutable borrows) before touching the
+        // mutable handle: random vs sequential, the key field value, and the
+        // key of reference (primary = 0, else the matching alternate index).
+        // NEXT/PREVIOUS force sequential; an unqualified READ is random by
+        // RECORD KEY under RANDOM or DYNAMIC access, sequential otherwise.
+        let sequential_dir = direction != ReadDirection::Default;
+        let random = !sequential_dir
+            && (key.is_some() || matches!(spec.access, AccessMode::Random | AccessMode::Dynamic));
+        let read_dir = if direction == ReadDirection::Previous { ReadDir::Previous } else { ReadDir::Next };
+        let key_field = key.map(|e| self.expr_to_name(e)).or_else(|| spec.record_key.clone());
+        let key_bytes = key_field.as_ref().and_then(|kf| spec.layout.field_value(&self.env, kf));
+        let kor = match &key_field {
+            Some(kf) if spec.record_key.as_deref() == Some(kf.as_str()) => 0,
+            Some(kf) => spec
+                .alternate_keys
+                .iter()
+                .position(|ak| ak.field.eq_ignore_ascii_case(kf))
+                .map(|i| i + 1)
+                .unwrap_or(0),
+            None => 0,
         };
 
-        // Read one record into an owned buffer, then drop the handle borrow.
-        let mut line = String::new();
-        let read_n = if let Some(OpenFile::Reader { r, .. }) = self.open_files.get_mut(&file) {
-            r.read_line(&mut line)
-        } else {
-            self.set_file_status(&file, "47"); // READ on file not open for input
-            Ok(0)
-        };
-
-        match read_n {
-            Ok(0) => {
-                self.set_file_status(&file, "10"); // end of file
-                self.exec_stmts(at_end)?;
-            }
-            Ok(_) => {
-                while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
-                if let Some(rn) = &rec_name {
-                    self.env.set_str(rn, &line);
-                    if let Some(tgt) = into {
-                        let tname = self.expr_to_name(tgt);
-                        if let Some(v) = self.env.get(rn).cloned() {
-                            self.env.set(&tname, v);
-                        }
+        // Fetch one record + a status code, dispatched by organization.
+        let (buf, code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
+            Some(OpenFile::Indexed(engine)) => {
+                if random {
+                    engine.set_key_of_reference(kor);
+                    match &key_bytes {
+                        Some(kb) => engine.read_key(kb),
+                        None => (None, status::NOT_FOUND),
                     }
+                } else {
+                    engine.read_seq(read_dir)
                 }
-                self.set_file_status(&file, "00");
-                self.exec_stmts(not_at_end)?;
             }
-            Err(e) => {
-                tracing::warn!("READ failed: {}", e);
-                self.set_file_status(&file, "30");
-                self.exec_stmts(at_end)?;
+            Some(OpenFile::Reader { r, .. }) => {
+                let mut line = String::new();
+                match r.read_line(&mut line) {
+                    Ok(0) => (None, status::EOF),
+                    Ok(_) => {
+                        while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
+                        (Some(line.into_bytes()), status::OK)
+                    }
+                    Err(e) => { tracing::warn!("READ failed: {e}"); (None, "30") }
+                }
             }
+            _ => (None, status::NOT_OPEN_INPUT),
+        };
+
+        self.set_file_status(&file, code);
+        // Pick the success / failure handler. Random reads branch on INVALID KEY,
+        // sequential reads on AT END; fall back to whichever phrase was supplied.
+        fn pick<'a>(primary: &'a [Stmt], fallback: &'a [Stmt]) -> &'a [Stmt] {
+            if !primary.is_empty() { primary } else { fallback }
         }
+        let (ok_branch, fail_branch): (&[Stmt], &[Stmt]) = if random {
+            (pick(not_invalid_key, not_at_end), pick(invalid_key, at_end))
+        } else {
+            (pick(not_at_end, not_invalid_key), pick(at_end, invalid_key))
+        };
+        if code == status::OK {
+            if let Some(b) = &buf {
+                spec.layout.distribute(&mut self.env, b);
+                if let Some(tgt) = into {
+                    // READ … INTO: also deliver the record image to the target.
+                    let s = String::from_utf8_lossy(b).into_owned();
+                    let tname = self.expr_to_name(tgt);
+                    self.env.set_str(&tname, &s);
+                }
+            }
+            let _ = rec_name;
+            self.exec_stmts(ok_branch)?;
+        } else {
+            self.exec_stmts(fail_branch)?;
+        }
+        Ok(())
+    }
+
+    // ── REWRITE / DELETE / START (dispatched by file organization) ──────────────
+
+    fn exec_rewrite(
+        &mut self,
+        record: &Expr,
+        from: Option<&Expr>,
+        invalid_key: &[Stmt],
+        not_invalid_key: &[Stmt],
+        _span: Span,
+    ) -> Result<(), RuntimeError>
+    {
+        if let Some(src) = from {
+            self.exec_move(src, std::slice::from_ref(record))?;
+        }
+        let rec_name = self.expr_to_name(record);
+        let Some(file) = self.record_to_file.get(&rec_name).cloned() else {
+            tracing::warn!("REWRITE: record '{}' is not part of any FD", rec_name);
+            return Ok(());
+        };
+        let Some(spec) = self.file_specs.get(&file).cloned() else { return Ok(()); };
+        let buf = spec.layout.materialize(&self.env);
+        let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
+        let code = match self.open_files.get_mut(&file) {
+            Some(OpenFile::Indexed(engine)) => {
+                engine.rewrite(&buf, if random { Some(buf.as_slice()) } else { None })
+            }
+            Some(_) => {
+                tracing::warn!("REWRITE on a non-indexed file '{}' is not yet supported", file);
+                "30"
+            }
+            None => crate::indexed::status::NOT_OPEN_IO,
+        };
+        self.set_file_status(&file, code);
+        self.run_key_outcome(code, invalid_key, not_invalid_key)?;
+        Ok(())
+    }
+
+    fn exec_delete(
+        &mut self,
+        file_name: &str,
+        invalid_key: &[Stmt],
+        not_invalid_key: &[Stmt],
+        _span: Span,
+    ) -> Result<(), RuntimeError> {
+        use crate::indexed::status;
+        let file = file_name.to_ascii_uppercase();
+        let Some(spec) = self.file_specs.get(&file).cloned() else { return Ok(()); };
+        let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
+        // RANDOM DELETE addresses the record by the current RECORD KEY value;
+        // sequential/dynamic DELETE removes the current (last read) record.
+        let key_bytes = spec.record_key.as_deref().and_then(|k| spec.layout.field_value(&self.env, k));
+        let code = match self.open_files.get_mut(&file) {
+            Some(OpenFile::Indexed(engine)) => {
+                engine.delete(if random { key_bytes.as_deref() } else { None })
+            }
+            Some(_) => {
+                tracing::warn!("DELETE on a non-indexed file '{}' is not valid", file);
+                "37"
+            }
+            None => status::NOT_OPEN_IO,
+        };
+        self.set_file_status(&file, code);
+        self.run_key_outcome(code, invalid_key, not_invalid_key)?;
+        Ok(())
+    }
+
+    fn exec_start(
+        &mut self,
+        file_name: &str,
+        key: Option<&(cobolt_ast::expr::CmpOp, Expr)>,
+        invalid_key: &[Stmt],
+        not_invalid_key: &[Stmt],
+        _span: Span,
+    ) -> Result<(), RuntimeError> {
+        use crate::indexed::status;
+        let file = file_name.to_ascii_uppercase();
+        let Some(spec) = self.file_specs.get(&file).cloned() else { return Ok(()); };
+        let (op, key_field) = match key {
+            Some((op, e)) => (*op, self.expr_to_name(e)),
+            None => (cobolt_ast::expr::CmpOp::Eq, spec.record_key.clone().unwrap_or_default()),
+        };
+        let key_bytes = spec.layout.field_value(&self.env, &key_field);
+        let kor = if spec.record_key.as_deref() == Some(key_field.as_str()) {
+            0
+        } else {
+            spec.alternate_keys
+                .iter()
+                .position(|ak| ak.field.eq_ignore_ascii_case(&key_field))
+                .map(|i| i + 1)
+                .unwrap_or(0)
+        };
+        let code = match self.open_files.get_mut(&file) {
+            Some(OpenFile::Indexed(engine)) => {
+                engine.set_key_of_reference(kor);
+                match &key_bytes {
+                    Some(kb) => engine.start(map_start_op(op), kb),
+                    None => status::NOT_FOUND,
+                }
+            }
+            Some(_) => {
+                tracing::warn!("START on a non-indexed file '{}' is not valid", file);
+                "30"
+            }
+            None => status::NOT_OPEN_INPUT,
+        };
+        self.set_file_status(&file, code);
+        // START's "record not found" status (23) is the invalid-key condition.
+        self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         Ok(())
     }
 

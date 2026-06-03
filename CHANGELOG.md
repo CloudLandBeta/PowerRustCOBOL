@@ -8,6 +8,75 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.2.0] — 2026-06-03
+
+A COBOL-85 language milestone: exact numeric arithmetic, numeric-edited
+PICTUREs, `COPY`/`REPLACE` copybooks, and a full **INDEXED (ISAM) file engine**.
+The IDE interface is unchanged; all generated COBOL source stays in English.
+
+### Indexed (ISAM) files — new
+
+- **Built-in keyed-file engine** (`cobolt-runtime/src/indexed.rs`) — a
+  dependency-free ISAM store: primary `RECORD KEY` plus
+  `ALTERNATE RECORD KEY [WITH DUPLICATES]`, records held in ascending key order,
+  a journaled write log with `COMMIT` / `ROLLBACK`, and record locking. Its own
+  compact on-disk container (`PRCISAM1`) — no external libraries.
+- **Verbs dispatched by `ORGANIZATION`.** `OPEN` / `CLOSE` / `READ` / `WRITE`
+  are wired to each file's declared organization (from its `SELECT`), not a
+  single hard-coded type, so SEQUENTIAL / LINE SEQUENTIAL / INDEXED share the
+  common verbs while each keeps its own semantics. (`interpreter.rs`,
+  `cobolt-runtime/src/files.rs` `RecordLayout` materialize/distribute.)
+- **Indexed verb set executes**: `OPEN INPUT/OUTPUT/I-O/EXTEND`,
+  `WRITE`, random `READ` by `RECORD KEY`, `READ … NEXT / PREVIOUS`
+  (sequential), `REWRITE`, `DELETE`, and `START … KEY IS = / > / >= / < / <=`
+  (incl. `GREATER/LESS THAN`, `NOT LESS THAN`).
+- **`ACCESS MODE SEQUENTIAL / RANDOM / DYNAMIC`** now all execute (an
+  unqualified `READ` is random under RANDOM/DYNAMIC; `NEXT/PREVIOUS` force
+  sequential).
+- **`INVALID KEY` / `NOT INVALID KEY`** phrases added to `READ`/`WRITE`/
+  `REWRITE`/`DELETE`/`START`, alongside full **FILE STATUS** codes
+  (00/02/10/22/23/…).
+- **Selectable engine** — `rcrun --indexed-engine <rust|rm-cobol85|fujitsu>`
+  (or `-I`) and the `COBOL_INDEXED_ENGINE` environment variable choose the ISAM
+  engine. All engines are behaviour-compatible; `rust` is the default and
+  `rm-cobol85` / `fujitsu` currently delegate to it pending their native
+  container formats.
+- Verified by [`tests/cobol/indexed-files/idxbasic.cbl`](tests/cobol/indexed-files/idxbasic.cbl)
+  (13-case self-checking suite) plus `cobolt-runtime` integration and unit tests.
+
+### Exact numeric arithmetic
+
+- `ADD` / `SUBTRACT` / `MULTIPLY` / `DIVIDE` / `COMPUTE` run on an `i128`
+  fixed-point mantissa (no `f64` round-trips): exact to 18-digit standard and
+  31-digit extended precision, with `ROUNDED` (half away from zero) and
+  `ON SIZE ERROR` / `NOT ON SIZE ERROR`. Decimal literals are carried exactly
+  from the lexer. Numeric `DISPLAY` renders at full PIC width.
+  Verified by [`tests/cobol/numeric-precision/numprec.cbl`](tests/cobol/numeric-precision/numprec.cbl).
+
+### Numeric-edited PICTUREs
+
+- Edit engine (`cobolt-runtime/src/numedit.rs`): `Z` suppression, `*`
+  check-protection, fixed/floating `$` and `+`/`-`, `,`/`.` insertion,
+  `B`/`0`/`/` insertion, and `CR`/`DB`, applied on `MOVE`/`DISPLAY` into an
+  edited field.
+- **`DECIMAL-POINT IS COMMA`** — comma decimal separator for literals and the
+  swapped `.`/`,` roles in edited PICs.
+  Verified by [`tests/cobol/numeric-edited-pic/`](tests/cobol/numeric-edited-pic/).
+
+### COPY / REPLACE copybooks
+
+- Preprocessor (`cobolt-runtime/src/copybook.rs`) expands
+  `COPY name [OF lib] [REPLACING ==a== BY ==b== …]` (pseudo-text + word
+  replacement), resolves copybooks beside the source, expands nested `COPY`
+  recursively, and applies `REPLACE … BY …` / `REPLACE OFF`.
+  Verified by [`tests/cobol/copy-replace/`](tests/cobol/copy-replace/).
+
+### Tests
+
+- `tests/cobol/` reorganized into per-purpose subfolders
+  (`numeric-precision/`, `numeric-edited-pic/`, `copy-replace/`,
+  `indexed-files/`).
+
 ## [PowerRustCOBOL 1.1.0] — 2026-06-01
 
 ### Form Designer & rendering

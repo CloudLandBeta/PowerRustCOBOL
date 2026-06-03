@@ -12,7 +12,7 @@
 use cobolt_ast::expr::{CmpOp, Condition, Expr, Literal};
 use cobolt_ast::stmt::{
     AcceptSource, AdvancingClause, CallArg, EvalSubject, ExecRustBinding, OpenMode,
-    PerformTarget, Stmt, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
+    PerformTarget, ReadDirection, Stmt, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
 };
 use cobolt_lexer::Token;
 
@@ -772,6 +772,32 @@ fn is_word(tok: &Token, w: &str) -> bool {
 
 /// Consume an `AT END` phrase — either the single `AtEnd` token or the two
 /// words `AT` `END`. Returns whether it was present.
+/// Consume an `INVALID KEY` phrase (`InvalidKey` [`KEY`]).
+fn eat_invalid_key(p: &mut Parser) -> bool {
+    if p.at(&Token::InvalidKey) {
+        p.advance(); // INVALID
+        p.eat(&Token::Key); // optional trailing KEY word
+        return true;
+    }
+    false
+}
+
+/// Consume a `NOT INVALID KEY` phrase (`NotInvalidKey`, or `NOT INVALID` [`KEY`]).
+fn eat_not_invalid_key(p: &mut Parser) -> bool {
+    if p.at(&Token::NotInvalidKey) {
+        p.advance();
+        p.eat(&Token::Key);
+        return true;
+    }
+    if p.at(&Token::Not) && matches!(p.peek_at(1), Token::InvalidKey) {
+        p.advance(); // NOT
+        p.advance(); // INVALID
+        p.eat(&Token::Key);
+        return true;
+    }
+    false
+}
+
 fn eat_at_end(p: &mut Parser) -> bool {
     if p.eat(&Token::AtEnd) {
         return true;
@@ -811,12 +837,18 @@ fn parse_read(p: &mut Parser) -> Stmt {
     let file = p.expect_identifier("READ file name");
     p.eat(&Token::Record); // optional RECORD keyword
 
-    let key = if p.at(&Token::Key) {
+    // Optional NEXT / PREVIOUS direction (plain words, not keywords). Either may
+    // be preceded/followed by the noise word RECORD.
+    let direction = if is_word(p.peek(), "NEXT") {
         p.advance();
-        p.eat(&Token::Is);
-        Some(parse_expr(p))
+        p.eat(&Token::Record);
+        ReadDirection::Next
+    } else if is_word(p.peek(), "PREVIOUS") {
+        p.advance();
+        p.eat(&Token::Record);
+        ReadDirection::Previous
     } else {
-        None
+        ReadDirection::Default
     };
 
     let into = if p.at(&Token::Into) {
@@ -826,23 +858,32 @@ fn parse_read(p: &mut Parser) -> Stmt {
         None
     };
 
-    // AT END … [NOT AT END …]. `AT END` may arrive as the single `AtEnd` token
-    // or as the two words `AT` + `END`; likewise `NOT AT END`.
-    let at_end = if eat_at_end(p) {
-        parse_stmts(p, &|tok| matches!(tok, Token::Not | Token::NotAtEnd | Token::EndRead))
+    let key = if p.at(&Token::Key) {
+        p.advance();
+        p.eat(&Token::Is);
+        Some(parse_expr(p))
     } else {
-        Vec::new()
+        None
     };
 
-    let not_at_end = if eat_not_at_end(p) {
-        parse_stmts(p, &|tok| matches!(tok, Token::EndRead))
-    } else {
-        Vec::new()
-    };
+    // AT END … [NOT AT END …]. `AT END` may arrive as the single `AtEnd` token
+    // or as the two words `AT` + `END`; likewise `NOT AT END`.
+    let stop = |tok: &Token| matches!(
+        tok,
+        Token::Not | Token::NotAtEnd | Token::NotInvalidKey | Token::InvalidKey | Token::EndRead
+    );
+    let at_end = if eat_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_at_end = if eat_not_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    // INVALID KEY / NOT INVALID KEY (random reads use these instead of AT END).
+    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
 
     p.eat(&Token::EndRead);
 
-    Stmt::Read { file, into, key, at_end, not_at_end, span }
+    Stmt::Read {
+        file, into, key, direction,
+        at_end, not_at_end, invalid_key, not_invalid_key, span,
+    }
 }
 
 // ── WRITE ─────────────────────────────────────────────────────────────────────
@@ -872,9 +913,13 @@ fn parse_write(p: &mut Parser) -> Stmt {
         None
     };
 
+    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndWrite);
+    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+
     p.eat(&Token::EndWrite);
 
-    Stmt::Write { record, from, advancing, span }
+    Stmt::Write { record, from, advancing, invalid_key, not_invalid_key, span }
 }
 
 // ── REWRITE ───────────────────────────────────────────────────────────────────
@@ -884,8 +929,11 @@ fn parse_rewrite(p: &mut Parser) -> Stmt {
     p.advance(); // REWRITE
     let record = parse_expr(p);
     let from = if p.at(&Token::From) { p.advance(); Some(parse_expr(p)) } else { None };
+    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndRewrite);
+    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
     p.eat(&Token::EndRewrite);
-    Stmt::Rewrite { record, from, span }
+    Stmt::Rewrite { record, from, invalid_key, not_invalid_key, span }
 }
 
 // ── DELETE ────────────────────────────────────────────────────────────────────
@@ -895,8 +943,11 @@ fn parse_delete(p: &mut Parser) -> Stmt {
     p.advance(); // DELETE
     let file = p.expect_identifier("DELETE file name");
     p.eat(&Token::Record);
+    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndDelete);
+    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
     p.eat(&Token::EndDelete);
-    Stmt::Delete { file, span }
+    Stmt::Delete { file, invalid_key, not_invalid_key, span }
 }
 
 // ── START ─────────────────────────────────────────────────────────────────────
@@ -916,8 +967,11 @@ fn parse_start(p: &mut Parser) -> Stmt {
         None
     };
 
+    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndStart);
+    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
     p.eat(&Token::EndStart);
-    Stmt::Start { file, key, span }
+    Stmt::Start { file, key, invalid_key, not_invalid_key, span }
 }
 
 fn parse_start_key_op(p: &mut Parser) -> CmpOp {
@@ -927,9 +981,21 @@ fn parse_start_key_op(p: &mut Parser) -> CmpOp {
         p.eat(&Token::To);
         if negated { CmpOp::Ne } else { CmpOp::Eq }
     } else if p.eat(&Token::Greater) {
-        if negated { CmpOp::Le } else { CmpOp::Gt }
+        p.eat(&Token::Than);
+        // GREATER THAN OR EQUAL TO → ≥
+        if p.eat(&Token::Or) {
+            p.eat(&Token::Equal);
+            p.eat(&Token::To);
+            if negated { CmpOp::Lt } else { CmpOp::Ge }
+        } else if negated { CmpOp::Le } else { CmpOp::Gt }
     } else if p.eat(&Token::Less) {
-        if negated { CmpOp::Ge } else { CmpOp::Lt }
+        p.eat(&Token::Than);
+        // LESS THAN OR EQUAL TO → ≤
+        if p.eat(&Token::Or) {
+            p.eat(&Token::Equal);
+            p.eat(&Token::To);
+            if negated { CmpOp::Gt } else { CmpOp::Le }
+        } else if negated { CmpOp::Ge } else { CmpOp::Lt }
     } else if p.at(&Token::Eq) {
         p.advance();
         if negated { CmpOp::Ne } else { CmpOp::Eq }
@@ -939,6 +1005,12 @@ fn parse_start_key_op(p: &mut Parser) -> CmpOp {
     } else if p.at(&Token::Lt) {
         p.advance();
         if negated { CmpOp::Ge } else { CmpOp::Lt }
+    } else if p.at(&Token::GtEq) {
+        p.advance();
+        if negated { CmpOp::Lt } else { CmpOp::Ge }
+    } else if p.at(&Token::LtEq) {
+        p.advance();
+        if negated { CmpOp::Gt } else { CmpOp::Le }
     } else {
         CmpOp::Eq
     }

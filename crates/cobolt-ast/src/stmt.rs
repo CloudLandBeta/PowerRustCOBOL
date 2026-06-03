@@ -22,6 +22,19 @@ pub enum OpenMode {
     Extend,
 }
 
+/// Direction of a sequential READ on an indexed/relative file.
+///
+/// `Default` is an unqualified `READ` — random (by RECORD KEY) under RANDOM or
+/// DYNAMIC access, sequential under SEQUENTIAL access. `Next`/`Previous` force
+/// sequential retrieval (the only forms valid for DYNAMIC sequential reads).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ReadDirection {
+    #[default]
+    Default,
+    Next,
+    Previous,
+}
+
 /// How an argument is passed in a CALL statement.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CallArg {
@@ -350,41 +363,53 @@ pub enum Stmt {
         span: Span,
     },
 
-    /// `READ file [INTO target] [AT END …] [NOT AT END …]`
+    /// `READ file [NEXT|PREVIOUS] [INTO target] [KEY IS k]`
+    /// `[AT END …] [NOT AT END …] [INVALID KEY …] [NOT INVALID KEY …]`
     Read {
         file: String,
         into: Option<Expr>,
         key: Option<Expr>,
+        direction: ReadDirection,
         at_end: Vec<Stmt>,
         not_at_end: Vec<Stmt>,
+        invalid_key: Vec<Stmt>,
+        not_invalid_key: Vec<Stmt>,
         span: Span,
     },
 
-    /// `WRITE record [FROM source] [ADVANCING …]`
+    /// `WRITE record [FROM source] [ADVANCING …] [INVALID KEY …]`
     Write {
         record: Expr,
         from: Option<Expr>,
         advancing: Option<AdvancingClause>,
+        invalid_key: Vec<Stmt>,
+        not_invalid_key: Vec<Stmt>,
         span: Span,
     },
 
-    /// `REWRITE record [FROM source]`
+    /// `REWRITE record [FROM source] [INVALID KEY …]`
     Rewrite {
         record: Expr,
         from: Option<Expr>,
+        invalid_key: Vec<Stmt>,
+        not_invalid_key: Vec<Stmt>,
         span: Span,
     },
 
-    /// `DELETE file`
+    /// `DELETE file [INVALID KEY …]`
     Delete {
         file: String,
+        invalid_key: Vec<Stmt>,
+        not_invalid_key: Vec<Stmt>,
         span: Span,
     },
 
-    /// `START file [KEY op data-item]`
+    /// `START file [KEY op data-item] [INVALID KEY …]`
     Start {
         file: String,
         key: Option<(CmpOp, Expr)>,
+        invalid_key: Vec<Stmt>,
+        not_invalid_key: Vec<Stmt>,
         span: Span,
     },
 
