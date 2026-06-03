@@ -189,10 +189,14 @@ honest map of where things stand.
   away from zero) and `ON SIZE ERROR` / `NOT ON SIZE ERROR` are honored, and
   decimal literals are carried exactly from the lexer. Verified end-to-end by the
   COBOL suite at [`tests/cobol/numprec.cbl`](tests/cobol/numprec.cbl).
+- **Numeric-edited PICTUREs** — the edit engine applies `Z` zero-suppression,
+  `*` check-protection, fixed and floating `$`, fixed and floating `+`/`-` signs,
+  `,` and `.` insertion, `B`/`0`/`/` insertion, and `CR`/`DB` on `MOVE`/`DISPLAY`
+  into an edited field (e.g. `PIC ZZZ,ZZ9.99`, `$$$,$$9.99`, `9(6).99CR`). Plain
+  numeric `DISPLAY` is rendered at full PIC width with leading zeros. Verified by
+  [`tests/cobol/numedit.cbl`](tests/cobol/numedit.cbl).
 
 ### 🚧 Partial / in progress
-- **Numeric-edited PICTUREs** (`Z`, `$`, `,`, `B`, `0`, `/`, CR/DB…) — limited editing.
-  (`DISPLAY` of plain numeric items is not yet zero-padded to PIC width.)
 - **`COPY` / `REPLACE`** copybooks — limited.
 - **`ACCESS MODE RANDOM/DYNAMIC`** — parsed, but only sequential access executes today.
 - **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed

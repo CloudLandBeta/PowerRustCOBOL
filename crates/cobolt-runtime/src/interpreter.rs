@@ -1093,8 +1093,16 @@ impl Interpreter {
     fn exec_display(&mut self, operands: &[Expr], no_advancing: bool) -> Result<(), RuntimeError> {
         let mut out = String::new();
         for op in operands {
-            let val = self.eval_expr(op, op.span())?;
-            out.push_str(&val.as_display_string());
+            // A bare numeric data item displays as its full fixed-width digit
+            // string (leading zeros per PIC); everything else renders verbatim.
+            let s = match op {
+                Expr::Identifier(name, _) => match self.env.display_string(name) {
+                    Some(s) => s,
+                    None => self.eval_expr(op, op.span())?.as_display_string(),
+                },
+                _ => self.eval_expr(op, op.span())?.as_display_string(),
+            };
+            out.push_str(&s);
         }
         // GUI mode: send through the display channel so the IDE output panel receives it.
         if let Some(tx) = &self.display_tx {

@@ -40,6 +40,7 @@ pub mod error;
 pub mod exec_rust;
 pub mod http_runtime;
 pub mod interpreter;
+pub mod numedit;
 pub mod objects;
 pub mod value;
 

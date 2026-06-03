@@ -84,7 +84,8 @@ fn exact_decimal_addition_no_float_drift() {
          \x20          COMPUTE C = A + B\n\
          \x20          DISPLAY C",
     ));
-    assert_eq!(out, vec!["0.30"], "0.10 + 0.20 must be exactly 0.30");
+    // 0.30 in PIC 9(5)V99 → full fixed-width digit string "0000030" (no point).
+    assert_eq!(out, vec!["0000030"], "0.10 + 0.20 must be exactly 0.30");
 }
 
 #[test]
@@ -110,7 +111,8 @@ fn thirty_one_digit_addition_is_exact() {
          \x20          COMPUTE C = A + B\n\
          \x20          DISPLAY C",
     ));
-    assert_eq!(out, vec!["123456789012345679.1234567890124"]);
+    // 123456789012345679.1234567890124 as a 31-digit fixed-width string.
+    assert_eq!(out, vec!["1234567890123456791234567890124"]);
 }
 
 #[test]
@@ -126,7 +128,9 @@ fn thirty_one_digit_multiply_uses_256bit_intermediate() {
          \x20          COMPUTE C = A * B\n\
          \x20          DISPLAY C",
     ));
-    assert_eq!(out, vec!["2000000000000.0000000000002"]);
+    // 2000000000000.0000000000002 as a 31-digit fixed-width string
+    // (18 integer + 13 fractional digits, implied point not shown).
+    assert_eq!(out, vec!["0000020000000000000000000000002"]);
 }
 
 #[test]
@@ -137,7 +141,8 @@ fn rounded_division_rounds_half_away_from_zero() {
         "           COMPUTE C ROUNDED = 2 / 3\n\
          \x20          DISPLAY C",
     ));
-    assert_eq!(out, vec!["0.667"]);
+    // 0.667 in PIC 9V999 → "0667".
+    assert_eq!(out, vec!["0667"]);
 }
 
 #[test]
@@ -148,7 +153,8 @@ fn truncated_division_truncates() {
         "           COMPUTE C = 2 / 3\n\
          \x20          DISPLAY C",
     ));
-    assert_eq!(out, vec!["0.666"]);
+    // 0.666 in PIC 9V999 → "0666".
+    assert_eq!(out, vec!["0666"]);
 }
 
 #[test]
@@ -177,7 +183,35 @@ fn on_size_error_fires_and_leaves_field_unchanged() {
          \x20          DISPLAY F\n\
          \x20          DISPLAY C",
     ));
-    assert_eq!(out, vec!["Y".to_string(), "7".to_string()]);
+    // C (PIC 9(3), VALUE 7) is left unchanged → "007".
+    assert_eq!(out, vec!["Y".to_string(), "007".to_string()]);
+}
+
+#[test]
+fn display_zero_pads_numeric_to_pic_width() {
+    let out = run_capture(&program(
+        "       01 A PIC 9(4) VALUE 5.\n\
+         \x20      01 B PIC 9(6)V99 VALUE 1234.5.\n\
+         \x20      01 Z PIC 9(4) VALUE ZERO.",
+        "           DISPLAY A\n\
+         \x20          DISPLAY B\n\
+         \x20          DISPLAY Z",
+    ));
+    // Full fixed-width digit strings, implied decimal point not shown.
+    assert_eq!(out, vec!["0005", "00123450", "0000"]);
+}
+
+#[test]
+fn display_signed_negative_uses_leading_minus_and_padding() {
+    let out = run_capture(&program(
+        "       01 C PIC S9(4)V99 VALUE -12.30.\n\
+         \x20      01 D PIC S9(4)V99 VALUE ZERO.",
+        "           DISPLAY C\n\
+         \x20          COMPUTE D = -5.25\n\
+         \x20          DISPLAY D",
+    ));
+    // Negative VALUE literal is applied; signed DISPLAY pads and shows '-'.
+    assert_eq!(out, vec!["-001230", "-000525"]);
 }
 
 #[test]
