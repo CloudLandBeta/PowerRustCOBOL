@@ -8,7 +8,7 @@
 //! 31-digit semantics, ROUNDED, and ON SIZE ERROR).
 //!
 //! The flagship case is `numprec.cbl` — the project's COBOL-85 numeric
-//! precision suite at `tests/cobol/numprec.cbl` — which is executed end-to-end
+//! precision suite at `tests/cobol/numeric-precision/numprec.cbl` — which is executed end-to-end
 //! and asserted to report `RESULT : PASS`. The remaining tests pin individual
 //! behaviours by capturing `DISPLAY` output.
 
@@ -57,7 +57,7 @@ fn program(working_storage: &str, procedure: &str) -> String {
 
 #[test]
 fn numprec_suite_reports_pass() {
-    let src = include_str!("../../../tests/cobol/numprec.cbl");
+    let src = include_str!("../../../tests/cobol/numeric-precision/numprec.cbl");
     let out = run_capture(src).join("\n");
     assert!(
         out.contains("RESULT       : PASS"),

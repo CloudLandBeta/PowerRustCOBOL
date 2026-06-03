@@ -16,7 +16,7 @@ use cobolt_parser::{parse, Severity};
 use cobolt_runtime::Interpreter;
 
 fn cobol_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/cobol/copy-replace")
 }
 
 /// Read a `.cbl` from tests/cobol, expand copybooks (resolved from that dir),

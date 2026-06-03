@@ -6,7 +6,7 @@
 
 //! Integration tests for numeric-edited PICTUREs (the `numedit` edit engine):
 //! `Z`/`*` suppression, fixed/floating `$`, floating sign, `,`/`.` insertion,
-//! and `CR`/`DB`. The flagship case runs `tests/cobol/numedit.cbl` end-to-end.
+//! and `CR`/`DB`. The flagship case runs `tests/cobol/numeric-edited-pic/numedit.cbl` end-to-end.
 
 use std::sync::mpsc;
 
@@ -52,7 +52,7 @@ fn edit(pic: &str, value_decl: &str, mover: &str) -> String {
 
 #[test]
 fn numedit_suite_reports_pass() {
-    let src = include_str!("../../../tests/cobol/numedit.cbl");
+    let src = include_str!("../../../tests/cobol/numeric-edited-pic/numedit.cbl");
     let out = run_capture(src).join("\n");
     assert!(out.contains("RESULT       : PASS"), "numedit suite failed:\n{out}");
     assert_eq!(out.matches("PASS T0").count(), 11, "expected 11 PASS lines:\n{out}");
@@ -62,7 +62,7 @@ fn numedit_suite_reports_pass() {
 fn numeddot_suite_reports_pass() {
     // The full regular-decimal-point suite: edit symbols × source kinds
     // (DISPLAY/COMP/COMP-1..4/COMP-X/SIGN SEPARATE/arithmetic) + BLANK WHEN ZERO.
-    let src = include_str!("../../../tests/cobol/numeddot.cbl");
+    let src = include_str!("../../../tests/cobol/numeric-edited-pic/numeddot.cbl");
     let out = run_capture(src).join("\n");
     assert!(out.contains("RESULT       : PASS"), "numeddot suite failed:\n{out}");
     assert!(!out.contains("FAIL T0"), "numeddot reported failures:\n{out}");
@@ -73,7 +73,7 @@ fn numeddot_suite_reports_pass() {
 fn numedcom_suite_reports_pass() {
     // The DECIMAL-POINT IS COMMA suite: comma decimal literals, swapped edited
     // PIC roles ($ZZ.ZZ9,99-, 999,99, 9.999), and all source kinds.
-    let src = include_str!("../../../tests/cobol/numedcom.cbl");
+    let src = include_str!("../../../tests/cobol/numeric-edited-pic/numedcom.cbl");
     let out = run_capture(src).join("\n");
     assert!(out.contains("RESULT       : PASS"), "numedcom suite failed:\n{out}");
     assert!(!out.contains("FAIL T0"), "numedcom reported failures:\n{out}");
