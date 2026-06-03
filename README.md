@@ -195,9 +195,13 @@ honest map of where things stand.
   into an edited field (e.g. `PIC ZZZ,ZZ9.99`, `$$$,$$9.99`, `9(6).99CR`). Plain
   numeric `DISPLAY` is rendered at full PIC width with leading zeros. Verified by
   [`tests/cobol/numedit.cbl`](tests/cobol/numedit.cbl).
+- **`COPY` / `REPLACE` copybooks** — a preprocessor expands `COPY name [OF lib]
+  [REPLACING ==a== BY ==b== …]` (pseudo-text and word replacement), resolves
+  copybooks next to the source (`.cpy`/`.cbl`/`.cob`/…, case-insensitive),
+  expands nested `COPY` recursively, and applies `REPLACE … BY …` / `REPLACE
+  OFF` to following text. Verified by [`tests/cobol/copytest.cbl`](tests/cobol/copytest.cbl).
 
 ### 🚧 Partial / in progress
-- **`COPY` / `REPLACE`** copybooks — limited.
 - **`ACCESS MODE RANDOM/DYNAMIC`** — parsed, but only sequential access executes today.
 - **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed
   (the visual form designer supersedes it).

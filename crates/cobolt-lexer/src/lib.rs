@@ -47,6 +47,7 @@
 
 // ── Public modules ────────────────────────────────────────────────────────────
 
+pub mod copybook;
 pub mod keywords;
 pub mod lexer;
 pub mod source;
@@ -55,6 +56,7 @@ pub mod token;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
+pub use copybook::{expand_copybooks, CopyExpansion};
 pub use lexer::{tokenize, tokenize_with_comments, LexError, Lexer};
 pub use source::SourceFormat;
 pub use span::{LineIndex, Span, SpannedToken};

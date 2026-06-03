@@ -79,12 +79,25 @@ fn main() {
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
+/// Expand COPY / REPLACE directives, resolving copybooks next to the source
+/// file. Returns free-form text ready to tokenize; copybook errors are printed.
+fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> String {
+    let base = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let expansion = cobolt_lexer::expand_copybooks(source, base, fmt);
+    for e in &expansion.errors {
+        eprintln!("{}: copybook error: {e}", path.display());
+    }
+    expansion.text
+}
+
 fn cmd_run(args: &[String]) {
     let path   = require_path(args, "run");
     let source = read_source(&path);
     let fmt    = detect_format(&source, &path);
+    let source = expand_copy(&path, &source, fmt);
 
-    let tokens       = tokenize(&source, fmt);
+    // COPY expansion flattens to free form.
+    let tokens       = tokenize(&source, SourceFormat::Free);
     let parse_result = parse(tokens);
 
     // Print parser diagnostics.
@@ -128,8 +141,9 @@ fn cmd_check(args: &[String]) {
     let path   = require_path(args, "check");
     let source = read_source(&path);
     let fmt    = detect_format(&source, &path);
+    let source = expand_copy(&path, &source, fmt);
 
-    let tokens       = tokenize(&source, fmt);
+    let tokens       = tokenize(&source, SourceFormat::Free);
     let parse_result = parse(tokens);
 
     let mut has_errors = false;
