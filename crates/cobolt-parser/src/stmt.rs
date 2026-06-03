@@ -246,9 +246,49 @@ fn parse_add(p: &mut Parser) -> Stmt {
 
     let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
     let rounded = p.eat(&Token::Rounded);
+    let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndAdd);
     p.eat(&Token::EndAdd);
 
-    Stmt::Add { operands, to, giving, rounded, span }
+    Stmt::Add { operands, to, giving, rounded, on_size_error, not_on_size_error, span }
+}
+
+/// Parse the optional `[ON] SIZE ERROR imp … [NOT ON SIZE ERROR imp …]` tail of an
+/// arithmetic statement, scoped by its `END-…` terminator. Returns the two
+/// imperative bodies (each empty when absent).
+fn parse_size_error(p: &mut Parser, end: &Token) -> (Vec<Stmt>, Vec<Stmt>) {
+    let mut on_se = Vec::new();
+    let mut not_se = Vec::new();
+    // `[ON] SIZE ERROR imperative …`
+    if try_eat_size_error_phrase(p) {
+        let e = end.clone();
+        on_se = parse_stmts(p, &move |tok| *tok == Token::Not || *tok == e);
+    }
+    // `NOT [ON] SIZE ERROR imperative …`
+    if p.at(&Token::Not) {
+        p.eat(&Token::Not);
+        try_eat_size_error_phrase(p);
+        let e = end.clone();
+        not_se = parse_stmts(p, &move |tok| *tok == e);
+    }
+    (on_se, not_se)
+}
+
+/// Consume `[ON] SIZE ERROR`. The lexer emits `SIZE` as the `SizeError` token and
+/// `ERROR` as a separate word, so both are eaten here. Returns whether it matched.
+fn try_eat_size_error_phrase(p: &mut Parser) -> bool {
+    let has = p.at(&Token::SizeError)
+        || (p.at(&Token::On) && *p.peek_at(1) == Token::SizeError);
+    if !has {
+        return false;
+    }
+    p.eat(&Token::On); // optional ON
+    p.eat(&Token::SizeError); // the SIZE keyword
+    if let Token::Identifier(s) = p.peek() {
+        if s.eq_ignore_ascii_case("ERROR") {
+            p.advance();
+        }
+    }
+    true
 }
 
 // ── SUBTRACT ──────────────────────────────────────────────────────────────────
@@ -287,9 +327,10 @@ fn parse_subtract(p: &mut Parser) -> Stmt {
 
     let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
     let rounded = p.eat(&Token::Rounded);
+    let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndSubtract);
     p.eat(&Token::EndSubtract);
 
-    Stmt::Subtract { operands, from, giving, rounded, span }
+    Stmt::Subtract { operands, from, giving, rounded, on_size_error, not_on_size_error, span }
 }
 
 // ── MULTIPLY ──────────────────────────────────────────────────────────────────
@@ -302,8 +343,9 @@ fn parse_multiply(p: &mut Parser) -> Stmt {
     let by = parse_expr(p);
     let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
     let rounded = p.eat(&Token::Rounded);
+    let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndMultiply);
     p.eat(&Token::EndMultiply);
-    Stmt::Multiply { lhs, by, giving, rounded, span }
+    Stmt::Multiply { lhs, by, giving, rounded, on_size_error, not_on_size_error, span }
 }
 
 // ── DIVIDE ────────────────────────────────────────────────────────────────────
@@ -319,8 +361,9 @@ fn parse_divide(p: &mut Parser) -> Stmt {
     let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
     let remainder = if p.eat(&Token::Remainder) { Some(parse_expr(p)) } else { None };
     let rounded = p.eat(&Token::Rounded);
+    let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndDivide);
     p.eat(&Token::EndDivide);
-    Stmt::Divide { lhs, by, giving, remainder, rounded, span }
+    Stmt::Divide { lhs, by, giving, remainder, rounded, on_size_error, not_on_size_error, span }
 }
 
 // ── COMPUTE ───────────────────────────────────────────────────────────────────
@@ -329,11 +372,13 @@ fn parse_compute(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // COMPUTE
     let target = parse_expr(p);
+    // COBOL syntax: `COMPUTE target [ROUNDED] = expression`.
+    let rounded = p.eat(&Token::Rounded);
     p.expect(&Token::Eq); // =
     let expr = parse_expr(p);
-    let rounded = p.eat(&Token::Rounded);
+    let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndCompute);
     p.eat(&Token::EndCompute);
-    Stmt::Compute { target, expr, rounded, span }
+    Stmt::Compute { target, expr, rounded, on_size_error, not_on_size_error, span }
 }
 
 // ── IF ────────────────────────────────────────────────────────────────────────
@@ -1469,7 +1514,7 @@ pub(crate) fn is_expr_start(p: &Parser) -> bool {
         p.peek(),
         Token::Identifier(_)
             | Token::IntegerLiteral(_)
-            | Token::FloatLiteral(_)
+            | Token::DecimalLiteral { .. }
             | Token::StringLiteral(_)
             | Token::Spaces
             | Token::Zeros

@@ -241,6 +241,10 @@ pub enum Stmt {
         to: Vec<Expr>,
         giving: Option<Expr>,
         rounded: bool,
+        /// Imperative run on ON SIZE ERROR (empty if no such clause).
+        on_size_error: Vec<Stmt>,
+        /// Imperative run on NOT ON SIZE ERROR (empty if no such clause).
+        not_on_size_error: Vec<Stmt>,
         span: Span,
     },
 
@@ -250,6 +254,8 @@ pub enum Stmt {
         from: Vec<Expr>,
         giving: Option<Expr>,
         rounded: bool,
+        on_size_error: Vec<Stmt>,
+        not_on_size_error: Vec<Stmt>,
         span: Span,
     },
 
@@ -259,6 +265,8 @@ pub enum Stmt {
         by: Expr,
         giving: Option<Expr>,
         rounded: bool,
+        on_size_error: Vec<Stmt>,
+        not_on_size_error: Vec<Stmt>,
         span: Span,
     },
 
@@ -269,6 +277,8 @@ pub enum Stmt {
         giving: Option<Expr>,
         remainder: Option<Expr>,
         rounded: bool,
+        on_size_error: Vec<Stmt>,
+        not_on_size_error: Vec<Stmt>,
         span: Span,
     },
 
@@ -277,6 +287,8 @@ pub enum Stmt {
         target: Expr,
         expr: Expr,
         rounded: bool,
+        on_size_error: Vec<Stmt>,
+        not_on_size_error: Vec<Stmt>,
         span: Span,
     },
 

@@ -35,6 +35,9 @@ use crate::value::{CobolNumeric, CobolValue};
 pub struct CobolEnvironment {
     /// `name → value` store.  Insertion order is preserved (declaration order).
     store: IndexMap<String, CobolValue>,
+    /// `name → (integer-digit capacity, decimal places)` for numeric items,
+    /// used to detect ON SIZE ERROR overflow at store time.
+    field_caps: IndexMap<String, (u8, u8)>,
 }
 
 impl CobolEnvironment {
@@ -84,6 +87,14 @@ impl CobolEnvironment {
                 } else {
                     default
                 };
+                // Record numeric integer-digit capacity for ON SIZE ERROR checks.
+                if let Some(pic) = &decl.picture {
+                    if matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited) {
+                        let int_digits = pic.digits.min(u8::MAX as u16) as u8;
+                        let decimals = pic.decimals.min(u8::MAX as u16) as u8;
+                        self.field_caps.insert(upper.clone(), (int_digits, decimals));
+                    }
+                }
                 self.store.insert(upper, value);
             }
         }
@@ -97,6 +108,11 @@ impl CobolEnvironment {
     /// Get an immutable reference to a data item's value.
     pub fn get(&self, name: &str) -> Option<&CobolValue> {
         self.store.get(&name.to_ascii_uppercase())
+    }
+
+    /// Integer-digit capacity of a numeric field, if known (for ON SIZE ERROR).
+    pub fn integer_capacity(&self, name: &str) -> Option<u8> {
+        self.field_caps.get(&name.to_ascii_uppercase()).map(|(d, _)| *d)
     }
 
     /// Get a mutable reference to a data item's value.
@@ -276,6 +292,21 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
             _ => CobolValue::from_i64(*n),
         },
         Literal::Float(f) => CobolValue::from_f64(*f),
+        Literal::Decimal(m, s) => {
+            // Exact decimal VALUE — rescale into the receiving field's PIC.
+            let src = CobolValue::Numeric(CobolNumeric::new(*m, *s));
+            match default {
+                CobolValue::Numeric(num) => {
+                    let mut v = CobolValue::Numeric(num.clone());
+                    v.assign(&src);
+                    v
+                }
+                CobolValue::String { capacity, .. } => {
+                    CobolValue::from_str(&src.as_display_string(), *capacity)
+                }
+                _ => src,
+            }
+        }
         Literal::String(s) => match default {
             CobolValue::String { capacity, .. } => CobolValue::from_str(s, *capacity),
             _ => CobolValue::from_str(s, s.len()),
@@ -288,7 +319,14 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
             };
             match fig {
                 FigurativeConstant::Space     => CobolValue::spaces(cap),
-                FigurativeConstant::Zero      => CobolValue::zero(0),
+                // ZERO must preserve the receiving field's PIC scale — a numeric
+                // field keeps its decimal places (a scale-0 zero would wipe them).
+                FigurativeConstant::Zero      => match default {
+                    CobolValue::Numeric(n) => CobolValue::Numeric(CobolNumeric::new(0, n.decimals)),
+                    CobolValue::String { capacity, .. } =>
+                        CobolValue::String { bytes: vec![b'0'; *capacity], capacity: *capacity },
+                    _ => CobolValue::zero(0),
+                },
                 FigurativeConstant::HighValue => CobolValue::figurative_high_values(cap),
                 FigurativeConstant::LowValue  => CobolValue::figurative_low_values(cap),
                 _                             => default.clone(),

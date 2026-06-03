@@ -46,7 +46,7 @@ use crate::{
     error::RuntimeError,
     exec_rust,
     objects::ObjectRegistry,
-    value::CobolValue,
+    value::{CobolValue, CobolNumeric},
 };
 
 // ── File I/O ──────────────────────────────────────────────────────────────────
@@ -483,16 +483,16 @@ impl Interpreter {
             }
 
             // ── Arithmetic ────────────────────────────────────────────────────
-            Stmt::Add { operands, to, giving, span, .. } =>
-                self.exec_add(operands, to, giving.as_ref(), *span),
-            Stmt::Subtract { operands, from, giving, span, .. } =>
-                self.exec_subtract(operands, from, giving.as_ref(), *span),
-            Stmt::Multiply { lhs, by, giving, span, .. } =>
-                self.exec_multiply(lhs, by, giving.as_ref(), *span),
-            Stmt::Divide { lhs, by, giving, remainder, span, .. } =>
-                self.exec_divide(lhs, by, giving.as_ref(), remainder.as_ref(), *span),
-            Stmt::Compute { target, expr, span, .. } =>
-                self.exec_compute(target, expr, *span),
+            Stmt::Add { operands, to, giving, rounded, on_size_error, not_on_size_error, span } =>
+                self.exec_add(operands, to, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
+            Stmt::Subtract { operands, from, giving, rounded, on_size_error, not_on_size_error, span } =>
+                self.exec_subtract(operands, from, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
+            Stmt::Multiply { lhs, by, giving, rounded, on_size_error, not_on_size_error, span } =>
+                self.exec_multiply(lhs, by, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
+            Stmt::Divide { lhs, by, giving, remainder, rounded, on_size_error, not_on_size_error, span } =>
+                self.exec_divide(lhs, by, giving.as_ref(), remainder.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
+            Stmt::Compute { target, expr, rounded, on_size_error, not_on_size_error, span } =>
+                self.exec_compute(target, expr, *rounded, on_size_error, not_on_size_error, *span),
 
             // ── Control flow ──────────────────────────────────────────────────
             Stmt::If { condition, then_stmts, else_stmts, .. } =>
@@ -625,37 +625,55 @@ impl Interpreter {
 
     // ── Arithmetic ────────────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_add(
         &mut self,
         operands: &[Expr],
         to: &[Expr],
         giving: Option<&Expr>,
+        rounded: bool,
+        on_size_error: &[Stmt],
+        not_on_size_error: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let sum = self.eval_sum(operands, span)?;
+        let has = !on_size_error.is_empty();
+        let mut size_err = false;
         if let Some(g) = giving {
+            // `ADD a … TO b … GIVING c` → c = sum(a…) + sum(b…).
+            let mut total = sum;
+            for t in to {
+                let v = self.eval_expr(t, span)?;
+                total = total.add_val(&v);
+            }
             let name = self.expr_to_name(g);
-            self.env.set(&name, sum);
+            size_err = self.store_arith(&name, total, rounded, has);
         } else {
             for t in to {
                 let name = self.expr_to_name(t);
                 let cur = self.env.get(&name).cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
-                let result = CobolValue::from_f64(cur.as_f64() + sum.as_f64());
-                self.env.set(&name, result);
+                let result = cur.add_val(&sum);
+                size_err |= self.store_arith(&name, result, rounded, has);
             }
         }
-        Ok(())
+        self.run_size_error(size_err, on_size_error, not_on_size_error)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_subtract(
         &mut self,
         operands: &[Expr],
         from: &[Expr],
         giving: Option<&Expr>,
+        rounded: bool,
+        on_size_error: &[Stmt],
+        not_on_size_error: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let sub = self.eval_sum(operands, span)?;
+        let has = !on_size_error.is_empty();
+        let mut size_err = false;
         if let Some(g) = giving {
             // SUBTRACT … FROM base GIVING target
             let base = if from.is_empty() {
@@ -663,85 +681,166 @@ impl Interpreter {
             } else {
                 self.eval_expr(&from[0], span)?
             };
-            let result = CobolValue::from_f64(base.as_f64() - sub.as_f64());
+            let result = base.sub_val(&sub);
             let name = self.expr_to_name(g);
-            self.env.set(&name, result);
+            size_err = self.store_arith(&name, result, rounded, has);
         } else {
             for f in from {
                 let name = self.expr_to_name(f);
                 let cur = self.env.get(&name).cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
-                let result = CobolValue::from_f64(cur.as_f64() - sub.as_f64());
-                self.env.set(&name, result);
+                let result = cur.sub_val(&sub);
+                size_err |= self.store_arith(&name, result, rounded, has);
             }
         }
-        Ok(())
+        self.run_size_error(size_err, on_size_error, not_on_size_error)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_multiply(
         &mut self,
         lhs: &Expr,
         by: &Expr,
         giving: Option<&Expr>,
+        rounded: bool,
+        on_size_error: &[Stmt],
+        not_on_size_error: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let l = self.eval_expr(lhs, span)?;
         let r = self.eval_expr(by, span)?;
-        let result = CobolValue::from_f64(l.as_f64() * r.as_f64());
+        let result = l.mul_val(&r);
         let name = if let Some(g) = giving {
             self.expr_to_name(g)
         } else {
             self.expr_to_name(lhs)
         };
-        self.env.set(&name, result);
-        Ok(())
+        let size_err = self.store_arith(&name, result, rounded, !on_size_error.is_empty());
+        self.run_size_error(size_err, on_size_error, not_on_size_error)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_divide(
         &mut self,
         lhs: &Expr,
         by: &Expr,
         giving: Option<&Expr>,
         remainder: Option<&Expr>,
+        rounded: bool,
+        on_size_error: &[Stmt],
+        not_on_size_error: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let l = self.eval_expr(lhs, span)?;
         let r = self.eval_expr(by, span)?;
-        let rd = r.as_f64();
-        if rd == 0.0 { return Err(RuntimeError::DivisionByZero { span }); }
-        let ld = l.as_f64();
-        let quotient = ld / rd;
+        let quotient = match l.div_val(&r) {
+            Some(q) => q,
+            None => {
+                // Division by zero raises a size error if a handler is present.
+                if !on_size_error.is_empty() {
+                    return self.run_size_error(true, on_size_error, not_on_size_error);
+                }
+                return Err(RuntimeError::DivisionByZero { span });
+            }
+        };
 
         if let Some(rem_expr) = remainder {
-            let rem_val = CobolValue::from_f64(ld - quotient.trunc() * rd);
+            // COBOL REMAINDER uses the *integer* quotient: rem = dividend − (intq × divisor).
+            let int_q = CobolValue::from_i64(quotient.as_i64().unwrap_or(0));
+            let rem_val = l.sub_val(&int_q.mul_val(&r));
             let rname = self.expr_to_name(rem_expr);
             self.env.set(&rname, rem_val);
         }
 
-        let result = CobolValue::from_f64(quotient);
         let name = if let Some(g) = giving {
             self.expr_to_name(g)
         } else {
             self.expr_to_name(lhs)
         };
-        self.env.set(&name, result);
+        let size_err = self.store_arith(&name, quotient, rounded, !on_size_error.is_empty());
+        self.run_size_error(size_err, on_size_error, not_on_size_error)
+    }
+
+    fn exec_compute(
+        &mut self,
+        target: &Expr,
+        expr: &Expr,
+        rounded: bool,
+        on_size_error: &[Stmt],
+        not_on_size_error: &[Stmt],
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let val = self.eval_expr(expr, span)?;
+        let name = self.expr_to_name(target);
+        let size_err = self.store_arith(&name, val, rounded, !on_size_error.is_empty());
+        self.run_size_error(size_err, on_size_error, not_on_size_error)
+    }
+
+    /// After an arithmetic store, run the appropriate conditional imperative.
+    fn run_size_error(
+        &mut self,
+        size_err: bool,
+        on_size_error: &[Stmt],
+        not_on_size_error: &[Stmt],
+    ) -> Result<(), RuntimeError> {
+        if size_err {
+            if !on_size_error.is_empty() {
+                self.exec_stmts(on_size_error)?;
+            }
+        } else if !not_on_size_error.is_empty() {
+            self.exec_stmts(not_on_size_error)?;
+        }
         Ok(())
     }
 
-    fn exec_compute(&mut self, target: &Expr, expr: &Expr, span: Span) -> Result<(), RuntimeError> {
-        let val = self.eval_expr(expr, span)?;
-        let name = self.expr_to_name(target);
-        self.env.set(&name, val);
-        Ok(())
+    /// Store an arithmetic result into `name`, returning `true` if a size error
+    /// occurred (the value's integer part exceeds the field's PIC capacity).
+    ///
+    /// When `rounded`, round (half away from zero) to the field's scale;
+    /// otherwise `assign` truncates, per COBOL's default. On a size error *with*
+    /// a handler (`suppress_on_overflow`), the field is left unchanged.
+    fn store_arith(
+        &mut self,
+        name: &str,
+        value: CobolValue,
+        rounded: bool,
+        suppress_on_overflow: bool,
+    ) -> bool {
+        let value = if rounded {
+            let scale = match self.env.get(name) {
+                Some(CobolValue::Numeric(f)) => Some(f.decimals),
+                _ => None,
+            };
+            match (scale, value.as_exact()) {
+                (Some(s), Some(num)) => CobolValue::Numeric(num.round_to(s)),
+                _ => value,
+            }
+        } else {
+            value
+        };
+
+        // Size error: does the integer part fit the receiving field's capacity?
+        let overflow = match (self.env.integer_capacity(name), value.as_exact()) {
+            (Some(cap), Some(num)) => num.integer_digit_count() > cap as u32,
+            _ => false,
+        };
+
+        if overflow && suppress_on_overflow {
+            // Leave the receiving field unchanged; caller runs ON SIZE ERROR.
+            return true;
+        }
+        self.env.set(name, value);
+        overflow
     }
 
     /// Sum a list of expressions to a single `CobolValue`.
     fn eval_sum(&mut self, operands: &[Expr], span: Span) -> Result<CobolValue, RuntimeError> {
-        let mut total = 0.0f64;
+        let mut total = CobolValue::from_i64(0);
         for op in operands {
-            total += self.eval_expr(op, span)?.as_f64();
+            let v = self.eval_expr(op, span)?;
+            total = total.add_val(&v);
         }
-        Ok(CobolValue::from_f64(total))
+        Ok(total)
     }
 
     // ── Control flow ──────────────────────────────────────────────────────────
@@ -912,10 +1011,10 @@ impl Interpreter {
             self.exec_perform_after(after, stmts, span)?;
 
             // Increment outer variable
-            let by_val = self.eval_expr(by, span)?.as_f64();
+            let by_val = self.eval_expr(by, span)?;
             let cur = self.env.get(&var_name).cloned()
-                .unwrap_or_else(|| CobolValue::from_i64(0)).as_f64();
-            self.env.set(&var_name, CobolValue::from_f64(cur + by_val));
+                .unwrap_or_else(|| CobolValue::from_i64(0));
+            self.env.set(&var_name, cur.add_val(&by_val));
         }
         Ok(())
     }
@@ -937,10 +1036,10 @@ impl Interpreter {
         loop {
             if self.eval_condition(&head.until)? { break; }
             self.exec_perform_after(tail, stmts, span)?;
-            let by_val = self.eval_expr(&head.by, span)?.as_f64();
+            let by_val = self.eval_expr(&head.by, span)?;
             let cur = self.env.get(&var_name).cloned()
-                .unwrap_or_else(|| CobolValue::from_i64(0)).as_f64();
-            self.env.set(&var_name, CobolValue::from_f64(cur + by_val));
+                .unwrap_or_else(|| CobolValue::from_i64(0));
+            self.env.set(&var_name, cur.add_val(&by_val));
         }
         Ok(())
     }
@@ -1741,27 +1840,25 @@ impl Interpreter {
             Expr::Arithmetic { op, lhs, rhs, span: s } => {
                 let l = self.eval_expr(lhs, *s)?;
                 let r = self.eval_expr(rhs, *s)?;
-                let lf = l.as_f64();
-                let rf = r.as_f64();
                 let result = match op {
-                    ArithOp::Add => lf + rf,
-                    ArithOp::Sub => lf - rf,
-                    ArithOp::Mul => lf * rf,
-                    ArithOp::Div => {
-                        if rf == 0.0 { return Err(RuntimeError::DivisionByZero { span: *s }); }
-                        lf / rf
-                    }
-                    ArithOp::Pow => lf.powf(rf),
+                    ArithOp::Add => l.add_val(&r),
+                    ArithOp::Sub => l.sub_val(&r),
+                    ArithOp::Mul => l.mul_val(&r),
+                    ArithOp::Div => l.div_val(&r)
+                        .ok_or(RuntimeError::DivisionByZero { span: *s })?,
+                    // Exponentiation is inherently floating-point.
+                    ArithOp::Pow => CobolValue::from_f64(l.as_f64().powf(r.as_f64())),
                 };
-                Ok(CobolValue::from_f64(result))
+                Ok(result)
             }
 
             Expr::Unary { op, operand, span: s } => {
-                let v = self.eval_expr(operand, *s)?.as_f64();
-                Ok(CobolValue::from_f64(match op {
-                    UnaryOp::Neg => -v,
+                let v = self.eval_expr(operand, *s)?;
+                Ok(match op {
+                    // 0 − v keeps exact decimals; Pos is a no-op.
+                    UnaryOp::Neg => CobolValue::from_i64(0).sub_val(&v),
                     UnaryOp::Pos => v,
-                }))
+                })
             }
         }
     }
@@ -2036,6 +2133,7 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
     match lit {
         Literal::Integer(n) => CobolValue::from_i64(*n),
         Literal::Float(f)   => CobolValue::from_f64(*f),
+        Literal::Decimal(m, s) => CobolValue::Numeric(CobolNumeric::new(*m, *s)),
         Literal::String(s)  => CobolValue::from_str(s, s.len()),
         Literal::Figurative(fig) => match fig {
             FigurativeConstant::Zero     => CobolValue::from_i64(0),
@@ -2053,6 +2151,19 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
 pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {
     // Numeric comparison when both sides are numeric.
     if l.is_numeric() && r.is_numeric() {
+        // Exact integer comparison when both are fixed-point decimals.
+        if let (Some(a), Some(b)) = (l.as_exact(), r.as_exact()) {
+            use std::cmp::Ordering;
+            let ord = a.cmp(&b);
+            return match op {
+                CmpOp::Eq => ord == Ordering::Equal,
+                CmpOp::Ne => ord != Ordering::Equal,
+                CmpOp::Lt => ord == Ordering::Less,
+                CmpOp::Le => ord != Ordering::Greater,
+                CmpOp::Gt => ord == Ordering::Greater,
+                CmpOp::Ge => ord != Ordering::Less,
+            };
+        }
         let lf = l.as_f64();
         let rf = r.as_f64();
         return match op {
