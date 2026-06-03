@@ -39,6 +39,7 @@ pub mod environment;
 pub mod error;
 pub mod exec_rust;
 pub mod http_runtime;
+pub mod indexed;
 pub mod interpreter;
 pub mod numedit;
 pub mod objects;
