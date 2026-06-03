@@ -6,7 +6,7 @@
 
 //! Code generation: converts a [`cobolt_forms::Form`] into a complete COBOL source file.
 //!
-//! # Architecture (v1.0 — PowerCOBOL nested-program model)
+//! # Architecture (v1.0 — COBOL-85 nested-program model)
 //!
 //! The `.cfrm` file is the **single source of truth**.  The generated `.cbl` is a
 //! build artifact — it is never edited by hand.  All event-handler code lives in

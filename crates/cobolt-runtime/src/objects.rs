@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! `ObjectRegistry` — PowerCOBOL form and control object store.
+//! `ObjectRegistry` — PowerRustCOBOL form and control object store.
 //!
 //! In PowerCOBOL 3.0 every form, button, text-box, list-box, etc. is an
 //! *object* with named string properties.  This module provides the runtime
@@ -26,7 +26,7 @@ use indexmap::IndexMap;
 
 // ── CoboltObject ──────────────────────────────────────────────────────────────
 
-/// A PowerCOBOL form or control object.
+/// A form or control object.
 #[derive(Debug, Default, Clone)]
 pub struct CoboltObject {
     /// The object class name (`"Form"`, `"Button"`, `"TextBox"`, …).
@@ -123,7 +123,7 @@ impl std::fmt::Display for PropertyValue {
 
 // ── ObjectRegistry ────────────────────────────────────────────────────────────
 
-/// Registry of all PowerCOBOL objects in a running program.
+/// Registry of all objects in a running program.
 ///
 /// Keyed by object name (case-insensitive, e.g. `"FORM1"`, `"BTN-OK"`).
 #[derive(Debug, Default)]

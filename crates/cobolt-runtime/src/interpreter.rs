@@ -170,7 +170,7 @@ pub struct Interpreter {
     pub program: Program,
     /// Runtime data store — all DATA DIVISION items live here.
     pub env: CobolEnvironment,
-    /// PowerCOBOL form/control object registry.
+    /// PowerRustCOBOL form/control object registry.
     pub objects: ObjectRegistry,
     /// Paragraph name (uppercase) → statement list.
     para_map: IndexMap<String, Vec<Stmt>>,
@@ -1491,7 +1491,7 @@ impl Interpreter {
             .to_ascii_uppercase();
 
         match prog_name.as_str() {
-            // ── Built-in PowerCOBOL runtime calls (COBOL-* prefix) ────────────
+            // ── Built-in runtime calls (COBOL-* prefix) ────────────
             // COBOL-INIT-FORM USING form-name  — initialise the form; no-op in CLI mode
             "COBOL-INIT-FORM" | "COBOLT-INIT-FORM" => {
                 // Nothing to do in non-GUI (CLI) mode.

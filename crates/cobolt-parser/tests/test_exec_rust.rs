@@ -9,7 +9,7 @@
 //! These tests verify that:
 //!   1. The lexer correctly captures the Rust source verbatim.
 //!   2. The parser produces `Stmt::ExecRust` with the correct source string.
-//!   3. Multi-line Rust code, COBOL data references, and PowerCOBOL object
+//!   3. Multi-line Rust code, COBOL data references, and object
 //!      calls all survive the lexer/parser round-trip intact.
 //!   4. Multiple EXEC RUST blocks in one program work correctly.
 //!   5. EXEC RUST may appear without a trailing period.

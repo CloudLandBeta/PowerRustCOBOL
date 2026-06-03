@@ -7,7 +7,7 @@ See the LICENSE file in the project root for full license information.
 -->
 
 # Cobolt IDE — Full Architecture Plan
-### A Rust-based reimplementation of Fujitsu PowerCOBOL 3.0
+### A Rust-based reimplementation of modern COBOL loosely inspired by Fujitsu PowerCOBOL 3.0
 
 > **Project name:** Cobolt (COBOL + Bolt — fast, modern, cross-platform)  
 > **License:** MIT / Apache-2.0 dual  
@@ -20,10 +20,10 @@ See the LICENSE file in the project root for full license information.
 
 ## 1. Vision & Goals
 
-Cobolt is a spiritual successor to Fujitsu PowerCOBOL 3.0. It gives COBOL developers a modern RAD (Rapid Application Development) environment that:
+Cobolt is a spiritual successor to the best COBOL compiler of all times, the Fujitsu PowerCOBOL 3.0. It gives COBOL developers a modern RAD (Rapid Application Development) environment that:
 
-- Accepts standard Fujitsu COBOL 85/2002 source code with PowerCOBOL extensions.
-- Provides a drag-and-drop visual form designer that generates COBOL code, exactly as PowerCOBOL did.
+- Accepts standard COBOL 85 and some extensions of COBOL 2002 source code
+- Provides a drag-and-drop visual form designer that generates COBOL code
 - Runs COBOL programs through a 64-bit interpreted runtime written entirely in Rust.
 - Ships a single native binary on Windows, macOS, and Linux with no external runtime dependencies.
 - Supports community-authored extensions (controls, runtime modules) via a stable Rust plugin API.
@@ -94,7 +94,6 @@ The lexer converts raw UTF-8 source text into a flat stream of typed tokens.
 - Built with the `logos` crate for maximum tokenization speed.
 - Supports both **fixed-form** (columns 7-72 active area, 1-6 sequence numbers) and **free-form** COBOL source.
 - Tracks `Span { start: usize, end: usize, line: u32, col: u16 }` on every token for IDE diagnostics.
-- Fujitsu-specific keywords are included as first-class token variants (e.g., `WINDOW-STATUS`, `SCREEN`, `POWERCOBOL-CONTROL`).
 
 **Token taxonomy:**
 
@@ -228,7 +227,7 @@ pub struct RuntimeEnv {
     pub call_stack: Vec<StackFrame>,
     pub return_code: i64,
     pub io: Box<dyn IoBackend>,             // swappable for tests / GUI
-    pub event_bus: Arc<EventBus>,           // PowerCOBOL event dispatch
+    pub event_bus: Arc<EventBus>,           // event dispatch
 }
 
 pub struct StackFrame {
@@ -252,7 +251,7 @@ pub struct StackFrame {
 
 ### 4.1 Form Data Model (`cobolt-forms`)
 
-A `Form` is Cobolt's equivalent of a PowerCOBOL `.pco` file — a structured description of the visual screen.
+A `Form` is a structured description of the visual screen.
 
 ```rust
 pub struct Form {
@@ -324,7 +323,7 @@ pub struct EventBinding {
 
 ### 4.2 Code Generator (`cobolt-codegen`)
 
-Transforms a `Form` into complete Fujitsu COBOL source, mirroring what PowerCOBOL 3.0 generated.
+Transforms a `Form` into complete COBOL source.
 
 **Generated structure:**
 
@@ -666,7 +665,7 @@ steps:
 - Sequential and relative file I/O (using Rust `std::fs`).
 - STRING, UNSTRING, INSPECT verbs.
 - SCREEN SECTION (text-mode rendering via terminal or emulated screen widget).
-- PowerCOBOL event model: `CALL 'COBOLT-WAIT-EVENT'`, `CALL 'COBOLT-SET-PROPERTY'`, `CALL 'COBOLT-GET-PROPERTY'`.
+- Event model: `CALL 'COBOLT-WAIT-EVENT'`, `CALL 'COBOLT-SET-PROPERTY'`, `CALL 'COBOLT-GET-PROPERTY'`.
 
 ### 8.2 Indexed file I/O
 

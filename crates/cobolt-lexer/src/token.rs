@@ -434,7 +434,7 @@ pub enum Token {
     ///
     /// * `cobol_env: &mut CobolEnvironment` — dynamic key/value access
     ///   (`cobol_env.get("WS-NAME")`, `cobol_env.set("WS-COUNT", 42)`)
-    /// * `cobolt_objects: &mut ObjectRegistry` — PowerCOBOL form/control access
+    /// * `cobolt_objects: &mut ObjectRegistry` 
     ///   (`cobolt_objects.get("FORM1")?.set_property("Text", "Hello")`)
     ///
     /// Variable naming rule: hyphens are replaced with underscores and the

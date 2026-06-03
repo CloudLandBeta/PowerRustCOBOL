@@ -277,7 +277,7 @@ pub(crate) enum FormatPainter {
 
 // ── Event Editor Modal ────────────────────────────────────────────────────────
 
-/// State for the PowerCOBOL-style modal COBOL code editor that pops up when
+/// State for the modal COBOL code editor that pops up when
 /// the user clicks an event row in the Properties panel.
 pub struct EventEditorModal {
     /// Control ID whose event is being edited (empty string = form-level event).
@@ -1513,7 +1513,7 @@ impl DesignerPanel {
         selection_changed
     }
 
-    /// Render the PowerCOBOL-style event code editor modal (if open).
+    /// Render the event code editor modal (if open).
     ///
     /// The modal shows a read-only COBOL scaffold around two editable areas:
     ///   • WORKING-STORAGE SECTION  (local data items for this handler)

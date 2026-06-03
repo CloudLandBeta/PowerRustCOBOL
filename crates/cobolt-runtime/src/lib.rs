@@ -15,7 +15,7 @@
 //!         ├─► exec_stmt()       (statement dispatcher)
 //!         │     ├─► exec_move / exec_add / exec_if / …
 //!         │     └─► exec_exec_rust()  ← EXEC RUST block executor
-//!         └─► ObjectRegistry    (PowerCOBOL form/control state)
+//!         └─► ObjectRegistry    (form/control state)
 //! ```
 //!
 //! # Entry point

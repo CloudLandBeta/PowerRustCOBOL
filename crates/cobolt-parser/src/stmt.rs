@@ -1348,7 +1348,7 @@ fn parse_call(p: &mut Parser) -> Stmt {
 
 // ── INVOKE (OO-COBOL) ─────────────────────────────────────────────────────────
 //
-// PowerCOBOL / Fujitsu OO extension: INVOKE object-ref 'method' [USING …] [RETURNING …]
+// OO extension: INVOKE object-ref 'method' [USING …] [RETURNING …]
 // The parser does not execute INVOKE; it just skips tokens until the implicit
 // sentence boundary (period or start of a new statement verb) so that the rest
 // of the program can be compiled cleanly.

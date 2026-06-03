@@ -707,11 +707,11 @@ selectable labels) now show the `PointingHand` cursor on hover:
 
 ## [1.0.0] — 2026-05-29
 
-### Major — Nested-program architecture (PowerCOBOL Option C model)
+### Major — Nested-program architecture
 
 This is the first major version bump.  The entire code generation and form storage
-model has been redesigned to match Fujitsu PowerCOBOL 3.0's approach: each event
-handler becomes a COBOL-85 nested program; the `.cfrm` file is the single source of
+model has been redesigned: each event handler becomes a COBOL-85 nested
+program; the `.cfrm` file is the single source of
 truth; the generated `.cbl` is a build artifact the user never edits.
 
 #### `.cfrm` file format (v1.0 — backward-compatible load)
@@ -839,10 +839,10 @@ statements.  Old-format self-closing `<Event .../> ` tags still load correctly
 - `multiple_nested_programs_dispatch_independently` — each CALL routes to the right program
 - `nested_program_without_end_program_terminator` — unterminated last nested program still callable
 
-#### IDE — PowerCOBOL-style modal event code editor — Phase 5 complete
+#### IDE — modal event code editor — Phase 5 complete
 
 The inline 6-row TextEdit in the Properties panel is replaced by a full-screen modal
-editor modelled on Fujitsu PowerCOBOL's behaviour:
+editor.
 
 - Clicking any event row (in either the control Properties or the Form Properties
   Events section) opens a centred `egui::Window` overlay
