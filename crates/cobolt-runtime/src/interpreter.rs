@@ -98,7 +98,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
     // Collect this program's own local data items (everything in its DATA
     // DIVISION — they will be added to the env as a scope overlay on call).
     let local_items: Vec<(String, CobolValue)> = if let Some(data) = &prog.data {
-        let local_env = CobolEnvironment::from_data_division(data);
+        let local_env = CobolEnvironment::from_data_division_with(data, prog.decimal_comma);
         local_env.iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
@@ -227,7 +227,7 @@ impl Interpreter {
     /// default / VALUE clause values.
     pub fn new(program: Program) -> Self {
         let env = if let Some(data) = &program.data {
-            CobolEnvironment::from_data_division(data)
+            CobolEnvironment::from_data_division_with(data, program.decimal_comma)
         } else {
             CobolEnvironment::new()
         };

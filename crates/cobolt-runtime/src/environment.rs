@@ -44,6 +44,9 @@ pub struct CobolEnvironment {
     /// Names of edited items declared `BLANK WHEN ZERO` — storing a zero value
     /// blanks the whole field.
     blank_when_zero: std::collections::HashSet<String>,
+    /// `DECIMAL-POINT IS COMMA` — comma is the decimal point and period the
+    /// grouping symbol in edited PICs.
+    decimal_comma: bool,
 }
 
 impl CobolEnvironment {
@@ -58,7 +61,14 @@ impl CobolEnvironment {
     /// clause (zeros for numeric, spaces for alphanumeric), then any `VALUE`
     /// clause is applied on top.
     pub fn from_data_division(data: &DataDivision) -> Self {
+        Self::from_data_division_with(data, false)
+    }
+
+    /// Like [`from_data_division`], but with the program's `DECIMAL-POINT IS COMMA`
+    /// setting (affects how edited PICs are formatted).
+    pub fn from_data_division_with(data: &DataDivision, decimal_comma: bool) -> Self {
         let mut env = Self::new();
+        env.decimal_comma = decimal_comma;
         for section in &data.sections {
             match section {
                 DataSection::WorkingStorage(items)
@@ -122,18 +132,19 @@ impl CobolEnvironment {
     /// Initialise a numeric-edited item: remember its template and store the
     /// edited string form of any VALUE (or spaces when there is none).
     fn init_edited(&mut self, name: &str, template: &str, value: Option<&Literal>, blank_when_zero: bool) {
-        let width = crate::numedit::edited_width(template);
+        let dc = self.decimal_comma;
+        let width = crate::numedit::edited_width(template, dc);
         if blank_when_zero {
             self.blank_when_zero.insert(name.to_string());
         }
         let v = match value {
             Some(Literal::String(s)) => CobolValue::from_str(s, width),
             Some(Literal::Integer(n)) => CobolValue::from_str(
-                &crate::numedit::format_edited(template, *n as i128, 0),
+                &crate::numedit::format_edited(template, *n as i128, 0, dc),
                 width,
             ),
             Some(Literal::Decimal(m, s)) => CobolValue::from_str(
-                &crate::numedit::format_edited(template, *m, *s),
+                &crate::numedit::format_edited(template, *m, *s, dc),
                 width,
             ),
             _ => CobolValue::spaces(width),
@@ -229,11 +240,12 @@ impl CobolEnvironment {
                 other => other.as_exact(),
             };
             if let Some(num) = num {
-                let width = crate::numedit::edited_width(&template);
+                let dc = self.decimal_comma;
+                let width = crate::numedit::edited_width(&template, dc);
                 let edited = if self.blank_when_zero.contains(&key) && num.mantissa == 0 {
                     " ".repeat(width)
                 } else {
-                    crate::numedit::format_edited(&template, num.mantissa, num.decimals)
+                    crate::numedit::format_edited(&template, num.mantissa, num.decimals, dc)
                 };
                 self.store.insert(key, CobolValue::from_str(&edited, width));
                 return;

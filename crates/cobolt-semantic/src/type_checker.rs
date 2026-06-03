@@ -20,7 +20,7 @@
 //! already warned about them).
 
 use cobolt_ast::{
-    data::PicKind,
+    data::{PicKind, Usage},
     expr::{Expr, Literal},
     program::{ProcedureBody, Program},
     stmt::{PerformTarget, Stmt},
@@ -85,7 +85,19 @@ impl<'a> TypeCtx<'a> {
     fn is_numeric_expr(&self, expr: &Expr) -> Option<bool> {
         if let Expr::Identifier(name, _) = expr {
             self.symbols.data_item(name).map(|info| {
+                // Numeric by PIC category, or by a numeric USAGE that needs no PIC
+                // (COMP-1/COMP-2 are floating-point numeric items).
                 matches!(info.pic_kind, Some(PicKind::Numeric | PicKind::NumericEdited))
+                    || matches!(
+                        info.usage,
+                        Usage::Comp1
+                            | Usage::Comp2
+                            | Usage::Binary
+                            | Usage::Comp
+                            | Usage::Comp3
+                            | Usage::Comp5
+                            | Usage::PackedDecimal
+                    )
             })
         } else {
             None

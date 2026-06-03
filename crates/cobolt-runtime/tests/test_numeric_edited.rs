@@ -70,6 +70,17 @@ fn numeddot_suite_reports_pass() {
 }
 
 #[test]
+fn numedcom_suite_reports_pass() {
+    // The DECIMAL-POINT IS COMMA suite: comma decimal literals, swapped edited
+    // PIC roles ($ZZ.ZZ9,99-, 999,99, 9.999), and all source kinds.
+    let src = include_str!("../../../tests/cobol/numedcom.cbl");
+    let out = run_capture(src).join("\n");
+    assert!(out.contains("RESULT       : PASS"), "numedcom suite failed:\n{out}");
+    assert!(!out.contains("FAIL T0"), "numedcom reported failures:\n{out}");
+    assert_eq!(out.matches("PASS T0").count(), 41, "expected 41 PASS lines:\n{out}");
+}
+
+#[test]
 fn numeric_to_alphanumeric_left_justifies_with_pic_width() {
     // MOVE of a plain numeric (PIC 9(4)=789) to an alphanumeric receiver de-edits
     // to the full zero-padded digit string "0789", left-justified.

@@ -47,7 +47,11 @@ enum Sym {
 
 /// Expand a raw template (`"ZZ9(3)V99"`, `"$$,$$9.99"`, `"9(6).99CR"`) into a flat
 /// symbol list, resolving `(n)` repeat counts and the two-letter `CR`/`DB`.
-fn expand(template: &str) -> Vec<Sym> {
+///
+/// Under `decimal_comma`, the roles of `.` and `,` swap: `,` is the decimal point
+/// (`Sym::Point`) and `.` is grouping insertion (`Sym::Comma`).
+fn expand(template: &str, decimal_comma: bool) -> Vec<Sym> {
+    let (point_ch, group_ch) = if decimal_comma { (',', '.') } else { ('.', ',') };
     let chars: Vec<char> = template.to_ascii_uppercase().chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -71,12 +75,12 @@ fn expand(template: &str) -> Vec<Sym> {
             '$' => Some(Sym::Dollar),
             '+' => Some(Sym::Plus),
             '-' => Some(Sym::Minus),
-            ',' => Some(Sym::Comma),
-            '.' => Some(Sym::Point),
             'B' => Some(Sym::Blank),
             '0' => Some(Sym::InsZero),
             '/' => Some(Sym::Slash),
             'V' => Some(Sym::Point), // implied point acts as the int/frac split
+            c if c == point_ch => Some(Sym::Point),
+            c if c == group_ch => Some(Sym::Comma),
             _ => None,
         };
         i += 1;
@@ -103,8 +107,8 @@ fn expand(template: &str) -> Vec<Sym> {
 }
 
 /// Number of integer and fractional **digit positions** the picture represents.
-pub fn digit_counts(template: &str) -> (usize, usize) {
-    let syms = expand(template);
+pub fn digit_counts(template: &str, decimal_comma: bool) -> (usize, usize) {
+    let syms = expand(template, decimal_comma);
     counts(&syms)
 }
 
@@ -140,16 +144,19 @@ fn counts(syms: &[Sym]) -> (usize, usize) {
 }
 
 /// Total output width (characters) of the edited field.
-pub fn edited_width(template: &str) -> usize {
-    expand(template)
+pub fn edited_width(template: &str, decimal_comma: bool) -> usize {
+    expand(template, decimal_comma)
         .iter()
         .map(|s| if matches!(s, Sym::Cr | Sym::Db) { 2 } else { 1 })
         .sum()
 }
 
 /// Format `mantissa × 10^-decimals` against the numeric-edited `template`.
-pub fn format_edited(template: &str, mantissa: i128, decimals: u8) -> String {
-    let syms = expand(template);
+pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma: bool) -> String {
+    // Output characters for the decimal point and grouping insertion.
+    let dec_char = if decimal_comma { ',' } else { '.' };
+    let grp_char = if decimal_comma { '.' } else { ',' };
+    let syms = expand(template, decimal_comma);
     let (int_digits, frac_digits) = counts(&syms);
     let negative = mantissa < 0;
 
@@ -244,9 +251,9 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8) -> String {
         } else {
             match s {
                 Sym::Comma => {
-                    // Shown once we are past the suppression zone.
+                    // Grouping insertion: shown once past the suppression zone.
                     if seen_sig {
-                        out.push(',');
+                        out.push(grp_char);
                     } else {
                         out.push(if int_syms.iter().any(|x| *x == Sym::Star) { '*' } else { ' ' });
                     }
@@ -264,9 +271,8 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8) -> String {
 
     // ── Decimal point + fractional region ──────────────────────────────────────
     if point.is_some() {
-        // Only emit the point char for an explicit '.', not for 'V'.
-        // We approximate: emit '.' whenever there is a fractional region.
-        out.push('.');
+        // Emit the decimal-point character (',' under DECIMAL-POINT IS COMMA).
+        out.push(dec_char);
         let frac_syms = &syms[point.unwrap() + 1..];
         let mut fi = 0usize;
         for &s in frac_syms {
@@ -275,7 +281,7 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8) -> String {
                     out.push(*frac_src.get(fi).unwrap_or(&b'0') as char);
                     fi += 1;
                 }
-                Sym::Comma => out.push(','),
+                Sym::Comma => out.push(grp_char),
                 Sym::Blank => out.push(' '),
                 Sym::InsZero => out.push('0'),
                 Sym::Slash => out.push('/'),
@@ -327,15 +333,27 @@ mod tests {
 
     /// Helper: edit `value` (given as mantissa+scale) against `template`.
     fn ed(template: &str, mantissa: i128, decimals: u8) -> String {
-        format_edited(template, mantissa, decimals)
+        format_edited(template, mantissa, decimals, false)
     }
 
     #[test]
     fn counts_basic() {
-        assert_eq!(digit_counts("ZZZ,ZZ9.99"), (6, 2));
-        assert_eq!(digit_counts("$$$,$$9.99"), (5, 2));
-        assert_eq!(digit_counts("9(6).99"), (6, 2));
-        assert_eq!(digit_counts("----9.99"), (4, 2));
+        assert_eq!(digit_counts("ZZZ,ZZ9.99", false), (6, 2));
+        assert_eq!(digit_counts("$$$,$$9.99", false), (5, 2));
+        assert_eq!(digit_counts("9(6).99", false), (6, 2));
+        assert_eq!(digit_counts("----9.99", false), (4, 2));
+    }
+
+    #[test]
+    fn decimal_point_is_comma_swaps_roles() {
+        // 1234.50 under comma mode: '.' groups, ',' is the decimal point.
+        assert_eq!(format_edited("$ZZ.ZZ9,99-", 123450, 2, true), "$ 1.234,50 ");
+        assert_eq!(format_edited("$ZZ.ZZ9,99-", -123450, 2, true), "$ 1.234,50-");
+        // PIC 9.999 in comma mode = 4 integer digits with period grouping.
+        assert_eq!(digit_counts("9.999", true), (4, 0));
+        assert_eq!(format_edited("9.999", 1234, 0, true), "1.234");
+        // 999,99 → comma decimal point.
+        assert_eq!(format_edited("999,99", 12345, 2, true), "123,45");
     }
 
     #[test]

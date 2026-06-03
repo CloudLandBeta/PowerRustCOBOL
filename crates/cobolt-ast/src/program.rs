@@ -200,5 +200,8 @@ pub struct Program {
     /// The name from `END PROGRAM name.` — `None` for a top-level program
     /// that has no closing `END PROGRAM` statement.
     pub end_program_name: Option<String>,
+    /// `SPECIAL-NAMES. DECIMAL-POINT IS COMMA` — comma is the decimal separator
+    /// for numeric literals and edited PICs (period becomes grouping insertion).
+    pub decimal_comma: bool,
     pub span: Span,
 }

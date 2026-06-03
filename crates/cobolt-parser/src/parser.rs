@@ -22,6 +22,9 @@ pub struct Parser {
     pub(crate) tokens: Vec<SpannedToken>,
     pub(crate) pos: usize,
     pub(crate) diagnostics: Vec<Diagnostic>,
+    /// Set by `SPECIAL-NAMES. DECIMAL-POINT IS COMMA`. When true, numeric literals
+    /// use `,` as the decimal separator and edited PICs swap `.`/`,` roles.
+    pub(crate) decimal_comma: bool,
 }
 
 impl Parser {
@@ -31,7 +34,7 @@ impl Parser {
             .into_iter()
             .filter(|st| !matches!(st.token, Token::Comment(_)))
             .collect();
-        Self { tokens, pos: 0, diagnostics: Vec::new() }
+        Self { tokens, pos: 0, diagnostics: Vec::new(), decimal_comma: false }
     }
 
     // ── Token inspection ─────────────────────────────────────────────────────
@@ -52,6 +55,14 @@ impl Parser {
             .get(self.pos + offset)
             .map(|st| &st.token)
             .unwrap_or(&Token::Eof)
+    }
+
+    /// Span of the token N ahead (0 = current).
+    pub(crate) fn peek_span_at(&self, offset: usize) -> Span {
+        self.tokens
+            .get(self.pos + offset)
+            .map(|st| st.span)
+            .unwrap_or(Span::dummy())
     }
 
     /// `true` if the current token equals `tok`.
@@ -290,6 +301,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         procedure,
         nested_programs,
         end_program_name,
+        decimal_comma: p.decimal_comma,
     }
 }
 
@@ -313,12 +325,26 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                 p.advance();
                 p.eat(&Token::Section);
                 p.expect_period();
-                // Skip configuration paragraphs until the next section/division.
+                // Skip configuration paragraphs until the next section/division,
+                // but capture `DECIMAL-POINT IS COMMA` from SPECIAL-NAMES.
                 while !matches!(
                     p.peek(),
                     Token::InputOutput | Token::Data | Token::Procedure
                         | Token::Identification | Token::Eof
                 ) {
+                    if let Token::Identifier(s) = p.peek() {
+                        if s.eq_ignore_ascii_case("DECIMAL-POINT") {
+                            // … IS COMMA  (IS optional) within the next few tokens
+                            for k in 1..=3 {
+                                if let Token::Identifier(s2) = p.peek_at(k) {
+                                    if s2.eq_ignore_ascii_case("COMMA") {
+                                        p.decimal_comma = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     p.advance();
                 }
             }

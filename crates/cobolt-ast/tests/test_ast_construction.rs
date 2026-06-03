@@ -427,6 +427,7 @@ fn program_construction() {
         },
         nested_programs: vec![],
         end_program_name: None,
+        decimal_comma: false,
         span: dummy_span(),
     };
 

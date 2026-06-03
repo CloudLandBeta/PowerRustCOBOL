@@ -60,7 +60,34 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
     let span = p.peek_span();
     match p.peek().clone() {
         Token::StringLiteral(s)  => { p.advance(); Some((Literal::String(s),  span)) }
-        Token::IntegerLiteral(n) => { p.advance(); Some((Literal::Integer(n), span)) }
+        Token::IntegerLiteral(n) => {
+            // Under DECIMAL-POINT IS COMMA, `123,45` is one decimal literal:
+            // an integer, an *adjacent* comma, and an *adjacent* integer (no
+            // spaces — a comma followed by a space is still a separator).
+            if p.decimal_comma {
+                if let (Token::Comma, Token::IntegerLiteral(frac)) =
+                    (p.peek_at(1).clone(), p.peek_at(2).clone())
+                {
+                    let int_end   = p.peek_span().end;
+                    let comma_sp  = p.peek_span_at(1);
+                    let frac_sp   = p.peek_span_at(2);
+                    let adjacent = comma_sp.start == int_end && frac_sp.start == comma_sp.end;
+                    if adjacent {
+                        // Frac token text was the literal digits after the comma;
+                        // its width = number of fractional digits (preserves zeros).
+                        let scale = (frac_sp.end - frac_sp.start) as u8;
+                        let pow = 10_i128.pow(scale as u32);
+                        let mantissa = (n as i128) * pow + frac as i128;
+                        p.advance(); // integer
+                        p.advance(); // comma
+                        p.advance(); // fractional integer
+                        return Some((Literal::Decimal(mantissa, scale), span));
+                    }
+                }
+            }
+            p.advance();
+            Some((Literal::Integer(n), span))
+        }
         Token::DecimalLiteral { mantissa, scale } => {
             p.advance();
             Some((Literal::Decimal(mantissa, scale), span))
