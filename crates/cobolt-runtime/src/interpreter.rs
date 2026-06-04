@@ -754,7 +754,7 @@ impl Interpreter {
                 self.assign_refmod(base, start, length.as_deref(), &val, *span)?;
                 continue;
             }
-            let name = self.expr_to_name(target);
+            let name = self.resolve_lvalue(target);
             match &src_digits {
                 Some(digits) if self.env.is_alphanumeric_field(&name) => {
                     self.env.set_str_left(&name, digits);
@@ -769,7 +769,7 @@ impl Interpreter {
 
     fn exec_initialize(&mut self, items: &[Expr]) -> Result<(), RuntimeError> {
         for item in items {
-            let name = self.expr_to_name(item);
+            let name = self.resolve_lvalue(item);
             // Walk the DATA DIVISION for the item's declaration so groups recurse
             // into their elementary children; fall back to field-cap inference.
             let decl = self.program.data.as_ref()
@@ -841,11 +841,11 @@ impl Interpreter {
                 let v = self.eval_expr(t, span)?;
                 total = total.add_val(&v);
             }
-            let name = self.expr_to_name(g);
+            let name = self.resolve_lvalue(g);
             size_err = self.store_arith(&name, total, rounded, has);
         } else {
             for t in to {
-                let name = self.expr_to_name(t);
+                let name = self.resolve_lvalue(t);
                 let cur = self.env.get(&name).cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 let result = cur.add_val(&sum);
@@ -877,11 +877,11 @@ impl Interpreter {
                 self.eval_expr(&from[0], span)?
             };
             let result = base.sub_val(&sub);
-            let name = self.expr_to_name(g);
+            let name = self.resolve_lvalue(g);
             size_err = self.store_arith(&name, result, rounded, has);
         } else {
             for f in from {
-                let name = self.expr_to_name(f);
+                let name = self.resolve_lvalue(f);
                 let cur = self.env.get(&name).cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 let result = cur.sub_val(&sub);
@@ -906,9 +906,9 @@ impl Interpreter {
         let r = self.eval_expr(by, span)?;
         let result = l.mul_val(&r);
         let name = if let Some(g) = giving {
-            self.expr_to_name(g)
+            self.resolve_lvalue(g)
         } else {
-            self.expr_to_name(lhs)
+            self.resolve_lvalue(lhs)
         };
         let size_err = self.store_arith(&name, result, rounded, !on_size_error.is_empty());
         self.run_size_error(size_err, on_size_error, not_on_size_error)
@@ -943,14 +943,14 @@ impl Interpreter {
             // COBOL REMAINDER uses the *integer* quotient: rem = dividend − (intq × divisor).
             let int_q = CobolValue::from_i64(quotient.as_i64().unwrap_or(0));
             let rem_val = l.sub_val(&int_q.mul_val(&r));
-            let rname = self.expr_to_name(rem_expr);
+            let rname = self.resolve_lvalue(rem_expr);
             self.env.set(&rname, rem_val);
         }
 
         let name = if let Some(g) = giving {
-            self.expr_to_name(g)
+            self.resolve_lvalue(g)
         } else {
-            self.expr_to_name(lhs)
+            self.resolve_lvalue(lhs)
         };
         let size_err = self.store_arith(&name, quotient, rounded, !on_size_error.is_empty());
         self.run_size_error(size_err, on_size_error, not_on_size_error)
@@ -968,7 +968,7 @@ impl Interpreter {
         let has = !on_size_error.is_empty();
         let mut size_err = false;
         for (target, rounded) in targets {
-            let name = self.expr_to_name(target);
+            let name = self.resolve_lvalue(target);
             size_err |= self.store_arith(&name, val.clone(), *rounded, has);
         }
         self.run_size_error(size_err, on_size_error, not_on_size_error)
@@ -1192,13 +1192,13 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let from_val = self.eval_expr(from, span)?;
-        let var_name = self.expr_to_name(var);
+        let var_name = self.resolve_lvalue(var);
         self.env.set(&var_name, from_val);
 
         // Initialise AFTER variables
         for aft in after {
             let aft_from = self.eval_expr(&aft.from, span)?;
-            let aft_name = self.expr_to_name(&aft.var);
+            let aft_name = self.resolve_lvalue(&aft.var);
             self.env.set(&aft_name, aft_from);
         }
 
@@ -1228,7 +1228,7 @@ impl Interpreter {
         }
         let (head, tail) = (&after[0], &after[1..]);
         let from_val = self.eval_expr(&head.from, span)?;
-        let var_name = self.expr_to_name(&head.var);
+        let var_name = self.resolve_lvalue(&head.var);
         self.env.set(&var_name, from_val);
 
         loop {
@@ -1264,7 +1264,7 @@ impl Interpreter {
         from: Option<&AcceptSource>,
         _span: Span,
     ) -> Result<(), RuntimeError> {
-        let name = self.expr_to_name(target);
+        let name = self.resolve_lvalue(target);
         match from {
             None => {
                 // Read one line from stdin.
@@ -1346,7 +1346,7 @@ impl Interpreter {
                 result.push_str(&src);
             }
         }
-        let name = self.expr_to_name(into);
+        let name = self.resolve_lvalue(into);
         // Overflow: the assembled string is wider than the receiving field.
         let capacity = self.env.display_string(&name).map(|s| s.len()).unwrap_or(usize::MAX);
         let overflowed = result.len() > capacity;
@@ -1394,11 +1394,11 @@ impl Interpreter {
         }
 
         for (i, target) in into.iter().enumerate() {
-            let name = self.expr_to_name(&target.target);
+            let name = self.resolve_lvalue(&target.target);
             let val = parts.get(i).map(|s| s.as_str()).unwrap_or("");
             self.env.set_str(&name, val);
             if let Some(count_expr) = &target.count {
-                let cname = self.expr_to_name(count_expr);
+                let cname = self.resolve_lvalue(count_expr);
                 self.env.set_i64(&cname, val.len() as i64);
             }
         }
@@ -1414,7 +1414,7 @@ impl Interpreter {
     // ── INSPECT ───────────────────────────────────────────────────────────────
 
     fn exec_inspect(&mut self, target: &Expr, spec: &InspectSpec, span: Span) -> Result<(), RuntimeError> {
-        let name = self.expr_to_name(target);
+        let name = self.resolve_lvalue(target);
         let val  = self.env.get(&name).cloned()
             .unwrap_or_else(|| CobolValue::from_str("", 0));
         let mut s = val.as_display_string();
@@ -1422,7 +1422,7 @@ impl Interpreter {
         match spec {
             InspectSpec::Tallying(tallies) => {
                 for tally in tallies {
-                    let ctr_name = self.expr_to_name(&tally.counter);
+                    let ctr_name = self.resolve_lvalue(&tally.counter);
                     let mut count = 0i64;
                     for for_ in &tally.for_ {
                         count += match for_ {
@@ -2280,9 +2280,12 @@ impl Interpreter {
                 Ok(self.env.get(&upper).cloned().unwrap_or(CobolValue::from_i64(0)))
             }
 
-            Expr::Subscript { base, .. } => {
-                // TODO: full table subscript support.
-                self.eval_expr(base, span)
+            Expr::Subscript { base, indices, span: s } => {
+                // Table reference `t(i[,j…])` → the occurrence's storage slot.
+                let base_name = self.expr_to_name(base);
+                let idx = self.eval_indices(indices, *s);
+                let key = crate::environment::subscript_key(&base_name, &idx);
+                Ok(self.env.get(&key).cloned().unwrap_or_else(|| CobolValue::from_i64(0)))
             }
 
             Expr::RefMod { base, start, length, span: s } => {
@@ -2621,6 +2624,26 @@ impl Interpreter {
             }
         }
         Ok(stmts)
+    }
+
+    /// Evaluate a list of subscript index expressions to 1-based integers.
+    fn eval_indices(&mut self, indices: &[Expr], span: Span) -> Vec<i64> {
+        indices.iter()
+            .map(|e| self.eval_expr(e, span).ok().and_then(|v| v.as_i64()).unwrap_or(1))
+            .collect()
+    }
+
+    /// Resolve an assignment target to its storage key, evaluating subscripts.
+    /// (`RefMod` targets are handled separately by `assign_refmod`.)
+    fn resolve_lvalue(&mut self, expr: &Expr) -> String {
+        match expr {
+            Expr::Subscript { base, indices, span } => {
+                let base_name = self.expr_to_name(base);
+                let idx = self.eval_indices(indices, *span);
+                crate::environment::subscript_key(&base_name, &idx)
+            }
+            _ => self.expr_to_name(expr),
+        }
     }
 
     /// Extract the target name from an lvalue expression.

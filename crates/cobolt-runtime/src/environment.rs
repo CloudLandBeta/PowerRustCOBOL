@@ -27,10 +27,29 @@ use crate::value::{CobolNumeric, CobolValue};
 
 // ── CobolEnvironment ──────────────────────────────────────────────────────────
 
+/// Hierarchy / occurrence metadata for one declared data item.
+#[derive(Debug, Clone, Default)]
+pub struct ItemSym {
+    /// OCCURS counts of this item plus its ancestor groups, outermost first.
+    /// Empty for a non-table item. A subscripted reference supplies one index
+    /// per entry.
+    pub dims: Vec<usize>,
+    /// Immediate child item names (uppercased), for `CORRESPONDING`. Empty for
+    /// an elementary item.
+    pub children: Vec<String>,
+    /// Ancestor group names (uppercased), outermost first, for qualified-name
+    /// (`A OF B`) disambiguation.
+    pub quals: Vec<String>,
+    /// True if this item is a group (has children).
+    pub is_group: bool,
+}
+
 /// The data store for a running COBOL program.
 ///
 /// Data items are addressed by their COBOL name (uppercase, hyphens preserved).
-/// Items that have not been initialised hold `CobolValue::Unset`.
+/// Subscripted table elements are stored under synthesized keys `NAME(i[,j…])`
+/// created lazily from the base item's default; the base `NAME` slot doubles as
+/// the template. Items that have not been initialised hold `CobolValue::Unset`.
 #[derive(Debug, Default)]
 pub struct CobolEnvironment {
     /// `name → value` store.  Insertion order is preserved (declaration order).
@@ -47,6 +66,25 @@ pub struct CobolEnvironment {
     /// `DECIMAL-POINT IS COMMA` — comma is the decimal point and period the
     /// grouping symbol in edited PICs.
     decimal_comma: bool,
+    /// Hierarchy / OCCURS metadata, keyed by item name (uppercase).
+    symbols: IndexMap<String, ItemSym>,
+}
+
+/// The base item name of a (possibly subscripted) storage key: `A(2)` → `A`.
+fn base_name(key: &str) -> &str {
+    match key.find('(') {
+        Some(i) => &key[..i],
+        None => key,
+    }
+}
+
+/// Build the storage key for a subscripted reference: `("A", [2])` → `"A(2)"`.
+pub fn subscript_key(base: &str, indices: &[i64]) -> String {
+    if indices.is_empty() {
+        return base.to_ascii_uppercase();
+    }
+    let parts: Vec<String> = indices.iter().map(|i| i.to_string()).collect();
+    format!("{}({})", base.to_ascii_uppercase(), parts.join(","))
 }
 
 impl CobolEnvironment {
@@ -93,40 +131,90 @@ impl CobolEnvironment {
 
     /// Recursively initialise a data declaration and its children.
     fn init_decl(&mut self, decl: &DataDecl) {
-        if let Some(name) = &decl.name {
-            // Skip FILLER (anonymous items)
-            let upper = name.to_ascii_uppercase();
-            if upper != "FILLER" {
-                // Numeric-edited items are stored as their edited string form.
-                if let Some(pic) = &decl.picture {
-                    if pic.kind == PicKind::NumericEdited {
-                        self.init_edited(&upper, &pic.template, decl.value.as_ref(), decl.blank_when_zero);
-                        for child in &decl.children {
-                            self.init_decl(child);
-                        }
-                        return;
-                    }
-                }
-                let default = default_value(decl);
-                let value = if let Some(lit) = &decl.value {
-                    apply_literal(lit, &default)
-                } else {
-                    default
-                };
-                // Record numeric integer-digit capacity for ON SIZE ERROR checks.
-                if let Some(pic) = &decl.picture {
-                    if pic.kind == PicKind::Numeric {
-                        let int_digits = pic.digits.min(u8::MAX as u16) as u8;
-                        let decimals = pic.decimals.min(u8::MAX as u16) as u8;
-                        self.field_caps.insert(upper.clone(), (int_digits, decimals));
-                    }
-                }
-                self.store.insert(upper, value);
+        self.init_decl_h(decl, &mut Vec::new(), &mut Vec::new());
+    }
+
+    /// Hierarchy-aware initialisation: `dims` accumulates the OCCURS counts of
+    /// this item + its ancestors; `quals` the ancestor group names.
+    fn init_decl_h(&mut self, decl: &DataDecl, dims: &mut Vec<usize>, quals: &mut Vec<String>) {
+        let occ = decl.occurs.as_ref().map(|o| o.max.max(1) as usize);
+        if let Some(n) = occ {
+            dims.push(n);
+        }
+
+        let upper = decl.name.as_ref().map(|n| n.to_ascii_uppercase());
+        let is_named = matches!(&upper, Some(n) if n != "FILLER");
+
+        if is_named {
+            let name = upper.clone().unwrap();
+            let children: Vec<String> = decl.children.iter()
+                .filter_map(|c| c.name.as_ref())
+                .map(|n| n.to_ascii_uppercase())
+                .filter(|n| n != "FILLER")
+                .collect();
+            self.symbols.insert(name.clone(), ItemSym {
+                dims: dims.clone(),
+                children,
+                quals: quals.clone(),
+                is_group: !decl.children.is_empty(),
+            });
+            // Base/template slot + caps/edited (one value; subscript slots are
+            // created lazily from this template on first write).
+            self.insert_value(&name, decl);
+            quals.push(name);
+        }
+
+        for child in &decl.children {
+            self.init_decl_h(child, dims, quals);
+        }
+
+        if is_named {
+            quals.pop();
+        }
+        if occ.is_some() {
+            dims.pop();
+        }
+    }
+
+    /// Insert one item's base value + caps / edited template.
+    fn insert_value(&mut self, upper: &str, decl: &DataDecl) {
+        if let Some(pic) = &decl.picture {
+            if pic.kind == PicKind::NumericEdited {
+                self.init_edited(upper, &pic.template, decl.value.as_ref(), decl.blank_when_zero);
+                return;
             }
         }
-        for child in &decl.children {
-            self.init_decl(child);
+        let default = default_value(decl);
+        let value = if let Some(lit) = &decl.value {
+            apply_literal(lit, &default)
+        } else {
+            default
+        };
+        if let Some(pic) = &decl.picture {
+            if pic.kind == PicKind::Numeric {
+                let int_digits = pic.digits.min(u8::MAX as u16) as u8;
+                let decimals = pic.decimals.min(u8::MAX as u16) as u8;
+                self.field_caps.insert(upper.to_string(), (int_digits, decimals));
+            }
         }
+        self.store.insert(upper.to_string(), value);
+    }
+
+    // ── Hierarchy / occurrence accessors ────────────────────────────────────
+
+    /// OCCURS dimensions of a (table) item; empty for a non-table item.
+    pub fn dims_of(&self, name: &str) -> Vec<usize> {
+        self.symbols.get(&name.to_ascii_uppercase()).map(|s| s.dims.clone()).unwrap_or_default()
+    }
+
+    /// Immediate child item names of a group (for CORRESPONDING).
+    pub fn children_of(&self, name: &str) -> Vec<String> {
+        self.symbols.get(&name.to_ascii_uppercase()).map(|s| s.children.clone()).unwrap_or_default()
+    }
+
+    /// The symbol-table entry for an item, if declared.
+    pub fn symbol(&self, name: &str) -> Option<&ItemSym> {
+        self.symbols.get(&name.to_ascii_uppercase())
     }
 
     /// Initialise a numeric-edited item: remember its template and store the
@@ -155,14 +243,24 @@ impl CobolEnvironment {
 
     // ── Data access ───────────────────────────────────────────────────────────
 
-    /// Get an immutable reference to a data item's value.
+    /// Get an immutable reference to a data item's value. An un-written table
+    /// occurrence falls back to the base item's (template) value.
     pub fn get(&self, name: &str) -> Option<&CobolValue> {
-        self.store.get(&name.to_ascii_uppercase())
+        let key = name.to_ascii_uppercase();
+        if let Some(v) = self.store.get(&key) {
+            return Some(v);
+        }
+        if key.contains('(') {
+            return self.store.get(base_name(&key));
+        }
+        None
     }
 
     /// Integer-digit capacity of a numeric field, if known (for ON SIZE ERROR).
     pub fn integer_capacity(&self, name: &str) -> Option<u8> {
-        self.field_caps.get(&name.to_ascii_uppercase()).map(|(d, _)| *d)
+        let key = name.to_ascii_uppercase();
+        self.field_caps.get(&key).or_else(|| self.field_caps.get(base_name(&key)))
+            .map(|(d, _)| *d)
     }
 
     /// The de-edited character form of a plain numeric field for a MOVE to an
@@ -170,8 +268,8 @@ impl CobolEnvironment {
     /// `None` if the item isn't a plain numeric.
     pub fn deedited_digits(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_uppercase();
-        let (int_digits, _) = *self.field_caps.get(&key)?;
-        if let Some(CobolValue::Numeric(n)) = self.store.get(&key) {
+        let (int_digits, _) = *self.field_caps.get(&key).or_else(|| self.field_caps.get(base_name(&key)))?;
+        if let Some(CobolValue::Numeric(n)) = self.get(&key) {
             let total = int_digits as usize + n.decimals as usize;
             let digits = n.mantissa.unsigned_abs().to_string();
             let padded = if digits.len() < total {
@@ -188,14 +286,14 @@ impl CobolEnvironment {
     /// `true` if the named item is a plain alphanumeric field (not numeric-edited).
     pub fn is_alphanumeric_field(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
-        !self.edited_templates.contains_key(&key)
-            && matches!(self.store.get(&key), Some(CobolValue::String { .. }))
+        !self.edited_templates.contains_key(base_name(&key))
+            && matches!(self.get(&key), Some(CobolValue::String { .. }))
     }
 
     /// Store `s` left-justified (space-padded) into an alphanumeric field.
     pub fn set_str_left(&mut self, name: &str, s: &str) {
         let key = name.to_ascii_uppercase();
-        let cap = match self.store.get(&key) {
+        let cap = match self.get(&key) {
             Some(CobolValue::String { capacity, .. }) => *capacity,
             _ => s.len(),
         };
@@ -208,9 +306,11 @@ impl CobolEnvironment {
     /// i.e. the characters as they are stored. Non-numeric items render verbatim.
     pub fn display_string(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_uppercase();
-        let val = self.store.get(&key)?;
+        let val = self.get(&key)?;
         if let CobolValue::Numeric(n) = val {
-            if let Some(&(int_digits, _)) = self.field_caps.get(&key) {
+            if let Some(&(int_digits, _)) =
+                self.field_caps.get(&key).or_else(|| self.field_caps.get(base_name(&key)))
+            {
                 return Some(format_display_numeric(n, int_digits));
             }
         }
@@ -230,8 +330,9 @@ impl CobolEnvironment {
     pub fn set(&mut self, name: &str, value: CobolValue) {
         let key = name.to_ascii_uppercase();
         // Storing a numeric into a numeric-edited field runs the edit engine and
-        // keeps the result as the edited string.
-        if let Some(template) = self.edited_templates.get(&key).cloned() {
+        // keeps the result as the edited string. (Edited template / BLANK WHEN
+        // ZERO are keyed by the base item, shared by all occurrences.)
+        if let Some(template) = self.edited_templates.get(base_name(&key)).cloned() {
             // Accept any numeric source (incl. COMP-1/COMP-2 floats) for editing.
             let num = match &value {
                 CobolValue::Float(f) => {
@@ -242,13 +343,19 @@ impl CobolEnvironment {
             if let Some(num) = num {
                 let dc = self.decimal_comma;
                 let width = crate::numedit::edited_width(&template, dc);
-                let edited = if self.blank_when_zero.contains(&key) && num.mantissa == 0 {
+                let edited = if self.blank_when_zero.contains(base_name(&key)) && num.mantissa == 0 {
                     " ".repeat(width)
                 } else {
                     crate::numedit::format_edited(&template, num.mantissa, num.decimals, dc)
                 };
                 self.store.insert(key, CobolValue::from_str(&edited, width));
                 return;
+            }
+        }
+        // Lazily materialise an un-written table occurrence from its base template.
+        if !self.store.contains_key(&key) && key.contains('(') {
+            if let Some(base_val) = self.store.get(base_name(&key)).cloned() {
+                self.store.insert(key.clone(), base_val);
             }
         }
         if let Some(existing) = self.store.get_mut(&key) {
