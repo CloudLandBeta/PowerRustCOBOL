@@ -1466,11 +1466,37 @@ fn parse_call(p: &mut Parser) -> Stmt {
 
     let returning = if p.eat(&Token::Returning) { Some(parse_expr(p)) } else { None };
 
-    // ON EXCEPTION / NOT ON EXCEPTION — skip for MVP
-    let on_exception: Vec<Stmt> = Vec::new();
+    // [ON] {EXCEPTION | OVERFLOW} imperative … [NOT [ON] {EXCEPTION|OVERFLOW} …]
+    let stop = |t: &Token| matches!(t, Token::Not | Token::EndCall);
+    let mut on_exception: Vec<Stmt> = Vec::new();
+    if eat_on_exception(p) {
+        on_exception = parse_stmts(p, &stop);
+    }
+    // NOT ON EXCEPTION/OVERFLOW — parsed and discarded (no field for it yet).
+    if p.at(&Token::Not) {
+        p.advance();
+        eat_on_exception(p);
+        let _ = parse_stmts(p, &|t| matches!(t, Token::EndCall));
+    }
     p.eat(&Token::EndCall);
 
     Stmt::Call { program, using, returning, on_exception, span }
+}
+
+/// Consume `[ON] {EXCEPTION | OVERFLOW}` of a CALL. Returns whether it matched.
+fn eat_on_exception(p: &mut Parser) -> bool {
+    let is_kw = |t: &Token| matches!(t, Token::Exception) || is_word(t, "OVERFLOW");
+    let has = is_kw(p.peek()) || (p.at(&Token::On) && is_kw(p.peek_at(1)));
+    if !has {
+        return false;
+    }
+    p.eat(&Token::On);
+    if p.at(&Token::Exception) {
+        p.advance();
+    } else if is_word(p.peek(), "OVERFLOW") {
+        p.advance();
+    }
+    true
 }
 
 // ── INVOKE (OO-COBOL) ─────────────────────────────────────────────────────────

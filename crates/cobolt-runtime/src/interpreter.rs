@@ -1832,7 +1832,7 @@ impl Interpreter {
         program: &Expr,
         using: &[CallArg],
         _returning: Option<&Expr>,
-        _on_exception: &[Stmt],
+        on_exception: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let prog_name = self.eval_expr(program, span)?
@@ -2166,7 +2166,11 @@ impl Interpreter {
                         other => other?,
                     }
                 } else {
-                    tracing::warn!("CALL to unknown program '{}' — ignored", prog_name);
+                    // Unresolved CALL → run the ON EXCEPTION / ON OVERFLOW body.
+                    tracing::warn!("CALL to unknown program '{}'", prog_name);
+                    if !on_exception.is_empty() {
+                        self.exec_stmts(on_exception)?;
+                    }
                 }
             }
         }
