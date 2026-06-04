@@ -41,18 +41,18 @@
        FILE-CONTROL.
 
            SELECT SEQ-FILE
-               ASSIGN TO "tests/cobol/fileio/SEQUENTIAL/seq-test.dat"
+               ASSIGN TO "/tmp/seq-test.dat"
                ORGANIZATION IS SEQUENTIAL
                FILE STATUS IS SEQ-STATUS.
 
            SELECT LINESEQ-FILE
                ASSIGN TO
-               "tests/cobol/fileio/LINESEQUENTIAL/lineseq-test.txt"
+               "/tmp/lineseq-test.txt"
                ORGANIZATION IS LINE SEQUENTIAL
                FILE STATUS IS LINESEQ-STATUS.
 
            SELECT IDX-MAIN-FILE
-               ASSIGN TO "tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-main.dat"
+               ASSIGN TO "/tmp/idx-main.dat"
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS IDX-PRIMARY-KEY
@@ -64,21 +64,21 @@
                FILE STATUS IS IDX-STATUS.
 
            SELECT IDX-NUM-FILE
-               ASSIGN TO "tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-numeric.dat"
+               ASSIGN TO "/tmp/idx-numeric.dat"
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS NUM-KEY
                FILE STATUS IS NUM-STATUS.
 
            SELECT IDX-ALPHA-FILE
-               ASSIGN TO "tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-alpha.dat"
+               ASSIGN TO "/tmp/idx-alpha.dat"
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS ALPHA-KEY
                FILE STATUS IS ALPHA-STATUS.
 
            SELECT IDX-PERF-FILE
-               ASSIGN TO "tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-perf-uuid-1m.dat"
+               ASSIGN TO "/tmp/idx-perf-uuid-1m.dat"
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS PERF-KEY
@@ -153,19 +153,73 @@
            05 PERF-LIMIT                PIC 9(9) VALUE 1000000.
            05 PERF-COUNTER              PIC 9(9) VALUE 0.
            05 PERF-COUNTER-EDIT         PIC ZZZ,ZZZ,ZZ9.
-           05 PERF-START-TIME           PIC 9(8) VALUE 0.
-           05 PERF-END-TIME             PIC 9(8) VALUE 0.
-           05 PERF-START-SECONDS        PIC 9(9) VALUE 0.
-           05 PERF-END-SECONDS          PIC 9(9) VALUE 0.
-           05 PERF-ELAPSED-SECONDS      PIC 9(9) VALUE 0.
-           05 PERF-ELAPSED-EDIT         PIC ZZZ,ZZZ,ZZ9.
+           05 PERF-START-TIME          PIC 9(8) VALUE 0.
+           05 PERF-END-TIME            PIC 9(8) VALUE 0.
+           05 PERF-START-HH            PIC 99 VALUE 0.
+           05 PERF-START-MM            PIC 99 VALUE 0.
+           05 PERF-START-SS            PIC 99 VALUE 0.
+           05 PERF-START-HS            PIC 99 VALUE 0.
+           05 PERF-END-HH              PIC 99 VALUE 0.
+           05 PERF-END-MM              PIC 99 VALUE 0.
+           05 PERF-END-SS              PIC 99 VALUE 0.
+           05 PERF-END-HS              PIC 99 VALUE 0.
+           05 PERF-TIME-WORK           PIC 9(8) VALUE 0.
+           05 PERF-TIME-REMAINDER      PIC 9(8) VALUE 0.
+           05 PERF-START-CENTISECONDS   PIC 9(9) VALUE 0.
+           05 PERF-END-CENTISECONDS     PIC 9(9) VALUE 0.
+           05 PERF-ELAPSED-CENTISECONDS PIC 9(9) VALUE 0.
+           05 PERF-ELAPSED-SECONDS      PIC 9(7)V99 VALUE 0.
+           05 PERF-ELAPSED-EDIT         PIC ZZZ,ZZZ,ZZ9.99.
            05 PERF-RPS                  PIC 9(9) VALUE 0.
            05 PERF-RPS-EDIT             PIC ZZZ,ZZZ,ZZ9.
            05 PERF-EST-BYTES            PIC 9(18) VALUE 0.
            05 PERF-EST-MB               PIC 9(12) VALUE 0.
            05 PERF-EST-MB-EDIT          PIC ZZZ,ZZZ,ZZZ,ZZ9.
            05 PERF-PATH                 PIC X(120)
-              VALUE "tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-perf-uuid-1m.dat".
+              VALUE "/tmp/idx-perf-uuid-1m.dat".
+           05 PERF-READ-COUNTER         PIC 9(9) VALUE 0.
+           05 PERF-READ-FOUND           PIC 9(9) VALUE 0.
+           05 PERF-READ-COUNTER-EDIT    PIC ZZZ,ZZZ,ZZ9.
+           05 PERF-READ-FOUND-EDIT      PIC ZZZ,ZZZ,ZZ9.
+           05 PERF-READ-START-TIME      PIC 9(8) VALUE 0.
+           05 PERF-READ-END-TIME        PIC 9(8) VALUE 0.
+           05 PERF-READ-START-HH        PIC 99 VALUE 0.
+           05 PERF-READ-START-MM        PIC 99 VALUE 0.
+           05 PERF-READ-START-SS        PIC 99 VALUE 0.
+           05 PERF-READ-START-HS        PIC 99 VALUE 0.
+           05 PERF-READ-END-HH          PIC 99 VALUE 0.
+           05 PERF-READ-END-MM          PIC 99 VALUE 0.
+           05 PERF-READ-END-SS          PIC 99 VALUE 0.
+           05 PERF-READ-END-HS          PIC 99 VALUE 0.
+           05 PERF-READ-START-CENTISECONDS PIC 9(9) VALUE 0.
+           05 PERF-READ-END-CENTISECONDS   PIC 9(9) VALUE 0.
+           05 PERF-READ-ELAPSED-CENTISECONDS PIC 9(9) VALUE 0.
+           05 PERF-READ-ELAPSED-SECONDS PIC 9(7)V99 VALUE 0.
+           05 PERF-READ-ELAPSED-EDIT    PIC ZZZ,ZZZ,ZZ9.99.
+           05 PERF-READ-RPS             PIC 9(9) VALUE 0.
+           05 PERF-READ-RPS-EDIT        PIC ZZZ,ZZZ,ZZ9.
+           05 PERF-SCAN-COUNTER         PIC 9(9) VALUE 0.
+           05 PERF-SCAN-FOUND           PIC 9(9) VALUE 0.
+           05 PERF-SCAN-COUNTER-EDIT    PIC ZZZ,ZZZ,ZZ9.
+           05 PERF-SCAN-FOUND-EDIT      PIC ZZZ,ZZZ,ZZ9.
+           05 PERF-SCAN-START-TIME      PIC 9(8) VALUE 0.
+           05 PERF-SCAN-END-TIME        PIC 9(8) VALUE 0.
+           05 PERF-SCAN-START-HH        PIC 99 VALUE 0.
+           05 PERF-SCAN-START-MM        PIC 99 VALUE 0.
+           05 PERF-SCAN-START-SS        PIC 99 VALUE 0.
+           05 PERF-SCAN-START-HS        PIC 99 VALUE 0.
+           05 PERF-SCAN-END-HH          PIC 99 VALUE 0.
+           05 PERF-SCAN-END-MM          PIC 99 VALUE 0.
+           05 PERF-SCAN-END-SS          PIC 99 VALUE 0.
+           05 PERF-SCAN-END-HS          PIC 99 VALUE 0.
+           05 PERF-SCAN-START-CENTISECONDS PIC 9(9) VALUE 0.
+           05 PERF-SCAN-END-CENTISECONDS   PIC 9(9) VALUE 0.
+           05 PERF-SCAN-ELAPSED-CENTISECONDS PIC 9(9) VALUE 0.
+           05 PERF-SCAN-ELAPSED-SECONDS PIC 9(7)V99 VALUE 0.
+           05 PERF-SCAN-ELAPSED-EDIT    PIC ZZZ,ZZZ,ZZ9.99.
+           05 PERF-SCAN-RPS             PIC 9(9) VALUE 0.
+           05 PERF-SCAN-RPS-EDIT        PIC ZZZ,ZZZ,ZZ9.
+           05 PERF-SCAN-EOF             PIC X VALUE "N".
 
        01  TIME-BREAKDOWN.
            05 TB-HH                     PIC 99 VALUE 0.
@@ -185,7 +239,7 @@
            DISPLAY "FILE I/O TEST SUITE".
            DISPLAY "Storage variant: 5. no STORAGE clause, default DISK without compression".
            DISPLAY "===================".
-           DISPLAY "All files are created under tests/cobol/fileio".
+           DISPLAY "All files are created under /tmp".
            DISPLAY "Existing files with the same names may be replaced.".
 
            PERFORM TEST-SEQUENTIAL-FILE.
@@ -241,7 +295,7 @@
 
            DISPLAY " ".
            DISPLAY "SEQUENTIAL FILE TESTS".
-           DISPLAY "File: tests/cobol/fileio/SEQUENTIAL/seq-test.dat".
+           DISPLAY "File: /tmp/seq-test.dat".
 
            OPEN OUTPUT SEQ-FILE.
 
@@ -317,7 +371,7 @@
            DISPLAY " ".
            DISPLAY "LINE SEQUENTIAL FILE TESTS".
            DISPLAY
-           "File: tests/cobol/fileio/LINESEQUENTIAL/lineseq-test.txt".
+           "File: /tmp/lineseq-test.txt".
 
            OPEN OUTPUT LINESEQ-FILE.
 
@@ -397,7 +451,7 @@
 
            DISPLAY " ".
            DISPLAY "INDEXED FILE TESTS".
-           DISPLAY "File: tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-main.dat".
+           DISPLAY "File: /tmp/idx-main.dat".
 
            OPEN OUTPUT IDX-MAIN-FILE.
 
@@ -615,7 +669,7 @@
 
            DISPLAY " ".
            DISPLAY "INDEXED NUMERIC KEY TESTS".
-           DISPLAY "File: tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-numeric.dat".
+           DISPLAY "File: /tmp/idx-numeric.dat".
 
            OPEN OUTPUT IDX-NUM-FILE.
            MOVE "N001" TO TEST-ID.
@@ -658,7 +712,7 @@
 
            DISPLAY " ".
            DISPLAY "INDEXED ALPHABETIC KEY TESTS".
-           DISPLAY "File: tests/cobol/fileio/INDEXED/DEFAULT-DISK/idx-alpha.dat".
+           DISPLAY "File: /tmp/idx-alpha.dat".
 
            OPEN OUTPUT IDX-ALPHA-FILE.
            MOVE "A001" TO TEST-ID.
@@ -760,45 +814,312 @@
            MOVE PERF-EST-MB TO PERF-EST-MB-EDIT.
 
            DISPLAY " ".
-           DISPLAY "INDEXED PERFORMANCE STATISTICS".
+           DISPLAY "INDEXED WRITE PERFORMANCE STATISTICS".
            DISPLAY "Path                : " PERF-PATH.
+           DISPLAY "Start time HHMMSSHS : " PERF-START-TIME.
+           DISPLAY "End time HHMMSSHS   : " PERF-END-TIME.
            DISPLAY "Records attempted   : " PERF-COUNTER-EDIT.
            DISPLAY "Elapsed seconds     : " PERF-ELAPSED-EDIT.
            DISPLAY "Records per second  : " PERF-RPS-EDIT.
            DISPLAY "Approx data MB      : " PERF-EST-MB-EDIT.
            DISPLAY "Final file status   : " PERF-STATUS.
+
+           ACCEPT PERF-READ-START-TIME FROM TIME.
+           PERFORM CONVERT-READ-START-TIME.
+
+           OPEN INPUT IDX-PERF-FILE.
+           MOVE "P003" TO TEST-ID.
+           MOVE "OPEN INPUT PERFORMANCE INDEXED FILE" TO TEST-NAME.
+           MOVE PERF-STATUS TO ACTUAL-RESULT.
+           PERFORM ASSERT-STATUS-OK.
+
+           MOVE ZERO TO PERF-READ-COUNTER.
+           MOVE ZERO TO PERF-READ-FOUND.
+
+           PERFORM UNTIL PERF-READ-COUNTER >= PERF-LIMIT
+               ADD 1 TO PERF-READ-COUNTER
+               MOVE PERF-READ-COUNTER TO UUID-NUMBER
+               MOVE SPACES TO PERF-KEY
+               STRING UUID-PREFIX DELIMITED BY SIZE
+                      UUID-NUMBER DELIMITED BY SIZE
+                      INTO PERF-KEY
+               READ IDX-PERF-FILE KEY IS PERF-KEY
+                   INVALID KEY
+                       CONTINUE
+               END-READ
+               IF PERF-STATUS = "00"
+                   ADD 1 TO PERF-READ-FOUND
+               ELSE
+                   DISPLAY "PERFORMANCE READ FAILED AT RECORD "
+                           PERF-READ-COUNTER
+                   DISPLAY "FILE STATUS: " PERF-STATUS
+                   MOVE PERF-LIMIT TO PERF-READ-COUNTER
+               END-IF
+           END-PERFORM.
+
+           CLOSE IDX-PERF-FILE.
+
+           ACCEPT PERF-READ-END-TIME FROM TIME.
+           PERFORM CONVERT-READ-END-TIME.
+           PERFORM CALCULATE-READ-PERF-STATS.
+
+           MOVE "P004" TO TEST-ID.
+           MOVE "PERFORMANCE FILE READ LOOP COMPLETED" TO TEST-NAME.
+           MOVE PERF-STATUS TO ACTUAL-RESULT.
+           PERFORM ASSERT-STATUS-OK.
+
+           MOVE PERF-READ-COUNTER TO PERF-READ-COUNTER-EDIT.
+           MOVE PERF-READ-FOUND TO PERF-READ-FOUND-EDIT.
+           MOVE PERF-READ-ELAPSED-SECONDS TO PERF-READ-ELAPSED-EDIT.
+           MOVE PERF-READ-RPS TO PERF-READ-RPS-EDIT.
+
+           DISPLAY " ".
+           DISPLAY "INDEXED READ PERFORMANCE STATISTICS".
+           DISPLAY "Path                : " PERF-PATH.
+           DISPLAY "Start time HHMMSSHS : " PERF-READ-START-TIME.
+           DISPLAY "End time HHMMSSHS   : " PERF-READ-END-TIME.
+           DISPLAY "Records attempted   : " PERF-READ-COUNTER-EDIT.
+           DISPLAY "Records found       : " PERF-READ-FOUND-EDIT.
+           DISPLAY "Elapsed seconds     : " PERF-READ-ELAPSED-EDIT.
+           DISPLAY "Records per second  : " PERF-READ-RPS-EDIT.
+           DISPLAY "Final file status   : " PERF-STATUS.
+
+           ACCEPT PERF-SCAN-START-TIME FROM TIME.
+           PERFORM CONVERT-SCAN-START-TIME.
+
+           OPEN INPUT IDX-PERF-FILE.
+           MOVE "P005" TO TEST-ID.
+           MOVE "OPEN INPUT PERFORMANCE INDEXED FILE FOR SCAN"
+                TO TEST-NAME.
+           MOVE PERF-STATUS TO ACTUAL-RESULT.
+           PERFORM ASSERT-STATUS-OK.
+
+           MOVE ZERO TO PERF-SCAN-COUNTER.
+           MOVE ZERO TO PERF-SCAN-FOUND.
+           MOVE "N" TO PERF-SCAN-EOF.
+
+           PERFORM UNTIL PERF-SCAN-EOF = "Y"
+               READ IDX-PERF-FILE NEXT RECORD
+                   AT END
+                       MOVE "Y" TO PERF-SCAN-EOF
+                   NOT AT END
+                       ADD 1 TO PERF-SCAN-COUNTER
+                       ADD 1 TO PERF-SCAN-FOUND
+               END-READ
+           END-PERFORM.
+
+           CLOSE IDX-PERF-FILE.
+
+           ACCEPT PERF-SCAN-END-TIME FROM TIME.
+           PERFORM CONVERT-SCAN-END-TIME.
+           PERFORM CALCULATE-SCAN-PERF-STATS.
+
+           MOVE "P006" TO TEST-ID.
+           MOVE "PERFORMANCE FILE SEQUENTIAL SCAN COMPLETED"
+                TO TEST-NAME.
+           MOVE PERF-STATUS TO ACTUAL-RESULT.
+           PERFORM ASSERT-STATUS-OK.
+
+           MOVE PERF-SCAN-COUNTER TO PERF-SCAN-COUNTER-EDIT.
+           MOVE PERF-SCAN-FOUND TO PERF-SCAN-FOUND-EDIT.
+           MOVE PERF-SCAN-ELAPSED-SECONDS TO PERF-SCAN-ELAPSED-EDIT.
+           MOVE PERF-SCAN-RPS TO PERF-SCAN-RPS-EDIT.
+
+           DISPLAY " ".
+           DISPLAY "INDEXED SCAN PERFORMANCE STATISTICS".
+           DISPLAY "Path                : " PERF-PATH.
+           DISPLAY "Start time HHMMSSHS : " PERF-SCAN-START-TIME.
+           DISPLAY "End time HHMMSSHS   : " PERF-SCAN-END-TIME.
+           DISPLAY "Records scanned     : " PERF-SCAN-COUNTER-EDIT.
+           DISPLAY "Records found       : " PERF-SCAN-FOUND-EDIT.
+           DISPLAY "Elapsed seconds     : " PERF-SCAN-ELAPSED-EDIT.
+           DISPLAY "Records per second  : " PERF-SCAN-RPS-EDIT.
+           DISPLAY "Final file status   : " PERF-STATUS.
            DISPLAY "The indexed performance file was intentionally kept.".
 
        CONVERT-START-TIME.
 
-           MOVE PERF-START-TIME TO TB-HH TB-MM TB-SS TB-HS.
-           COMPUTE PERF-START-SECONDS =
-               (TB-HH * 3600) + (TB-MM * 60) + TB-SS.
+           MOVE PERF-START-TIME TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 1000000
+               GIVING PERF-START-HH
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 10000
+               GIVING PERF-START-MM
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 100
+               GIVING PERF-START-SS
+               REMAINDER PERF-START-HS.
+
+           COMPUTE PERF-START-CENTISECONDS =
+               (((PERF-START-HH * 60 + PERF-START-MM) * 60
+                 + PERF-START-SS) * 100)
+               + PERF-START-HS.
 
        CONVERT-END-TIME.
 
-           MOVE PERF-END-TIME TO TB-HH TB-MM TB-SS TB-HS.
-           COMPUTE PERF-END-SECONDS =
-               (TB-HH * 3600) + (TB-MM * 60) + TB-SS.
+           MOVE PERF-END-TIME TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 1000000
+               GIVING PERF-END-HH
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 10000
+               GIVING PERF-END-MM
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 100
+               GIVING PERF-END-SS
+               REMAINDER PERF-END-HS.
+
+           COMPUTE PERF-END-CENTISECONDS =
+               (((PERF-END-HH * 60 + PERF-END-MM) * 60
+                 + PERF-END-SS) * 100)
+               + PERF-END-HS.
 
        CALCULATE-PERF-STATS.
 
-           IF PERF-END-SECONDS < PERF-START-SECONDS
-               ADD 86400 TO PERF-END-SECONDS
+           IF PERF-END-CENTISECONDS < PERF-START-CENTISECONDS
+               ADD 8640000 TO PERF-END-CENTISECONDS
+           END-IF.
+
+           COMPUTE PERF-ELAPSED-CENTISECONDS =
+               PERF-END-CENTISECONDS - PERF-START-CENTISECONDS.
+
+           IF PERF-ELAPSED-CENTISECONDS = ZERO
+               MOVE 1 TO PERF-ELAPSED-CENTISECONDS
            END-IF.
 
            COMPUTE PERF-ELAPSED-SECONDS =
-               PERF-END-SECONDS - PERF-START-SECONDS.
-
-           IF PERF-ELAPSED-SECONDS = ZERO
-               MOVE 1 TO PERF-ELAPSED-SECONDS
-           END-IF.
+               PERF-ELAPSED-CENTISECONDS / 100.
 
            COMPUTE PERF-RPS =
-               PERF-COUNTER / PERF-ELAPSED-SECONDS.
+               (PERF-COUNTER * 100) / PERF-ELAPSED-CENTISECONDS.
 
            COMPUTE PERF-EST-BYTES =
                PERF-COUNTER * 1024.
 
            COMPUTE PERF-EST-MB =
                PERF-EST-BYTES / 1048576.
+
+       CONVERT-READ-START-TIME.
+
+           MOVE PERF-READ-START-TIME TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 1000000
+               GIVING PERF-READ-START-HH
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 10000
+               GIVING PERF-READ-START-MM
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 100
+               GIVING PERF-READ-START-SS
+               REMAINDER PERF-READ-START-HS.
+
+           COMPUTE PERF-READ-START-CENTISECONDS =
+               (((PERF-READ-START-HH * 60 + PERF-READ-START-MM) * 60
+                 + PERF-READ-START-SS) * 100)
+               + PERF-READ-START-HS.
+
+       CONVERT-READ-END-TIME.
+
+           MOVE PERF-READ-END-TIME TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 1000000
+               GIVING PERF-READ-END-HH
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 10000
+               GIVING PERF-READ-END-MM
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 100
+               GIVING PERF-READ-END-SS
+               REMAINDER PERF-READ-END-HS.
+
+           COMPUTE PERF-READ-END-CENTISECONDS =
+               (((PERF-READ-END-HH * 60 + PERF-READ-END-MM) * 60
+                 + PERF-READ-END-SS) * 100)
+               + PERF-READ-END-HS.
+
+       CALCULATE-READ-PERF-STATS.
+
+           IF PERF-READ-END-CENTISECONDS < PERF-READ-START-CENTISECONDS
+               ADD 8640000 TO PERF-READ-END-CENTISECONDS
+           END-IF.
+
+           COMPUTE PERF-READ-ELAPSED-CENTISECONDS =
+               PERF-READ-END-CENTISECONDS
+               - PERF-READ-START-CENTISECONDS.
+
+           IF PERF-READ-ELAPSED-CENTISECONDS = ZERO
+               MOVE 1 TO PERF-READ-ELAPSED-CENTISECONDS
+           END-IF.
+
+           COMPUTE PERF-READ-ELAPSED-SECONDS =
+               PERF-READ-ELAPSED-CENTISECONDS / 100.
+
+           COMPUTE PERF-READ-RPS =
+               (PERF-READ-FOUND * 100)
+               / PERF-READ-ELAPSED-CENTISECONDS.
+
+       CONVERT-SCAN-START-TIME.
+
+           MOVE PERF-SCAN-START-TIME TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 1000000
+               GIVING PERF-SCAN-START-HH
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 10000
+               GIVING PERF-SCAN-START-MM
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 100
+               GIVING PERF-SCAN-START-SS
+               REMAINDER PERF-SCAN-START-HS.
+
+           COMPUTE PERF-SCAN-START-CENTISECONDS =
+               (((PERF-SCAN-START-HH * 60 + PERF-SCAN-START-MM) * 60
+                 + PERF-SCAN-START-SS) * 100)
+               + PERF-SCAN-START-HS.
+
+       CONVERT-SCAN-END-TIME.
+
+           MOVE PERF-SCAN-END-TIME TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 1000000
+               GIVING PERF-SCAN-END-HH
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 10000
+               GIVING PERF-SCAN-END-MM
+               REMAINDER PERF-TIME-REMAINDER.
+           MOVE PERF-TIME-REMAINDER TO PERF-TIME-WORK.
+           DIVIDE PERF-TIME-WORK BY 100
+               GIVING PERF-SCAN-END-SS
+               REMAINDER PERF-SCAN-END-HS.
+
+           COMPUTE PERF-SCAN-END-CENTISECONDS =
+               (((PERF-SCAN-END-HH * 60 + PERF-SCAN-END-MM) * 60
+                 + PERF-SCAN-END-SS) * 100)
+               + PERF-SCAN-END-HS.
+
+       CALCULATE-SCAN-PERF-STATS.
+
+           IF PERF-SCAN-END-CENTISECONDS < PERF-SCAN-START-CENTISECONDS
+               ADD 8640000 TO PERF-SCAN-END-CENTISECONDS
+           END-IF.
+
+           COMPUTE PERF-SCAN-ELAPSED-CENTISECONDS =
+               PERF-SCAN-END-CENTISECONDS
+               - PERF-SCAN-START-CENTISECONDS.
+
+           IF PERF-SCAN-ELAPSED-CENTISECONDS = ZERO
+               MOVE 1 TO PERF-SCAN-ELAPSED-CENTISECONDS
+           END-IF.
+
+           COMPUTE PERF-SCAN-ELAPSED-SECONDS =
+               PERF-SCAN-ELAPSED-CENTISECONDS / 100.
+
+           COMPUTE PERF-SCAN-RPS =
+               (PERF-SCAN-FOUND * 100)
+               / PERF-SCAN-ELAPSED-CENTISECONDS.

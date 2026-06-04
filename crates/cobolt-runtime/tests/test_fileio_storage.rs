@@ -39,31 +39,17 @@ fn run_capture(src: &str) -> Vec<String> {
 }
 
 /// Each program references these subdirectories under `tests/cobol/fileio/`.
-const SUBDIRS: &[&str] = &[
-    "SEQUENTIAL",
-    "LINESEQUENTIAL",
-    "INDEXED/STORAGE-DISK",
-    "INDEXED/STORAGE-DISK-COMPRESSION",
-    "INDEXED/STORAGE-MEMORY",
-    "INDEXED/STORAGE-MEMORY-COMPRESSION",
-    "INDEXED/DEFAULT-DISK",
-    "INDEXED/DEFAULT-DISK-COMPRESSION",
-];
-
 fn run_variant(tag: &str, raw: &str) {
-    // Unique temp base so parallel test threads never collide.
+    // The programs write to `/tmp/<file>`. Redirect that into a unique temp dir
+    // so parallel test threads never collide, and shrink the 1M perf loop.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     let base = std::env::temp_dir().join(format!("prc-fileio-{tag}-{nanos}"));
-    for d in SUBDIRS {
-        std::fs::create_dir_all(base.join(d)).unwrap();
-    }
-    // Redirect the relative ASSIGN prefix to the temp base and shrink the 1M
-    // performance loop so the test is fast.
+    std::fs::create_dir_all(&base).unwrap();
     let src = raw
-        .replace("\"tests/cobol/fileio/", &format!("\"{}/", base.display()))
+        .replace("\"/tmp/", &format!("\"{}/", base.display()))
         .replace("VALUE 1000000", "VALUE 200    ");
 
     let out = run_capture(&src).join("\n");

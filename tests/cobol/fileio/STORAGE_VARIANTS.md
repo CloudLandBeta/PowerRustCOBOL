@@ -11,7 +11,7 @@ This package now contains six COBOL test programs for indexed-file storage and c
 | 5 | `tests/cobol/fileio/fileiot_default_disk.cbl` | no `STORAGE` clause; default is disk, no compression | `tests/cobol/fileio/INDEXED/DEFAULT-DISK/` |
 | 6 | `tests/cobol/fileio/fileiot_default_compression.cbl` | no `STORAGE` clause; `WITH COMPRESSION` shorthand, default storage is disk | `tests/cobol/fileio/INDEXED/DEFAULT-DISK-COMPRESSION/` |
 
-The original `tests/cobol/fileio/fileiot.cbl` is kept unchanged as the baseline/default test.
+The original `tests/cobol/fileio/fileiot.cbl` is kept as the baseline/default test and now includes the same write/read performance profile changes.
 
 ## Intended grammar for the extension
 
@@ -69,3 +69,15 @@ Each variant preserves the same logical indexed-file coverage:
 - `DELETE`
 - `READ` after `DELETE` invalid-key path
 - performance/profile creation of 1,000,000 indexed records with a 40-byte key and 1024-byte record size
+- keyed read performance pass over the same 1,000,000 records after the write phase
+
+
+## Performance phases
+
+Each indexed-file performance variant now reports three separate measurements:
+
+1. `INDEXED WRITE PERFORMANCE STATISTICS` — writes 1,000,000 records.
+2. `INDEXED READ PERFORMANCE STATISTICS` — performs 1,000,000 keyed reads by the 40-byte primary key.
+3. `INDEXED SCAN PERFORMANCE STATISTICS` — reopens the indexed file and scans all records using `READ NEXT`.
+
+The scan test measures indexed sequential traversal performance, while the read test measures random/keyed lookup performance.
