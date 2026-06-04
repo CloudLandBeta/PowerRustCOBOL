@@ -198,6 +198,18 @@ pub enum Condition {
 
     /// A condition-name (88-level item) used directly as a condition.
     ConditionName(String, Span),
+
+    /// An abbreviated combined relation with a bare operand object that the
+    /// parser cannot disambiguate without the symbol table: in `a = b OR c`,
+    /// the `c` is either an 88-level condition-name or the object of `a = c`.
+    /// Resolved at runtime — if `name` is a known condition-name it is evaluated
+    /// as one, otherwise as `subject op name`.
+    NameOrAbbrev {
+        subject: Box<Expr>,
+        op: CmpOp,
+        name: String,
+        span: Span,
+    },
 }
 
 impl Condition {
@@ -210,6 +222,7 @@ impl Condition {
             Condition::ClassTest { span, .. }  => *span,
             Condition::SignTest { span, .. }   => *span,
             Condition::ConditionName(_, s)     => *s,
+            Condition::NameOrAbbrev { span, .. } => *span,
         }
     }
 }

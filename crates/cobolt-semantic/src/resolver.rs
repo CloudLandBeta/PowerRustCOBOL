@@ -272,6 +272,14 @@ impl<'a> ResolveCtx<'a> {
                     );
                 }
             }
+            Condition::NameOrAbbrev { subject, name, span, .. } => {
+                self.resolve_expr(subject);
+                // `name` is either a condition-name or a data item — either is a
+                // declared symbol; warn only if it is neither.
+                if !self.symbols.has_data_item(name) {
+                    self.warn(format!("'{name}' is not declared"), *span);
+                }
+            }
         }
     }
 

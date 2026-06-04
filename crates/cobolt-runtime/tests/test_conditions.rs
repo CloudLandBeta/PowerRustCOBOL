@@ -76,6 +76,30 @@ fn evaluate_also_multi_subject() {
 }
 
 #[test]
+fn identifier_object_abbreviation() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IDOBJ.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 A PIC 9 VALUE 3.
+       01 B PIC 9 VALUE 5.
+       01 C PIC 9 VALUE 3.
+       01 WS-FLAG PIC 9 VALUE 0.
+          88 IS-SET VALUE 1.
+       PROCEDURE DIVISION.
+       MAIN.
+           IF A = B OR C DISPLAY "DATAITEM" ELSE DISPLAY "NO" END-IF
+           SET IS-SET TO TRUE
+           IF A = B OR IS-SET DISPLAY "COND88" ELSE DISPLAY "NO88" END-IF
+           STOP RUN.
+    "#;
+    // OR C → resolved as A = C (3 = 3) → DATAITEM.
+    // OR IS-SET → resolved as the 88-level condition (true) → COND88.
+    assert_eq!(run_capture(src), vec!["DATAITEM", "COND88"]);
+}
+
+#[test]
 fn condition_name_88_set_and_test() {
     let src = r#"
        IDENTIFICATION DIVISION.

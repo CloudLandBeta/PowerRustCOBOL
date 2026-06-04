@@ -469,6 +469,22 @@ fn at_literal_object(p: &Parser) -> bool {
     )
 }
 
+/// True if the current token is a *bare* identifier object of an abbreviated
+/// relation: an identifier not followed by a relational operator, qualifier, or
+/// `AND` (so OR/term-end). Used to route `a = b OR c` to the continuation parser
+/// while leaving `c AND …` to the normal AND parser (precedence).
+fn at_bare_object(p: &Parser) -> bool {
+    if !matches!(p.peek(), Token::Identifier(_)) {
+        return false;
+    }
+    !matches!(
+        p.peek_at(1),
+        Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
+            | Token::Greater | Token::Less | Token::Equal | Token::Is
+            | Token::Of | Token::In | Token::LParen | Token::And
+    )
+}
+
 /// True if the current token begins a relational operator (the signal for an
 /// operator-prefixed abbreviated condition, e.g. the `< 9` in `a > 1 AND < 9`).
 fn at_relop(p: &Parser) -> bool {
@@ -535,6 +551,32 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
             return Condition::Comparison { lhs: subject, op, rhs, span: sp };
         }
     }
+    // Identifier-object abbreviation vs. condition-name: a *bare* identifier
+    // (not followed by a relational operator) after AND/OR, when the previous
+    // term is a comparison, is ambiguous — it is either an 88-level
+    // condition-name or the object of the reused subject/operator. Emit a
+    // NameOrAbbrev node and let the runtime decide via its 88-level metadata.
+    if let Token::Identifier(name) = p.peek().clone() {
+        let next = p.peek_at(1);
+        let bare = !matches!(
+            next,
+            Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
+                | Token::Greater | Token::Less | Token::Equal | Token::Is
+                | Token::Of | Token::In | Token::LParen
+        );
+        if bare {
+            if let Some((subject, op)) = rightmost_comparison(prev) {
+                let span = p.peek_span();
+                p.advance();
+                return Condition::NameOrAbbrev {
+                    subject: Box::new(subject),
+                    op,
+                    name: name.to_ascii_uppercase(),
+                    span,
+                };
+            }
+        }
+    }
     parse_condition_primary(p)
 }
 
@@ -555,7 +597,7 @@ fn parse_condition_or(p: &mut Parser) -> Condition {
         // Guard: don't consume OR that's part of GREATER/LESS OR EQUAL
         // (those are consumed inside parse_condition_primary before returning)
         p.advance();
-        let rhs = if at_relop(p) || at_literal_object(p) {
+        let rhs = if at_relop(p) || at_literal_object(p) || at_bare_object(p) {
             parse_continuation(p, &lhs)
         } else {
             parse_condition_and(p)

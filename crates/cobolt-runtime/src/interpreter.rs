@@ -3133,6 +3133,18 @@ impl Interpreter {
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 Ok(!v.is_zero())
             }
+
+            Condition::NameOrAbbrev { subject, op, name, span } => {
+                // `a = b OR c`: if `c` is a known 88-level condition-name, treat
+                // it as one; otherwise it is the abbreviation object `a = c`.
+                if self.env.cond_name(name).is_some() {
+                    return self.eval_condition(&Condition::ConditionName(name.clone(), *span));
+                }
+                let l = self.eval_expr(subject, *span)?;
+                let key = self.env.resolve_name(name, &[]);
+                let r = self.env.get(&key).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
+                Ok(compare_values(&l, &r, *op))
+            }
         }
     }
 
