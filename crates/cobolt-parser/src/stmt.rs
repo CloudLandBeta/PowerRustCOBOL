@@ -525,6 +525,17 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         return Stmt::Perform { target, span };
     }
 
+    // Inline `PERFORM n TIMES … END-PERFORM` (count then TIMES, no paragraph).
+    if (matches!(p.peek(), Token::IntegerLiteral(_)) || p.at_identifier())
+        && matches!(p.peek_at(1), Token::Times)
+    {
+        let count = parse_expr(p);
+        p.eat(&Token::Times);
+        let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
+        p.eat(&Token::EndPerform);
+        return Stmt::Perform { target: PerformTarget::Times { count, stmts }, span };
+    }
+
     // Must have a paragraph/section name next
     if !p.at_identifier() {
         // Bare PERFORM with no argument — just a no-op stub
@@ -1469,8 +1480,33 @@ fn parse_set(p: &mut Parser) -> Stmt {
 
     let mut targets = Vec::new();
     while is_expr_start(p) && !p.at(&Token::To) {
+        // Stop before the UP/DOWN of `SET idx UP/DOWN BY n`.
+        if matches!(ident_upper(p).as_deref(), Some("UP") | Some("DOWN")) {
+            break;
+        }
         targets.push(parse_expr(p));
     }
+
+    // SET idx {UP|DOWN} BY n  → encode as ADD n TO idx / SUBTRACT n FROM idx.
+    if let Some(dir) = ident_upper(p) {
+        if dir == "UP" || dir == "DOWN" {
+            p.advance(); // UP / DOWN
+            p.eat(&Token::By);
+            let amount = parse_expr(p);
+            return if dir == "DOWN" {
+                Stmt::Subtract {
+                    operands: vec![amount], from: targets, giving: None, rounded: false,
+                    on_size_error: Vec::new(), not_on_size_error: Vec::new(), span,
+                }
+            } else {
+                Stmt::Add {
+                    operands: vec![amount], to: targets, giving: None, rounded: false,
+                    on_size_error: Vec::new(), not_on_size_error: Vec::new(), span,
+                }
+            };
+        }
+    }
+
     p.eat(&Token::To);
 
     // TO TRUE / FALSE / expression

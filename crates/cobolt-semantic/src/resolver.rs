@@ -224,6 +224,12 @@ impl<'a> ResolveCtx<'a> {
                 self.resolve_expr(base);
                 for idx in indices { self.resolve_expr(idx); }
             }
+            // Reference modification: `base(start:length)`
+            Expr::RefMod { base, start, length, .. } => {
+                self.resolve_expr(base);
+                self.resolve_expr(start);
+                if let Some(l) = length { self.resolve_expr(l); }
+            }
             Expr::Unary { operand, .. } => self.resolve_expr(operand),
             // Binary arithmetic
             Expr::Arithmetic { lhs, rhs, .. } => {

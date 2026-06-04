@@ -155,23 +155,42 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         return Some(Expr::Literal(lit, sp));
     }
 
-    // Identifier (optionally subscripted and/or qualified)
+    // Identifier (optionally subscripted, reference-modified and/or qualified)
     if let Some((name, id_span)) = p.eat_identifier() {
         let mut expr = Expr::Identifier(name.clone(), id_span);
 
-        // Subscript: IDENT ( expr , expr … )
+        // `( … )` after a name is either a subscript `(i[,j])` or a reference
+        // modification `(start:[length])`. Disambiguate on the first `:`.
         if p.at(&Token::LParen) {
             p.advance();
-            let mut indices = Vec::new();
-            loop {
-                indices.push(parse_expr(p));
-                if !p.eat(&Token::Comma) {
-                    break;
+            let first = parse_expr(p);
+            if p.at(&Token::Colon) {
+                // Reference modification: IDENT(start:[length])
+                p.advance();
+                let length = if p.at(&Token::RParen) { None } else { Some(Box::new(parse_expr(p))) };
+                p.expect(&Token::RParen);
+                let sp = id_span.merge(p.peek_span());
+                expr = Expr::RefMod { base: Box::new(expr), start: Box::new(first), length, span: sp };
+            } else {
+                // Subscript: IDENT(i[,j…])
+                let mut indices = vec![first];
+                while p.eat(&Token::Comma) {
+                    indices.push(parse_expr(p));
+                }
+                p.expect(&Token::RParen);
+                let sp = id_span.merge(p.peek_span());
+                expr = Expr::Subscript { base: Box::new(expr), indices, span: sp };
+                // A reference modification may follow a subscript: t(i)(s:l)
+                if p.at(&Token::LParen) {
+                    p.advance();
+                    let start = parse_expr(p);
+                    p.expect(&Token::Colon);
+                    let length = if p.at(&Token::RParen) { None } else { Some(Box::new(parse_expr(p))) };
+                    p.expect(&Token::RParen);
+                    let sp = id_span.merge(p.peek_span());
+                    expr = Expr::RefMod { base: Box::new(expr), start: Box::new(start), length, span: sp };
                 }
             }
-            p.expect(&Token::RParen);
-            let sp = id_span.merge(p.peek_span());
-            expr = Expr::Subscript { base: Box::new(expr), indices, span: sp };
         }
 
         // Qualified: IDENT OF/IN qualifier

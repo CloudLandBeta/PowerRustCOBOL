@@ -93,6 +93,15 @@ pub enum Expr {
         span: Span,
     },
 
+    /// Reference modification: `data-ref(start:[length])` — the `length` bytes of
+    /// `base` starting at 1-based byte `start` (to end of field when omitted).
+    RefMod {
+        base: Box<Expr>,
+        start: Box<Expr>,
+        length: Option<Box<Expr>>,
+        span: Span,
+    },
+
     /// Intrinsic function call: `FUNCTION LENGTH(WS-NAME)`.
     FunctionCall {
         name: String,
@@ -124,6 +133,7 @@ impl Expr {
             Expr::Identifier(_, s)       => *s,
             Expr::Qualified { span, .. } => *span,
             Expr::Subscript { span, .. } => *span,
+            Expr::RefMod { span, .. }    => *span,
             Expr::FunctionCall { span, .. } => *span,
             Expr::Arithmetic { span, .. } => *span,
             Expr::Unary { span, .. }     => *span,

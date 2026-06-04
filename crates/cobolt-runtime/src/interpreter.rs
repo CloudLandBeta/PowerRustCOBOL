@@ -747,6 +747,11 @@ impl Interpreter {
             _ => None,
         };
         for target in to {
+            // Reference-modified receiver: partial (spliced) assignment.
+            if let Expr::RefMod { base, start, length, span } = target {
+                self.assign_refmod(base, start, length.as_deref(), &val, *span)?;
+                continue;
+            }
             let name = self.expr_to_name(target);
             match &src_digits {
                 Some(digits) if self.env.is_alphanumeric_field(&name) => {
@@ -2198,6 +2203,22 @@ impl Interpreter {
                 self.eval_expr(base, span)
             }
 
+            Expr::RefMod { base, start, length, span: s } => {
+                // Reference modification (sender): `base(start:[length])`.
+                let text = self.eval_expr(base, *s)?.as_display_string();
+                let bytes = text.as_bytes();
+                let start_i = self.eval_expr(start, *s)?.as_i64().unwrap_or(1).max(1) as usize; // 1-based
+                let begin = (start_i - 1).min(bytes.len());
+                let len = match length {
+                    Some(l) => self.eval_expr(l, *s)?.as_i64().unwrap_or(0).max(0) as usize,
+                    None => bytes.len().saturating_sub(begin),
+                };
+                let end = (begin + len).min(bytes.len());
+                let s = String::from_utf8_lossy(&bytes[begin..end]).into_owned();
+                let n = s.len();
+                Ok(CobolValue::from_str(&s, n))
+            }
+
             Expr::FunctionCall { name, args, span: s } =>
                 self.eval_function(name, args, *s),
 
@@ -2444,8 +2465,36 @@ impl Interpreter {
             Expr::Identifier(name, _)  => name.to_ascii_uppercase(),
             Expr::Qualified { name, .. } => name.to_ascii_uppercase(),
             Expr::Subscript { base, .. } => self.expr_to_name(base),
+            Expr::RefMod { base, .. }    => self.expr_to_name(base),
             _ => "__UNKNOWN__".to_owned(),
         }
+    }
+
+    /// Assign `val` into the reference-modified region of a target:
+    /// `base(start:[length])` — splice `val` (space-padded / truncated to the
+    /// region width) into the base field's bytes.
+    fn assign_refmod(
+        &mut self,
+        base: &Expr,
+        start: &Expr,
+        length: Option<&Expr>,
+        val: &CobolValue,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let name = self.expr_to_name(base);
+        let mut cur = self.env.display_string(&name).unwrap_or_default().into_bytes();
+        let start_i = self.eval_expr(start, span)?.as_i64().unwrap_or(1).max(1) as usize; // 1-based
+        let begin = (start_i - 1).min(cur.len());
+        let region = match length {
+            Some(l) => self.eval_expr(l, span)?.as_i64().unwrap_or(0).max(0) as usize,
+            None => cur.len().saturating_sub(begin),
+        };
+        let end = (begin + region).min(cur.len());
+        let mut repl = val.as_display_string().into_bytes();
+        repl.resize(end - begin, b' '); // pad/truncate to the region width
+        cur.splice(begin..end, repl);
+        self.env.set_str(&name, &String::from_utf8_lossy(&cur));
+        Ok(())
     }
 }
 
