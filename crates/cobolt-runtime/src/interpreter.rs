@@ -337,6 +337,8 @@ pub struct Interpreter {
     sort_buffers: HashMap<String, Vec<Vec<u8>>>,
     /// RETURN cursor per SD file (index of the next record to hand back).
     sort_cursors: HashMap<String, usize>,
+    /// `ALTER` overrides: paragraph name → the `GO TO` target it now proceeds to.
+    alter_map: HashMap<String, String>,
 }
 
 const MAX_PERFORM_DEPTH: usize = 512;
@@ -388,6 +390,7 @@ impl Interpreter {
             indexed_engine: crate::indexed::IndexedEngine::default(),
             sort_buffers: HashMap::new(),
             sort_cursors: HashMap::new(),
+            alter_map: HashMap::new(),
         }
     }
 
@@ -663,8 +666,18 @@ impl Interpreter {
                 self.exec_perform(target, *span),
             Stmt::Search { all, table, varying, at_end, whens, .. } =>
                 self.exec_search(*all, table, varying.as_ref(), at_end, whens),
-            Stmt::GoTo { target, .. } =>
-                Err(RuntimeError::GoTo { target: target.clone() }),
+            Stmt::GoTo { target, .. } => {
+                // An ALTER may have redirected this paragraph's GO TO.
+                let t = self.alter_map.get(&self.current_paragraph)
+                    .cloned()
+                    .unwrap_or_else(|| target.clone());
+                Err(RuntimeError::GoTo { target: t })
+            }
+            Stmt::Alter { from, to, .. } => {
+                self.alter_map.insert(from.to_ascii_uppercase(), to.clone());
+                Ok(())
+            }
+            Stmt::Unlock { .. } => Ok(()), // auto-unlock model — no held locks
             Stmt::GoToDepending { targets, depending, span } =>
                 self.exec_go_to_depending(targets, depending, *span),
             // NEXT SENTENCE is approximated as CONTINUE: faithful semantics
@@ -1427,7 +1440,12 @@ impl Interpreter {
         match target {
             PerformTarget::Paragraph(name, s) => {
                 let stmts = self.para_stmts(name, *s)?;
-                self.exec_para_body(&stmts)
+                // Track the active paragraph so ALTER overrides resolve correctly.
+                let prev = std::mem::replace(
+                    &mut self.current_paragraph, name.to_ascii_uppercase());
+                let r = self.exec_para_body(&stmts);
+                self.current_paragraph = prev;
+                r
             }
             PerformTarget::Section(name, s) => {
                 // Treat a section PERFORM as executing all paragraphs in it.

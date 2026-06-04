@@ -121,7 +121,8 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
     if let Token::Identifier(w) = p.peek() {
         match w.to_ascii_uppercase().as_str() {
             "SEARCH" => return Some(parse_search(p)),
-            "UNLOCK" | "ALTER" => return Some(parse_recognized_noop(p)),
+            "ALTER"  => return Some(parse_alter(p)),
+            "UNLOCK" => return Some(parse_unlock(p)),
             _ => {}
         }
     }
@@ -791,6 +792,31 @@ fn parse_recognized_noop(p: &mut Parser) -> Stmt {
         p.advance();
     }
     Stmt::Continue { span }
+}
+
+/// `ALTER paragraph-1 TO [PROCEED TO] paragraph-2`.
+fn parse_alter(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    p.advance(); // ALTER
+    let from = p.expect_identifier("ALTER paragraph name");
+    p.eat(&Token::To);
+    // optional PROCEED TO
+    if matches!(ident_upper(p).as_deref(), Some("PROCEED")) {
+        p.advance();
+        p.eat(&Token::To);
+    }
+    let to = p.expect_identifier("ALTER target paragraph name");
+    Stmt::Alter { from, to, span }
+}
+
+/// `UNLOCK file [RECORD[S]]`.
+fn parse_unlock(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    p.advance(); // UNLOCK
+    let file = p.expect_identifier("UNLOCK file name");
+    p.eat(&Token::Record); // optional RECORD / RECORDS
+    if matches!(ident_upper(p).as_deref(), Some("RECORDS")) { p.advance(); }
+    Stmt::Unlock { file, span }
 }
 
 /// Parse `SEARCH [ALL] table [VARYING idx] [AT END imp] {WHEN cond imp}…

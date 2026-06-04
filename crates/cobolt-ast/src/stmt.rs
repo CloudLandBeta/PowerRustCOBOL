@@ -382,6 +382,20 @@ pub enum Stmt {
 
     // ── Control flow ─────────────────────────────────────────────────────────
 
+    /// `ALTER paragraph-1 TO [PROCEED TO] paragraph-2` — redirect the `GO TO`
+    /// in `from` to target `to` (deprecated).
+    Alter {
+        from: String,
+        to: String,
+        span: Span,
+    },
+
+    /// `UNLOCK file [RECORD[S]]` — release record locks on `file`.
+    Unlock {
+        file: String,
+        span: Span,
+    },
+
     /// `IF condition … [ELSE …] END-IF`
     If {
         condition: Condition,
@@ -727,6 +741,8 @@ impl Stmt {
             Stmt::GoTo { span, .. }              => *span,
             Stmt::GoToDepending { span, .. }     => *span,
             Stmt::Continue { span }              => *span,
+            Stmt::Alter { span, .. }             => *span,
+            Stmt::Unlock { span, .. }            => *span,
             Stmt::Exit { span, .. }              => *span,
             Stmt::NextSentence { span }          => *span,
             Stmt::Open { span, .. }              => *span,

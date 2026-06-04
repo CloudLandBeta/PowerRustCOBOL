@@ -145,6 +145,25 @@ fn perform_paragraph_varying_executes_paragraph() {
 }
 
 #[test]
+fn alter_redirects_go_to() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ALT.
+       PROCEDURE DIVISION.
+       MAIN.
+           ALTER GATE TO PROCEED TO TARGET-B
+           GO TO GATE.
+       GATE.
+           GO TO TARGET-A.
+       TARGET-A.
+           DISPLAY "A" STOP RUN.
+       TARGET-B.
+           DISPLAY "B" STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["B"]);
+}
+
+#[test]
 fn exit_perform_times_break() {
     let src = r#"
        IDENTIFICATION DIVISION.
