@@ -40,9 +40,10 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 `INVOKE` (parsed as no‑op) · `CANCEL` (skipped)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 
-❌ **Not recognized — do not use:** `SEARCH` / `SEARCH ALL`, `RELEASE`, `RETURN`
-(sort I/O), `ALTER`, `ENTRY`, `USE`, `UNLOCK`, `GENERATE`/`INITIATE`/`TERMINATE`,
-`SEND`/`RECEIVE`, `ENABLE`/`DISABLE`.
+⚠️ **Recognized but no‑op** (parse cleanly, do nothing yet): `SEARCH` /
+`SEARCH ALL`, `RELEASE`, `RETURN`, `UNLOCK`, `ALTER`.
+❌ **Not recognized — do not use:** `ENTRY`, `USE`,
+`GENERATE`/`INITIATE`/`TERMINATE`, `SEND`/`RECEIVE`, `ENABLE`/`DISABLE`.
 
 ---
 
@@ -50,10 +51,12 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 
 ### MOVE
 - ✅ `MOVE {id|lit|figurative} TO id1 [id2 …]` (multiple receivers).
-- ✅ `MOVE CORRESPONDING g1 TO g2` (`CORR` accepted).
-- ❌ **Reference modification `id(start:len)` is NOT parsed** (no `:` support) —
-  affects every verb's operands. Avoid `(s:l)` everywhere for now.
-- ✅ subscripts `t(i)`, `t(i, j)`; ✅ qualification `id OF/IN group`.
+- ⚠️ `MOVE CORRESPONDING g1 TO g2` parses but is a no‑op (data‑model gap).
+- ✅ **Reference modification `id(start:len)`** — sender (substring) and receiver
+  (spliced partial assignment); works on every verb's operands. `length` optional.
+- ✅ subscripts `t(i)`, `t(i, j)` parse; ⚠️ but the index is currently ignored at
+  runtime (data‑model gap). Qualification `id OF/IN group` parses; the qualifier
+  is ignored at runtime.
 
 ### ADD / SUBTRACT
 - ✅ `ADD a [b …] TO r1 [r2 …] [ROUNDED] [[ON] SIZE ERROR …][NOT …][END-ADD]`.
@@ -67,10 +70,10 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 - ❌ multiple receivers (`MULTIPLY a BY r1 r2`), `DIVIDE … GIVING q1 q2`.
 
 ### COMPUTE
-- ✅ `COMPUTE r [ROUNDED] = expr [[ON] SIZE ERROR …][NOT …][END-COMPUTE]`.
+- ✅ `COMPUTE r1 [ROUNDED] [r2 [ROUNDED] …] = expr [[ON] SIZE ERROR …][NOT …]
+  [END-COMPUTE]` — **multiple receivers, each with its own `ROUNDED`**.
 - ✅ expr operators `+ - * /` and `**` (power, right‑assoc), parentheses,
   `FUNCTION name(args)`.
-- ❌ multiple receivers (`COMPUTE r1 r2 = …`).
 
 ### IF / EVALUATE
 - ✅ `IF cond [THEN] stmts [ELSE stmts] [END-IF]`.
@@ -87,8 +90,7 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
   `PERFORM [WITH] TEST {BEFORE|AFTER} UNTIL cond … END-PERFORM`.
 - ✅ `PERFORM VARYING v FROM a BY b UNTIL c [AFTER v2 FROM … BY … UNTIL …] …
   END-PERFORM`.
-- ❌ **inline `PERFORM n TIMES … END-PERFORM`** (no paragraph) — becomes a no‑op;
-  use the paragraph form `PERFORM p n TIMES`.
+- ✅ inline `PERFORM n TIMES … END-PERFORM` (no paragraph).
 - ⚠️ `PERFORM p VARYING …` ignores the paragraph name.
 
 ### GO TO / CONTINUE / EXIT / STOP
@@ -101,24 +103,26 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 - ✅ `ACCEPT id`.
 - ✅ `ACCEPT id FROM {DATE | TIME | DAY | DAY-OF-WEEK | COMMAND-LINE |
   ENVIRONMENT "name" | mnemonic}`.
-- ❌ **screen forms** `ACCEPT id AT nnnn`, `… AT 0101 WITH CONTROL …`,
-  `… WITH {AUTO|SECURE|UPDATE|…}`, `FROM ESCAPE KEY`, `FROM CRT STATUS`.
-- ❌ `FROM ENVIRONMENT-VALUE`, `FROM ARGUMENT-NUMBER`, `FROM ARGUMENT-VALUE`,
-  `DATE YYYYMMDD`, `DAY YYYYDDD`.
+- ⚠️ **screen forms parse but do not execute** (SCREEN I/O superseded by the form
+  designer): `ACCEPT id AT nnnn`, `… AT LINE n COLUMN n`, `… WITH <attributes>`.
+- ⚠️ `FROM {ENVIRONMENT-VALUE | ARGUMENT-NUMBER | ARGUMENT-VALUE | ESCAPE KEY |
+  CRT STATUS}` are recognized as no‑op sources.
 
 ### DISPLAY
 - ✅ `DISPLAY {id|lit} … [UPON mnemonic] [[WITH] NO ADVANCING]`.
-- ❌ screen forms `DISPLAY id AT nnnn`, `WITH {FOREGROUND-COLOR|HIGHLIGHT|…}`.
+- ⚠️ screen forms `DISPLAY id AT nnnn`, `AT LINE n COLUMN n`, `WITH <attributes>`
+  parse but are ignored (designer supersedes SCREEN I/O).
 
 ### STRING
-- ✅ `STRING {src DELIMITED BY {SIZE | delim}} … INTO target [WITH POINTER p]`.
-- ❌ **`ON OVERFLOW` / `NOT ON OVERFLOW`** and **`END-STRING`** are not recognized
-  (omit them — they will break the parse).
+- ✅ `STRING {src DELIMITED BY {SIZE | delim}} … INTO target [WITH POINTER p]
+  [[ON] OVERFLOW imp] [NOT [ON] OVERFLOW imp] [END-STRING]`. Overflow = the
+  assembled string is wider than the receiving field.
 
 ### UNSTRING
 - ✅ `UNSTRING src [DELIMITED BY [ALL] d [OR [ALL] d …]] INTO {t [DELIMITER IN d]
-  [COUNT IN c]} … [TALLYING IN n] [WITH POINTER p]`.
-- ❌ `ON OVERFLOW` / `NOT ON OVERFLOW`, `END-UNSTRING`.
+  [COUNT IN c]} … [TALLYING IN n] [WITH POINTER p] [[ON] OVERFLOW imp]
+  [NOT [ON] OVERFLOW imp] [END-UNSTRING]`. Overflow = more source fields than
+  receivers.
 
 ### INSPECT
 - ✅ `INSPECT id CONVERTING from TO to`.
@@ -130,19 +134,20 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 
 ### SET
 - ✅ `SET t1 [t2 …] TO {TRUE | FALSE | expr}` (compiled to MOVE).
+- ✅ `SET idx {UP|DOWN} BY n` (encoded as ADD / SUBTRACT).
 - ⚠️ `SET 88-name TO TRUE` — encoded as MOVE 1; verify it sets the host correctly.
-- ❌ `SET idx {UP|DOWN} BY n`, `SET ADDRESS OF …`, `SET pointer TO {ADDRESS OF …|NULL}`.
+- ❌ `SET ADDRESS OF …`, `SET pointer TO {ADDRESS OF … | NULL}`.
 
 ### INITIALIZE
-- ⚠️ `INITIALIZE id …` → implemented as **`MOVE SPACES`** to the items (category
-  rules NOT applied — numeric items get spaces, not zeros). `REPLACING …` is
-  parsed‑and‑skipped. Treat as a known gap to fix.
+- ✅ `INITIALIZE id …` — category-aware: numeric / numeric-edited → ZERO,
+  everything else → SPACES, recursing into group items.
+- ⚠️ `REPLACING …` is parsed but skipped.
 
 ### CALL / CANCEL
 - ✅ `CALL {lit|id} [USING [BY {REFERENCE|CONTENT|VALUE}] arg …] [RETURNING r]
-  [END-CALL]`.
-- ❌ `ON EXCEPTION` / `NOT ON EXCEPTION` / `ON OVERFLOW` handlers are
-  parsed‑and‑skipped (their bodies never run).
+  [[ON] {EXCEPTION|OVERFLOW} imp [NOT …]] [END-CALL]`.
+- ✅ The `ON EXCEPTION` / `ON OVERFLOW` body **runs** when the called program is
+  unresolved. (`NOT ON EXCEPTION` is parsed but its body not yet run.)
 - ⚠️ `CANCEL p` is skipped (no‑op).
 
 ### File verbs (the supported phrases — full coverage is in the file‑I/O suite)
@@ -173,7 +178,10 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 - ✅ Sign: `id IS [NOT] {POSITIVE | NEGATIVE | ZERO}`.
 - ✅ 88‑level condition‑name (bare name as a condition).
 - ✅ Combined `AND` / `OR` / `NOT`, parentheses (AND binds tighter than OR).
-- ❌ **Abbreviated combined conditions** (`a = b OR c`, `a > 1 AND < 9`).
+- ✅ **Operator‑prefixed abbreviated conditions** — `a > 1 AND < 9`,
+  `a = 5 OR = 7` (the preceding comparison subject is reused).
+- ❌ **Identifier‑object abbreviation** (`a = b OR c`, where `c` is a data‑item)
+  — needs semantic resolution; use the operator‑prefixed form or repeat the LHS.
 
 ---
 
@@ -182,10 +190,12 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 - ✅ Arithmetic operators `+ - * /` and `**`; parentheses; unary `+`/`-`.
 - ✅ `FUNCTION name ( arg [ , arg … ] )` — **implemented** intrinsics:
   `LENGTH, UPPER-CASE, LOWER-CASE, NUMVAL, NUMVAL-C, MAX, MIN, SQRT, MOD, REM,
-  ABS, INTEGER, INTEGER-PART, RANDOM, CURRENT-DATE, TRIM, REVERSE, CONCATENATE`.
+  ABS, INTEGER, INTEGER-PART, RANDOM, CURRENT-DATE, TRIM, REVERSE, CONCATENATE,
+  ORD, CHAR, ORD-MAX, ORD-MIN, SUM, MEAN, MEDIAN, MIDRANGE, RANGE, VARIANCE,
+  STANDARD-DEVIATION, FACTORIAL, SIN, COS, TAN, ASIN, ACOS, ATAN, LOG, LOG10,
+  EXP, EXP10, PI, STORED-CHAR-LENGTH, WHEN-COMPILED`.
   ⚠️ Any **other** `FUNCTION` name parses but returns **0** at runtime (e.g.
-  `ORD, CHAR, SUM, MEAN, NUMVAL` edge cases, `FACTORIAL, SIN/COS/TAN/LOG/EXP,
-  WHEN-COMPILED, DATE-OF-INTEGER, …`).
+  `DATE-OF-INTEGER, INTEGER-OF-DATE, ANNUITY, …`).
 - ✅ Literals: integer, decimal, string, all figurative constants
   (`SPACES/SPACE, ZEROS/ZERO/ZEROES, HIGH-VALUES, LOW-VALUES, QUOTES, NULLS`,
   `ALL "x"`).

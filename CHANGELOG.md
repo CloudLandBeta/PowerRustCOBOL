@@ -8,6 +8,55 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.4.0] — 2026-06-04
+
+A COBOL-85 language-coverage pass: closing parser/runtime gaps surfaced by the
+verb test matrix. The IDE is unchanged.
+
+### New language features
+
+- **Reference modification** `data-item(start:[length])` — new `Expr::RefMod`,
+  parsed on any operand (disambiguated from subscripts by the `:`), evaluated as
+  a substring (sender) and as a spliced partial assignment (receiver).
+- **`COMPUTE` multiple receivers + per-receiver `ROUNDED`** —
+  `COMPUTE r1 [ROUNDED] r2 [ROUNDED] … = expr` (was single receiver, one flag).
+- **Category-aware `INITIALIZE`** — new `Stmt::Initialize`; numeric / numeric-
+  edited items reset to ZERO, everything else to SPACES, recursing into groups
+  (was a blanket `MOVE SPACES`).
+- **`STRING` / `UNSTRING … ON OVERFLOW` / `NOT ON OVERFLOW`** + the
+  `END-STRING` / `END-UNSTRING` / `END-SEARCH` scope-terminator tokens (which also
+  fixes `DISPLAY` greedily swallowing a following `END-*` word).
+- **`SET idx {UP|DOWN} BY n`** (encoded as ADD / SUBTRACT).
+- **Inline `PERFORM n TIMES … END-PERFORM`** (no paragraph).
+- **Operator-prefixed abbreviated conditions** — `a > 1 AND < 9`, `a = 5 OR = 7`.
+- **`CALL … ON EXCEPTION / ON OVERFLOW`** — the handler now runs when the called
+  program is unresolved (was parsed and discarded).
+- **Extended `ACCEPT` / `DISPLAY` screen forms recognized** — `AT nnnn`,
+  `AT LINE n COLUMN n`, `WITH <attributes>`, and `ACCEPT FROM
+  {ARGUMENT-NUMBER|ARGUMENT-VALUE|ENVIRONMENT-VALUE|ESCAPE KEY|CRT STATUS}` parse
+  (not executed — SCREEN I/O is superseded by the designer).
+- **`SEARCH` / `SEARCH ALL`, `RELEASE`, `RETURN`, `UNLOCK`, `ALTER`** are now
+  recognized statements (parse as no-ops) instead of breaking the parse.
+- **Intrinsic functions** expanded: `ORD`, `CHAR`, `ORD-MAX`, `ORD-MIN`, `SUM`,
+  `MEAN`, `MEDIAN`, `MIDRANGE`, `RANGE`, `VARIANCE`, `STANDARD-DEVIATION`,
+  `FACTORIAL`, `SIN`/`COS`/`TAN`/`ASIN`/`ACOS`/`ATAN`, `LOG`/`LOG10`,
+  `EXP`/`EXP10`, `PI`, `STORED-CHAR-LENGTH`, `WHEN-COMPILED` (was: unknown
+  functions returned 0).
+
+### Known gaps (documented)
+
+- `MOVE/ADD/SUBTRACT CORRESPONDING`, runtime **table subscript indexing**,
+  **qualified-name disambiguation**, and **functional `SEARCH`** all await an
+  occurrence-aware data model (the runtime store is currently flat).
+- Multiple receivers on `MULTIPLY`/`DIVIDE`; per-receiver `ROUNDED` on
+  `ADD`/`SUBTRACT`; `SET ADDRESS OF`; identifier-object abbreviated conditions.
+
+### Docs
+
+- New [`docs/cobol85-verb-test-matrix.md`](docs/cobol85-verb-test-matrix.md)
+  (what to test) and [`docs/cobol85-supported-syntax.md`](docs/cobol85-supported-syntax.md)
+  (the exact grammar RustCOBOL accepts, with an avoid-list). README updated.
+
 ## [PowerRustCOBOL 1.3.1] — 2026-06-04
 
 File I/O fixes surfaced by the storage/compression File I/O test pack

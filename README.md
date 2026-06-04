@@ -76,14 +76,23 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   (fixed and `DEPENDING ON`); level numbers incl. 01/77/88; `VALUE`; group items; `FILLER`;
   88-level condition names.
 - **Verbs**: MOVE, DISPLAY, ACCEPT (`FROM DATE/TIME/DAY/DAY-OF-WEEK/ENVIRONMENT`),
-  ADD / SUBTRACT / MULTIPLY / DIVIDE (incl. `REMAINDER`) / COMPUTE, IF…ELSE…END-IF,
-  EVALUATE…WHEN / WHEN OTHER, PERFORM (inline, `TIMES`, `UNTIL`, `VARYING…AFTER`, `THRU`),
-  GO TO, CONTINUE, STOP RUN, GOBACK, EXIT, STRING, UNSTRING, INSPECT (`TALLYING`/`REPLACING`).
+  ADD / SUBTRACT / MULTIPLY / DIVIDE (incl. `REMAINDER`) / COMPUTE (multiple
+  receivers, per-receiver `ROUNDED`), IF…ELSE…END-IF, EVALUATE…WHEN / WHEN OTHER,
+  PERFORM (inline, `TIMES` incl. inline `n TIMES`, `UNTIL` with `TEST BEFORE/AFTER`,
+  `VARYING…AFTER`, `THRU`), GO TO [`DEPENDING ON`], CONTINUE, STOP RUN, GOBACK,
+  EXIT, SET (incl. `UP/DOWN BY`), INITIALIZE (category-aware), STRING / UNSTRING
+  (with `ON OVERFLOW`), INSPECT (`TALLYING`/`REPLACING`/`CONVERTING`).
+- **Reference modification** `data-item(start:length)` on any operand (read and
+  write); **operator-prefixed abbreviated conditions** (`a > 1 AND < 9`).
 - **CALL**: COBOL-85 **nested programs** *and* multiple sequential program units in one file,
-  plus a library of runtime built-ins (see below).
+  `USING BY REFERENCE/CONTENT/VALUE`, `RETURNING`, `ON EXCEPTION`; plus a library of
+  runtime built-ins (see below).
 - **Intrinsic functions**: `LENGTH`, `UPPER-CASE`, `LOWER-CASE`, `NUMVAL`, `NUMVAL-C`,
   `MAX`, `MIN`, `SQRT`, `MOD`, `REM`, `ABS`, `INTEGER`, `INTEGER-PART`, `RANDOM`,
-  `CURRENT-DATE`, `TRIM`, `REVERSE`, `CONCATENATE`.
+  `CURRENT-DATE`, `TRIM`, `REVERSE`, `CONCATENATE`, `ORD`, `CHAR`, `ORD-MAX`,
+  `ORD-MIN`, `SUM`, `MEAN`, `MEDIAN`, `MIDRANGE`, `RANGE`, `VARIANCE`,
+  `STANDARD-DEVIATION`, `FACTORIAL`, `SIN`, `COS`, `TAN`, `ASIN`, `ACOS`, `ATAN`,
+  `LOG`, `LOG10`, `EXP`, `EXP10`, `PI`, `STORED-CHAR-LENGTH`, `WHEN-COMPILED`.
 - COBOL-correct alphanumeric comparison (space-padded) and figurative constants
   (SPACES, ZEROS, HIGH/LOW-VALUES, QUOTES, NULLS).
 
@@ -303,6 +312,13 @@ honest map of where things stand.
   expands nested `COPY` recursively, and applies `REPLACE … BY …` / `REPLACE
   OFF` to following text. Verified by
   [`tests/cobol/copy-replace/copytest.cbl`](tests/cobol/copy-replace/copytest.cbl).
+- **Reference modification** `data-item(start:length)` (read and spliced write),
+  **category-aware `INITIALIZE`** (numeric → ZERO, others → SPACE, recursing
+  groups), **`SET … UP/DOWN BY`**, **`STRING`/`UNSTRING … ON OVERFLOW`**,
+  **`COMPUTE` with multiple receivers + per-receiver `ROUNDED`**, **operator-
+  prefixed abbreviated conditions** (`a > 1 AND < 9`), and **`CALL … ON
+  EXCEPTION`** (runs on an unresolved CALL). See the
+  [supported-syntax reference](docs/cobol85-supported-syntax.md).
 - **`INDEXED` (ISAM) files** — a built-in, dependency-free keyed-file engine with
   primary + alternate keys, ascending on-disk key order, journaled
   `COMMIT`/`ROLLBACK`, record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
@@ -313,14 +329,22 @@ honest map of where things stand.
   [`tests/cobol/fileio/`](tests/cobol/fileio/).
 
 ### 🚧 Partial / in progress
-- **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed
-  (the visual form designer supersedes it).
+- **SCREEN SECTION** — parsed in simplified form (incl. extended `ACCEPT`/`DISPLAY`
+  `AT`/`WITH` phrases); terminal screen handling is not executed (the visual form
+  designer supersedes it).
+- **Tables / `OCCURS`** — declared and parsed (incl. subscripts and qualification),
+  but subscript **indexing** and **qualified-name disambiguation** are not yet
+  evaluated at runtime (a flat data store; hierarchical storage is the next step).
+- **`SEARCH` / `SEARCH ALL`**, **`RELEASE` / `RETURN` / `UNLOCK` / `ALTER`** — parse
+  (recognized) but are currently no-ops.
 
 ### ⛔ Not yet implemented (planned)
-- **RELATIVE** file organization.
-- **`SORT` / `MERGE`**.
-- File sharing / record locking.
-- The complete intrinsic-function library.
+- **`MOVE`/`ADD`/`SUBTRACT CORRESPONDING`** and runtime table indexing / `SEARCH`
+  (await an occurrence-aware data model).
+- Multiple receivers on `MULTIPLY`/`DIVIDE`; per-receiver `ROUNDED` on
+  `ADD`/`SUBTRACT`. `SET ADDRESS OF` / pointer manipulation.
+- **RELATIVE** file organization; **`SORT` / `MERGE`** runtime; file sharing /
+  record locking.
 - Object-Oriented COBOL **class/method definitions** (`INVOKE` is supported for GUI and
   runtime objects only).
 
