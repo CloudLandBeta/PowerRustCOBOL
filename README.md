@@ -76,23 +76,29 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   (fixed and `DEPENDING ON`); level numbers incl. 01/77/88; `VALUE`; group items; `FILLER`;
   88-level condition names.
 - **Verbs**: MOVE, DISPLAY, ACCEPT (`FROM DATE/TIME/DAY/DAY-OF-WEEK/ENVIRONMENT`),
-  ADD / SUBTRACT / MULTIPLY / DIVIDE (incl. `REMAINDER`) / COMPUTE (multiple
-  receivers, per-receiver `ROUNDED`), IF…ELSE…END-IF, EVALUATE…WHEN / WHEN OTHER,
-  PERFORM (inline, `TIMES` incl. inline `n TIMES`, `UNTIL` with `TEST BEFORE/AFTER`,
-  `VARYING…AFTER`, `THRU`), GO TO [`DEPENDING ON`], CONTINUE, STOP RUN, GOBACK,
-  EXIT, SET (incl. `UP/DOWN BY`), INITIALIZE (category-aware), STRING / UNSTRING
-  (with `ON OVERFLOW`), INSPECT (`TALLYING`/`REPLACING`/`CONVERTING`).
+  ADD / SUBTRACT / MULTIPLY / DIVIDE (multiple `GIVING` receivers, `REMAINDER`,
+  per-receiver `ROUNDED`) / COMPUTE, IF…ELSE…END-IF, EVALUATE…WHEN / `ALSO` /
+  `WHEN NOT` / WHEN OTHER, PERFORM (inline, `TIMES`, `UNTIL` with `TEST
+  BEFORE/AFTER`, `VARYING…AFTER`, `THRU`, out-of-line `para VARYING`), GO TO
+  [`DEPENDING ON`], CONTINUE, STOP RUN, GOBACK, EXIT (`PERFORM [CYCLE]` /
+  `PARAGRAPH` / `SECTION` / `PROGRAM`), SET (incl. `UP/DOWN BY`, 88-`TO TRUE`),
+  INITIALIZE (category-aware), STRING / UNSTRING (with `ON OVERFLOW`), INSPECT
+  (`TALLYING`/`REPLACING` combined, `BEFORE/AFTER INITIAL`, `CONVERTING`), SEARCH
+  / SEARCH ALL, SORT / MERGE / RELEASE / RETURN.
 - **Reference modification** `data-item(start:length)` on any operand (read and
-  write); **operator-prefixed abbreviated conditions** (`a > 1 AND < 9`).
+  write); **abbreviated conditions** — operator-prefixed (`a > 1 AND < 9`) and
+  literal-object (`a = 1 OR 2 OR 3`).
 - **CALL**: COBOL-85 **nested programs** *and* multiple sequential program units in one file,
-  `USING BY REFERENCE/CONTENT/VALUE`, `RETURNING`, `ON EXCEPTION`; plus a library of
-  runtime built-ins (see below).
+  `USING BY REFERENCE/CONTENT/VALUE`, `RETURNING`, `ON EXCEPTION` / `NOT ON
+  EXCEPTION`; plus a library of runtime built-ins (see below).
 - **Intrinsic functions**: `LENGTH`, `UPPER-CASE`, `LOWER-CASE`, `NUMVAL`, `NUMVAL-C`,
   `MAX`, `MIN`, `SQRT`, `MOD`, `REM`, `ABS`, `INTEGER`, `INTEGER-PART`, `RANDOM`,
   `CURRENT-DATE`, `TRIM`, `REVERSE`, `CONCATENATE`, `ORD`, `CHAR`, `ORD-MAX`,
   `ORD-MIN`, `SUM`, `MEAN`, `MEDIAN`, `MIDRANGE`, `RANGE`, `VARIANCE`,
   `STANDARD-DEVIATION`, `FACTORIAL`, `SIN`, `COS`, `TAN`, `ASIN`, `ACOS`, `ATAN`,
-  `LOG`, `LOG10`, `EXP`, `EXP10`, `PI`, `STORED-CHAR-LENGTH`, `WHEN-COMPILED`.
+  `LOG`, `LOG10`, `EXP`, `EXP10`, `PI`, `STORED-CHAR-LENGTH`, `WHEN-COMPILED`,
+  `INTEGER-OF-DATE`, `DATE-OF-INTEGER`, `INTEGER-OF-DAY`, `DAY-OF-INTEGER`,
+  `FRACTION-PART`, `ANNUITY`.
 - COBOL-correct alphanumeric comparison (space-padded) and figurative constants
   (SPACES, ZEROS, HIGH/LOW-VALUES, QUOTES, NULLS).
 
@@ -326,6 +332,14 @@ honest map of where things stand.
   **`MOVE`/`ADD`/`SUBTRACT CORRESPONDING`** (group-subfield matching), and
   **functional `SEARCH` / `SEARCH ALL`** (drives the table index / `INDEXED BY`,
   runs the first matching `WHEN`, else `AT END`).
+- **Verb completeness (1.6.0)** — multi-receiver `MULTIPLY`/`DIVIDE GIVING` with
+  per-receiver `ROUNDED` (also on `ADD`/`SUBTRACT`); `EXIT PERFORM [CYCLE]` /
+  `EXIT PARAGRAPH` / `EXIT SECTION`; `CALL … NOT ON EXCEPTION`; combined
+  `INSPECT TALLYING REPLACING` with `BEFORE/AFTER INITIAL`; date/`ANNUITY`
+  intrinsics; literal-object abbreviated conditions (`A = 1 OR 2 OR 3`);
+  `EVALUATE … ALSO` and `WHEN NOT`; real **88-level condition-names**
+  (`SET … TO TRUE`); `PERFORM para VARYING`; and a functional **`SORT` / `MERGE`**
+  runtime (`RELEASE`/`RETURN`, `USING`/`GIVING`, `INPUT`/`OUTPUT PROCEDURE`).
 - **`INDEXED` (ISAM) files** — a built-in, dependency-free keyed-file engine with
   primary + alternate keys, ascending on-disk key order, journaled
   `COMMIT`/`ROLLBACK`, record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
@@ -339,14 +353,14 @@ honest map of where things stand.
 - **SCREEN SECTION** — parsed in simplified form (incl. extended `ACCEPT`/`DISPLAY`
   `AT`/`WITH` phrases); terminal screen handling is not executed (the visual form
   designer supersedes it).
-- **`RELEASE` / `RETURN` / `UNLOCK` / `ALTER`** — parse (recognized) but are
-  currently no-ops (`RELEASE`/`RETURN` await the full `SORT` runtime).
+- **`UNLOCK` / `ALTER`** — recognized no-ops (`UNLOCK` matches the auto-unlock
+  locking model; `ALTER` is deprecated). `NEXT SENTENCE` is treated as `CONTINUE`.
 
 ### ⛔ Not yet implemented (planned)
-- Multiple receivers on `MULTIPLY`/`DIVIDE`; per-receiver `ROUNDED` on
-  `ADD`/`SUBTRACT`. `SET ADDRESS OF` / pointer manipulation.
-- **RELATIVE** file organization; **`SORT` / `MERGE`** runtime; file sharing /
-  record locking.
+- `SET ADDRESS OF` / pointer manipulation (`USAGE POINTER` declares only).
+- `66 RENAMES`; `INITIALIZE … REPLACING`; identifier-object abbreviated
+  conditions (`a = b OR c` where `c` is a data-item).
+- **RELATIVE** file organization; file sharing / record locking across processes.
 - Object-Oriented COBOL **class/method definitions** (`INVOKE` is supported for GUI and
   runtime objects only).
 

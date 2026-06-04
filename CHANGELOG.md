@@ -8,6 +8,44 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.6.0] — 2026-06-04
+
+A COBOL-85 verb-completeness pass: closing every remaining ⚠️/❌ item in the
+RustCOBOL-85 Supported Syntax Reference. The IDE is unchanged.
+
+### New language features
+
+- **Multi-receiver `MULTIPLY`/`DIVIDE GIVING` + per-receiver `ROUNDED`** —
+  `MULTIPLY a BY b GIVING r1 [ROUNDED] r2 …`, `DIVIDE … GIVING q1 [ROUNDED] q2 …
+  [REMAINDER r]`, and per-receiver `ROUNDED` on `ADD`/`SUBTRACT`. (Also fixes
+  `MULTIPLY a BY b` with no GIVING to store into `b`.)
+- **`EXIT PERFORM [CYCLE]` / `EXIT PARAGRAPH` / `EXIT SECTION`** via control-flow
+  signals; plain `EXIT` is now a no-op return point and `EXIT PROGRAM` returns to
+  the caller (both were wrongly `STOP RUN`).
+- **`CALL … NOT ON EXCEPTION`** — the body now runs when the call resolves.
+- **`INSPECT … TALLYING … REPLACING`** combined (the REPLACING half was dropped)
+  and **`BEFORE/AFTER INITIAL`** region qualifiers on every TALLYING/REPLACING
+  phrase; TALLYING now accumulates onto its counter.
+- **Date / financial intrinsics** — `INTEGER-OF-DATE`, `DATE-OF-INTEGER`,
+  `INTEGER-OF-DAY`, `DAY-OF-INTEGER`, `FRACTION-PART`, `ANNUITY` (were `0`).
+- **Literal-object abbreviated conditions** — `A = 1 OR 2 OR 3` reuses the
+  subject and operator.
+- **`EVALUATE … ALSO`** multi-subject (positional AND matching) and **`WHEN NOT`**.
+- **Real 88-level condition-names** — the host item is tested against the
+  declared VALUEs/ranges, and `SET 88-name TO TRUE/FALSE` writes a satisfying /
+  violating value to the host (previously a bogus standalone slot).
+- **`PERFORM para VARYING …`** now executes the named paragraph each iteration.
+- **Functional `SORT` / `MERGE`** — `RELEASE`/`RETURN`, `USING`/`GIVING`, and
+  `INPUT`/`OUTPUT PROCEDURE`, with stable sort by ASCENDING/DESCENDING keys.
+
+### Notes
+
+- `UNLOCK` and `ALTER` remain recognized no-ops (correct for the auto-unlock
+  model; ALTER is deprecated). `66 RENAMES`, `INITIALIZE … REPLACING`, and
+  identifier-object abbreviation remain unsupported (documented in the reference).
+- New tests: `test_arith_receivers`, `test_control_flow`, `test_inspect`,
+  `test_intrinsics_date`, `test_conditions`, `test_sort` (cobolt-runtime).
+
 ## [PowerRustCOBOL 1.5.0] — 2026-06-04
 
 Hierarchical / occurrence-aware runtime environment. One dedicated effort

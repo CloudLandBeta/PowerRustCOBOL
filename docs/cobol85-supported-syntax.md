@@ -32,24 +32,36 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 > / `t(i, j)` (per-occurrence storage), **qualified-name disambiguation**
 > `id OF/IN group` (duplicated leaf names resolve to independent storage),
 > **`MOVE/ADD/SUBTRACT CORRESPONDING`**, and **functional `SEARCH` / `SEARCH ALL`**.
-> The avoid-list at the bottom is current.
+>
+> **Update (verb-completeness pass — 1.6.0):** now also ✅ — **multi-receiver
+> `MULTIPLY`/`DIVIDE GIVING` + per-receiver `ROUNDED`** on `ADD`/`SUBTRACT`;
+> **`EXIT PERFORM [CYCLE]` / `EXIT PARAGRAPH` / `EXIT SECTION`** and corrected
+> plain `EXIT`; **`CALL … NOT ON EXCEPTION`**; **`INSPECT … TALLYING …
+> REPLACING`** combined and **`BEFORE/AFTER INITIAL`** regions; date/financial
+> **intrinsics** (`INTEGER-OF-DATE`, `DATE-OF-INTEGER`, `INTEGER-OF-DAY`,
+> `DAY-OF-INTEGER`, `ANNUITY`, `FRACTION-PART`); **literal-object abbreviated
+> conditions** (`A = 1 OR 2 OR 3`); **`EVALUATE … ALSO`** (multi-subject) and
+> **`WHEN NOT`**; **real 88-level condition-names** (`SET … TO TRUE/FALSE`, host
+> tested against its VALUEs/ranges); **`PERFORM para VARYING`**; and a functional
+> **`SORT`/`MERGE`** runtime (`RELEASE`/`RETURN`, `USING`/`GIVING`, `INPUT`/`OUTPUT
+> PROCEDURE`). The avoid-list at the bottom is current.
 
 ---
 
 ## Recognized statements (verbs)
 
 ✅ `MOVE` `ADD` `SUBTRACT` `MULTIPLY` `DIVIDE` `COMPUTE` `IF` `EVALUATE`
-`PERFORM` `GO TO` `GOBACK`/`GO BACK` `CONTINUE` `STOP` `EXIT` `OPEN` `CLOSE`
+`PERFORM` `GO TO` `GOBACK`/`GO BACK` `CONTINUE` `EXIT` `STOP` `OPEN` `CLOSE`
 `READ` `WRITE` `REWRITE` `DELETE` `START` `ACCEPT` `DISPLAY` `STRING` `UNSTRING`
-`INSPECT` `CALL` `SET`
-⚠️ `SORT` `MERGE` (parsed; runtime incomplete) · `INITIALIZE` (→ `MOVE SPACES`) ·
-`INVOKE` (parsed as no‑op) · `CANCEL` (skipped)
+`INSPECT` `CALL` `SET` `INITIALIZE` `SEARCH`/`SEARCH ALL` `SORT` `MERGE`
+`RELEASE` `RETURN`
+⚠️ `INVOKE` (parsed as no‑op) · `CANCEL` (skipped) · `UNLOCK` (no‑op — the
+locking model auto-unlocks) · `ALTER` (recognized no‑op; deprecated)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 
 ✅ `SEARCH` / `SEARCH ALL` (functional — drives the table index and runs the
-first matching `WHEN`, else `AT END`).
-⚠️ **Recognized but no‑op** (parse cleanly, do nothing yet): `RELEASE`,
-`RETURN`, `UNLOCK`, `ALTER`.
+first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
+`RETURN` (functional — see below).
 ❌ **Not recognized — do not use:** `ENTRY`, `USE`,
 `GENERATE`/`INITIATE`/`TERMINATE`, `SEND`/`RECEIVE`, `ENABLE`/`DISABLE`.
 
@@ -69,17 +81,19 @@ first matching `WHEN`, else `AT END`).
   item even when the leaf name is declared under more than one group.
 
 ### ADD / SUBTRACT
-- ✅ `ADD a [b …] TO r1 [r2 …] [ROUNDED] [[ON] SIZE ERROR …][NOT …][END-ADD]`.
-- ✅ `ADD a [b …] GIVING r [ROUNDED] …` · `SUBTRACT a … FROM r …` · `… GIVING …`.
-- ⚠️ `ROUNDED` is **one flag for the whole statement**, not per‑receiver.
+- ✅ `ADD a [b …] TO r1 [ROUNDED] [r2 [ROUNDED] …] [[ON] SIZE ERROR …][NOT …][END-ADD]`.
+- ✅ `ADD a [b …] GIVING r1 [ROUNDED] [r2 …] …` · `SUBTRACT a … FROM r …` · `… GIVING …`.
+- ✅ **per‑receiver `ROUNDED`** — each receiver carries its own `ROUNDED` flag.
 - ✅ `ADD CORRESPONDING g1 TO g2 [ROUNDED]` /
   `SUBTRACT CORRESPONDING g1 FROM g2 [ROUNDED]` — combine each matching numeric
   pair, recursing through matching sub-groups.
 
 ### MULTIPLY / DIVIDE
-- ✅ `MULTIPLY a BY b [GIVING r] [ROUNDED] [SIZE ERROR …][END-MULTIPLY]`.
-- ✅ `DIVIDE a {INTO|BY} b [GIVING q] [REMAINDER r] [ROUNDED] [SIZE ERROR …][END-DIVIDE]`.
-- ❌ multiple receivers (`MULTIPLY a BY r1 r2`), `DIVIDE … GIVING q1 q2`.
+- ✅ `MULTIPLY a BY b [ROUNDED] [GIVING r1 [ROUNDED] r2 …] [SIZE ERROR …][END-MULTIPLY]`.
+- ✅ `DIVIDE a {INTO|BY} b [ROUNDED] [GIVING q1 [ROUNDED] q2 …] [REMAINDER r] [SIZE ERROR …][END-DIVIDE]`.
+- ✅ **multiple `GIVING` receivers**, each with its own `ROUNDED`.
+- ⚠️ `DIVIDE a BY b` (no `GIVING`) stores `a/b` back into `a` (a PowerRustCOBOL
+  convenience; standard COBOL requires `INTO` or `GIVING` here).
 
 ### COMPUTE
 - ✅ `COMPUTE r1 [ROUNDED] [r2 [ROUNDED] …] = expr [[ON] SIZE ERROR …][NOT …]
@@ -89,10 +103,11 @@ first matching `WHEN`, else `AT END`).
 
 ### IF / EVALUATE
 - ✅ `IF cond [THEN] stmts [ELSE stmts] [END-IF]`.
-- ✅ `EVALUATE {expr | TRUE | FALSE}` … `WHEN {value | value THRU value | ANY |
-  condition | OTHER} [ALSO …] stmts … [WHEN OTHER stmts] END-EVALUATE`.
-- ⚠️ `ALSO` (multi‑subject) is collected but evaluation is simplified; `NOT value`
-  in a WHEN is stored as the plain value (negation simplified).
+- ✅ `EVALUATE {expr | TRUE | FALSE} [ALSO subject …]` … `WHEN {value | value THRU
+  value | NOT value | ANY} [ALSO …] stmts … [WHEN OTHER stmts] END-EVALUATE`.
+- ✅ **`ALSO` multi‑subject** — each `WHEN` column is matched positionally
+  against its subject and AND‑combined.
+- ✅ **`WHEN NOT value`** negates a selection object.
 
 ### PERFORM
 - ✅ `PERFORM p [THRU p2]`.
@@ -103,13 +118,17 @@ first matching `WHEN`, else `AT END`).
 - ✅ `PERFORM VARYING v FROM a BY b UNTIL c [AFTER v2 FROM … BY … UNTIL …] …
   END-PERFORM`.
 - ✅ inline `PERFORM n TIMES … END-PERFORM` (no paragraph).
-- ⚠️ `PERFORM p VARYING …` ignores the paragraph name.
+- ✅ `PERFORM p [THRU p2] VARYING v FROM a BY b UNTIL c` — runs the paragraph each
+  iteration (out‑of‑line, no `END-PERFORM`).
 
 ### GO TO / CONTINUE / EXIT / STOP
 - ✅ `GO TO p` · `GO TO p1 p2 … DEPENDING ON id` · `GOBACK` / `GO BACK`.
 - ✅ `CONTINUE` · `STOP RUN` · `STOP literal`.
-- ⚠️ `EXIT` and `EXIT PROGRAM` both compile to `STOP RUN` (return to caller).
-- ❌ `EXIT PERFORM [CYCLE]`, `EXIT PARAGRAPH`, `EXIT SECTION`, `NEXT SENTENCE`.
+- ✅ plain `EXIT` is a no‑op return point; `EXIT PROGRAM` returns to the caller.
+- ✅ `EXIT PERFORM [CYCLE]` (break / continue the nearest inline PERFORM),
+  `EXIT PARAGRAPH`, `EXIT SECTION`.
+- ⚠️ `NEXT SENTENCE` is accepted but treated as `CONTINUE` (no sentence‑boundary
+  tracking; correct for the dominant `IF … NEXT SENTENCE END-IF` idiom).
 
 ### ACCEPT
 - ✅ `ACCEPT id`.
@@ -138,28 +157,31 @@ first matching `WHEN`, else `AT END`).
 
 ### INSPECT
 - ✅ `INSPECT id CONVERTING from TO to`.
-- ✅ `INSPECT id TALLYING c FOR {CHARACTERS | ALL x | LEADING x | TRAILING x} …`.
+- ✅ `INSPECT id TALLYING c FOR {CHARACTERS | ALL x | LEADING x | TRAILING x}
+  [{BEFORE|AFTER} INITIAL d] …`.
 - ✅ `INSPECT id REPLACING {CHARACTERS | ALL x | LEADING x | TRAILING x | FIRST x}
-  BY y …`.
-- ⚠️ `INSPECT … TALLYING … REPLACING …` — the **REPLACING half is skipped**.
-- ❌ `BEFORE/AFTER INITIAL` phrases (not parsed in TALLYING/REPLACING).
+  BY y [{BEFORE|AFTER} INITIAL d] …`.
+- ✅ `INSPECT … TALLYING … REPLACING …` — **both halves applied**.
+- ✅ `BEFORE/AFTER INITIAL` confines each phrase to a sub‑region of the field.
+  (TALLYING accumulates onto the counter, per COBOL.)
 
 ### SET
 - ✅ `SET t1 [t2 …] TO {TRUE | FALSE | expr}` (compiled to MOVE).
 - ✅ `SET idx {UP|DOWN} BY n` (encoded as ADD / SUBTRACT).
-- ⚠️ `SET 88-name TO TRUE` — encoded as MOVE 1; verify it sets the host correctly.
+- ✅ `SET 88-name TO TRUE` sets the host item to the condition's first VALUE;
+  `TO FALSE` sets a value outside the VALUE set (best effort — no FALSE clause).
 - ❌ `SET ADDRESS OF …`, `SET pointer TO {ADDRESS OF … | NULL}`.
 
 ### INITIALIZE
 - ✅ `INITIALIZE id …` — category-aware: numeric / numeric-edited → ZERO,
   everything else → SPACES, recursing into group items.
-- ⚠️ `REPLACING …` is parsed but skipped.
+- ❌ `REPLACING …` (parsed but not applied — avoid).
 
 ### CALL / CANCEL
 - ✅ `CALL {lit|id} [USING [BY {REFERENCE|CONTENT|VALUE}] arg …] [RETURNING r]
-  [[ON] {EXCEPTION|OVERFLOW} imp [NOT …]] [END-CALL]`.
-- ✅ The `ON EXCEPTION` / `ON OVERFLOW` body **runs** when the called program is
-  unresolved. (`NOT ON EXCEPTION` is parsed but its body not yet run.)
+  [[ON] {EXCEPTION|OVERFLOW} imp] [NOT [ON] {EXCEPTION|OVERFLOW} imp] [END-CALL]`.
+- ✅ The `ON EXCEPTION` / `ON OVERFLOW` body runs when the called program is
+  unresolved; the `NOT ON EXCEPTION` body runs when the call **resolves**.
 - ⚠️ `CANCEL p` is skipped (no‑op).
 
 ### File verbs (the supported phrases — full coverage is in the file‑I/O suite)
@@ -174,10 +196,15 @@ first matching `WHEN`, else `AT END`).
   | LESS [THAN] [OR EQUAL TO]} k] [INVALID KEY …][END-START]`.
 - ❌ `OPEN … SHARING`, `… WITH LOCK`, `READ … WITH [NO] LOCK`, `UNLOCK`.
 
-### SORT / MERGE  ⚠️ (parsed, runtime incomplete — confirm before relying on)
-- `SORT f {ASCENDING|DESCENDING} KEY k … [USING …|INPUT PROCEDURE p [THRU p2]]
-  [GIVING …|OUTPUT PROCEDURE p [THRU p2]] [END-SORT]`.
-- `MERGE f {ASCENDING|DESCENDING} KEY k … [OUTPUT PROCEDURE p] [END-MERGE]`.
+### SORT / MERGE / RELEASE / RETURN  ✅ (functional, in‑memory work buffer)
+- ✅ `SORT f [ON] {ASCENDING|DESCENDING} KEY k … {USING f1 … | INPUT PROCEDURE p}
+  {GIVING f2 … | OUTPUT PROCEDURE p} [END-SORT]`.
+- ✅ `MERGE f [ON] {ASCENDING|DESCENDING} KEY k … USING f1 f2 …
+  {GIVING f3 … | OUTPUT PROCEDURE p} [END-MERGE]`.
+- ✅ `RELEASE record [FROM id]` (in an INPUT PROCEDURE) appends to the run;
+  `RETURN f [INTO id] AT END … [NOT AT END …] [END-RETURN]` hands records back.
+- Records are stable‑sorted by the declared keys (`ASCENDING`/`DESCENDING`);
+  `USING` reads / `GIVING` writes the named sequential files.
 
 ---
 
@@ -192,8 +219,11 @@ first matching `WHEN`, else `AT END`).
 - ✅ Combined `AND` / `OR` / `NOT`, parentheses (AND binds tighter than OR).
 - ✅ **Operator‑prefixed abbreviated conditions** — `a > 1 AND < 9`,
   `a = 5 OR = 7` (the preceding comparison subject is reused).
+- ✅ **Literal‑object abbreviation** — `a = 1 OR 2 OR 3` (reuses both the subject
+  and the operator; the object must be a literal).
 - ❌ **Identifier‑object abbreviation** (`a = b OR c`, where `c` is a data‑item)
-  — needs semantic resolution; use the operator‑prefixed form or repeat the LHS.
+  — a bare identifier after AND/OR stays a condition‑name (88‑level), which the
+  parser cannot distinguish from a data‑item object; repeat the LHS instead.
 
 ---
 
@@ -205,9 +235,10 @@ first matching `WHEN`, else `AT END`).
   ABS, INTEGER, INTEGER-PART, RANDOM, CURRENT-DATE, TRIM, REVERSE, CONCATENATE,
   ORD, CHAR, ORD-MAX, ORD-MIN, SUM, MEAN, MEDIAN, MIDRANGE, RANGE, VARIANCE,
   STANDARD-DEVIATION, FACTORIAL, SIN, COS, TAN, ASIN, ACOS, ATAN, LOG, LOG10,
-  EXP, EXP10, PI, STORED-CHAR-LENGTH, WHEN-COMPILED`.
-  ⚠️ Any **other** `FUNCTION` name parses but returns **0** at runtime (e.g.
-  `DATE-OF-INTEGER, INTEGER-OF-DATE, ANNUITY, …`).
+  EXP, EXP10, PI, STORED-CHAR-LENGTH, WHEN-COMPILED, INTEGER-OF-DATE,
+  DATE-OF-INTEGER, INTEGER-OF-DAY, DAY-OF-INTEGER, FRACTION-PART, ANNUITY`.
+  (Date conversions use the standard base 1601‑01‑01 = day 1.)
+  ⚠️ Any **other** `FUNCTION` name parses but returns **0** at runtime.
 - ✅ Literals: integer, decimal, string, all figurative constants
   (`SPACES/SPACE, ZEROS/ZERO/ZEROES, HIGH-VALUES, LOW-VALUES, QUOTES, NULLS`,
   `ALL "x"`).
@@ -225,9 +256,13 @@ first matching `WHEN`, else `AT END`).
 - ✅ `OCCURS n [TIMES] [DEPENDING ON id] [ASCENDING/DESCENDING KEY …] [INDEXED BY …]`.
 - ✅ `REDEFINES`, `JUSTIFIED [RIGHT]`, `SYNCHRONIZED/SYNC`, `BLANK [WHEN] ZERO`,
   `SIGN [IS] {LEADING|TRAILING} [SEPARATE]`, `GLOBAL`, `EXTERNAL`.
-- ✅ `88 name VALUE v [v …]` / `VALUE a THRU b`.
-- ⚠️ `USAGE INDEX` / `USAGE POINTER` — tokens exist; confirm they declare/behave.
-- ⚠️ `66 RENAMES` — `RENAMES` is a token but 66‑level handling is unverified.
+- ✅ `88 name VALUE v [v …]` / `VALUE a THRU b` — **real condition‑names**: the
+  level‑88 binds to its host item; testing checks the host against the VALUEs /
+  ranges, and `SET 88-name TO TRUE` stores a satisfying value into the host.
+- ✅ `USAGE INDEX` declares an integer index register (`SET`/`SEARCH` use it).
+  ⚠️ `USAGE POINTER` declares but pointer operations are not implemented.
+- ❌ `66 RENAMES` — the `RENAMES` clause is parsed but **not applied** (the alias
+  is not created); avoid.
 - Sections: `WORKING-STORAGE`, `LOCAL-STORAGE`, `LINKAGE`, `FILE`; `SCREEN`
   parsed but not executed.
 
@@ -237,25 +272,30 @@ first matching `WHEN`, else `AT END`).
 
 These remain ❌ (parse error) or ⚠️ (parsed/recognized but a no‑op):
 
-1. **Multiple receivers on `MULTIPLY`/`DIVIDE`** — and `ADD`/`SUBTRACT`
-   per‑receiver `ROUNDED` (still statement level). (`COMPUTE` multiple receivers
-   + per‑receiver `ROUNDED` **is** done; `ADD/SUBTRACT CORRESPONDING` **is** done.)
-2. **`SET ADDRESS OF`**, `SET pointer TO {ADDRESS OF … | NULL}`.
-3. **Identifier-object abbreviated conditions** (`a = b OR c` where `c` is a
-   data‑item) — needs semantic resolution; the **operator‑prefixed** form
-   (`a > 1 AND < 9`, `a = 5 OR = 7`) **is** supported.
-4. **Screen `ACCEPT`/`DISPLAY` execution** — `AT`/`WITH` phrases parse and are
+1. **`SET ADDRESS OF`**, `SET pointer TO {ADDRESS OF … | NULL}`, and pointer
+   operations generally (`USAGE POINTER` declares but does nothing).
+2. **Identifier-object abbreviated conditions** (`a = b OR c` where `c` is a
+   data‑item) — a bare identifier after AND/OR stays a condition‑name. The
+   **operator‑prefixed** (`a > 1 AND < 9`) and **literal‑object** (`a = 1 OR 2`)
+   forms **are** supported.
+3. **Screen `ACCEPT`/`DISPLAY` execution** — `AT`/`WITH` phrases parse and are
    ignored (the form designer supersedes SCREEN SECTION I/O).
-5. **`RELEASE`/`RETURN`/`UNLOCK`/`ALTER`** — recognized (parse) but no‑ops
-   (`RELEASE`/`RETURN` await the full `SORT` runtime).
-6. **`INSPECT … TALLYING … REPLACING`** combined (REPLACING half skipped) and
-   `INSPECT … BEFORE/AFTER INITIAL`.
+4. **`UNLOCK`** (no‑op — auto‑unlock model) and **`ALTER`** (recognized no‑op;
+   deprecated GO TO alteration).
+5. **`66 RENAMES`** (clause parsed, alias not created) and
+   **`INITIALIZE … REPLACING`** (parsed, not applied).
+6. **`NEXT SENTENCE`** treated as `CONTINUE` (no sentence‑boundary tracking).
 7. Intrinsics outside the implemented set still return **0**.
 
 > A test that *intentionally* targets one of these (to drive the fix) will hit a
 > parser diagnostic or a no‑op — that is the signal for the next pass.
 >
-> **Resolved (1.5.0):** the **flat data model** has been replaced by a
-> hierarchical / occurrence‑aware environment, unblocking **CORRESPONDING**
-> (`MOVE`/`ADD`/`SUBTRACT`), **qualified names**, **table subscripting**, and
-> **functional `SEARCH` / `SEARCH ALL`** together.
+> **Resolved (1.5.0):** the flat data model became hierarchical / occurrence‑aware,
+> unblocking **CORRESPONDING**, **qualified names**, **table subscripting**, and
+> **`SEARCH`**.
+> **Resolved (1.6.0):** multi‑receiver `MULTIPLY`/`DIVIDE` + per‑receiver
+> `ROUNDED`; `EXIT PERFORM/PARAGRAPH/SECTION`; `CALL NOT ON EXCEPTION`; combined
+> `INSPECT TALLYING REPLACING` + `BEFORE/AFTER INITIAL`; date/`ANNUITY`
+> intrinsics; literal‑object abbreviation; `EVALUATE ALSO`/`WHEN NOT`; real
+> 88‑level condition‑names; `PERFORM para VARYING`; and the `SORT`/`MERGE`
+> runtime with `RELEASE`/`RETURN`.
