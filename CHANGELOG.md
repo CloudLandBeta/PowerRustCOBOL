@@ -8,6 +8,45 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.3.1] — 2026-06-04
+
+File I/O fixes surfaced by the storage/compression File I/O test pack
+(`tests/cobol/fileio/`), now run end-to-end in the suite.
+
+### Fixes
+
+- **Record `ORGANIZATION IS SEQUENTIAL` READ** — fixed-length records (no
+  terminator) are now read one record (`record_len` bytes) per `READ`, dispatched
+  by organization. Previously the reader used line reads for every sequential
+  file, so the first `READ` of a record-sequential file consumed the whole file
+  and subsequent reads hit EOF. (`interpreter.rs`)
+- **Source-format detection** — a file with real (non-blank) content beyond
+  column 72 is now treated as free-form, since strict fixed-form code never
+  exceeds column 72. This keeps long `ASSIGN` paths / `DISPLAY` literals from
+  being truncated. (`rcrun` `detect_format`)
+
+### Grammar
+
+- `STORAGE [MODE] IS MEMORY | DISK` — the `MODE` keyword is optional, so both
+  `STORAGE IS DISK` and `STORAGE MODE IS DISK` parse.
+- Compression accepts `WITH COMPRESSION`, `WITH DATA COMPRESSING`, or a bare
+  `COMPRESSION`/`COMPRESSING`, with or without a preceding `STORAGE` clause
+  (a standalone `WITH COMPRESSION` uses the default storage backend).
+
+### Behaviour
+
+- Writing a record that creates a duplicate value on an `ALTERNATE RECORD KEY …
+  WITH DUPLICATES` is now a fully successful `00` write (previously the
+  informational `02`). `WITHOUT DUPLICATES` violations still return `22`.
+
+### Tests
+
+- The File I/O test pack is vendored under `tests/cobol/fileio/` (baseline
+  `fileiot.cbl` + six storage/compression variants) and driven end-to-end by
+  `crates/cobolt-runtime/tests/test_fileio_storage.rs` (ASSIGN paths redirected
+  to a temp dir; the 1,000,000-record profile loop shrunk for speed — the
+  original files keep the full 1M profile for manual `rcrun` benchmarking).
+
 ## [PowerRustCOBOL 1.3.0] — 2026-06-04
 
 INDEXED files gain a selectable storage backend and record compression.

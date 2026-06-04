@@ -490,24 +490,24 @@ impl IndexedFile {
         if self.records.contains_key(&pkey) {
             return status::DUP_KEY;
         }
-        // No-duplicates alternates must not already hold this alt value.
-        let mut dup_alt_ok = false;
+        // A WITHOUT-DUPLICATES alternate must not already hold this value;
+        // WITH-DUPLICATES alternates accept it (a duplicate is a normal,
+        // fully successful write — status 00, not the informational 02).
         for (i, ks) in self.alternates.iter().enumerate() {
+            if ks.duplicates {
+                continue;
+            }
             let ak = ks.extract(&rec);
             if let Some(set) = self.alt_index[i].get(&ak) {
                 if !set.is_empty() {
-                    if ks.duplicates {
-                        dup_alt_ok = true;
-                    } else {
-                        return status::DUP_KEY;
-                    }
+                    return status::DUP_KEY;
                 }
             }
         }
         self.records.insert(pkey.clone(), rec.clone());
         self.index_insert(&pkey, &rec);
         self.journal.push(Journal::Insert(pkey));
-        if dup_alt_ok { status::DUP_ALT_OK } else { status::OK }
+        status::OK
     }
 
     // ── READ (random by key of reference) ───────────────────────────────────
@@ -1213,12 +1213,13 @@ mod tests {
         assert_eq!(f.write(&rec("2", "ACME")), status::DUP_KEY);
         f.close();
 
-        // with-dup alt allows it (status 02), and read by alt finds one.
+        // with-dup alt allows it (a duplicate is a successful 00 write), and
+        // read by alt finds one.
         let p = tmp("altdup"); let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, true);
         f.open(OpenMode::Output);
         assert_eq!(f.write(&rec("1", "ACME")), status::OK);
-        assert_eq!(f.write(&rec("2", "ACME")), status::DUP_ALT_OK);
+        assert_eq!(f.write(&rec("2", "ACME")), status::OK);
         f.close();
 
         // Reopen for input and read by the alternate (NAME) key of reference.

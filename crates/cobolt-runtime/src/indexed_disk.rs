@@ -786,14 +786,12 @@ impl DiskIndexedFile {
             Ok(None) => {}
             Err(_) => return status::IO_ERROR,
         }
-        // No-duplicate alternates must not already hold this value.
+        // A WITHOUT-DUPLICATES alternate must not already hold this value;
+        // WITH-DUPLICATES alternates accept any value (a duplicate is a normal,
+        // fully successful write — status 00, not the informational 02).
         let alts = self.alternates.clone();
-        let mut dup_alt_ok = false;
         for (i, ks) in alts.iter().enumerate() {
             if ks.duplicates {
-                if self.alt_first_ge(i, &Self::extract(ks, &rec)).unwrap_or(None).is_some() {
-                    dup_alt_ok = true;
-                }
                 continue;
             }
             match self.bt_search(self.alt_roots[i], &Self::extract(ks, &rec)) {
@@ -814,7 +812,7 @@ impl DiskIndexedFile {
             return status::IO_ERROR;
         }
         self.record_count += 1;
-        if dup_alt_ok { status::DUP_ALT_OK } else { status::OK }
+        status::OK
     }
 
     fn index_insert(&mut self, rec: &[u8], recid: u64) -> R<()> {
@@ -837,12 +835,6 @@ impl DiskIndexedFile {
             self.bt_delete(self.alt_roots[i], &k)?;
         }
         Ok(())
-    }
-
-    /// First (leaf,idx) of the duplicates-allowed alternate index `i` whose raw
-    /// alt value is `>= prefix` (prefix is the bare alt key, no RecordId).
-    fn alt_first_ge(&mut self, i: usize, prefix: &[u8]) -> R<Option<(u64, usize)>> {
-        self.find_ge(self.alt_roots[i], prefix)
     }
 
     // ── READ ─────────────────────────────────────────────────────────────────
@@ -1624,8 +1616,8 @@ mod tests {
         let _ = std::fs::remove_file(&p);
         let mut f = newfile(p.clone(), true, false);
         f.open(OpenMode::Output);
-        assert_eq!(f.write(&rec("1", "ACME")), status::OK); // first: no duplicate yet
-        assert_eq!(f.write(&rec("2", "ACME")), status::DUP_ALT_OK); // second: 02
+        assert_eq!(f.write(&rec("1", "ACME")), status::OK); // first
+        assert_eq!(f.write(&rec("2", "ACME")), status::OK); // duplicate alt → still 00
         f.close();
 
         let mut g = newfile(p.clone(), true, false);

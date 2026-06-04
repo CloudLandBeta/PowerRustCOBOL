@@ -1649,17 +1649,34 @@ impl Interpreter {
                     engine.read_seq(read_dir)
                 }
             }
-            Some(OpenFile::Reader { r, .. }) => {
-                let mut line = String::new();
-                match r.read_line(&mut line) {
-                    Ok(0) => (None, status::EOF),
-                    Ok(_) => {
-                        while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
-                        (Some(line.into_bytes()), status::OK)
+            Some(OpenFile::Reader { r, org }) => match org {
+                // LINE SEQUENTIAL: newline-delimited text records.
+                FileOrganization::LineSequential => {
+                    let mut line = String::new();
+                    match r.read_line(&mut line) {
+                        Ok(0) => (None, status::EOF),
+                        Ok(_) => {
+                            while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
+                            (Some(line.into_bytes()), status::OK)
+                        }
+                        Err(e) => { tracing::warn!("READ failed: {e}"); (None, "30") }
                     }
-                    Err(e) => { tracing::warn!("READ failed: {e}"); (None, "30") }
                 }
-            }
+                // Record SEQUENTIAL: fixed-length records, no terminator — read
+                // exactly one record's worth of bytes per READ.
+                _ => {
+                    use std::io::Read as _;
+                    let rlen = spec.layout.len.max(1);
+                    let mut bytes = vec![0u8; rlen];
+                    match r.read_exact(&mut bytes) {
+                        Ok(()) => (Some(bytes), status::OK),
+                        Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                            (None, status::EOF)
+                        }
+                        Err(e) => { tracing::warn!("READ failed: {e}"); (None, "30") }
+                    }
+                }
+            },
             _ => (None, status::NOT_OPEN_INPUT),
         };
 

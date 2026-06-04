@@ -40,7 +40,7 @@ The i18n system translates the IDE interface only.
 - **y** — new features: new widgets, properties, IDE panels, language features
 - **z** — bug fixes, polish, performance
 
-Current version: **1.3.0**
+Current version: **1.3.1**
 
 ---
 
@@ -165,11 +165,23 @@ planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
   read on demand → bounded RAM. Lazy index delete (data pages reclaimed).
 - `cobolt-runtime/src/compress.rs` — `WITH DATA COMPRESSING` (PackBits RLE, raw
   fallback, no deps); used by both storage modes.
-- **`STORAGE MODE IS MEMORY | DISK [WITH DATA COMPRESSING]`** — a SELECT clause
-  (PowerRustCOBOL extension) on `FileControl.storage_mode`/`.data_compressing`;
-  `ASSIGN TO` still required (persistence target). `make_indexed_engine`
-  dispatches by `StorageMode` to a `Box<dyn IndexedStore>`. Parser also handles
-  the spaced `ALTERNATE RECORD KEY … [WITH DUPLICATES]` form.
+- **`STORAGE [MODE] IS MEMORY | DISK [WITH [DATA] COMPRESSION|COMPRESSING]`** — a
+  SELECT clause (PowerRustCOBOL extension) on
+  `FileControl.storage_mode`/`.data_compressing`; `ASSIGN TO` still required.
+  `MODE` optional; compression accepts `COMPRESSION` or `DATA COMPRESSING`, and a
+  standalone `WITH COMPRESSION` (no STORAGE clause) is allowed. **Default storage
+  = MEMORY.** `make_indexed_engine` dispatches by `StorageMode` to a
+  `Box<dyn IndexedStore>`. Parser also handles the spaced `ALTERNATE RECORD KEY …
+  [WITH DUPLICATES]` form.
+- **Duplicate-alternate WRITE returns `00`** (not the informational `02`): a
+  write creating a duplicate on a `WITH DUPLICATES` alternate is fully
+  successful; `WITHOUT DUPLICATES` violations return `22`. (Both engines.)
+- **Read dispatch by ORGANIZATION:** record `SEQUENTIAL` reads exactly
+  `record_len` bytes per `READ`; `LINE SEQUENTIAL` reads a newline-delimited line.
+  `rcrun`'s `detect_format` treats content past column 72 as free-form.
+- **File I/O test pack:** `tests/cobol/fileio/` (baseline + 6 storage/compression
+  variants), driven by `crates/cobolt-runtime/tests/test_fileio_storage.rs`; the
+  vendored `.cbl` use `*>` free-form comments.
 - **On-disk format `PRCIDX1`** — self-describing container: header + full key
   schema (`IndexedFileInfo`/`KeyDescriptor`: composite byte-ranged parts,
   `KeyEncoding`, `KeyOrdering`, duplicates, COBOL field name) + records + CRC-32.

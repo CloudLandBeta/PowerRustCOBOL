@@ -587,6 +587,14 @@ fn detect_format(source: &str, path: &PathBuf) -> SourceFormat {
     if std::env::var("COBOLT_FIXED").as_deref() == Ok("1") {
         return SourceFormat::Fixed;
     }
+    // Strict fixed-form code never extends past column 72 (cols 73+ are the
+    // identification area). A line with real (non-blank) content beyond column
+    // 72 therefore can't be fixed form — treat the file as free so those long
+    // lines (e.g. long ASSIGN paths / DISPLAY literals) are not truncated.
+    let has_content_past_72 = source.lines().any(|line| line.trim_end().chars().count() > 72);
+    if has_content_past_72 {
+        return SourceFormat::Free;
+    }
     let looks_fixed = source.lines().any(|line| {
         let bytes = line.as_bytes();
         bytes.len() > 6
