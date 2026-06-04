@@ -33,6 +33,7 @@
 //! ```
 
 pub mod channels;
+pub mod compress;
 pub mod db_runtime;
 pub mod debugger;
 pub mod environment;
@@ -41,6 +42,7 @@ pub mod exec_rust;
 pub mod http_runtime;
 pub mod files;
 pub mod indexed;
+pub mod indexed_disk;
 pub mod interpreter;
 pub mod numedit;
 pub mod objects;

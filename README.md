@@ -93,6 +93,24 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 - **`ORGANIZATION IS INDEXED`** (ISAM) — a built-in, **dependency-free** keyed-file
   engine: primary `RECORD KEY` + `ALTERNATE RECORD KEY [WITH DUPLICATES]`,
   records kept in ascending key order on disk, journaled with `COMMIT`/`ROLLBACK`.
+  - **`STORAGE MODE IS MEMORY | DISK [WITH DATA COMPRESSING]`** (PowerRustCOBOL
+    extension) selects the backend per file. `MEMORY` (default) is the in-RAM
+    engine (whole file in memory, persisted to the `ASSIGN` path on close).
+    `DISK` is a **persistent paged B+tree** engine — records and indexes live in
+    the `ASSIGN` file and are read on demand (free-list page reuse + a `RecordId`
+    directory), so RAM is bounded for very large files. `WITH DATA COMPRESSING`
+    applies to either mode: a fast, dependency-free RLE that crushes the padded
+    runs in typical COBOL records well past 50 %. `ASSIGN TO` is always required.
+    ```cobol
+    SELECT CUSTOMER-FILE
+        STORAGE MODE IS DISK WITH DATA COMPRESSING
+        ASSIGN TO "customers.dat"
+        ORGANIZATION IS INDEXED
+        ACCESS MODE IS DYNAMIC
+        RECORD KEY IS CUSTOMER-ID
+        ALTERNATE RECORD KEY IS CUSTOMER-ZIP WITH DUPLICATES
+        FILE STATUS IS CUSTOMER-STATUS.
+    ```
   - `ACCESS MODE SEQUENTIAL / RANDOM / DYNAMIC` all execute.
   - `READ` (random by key, and `READ … NEXT/PREVIOUS` sequential), `WRITE`,
     `REWRITE`, `DELETE`, and `START … KEY IS = / > / >= / < / <=` (incl.

@@ -27,6 +27,24 @@ use std::path::{Path, PathBuf};
 
 pub type Bytes = Vec<u8>;
 
+/// The runtime surface every indexed-file backend exposes, so the interpreter
+/// can drive either the in-memory engine ([`IndexedFile`], `STORAGE MODE IS
+/// MEMORY`) or the on-disk B+tree engine
+/// ([`crate::indexed_disk::DiskIndexedFile`], `STORAGE MODE IS DISK`) through a
+/// single `Box<dyn IndexedStore>` handle.
+pub trait IndexedStore {
+    fn open(&mut self, mode: OpenMode) -> &'static str;
+    fn close(&mut self) -> &'static str;
+    fn write(&mut self, rec: &[u8]) -> &'static str;
+    fn read_key(&mut self, key: &[u8]) -> (Option<Bytes>, &'static str);
+    fn read_seq(&mut self, dir: ReadDir) -> (Option<Bytes>, &'static str);
+    fn start(&mut self, op: StartOp, key: &[u8]) -> &'static str;
+    fn rewrite(&mut self, rec: &[u8], random_key: Option<&[u8]>) -> &'static str;
+    fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str;
+    fn set_key_of_reference(&mut self, kor: usize);
+    fn is_open(&self) -> bool;
+}
+
 /// Status codes (the FILE STATUS two-character values this engine produces).
 pub mod status {
     pub const OK: &str = "00";
@@ -305,6 +323,8 @@ pub struct IndexedFile {
     /// When `true`, OPEN validates the stored schema against the declared keys
     /// and returns FILE STATUS 39 on mismatch.
     strict_metadata: bool,
+    /// `WITH DATA COMPRESSING`: compress each record in the persisted container.
+    compressing: bool,
     /// Creation timestamp (ms), preserved across load/save.
     created_ms: u64,
 }
@@ -327,6 +347,7 @@ impl IndexedFile {
             journal: Vec::new(),
             key_names: Vec::new(),
             strict_metadata: true,
+            compressing: false,
             created_ms: 0,
         }
     }
@@ -340,6 +361,11 @@ impl IndexedFile {
     /// Enable/disable strict schema validation on OPEN (default: enabled).
     pub fn set_strict_metadata(&mut self, strict: bool) {
         self.strict_metadata = strict;
+    }
+
+    /// Enable/disable `WITH DATA COMPRESSING` for the persisted container.
+    pub fn set_compressing(&mut self, on: bool) {
+        self.compressing = on;
     }
 
     fn key_name(&self, idx: usize) -> Option<String> {
@@ -865,7 +891,8 @@ impl IndexedFile {
 
         let mut c = Cur { d: body, i: 8 }; // skip magic
         let _version = c.u16()?;
-        let _flags = c.u16()?;
+        let flags = c.u16()?;
+        self.compressing = flags & 1 != 0;
         let rf = c.u8()?;
         let _reserved = c.u8()?;
         let fixed_length = c.u32()?;
@@ -905,11 +932,12 @@ impl IndexedFile {
             keys.push(KeyDescriptor { key_number, name, parts, duplicates_allowed, ordering });
         }
 
-        // Records.
+        // Records (decompressed when the container is DATA-COMPRESSING-encoded).
         let record_count = c.u64()?;
         for _ in 0..record_count {
             let rlen = c.u32()? as usize;
-            let rec = c.bytes(rlen)?.to_vec();
+            let stored = c.bytes(rlen)?;
+            let rec = if self.compressing { crate::compress::decompress(stored) } else { stored.to_vec() };
             let pkey = self.primary.extract(&rec);
             self.records.insert(pkey, rec);
         }
@@ -929,7 +957,9 @@ impl IndexedFile {
         let mut out = Vec::new();
         out.extend_from_slice(b"PRCIDX1\0"); // 8-byte magic
         out.extend_from_slice(&1u16.to_le_bytes()); // version
-        out.extend_from_slice(&0u16.to_le_bytes()); // flags
+        // flags: bit0 = records are DATA-COMPRESSING-encoded.
+        let flags: u16 = if self.compressing { 1 } else { 0 };
+        out.extend_from_slice(&flags.to_le_bytes());
         let (rf, fixed, minl, maxl) = match info.record_format {
             RecordFormat::Fixed { length } => (1u8, length, length, length),
             RecordFormat::Variable { min_length, max_length } => (2u8, 0, min_length, max_length),
@@ -965,8 +995,9 @@ impl IndexedFile {
 
         out.extend_from_slice(&(self.records.len() as u64).to_le_bytes());
         for rec in self.records.values() {
-            out.extend_from_slice(&(rec.len() as u32).to_le_bytes());
-            out.extend_from_slice(rec);
+            let stored = if self.compressing { crate::compress::compress(rec) } else { rec.clone() };
+            out.extend_from_slice(&(stored.len() as u32).to_le_bytes());
+            out.extend_from_slice(&stored);
         }
 
         let crc = crc32(&out);
@@ -1048,6 +1079,23 @@ fn now_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+// Bridge the in-memory engine to the shared backend trait. Inherent methods of
+// the same name take resolution priority, so each body calls the inherent one.
+impl IndexedStore for IndexedFile {
+    fn open(&mut self, mode: OpenMode) -> &'static str { self.open(mode) }
+    fn close(&mut self) -> &'static str { self.close() }
+    fn write(&mut self, rec: &[u8]) -> &'static str { self.write(rec) }
+    fn read_key(&mut self, key: &[u8]) -> (Option<Bytes>, &'static str) { self.read_key(key) }
+    fn read_seq(&mut self, dir: ReadDir) -> (Option<Bytes>, &'static str) { self.read_seq(dir) }
+    fn start(&mut self, op: StartOp, key: &[u8]) -> &'static str { self.start(op, key) }
+    fn rewrite(&mut self, rec: &[u8], random_key: Option<&[u8]>) -> &'static str {
+        self.rewrite(rec, random_key)
+    }
+    fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str { self.delete(random_key) }
+    fn set_key_of_reference(&mut self, kor: usize) { self.set_key_of_reference(kor) }
+    fn is_open(&self) -> bool { self.is_open() }
 }
 
 fn pad(key: &[u8], len: usize) -> Bytes {

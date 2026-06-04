@@ -71,6 +71,23 @@ fn idxbasic_suite_reports_pass() {
     assert_eq!(out.matches("PASS T").count(), 13, "expected 13 PASS lines:\n{out}");
 }
 
+#[test]
+fn idxstorage_disk_suite_reports_pass() {
+    // The STORAGE MODE IS DISK WITH DATA COMPRESSING regression suite, run end
+    // to end on the on-disk B+tree backend (ASSIGN redirected to a temp file).
+    let raw = include_str!("../../../tests/cobol/indexed-files/idxstorage.cbl");
+    let path = temp_idx("storage");
+    let _ = std::fs::remove_file(&path);
+    let src = raw.replace("\"idxstorage.idx\"", &format!("\"{}\"", path.display()));
+
+    let out = run_capture(&src).join("\n");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(out.contains("RESULT       : PASS"), "idxstorage suite did not pass:\n{out}");
+    assert!(!out.contains("FAIL T"), "idxstorage reported failures:\n{out}");
+    assert_eq!(out.matches("PASS T").count(), 11, "expected 11 PASS lines:\n{out}");
+}
+
 // ── Focused behaviours ─────────────────────────────────────────────────────────
 
 /// A minimal indexed program template with one numeric key + a name field.
@@ -100,6 +117,110 @@ fn prog(procedure: &str, path: &std::path::Path) -> String {
          \x20          STOP RUN.\n",
         path = path.display()
     )
+}
+
+/// A `STORAGE MODE IS DISK [WITH DATA COMPRESSING]` program with a primary key,
+/// an alternate key WITH DUPLICATES, and a roomy record (so compression bites).
+fn prog_disk(procedure: &str, path: &std::path::Path, compress: bool) -> String {
+    let storage = if compress {
+        "STORAGE MODE IS DISK WITH DATA COMPRESSING"
+    } else {
+        "STORAGE MODE IS DISK"
+    };
+    format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT CUSTOMER-FILE\n\
+         \x20              {storage}\n\
+         \x20              ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS CUSTOMER-ID\n\
+         \x20              ALTERNATE RECORD KEY IS CUSTOMER-ZIP WITH DUPLICATES\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD CUSTOMER-FILE.\n\
+         \x20      01 CUSTOMER-REC.\n\
+         \x20         05 CUSTOMER-ID    PIC 9(5).\n\
+         \x20         05 CUSTOMER-NAME  PIC X(40).\n\
+         \x20         05 CUSTOMER-ZIP   PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         {procedure}\n\
+         \x20          STOP RUN.\n",
+        storage = storage,
+        path = path.display()
+    )
+}
+
+#[test]
+fn disk_mode_persists_writes_random_and_sequential() {
+    // Full pipeline: parse STORAGE MODE IS DISK, run on the paged B+tree engine,
+    // then prove a fresh OPEN INPUT reads records back (random + ascending scan).
+    let path = temp_idx("diskmode");
+    let _ = std::fs::remove_file(&path);
+    let out = run_capture(&prog_disk(
+        "           OPEN OUTPUT CUSTOMER-FILE\n\
+         \x20          MOVE 300 TO CUSTOMER-ID MOVE \"CAROL\" TO CUSTOMER-NAME\n\
+         \x20          MOVE \"30000\" TO CUSTOMER-ZIP WRITE CUSTOMER-REC\n\
+         \x20          MOVE 100 TO CUSTOMER-ID MOVE \"ALICE\" TO CUSTOMER-NAME\n\
+         \x20          MOVE \"10000\" TO CUSTOMER-ZIP WRITE CUSTOMER-REC\n\
+         \x20          MOVE 200 TO CUSTOMER-ID MOVE \"BOB\" TO CUSTOMER-NAME\n\
+         \x20          MOVE \"20000\" TO CUSTOMER-ZIP WRITE CUSTOMER-REC\n\
+         \x20          CLOSE CUSTOMER-FILE\n\
+         \x20          OPEN INPUT CUSTOMER-FILE\n\
+         \x20          MOVE 200 TO CUSTOMER-ID\n\
+         \x20          READ CUSTOMER-FILE\n\
+         \x20              INVALID KEY DISPLAY \"MISS\"\n\
+         \x20              NOT INVALID KEY DISPLAY \"GOT \" CUSTOMER-NAME END-READ\n\
+         \x20          MOVE 0 TO CUSTOMER-ID\n\
+         \x20          START CUSTOMER-FILE KEY IS GREATER THAN CUSTOMER-ID END-START\n\
+         \x20          READ CUSTOMER-FILE NEXT AT END CONTINUE END-READ\n\
+         \x20          DISPLAY \"SEQ \" CUSTOMER-ID\n\
+         \x20          READ CUSTOMER-FILE NEXT AT END CONTINUE END-READ\n\
+         \x20          DISPLAY \"SEQ \" CUSTOMER-ID\n\
+         \x20          READ CUSTOMER-FILE NEXT AT END CONTINUE END-READ\n\
+         \x20          DISPLAY \"SEQ \" CUSTOMER-ID\n\
+         \x20          CLOSE CUSTOMER-FILE",
+        &path,
+        false,
+    ))
+    .join("\n");
+    let _ = std::fs::remove_file(&path);
+    assert!(out.contains("GOT BOB"), "random read failed:\n{out}");
+    // Ascending primary-key order, regardless of write order.
+    let seqs: Vec<&str> = out.lines().filter(|l| l.starts_with("SEQ ")).collect();
+    assert_eq!(seqs, ["SEQ 00100", "SEQ 00200", "SEQ 00300"], "scan order:\n{out}");
+}
+
+#[test]
+fn disk_mode_with_data_compressing_round_trips() {
+    // DATA COMPRESSING on the disk backend: write padded records, reopen, read.
+    let path = temp_idx("diskzip");
+    let _ = std::fs::remove_file(&path);
+    let out = run_capture(&prog_disk(
+        "           OPEN OUTPUT CUSTOMER-FILE\n\
+         \x20          MOVE 4242 TO CUSTOMER-ID MOVE \"ZIGGY\" TO CUSTOMER-NAME\n\
+         \x20          MOVE \"99999\" TO CUSTOMER-ZIP WRITE CUSTOMER-REC\n\
+         \x20          CLOSE CUSTOMER-FILE\n\
+         \x20          OPEN INPUT CUSTOMER-FILE\n\
+         \x20          MOVE 4242 TO CUSTOMER-ID\n\
+         \x20          READ CUSTOMER-FILE\n\
+         \x20              INVALID KEY DISPLAY \"MISS\"\n\
+         \x20              NOT INVALID KEY DISPLAY \"GOT \" CUSTOMER-NAME END-READ\n\
+         \x20          CLOSE CUSTOMER-FILE",
+        &path,
+        true,
+    ))
+    .join("\n");
+    let _ = std::fs::remove_file(&path);
+    assert!(out.contains("GOT ZIGGY"), "compressed disk round-trip failed:\n{out}");
 }
 
 #[test]

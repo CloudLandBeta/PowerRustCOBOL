@@ -185,9 +185,41 @@ for it (it always loads leniently).
 
 ---
 
+## Storage modes (`STORAGE MODE IS MEMORY | DISK`)
+
+The `STORAGE MODE` clause selects which engine — and therefore which on-disk
+container — backs an INDEXED file. `WITH DATA COMPRESSING` applies to either.
+
+| Mode | Engine | Container | Notes |
+|------|--------|-----------|-------|
+| `MEMORY` (default) | in-RAM `BTreeMap` (`indexed.rs`) | `PRCIDX1` (this document) | whole file in memory, persisted on `CLOSE` |
+| `DISK` | persistent paged B+tree (`indexed_disk.rs`) | `PRCIDXD1` | records + indexes read on demand; bounded RAM |
+
+The **`PRCIDXD1`** disk container is a single paged file (4 KiB pages):
+
+* **page 0** — header: roots (one B+tree per key), free-list head, next page id,
+  `RecordId` counter, record count, the key schema, and the compression flag.
+* **B+tree pages** — internal / leaf nodes (variable byte-packed, split on
+  insert, leaves doubly linked for ordered scans).
+* **data pages** — slotted record cells (multiple records per page), plus an
+  overflow page chain for records larger than a page.
+* **directory pages** — the `RecordId` → physical-location map.
+* a **free list** threads freed pages for reuse.
+
+`WITH DATA COMPRESSING` (`compress.rs`) is a dependency-free PackBits-style RLE
+applied to each stored record (`PRCIDXD1`) or each record in the records section
+(`PRCIDX1`); a one-byte tag guarantees the encoding never grows, and the
+container header records that compression is on.
+
+> `PRCIDXD1` is for native DISK-mode storage. The discoverable, Fujitsu-import
+> oriented metadata above is the `PRCIDX1` (MEMORY-mode) container; an importer
+> should target `PRCIDX1` unless it specifically needs the paged on-disk layout.
+
 ## Backward compatibility
 
-* `PRCIDX1` (magic `PRCIDX1\0`) — current self-describing format (read + write).
+* `PRCIDX1` (magic `PRCIDX1\0`) — current self-describing MEMORY-mode format
+  (read + write).
+* `PRCIDXD1` (magic `PRCIDXD1`) — DISK-mode paged B+tree container.
 * `PRCISAM1` (magic `PRCISAM1`) — legacy records-only container (read only;
   re-saved as `PRCIDX1` on the next `CLOSE` of a writable open).
 * Any other content — treated as an empty file.

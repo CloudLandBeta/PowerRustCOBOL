@@ -40,7 +40,7 @@ The i18n system translates the IDE interface only.
 - **y** — new features: new widgets, properties, IDE panels, language features
 - **z** — bug fixes, polish, performance
 
-Current version: **1.2.0**
+Current version: **1.3.0**
 
 ---
 
@@ -153,10 +153,23 @@ planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
   FD record's byte layout; `materialize(env)` builds the record buffer from
   subfields (WRITE/REWRITE) and `distribute(env, buf)` scatters it back (READ).
   Key fields → `KeySpec { offset, len, duplicates }`.
-- `cobolt-runtime/src/indexed.rs` — the **INDEXED (ISAM) engine**
-  (`IndexedFile`): `BTreeMap` primary store + alternate-key indexes, ascending
-  key order, journaled `commit`/`rollback`, record locking, `status` module
-  (00/02/10/22/23/35/39/…). No external deps.
+- `cobolt-runtime/src/indexed.rs` — the in-memory **INDEXED (ISAM) engine**
+  (`IndexedFile`, `STORAGE MODE IS MEMORY`): `BTreeMap` primary store +
+  alternate-key indexes, ascending key order, journaled `commit`/`rollback`,
+  record locking, `status` module (00/02/10/22/23/35/39/…). No external deps.
+  Defines the `IndexedStore` trait both backends implement.
+- `cobolt-runtime/src/indexed_disk.rs` — the **persistent paged on-disk B+tree
+  engine** (`DiskIndexedFile`, `STORAGE MODE IS DISK`, container `PRCIDXD1`):
+  4 KiB pages + free list, one B+tree per key (split-on-insert, doubly-linked
+  leaves), a RecordId directory, slotted data pages + overflow chain. Records
+  read on demand → bounded RAM. Lazy index delete (data pages reclaimed).
+- `cobolt-runtime/src/compress.rs` — `WITH DATA COMPRESSING` (PackBits RLE, raw
+  fallback, no deps); used by both storage modes.
+- **`STORAGE MODE IS MEMORY | DISK [WITH DATA COMPRESSING]`** — a SELECT clause
+  (PowerRustCOBOL extension) on `FileControl.storage_mode`/`.data_compressing`;
+  `ASSIGN TO` still required (persistence target). `make_indexed_engine`
+  dispatches by `StorageMode` to a `Box<dyn IndexedStore>`. Parser also handles
+  the spaced `ALTERNATE RECORD KEY … [WITH DUPLICATES]` form.
 - **On-disk format `PRCIDX1`** — self-describing container: header + full key
   schema (`IndexedFileInfo`/`KeyDescriptor`: composite byte-ranged parts,
   `KeyEncoding`, `KeyOrdering`, duplicates, COBOL field name) + records + CRC-32.

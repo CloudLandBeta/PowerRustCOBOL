@@ -87,6 +87,10 @@ pub struct FileControl {
     pub alternate_keys: Vec<AlternateKey>,
     /// FILE STATUS data-item name.
     pub file_status: Option<String>,
+    /// STORAGE MODE IS MEMORY | DISK (INDEXED files; PowerRustCOBOL extension).
+    pub storage_mode: StorageMode,
+    /// WITH DATA COMPRESSING — compress stored record data (memory + disk).
+    pub data_compressing: bool,
     pub span: Span,
 }
 
@@ -108,6 +112,17 @@ pub enum AccessMode {
     Sequential,
     Random,
     Dynamic,
+}
+
+/// Where an INDEXED file's data lives at runtime (PowerRustCOBOL extension):
+/// `MEMORY` is the in-RAM `BTreeMap` engine (whole file in memory, persisted to
+/// the ASSIGN path); `DISK` is the persistent paged B+tree engine (records stay
+/// on disk, fetched on demand). The default is `MEMORY`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StorageMode {
+    #[default]
+    Memory,
+    Disk,
 }
 
 /// An ALTERNATE RECORD KEY clause.

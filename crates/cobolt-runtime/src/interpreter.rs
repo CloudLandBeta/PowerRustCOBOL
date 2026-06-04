@@ -68,6 +68,10 @@ struct FileSpec {
     record_key: Option<String>,
     /// ALTERNATE RECORD KEY entries (INDEXED files).
     alternate_keys: Vec<AlternateKey>,
+    /// STORAGE MODE IS MEMORY | DISK (INDEXED files).
+    storage_mode: cobolt_ast::program::StorageMode,
+    /// WITH DATA COMPRESSING — compress stored record data.
+    data_compressing: bool,
     /// Byte layout of the primary FD record (subfield offsets/widths).
     layout: crate::files::RecordLayout,
 }
@@ -79,8 +83,9 @@ enum OpenFile {
     Writer { w: std::io::BufWriter<std::fs::File>, org: FileOrganization },
     /// SEQUENTIAL / LINE SEQUENTIAL, opened for input.
     Reader { r: std::io::BufReader<std::fs::File>, org: FileOrganization },
-    /// INDEXED (ISAM) — the keyed engine handles every verb.
-    Indexed(Box<crate::indexed::IndexedFile>),
+    /// INDEXED (ISAM) — a keyed engine (in-memory or on-disk) handles every
+    /// verb. The concrete backend is chosen by STORAGE MODE.
+    Indexed(Box<dyn crate::indexed::IndexedStore>),
 }
 
 // ── Nested program registry ───────────────────────────────────────────────────
@@ -175,6 +180,8 @@ fn build_file_specs(
                     record_names,
                     record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
                     alternate_keys: fc.alternate_keys.clone(),
+                    storage_mode: fc.storage_mode,
+                    data_compressing: fc.data_compressing,
                     layout: fd_layout.get(&key).cloned().unwrap_or_default(),
                 });
             }
@@ -195,13 +202,17 @@ fn map_open_mode(m: OpenMode) -> crate::indexed::OpenMode {
     }
 }
 
-/// Build an indexed engine for `spec` from its layout + key fields.
+/// Build an indexed engine for `spec` from its layout + key fields. The concrete
+/// backend follows `STORAGE MODE`: MEMORY → the in-RAM engine; DISK → the
+/// persistent paged B+tree engine. `WITH DATA COMPRESSING` applies to both.
 fn make_indexed_engine(
     spec: &FileSpec,
     path: &str,
     engine: crate::indexed::IndexedEngine,
-) -> Box<crate::indexed::IndexedFile> {
+) -> Box<dyn crate::indexed::IndexedStore> {
+    use cobolt_ast::program::StorageMode;
     use crate::indexed::{IndexedEngine, IndexedFile, KeySpec};
+    use crate::indexed_disk::DiskIndexedFile;
     // RM/COBOL-85 and Fujitsu currently delegate to the Rust container; the
     // engine selector is honoured here once their native formats are added.
     let _ = match engine {
@@ -224,10 +235,21 @@ fn make_indexed_engine(
             names.push(Some(ak.field.clone()));
         }
     }
-    let mut engine = IndexedFile::new(path, reclen, primary, alts);
-    // Persist the COBOL key-field names in the file schema (descriptive only).
-    engine.set_key_names(names);
-    Box::new(engine)
+    let compressing = spec.data_compressing;
+    match spec.storage_mode {
+        StorageMode::Memory => {
+            let mut e = IndexedFile::new(path, reclen, primary, alts);
+            e.set_key_names(names);
+            e.set_compressing(compressing);
+            Box::new(e)
+        }
+        StorageMode::Disk => {
+            let mut e = DiskIndexedFile::new(path, reclen, primary, alts);
+            e.set_key_names(names);
+            e.set_compressing(compressing);
+            Box::new(e)
+        }
+    }
 }
 
 /// Translate a COBOL relational operator (from `START`) to a key search op.

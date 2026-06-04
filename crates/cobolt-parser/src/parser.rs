@@ -8,7 +8,8 @@
 
 use cobolt_lexer::{Span, SpannedToken, Token};
 use cobolt_ast::program::{
-    AccessMode, EnvironmentDivision, FileControl, FileOrganization, InputOutputSection,
+    AccessMode, AlternateKey, EnvironmentDivision, FileControl, FileOrganization,
+    InputOutputSection, StorageMode,
 };
 
 use crate::error::{Diagnostic, ParseResult, Severity};
@@ -390,8 +391,72 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let mut access = AccessMode::Sequential;
     let mut record_key: Option<String> = None;
     let mut file_status: Option<String> = None;
+    let mut alternate_keys: Vec<AlternateKey> = Vec::new();
+    let mut storage_mode = StorageMode::Memory;
+    let mut data_compressing = false;
 
     while !p.at(&Token::Period) && !p.at(&Token::Eof) {
+        // Clauses introduced by a non-keyword word (STORAGE, ALTERNATE).
+        if let Token::Identifier(id) = p.peek() {
+            match id.to_ascii_uppercase().as_str() {
+                // STORAGE MODE IS MEMORY | DISK  [WITH DATA COMPRESSING]
+                "STORAGE" => {
+                    p.advance(); // STORAGE
+                    p.eat(&Token::Mode);
+                    p.eat(&Token::Is);
+                    if let Some((w, _)) = p.eat_identifier() {
+                        if w.eq_ignore_ascii_case("DISK") {
+                            storage_mode = StorageMode::Disk;
+                        } else {
+                            storage_mode = StorageMode::Memory; // MEMORY (default)
+                        }
+                    }
+                    // optional [WITH] DATA COMPRESSING
+                    p.eat(&Token::With);
+                    if p.eat(&Token::Data) {
+                        if let Token::Identifier(c) = p.peek() {
+                            if c.eq_ignore_ascii_case("COMPRESSING") {
+                                p.advance();
+                                data_compressing = true;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                // ALTERNATE [RECORD] KEY [IS] data-name [WITH DUPLICATES]
+                "ALTERNATE" => {
+                    p.advance(); // ALTERNATE
+                    p.eat(&Token::Record);
+                    p.eat(&Token::Key);
+                    p.eat(&Token::Is);
+                    if let Some((field, _)) = p.eat_identifier() {
+                        let mut with_duplicates = false;
+                        p.eat(&Token::With);
+                        if let Token::Identifier(d) = p.peek() {
+                            if d.eq_ignore_ascii_case("DUPLICATES") {
+                                p.advance();
+                                with_duplicates = true;
+                            }
+                        }
+                        alternate_keys.push(AlternateKey { field, with_duplicates });
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        // Defensive: a standalone "[WITH] DATA COMPRESSING" clause.
+        if p.at(&Token::With) && matches!(p.peek_at(1), Token::Data) {
+            p.advance(); // WITH
+            p.advance(); // DATA
+            if let Token::Identifier(c) = p.peek() {
+                if c.eq_ignore_ascii_case("COMPRESSING") {
+                    p.advance();
+                    data_compressing = true;
+                }
+            }
+            continue;
+        }
         match p.peek() {
             Token::Assign => {
                 p.advance();
@@ -465,8 +530,10 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         organization,
         access,
         record_key,
-        alternate_keys: Vec::new(),
+        alternate_keys,
         file_status,
+        storage_mode,
+        data_compressing,
         span,
     })
 }

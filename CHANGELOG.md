@@ -8,6 +8,52 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.3.0] — 2026-06-04
+
+INDEXED files gain a selectable storage backend and record compression.
+
+### `STORAGE MODE IS MEMORY | DISK` (new) + persistent on-disk B+tree
+
+- **New SELECT clause** `STORAGE MODE IS MEMORY | DISK [WITH DATA COMPRESSING]`
+  for INDEXED files (a PowerRustCOBOL extension). `ASSIGN TO` is still required —
+  it is where the data is persisted. Parsed in `parse_file_control_entry`
+  (`StorageMode` on `FileControl`); the parser now also recognises the spaced
+  `ALTERNATE RECORD KEY … [WITH DUPLICATES]` form.
+- **`MEMORY`** (default) — the existing in-RAM `BTreeMap` engine (whole file in
+  memory, persisted to the `PRCIDX1` container on close).
+- **`DISK`** — a new **persistent, paged on-disk B+tree engine**
+  (`cobolt-runtime/src/indexed_disk.rs`, container `PRCIDXD1`): records and
+  indexes live in the `ASSIGN` file and are read on demand, so RAM use is bounded
+  by the page cache rather than the whole data set. Built from 4 KiB pages with
+  a **free list** (freed pages reused), one **B+tree per key** (primary +
+  alternates; variable byte-packed nodes, split on insert, doubly-linked leaves
+  for `START` + `READ NEXT/PREVIOUS`), a **RecordId directory** (a record that
+  moves on `REWRITE` only updates the directory, not every index), and **slotted
+  data pages** with an overflow chain for oversized records. The full COBOL verb
+  set works on it (`OPEN`/`WRITE`/`READ` random+sequential/`REWRITE`/`DELETE`/
+  `START` with all key relations, `INVALID KEY`), with FILE STATUS 22/23/35/39.
+  Index deletes are lazy (no node merge; data pages are reclaimed).
+- Both backends share one `IndexedStore` trait, dispatched from
+  `make_indexed_engine` by `STORAGE MODE`.
+
+### `WITH DATA COMPRESSING` (new)
+
+- Optional `WITH DATA COMPRESSING` compresses stored record data in **both**
+  storage modes via a self-contained, **dependency-free** PackBits-style RLE
+  (`cobolt-runtime/src/compress.rs`) chosen for maximum speed; a one-byte tag
+  guarantees the output never grows. On the padded, fixed-length records typical
+  of COBOL it compresses well past the 50 % target; incompressible blocks fall
+  back to raw.
+
+### Tests
+
+- `compress.rs` (round-trip, ≥50 % on padded records, raw fallback, long runs),
+  `indexed_disk.rs` (pager/free-list, B+tree splits over 2 000 records +
+  persistence, all `START` relations, NEXT/PREVIOUS, alt keys with/without
+  duplicates, REWRITE/DELETE, compression round-trip, status 35/39), and
+  end-to-end COBOL `STORAGE MODE IS DISK [WITH DATA COMPRESSING]` programs in
+  `tests/test_indexed.rs`.
+
 ## [PowerRustCOBOL 1.2.0] — 2026-06-03
 
 A COBOL-85 language milestone: exact numeric arithmetic, numeric-edited
