@@ -178,6 +178,25 @@ impl SymbolTable {
         if let Some(info) = DataItemInfo::from_decl(decl) {
             self.data_items.insert(info.cobol_name.clone(), info);
         }
+        // Register any INDEXED BY index-names as synthetic numeric items so
+        // that `SET`/`SEARCH` references to them are recognised.
+        if let Some(occurs) = &decl.occurs {
+            for ix in &occurs.indexed_by {
+                let cobol_name = ix.to_ascii_uppercase();
+                let rust_name = DataItemInfo::cobol_to_rust(&cobol_name);
+                self.data_items
+                    .entry(cobol_name.clone())
+                    .or_insert(DataItemInfo {
+                        cobol_name,
+                        rust_name,
+                        level: 77,
+                        pic_kind: Some(PicKind::Numeric),
+                        usage: Usage::Index,
+                        is_group: false,
+                        span: decl.span,
+                    });
+            }
+        }
         for child in &decl.children {
             self.index_data_decl(child);
         }

@@ -336,6 +336,16 @@ pub enum Stmt {
         span: Span,
     },
 
+    /// `SEARCH [ALL] table [VARYING idx] [AT END …] {WHEN cond …}… END-SEARCH`
+    Search {
+        all: bool,
+        table: Expr,
+        varying: Option<Expr>,
+        at_end: Vec<Stmt>,
+        whens: Vec<(Condition, Vec<Stmt>)>,
+        span: Span,
+    },
+
     /// `GO TO paragraph`
     GoTo {
         target: String,
@@ -613,6 +623,7 @@ impl Stmt {
             Stmt::If { span, .. }                => *span,
             Stmt::Evaluate { span, .. }          => *span,
             Stmt::Perform { span, .. }           => *span,
+            Stmt::Search { span, .. }            => *span,
             Stmt::GoTo { span, .. }              => *span,
             Stmt::GoToDepending { span, .. }     => *span,
             Stmt::Continue { span }              => *span,

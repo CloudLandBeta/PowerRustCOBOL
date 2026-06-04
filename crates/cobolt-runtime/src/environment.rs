@@ -42,6 +42,10 @@ pub struct ItemSym {
     pub quals: Vec<String>,
     /// True if this item is a group (has children).
     pub is_group: bool,
+    /// `INDEXED BY` index-item names of this table's OCCURS (uppercased).
+    pub index_names: Vec<String>,
+    /// This table's own OCCURS count (its last dimension), 0 if not a table.
+    pub occurs: usize,
 }
 
 /// The data store for a running COBOL program.
@@ -152,15 +156,25 @@ impl CobolEnvironment {
                 .map(|n| n.to_ascii_uppercase())
                 .filter(|n| n != "FILLER")
                 .collect();
+            let index_names: Vec<String> = decl.occurs.as_ref()
+                .map(|o| o.indexed_by.iter().map(|n| n.to_ascii_uppercase()).collect())
+                .unwrap_or_default();
             self.symbols.insert(name.clone(), ItemSym {
                 dims: dims.clone(),
                 children,
                 quals: quals.clone(),
                 is_group: !decl.children.is_empty(),
+                index_names: index_names.clone(),
+                occurs: occ.unwrap_or(0),
             });
             // Base/template slot + caps/edited (one value; subscript slots are
             // created lazily from this template on first write).
             self.insert_value(&name, decl);
+            // Register INDEXED BY index registers as numeric items (default 1).
+            for ix in &index_names {
+                self.field_caps.insert(ix.clone(), (9, 0));
+                self.store.entry(ix.clone()).or_insert_with(|| CobolValue::from_i64(1));
+            }
             quals.push(name);
         }
 

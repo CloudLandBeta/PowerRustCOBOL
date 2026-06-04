@@ -738,28 +738,36 @@ fn parse_recognized_noop(p: &mut Parser) -> Stmt {
     Stmt::Continue { span }
 }
 
-/// Recognize `SEARCH` / `SEARCH ALL` (full table indexing is not yet supported,
-/// so this is parsed as a no-op): consume through the matching `END-SEARCH` or
-/// the sentence terminator.
+/// Parse `SEARCH [ALL] table [VARYING idx] [AT END imp] {WHEN cond imp}…
+/// END-SEARCH`.
 fn parse_search(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
-    p.advance(); // SEARCH
-    let mut depth = 1usize;
-    while depth > 0 && !p.at(&Token::Eof) {
-        if p.at(&Token::EndSearch) {
-            depth -= 1;
-            p.advance();
-            continue;
-        }
-        if is_word(p.peek(), "SEARCH") {
-            depth += 1;
-        }
-        if p.at(&Token::Period) && depth == 1 {
-            break;
-        }
+    p.advance(); // SEARCH (an identifier)
+    let all = is_word(p.peek(), "ALL") && { p.advance(); true };
+    let table = parse_expr(p);
+
+    let varying = if p.at(&Token::Varying) {
         p.advance();
+        Some(parse_expr(p))
+    } else {
+        None
+    };
+
+    // AT END imperative
+    let stop = |t: &Token| matches!(t, Token::When | Token::EndSearch);
+    let at_end = if eat_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+
+    // WHEN condition imperative …
+    let mut whens = Vec::new();
+    while p.at(&Token::When) {
+        p.advance();
+        let cond = parse_condition(p);
+        let body = parse_stmts(p, &stop);
+        whens.push((cond, body));
     }
-    Stmt::Continue { span }
+
+    p.eat(&Token::EndSearch);
+    Stmt::Search { all, table, varying, at_end, whens, span }
 }
 
 // ── STOP ──────────────────────────────────────────────────────────────────────

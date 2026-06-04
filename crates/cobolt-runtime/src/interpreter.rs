@@ -623,6 +623,8 @@ impl Interpreter {
                 self.exec_evaluate(subject, whens, other_stmts),
             Stmt::Perform { target, span } =>
                 self.exec_perform(target, *span),
+            Stmt::Search { all, table, varying, at_end, whens, .. } =>
+                self.exec_search(*all, table, varying.as_ref(), at_end, whens),
             Stmt::GoTo { target, .. } =>
                 Err(RuntimeError::GoTo { target: target.clone() }),
             Stmt::GoToDepending { targets, depending, span } =>
@@ -763,6 +765,46 @@ impl Interpreter {
             }
         }
         Ok(())
+    }
+
+    // ── SEARCH / SEARCH ALL ─────────────────────────────────────────────────────
+
+    fn exec_search(
+        &mut self,
+        all: bool,
+        table: &Expr,
+        varying: Option<&Expr>,
+        at_end: &[Stmt],
+        whens: &[(Condition, Vec<Stmt>)],
+    ) -> Result<(), RuntimeError> {
+        let table_name = self.expr_to_name(table);
+        let sym = self.env.symbol(&table_name).cloned();
+        // Table size = the table's own OCCURS count (its last dimension).
+        let size = sym.as_ref()
+            .map(|s| if s.occurs > 0 { s.occurs } else { s.dims.last().copied().unwrap_or(0) })
+            .unwrap_or(0);
+        // Index = VARYING item, else the table's first INDEXED BY index.
+        let index_name = match varying {
+            Some(v) => self.expr_to_name(v),
+            None => sym.as_ref().and_then(|s| s.index_names.first().cloned()).unwrap_or_default(),
+        };
+        if index_name.is_empty() || size == 0 {
+            return self.exec_stmts(at_end);
+        }
+        // SEARCH ALL scans from the start; serial SEARCH from the current index.
+        let start = if all { 1 } else { self.env.get_i64(&index_name).unwrap_or(1).max(1) };
+        let mut i = start;
+        while i <= size as i64 {
+            self.env.set_i64(&index_name, i);
+            for (cond, body) in whens {
+                if self.eval_condition(cond)? {
+                    return self.exec_stmts(body);
+                }
+            }
+            i += 1;
+        }
+        // No WHEN matched within the table → run AT END.
+        self.exec_stmts(at_end)
     }
 
     // ── INITIALIZE (category-aware) ─────────────────────────────────────────────
