@@ -307,10 +307,10 @@ honest map of where things stand.
   primary + alternate keys, ascending on-disk key order, journaled
   `COMMIT`/`ROLLBACK`, record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
   and the full `READ`/`WRITE`/`REWRITE`/`DELETE`/`START` verb set with
-  `INVALID KEY` phrases. File verbs dispatch by each `SELECT`'s declared
-  `ORGANIZATION`. Engine selectable (`--indexed-engine` / `COBOL_INDEXED_ENGINE`).
-  Verified by
-  [`tests/cobol/indexed-files/idxbasic.cbl`](tests/cobol/indexed-files/idxbasic.cbl).
+  `INVALID KEY` phrases, plus `STORAGE IS MEMORY | DISK [WITH COMPRESSION]`. File
+  verbs dispatch by each `SELECT`'s declared `ORGANIZATION`. Engine selectable
+  (`--indexed-engine` / `COBOL_INDEXED_ENGINE`). Verified by the File I/O suite
+  [`tests/cobol/fileio/`](tests/cobol/fileio/).
 
 ### 🚧 Partial / in progress
 - **SCREEN SECTION** — parsed in simplified form; terminal screen handling is not executed

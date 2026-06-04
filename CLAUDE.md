@@ -223,8 +223,12 @@ planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
 - `READ … NEXT/PREVIOUS` = sequential; unqualified `READ` = random (by RECORD
   KEY) under RANDOM/DYNAMIC. `INVALID KEY`/`NOT INVALID KEY` phrases parse on
   `READ`/`WRITE`/`REWRITE`/`DELETE`/`START` (`Stmt` fields + `run_key_outcome`).
-- Tests: `tests/cobol/indexed-files/idxbasic.cbl` (13 cases),
-  `crates/cobolt-runtime/tests/test_indexed.rs`, unit tests in `indexed.rs`.
+- Tests: the comprehensive **File I/O suite** `tests/cobol/fileio/` (baseline +
+  6 storage/compression variants) driven by
+  `crates/cobolt-runtime/tests/test_fileio_storage.rs`; focused engine tests in
+  `crates/cobolt-runtime/tests/test_indexed.rs`; unit tests in `indexed.rs` /
+  `indexed_disk.rs`. (The old `indexed-files/` suite was consolidated into
+  `fileio/`.)
 
 ---
 

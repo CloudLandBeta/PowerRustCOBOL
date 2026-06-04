@@ -4,15 +4,12 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Integration tests for INDEXED (ISAM) files.
+//! Focused integration tests for INDEXED (ISAM) files — small programs built
+//! inline that pin specific behaviours (MEMORY + DISK storage, compression,
+//! persistence across CLOSE/OPEN, START + sequential ordering).
 //!
-//! The flagship case is `idxbasic.cbl` — the project's indexed-file regression
-//! suite at `tests/cobol/indexed-files/idxbasic.cbl` — executed end-to-end and
-//! asserted to report `RESULT : PASS`. It exercises every indexed verb,
-//! dispatched purely by `ORGANIZATION IS INDEXED` in the SELECT: OPEN
-//! OUTPUT/INPUT/I-O, WRITE (incl. duplicate-key INVALID KEY), READ (random by
-//! RECORD KEY and sequential NEXT with AT END), REWRITE, DELETE, and START with
-//! relational key operators. The remaining tests pin focused behaviours.
+//! The comprehensive end-to-end indexed coverage lives in the File I/O suite
+//! (`tests/cobol/fileio/`), driven by `test_fileio_storage.rs`.
 
 use std::sync::mpsc;
 
@@ -50,42 +47,6 @@ fn run_capture_fmt(src: &str, fmt: SourceFormat) -> Vec<String> {
     let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
     interp.run().expect("run failed");
     display_rx.try_iter().collect()
-}
-
-// ── The indexed-file regression suite ──────────────────────────────────────────
-
-#[test]
-fn idxbasic_suite_reports_pass() {
-    let raw = include_str!("../../../tests/cobol/indexed-files/idxbasic.cbl");
-    // Redirect the file's relative ASSIGN to a unique temp container so the test
-    // is hermetic and never collides with another run.
-    let path = temp_idx("basic");
-    let _ = std::fs::remove_file(&path);
-    let src = raw.replace("\"idxbasic.idx\"", &format!("\"{}\"", path.display()));
-
-    let out = run_capture(&src).join("\n");
-    let _ = std::fs::remove_file(&path);
-
-    assert!(out.contains("RESULT       : PASS"), "idxbasic suite did not pass:\n{out}");
-    assert!(!out.contains("FAIL T"), "idxbasic reported failures:\n{out}");
-    assert_eq!(out.matches("PASS T").count(), 13, "expected 13 PASS lines:\n{out}");
-}
-
-#[test]
-fn idxstorage_disk_suite_reports_pass() {
-    // The STORAGE IS DISK WITH COMPRESSION regression suite, run end
-    // to end on the on-disk B+tree backend (ASSIGN redirected to a temp file).
-    let raw = include_str!("../../../tests/cobol/indexed-files/idxstorage.cbl");
-    let path = temp_idx("storage");
-    let _ = std::fs::remove_file(&path);
-    let src = raw.replace("\"idxstorage.idx\"", &format!("\"{}\"", path.display()));
-
-    let out = run_capture(&src).join("\n");
-    let _ = std::fs::remove_file(&path);
-
-    assert!(out.contains("RESULT       : PASS"), "idxstorage suite did not pass:\n{out}");
-    assert!(!out.contains("FAIL T"), "idxstorage reported failures:\n{out}");
-    assert_eq!(out.matches("PASS T").count(), 11, "expected 11 PASS lines:\n{out}");
 }
 
 // ── Focused behaviours ─────────────────────────────────────────────────────────

@@ -49,6 +49,9 @@ File I/O fixes surfaced by the storage/compression File I/O test pack
   `crates/cobolt-runtime/tests/test_fileio_storage.rs` (ASSIGN paths redirected
   to a temp dir; the 1,000,000-record profile loop shrunk for speed — the
   original files keep the full 1M profile for manual `rcrun` benchmarking).
+- The earlier `tests/cobol/indexed-files/` programs (idxbasic, idxstorage) were
+  removed — the File I/O suite supersedes them with broader indexed coverage.
+  Focused inline engine checks remain in `test_indexed.rs`.
 
 ## [PowerRustCOBOL 1.3.0] — 2026-06-04
 
@@ -141,8 +144,8 @@ The IDE interface is unchanged; all generated COBOL source stays in English.
   engine. All engines are behaviour-compatible; `rust` is the default and
   `rm-cobol85` / `fujitsu` currently delegate to it pending their native
   container formats.
-- Verified by [`tests/cobol/indexed-files/idxbasic.cbl`](tests/cobol/indexed-files/idxbasic.cbl)
-  (13-case self-checking suite) plus `cobolt-runtime` integration and unit tests.
+- Verified by the File I/O suite [`tests/cobol/fileio/`](tests/cobol/fileio/)
+  plus `cobolt-runtime` integration and unit tests.
 
 ### Exact numeric arithmetic
 
