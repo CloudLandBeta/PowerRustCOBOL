@@ -650,11 +650,11 @@ impl Interpreter {
             }
 
             // ── String handling ───────────────────────────────────────────────
-            Stmt::String_ { operands, into, pointer, span } =>
-                self.exec_string(operands, into, pointer.as_ref(), *span),
-            Stmt::Unstring { from, delimited_by, all, into, pointer, tallying, span } =>
+            Stmt::String_ { operands, into, pointer, on_overflow, not_on_overflow, span } =>
+                self.exec_string(operands, into, pointer.as_ref(), on_overflow, not_on_overflow, *span),
+            Stmt::Unstring { from, delimited_by, all, into, pointer, tallying, on_overflow, not_on_overflow, span } =>
                 self.exec_unstring(from, delimited_by, *all, into,
-                                   pointer.as_ref(), tallying.as_ref(), *span),
+                                   pointer.as_ref(), tallying.as_ref(), on_overflow, not_on_overflow, *span),
             Stmt::Inspect { target, spec, span } =>
                 self.exec_inspect(target, spec, *span),
 
@@ -1259,11 +1259,14 @@ impl Interpreter {
 
     // ── STRING ────────────────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_string(
         &mut self,
         operands: &[(Expr, Option<Expr>)],
         into: &Expr,
         _pointer: Option<&Expr>,
+        on_overflow: &[Stmt],
+        not_on_overflow: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let mut result = String::new();
@@ -1286,12 +1289,21 @@ impl Interpreter {
             }
         }
         let name = self.expr_to_name(into);
+        // Overflow: the assembled string is wider than the receiving field.
+        let capacity = self.env.display_string(&name).map(|s| s.len()).unwrap_or(usize::MAX);
+        let overflowed = result.len() > capacity;
         self.env.set_str(&name, &result);
+        if overflowed {
+            self.exec_stmts(on_overflow)?;
+        } else {
+            self.exec_stmts(not_on_overflow)?;
+        }
         Ok(())
     }
 
     // ── UNSTRING ──────────────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_unstring(
         &mut self,
         from: &Expr,
@@ -1300,6 +1312,8 @@ impl Interpreter {
         into: &[UnstringTarget],
         _pointer: Option<&Expr>,
         _tallying: Option<&Expr>,
+        on_overflow: &[Stmt],
+        not_on_overflow: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let src = self.eval_expr(from, span)?.as_display_string();
@@ -1329,6 +1343,12 @@ impl Interpreter {
                 let cname = self.expr_to_name(count_expr);
                 self.env.set_i64(&cname, val.len() as i64);
             }
+        }
+        // Overflow: more source fields than receiving fields (unprocessed data).
+        if parts.len() > into.len() {
+            self.exec_stmts(on_overflow)?;
+        } else {
+            self.exec_stmts(not_on_overflow)?;
         }
         Ok(())
     }

@@ -739,12 +739,13 @@ fn parse_search(p: &mut Parser) -> Stmt {
     p.advance(); // SEARCH
     let mut depth = 1usize;
     while depth > 0 && !p.at(&Token::Eof) {
-        if let Token::Identifier(w) = p.peek() {
-            match w.to_ascii_uppercase().as_str() {
-                "SEARCH" => depth += 1,
-                "END-SEARCH" => { depth -= 1; p.advance(); continue; }
-                _ => {}
-            }
+        if p.at(&Token::EndSearch) {
+            depth -= 1;
+            p.advance();
+            continue;
+        }
+        if is_word(p.peek(), "SEARCH") {
+            depth += 1;
         }
         if p.at(&Token::Period) && depth == 1 {
             break;
@@ -1194,9 +1195,32 @@ fn parse_string_verb(p: &mut Parser) -> Stmt {
         None
     };
 
-    p.eat(&Token::EndCall); // END-STRING if it exists (not in our token set, skip)
+    // [ON OVERFLOW imp] [NOT ON OVERFLOW imp] [END-STRING]
+    let stop = |t: &Token| matches!(t, Token::Not) || matches!(t, Token::EndString);
+    let on_overflow = if eat_on_overflow(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_on_overflow = if p.at(&Token::Not) {
+        p.advance();
+        eat_on_overflow(p);
+        parse_stmts(p, &|t| matches!(t, Token::EndString))
+    } else {
+        Vec::new()
+    };
+    if p.at(&Token::EndString) { p.advance(); }
+    p.eat(&Token::EndCall);
 
-    Stmt::String_ { operands, into, pointer, span }
+    Stmt::String_ { operands, into, pointer, on_overflow, not_on_overflow, span }
+}
+
+/// Consume `[ON] OVERFLOW` of a STRING/UNSTRING. Returns whether it matched.
+fn eat_on_overflow(p: &mut Parser) -> bool {
+    let has = is_word(p.peek(), "OVERFLOW")
+        || (p.at(&Token::On) && is_word(p.peek_at(1), "OVERFLOW"));
+    if !has {
+        return false;
+    }
+    p.eat(&Token::On);
+    if is_word(p.peek(), "OVERFLOW") { p.advance(); }
+    true
 }
 
 // ── UNSTRING ──────────────────────────────────────────────────────────────────
@@ -1260,7 +1284,21 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
         None
     };
 
-    Stmt::Unstring { from, delimited_by, all, into, pointer, tallying, span }
+    // [ON OVERFLOW imp] [NOT ON OVERFLOW imp] [END-UNSTRING]
+    let stop = |t: &Token| matches!(t, Token::Not) || matches!(t, Token::EndUnstring);
+    let on_overflow = if eat_on_overflow(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_on_overflow = if p.at(&Token::Not) {
+        p.advance();
+        eat_on_overflow(p);
+        parse_stmts(p, &|t| matches!(t, Token::EndUnstring))
+    } else {
+        Vec::new()
+    };
+    if p.at(&Token::EndUnstring) { p.advance(); }
+
+    Stmt::Unstring {
+        from, delimited_by, all, into, pointer, tallying, on_overflow, not_on_overflow, span,
+    }
 }
 
 // ── INSPECT ───────────────────────────────────────────────────────────────────

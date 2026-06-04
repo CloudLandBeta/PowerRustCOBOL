@@ -438,6 +438,8 @@ pub enum Stmt {
         operands: Vec<(Expr, Option<Expr>)>,
         into: Expr,
         pointer: Option<Expr>,
+        on_overflow: Vec<Stmt>,
+        not_on_overflow: Vec<Stmt>,
         span: Span,
     },
 
@@ -449,6 +451,8 @@ pub enum Stmt {
         into: Vec<UnstringTarget>,
         pointer: Option<Expr>,
         tallying: Option<Expr>,
+        on_overflow: Vec<Stmt>,
+        not_on_overflow: Vec<Stmt>,
         span: Span,
     },
 

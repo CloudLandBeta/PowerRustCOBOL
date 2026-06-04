@@ -196,6 +196,9 @@ pub fn lookup(word: &str) -> Option<Token> {
         "END-REWRITE"               => Token::EndRewrite,
         "END-DELETE"                => Token::EndDelete,
         "END-START"                 => Token::EndStart,
+        "END-STRING"                => Token::EndString,
+        "END-UNSTRING"              => Token::EndUnstring,
+        "END-SEARCH"                => Token::EndSearch,
         "INVALID"                   => Token::InvalidKey,  // parser combines INVALID KEY
         "UPON"                      => Token::Upon,
         "ADVANCING"                 => Token::Advancing,

@@ -302,6 +302,9 @@ pub enum Token {
     EndRewrite,         // END-REWRITE
     EndDelete,          // END-DELETE
     EndStart,           // END-START
+    EndString,          // END-STRING
+    EndUnstring,        // END-UNSTRING
+    EndSearch,          // END-SEARCH
     InvalidKey,         // INVALID KEY
     NotInvalidKey,      // NOT INVALID KEY
     Upon,               // DISPLAY ... UPON
