@@ -66,6 +66,25 @@ fn date_integer_round_trips() {
 }
 
 #[test]
+fn present_value_and_byte_length() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PV.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 R PIC 9(5)V99 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           COMPUTE R = FUNCTION PRESENT-VALUE(0.10, 100, 100, 100)
+           DISPLAY R
+           DISPLAY FUNCTION BYTE-LENGTH("HELLO")
+           STOP RUN.
+    "#;
+    // 100/1.1 + 100/1.21 + 100/1.331 ≈ 248.685 → 248.69; BYTE-LENGTH = 5.
+    assert_eq!(run_capture(src), vec!["0024869", "5"]);
+}
+
+#[test]
 fn annuity_zero_rate_is_reciprocal_of_periods() {
     let src = r#"
        IDENTIFICATION DIVISION.

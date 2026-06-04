@@ -3120,6 +3120,66 @@ impl Interpreter {
                 };
                 Ok(CobolValue::from_f64(v))
             }
+            "PRESENT-VALUE" => {
+                // PRESENT-VALUE(rate, amt1 [amt2 …]) = Σ amt_i / (1+rate)^i.
+                let rate = self.eval_expr(&args[0], span)?.as_f64();
+                let mut total = 0.0;
+                for (i, a) in args.iter().skip(1).enumerate() {
+                    let amt = self.eval_expr(a, span)?.as_f64();
+                    total += amt / (1.0 + rate).powi(i as i32 + 1);
+                }
+                Ok(CobolValue::from_f64(total))
+            }
+            "YEAR-TO-YYYY" => {
+                // Expand a 2-digit year using a sliding window (default 50).
+                let yy = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0);
+                let window = if args.len() > 1 {
+                    self.eval_expr(&args[1], span)?.as_i64().unwrap_or(50)
+                } else { 50 };
+                let cur_year = {
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    let days = SystemTime::now().duration_since(UNIX_EPOCH)
+                        .unwrap_or_default().as_secs() / 86400;
+                    ymd_from_days(days).0 as i64
+                };
+                let max_year = cur_year + window;
+                let mut yyyy = (max_year / 100) * 100 + yy;
+                if yyyy > max_year { yyyy -= 100; }
+                Ok(CobolValue::from_i64(yyyy))
+            }
+            "BYTE-LENGTH" | "LENGTH-AN" => {
+                let v = self.eval_expr(&args[0], span)?;
+                let len = match &v {
+                    CobolValue::String { bytes, .. } => bytes.len(),
+                    _ => v.as_display_string().len(),
+                };
+                Ok(CobolValue::from_i64(len as i64))
+            }
+            "NUMVAL-F" => {
+                // Like NUMVAL but honours an exponent (`1.5E3`).
+                let s = self.eval_expr(&args[0], span)?.as_display_string();
+                let f: f64 = s.trim().replace(['+', ' '], "").parse().unwrap_or(0.0);
+                Ok(CobolValue::from_f64(f))
+            }
+            "TEST-NUMVAL" => {
+                // 0 if the string is a valid NUMVAL argument, else the 1-based
+                // position of the first offending character.
+                let s = self.eval_expr(&args[0], span)?.as_display_string();
+                let t = s.trim();
+                let ok = !t.is_empty()
+                    && t.chars().all(|c| c.is_ascii_digit()
+                        || matches!(c, '.' | '+' | '-' | ',' | ' '));
+                if ok && t.parse::<f64>().is_ok() {
+                    Ok(CobolValue::from_i64(0))
+                } else {
+                    let pos = t.chars()
+                        .position(|c| !(c.is_ascii_digit()
+                            || matches!(c, '.' | '+' | '-' | ',' | ' ')))
+                        .map(|p| p as i64 + 1)
+                        .unwrap_or(t.len() as i64 + 1);
+                    Ok(CobolValue::from_i64(pos))
+                }
+            }
             _ => {
                 tracing::warn!("Unknown intrinsic function '{}' — returning 0", name);
                 Ok(CobolValue::from_i64(0))
