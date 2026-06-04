@@ -76,6 +76,30 @@ fn evaluate_also_multi_subject() {
 }
 
 #[test]
+fn condition_name_88_set_and_test() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. C88.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-GRADE PIC 9(3) VALUE 0.
+          88 PASSING VALUE 60 THRU 100.
+          88 FAILING VALUE 0 THRU 59.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 75 TO WS-GRADE
+           IF PASSING DISPLAY "PASS" ELSE DISPLAY "FAIL" END-IF
+           MOVE 40 TO WS-GRADE
+           IF FAILING DISPLAY "FAILING" END-IF
+           SET PASSING TO TRUE
+           DISPLAY WS-GRADE
+           STOP RUN.
+    "#;
+    // 75 → PASSING; 40 → FAILING; SET PASSING TO TRUE → 60 (range start).
+    assert_eq!(run_capture(src), vec!["PASS", "FAILING", "060"]);
+}
+
+#[test]
 fn evaluate_when_not_value() {
     let src = r#"
        IDENTIFICATION DIVISION.

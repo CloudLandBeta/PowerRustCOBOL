@@ -812,6 +812,12 @@ impl Interpreter {
                 continue;
             }
             let name = self.resolve_lvalue(target);
+            // `SET 88-name TO TRUE|FALSE` arrives here as MOVE 1|0 → set the
+            // host item to (a value satisfying / violating) the condition.
+            if let Some(info) = self.env.cond_name(&name).cloned() {
+                self.set_condition(&info, !val.is_zero());
+                continue;
+            }
             match &src_digits {
                 Some(digits) if self.env.is_alphanumeric_field(&name) => {
                     self.env.set_str_left(&name, digits);
@@ -820,6 +826,41 @@ impl Interpreter {
             }
         }
         Ok(())
+    }
+
+    /// Set the host item of an 88-level condition-name so the condition becomes
+    /// `truthy` (its first VALUE) or false (a value outside its VALUE set).
+    fn set_condition(&mut self, info: &crate::environment::CondName, truthy: bool) {
+        use cobolt_ast::data::ConditionValue;
+        if truthy {
+            if let Some(cv) = info.values.first() {
+                let v = match cv {
+                    ConditionValue::Single(lit) => literal_to_value(lit),
+                    ConditionValue::Range(lo, _) => literal_to_value(lo),
+                };
+                self.env.set(&info.parent, v);
+            }
+        } else {
+            // SET … TO FALSE (no FALSE clause): pick the smallest small integer
+            // that does not satisfy any declared VALUE.
+            let mut candidate = 0i64;
+            while self.value_satisfies(info, candidate) && candidate < 1000 {
+                candidate += 1;
+            }
+            self.env.set(&info.parent, CobolValue::from_i64(candidate));
+        }
+    }
+
+    /// `true` if integer `n` satisfies one of the condition-name's VALUEs.
+    fn value_satisfies(&self, info: &crate::environment::CondName, n: i64) -> bool {
+        use cobolt_ast::data::ConditionValue;
+        let pv = CobolValue::from_i64(n);
+        info.values.iter().any(|cv| match cv {
+            ConditionValue::Single(lit) => compare_values(&pv, &literal_to_value(lit), CmpOp::Eq),
+            ConditionValue::Range(lo, hi) =>
+                compare_values(&pv, &literal_to_value(lo), CmpOp::Ge)
+                    && compare_values(&pv, &literal_to_value(hi), CmpOp::Le),
+        })
     }
 
     // ── MOVE / ADD / SUBTRACT CORRESPONDING ─────────────────────────────────────
@@ -3068,7 +3109,25 @@ impl Interpreter {
                 Ok(if *negated { !result } else { result })
             }
             Condition::ConditionName(name, _) => {
-                // 88-level condition-names: the value is truthy if non-zero/non-space.
+                use cobolt_ast::data::ConditionValue;
+                // 88-level condition-name: true when the parent (host) item holds
+                // one of the declared VALUEs (or falls within a THRU range).
+                if let Some(info) = self.env.cond_name(name).cloned() {
+                    let pv = self.env.get(&info.parent).cloned()
+                        .unwrap_or_else(|| CobolValue::from_i64(0));
+                    for cv in &info.values {
+                        let hit = match cv {
+                            ConditionValue::Single(lit) =>
+                                compare_values(&pv, &literal_to_value(lit), CmpOp::Eq),
+                            ConditionValue::Range(lo, hi) =>
+                                compare_values(&pv, &literal_to_value(lo), CmpOp::Ge)
+                                    && compare_values(&pv, &literal_to_value(hi), CmpOp::Le),
+                        };
+                        if hit { return Ok(true); }
+                    }
+                    return Ok(false);
+                }
+                // Fallback (undeclared): truthy if the slot is non-zero/non-space.
                 let upper = name.to_ascii_uppercase();
                 let v = self.env.get(&upper).cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));

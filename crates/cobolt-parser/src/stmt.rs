@@ -665,12 +665,22 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         return Stmt::Perform { target, span };
     }
 
-    // PERFORM name VARYING …
+    // PERFORM name [THRU name] VARYING … — out-of-line: the loop body is the
+    // named paragraph (no inline END-PERFORM).
     if p.at(&Token::Varying) {
-        let varying_target = parse_perform_varying(p);
-        // Embed the paragraph reference inside the varying
-        // For MVP, we just return the varying target (paragraph ignored)
-        return Stmt::Perform { target: varying_target, span };
+        let (var, from, by, until, after) = parse_varying_clauses(p);
+        let para_stmt = Stmt::Perform {
+            target: if let Some(ref t) = to_name {
+                PerformTarget::Thru { from: name.clone(), to: t.clone(), span }
+            } else {
+                PerformTarget::Paragraph(name, span)
+            },
+            span,
+        };
+        let target = PerformTarget::Varying {
+            var, from, by, until, stmts: vec![para_stmt], after,
+        };
+        return Stmt::Perform { target, span };
     }
 
     // Simple PERFORM name [THRU name]
@@ -682,7 +692,9 @@ fn parse_perform(p: &mut Parser) -> Stmt {
     Stmt::Perform { target, span }
 }
 
-fn parse_perform_varying(p: &mut Parser) -> PerformTarget {
+/// Parse the `VARYING v FROM a BY b UNTIL c [AFTER …]` header (no loop body).
+type VaryingHeader = (Expr, Expr, Expr, cobolt_ast::expr::Condition, Vec<VaryingAfter>);
+fn parse_varying_clauses(p: &mut Parser) -> VaryingHeader {
     p.advance(); // VARYING
     let var = parse_expr(p);
     p.eat(&Token::From);
@@ -705,10 +717,14 @@ fn parse_perform_varying(p: &mut Parser) -> PerformTarget {
         let au = parse_condition(p);
         after.push(VaryingAfter { var: av, from: af, by: ab, until: au });
     }
+    (var, from, by, until, after)
+}
 
+/// Inline `PERFORM VARYING … END-PERFORM` (body parsed up to END-PERFORM).
+fn parse_perform_varying(p: &mut Parser) -> PerformTarget {
+    let (var, from, by, until, after) = parse_varying_clauses(p);
     let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
     p.eat(&Token::EndPerform);
-
     PerformTarget::Varying { var, from, by, until, stmts, after }
 }
 

@@ -158,6 +158,11 @@ impl<'a> TypeCtx<'a> {
                         if let (Some(false), Expr::Identifier(name, span)) =
                             (self.is_numeric_expr(t), t)
                         {
+                            // `SET 88-name TO TRUE` lowers to `MOVE 1 TO 88-name`;
+                            // the condition-name has no PIC — don't warn.
+                            if self.symbols.data_item(name).map(|d| d.level) == Some(88) {
+                                continue;
+                            }
                             self.warn(
                                 format!(
                                     "moving a numeric literal to '{name}' \

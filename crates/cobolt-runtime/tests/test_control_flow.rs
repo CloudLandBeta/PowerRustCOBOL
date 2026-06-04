@@ -126,6 +126,25 @@ fn call_not_on_exception_runs_on_success() {
 }
 
 #[test]
+fn perform_paragraph_varying_executes_paragraph() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PV.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-N PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           PERFORM CALC VARYING WS-N FROM 1 BY 1 UNTIL WS-N > 3
+           DISPLAY "AFTER"
+           STOP RUN.
+       CALC.
+           DISPLAY WS-N.
+    "#;
+    assert_eq!(run_capture(src), vec!["1", "2", "3", "AFTER"]);
+}
+
+#[test]
 fn exit_perform_times_break() {
     let src = r#"
        IDENTIFICATION DIVISION.

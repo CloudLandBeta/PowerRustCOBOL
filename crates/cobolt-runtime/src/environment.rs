@@ -18,7 +18,7 @@
 use indexmap::IndexMap;
 
 use cobolt_ast::{
-    data::{DataDecl, PicKind, Usage},
+    data::{ConditionValue, DataDecl, PicKind, Usage},
     expr::Literal,
     program::{DataSection, DataDivision},
 };
@@ -83,6 +83,18 @@ pub struct CobolEnvironment {
     /// Leaf name → the canonical storage keys that share it (for resolution of
     /// `A OF B` qualified references). Only populated for duplicated names.
     by_leaf: IndexMap<String, Vec<String>>,
+    /// 88-level condition-names → their parent item key + VALUE set.
+    cond_names: IndexMap<String, CondName>,
+}
+
+/// An 88-level condition-name: the parent data item it qualifies and the set of
+/// values (single or `THRU` ranges) for which the condition is true.
+#[derive(Debug, Clone)]
+pub struct CondName {
+    /// Canonical storage key of the parent (host) item.
+    pub parent: String,
+    /// The `VALUE` entries that make the condition true.
+    pub values: Vec<ConditionValue>,
 }
 
 /// Tally every named (non-FILLER) leaf in a declaration subtree, so the
@@ -263,7 +275,19 @@ impl CobolEnvironment {
             // Canonical storage key: the leaf itself when unique, otherwise a
             // path-qualified key that disambiguates duplicated names.
             let key = self.canon_key(&leaf, quals);
+            // Register any 88-level condition-names qualifying this item.
+            for c in &decl.children {
+                if c.level == 88 {
+                    if let Some(cn) = &c.name {
+                        self.cond_names.insert(
+                            cn.to_ascii_uppercase(),
+                            CondName { parent: key.clone(), values: c.condition_values.clone() },
+                        );
+                    }
+                }
+            }
             let children: Vec<String> = decl.children.iter()
+                .filter(|c| c.level != 88)
                 .filter_map(|c| c.name.as_ref())
                 .map(|n| n.to_ascii_uppercase())
                 .filter(|n| n != "FILLER")
@@ -298,6 +322,9 @@ impl CobolEnvironment {
         }
 
         for child in &decl.children {
+            if child.level == 88 {
+                continue; // condition-names are not data items
+            }
             self.init_decl_h(child, dims, quals);
         }
 
@@ -348,6 +375,11 @@ impl CobolEnvironment {
     /// The symbol-table entry for an item, if declared.
     pub fn symbol(&self, name: &str) -> Option<&ItemSym> {
         self.symbols.get(&name.to_ascii_uppercase())
+    }
+
+    /// The 88-level condition-name metadata for `name`, if it is one.
+    pub fn cond_name(&self, name: &str) -> Option<&CondName> {
+        self.cond_names.get(&name.to_ascii_uppercase())
     }
 
     /// Initialise a numeric-edited item: remember its template and store the
