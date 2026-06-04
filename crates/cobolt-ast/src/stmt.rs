@@ -246,6 +246,22 @@ pub enum Stmt {
         span: Span,
     },
 
+    /// `ADD CORRESPONDING group TO group [ROUNDED]`
+    AddCorresponding {
+        from: Expr,
+        to: Expr,
+        rounded: bool,
+        span: Span,
+    },
+
+    /// `SUBTRACT CORRESPONDING group FROM group [ROUNDED]`
+    SubtractCorresponding {
+        from: Expr,
+        to: Expr,
+        rounded: bool,
+        span: Span,
+    },
+
     /// `INITIALIZE item …` — category-aware reset (numeric → ZERO, others →
     /// SPACE), recursing into group items.
     Initialize {
@@ -614,6 +630,8 @@ impl Stmt {
         match self {
             Stmt::Move { span, .. }              => *span,
             Stmt::MoveCorresponding { span, .. } => *span,
+            Stmt::AddCorresponding { span, .. } => *span,
+            Stmt::SubtractCorresponding { span, .. } => *span,
             Stmt::Initialize { span, .. }        => *span,
             Stmt::Add { span, .. }               => *span,
             Stmt::Subtract { span, .. }          => *span,

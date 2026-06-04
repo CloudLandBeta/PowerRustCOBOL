@@ -37,6 +37,10 @@ pub struct ItemSym {
     /// Immediate child item names (uppercased), for `CORRESPONDING`. Empty for
     /// an elementary item.
     pub children: Vec<String>,
+    /// Canonical storage keys of the immediate children, parallel to
+    /// [`children`]. Used by `CORRESPONDING` to address the right occurrence of
+    /// a duplicated child name.
+    pub child_keys: Vec<String>,
     /// Ancestor group names (uppercased), outermost first, for qualified-name
     /// (`A OF B`) disambiguation.
     pub quals: Vec<String>,
@@ -70,8 +74,36 @@ pub struct CobolEnvironment {
     /// `DECIMAL-POINT IS COMMA` — comma is the decimal point and period the
     /// grouping symbol in edited PICs.
     decimal_comma: bool,
-    /// Hierarchy / OCCURS metadata, keyed by item name (uppercase).
+    /// Hierarchy / OCCURS metadata, keyed by the item's canonical storage key.
     symbols: IndexMap<String, ItemSym>,
+    /// Leaf names that occur more than once in the program (under different
+    /// groups). Only these need qualified (disambiguated) storage keys; every
+    /// other name keys directly by itself, preserving the flat-store fast path.
+    dup_names: std::collections::HashSet<String>,
+    /// Leaf name → the canonical storage keys that share it (for resolution of
+    /// `A OF B` qualified references). Only populated for duplicated names.
+    by_leaf: IndexMap<String, Vec<String>>,
+}
+
+/// Tally every named (non-FILLER) leaf in a declaration subtree, so the
+/// environment knows which names are duplicated and need qualified keys.
+fn count_names(decl: &DataDecl, counts: &mut std::collections::HashMap<String, usize>) {
+    if let Some(n) = &decl.name {
+        let u = n.to_ascii_uppercase();
+        if u != "FILLER" {
+            *counts.entry(u).or_insert(0) += 1;
+        }
+    }
+    for child in &decl.children {
+        count_names(child, counts);
+    }
+}
+
+/// `true` if `needle` appears as an (order-preserving, not necessarily
+/// contiguous) subsequence of `haystack`.
+fn is_subsequence(needle: &[String], haystack: &[&String]) -> bool {
+    let mut it = haystack.iter();
+    needle.iter().all(|q| it.any(|h| h.eq_ignore_ascii_case(q)))
 }
 
 /// The base item name of a (possibly subscripted) storage key: `A(2)` → `A`.
@@ -111,6 +143,34 @@ impl CobolEnvironment {
     pub fn from_data_division_with(data: &DataDivision, decimal_comma: bool) -> Self {
         let mut env = Self::new();
         env.decimal_comma = decimal_comma;
+        // Pass 1: count every leaf name so we know which need disambiguation.
+        let mut counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for section in &data.sections {
+            match section {
+                DataSection::WorkingStorage(items)
+                | DataSection::LocalStorage(items)
+                | DataSection::Linkage(items) => {
+                    for decl in items {
+                        count_names(decl, &mut counts);
+                    }
+                }
+                DataSection::FileSection(fds) => {
+                    for fd in fds {
+                        for rec in &fd.records {
+                            count_names(rec, &mut counts);
+                        }
+                    }
+                }
+                DataSection::Screen(_) => {}
+            }
+        }
+        env.dup_names = counts
+            .into_iter()
+            .filter(|(_, c)| *c > 1)
+            .map(|(n, _)| n)
+            .collect();
+        // Pass 2: initialise values + hierarchy under canonical keys.
         for section in &data.sections {
             match section {
                 DataSection::WorkingStorage(items)
@@ -133,6 +193,55 @@ impl CobolEnvironment {
         env
     }
 
+    /// Canonical storage key for a leaf with the given ancestor path
+    /// (outermost first). Unique names key by themselves (flat-store fast path);
+    /// duplicated names get a path-qualified key that cannot collide.
+    fn canon_key(&self, leaf: &str, path: &[String]) -> String {
+        if self.dup_names.contains(leaf) {
+            let mut k = String::from(leaf);
+            for q in path {
+                k.push('\u{1}');
+                k.push_str(q);
+            }
+            k
+        } else {
+            leaf.to_string()
+        }
+    }
+
+    /// Resolve a (possibly qualified) reference to its canonical storage key.
+    /// `quals` are the `OF`/`IN` qualifiers, innermost first. A unique name
+    /// resolves to itself; a duplicated name is matched against the candidates'
+    /// ancestor paths (an ambiguous reference picks the first declaration).
+    pub fn resolve_name(&self, leaf: &str, quals: &[String]) -> String {
+        let leaf = leaf.to_ascii_uppercase();
+        if !self.dup_names.contains(&leaf) {
+            return leaf;
+        }
+        let cands = match self.by_leaf.get(&leaf) {
+            Some(c) => c,
+            None => return leaf,
+        };
+        if cands.len() == 1 {
+            return cands[0].clone();
+        }
+        if quals.is_empty() {
+            return cands[0].clone();
+        }
+        let qs: Vec<String> = quals.iter().map(|q| q.to_ascii_uppercase()).collect();
+        for k in cands {
+            if let Some(sym) = self.symbols.get(k) {
+                // Qualifiers are innermost-first; the ancestor path is
+                // outermost-first, so match against the reversed path.
+                let rev: Vec<&String> = sym.quals.iter().rev().collect();
+                if is_subsequence(&qs, &rev) {
+                    return k.clone();
+                }
+            }
+        }
+        cands[0].clone()
+    }
+
     /// Recursively initialise a data declaration and its children.
     fn init_decl(&mut self, decl: &DataDecl) {
         self.init_decl_h(decl, &mut Vec::new(), &mut Vec::new());
@@ -150,32 +259,42 @@ impl CobolEnvironment {
         let is_named = matches!(&upper, Some(n) if n != "FILLER");
 
         if is_named {
-            let name = upper.clone().unwrap();
+            let leaf = upper.clone().unwrap();
+            // Canonical storage key: the leaf itself when unique, otherwise a
+            // path-qualified key that disambiguates duplicated names.
+            let key = self.canon_key(&leaf, quals);
             let children: Vec<String> = decl.children.iter()
                 .filter_map(|c| c.name.as_ref())
                 .map(|n| n.to_ascii_uppercase())
                 .filter(|n| n != "FILLER")
                 .collect();
+            // Canonical keys of those children (their path = our path + leaf).
+            let mut child_path = quals.clone();
+            child_path.push(leaf.clone());
+            let child_keys: Vec<String> =
+                children.iter().map(|c| self.canon_key(c, &child_path)).collect();
             let index_names: Vec<String> = decl.occurs.as_ref()
                 .map(|o| o.indexed_by.iter().map(|n| n.to_ascii_uppercase()).collect())
                 .unwrap_or_default();
-            self.symbols.insert(name.clone(), ItemSym {
+            self.symbols.insert(key.clone(), ItemSym {
                 dims: dims.clone(),
                 children,
+                child_keys,
                 quals: quals.clone(),
                 is_group: !decl.children.is_empty(),
                 index_names: index_names.clone(),
                 occurs: occ.unwrap_or(0),
             });
+            self.by_leaf.entry(leaf.clone()).or_default().push(key.clone());
             // Base/template slot + caps/edited (one value; subscript slots are
             // created lazily from this template on first write).
-            self.insert_value(&name, decl);
+            self.insert_value(&key, decl);
             // Register INDEXED BY index registers as numeric items (default 1).
             for ix in &index_names {
                 self.field_caps.insert(ix.clone(), (9, 0));
                 self.store.entry(ix.clone()).or_insert_with(|| CobolValue::from_i64(1));
             }
-            quals.push(name);
+            quals.push(leaf);
         }
 
         for child in &decl.children {

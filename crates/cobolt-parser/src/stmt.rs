@@ -224,6 +224,18 @@ fn parse_add(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // ADD
 
+    // ADD CORRESPONDING group TO group [ROUNDED]
+    if p.at(&Token::Corresponding) {
+        p.advance();
+        let from = parse_expr(p);
+        p.eat(&Token::To);
+        let to = parse_expr(p);
+        let rounded = p.eat(&Token::Rounded);
+        let (_se, _nse) = parse_size_error(p, &Token::EndAdd);
+        p.eat(&Token::EndAdd);
+        return Stmt::AddCorresponding { from, to, rounded, span };
+    }
+
     let mut operands = Vec::new();
     // Collect sending operands until TO or GIVING (ADD a b GIVING c has no TO)
     while !p.at(&Token::To)
@@ -306,6 +318,18 @@ fn try_eat_size_error_phrase(p: &mut Parser) -> bool {
 fn parse_subtract(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // SUBTRACT
+
+    // SUBTRACT CORRESPONDING group FROM group [ROUNDED]
+    if p.at(&Token::Corresponding) {
+        p.advance();
+        let from = parse_expr(p);
+        p.eat(&Token::From);
+        let to = parse_expr(p);
+        let rounded = p.eat(&Token::Rounded);
+        let (_se, _nse) = parse_size_error(p, &Token::EndSubtract);
+        p.eat(&Token::EndSubtract);
+        return Stmt::SubtractCorresponding { from, to, rounded, span };
+    }
 
     let mut operands = Vec::new();
     while !p.at(&Token::From)

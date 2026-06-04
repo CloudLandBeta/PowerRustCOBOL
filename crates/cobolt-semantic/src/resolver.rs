@@ -75,7 +75,9 @@ impl<'a> ResolveCtx<'a> {
                 self.resolve_expr(from);
                 for t in to { self.resolve_expr(t); }
             }
-            Stmt::MoveCorresponding { from, to, .. } => {
+            Stmt::MoveCorresponding { from, to, .. }
+            | Stmt::AddCorresponding { from, to, .. }
+            | Stmt::SubtractCorresponding { from, to, .. } => {
                 self.resolve_expr(from);
                 self.resolve_expr(to);
             }

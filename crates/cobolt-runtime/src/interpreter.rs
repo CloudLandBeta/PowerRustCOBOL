@@ -597,9 +597,20 @@ impl Interpreter {
             // ── Data movement ─────────────────────────────────────────────────
             Stmt::Move { from, to, .. } =>
                 self.exec_move(from, to),
-            Stmt::MoveCorresponding { .. } => {
-                tracing::debug!("MOVE CORRESPONDING — not fully implemented");
-                Ok(())
+            Stmt::MoveCorresponding { from, to, .. } => {
+                let from_key = self.resolve_lvalue(from);
+                let to_key = self.resolve_lvalue(to);
+                self.move_corresponding(&from_key, &to_key)
+            }
+            Stmt::AddCorresponding { from, to, .. } => {
+                let from_key = self.resolve_lvalue(from);
+                let to_key = self.resolve_lvalue(to);
+                self.arith_corresponding(&from_key, &to_key, false)
+            }
+            Stmt::SubtractCorresponding { from, to, .. } => {
+                let from_key = self.resolve_lvalue(from);
+                let to_key = self.resolve_lvalue(to);
+                self.arith_corresponding(&from_key, &to_key, true)
             }
 
             Stmt::Initialize { items, .. } => self.exec_initialize(items),
@@ -765,6 +776,67 @@ impl Interpreter {
             }
         }
         Ok(())
+    }
+
+    // ── MOVE / ADD / SUBTRACT CORRESPONDING ─────────────────────────────────────
+
+    /// `MOVE CORRESPONDING g1 TO g2`: for each pair of subordinate items that
+    /// share a name, move (recursing through matching groups, moving matching
+    /// elementary items). Items present in only one group are left untouched.
+    fn move_corresponding(&mut self, from_key: &str, to_key: &str) -> Result<(), RuntimeError> {
+        for (fk, tk, both_groups) in self.corr_pairs(from_key, to_key) {
+            if both_groups {
+                self.move_corresponding(&fk, &tk)?;
+            } else {
+                let val = self.env.get(&fk).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
+                let src_digits = self.env.deedited_digits(&fk);
+                match src_digits {
+                    Some(digits) if self.env.is_alphanumeric_field(&tk) =>
+                        self.env.set_str_left(&tk, &digits),
+                    _ => self.env.set(&tk, val),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `ADD/SUBTRACT CORRESPONDING g1 TO/FROM g2`: combine each matching pair of
+    /// elementary numeric items, recursing through matching groups.
+    fn arith_corresponding(
+        &mut self,
+        from_key: &str,
+        to_key: &str,
+        subtract: bool,
+    ) -> Result<(), RuntimeError> {
+        for (fk, tk, both_groups) in self.corr_pairs(from_key, to_key) {
+            if both_groups {
+                self.arith_corresponding(&fk, &tk, subtract)?;
+            } else {
+                let a = self.env.get(&fk).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
+                let cur = self.env.get(&tk).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
+                let result = if subtract { cur.sub_val(&a) } else { cur.add_val(&a) };
+                self.store_arith(&tk, result, false, false);
+            }
+        }
+        Ok(())
+    }
+
+    /// Matching subordinate pairs of two groups: `(from_child_key,
+    /// to_child_key, both_are_groups)` for every leaf name they share.
+    fn corr_pairs(&self, from_key: &str, to_key: &str) -> Vec<(String, String, bool)> {
+        let from_sym = match self.env.symbol(from_key) { Some(s) => s.clone(), None => return Vec::new() };
+        let to_sym = match self.env.symbol(to_key) { Some(s) => s.clone(), None => return Vec::new() };
+        let mut out = Vec::new();
+        for (i, child) in from_sym.children.iter().enumerate() {
+            if let Some(j) = to_sym.children.iter().position(|c| c == child) {
+                let fk = from_sym.child_keys[i].clone();
+                let tk = to_sym.child_keys[j].clone();
+                let fg = self.env.symbol(&fk).map(|s| s.is_group).unwrap_or(false);
+                let tg = self.env.symbol(&tk).map(|s| s.is_group).unwrap_or(false);
+                out.push((fk, tk, fg && tg));
+            }
+        }
+        out
     }
 
     // ── SEARCH / SEARCH ALL ─────────────────────────────────────────────────────
@@ -1336,10 +1408,16 @@ impl Interpreter {
             // A bare numeric data item displays as its full fixed-width digit
             // string (leading zeros per PIC); everything else renders verbatim.
             let s = match op {
-                Expr::Identifier(name, _) => match self.env.display_string(name) {
-                    Some(s) => s,
-                    None => self.eval_expr(op, op.span())?.as_display_string(),
-                },
+                // A data-item reference (plain, qualified, or subscripted) shows
+                // its full fixed-width digit string (leading zeros per PIC) via
+                // the resolved storage key; literals/expressions render verbatim.
+                Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                    let key = self.resolve_lvalue(op);
+                    match self.env.display_string(&key) {
+                        Some(s) => s,
+                        None => self.eval_expr(op, op.span())?.as_display_string(),
+                    }
+                }
                 _ => self.eval_expr(op, op.span())?.as_display_string(),
             };
             out.push_str(&s);
@@ -2309,17 +2387,17 @@ impl Interpreter {
             Expr::Literal(lit, _) => Ok(literal_to_value(lit)),
 
             Expr::Identifier(name, _) => {
-                let upper = name.to_ascii_uppercase();
-                Ok(self.env.get(&upper).cloned().unwrap_or_else(|| {
-                    tracing::debug!("Identifier '{upper}' not found in environment — using 0");
+                let key = self.env.resolve_name(name, &[]);
+                Ok(self.env.get(&key).cloned().unwrap_or_else(|| {
+                    tracing::debug!("Identifier '{key}' not found in environment — using 0");
                     CobolValue::from_i64(0)
                 }))
             }
 
-            Expr::Qualified { name, .. } => {
-                // Simplified: ignore the OF/IN qualifier; look up by name alone.
-                let upper = name.to_ascii_uppercase();
-                Ok(self.env.get(&upper).cloned().unwrap_or(CobolValue::from_i64(0)))
+            Expr::Qualified { name, of, .. } => {
+                let quals = collect_quals(of);
+                let key = self.env.resolve_name(name, &quals);
+                Ok(self.env.get(&key).cloned().unwrap_or(CobolValue::from_i64(0)))
             }
 
             Expr::Subscript { base, indices, span: s } => {
@@ -2688,11 +2766,15 @@ impl Interpreter {
         }
     }
 
-    /// Extract the target name from an lvalue expression.
+    /// Extract the canonical storage key for an lvalue expression, resolving
+    /// any `OF`/`IN` qualification to disambiguate duplicated names.
     fn expr_to_name(&self, expr: &Expr) -> String {
         match expr {
-            Expr::Identifier(name, _)  => name.to_ascii_uppercase(),
-            Expr::Qualified { name, .. } => name.to_ascii_uppercase(),
+            Expr::Identifier(name, _)  => self.env.resolve_name(name, &[]),
+            Expr::Qualified { name, of, .. } => {
+                let quals = collect_quals(of);
+                self.env.resolve_name(name, &quals)
+            }
             Expr::Subscript { base, .. } => self.expr_to_name(base),
             Expr::RefMod { base, .. }    => self.expr_to_name(base),
             _ => "__UNKNOWN__".to_owned(),
@@ -2890,6 +2972,21 @@ pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {
 fn call_arg_expr(arg: &CallArg) -> &Expr {
     match arg {
         CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e,
+    }
+}
+
+/// Flatten the `OF`/`IN` qualifier chain of a [`Expr::Qualified`] `of` operand
+/// into an innermost-first list of qualifier names: `A OF B OF C` → `[B, C]`.
+fn collect_quals(of: &Expr) -> Vec<String> {
+    match of {
+        Expr::Identifier(n, _) => vec![n.to_ascii_uppercase()],
+        Expr::Qualified { name, of, .. } => {
+            let mut v = vec![name.to_ascii_uppercase()];
+            v.extend(collect_quals(of));
+            v
+        }
+        Expr::Subscript { base, .. } => collect_quals(base),
+        _ => Vec::new(),
     }
 }
 
