@@ -640,7 +640,7 @@ impl Interpreter {
                 self.arith_corresponding(&from_key, &to_key, true)
             }
 
-            Stmt::Initialize { items, .. } => self.exec_initialize(items),
+            Stmt::Initialize { items, replacing, .. } => self.exec_initialize(items, replacing),
 
             // ── Arithmetic ────────────────────────────────────────────────────
             Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, span } =>
@@ -966,7 +966,16 @@ impl Interpreter {
 
     // ── INITIALIZE (category-aware) ─────────────────────────────────────────────
 
-    fn exec_initialize(&mut self, items: &[Expr]) -> Result<(), RuntimeError> {
+    fn exec_initialize(
+        &mut self,
+        items: &[Expr],
+        replacing: &[(cobolt_ast::stmt::InitCategory, Expr)],
+    ) -> Result<(), RuntimeError> {
+        // Evaluate each REPLACING value once.
+        let mut repl = Vec::with_capacity(replacing.len());
+        for (cat, e) in replacing {
+            repl.push((*cat, self.eval_expr(e, e.span())?));
+        }
         for item in items {
             let name = self.resolve_lvalue(item);
             // Walk the DATA DIVISION for the item's declaration so groups recurse
@@ -975,11 +984,48 @@ impl Interpreter {
                 .and_then(|d| find_decl_in_division(d, &name))
                 .cloned();
             match decl {
-                Some(d) => self.init_decl(&d),
+                Some(d) if repl.is_empty() => self.init_decl(&d),
+                Some(d) => self.init_decl_replacing(&d, &repl),
                 None => self.init_by_caps(&name),
             }
         }
         Ok(())
+    }
+
+    /// `INITIALIZE … REPLACING`: set each subordinate elementary item whose
+    /// category matches a REPLACING entry to that value; leave others untouched.
+    fn init_decl_replacing(
+        &mut self,
+        d: &cobolt_ast::data::DataDecl,
+        repl: &[(cobolt_ast::stmt::InitCategory, CobolValue)],
+    ) {
+        use cobolt_ast::data::PicKind;
+        use cobolt_ast::stmt::InitCategory;
+        if !d.children.is_empty() {
+            for c in &d.children {
+                if c.level != 88 && c.level != 66 {
+                    self.init_decl_replacing(c, repl);
+                }
+            }
+            return;
+        }
+        let Some(name) = &d.name else { return };
+        let cat = match d.picture.as_ref().map(|p| p.kind) {
+            Some(PicKind::Alphabetic)        => InitCategory::Alphabetic,
+            Some(PicKind::Alphanumeric)      => InitCategory::Alphanumeric,
+            Some(PicKind::Numeric)           => InitCategory::Numeric,
+            Some(PicKind::AlphanumericEdited) => InitCategory::AlphanumericEdited,
+            Some(PicKind::NumericEdited)     => InitCategory::NumericEdited,
+            None => return,
+        };
+        if let Some((_, val)) = repl.iter().find(|(c, _)| *c == cat) {
+            let key = self.env.resolve_name(name, &[]);
+            if self.env.is_alphanumeric_field(&key) {
+                self.env.set_str_left(&key, &val.as_display_string());
+            } else {
+                self.env.set(&key, val.clone());
+            }
+        }
     }
 
     /// Recursively initialise a declaration: groups recurse; elementary items

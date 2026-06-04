@@ -255,6 +255,16 @@ pub struct ExecRustBinding {
     pub rust_name: String,
 }
 
+/// A data category for `INITIALIZE … REPLACING`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InitCategory {
+    Alphabetic,
+    Alphanumeric,
+    Numeric,
+    AlphanumericEdited,
+    NumericEdited,
+}
+
 // ── Stmt ──────────────────────────────────────────────────────────────────────
 
 /// A single COBOL statement.
@@ -295,10 +305,13 @@ pub enum Stmt {
         span: Span,
     },
 
-    /// `INITIALIZE item …` — category-aware reset (numeric → ZERO, others →
-    /// SPACE), recursing into group items.
+    /// `INITIALIZE item … [REPLACING category DATA BY value …]` — category-aware
+    /// reset (numeric → ZERO, others → SPACE), recursing into group items;
+    /// `REPLACING` overrides the value for subordinate items of each category.
     Initialize {
         items: Vec<Expr>,
+        /// `REPLACING category [DATA] BY value` overrides (empty = plain reset).
+        replacing: Vec<(InitCategory, Expr)>,
         span: Span,
     },
 

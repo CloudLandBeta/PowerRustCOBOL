@@ -1787,17 +1787,33 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
 // ── INITIALIZE (simplified as MOVE SPACES) ────────────────────────────────────
 
 fn parse_initialize_as_move(p: &mut Parser) -> Stmt {
+    use cobolt_ast::stmt::InitCategory;
     let span = p.peek_span();
     p.advance(); // INITIALIZE
     let mut items = Vec::new();
-    while is_expr_start(p) {
+    while is_expr_start(p) && !p.at(&Token::Replacing) {
         items.push(parse_expr(p));
     }
-    // REPLACING … (skip — TODO: honour the REPLACING category map)
-    if p.at(&Token::Replacing) {
-        while !p.at_end_of_sentence() && !p.at(&Token::Eof) { p.advance(); }
+    // REPLACING category [DATA] BY value …
+    let mut replacing = Vec::new();
+    if p.eat(&Token::Replacing) {
+        loop {
+            let cat = match ident_upper(p).as_deref() {
+                Some("ALPHABETIC")          => InitCategory::Alphabetic,
+                Some("ALPHANUMERIC")        => InitCategory::Alphanumeric,
+                Some("NUMERIC")             => InitCategory::Numeric,
+                Some("ALPHANUMERIC-EDITED") => InitCategory::AlphanumericEdited,
+                Some("NUMERIC-EDITED")      => InitCategory::NumericEdited,
+                _ => break,
+            };
+            p.advance(); // category word
+            p.eat(&Token::Data); // optional DATA keyword
+            p.eat(&Token::By);
+            let val = parse_expr(p);
+            replacing.push((cat, val));
+        }
     }
-    Stmt::Initialize { items, span }
+    Stmt::Initialize { items, replacing, span }
 }
 
 // ── SET ───────────────────────────────────────────────────────────────────────
