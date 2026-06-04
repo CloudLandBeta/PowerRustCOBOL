@@ -34,6 +34,29 @@ The i18n system translates the IDE interface only.
 
 ---
 
+## GOLDEN RULES (never break these)
+
+1. **No pushing during Brazilian work hours.** NEVER `git push` between **09:00
+   and 18:00 (America/Sao_Paulo), Monday–Friday**, except on Brazilian national
+   holidays — even if explicitly asked. Outside those hours, pushing is allowed
+   without asking. (Enforced by a PreToolUse hook.)
+
+2. **User-provided tests: report-or-fix, never unilaterally extend.** When a test
+   *the user provides* fails:
+   - If it fails because it uses **syntax that is NOT already implemented** (it
+     does not match the grammar / feature support already in the codebase), **do
+     nothing to the implementation — just report the problem** clearly so the
+     user can provide a fix or decide. Do **NOT** invent or extend the
+     language/grammar on your own to make the test pass.
+   - If the test's **syntax is correct** (valid and within already-supported
+     scope) **but our side fails** (lexer / parser / runtime bug), then **fix our
+     side**.
+
+   In short: a feature/grammar *gap* → report and wait; a *bug* handling
+   correct, in-scope syntax → fix it.
+
+---
+
 ## Version Convention  x.y.z
 
 - **x** — new platform component added (Web/WASM, Android, iOS, etc.)
