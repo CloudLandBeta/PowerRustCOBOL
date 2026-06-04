@@ -126,8 +126,9 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
         }
     }
     match p.peek().clone() {
-        // SORT I/O verbs — recognized; tied to the (incomplete) SORT runtime.
-        Token::Release | Token::Return_ => Some(parse_recognized_noop(p)),
+        // SORT I/O verbs.
+        Token::Release => Some(parse_release(p)),
+        Token::Return_ => Some(parse_return(p)),
         Token::Move       => Some(parse_move(p)),
         Token::Add        => Some(parse_add(p)),
         Token::Subtract   => Some(parse_subtract(p)),
@@ -1530,13 +1531,17 @@ fn parse_sort(p: &mut Parser) -> Stmt {
     let file = p.expect_identifier("SORT file name");
 
     let mut keys = Vec::new();
-    while p.at(&Token::Ascending) || p.at(&Token::Descending) {
+    loop {
+        p.eat(&Token::On); // optional ON before {ASCENDING|DESCENDING} KEY
+        if !p.at(&Token::Ascending) && !p.at(&Token::Descending) { break; }
         let ascending = p.eat(&Token::Ascending);
         p.eat(&Token::Descending);
         p.eat(&Token::Key);
         p.eat(&Token::Is);
         let mut fields = Vec::new();
-        while is_expr_start(p) && !p.at(&Token::Ascending) && !p.at(&Token::Descending) {
+        while is_expr_start(p)
+            && !p.at(&Token::Ascending) && !p.at(&Token::Descending) && !p.at(&Token::On)
+        {
             fields.push(parse_expr(p));
         }
         keys.push(SortKey { ascending, fields });
@@ -1554,7 +1559,8 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         false
     };
 
-    // INPUT PROCEDURE IS name [THRU name]
+    // {USING f… | INPUT PROCEDURE p}
+    let mut using = Vec::new();
     let input_proc = if p.at(&Token::Input) {
         p.advance();
         p.eat(&Token::Procedure);
@@ -1562,11 +1568,15 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         let name = p.expect_identifier("INPUT PROCEDURE name");
         if p.at(&Token::Through) { p.advance(); p.eat_identifier(); }
         Some(name)
+    } else if p.eat(&Token::Using) {
+        using = parse_file_name_list(p);
+        None
     } else {
         None
     };
 
-    // OUTPUT PROCEDURE IS name [THRU name]
+    // {GIVING f… | OUTPUT PROCEDURE p}
+    let mut giving = Vec::new();
     let output_proc = if p.at(&Token::Output) {
         p.advance();
         p.eat(&Token::Procedure);
@@ -1574,13 +1584,29 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
         if p.at(&Token::Through) { p.advance(); p.eat_identifier(); }
         Some(name)
+    } else if p.eat(&Token::Giving) {
+        giving = parse_file_name_list(p);
+        None
     } else {
         None
     };
 
     p.eat(&Token::EndSort);
 
-    Stmt::Sort { file, keys, duplicates, input_proc, output_proc, span }
+    Stmt::Sort { file, keys, duplicates, using, giving, input_proc, output_proc, span }
+}
+
+/// Parse a whitespace-separated list of file-name identifiers (USING / GIVING).
+fn parse_file_name_list(p: &mut Parser) -> Vec<String> {
+    let mut files = Vec::new();
+    while p.at_identifier() {
+        if let Some((name, _)) = p.eat_identifier() {
+            files.push(name);
+        } else {
+            break;
+        }
+    }
+    files
 }
 
 // ── MERGE ─────────────────────────────────────────────────────────────────────
@@ -1592,18 +1618,23 @@ fn parse_merge(p: &mut Parser) -> Stmt {
     let file = p.expect_identifier("MERGE file name");
 
     let mut keys = Vec::new();
-    while p.at(&Token::Ascending) || p.at(&Token::Descending) {
+    loop {
+        p.eat(&Token::On); // optional ON
+        if !p.at(&Token::Ascending) && !p.at(&Token::Descending) { break; }
         let ascending = p.eat(&Token::Ascending);
         p.eat(&Token::Descending);
         p.eat(&Token::Key);
         p.eat(&Token::Is);
         let mut fields = Vec::new();
-        while is_expr_start(p) && !p.at(&Token::Ascending) && !p.at(&Token::Descending) {
+        while is_expr_start(p) && !p.at(&Token::Ascending) && !p.at(&Token::Descending) && !p.at(&Token::On) {
             fields.push(parse_expr(p));
         }
         keys.push(SortKey { ascending, fields });
     }
 
+    let using = if p.eat(&Token::Using) { parse_file_name_list(p) } else { Vec::new() };
+
+    let mut giving = Vec::new();
     let output_proc = if p.at(&Token::Output) {
         p.advance();
         p.eat(&Token::Procedure);
@@ -1611,12 +1642,38 @@ fn parse_merge(p: &mut Parser) -> Stmt {
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
         if p.at(&Token::Through) { p.advance(); p.eat_identifier(); }
         Some(name)
+    } else if p.eat(&Token::Giving) {
+        giving = parse_file_name_list(p);
+        None
     } else {
         None
     };
 
     p.eat(&Token::EndMerge);
-    Stmt::Merge { file, keys, output_proc, span }
+    Stmt::Merge { file, keys, using, giving, output_proc, span }
+}
+
+// ── RELEASE / RETURN ───────────────────────────────────────────────────────────
+
+fn parse_release(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    p.advance(); // RELEASE
+    let record = parse_expr(p);
+    let from = if p.eat(&Token::From) { Some(parse_expr(p)) } else { None };
+    Stmt::Release { record, from, span }
+}
+
+fn parse_return(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    p.advance(); // RETURN
+    let file = p.expect_identifier("RETURN file name");
+    p.eat(&Token::Record);
+    let into = if p.eat(&Token::Into) { Some(parse_expr(p)) } else { None };
+    let stop = |t: &Token| matches!(t, Token::Not | Token::NotAtEnd | Token::EndReturn);
+    let at_end = if eat_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let not_at_end = if eat_not_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    p.eat(&Token::EndReturn);
+    Stmt::Return { file, into, at_end, not_at_end, span }
 }
 
 // ── CALL ──────────────────────────────────────────────────────────────────────

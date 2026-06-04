@@ -333,6 +333,10 @@ pub struct Interpreter {
     open_files: HashMap<String, OpenFile>,
     /// Selected indexed (ISAM) file engine (default: the built-in Rust engine).
     indexed_engine: crate::indexed::IndexedEngine,
+    /// SORT/MERGE work buffers (SD file name → released/merged record bytes).
+    sort_buffers: HashMap<String, Vec<Vec<u8>>>,
+    /// RETURN cursor per SD file (index of the next record to hand back).
+    sort_cursors: HashMap<String, usize>,
 }
 
 const MAX_PERFORM_DEPTH: usize = 512;
@@ -382,6 +386,8 @@ impl Interpreter {
             record_to_file,
             open_files: HashMap::new(),
             indexed_engine: crate::indexed::IndexedEngine::default(),
+            sort_buffers: HashMap::new(),
+            sort_cursors: HashMap::new(),
         }
     }
 
@@ -707,10 +713,15 @@ impl Interpreter {
                 self.exec_inspect(target, spec, *span),
 
             // ── Sorting ───────────────────────────────────────────────────────
-            Stmt::Sort { .. } | Stmt::Merge { .. } => {
-                tracing::warn!("SORT/MERGE not yet implemented — statement skipped");
-                Ok(())
-            }
+            Stmt::Sort { file, keys, using, giving, input_proc, output_proc, duplicates: _, span } =>
+                self.exec_sort(file, keys, using, giving,
+                    input_proc.as_deref(), output_proc.as_deref(), *span),
+            Stmt::Merge { file, keys, using, giving, output_proc, span } =>
+                self.exec_sort(file, keys, using, giving, None, output_proc.as_deref(), *span),
+            Stmt::Release { record, from, .. } =>
+                self.exec_release(record, from.as_ref()),
+            Stmt::Return { file, into, at_end, not_at_end, .. } =>
+                self.exec_return(file, into.as_ref(), at_end, not_at_end),
 
             // ── Subprogram linkage ────────────────────────────────────────────
             Stmt::Call { program, using, returning, on_exception, not_on_exception, span } =>
@@ -1874,6 +1885,195 @@ impl Interpreter {
         } else {
             self.exec_stmts(invalid_key)
         }
+    }
+
+    // ── SORT / MERGE / RELEASE / RETURN ─────────────────────────────────────────
+
+    /// `RELEASE record [FROM src]` — materialise the SD record and append it to
+    /// the sort work buffer.
+    fn exec_release(&mut self, record: &Expr, from: Option<&Expr>) -> Result<(), RuntimeError> {
+        if let Some(src) = from {
+            self.exec_move(src, std::slice::from_ref(record))?;
+        }
+        let rec_name = self.expr_to_name(record);
+        let Some(file) = self.record_to_file.get(&rec_name).cloned() else {
+            tracing::warn!("RELEASE: record '{}' is not part of any SD", rec_name);
+            return Ok(());
+        };
+        let buf = match self.file_specs.get(&file) {
+            Some(spec) => spec.layout.materialize(&self.env),
+            None => self.env.get_string(&rec_name).unwrap_or_default().into_bytes(),
+        };
+        self.sort_buffers.entry(file).or_default().push(buf);
+        Ok(())
+    }
+
+    /// `RETURN file [INTO id] AT END … [NOT AT END …]` — hand back the next
+    /// sorted record, or run the AT END phrase when the run is exhausted.
+    fn exec_return(
+        &mut self,
+        file: &str,
+        into: Option<&Expr>,
+        at_end: &[Stmt],
+        not_at_end: &[Stmt],
+    ) -> Result<(), RuntimeError> {
+        let fkey = file.to_ascii_uppercase();
+        let cur = *self.sort_cursors.get(&fkey).unwrap_or(&0);
+        let rec = self.sort_buffers.get(&fkey).and_then(|v| v.get(cur)).cloned();
+        match rec {
+            Some(b) => {
+                self.sort_cursors.insert(fkey.clone(), cur + 1);
+                if let Some(spec) = self.file_specs.get(&fkey).cloned() {
+                    spec.layout.distribute(&mut self.env, &b);
+                }
+                if let Some(tgt) = into {
+                    let s = String::from_utf8_lossy(&b).into_owned();
+                    let tname = self.expr_to_name(tgt);
+                    self.env.set_str(&tname, &s);
+                }
+                self.exec_stmts(not_at_end)
+            }
+            None => self.exec_stmts(at_end),
+        }
+    }
+
+    /// Execute `SORT` / `MERGE`: fill the work buffer (INPUT PROCEDURE releases
+    /// or USING files), sort by the declared keys, then deliver (OUTPUT
+    /// PROCEDURE returns or GIVING files).
+    #[allow(clippy::too_many_arguments)]
+    fn exec_sort(
+        &mut self,
+        file: &str,
+        keys: &[cobolt_ast::stmt::SortKey],
+        using: &[String],
+        giving: &[String],
+        input_proc: Option<&str>,
+        output_proc: Option<&str>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let fkey = file.to_ascii_uppercase();
+        self.sort_buffers.insert(fkey.clone(), Vec::new());
+        self.sort_cursors.insert(fkey.clone(), 0);
+
+        // ── Phase 1: collect records ──────────────────────────────────────
+        if let Some(ip) = input_proc {
+            self.exec_perform(&PerformTarget::Section(ip.to_string(), span), span)?;
+        } else {
+            for uf in using {
+                let recs = self.read_all_records(uf);
+                self.sort_buffers.entry(fkey.clone()).or_default().extend(recs);
+            }
+        }
+
+        // ── Phase 2: sort by keys ─────────────────────────────────────────
+        self.sort_records(&fkey, keys, span)?;
+
+        // ── Phase 3: deliver records ──────────────────────────────────────
+        if let Some(op) = output_proc {
+            self.sort_cursors.insert(fkey.clone(), 0);
+            self.exec_perform(&PerformTarget::Section(op.to_string(), span), span)?;
+        } else {
+            let recs = self.sort_buffers.get(&fkey).cloned().unwrap_or_default();
+            for gf in giving {
+                self.write_all_records(gf, &recs)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Stable-sort the work buffer of `fkey` by the SORT keys (ascending or
+    /// descending per key), comparing the SD record's key fields.
+    fn sort_records(
+        &mut self,
+        fkey: &str,
+        keys: &[cobolt_ast::stmt::SortKey],
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let Some(spec) = self.file_specs.get(fkey).cloned() else { return Ok(()); };
+        let recs = self.sort_buffers.remove(fkey).unwrap_or_default();
+        // Precompute each record's (key-value, ascending) vector.
+        let mut keyed: Vec<(Vec<(CobolValue, bool)>, Vec<u8>)> = Vec::with_capacity(recs.len());
+        for bytes in recs {
+            spec.layout.distribute(&mut self.env, &bytes);
+            let mut kv = Vec::new();
+            for k in keys {
+                for f in &k.fields {
+                    kv.push((self.eval_expr(f, span)?, k.ascending));
+                }
+            }
+            keyed.push((kv, bytes));
+        }
+        keyed.sort_by(|a, b| {
+            for ((av, asc), (bv, _)) in a.0.iter().zip(b.0.iter()) {
+                let ord = cob_ordering(av, bv);
+                if ord != std::cmp::Ordering::Equal {
+                    return if *asc { ord } else { ord.reverse() };
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+        self.sort_buffers
+            .insert(fkey.to_string(), keyed.into_iter().map(|(_, b)| b).collect());
+        Ok(())
+    }
+
+    /// Open `file` for input, read every record (raw bytes), and close it.
+    fn read_all_records(&mut self, file: &str) -> Vec<Vec<u8>> {
+        use std::io::{BufRead as _, Read as _};
+        let fkey = file.to_ascii_uppercase();
+        let _ = self.exec_open(OpenMode::Input, &[file.to_string()], Span::dummy());
+        let rlen = self.file_specs.get(&fkey).map(|s| s.layout.len.max(1)).unwrap_or(1);
+        let mut out = Vec::new();
+        loop {
+            let rec = match self.open_files.get_mut(&fkey) {
+                Some(OpenFile::Reader { r, org }) => match org {
+                    FileOrganization::LineSequential => {
+                        let mut line = String::new();
+                        match r.read_line(&mut line) {
+                            Ok(0) => None,
+                            Ok(_) => {
+                                while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
+                                Some(line.into_bytes())
+                            }
+                            Err(_) => None,
+                        }
+                    }
+                    _ => {
+                        let mut bytes = vec![0u8; rlen];
+                        match r.read_exact(&mut bytes) {
+                            Ok(()) => Some(bytes),
+                            Err(_) => None,
+                        }
+                    }
+                },
+                _ => None,
+            };
+            match rec {
+                Some(b) => out.push(b),
+                None => break,
+            }
+        }
+        let _ = self.exec_close(&[file.to_string()]);
+        out
+    }
+
+    /// Open `file` for output, write every record, and close it.
+    fn write_all_records(&mut self, file: &str, recs: &[Vec<u8>]) -> Result<(), RuntimeError> {
+        use std::io::Write as _;
+        let fkey = file.to_ascii_uppercase();
+        self.exec_open(OpenMode::Output, &[file.to_string()], Span::dummy())?;
+        for b in recs {
+            if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
+                let _ = match org {
+                    FileOrganization::LineSequential => {
+                        let s = String::from_utf8_lossy(b);
+                        writeln!(w, "{}", s.trim_end())
+                    }
+                    _ => w.write_all(b),
+                };
+            }
+        }
+        self.exec_close(&[file.to_string()])
     }
 
     fn exec_write(
@@ -3088,6 +3288,18 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
 }
 
 /// Compare two `CobolValue`s using the given operator.
+/// Total ordering of two COBOL values, derived from `compare_values`, for SORT.
+fn cob_ordering(a: &CobolValue, b: &CobolValue) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    if compare_values(a, b, CmpOp::Eq) {
+        Ordering::Equal
+    } else if compare_values(a, b, CmpOp::Lt) {
+        Ordering::Less
+    } else {
+        Ordering::Greater
+    }
+}
+
 pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {
     // Numeric comparison when both sides are numeric.
     if l.is_numeric() && r.is_numeric() {

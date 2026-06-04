@@ -541,21 +541,43 @@ pub enum Stmt {
 
     // ── Sorting ──────────────────────────────────────────────────────────────
 
-    /// `SORT file ON KEY … [INPUT PROCEDURE] [OUTPUT PROCEDURE]`
+    /// `SORT file ON KEY … {USING f… | INPUT PROCEDURE p} {GIVING f… | OUTPUT PROCEDURE p}`
     Sort {
         file: String,
         keys: Vec<SortKey>,
         duplicates: bool,
+        /// Input files (`USING`) — mutually exclusive with `input_proc`.
+        using: Vec<String>,
+        /// Output files (`GIVING`) — mutually exclusive with `output_proc`.
+        giving: Vec<String>,
         input_proc: Option<String>,
         output_proc: Option<String>,
         span: Span,
     },
 
-    /// `MERGE file ON KEY … OUTPUT PROCEDURE`
+    /// `MERGE file ON KEY … USING f… {GIVING f… | OUTPUT PROCEDURE p}`
     Merge {
         file: String,
         keys: Vec<SortKey>,
+        using: Vec<String>,
+        giving: Vec<String>,
         output_proc: Option<String>,
+        span: Span,
+    },
+
+    /// `RELEASE record [FROM identifier]` — hand a record to a SORT.
+    Release {
+        record: Expr,
+        from: Option<Expr>,
+        span: Span,
+    },
+
+    /// `RETURN file [INTO identifier] AT END … [NOT AT END …] [END-RETURN]`
+    Return {
+        file: String,
+        into: Option<Expr>,
+        at_end: Vec<Stmt>,
+        not_at_end: Vec<Stmt>,
         span: Span,
     },
 
@@ -708,6 +730,8 @@ impl Stmt {
             Stmt::Inspect { span, .. }           => *span,
             Stmt::Sort { span, .. }              => *span,
             Stmt::Merge { span, .. }             => *span,
+            Stmt::Release { span, .. }           => *span,
+            Stmt::Return { span, .. }            => *span,
             Stmt::Call { span, .. }              => *span,
             Stmt::Stop { span, .. }              => *span,
             Stmt::GoBack { span }                => *span,
