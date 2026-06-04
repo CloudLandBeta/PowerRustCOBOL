@@ -2349,6 +2349,88 @@ impl Interpreter {
                 let len = s.len();
                 Ok(CobolValue::from_str(&s, len))
             }
+            // ── Character / ordinal ───────────────────────────────────────────
+            "ORD" => {
+                let s = self.eval_expr(&args[0], span)?.as_display_string();
+                let b = s.bytes().next().unwrap_or(0);
+                Ok(CobolValue::from_i64(b as i64 + 1)) // 1-based ordinal
+            }
+            "CHAR" => {
+                let n = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(1);
+                let s = ((n.clamp(1, 256) - 1) as u8 as char).to_string();
+                Ok(CobolValue::from_str(&s, 1))
+            }
+            "ORD-MAX" | "ORD-MIN" => {
+                let vals = self.eval_args(args, span)?;
+                let cmp = |a: f64, b: f64| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal);
+                let pick = if name.eq_ignore_ascii_case("ORD-MAX") {
+                    vals.iter().enumerate().max_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
+                } else {
+                    vals.iter().enumerate().min_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
+                };
+                Ok(CobolValue::from_i64(pick.map(|(i, _)| i as i64 + 1).unwrap_or(0)))
+            }
+            // ── Statistics over the argument list ─────────────────────────────
+            "SUM" => {
+                let mut total = CobolValue::from_i64(0);
+                for v in self.eval_args(args, span)? { total = total.add_val(&v); }
+                Ok(total)
+            }
+            "MEAN" => {
+                let vals = self.eval_args(args, span)?;
+                if vals.is_empty() { return Ok(CobolValue::from_i64(0)); }
+                let s: f64 = vals.iter().map(|v| v.as_f64()).sum();
+                Ok(CobolValue::from_f64(s / vals.len() as f64))
+            }
+            "MEDIAN" => {
+                let mut xs: Vec<f64> = self.eval_args(args, span)?.iter().map(|v| v.as_f64()).collect();
+                xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let m = if xs.is_empty() { 0.0 }
+                    else if xs.len() % 2 == 1 { xs[xs.len() / 2] }
+                    else { (xs[xs.len() / 2 - 1] + xs[xs.len() / 2]) / 2.0 };
+                Ok(CobolValue::from_f64(m))
+            }
+            "MIDRANGE" | "RANGE" => {
+                let xs: Vec<f64> = self.eval_args(args, span)?.iter().map(|v| v.as_f64()).collect();
+                let lo = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+                let hi = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let r = if name.eq_ignore_ascii_case("RANGE") { hi - lo } else { (lo + hi) / 2.0 };
+                Ok(CobolValue::from_f64(r))
+            }
+            "VARIANCE" | "STANDARD-DEVIATION" => {
+                let xs: Vec<f64> = self.eval_args(args, span)?.iter().map(|v| v.as_f64()).collect();
+                if xs.is_empty() { return Ok(CobolValue::from_i64(0)); }
+                let mean = xs.iter().sum::<f64>() / xs.len() as f64;
+                let var = xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / xs.len() as f64;
+                Ok(CobolValue::from_f64(if name.eq_ignore_ascii_case("VARIANCE") { var } else { var.sqrt() }))
+            }
+            // ── Math ──────────────────────────────────────────────────────────
+            "FACTORIAL" => {
+                let n = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0).max(0);
+                let mut f: i128 = 1;
+                for k in 2..=n as i128 { f *= k; }
+                Ok(CobolValue::from_i64(f as i64))
+            }
+            "SIN"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().sin())),
+            "COS"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().cos())),
+            "TAN"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().tan())),
+            "ASIN"  => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().asin())),
+            "ACOS"  => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().acos())),
+            "ATAN"  => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().atan())),
+            "LOG"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().ln())),
+            "LOG10" => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().log10())),
+            "EXP"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().exp())),
+            "EXP10" => Ok(CobolValue::from_f64(10f64.powf(self.eval_expr(&args[0], span)?.as_f64()))),
+            "PI"    => Ok(CobolValue::from_f64(std::f64::consts::PI)),
+            "STORED-CHAR-LENGTH" => {
+                let s = self.eval_expr(&args[0], span)?.as_display_string();
+                Ok(CobolValue::from_i64(s.trim_end().len() as i64))
+            }
+            "WHEN-COMPILED" => {
+                let s = current_date_string();
+                let len = s.len();
+                Ok(CobolValue::from_str(&s, len))
+            }
             _ => {
                 tracing::warn!("Unknown intrinsic function '{}' — returning 0", name);
                 Ok(CobolValue::from_i64(0))
