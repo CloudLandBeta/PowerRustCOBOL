@@ -392,7 +392,8 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let mut record_key: Option<String> = None;
     let mut file_status: Option<String> = None;
     let mut alternate_keys: Vec<AlternateKey> = Vec::new();
-    let mut storage_mode = StorageMode::Memory;
+    // No STORAGE clause ⇒ default to DISK.
+    let mut storage_mode = StorageMode::Disk;
     let mut data_compressing = false;
 
     while !p.at(&Token::Period) && !p.at(&Token::Eof) {

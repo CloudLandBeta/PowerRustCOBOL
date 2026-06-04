@@ -193,7 +193,8 @@ planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
   `FileControl.storage_mode`/`.data_compressing`; `ASSIGN TO` still required.
   `MODE` optional; compression accepts `COMPRESSION` or `DATA COMPRESSING`, and a
   standalone `WITH COMPRESSION` (no STORAGE clause) is allowed. **Default storage
-  = MEMORY.** `make_indexed_engine` dispatches by `StorageMode` to a
+  (no STORAGE clause) = DISK** (`StorageMode` derives `#[default] Disk`; the
+  parser inits to `Disk`). `make_indexed_engine` dispatches by `StorageMode` to a
   `Box<dyn IndexedStore>`. Parser also handles the spaced `ALTERNATE RECORD KEY …
   [WITH DUPLICATES]` form.
 - **Duplicate-alternate WRITE returns `00`** (not the informational `02`): a

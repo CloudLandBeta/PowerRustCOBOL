@@ -35,6 +35,9 @@ File I/O fixes surfaced by the storage/compression File I/O test pack
 
 ### Behaviour
 
+- **Default storage is `DISK`.** When an INDEXED file has no `STORAGE` clause,
+  it now uses the on-disk paged B+tree engine (was MEMORY). `STORAGE IS MEMORY`
+  selects the in-RAM engine explicitly.
 - Writing a record that creates a duplicate value on an `ALTERNATE RECORD KEY …
   WITH DUPLICATES` is now a fully successful `00` write (previously the
   informational `02`). `WITHOUT DUPLICATES` violations still return `22`.

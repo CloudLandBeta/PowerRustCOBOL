@@ -117,11 +117,11 @@ pub enum AccessMode {
 /// Where an INDEXED file's data lives at runtime (PowerRustCOBOL extension):
 /// `MEMORY` is the in-RAM `BTreeMap` engine (whole file in memory, persisted to
 /// the ASSIGN path); `DISK` is the persistent paged B+tree engine (records stay
-/// on disk, fetched on demand). The default is `MEMORY`.
+/// on disk, fetched on demand). **The default (no `STORAGE` clause) is `DISK`.**
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum StorageMode {
-    #[default]
     Memory,
+    #[default]
     Disk,
 }
 
