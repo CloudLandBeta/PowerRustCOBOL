@@ -381,14 +381,21 @@ fn parse_divide(p: &mut Parser) -> Stmt {
 fn parse_compute(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // COMPUTE
-    let target = parse_expr(p);
-    // COBOL syntax: `COMPUTE target [ROUNDED] = expression`.
-    let rounded = p.eat(&Token::Rounded);
+    // `COMPUTE r1 [ROUNDED] [r2 [ROUNDED] …] = expression`.
+    let mut targets = Vec::new();
+    while !p.at(&Token::Eq) && !p.at(&Token::Eof) && !p.at(&Token::Period) {
+        let t = parse_expr(p);
+        let rounded = p.eat(&Token::Rounded);
+        targets.push((t, rounded));
+        if !is_expr_start(p) {
+            break;
+        }
+    }
     p.expect(&Token::Eq); // =
     let expr = parse_expr(p);
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndCompute);
     p.eat(&Token::EndCompute);
-    Stmt::Compute { target, expr, rounded, on_size_error, not_on_size_error, span }
+    Stmt::Compute { targets, expr, on_size_error, not_on_size_error, span }
 }
 
 // ── IF ────────────────────────────────────────────────────────────────────────

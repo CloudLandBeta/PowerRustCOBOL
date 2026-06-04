@@ -613,8 +613,8 @@ impl Interpreter {
                 self.exec_multiply(lhs, by, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
             Stmt::Divide { lhs, by, giving, remainder, rounded, on_size_error, not_on_size_error, span } =>
                 self.exec_divide(lhs, by, giving.as_ref(), remainder.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
-            Stmt::Compute { target, expr, rounded, on_size_error, not_on_size_error, span } =>
-                self.exec_compute(target, expr, *rounded, on_size_error, not_on_size_error, *span),
+            Stmt::Compute { targets, expr, on_size_error, not_on_size_error, span } =>
+                self.exec_compute(targets, expr, on_size_error, not_on_size_error, *span),
 
             // ── Control flow ──────────────────────────────────────────────────
             Stmt::If { condition, then_stmts, else_stmts, .. } =>
@@ -958,16 +958,19 @@ impl Interpreter {
 
     fn exec_compute(
         &mut self,
-        target: &Expr,
+        targets: &[(Expr, bool)],
         expr: &Expr,
-        rounded: bool,
         on_size_error: &[Stmt],
         not_on_size_error: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let val = self.eval_expr(expr, span)?;
-        let name = self.expr_to_name(target);
-        let size_err = self.store_arith(&name, val, rounded, !on_size_error.is_empty());
+        let has = !on_size_error.is_empty();
+        let mut size_err = false;
+        for (target, rounded) in targets {
+            let name = self.expr_to_name(target);
+            size_err |= self.store_arith(&name, val.clone(), *rounded, has);
+        }
         self.run_size_error(size_err, on_size_error, not_on_size_error)
     }
 

@@ -118,8 +118,8 @@ impl<'a> TypeCtx<'a> {
     fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             // ── Arithmetic verbs ──────────────────────────────────────────────
-            Stmt::Compute { target, .. } => {
-                self.require_numeric_receiver(target, "COMPUTE");
+            Stmt::Compute { targets, .. } => {
+                for (t, _) in targets { self.require_numeric_receiver(t, "COMPUTE"); }
             }
             Stmt::Add { to, giving, .. } => {
                 if let Some(g) = giving {

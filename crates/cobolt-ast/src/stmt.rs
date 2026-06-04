@@ -304,9 +304,9 @@ pub enum Stmt {
 
     /// `COMPUTE target = expr`
     Compute {
-        target: Expr,
+        /// Receiving fields, each with its own `ROUNDED` flag.
+        targets: Vec<(Expr, bool)>,
         expr: Expr,
-        rounded: bool,
         on_size_error: Vec<Stmt>,
         not_on_size_error: Vec<Stmt>,
         span: Span,

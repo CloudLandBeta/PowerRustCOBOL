@@ -265,14 +265,13 @@ fn stmt_add() {
 #[test]
 fn stmt_compute() {
     let s = Stmt::Compute {
-        target: Expr::Identifier("WS-RESULT".into(), dummy_span()),
+        targets: vec![(Expr::Identifier("WS-RESULT".into(), dummy_span()), false)],
         expr: Expr::Arithmetic {
             op: ArithOp::Mul,
             lhs: Box::new(Expr::Identifier("WS-A".into(), dummy_span())),
             rhs: Box::new(Expr::Identifier("WS-B".into(), dummy_span())),
             span: dummy_span(),
         },
-        rounded: false,
         on_size_error: vec![],
         not_on_size_error: vec![],
         span: dummy_span(),

@@ -100,8 +100,8 @@ impl<'a> ResolveCtx<'a> {
                 if let Some(g) = giving    { self.resolve_expr(g); }
                 if let Some(r) = remainder { self.resolve_expr(r); }
             }
-            Stmt::Compute { target, expr, .. } => {
-                self.resolve_expr(target);
+            Stmt::Compute { targets, expr, .. } => {
+                for (t, _) in targets { self.resolve_expr(t); }
                 self.resolve_expr(expr);
             }
             Stmt::If { condition, then_stmts, else_stmts, .. } => {
