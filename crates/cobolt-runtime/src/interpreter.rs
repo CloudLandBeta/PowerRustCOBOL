@@ -33,7 +33,7 @@ use cobolt_ast::{
            SignCond, UnaryOp},
     program::{AccessMode, AlternateKey, FileOrganization, ProcedureBody, Program},
     stmt::{
-        AcceptSource, CallArg, EvalSubject, InspectSpec, OpenMode, PerformTarget,
+        AcceptSource, CallArg, EvalSubject, ExitKind, InspectSpec, OpenMode, PerformTarget,
         ReplaceWhat, Stmt, TallyFor, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
     },
 };
@@ -48,6 +48,18 @@ use crate::{
     objects::ObjectRegistry,
     value::{CobolValue, CobolNumeric},
 };
+
+// ── Inline-PERFORM loop control ─────────────────────────────────────────────
+
+/// Outcome of running one inline-PERFORM loop body.
+enum LoopStep {
+    /// Continue to the next iteration (normal completion or `EXIT PERFORM CYCLE`).
+    Continue,
+    /// Terminate the loop (`EXIT PERFORM`).
+    Break,
+    /// A real error / non-loop control signal that must propagate.
+    Err(RuntimeError),
+}
 
 // ── File I/O ──────────────────────────────────────────────────────────────────
 
@@ -440,7 +452,12 @@ impl Interpreter {
                 None => { idx += 1; continue; }
             };
             match self.exec_stmts(&stmts) {
-                Ok(()) => idx += 1,
+                // EXIT PARAGRAPH/SECTION and NEXT SENTENCE end the current
+                // paragraph; sequential flow then continues with the next one.
+                Ok(())
+                | Err(RuntimeError::ExitParagraph)
+                | Err(RuntimeError::ExitSection)
+                | Err(RuntimeError::NextSentence) => idx += 1,
                 Err(RuntimeError::GoTo { target }) => {
                     let upper = target.to_ascii_uppercase();
                     match self.para_order.iter().position(|n| n == &upper) {
@@ -490,7 +507,10 @@ impl Interpreter {
                 None => { idx += 1; continue; }
             };
             match self.exec_stmts(&stmts) {
-                Ok(()) => idx += 1,
+                Ok(())
+                | Err(RuntimeError::ExitParagraph)
+                | Err(RuntimeError::ExitSection)
+                | Err(RuntimeError::NextSentence) => idx += 1,
                 Err(RuntimeError::GoTo { target }) => {
                     let upper = target.to_ascii_uppercase();
                     match para_order.iter().position(|n| n == &upper) {
@@ -640,7 +660,19 @@ impl Interpreter {
                 Err(RuntimeError::GoTo { target: target.clone() }),
             Stmt::GoToDepending { targets, depending, span } =>
                 self.exec_go_to_depending(targets, depending, *span),
+            // NEXT SENTENCE is approximated as CONTINUE: faithful semantics
+            // (jump past the next period) would require sentence-boundary
+            // tracking in the AST, which we do not keep. This matches the
+            // dominant `IF … NEXT SENTENCE END-IF` idiom.
             Stmt::Continue { .. } | Stmt::NextSentence { .. } => Ok(()),
+            Stmt::Exit { kind, .. } => match kind {
+                ExitKind::Point => Ok(()),
+                ExitKind::Program => Err(RuntimeError::GoBack),
+                ExitKind::Perform => Err(RuntimeError::ExitPerform { cycle: false }),
+                ExitKind::PerformCycle => Err(RuntimeError::ExitPerform { cycle: true }),
+                ExitKind::Paragraph => Err(RuntimeError::ExitParagraph),
+                ExitKind::Section => Err(RuntimeError::ExitSection),
+            },
 
             // ── I/O ───────────────────────────────────────────────────────────
             Stmt::Accept { target, from, span } =>
@@ -1243,6 +1275,29 @@ impl Interpreter {
         }
     }
 
+    /// Run a performed paragraph/section body, absorbing the signals that mean
+    /// "return from this paragraph/section": `EXIT PARAGRAPH`, `EXIT SECTION`,
+    /// and `NEXT SENTENCE` reaching the end.
+    fn exec_para_body(&mut self, stmts: &[Stmt]) -> Result<(), RuntimeError> {
+        match self.exec_stmts(stmts) {
+            Err(RuntimeError::ExitParagraph)
+            | Err(RuntimeError::ExitSection)
+            | Err(RuntimeError::NextSentence) => Ok(()),
+            other => other,
+        }
+    }
+
+    /// Run one inline-PERFORM loop body, translating `EXIT PERFORM [CYCLE]`
+    /// signals into loop control: `CYCLE` → next iteration, plain → break.
+    fn exec_loop_body(&mut self, stmts: &[Stmt]) -> LoopStep {
+        match self.exec_stmts(stmts) {
+            Ok(()) => LoopStep::Continue,
+            Err(RuntimeError::ExitPerform { cycle: true }) => LoopStep::Continue,
+            Err(RuntimeError::ExitPerform { cycle: false }) => LoopStep::Break,
+            Err(e) => LoopStep::Err(e),
+        }
+    }
+
     fn exec_perform(&mut self, target: &PerformTarget, span: Span) -> Result<(), RuntimeError> {
         if self.perform_depth >= MAX_PERFORM_DEPTH {
             return Err(RuntimeError::PerformDepthExceeded { max: MAX_PERFORM_DEPTH });
@@ -1261,43 +1316,58 @@ impl Interpreter {
         match target {
             PerformTarget::Paragraph(name, s) => {
                 let stmts = self.para_stmts(name, *s)?;
-                self.exec_stmts(&stmts)
+                self.exec_para_body(&stmts)
             }
             PerformTarget::Section(name, s) => {
                 // Treat a section PERFORM as executing all paragraphs in it.
                 // We collect paragraphs whose names start with SECTION-NAME-*
                 // (or exactly match).  Simplified: just find by name.
                 match self.para_stmts(name, *s) {
-                    Ok(stmts) => self.exec_stmts(&stmts),
+                    Ok(stmts) => self.exec_para_body(&stmts),
                     Err(_) => {
                         // Try section as a block of paragraphs
                         let upper = name.to_ascii_uppercase();
                         let stmts = self.collect_section_stmts(&upper);
-                        self.exec_stmts(&stmts)
+                        self.exec_para_body(&stmts)
                     }
                 }
             }
             PerformTarget::Thru { from, to, span: s } => {
                 let stmts = self.thru_stmts(from, to, *s)?;
-                self.exec_stmts(&stmts)
+                self.exec_para_body(&stmts)
             }
             PerformTarget::Inline { stmts } =>
-                self.exec_stmts(stmts),
+                match self.exec_loop_body(stmts) {
+                    LoopStep::Continue | LoopStep::Break => Ok(()),
+                    LoopStep::Err(e) => Err(e),
+                },
             PerformTarget::Times { count, stmts } => {
                 let n = self.eval_expr(count, span)?.as_i64().unwrap_or(0).max(0);
                 for _ in 0..n {
-                    self.exec_stmts(stmts)?;
+                    match self.exec_loop_body(stmts) {
+                        LoopStep::Continue => {}
+                        LoopStep::Break => break,
+                        LoopStep::Err(e) => return Err(e),
+                    }
                 }
                 Ok(())
             }
             PerformTarget::Until { condition, test_before, stmts } => {
                 if *test_before {
                     while !self.eval_condition(condition)? {
-                        self.exec_stmts(stmts)?;
+                        match self.exec_loop_body(stmts) {
+                            LoopStep::Continue => {}
+                            LoopStep::Break => break,
+                            LoopStep::Err(e) => return Err(e),
+                        }
                     }
                 } else {
                     loop {
-                        self.exec_stmts(stmts)?;
+                        match self.exec_loop_body(stmts) {
+                            LoopStep::Continue => {}
+                            LoopStep::Break => break,
+                            LoopStep::Err(e) => return Err(e),
+                        }
                         if self.eval_condition(condition)? { break; }
                     }
                 }
@@ -1333,8 +1403,9 @@ impl Interpreter {
         loop {
             if self.eval_condition(until)? { break; }
 
-            // Inner AFTER loops (right-most varies fastest)
-            self.exec_perform_after(after, stmts, span)?;
+            // Inner AFTER loops (right-most varies fastest). `EXIT PERFORM`
+            // (without CYCLE) anywhere inside breaks out of the whole VARYING.
+            if self.exec_perform_after(after, stmts, span)? { break; }
 
             // Increment outer variable
             let by_val = self.eval_expr(by, span)?;
@@ -1345,14 +1416,20 @@ impl Interpreter {
         Ok(())
     }
 
+    /// Returns `Ok(true)` when an `EXIT PERFORM` (no CYCLE) requested the entire
+    /// VARYING be terminated; `EXIT PERFORM CYCLE` continues the innermost loop.
     fn exec_perform_after(
         &mut self,
         after: &[VaryingAfter],
         stmts: &[Stmt],
         span: Span,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<bool, RuntimeError> {
         if after.is_empty() {
-            return self.exec_stmts(stmts);
+            return match self.exec_loop_body(stmts) {
+                LoopStep::Continue => Ok(false),
+                LoopStep::Break => Ok(true),
+                LoopStep::Err(e) => Err(e),
+            };
         }
         let (head, tail) = (&after[0], &after[1..]);
         let from_val = self.eval_expr(&head.from, span)?;
@@ -1361,13 +1438,13 @@ impl Interpreter {
 
         loop {
             if self.eval_condition(&head.until)? { break; }
-            self.exec_perform_after(tail, stmts, span)?;
+            if self.exec_perform_after(tail, stmts, span)? { return Ok(true); }
             let by_val = self.eval_expr(&head.by, span)?;
             let cur = self.env.get(&var_name).cloned()
                 .unwrap_or_else(|| CobolValue::from_i64(0));
             self.env.set(&var_name, cur.add_val(&by_val));
         }
-        Ok(())
+        Ok(false)
     }
 
     fn exec_go_to_depending(

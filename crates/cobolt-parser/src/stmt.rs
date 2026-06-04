@@ -11,7 +11,7 @@
 
 use cobolt_ast::expr::{CmpOp, Condition, Expr, Literal};
 use cobolt_ast::stmt::{
-    AcceptSource, AdvancingClause, CallArg, EvalSubject, ExecRustBinding, OpenMode,
+    AcceptSource, AdvancingClause, CallArg, EvalSubject, ExecRustBinding, ExitKind, OpenMode,
     PerformTarget, ReadDirection, Stmt, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
 };
 use cobolt_lexer::Token;
@@ -820,10 +820,26 @@ fn parse_stop(p: &mut Parser) -> Stmt {
 fn parse_exit(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // EXIT
-    // EXIT PROGRAM or plain EXIT
-    p.eat(&Token::Program);
-    // Encode as STOP RUN for simplicity — EXIT PROGRAM returns to caller
-    Stmt::Stop { run: true, literal: None, span }
+    // EXIT [PROGRAM | PERFORM [CYCLE] | PARAGRAPH | SECTION] — the qualifier
+    // words PERFORM / PARAGRAPH / SECTION / CYCLE arrive as identifier tokens.
+    let kind = if p.eat(&Token::Program) {
+        ExitKind::Program
+    } else if p.at(&Token::Perform) {
+        p.advance();
+        if matches!(ident_upper(p).as_deref(), Some("CYCLE")) {
+            p.advance();
+            ExitKind::PerformCycle
+        } else {
+            ExitKind::Perform
+        }
+    } else {
+        match ident_upper(p).as_deref() {
+            Some("PARAGRAPH") => { p.advance(); ExitKind::Paragraph }
+            Some("SECTION")   => { p.advance(); ExitKind::Section }
+            _ => ExitKind::Point,
+        }
+    };
+    Stmt::Exit { kind, span }
 }
 
 // ── OPEN ──────────────────────────────────────────────────────────────────────

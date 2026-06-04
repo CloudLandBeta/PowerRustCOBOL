@@ -43,6 +43,24 @@ pub enum RuntimeError {
     #[error("GO TO {target}")]
     GoTo { target: String },
 
+    /// `EXIT PERFORM [CYCLE]` — control-flow signal caught by the nearest
+    /// enclosing inline PERFORM loop. `cycle` = continue to the next iteration;
+    /// otherwise terminate the loop.
+    #[error("EXIT PERFORM")]
+    ExitPerform { cycle: bool },
+
+    /// `EXIT PARAGRAPH` — return from the current paragraph.
+    #[error("EXIT PARAGRAPH")]
+    ExitParagraph,
+
+    /// `EXIT SECTION` — return from the current section.
+    #[error("EXIT SECTION")]
+    ExitSection,
+
+    /// `NEXT SENTENCE` — transfer control past the next sentence boundary.
+    #[error("NEXT SENTENCE")]
+    NextSentence,
+
     /// Arithmetic overflow.
     #[error("arithmetic overflow at {span}")]
     Overflow { span: Span },

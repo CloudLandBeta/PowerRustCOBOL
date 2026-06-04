@@ -96,6 +96,23 @@ pub enum EvalSubject {
     False_,
 }
 
+/// The flavour of an `EXIT` statement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExitKind {
+    /// Plain `EXIT` — a no-op return point (used as a `THRU` paragraph end).
+    Point,
+    /// `EXIT PROGRAM` — return to the calling program.
+    Program,
+    /// `EXIT PERFORM` — terminate the nearest inline PERFORM loop.
+    Perform,
+    /// `EXIT PERFORM CYCLE` — continue with the next inline PERFORM iteration.
+    PerformCycle,
+    /// `EXIT PARAGRAPH` — return from the current paragraph.
+    Paragraph,
+    /// `EXIT SECTION` — return from the current section.
+    Section,
+}
+
 /// PERFORM target variants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PerformTarget {
@@ -384,6 +401,9 @@ pub enum Stmt {
     /// `CONTINUE`
     Continue { span: Span },
 
+    /// `EXIT [PROGRAM | PERFORM [CYCLE] | PARAGRAPH | SECTION]`
+    Exit { kind: ExitKind, span: Span },
+
     /// `NEXT SENTENCE`
     NextSentence { span: Span },
 
@@ -651,6 +671,7 @@ impl Stmt {
             Stmt::GoTo { span, .. }              => *span,
             Stmt::GoToDepending { span, .. }     => *span,
             Stmt::Continue { span }              => *span,
+            Stmt::Exit { span, .. }              => *span,
             Stmt::NextSentence { span }          => *span,
             Stmt::Open { span, .. }              => *span,
             Stmt::Close { span, .. }             => *span,
