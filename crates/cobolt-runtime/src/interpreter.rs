@@ -2770,6 +2770,39 @@ impl Interpreter {
                 let len = s.len();
                 Ok(CobolValue::from_str(&s, len))
             }
+            // ── Date / day conversions (standard base: 1601-01-01 = day 1) ──
+            "INTEGER-OF-DATE" => {
+                let yyyymmdd = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0);
+                Ok(CobolValue::from_i64(integer_of_date(yyyymmdd)))
+            }
+            "DATE-OF-INTEGER" => {
+                let n = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0);
+                Ok(CobolValue::from_i64(date_of_integer(n)))
+            }
+            "INTEGER-OF-DAY" => {
+                let yyyyddd = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0);
+                Ok(CobolValue::from_i64(integer_of_day(yyyyddd)))
+            }
+            "DAY-OF-INTEGER" => {
+                let n = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0);
+                Ok(CobolValue::from_i64(day_of_integer(n)))
+            }
+            "FRACTION-PART" => {
+                let x = self.eval_expr(&args[0], span)?.as_f64();
+                Ok(CobolValue::from_f64(x - x.trunc()))
+            }
+            "ANNUITY" => {
+                // Ratio of one payment to the present value of a series of `n`
+                // payments at interest `rate`: rate / (1 − (1+rate)^−n).
+                let rate = self.eval_expr(&args[0], span)?.as_f64();
+                let n = self.eval_expr(&args[1], span)?.as_f64();
+                let v = if rate == 0.0 {
+                    if n == 0.0 { 0.0 } else { 1.0 / n }
+                } else {
+                    rate / (1.0 - (1.0 + rate).powf(-n))
+                };
+                Ok(CobolValue::from_f64(v))
+            }
             _ => {
                 tracing::warn!("Unknown intrinsic function '{}' — returning 0", name);
                 Ok(CobolValue::from_i64(0))
@@ -3148,6 +3181,67 @@ fn runtime_time() -> String {
     let m = (secs % 3600)  / 60;
     let s = secs % 60;
     format!("{h:02}{m:02}{s:02}00")
+}
+
+/// Days in `month` (1–12) of `year`, accounting for leap years.
+fn cob_days_in_month(year: i64, month: i64) -> i64 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if is_leap(year.max(0) as u64) { 29 } else { 28 },
+        _ => 0,
+    }
+}
+
+/// COBOL `INTEGER-OF-DATE(yyyymmdd)`: days since the base 1600-12-31
+/// (so 1601-01-01 → 1).
+fn integer_of_date(yyyymmdd: i64) -> i64 {
+    let (y, m, d) = (yyyymmdd / 10000, (yyyymmdd / 100) % 100, yyyymmdd % 100);
+    let mut days = 0i64;
+    for yy in 1601..y {
+        days += if is_leap(yy as u64) { 366 } else { 365 };
+    }
+    for mm in 1..m {
+        days += cob_days_in_month(y, mm);
+    }
+    days + d
+}
+
+/// COBOL `DATE-OF-INTEGER(n)` → `yyyymmdd` (inverse of `integer_of_date`).
+fn date_of_integer(n: i64) -> i64 {
+    let mut rem = n;
+    let mut y = 1601i64;
+    loop {
+        let dy = if is_leap(y as u64) { 366 } else { 365 };
+        if rem > dy { rem -= dy; y += 1; } else { break; }
+    }
+    let mut m = 1i64;
+    loop {
+        let dm = cob_days_in_month(y, m);
+        if rem > dm { rem -= dm; m += 1; } else { break; }
+    }
+    y * 10000 + m * 100 + rem
+}
+
+/// COBOL `INTEGER-OF-DAY(yyyyddd)`: days since 1600-12-31 from a Julian date.
+fn integer_of_day(yyyyddd: i64) -> i64 {
+    let (y, ddd) = (yyyyddd / 1000, yyyyddd % 1000);
+    let mut days = 0i64;
+    for yy in 1601..y {
+        days += if is_leap(yy as u64) { 366 } else { 365 };
+    }
+    days + ddd
+}
+
+/// COBOL `DAY-OF-INTEGER(n)` → `yyyyddd` (inverse of `integer_of_day`).
+fn day_of_integer(n: i64) -> i64 {
+    let mut rem = n;
+    let mut y = 1601i64;
+    loop {
+        let dy = if is_leap(y as u64) { 366 } else { 365 };
+        if rem > dy { rem -= dy; y += 1; } else { break; }
+    }
+    y * 1000 + rem
 }
 
 /// Return Julian day as `YYDDD` (5 chars).
