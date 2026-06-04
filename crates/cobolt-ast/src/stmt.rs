@@ -175,11 +175,22 @@ pub struct SortKey {
     pub fields: Vec<Expr>,
 }
 
+/// A `BEFORE/AFTER INITIAL delimiter` region qualifier for an INSPECT phrase.
+/// Both `None` means the whole field.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct InspectRegion {
+    /// `AFTER INITIAL delimiter` — start the scan after the first delimiter.
+    pub after: Option<Expr>,
+    /// `BEFORE INITIAL delimiter` — stop the scan before the first delimiter.
+    pub before: Option<Expr>,
+}
+
 /// INSPECT TALLYING spec for one counter.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TallySpec {
     pub counter: Expr,
-    pub for_: Vec<TallyFor>,
+    /// Each FOR phrase plus its optional BEFORE/AFTER INITIAL region.
+    pub for_: Vec<(TallyFor, InspectRegion)>,
 }
 
 /// What to tally.
@@ -196,6 +207,8 @@ pub enum TallyFor {
 pub struct ReplaceSpec {
     pub what: ReplaceWhat,
     pub by: Expr,
+    /// Optional BEFORE/AFTER INITIAL region this replacement is confined to.
+    pub region: InspectRegion,
 }
 
 /// What to replace in an INSPECT REPLACING clause.

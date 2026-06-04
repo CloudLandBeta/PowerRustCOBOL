@@ -33,8 +33,9 @@ use cobolt_ast::{
            SignCond, UnaryOp},
     program::{AccessMode, AlternateKey, FileOrganization, ProcedureBody, Program},
     stmt::{
-        AcceptSource, CallArg, EvalSubject, ExitKind, InspectSpec, OpenMode, PerformTarget,
-        ReplaceWhat, Stmt, TallyFor, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
+        AcceptSource, CallArg, EvalSubject, ExitKind, InspectRegion, InspectSpec, OpenMode,
+        PerformTarget, ReplaceWhat, Stmt, TallyFor, UnstringTarget, VaryingAfter, WhenClause,
+        WhenValue,
     },
 };
 use cobolt_lexer::Span;
@@ -1624,6 +1625,38 @@ impl Interpreter {
 
     // ── INSPECT ───────────────────────────────────────────────────────────────
 
+    /// Resolve a `BEFORE/AFTER INITIAL` region to a `[lo, hi)` byte window of
+    /// `s`. `AFTER INITIAL d` starts just past the first `d`; `BEFORE INITIAL d`
+    /// ends just before the first `d` (searched from `lo`). Whole field by default.
+    fn inspect_window(
+        &mut self,
+        s: &str,
+        region: &InspectRegion,
+        span: Span,
+    ) -> Result<(usize, usize), RuntimeError> {
+        let lo = match &region.after {
+            Some(e) => {
+                let d = self.eval_expr(e, span)?.as_display_string();
+                match (d.is_empty(), s.find(&d)) {
+                    (false, Some(p)) => p + d.len(),
+                    _ => s.len(),
+                }
+            }
+            None => 0,
+        };
+        let hi = match &region.before {
+            Some(e) => {
+                let d = self.eval_expr(e, span)?.as_display_string();
+                match (d.is_empty(), s[lo..].find(&d)) {
+                    (false, Some(p)) => lo + p,
+                    _ => s.len(),
+                }
+            }
+            None => s.len(),
+        };
+        Ok((lo.min(s.len()), hi.max(lo).min(s.len())))
+    }
+
     fn exec_inspect(&mut self, target: &Expr, spec: &InspectSpec, span: Span) -> Result<(), RuntimeError> {
         let name = self.resolve_lvalue(target);
         let val  = self.env.get(&name).cloned()
@@ -1634,25 +1667,24 @@ impl Interpreter {
             InspectSpec::Tallying(tallies) => {
                 for tally in tallies {
                     let ctr_name = self.resolve_lvalue(&tally.counter);
-                    let mut count = 0i64;
-                    for for_ in &tally.for_ {
-                        count += match for_ {
-                            TallyFor::Characters => s.len() as i64,
+                    // INSPECT TALLYING accumulates onto the counter's value.
+                    let mut count = self.env.get_i64(&ctr_name).unwrap_or(0);
+                    for (kind, region) in &tally.for_ {
+                        let (lo, hi) = self.inspect_window(&s, region, span)?;
+                        let win = &s[lo..hi];
+                        count += match kind {
+                            TallyFor::Characters => win.len() as i64,
                             TallyFor::All(e) => {
                                 let pat = self.eval_expr(e, span)?.as_display_string();
-                                s.matches(pat.as_str()).count() as i64
+                                if pat.is_empty() { 0 } else { win.matches(pat.as_str()).count() as i64 }
                             }
                             TallyFor::Leading(e) => {
                                 let pat = self.eval_expr(e, span)?.as_display_string();
-                                s.chars()
-                                    .take_while(|c| pat.contains(*c))
-                                    .count() as i64
+                                win.chars().take_while(|c| pat.contains(*c)).count() as i64
                             }
                             TallyFor::Trailing(e) => {
                                 let pat = self.eval_expr(e, span)?.as_display_string();
-                                s.chars().rev()
-                                    .take_while(|c| pat.contains(*c))
-                                    .count() as i64
+                                win.chars().rev().take_while(|c| pat.contains(*c)).count() as i64
                             }
                         };
                     }
@@ -1662,40 +1694,41 @@ impl Interpreter {
             InspectSpec::Replacing(replaces) => {
                 for rep in replaces {
                     let by = self.eval_expr(&rep.by, span)?.as_display_string();
+                    let (lo, hi) = self.inspect_window(&s, &rep.region, span)?;
+                    let mut win = s[lo..hi].to_string();
                     match &rep.what {
                         ReplaceWhat::All(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
-                            s = s.replace(pat.as_str(), &by);
+                            if !pat.is_empty() { win = win.replace(pat.as_str(), &by); }
                         }
                         ReplaceWhat::First(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
-                            if let Some(pos) = s.find(pat.as_str()) {
-                                s.replace_range(pos..pos + pat.len(), &by);
+                            if let Some(pos) = win.find(pat.as_str()) {
+                                win.replace_range(pos..pos + pat.len(), &by);
                             }
                         }
                         ReplaceWhat::Leading(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
-                            while s.starts_with(pat.as_str()) {
+                            while !pat.is_empty() && win.starts_with(pat.as_str()) {
                                 let end = pat.len();
                                 let repl_len = by.len().min(end);
-                                s.replace_range(0..end, &by[..repl_len]);
+                                win.replace_range(0..end, &by[..repl_len]);
                             }
                         }
                         ReplaceWhat::Trailing(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
-                            while s.ends_with(pat.as_str()) {
-                                let start = s.len() - pat.len();
+                            while !pat.is_empty() && win.ends_with(pat.as_str()) {
+                                let start = win.len() - pat.len();
                                 let repl_len = by.len().min(pat.len());
-                                s.replace_range(start.., &by[..repl_len]);
+                                win.replace_range(start.., &by[..repl_len]);
                             }
                         }
                         ReplaceWhat::Characters => {
-                            let new_s: String = s.chars()
-                                .map(|_| by.chars().next().unwrap_or(' '))
-                                .collect();
-                            s = new_s;
+                            let fill = by.chars().next().unwrap_or(' ');
+                            win = win.chars().map(|_| fill).collect();
                         }
                     }
+                    s = format!("{}{}{}", &s[..lo], win, &s[hi..]);
                 }
                 self.env.set_str(&name, &s);
             }

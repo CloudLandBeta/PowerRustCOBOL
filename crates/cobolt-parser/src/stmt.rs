@@ -1413,7 +1413,7 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
 // ── INSPECT ───────────────────────────────────────────────────────────────────
 
 fn parse_inspect(p: &mut Parser) -> Stmt {
-    use cobolt_ast::stmt::{InspectSpec, ReplaceSpec, ReplaceWhat, TallyFor, TallySpec};
+    use cobolt_ast::stmt::InspectSpec;
 
     let span = p.peek_span();
     p.advance(); // INSPECT
@@ -1428,30 +1428,16 @@ fn parse_inspect(p: &mut Parser) -> Stmt {
         return Stmt::Inspect { target, spec: InspectSpec::Converting { from, to }, span };
     }
 
-    // TALLYING …
+    // TALLYING … [REPLACING …]
     if p.at(&Token::Tallying) {
         p.advance();
-        let mut tallies: Vec<TallySpec> = Vec::new();
-        while is_expr_start(p) {
-            let counter = parse_expr(p);
-            p.eat_for_kw(); // FOR keyword
-            let mut for_ = Vec::new();
-            loop {
-                if p.at(&Token::Characters) { p.advance(); for_.push(TallyFor::Characters); }
-                else if p.at(&Token::All) { p.advance(); for_.push(TallyFor::All(parse_expr(p))); }
-                else if p.at(&Token::Leading) { p.advance(); for_.push(TallyFor::Leading(parse_expr(p))); }
-                else if p.at(&Token::Trailing) { p.advance(); for_.push(TallyFor::Trailing(parse_expr(p))); }
-                else { break; }
-            }
-            tallies.push(TallySpec { counter, for_ });
-        }
+        let tallies = parse_tally_specs(p);
         if p.at(&Token::Replacing) {
             p.advance();
-            // Simplified: skip REPLACING for now
-            while !p.at_end_of_sentence() && !p.at(&Token::Eof) { p.advance(); }
+            let specs = parse_replace_specs(p);
             return Stmt::Inspect {
                 target,
-                spec: InspectSpec::TallyingReplacing(tallies, Vec::new()),
+                spec: InspectSpec::TallyingReplacing(tallies, specs),
                 span,
             };
         }
@@ -1461,25 +1447,71 @@ fn parse_inspect(p: &mut Parser) -> Stmt {
     // REPLACING …
     if p.at(&Token::Replacing) {
         p.advance();
-        let mut specs: Vec<ReplaceSpec> = Vec::new();
-        loop {
-            let what = if p.at(&Token::Characters) { p.advance(); ReplaceWhat::Characters }
-                else if p.at(&Token::All)     { p.advance(); ReplaceWhat::All(parse_expr(p)) }
-                else if p.at(&Token::Leading) { p.advance(); ReplaceWhat::Leading(parse_expr(p)) }
-                else if p.at(&Token::Trailing){ p.advance(); ReplaceWhat::Trailing(parse_expr(p)) }
-                else if p.at_identifier() && ident_upper(p).as_deref() == Some("FIRST") {
-                    p.advance(); ReplaceWhat::First(parse_expr(p))
-                }
-                else { break; };
-            p.eat(&Token::By);
-            let by = parse_expr(p);
-            specs.push(ReplaceSpec { what, by });
-        }
+        let specs = parse_replace_specs(p);
         return Stmt::Inspect { target, spec: InspectSpec::Replacing(specs), span };
     }
 
     // Fallback: empty tallying
     Stmt::Inspect { target, spec: InspectSpec::Tallying(Vec::new()), span }
+}
+
+/// Parse an optional `[BEFORE|AFTER] INITIAL delimiter` region qualifier.
+fn parse_inspect_region(p: &mut Parser) -> cobolt_ast::stmt::InspectRegion {
+    use cobolt_ast::stmt::InspectRegion;
+    let mut region = InspectRegion::default();
+    loop {
+        let before = p.at(&Token::Before);
+        let after = p.at(&Token::After);
+        if !before && !after { break; }
+        p.advance(); // BEFORE / AFTER
+        // optional INITIAL
+        if matches!(ident_upper(p).as_deref(), Some("INITIAL")) { p.advance(); }
+        let delim = parse_expr(p);
+        if before { region.before = Some(delim); } else { region.after = Some(delim); }
+    }
+    region
+}
+
+fn parse_tally_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::TallySpec> {
+    use cobolt_ast::stmt::{TallyFor, TallySpec};
+    let mut tallies: Vec<TallySpec> = Vec::new();
+    while is_expr_start(p) && !p.at(&Token::Replacing) {
+        let counter = parse_expr(p);
+        p.eat_for_kw(); // FOR keyword
+        let mut for_ = Vec::new();
+        loop {
+            let kind = if p.at(&Token::Characters) { p.advance(); TallyFor::Characters }
+                else if p.at(&Token::All)      { p.advance(); TallyFor::All(parse_expr(p)) }
+                else if p.at(&Token::Leading)  { p.advance(); TallyFor::Leading(parse_expr(p)) }
+                else if p.at(&Token::Trailing) { p.advance(); TallyFor::Trailing(parse_expr(p)) }
+                else { break; };
+            let region = parse_inspect_region(p);
+            for_.push((kind, region));
+        }
+        tallies.push(TallySpec { counter, for_ });
+    }
+    tallies
+}
+
+fn parse_replace_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::ReplaceSpec> {
+    use cobolt_ast::stmt::{ReplaceSpec, ReplaceWhat};
+    let mut specs: Vec<ReplaceSpec> = Vec::new();
+    loop {
+        let what = if p.at(&Token::Characters) { p.advance(); ReplaceWhat::Characters }
+            else if p.at(&Token::All)     { p.advance(); ReplaceWhat::All(parse_expr(p)) }
+            else if p.at(&Token::Leading) { p.advance(); ReplaceWhat::Leading(parse_expr(p)) }
+            else if p.at(&Token::Trailing){ p.advance(); ReplaceWhat::Trailing(parse_expr(p)) }
+            else if p.at_identifier() && ident_upper(p).as_deref() == Some("FIRST") {
+                p.advance(); ReplaceWhat::First(parse_expr(p))
+            }
+            else { break; };
+        // CHARACTERS BY x   /   {ALL|LEADING|…} x BY y
+        p.eat(&Token::By);
+        let by = parse_expr(p);
+        let region = parse_inspect_region(p);
+        specs.push(ReplaceSpec { what, by, region });
+    }
+    specs
 }
 
 // ── SORT ──────────────────────────────────────────────────────────────────────
