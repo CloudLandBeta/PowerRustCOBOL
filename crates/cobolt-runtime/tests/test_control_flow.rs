@@ -101,6 +101,31 @@ fn exit_paragraph_returns_early() {
 }
 
 #[test]
+fn call_not_on_exception_runs_on_success() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLT.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 D PIC X(4) VALUE SPACE.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "SUBP"
+               ON EXCEPTION DISPLAY "EXC1"
+               NOT ON EXCEPTION DISPLAY "OK1"
+           END-CALL
+           CALL "NO-SUCH-PROG"
+               ON EXCEPTION DISPLAY "EXC2"
+               NOT ON EXCEPTION DISPLAY "OK2"
+           END-CALL
+           STOP RUN.
+       SUBP.
+           DISPLAY "INSUB".
+    "#;
+    assert_eq!(run_capture(src), vec!["INSUB", "OK1", "EXC2"]);
+}
+
+#[test]
 fn exit_perform_times_break() {
     let src = r#"
        IDENTIFICATION DIVISION.

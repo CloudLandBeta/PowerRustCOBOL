@@ -712,8 +712,8 @@ impl Interpreter {
             }
 
             // ── Subprogram linkage ────────────────────────────────────────────
-            Stmt::Call { program, using, returning, on_exception, span } =>
-                self.exec_call(program, using, returning.as_ref(), on_exception, *span),
+            Stmt::Call { program, using, returning, on_exception, not_on_exception, span } =>
+                self.exec_call(program, using, returning.as_ref(), on_exception, not_on_exception, *span),
 
             // ── Program termination ───────────────────────────────────────────
             Stmt::Stop { run: true, .. } => Err(RuntimeError::StopRun),
@@ -2116,12 +2116,14 @@ impl Interpreter {
 
     // ── CALL ──────────────────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_call(
         &mut self,
         program: &Expr,
         using: &[CallArg],
         _returning: Option<&Expr>,
         on_exception: &[Stmt],
+        not_on_exception: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
         let prog_name = self.eval_expr(program, span)?
@@ -2129,6 +2131,9 @@ impl Interpreter {
             .trim()
             .to_ascii_uppercase();
 
+        // `NOT ON EXCEPTION` runs only when the call resolved (i.e. unless we
+        // fall into the unresolved-program branch below).
+        let mut resolved = true;
         match prog_name.as_str() {
             // ── Built-in runtime calls (COBOL-* prefix) ────────────
             // COBOL-INIT-FORM USING form-name  — initialise the form; no-op in CLI mode
@@ -2456,12 +2461,17 @@ impl Interpreter {
                     }
                 } else {
                     // Unresolved CALL → run the ON EXCEPTION / ON OVERFLOW body.
+                    resolved = false;
                     tracing::warn!("CALL to unknown program '{}'", prog_name);
                     if !on_exception.is_empty() {
                         self.exec_stmts(on_exception)?;
                     }
                 }
             }
+        }
+        // A successful CALL runs its NOT ON EXCEPTION / NOT ON OVERFLOW body.
+        if resolved && !not_on_exception.is_empty() {
+            self.exec_stmts(not_on_exception)?;
         }
         Ok(())
     }

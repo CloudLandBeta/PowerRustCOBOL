@@ -1619,15 +1619,16 @@ fn parse_call(p: &mut Parser) -> Stmt {
     if eat_on_exception(p) {
         on_exception = parse_stmts(p, &stop);
     }
-    // NOT ON EXCEPTION/OVERFLOW — parsed and discarded (no field for it yet).
+    // NOT [ON] {EXCEPTION | OVERFLOW} — runs when the call resolves.
+    let mut not_on_exception: Vec<Stmt> = Vec::new();
     if p.at(&Token::Not) {
         p.advance();
         eat_on_exception(p);
-        let _ = parse_stmts(p, &|t| matches!(t, Token::EndCall));
+        not_on_exception = parse_stmts(p, &|t| matches!(t, Token::EndCall));
     }
     p.eat(&Token::EndCall);
 
-    Stmt::Call { program, using, returning, on_exception, span }
+    Stmt::Call { program, using, returning, on_exception, not_on_exception, span }
 }
 
 /// Consume `[ON] {EXCEPTION | OVERFLOW}` of a CALL. Returns whether it matched.

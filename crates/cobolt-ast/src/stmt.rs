@@ -544,12 +544,16 @@ pub enum Stmt {
 
     // ── Subprogram linkage ───────────────────────────────────────────────────
 
-    /// `CALL program [USING …] [RETURNING …] [ON EXCEPTION …]`
+    /// `CALL program [USING …] [RETURNING …] [ON EXCEPTION …] [NOT ON EXCEPTION …]`
     Call {
         program: Expr,
         using: Vec<CallArg>,
         returning: Option<Expr>,
+        /// Imperative run when the called program is unresolved.
         on_exception: Vec<Stmt>,
+        /// Imperative run when the call resolved successfully (`NOT ON
+        /// EXCEPTION` / `NOT ON OVERFLOW`).
+        not_on_exception: Vec<Stmt>,
         span: Span,
     },
 

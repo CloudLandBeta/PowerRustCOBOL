@@ -156,7 +156,7 @@ impl<'a> ResolveCtx<'a> {
                 for e in operands { self.resolve_expr(e); }
             }
             Stmt::Accept { target, .. } => self.resolve_expr(target),
-            Stmt::Call { program, using, returning, on_exception, .. } => {
+            Stmt::Call { program, using, returning, on_exception, not_on_exception, .. } => {
                 self.resolve_expr(program);
                 for arg in using {
                     let e = match arg {
@@ -166,6 +166,7 @@ impl<'a> ResolveCtx<'a> {
                 }
                 if let Some(r) = returning { self.resolve_expr(r); }
                 for s in on_exception { self.resolve_stmt(s); }
+                for s in not_on_exception { self.resolve_stmt(s); }
             }
             Stmt::Write { record, from, .. } => {
                 self.resolve_expr(record);
