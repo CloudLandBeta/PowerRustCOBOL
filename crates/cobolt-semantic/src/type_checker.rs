@@ -122,28 +122,24 @@ impl<'a> TypeCtx<'a> {
                 for (t, _) in targets { self.require_numeric_receiver(t, "COMPUTE"); }
             }
             Stmt::Add { to, giving, .. } => {
-                if let Some(g) = giving {
-                    self.require_numeric_receiver(g, "ADD GIVING");
+                if giving.is_empty() {
+                    for (t, _) in to { self.require_numeric_receiver(t, "ADD TO"); }
                 } else {
-                    for t in to { self.require_numeric_receiver(t, "ADD TO"); }
+                    for (g, _) in giving { self.require_numeric_receiver(g, "ADD GIVING"); }
                 }
             }
             Stmt::Subtract { from, giving, .. } => {
-                if let Some(g) = giving {
-                    self.require_numeric_receiver(g, "SUBTRACT GIVING");
+                if giving.is_empty() {
+                    for (f, _) in from { self.require_numeric_receiver(f, "SUBTRACT FROM"); }
                 } else {
-                    for f in from { self.require_numeric_receiver(f, "SUBTRACT FROM"); }
+                    for (g, _) in giving { self.require_numeric_receiver(g, "SUBTRACT GIVING"); }
                 }
             }
             Stmt::Multiply { giving, .. } => {
-                if let Some(g) = giving {
-                    self.require_numeric_receiver(g, "MULTIPLY GIVING");
-                }
+                for (g, _) in giving { self.require_numeric_receiver(g, "MULTIPLY GIVING"); }
             }
             Stmt::Divide { giving, remainder, .. } => {
-                if let Some(g) = giving {
-                    self.require_numeric_receiver(g, "DIVIDE GIVING");
-                }
+                for (g, _) in giving { self.require_numeric_receiver(g, "DIVIDE GIVING"); }
                 if let Some(r) = remainder {
                     self.require_numeric_receiver(r, "DIVIDE REMAINDER");
                 }

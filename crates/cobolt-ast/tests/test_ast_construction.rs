@@ -252,9 +252,8 @@ fn stmt_move() {
 fn stmt_add() {
     let s = Stmt::Add {
         operands: vec![Expr::Literal(Literal::Integer(1), dummy_span())],
-        to: vec![Expr::Identifier("WS-TOTAL".into(), dummy_span())],
-        giving: None,
-        rounded: false,
+        to: vec![(Expr::Identifier("WS-TOTAL".into(), dummy_span()), false)],
+        giving: vec![],
         on_size_error: vec![],
         not_on_size_error: vec![],
         span: dummy_span(),

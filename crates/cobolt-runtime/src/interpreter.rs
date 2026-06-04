@@ -616,14 +616,14 @@ impl Interpreter {
             Stmt::Initialize { items, .. } => self.exec_initialize(items),
 
             // ── Arithmetic ────────────────────────────────────────────────────
-            Stmt::Add { operands, to, giving, rounded, on_size_error, not_on_size_error, span } =>
-                self.exec_add(operands, to, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
-            Stmt::Subtract { operands, from, giving, rounded, on_size_error, not_on_size_error, span } =>
-                self.exec_subtract(operands, from, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
+            Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, span } =>
+                self.exec_add(operands, to, giving, on_size_error, not_on_size_error, *span),
+            Stmt::Subtract { operands, from, giving, on_size_error, not_on_size_error, span } =>
+                self.exec_subtract(operands, from, giving, on_size_error, not_on_size_error, *span),
             Stmt::Multiply { lhs, by, giving, rounded, on_size_error, not_on_size_error, span } =>
-                self.exec_multiply(lhs, by, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
+                self.exec_multiply(lhs, by, giving, *rounded, on_size_error, not_on_size_error, *span),
             Stmt::Divide { lhs, by, giving, remainder, rounded, on_size_error, not_on_size_error, span } =>
-                self.exec_divide(lhs, by, giving.as_ref(), remainder.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
+                self.exec_divide(lhs, by, giving, remainder.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
             Stmt::Compute { targets, expr, on_size_error, not_on_size_error, span } =>
                 self.exec_compute(targets, expr, on_size_error, not_on_size_error, *span),
 
@@ -938,9 +938,8 @@ impl Interpreter {
     fn exec_add(
         &mut self,
         operands: &[Expr],
-        to: &[Expr],
-        giving: Option<&Expr>,
-        rounded: bool,
+        to: &[(Expr, bool)],
+        giving: &[(Expr, bool)],
         on_size_error: &[Stmt],
         not_on_size_error: &[Stmt],
         span: Span,
@@ -948,22 +947,24 @@ impl Interpreter {
         let sum = self.eval_sum(operands, span)?;
         let has = !on_size_error.is_empty();
         let mut size_err = false;
-        if let Some(g) = giving {
-            // `ADD a … TO b … GIVING c` → c = sum(a…) + sum(b…).
+        if !giving.is_empty() {
+            // `ADD a … TO b … GIVING c …` → c = sum(a…) + sum(b…).
             let mut total = sum;
-            for t in to {
+            for (t, _) in to {
                 let v = self.eval_expr(t, span)?;
                 total = total.add_val(&v);
             }
-            let name = self.resolve_lvalue(g);
-            size_err = self.store_arith(&name, total, rounded, has);
+            for (g, rounded) in giving {
+                let name = self.resolve_lvalue(g);
+                size_err |= self.store_arith(&name, total.clone(), *rounded, has);
+            }
         } else {
-            for t in to {
+            for (t, rounded) in to {
                 let name = self.resolve_lvalue(t);
                 let cur = self.env.get(&name).cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 let result = cur.add_val(&sum);
-                size_err |= self.store_arith(&name, result, rounded, has);
+                size_err |= self.store_arith(&name, result, *rounded, has);
             }
         }
         self.run_size_error(size_err, on_size_error, not_on_size_error)
@@ -973,9 +974,8 @@ impl Interpreter {
     fn exec_subtract(
         &mut self,
         operands: &[Expr],
-        from: &[Expr],
-        giving: Option<&Expr>,
-        rounded: bool,
+        from: &[(Expr, bool)],
+        giving: &[(Expr, bool)],
         on_size_error: &[Stmt],
         not_on_size_error: &[Stmt],
         span: Span,
@@ -983,23 +983,25 @@ impl Interpreter {
         let sub = self.eval_sum(operands, span)?;
         let has = !on_size_error.is_empty();
         let mut size_err = false;
-        if let Some(g) = giving {
-            // SUBTRACT … FROM base GIVING target
+        if !giving.is_empty() {
+            // `SUBTRACT a … FROM base GIVING c …` → c = base − sum(a…).
             let base = if from.is_empty() {
                 CobolValue::from_i64(0)
             } else {
-                self.eval_expr(&from[0], span)?
+                self.eval_expr(&from[0].0, span)?
             };
             let result = base.sub_val(&sub);
-            let name = self.resolve_lvalue(g);
-            size_err = self.store_arith(&name, result, rounded, has);
+            for (g, rounded) in giving {
+                let name = self.resolve_lvalue(g);
+                size_err |= self.store_arith(&name, result.clone(), *rounded, has);
+            }
         } else {
-            for f in from {
+            for (f, rounded) in from {
                 let name = self.resolve_lvalue(f);
                 let cur = self.env.get(&name).cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 let result = cur.sub_val(&sub);
-                size_err |= self.store_arith(&name, result, rounded, has);
+                size_err |= self.store_arith(&name, result, *rounded, has);
             }
         }
         self.run_size_error(size_err, on_size_error, not_on_size_error)
@@ -1010,7 +1012,7 @@ impl Interpreter {
         &mut self,
         lhs: &Expr,
         by: &Expr,
-        giving: Option<&Expr>,
+        giving: &[(Expr, bool)],
         rounded: bool,
         on_size_error: &[Stmt],
         not_on_size_error: &[Stmt],
@@ -1019,12 +1021,18 @@ impl Interpreter {
         let l = self.eval_expr(lhs, span)?;
         let r = self.eval_expr(by, span)?;
         let result = l.mul_val(&r);
-        let name = if let Some(g) = giving {
-            self.resolve_lvalue(g)
+        let has = !on_size_error.is_empty();
+        let mut size_err = false;
+        if giving.is_empty() {
+            // `MULTIPLY a BY b [ROUNDED]` → b = a × b.
+            let name = self.resolve_lvalue(by);
+            size_err = self.store_arith(&name, result, rounded, has);
         } else {
-            self.resolve_lvalue(lhs)
-        };
-        let size_err = self.store_arith(&name, result, rounded, !on_size_error.is_empty());
+            for (g, gr) in giving {
+                let name = self.resolve_lvalue(g);
+                size_err |= self.store_arith(&name, result.clone(), *gr, has);
+            }
+        }
         self.run_size_error(size_err, on_size_error, not_on_size_error)
     }
 
@@ -1033,7 +1041,7 @@ impl Interpreter {
         &mut self,
         lhs: &Expr,
         by: &Expr,
-        giving: Option<&Expr>,
+        giving: &[(Expr, bool)],
         remainder: Option<&Expr>,
         rounded: bool,
         on_size_error: &[Stmt],
@@ -1061,12 +1069,18 @@ impl Interpreter {
             self.env.set(&rname, rem_val);
         }
 
-        let name = if let Some(g) = giving {
-            self.resolve_lvalue(g)
+        let has = !on_size_error.is_empty();
+        let mut size_err = false;
+        if giving.is_empty() {
+            // No GIVING: store the quotient back into the dividend (`lhs`).
+            let name = self.resolve_lvalue(lhs);
+            size_err = self.store_arith(&name, quotient, rounded, has);
         } else {
-            self.resolve_lvalue(lhs)
-        };
-        let size_err = self.store_arith(&name, quotient, rounded, !on_size_error.is_empty());
+            for (g, gr) in giving {
+                let name = self.resolve_lvalue(g);
+                size_err |= self.store_arith(&name, quotient.clone(), *gr, has);
+            }
+        }
         self.run_size_error(size_err, on_size_error, not_on_size_error)
     }
 

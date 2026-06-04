@@ -220,6 +220,22 @@ fn parse_move(p: &mut Parser) -> Stmt {
 
 // ── ADD ───────────────────────────────────────────────────────────────────────
 
+/// Parse a list of arithmetic receivers, each optionally followed by `ROUNDED`:
+/// `id1 [ROUNDED] id2 [ROUNDED] …`. Stops at `stop` tokens / end of sentence.
+fn parse_receivers(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<(Expr, bool)> {
+    let mut out = Vec::new();
+    while !stop(p.peek())
+        && !p.at_end_of_sentence()
+        && !p.at(&Token::Eof)
+        && is_expr_start(p)
+    {
+        let e = parse_expr(p);
+        let rounded = p.eat(&Token::Rounded);
+        out.push((e, rounded));
+    }
+    out
+}
+
 fn parse_add(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // ADD
@@ -251,27 +267,17 @@ fn parse_add(p: &mut Parser) -> Stmt {
     }
     p.eat(&Token::To);
 
-    let mut to = Vec::new();
-    // Collect receiving fields until GIVING, ROUNDED, or end
-    while !p.at(&Token::Giving)
-        && !p.at(&Token::Rounded)
-        && !p.at(&Token::EndAdd)
-        && !p.at_end_of_sentence()
-        && !p.at(&Token::Eof)
-    {
-        if is_expr_start(p) {
-            to.push(parse_expr(p));
-        } else {
-            break;
-        }
-    }
-
-    let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
-    let rounded = p.eat(&Token::Rounded);
+    // Receiving fields (each with optional ROUNDED), until GIVING or end.
+    let to = parse_receivers(p, &|t| matches!(t, Token::Giving | Token::EndAdd));
+    let giving = if p.eat(&Token::Giving) {
+        parse_receivers(p, &|t| matches!(t, Token::EndAdd))
+    } else {
+        Vec::new()
+    };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndAdd);
     p.eat(&Token::EndAdd);
 
-    Stmt::Add { operands, to, giving, rounded, on_size_error, not_on_size_error, span }
+    Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, span }
 }
 
 /// Parse the optional `[ON] SIZE ERROR imp … [NOT ON SIZE ERROR imp …]` tail of an
@@ -345,26 +351,16 @@ fn parse_subtract(p: &mut Parser) -> Stmt {
     }
     p.eat(&Token::From);
 
-    let mut from = Vec::new();
-    while !p.at(&Token::Giving)
-        && !p.at(&Token::Rounded)
-        && !p.at(&Token::EndSubtract)
-        && !p.at_end_of_sentence()
-        && !p.at(&Token::Eof)
-    {
-        if is_expr_start(p) {
-            from.push(parse_expr(p));
-        } else {
-            break;
-        }
-    }
-
-    let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
-    let rounded = p.eat(&Token::Rounded);
+    let from = parse_receivers(p, &|t| matches!(t, Token::Giving | Token::EndSubtract));
+    let giving = if p.eat(&Token::Giving) {
+        parse_receivers(p, &|t| matches!(t, Token::EndSubtract))
+    } else {
+        Vec::new()
+    };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndSubtract);
     p.eat(&Token::EndSubtract);
 
-    Stmt::Subtract { operands, from, giving, rounded, on_size_error, not_on_size_error, span }
+    Stmt::Subtract { operands, from, giving, on_size_error, not_on_size_error, span }
 }
 
 // ── MULTIPLY ──────────────────────────────────────────────────────────────────
@@ -375,8 +371,13 @@ fn parse_multiply(p: &mut Parser) -> Stmt {
     let lhs = parse_expr(p);
     p.eat(&Token::By);
     let by = parse_expr(p);
-    let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
+    // `MULTIPLY a BY b ROUNDED` (b is receiver) or `… GIVING r1 [ROUNDED] r2 …`.
     let rounded = p.eat(&Token::Rounded);
+    let giving = if p.eat(&Token::Giving) {
+        parse_receivers(p, &|t| matches!(t, Token::EndMultiply))
+    } else {
+        Vec::new()
+    };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndMultiply);
     p.eat(&Token::EndMultiply);
     Stmt::Multiply { lhs, by, giving, rounded, on_size_error, not_on_size_error, span }
@@ -392,9 +393,15 @@ fn parse_divide(p: &mut Parser) -> Stmt {
     p.eat(&Token::By);
     p.eat(&Token::Into);
     let by = parse_expr(p);
-    let giving = if p.eat(&Token::Giving) { Some(parse_expr(p)) } else { None };
-    let remainder = if p.eat(&Token::Remainder) { Some(parse_expr(p)) } else { None };
+    // `DIVIDE a INTO b ROUNDED` (b is receiver) or `… GIVING r1 [ROUNDED] r2 …
+    // [REMAINDER r]`.
     let rounded = p.eat(&Token::Rounded);
+    let giving = if p.eat(&Token::Giving) {
+        parse_receivers(p, &|t| matches!(t, Token::Remainder | Token::EndDivide))
+    } else {
+        Vec::new()
+    };
+    let remainder = if p.eat(&Token::Remainder) { Some(parse_expr(p)) } else { None };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndDivide);
     p.eat(&Token::EndDivide);
     Stmt::Divide { lhs, by, giving, remainder, rounded, on_size_error, not_on_size_error, span }
@@ -1685,14 +1692,15 @@ fn parse_set(p: &mut Parser) -> Stmt {
             p.advance(); // UP / DOWN
             p.eat(&Token::By);
             let amount = parse_expr(p);
+            let recvs: Vec<(Expr, bool)> = targets.into_iter().map(|t| (t, false)).collect();
             return if dir == "DOWN" {
                 Stmt::Subtract {
-                    operands: vec![amount], from: targets, giving: None, rounded: false,
+                    operands: vec![amount], from: recvs, giving: Vec::new(),
                     on_size_error: Vec::new(), not_on_size_error: Vec::new(), span,
                 }
             } else {
                 Stmt::Add {
-                    operands: vec![amount], to: targets, giving: None, rounded: false,
+                    operands: vec![amount], to: recvs, giving: Vec::new(),
                     on_size_error: Vec::new(), not_on_size_error: Vec::new(), span,
                 }
             };

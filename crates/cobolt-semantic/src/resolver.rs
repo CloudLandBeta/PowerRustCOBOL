@@ -83,23 +83,23 @@ impl<'a> ResolveCtx<'a> {
             }
             Stmt::Add { operands, to, giving, .. } => {
                 for e in operands { self.resolve_expr(e); }
-                for t in to       { self.resolve_expr(t); }
-                if let Some(g) = giving { self.resolve_expr(g); }
+                for (t, _) in to       { self.resolve_expr(t); }
+                for (g, _) in giving   { self.resolve_expr(g); }
             }
             Stmt::Subtract { operands, from, giving, .. } => {
                 for e in operands { self.resolve_expr(e); }
-                for f in from     { self.resolve_expr(f); }
-                if let Some(g) = giving { self.resolve_expr(g); }
+                for (f, _) in from     { self.resolve_expr(f); }
+                for (g, _) in giving   { self.resolve_expr(g); }
             }
             Stmt::Multiply { lhs, by, giving, .. } => {
                 self.resolve_expr(lhs);
                 self.resolve_expr(by);
-                if let Some(g) = giving { self.resolve_expr(g); }
+                for (g, _) in giving { self.resolve_expr(g); }
             }
             Stmt::Divide { lhs, by, giving, remainder, .. } => {
                 self.resolve_expr(lhs);
                 self.resolve_expr(by);
-                if let Some(g) = giving    { self.resolve_expr(g); }
+                for (g, _) in giving { self.resolve_expr(g); }
                 if let Some(r) = remainder { self.resolve_expr(r); }
             }
             Stmt::Compute { targets, expr, .. } => {

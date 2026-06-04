@@ -274,9 +274,10 @@ pub enum Stmt {
     /// `ADD operand … TO receiving … [GIVING receiving]`
     Add {
         operands: Vec<Expr>,
-        to: Vec<Expr>,
-        giving: Option<Expr>,
-        rounded: bool,
+        /// `TO` receivers (each with its own `ROUNDED` flag) — also addends.
+        to: Vec<(Expr, bool)>,
+        /// `GIVING` receivers (each with its own `ROUNDED` flag).
+        giving: Vec<(Expr, bool)>,
         /// Imperative run on ON SIZE ERROR (empty if no such clause).
         on_size_error: Vec<Stmt>,
         /// Imperative run on NOT ON SIZE ERROR (empty if no such clause).
@@ -287,30 +288,35 @@ pub enum Stmt {
     /// `SUBTRACT operand … FROM receiving … [GIVING receiving]`
     Subtract {
         operands: Vec<Expr>,
-        from: Vec<Expr>,
-        giving: Option<Expr>,
-        rounded: bool,
+        /// `FROM` receivers (each with its own `ROUNDED` flag) — also minuends.
+        from: Vec<(Expr, bool)>,
+        /// `GIVING` receivers (each with its own `ROUNDED` flag).
+        giving: Vec<(Expr, bool)>,
         on_size_error: Vec<Stmt>,
         not_on_size_error: Vec<Stmt>,
         span: Span,
     },
 
-    /// `MULTIPLY lhs BY rhs [GIVING receiving]`
+    /// `MULTIPLY lhs BY rhs [ROUNDED] [GIVING receiving …]`
     Multiply {
         lhs: Expr,
         by: Expr,
-        giving: Option<Expr>,
+        /// `GIVING` receivers (each with its own `ROUNDED` flag); empty form
+        /// stores the product back into `by` honouring `rounded`.
+        giving: Vec<(Expr, bool)>,
         rounded: bool,
         on_size_error: Vec<Stmt>,
         not_on_size_error: Vec<Stmt>,
         span: Span,
     },
 
-    /// `DIVIDE lhs BY rhs [GIVING receiving] [REMAINDER remainder]`
+    /// `DIVIDE lhs BY rhs [ROUNDED] [GIVING receiving …] [REMAINDER remainder]`
     Divide {
         lhs: Expr,
         by: Expr,
-        giving: Option<Expr>,
+        /// `GIVING` receivers (each with its own `ROUNDED` flag); empty form
+        /// stores the quotient back into `by` honouring `rounded`.
+        giving: Vec<(Expr, bool)>,
         remainder: Option<Expr>,
         rounded: bool,
         on_size_error: Vec<Stmt>,

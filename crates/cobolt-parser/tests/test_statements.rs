@@ -75,7 +75,7 @@ fn add_to() {
 fn add_giving() {
     let stmts = parse_stmts(&prog("    ADD WS-A WS-B GIVING WS-C.\n    STOP RUN.\n"));
     if let Stmt::Add { giving, .. } = &stmts[0] {
-        assert!(giving.is_some());
+        assert_eq!(giving.len(), 1);
     } else {
         panic!("expected ADD");
     }
@@ -87,6 +87,43 @@ fn add_giving() {
 fn subtract_from() {
     let stmts = parse_stmts(&prog("    SUBTRACT 5 FROM WS-TOTAL.\n    STOP RUN.\n"));
     assert!(matches!(stmts[0], Stmt::Subtract { .. }));
+}
+
+#[test]
+fn multiply_giving_multiple_receivers() {
+    let stmts = parse_stmts(&prog("    MULTIPLY A BY B GIVING R1 R2.\n    STOP RUN.\n"));
+    if let Stmt::Multiply { giving, .. } = &stmts[0] {
+        assert_eq!(giving.len(), 2);
+    } else {
+        panic!("expected MULTIPLY");
+    }
+}
+
+#[test]
+fn divide_giving_remainder_and_per_receiver_rounded() {
+    let stmts = parse_stmts(&prog(
+        "    DIVIDE A BY B GIVING Q1 ROUNDED Q2 REMAINDER R.\n    STOP RUN.\n",
+    ));
+    if let Stmt::Divide { giving, remainder, .. } = &stmts[0] {
+        assert_eq!(giving.len(), 2);
+        assert!(giving[0].1, "Q1 should be ROUNDED");
+        assert!(!giving[1].1, "Q2 should not be ROUNDED");
+        assert!(remainder.is_some());
+    } else {
+        panic!("expected DIVIDE");
+    }
+}
+
+#[test]
+fn add_per_receiver_rounded() {
+    let stmts = parse_stmts(&prog("    ADD A TO R1 ROUNDED R2.\n    STOP RUN.\n"));
+    if let Stmt::Add { to, .. } = &stmts[0] {
+        assert_eq!(to.len(), 2);
+        assert!(to[0].1, "R1 should be ROUNDED");
+        assert!(!to[1].1, "R2 should not be ROUNDED");
+    } else {
+        panic!("expected ADD");
+    }
 }
 
 // ── COMPUTE ───────────────────────────────────────────────────────────────────
