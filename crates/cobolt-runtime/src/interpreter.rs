@@ -678,6 +678,8 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Unlock { .. } => Ok(()), // auto-unlock model — no held locks
+            Stmt::SetPointer { address_of, targets, source, .. } =>
+                self.exec_set_pointer(address_of.as_ref(), targets, source),
             Stmt::GoToDepending { targets, depending, span } =>
                 self.exec_go_to_depending(targets, depending, *span),
             // NEXT SENTENCE is approximated as CONTINUE: faithful semantics
@@ -935,6 +937,55 @@ impl Interpreter {
             }
         }
         out
+    }
+
+    // ── Pointers (SET ADDRESS OF / SET ptr TO ADDRESS OF / NULL) ────────────────
+
+    fn exec_set_pointer(
+        &mut self,
+        address_of: Option<&Expr>,
+        targets: &[Expr],
+        source: &cobolt_ast::stmt::PointerSource,
+    ) -> Result<(), RuntimeError> {
+        use cobolt_ast::stmt::PointerSource;
+        // Resolve the source to the storage key it addresses (None = NULL).
+        let target_key: Option<String> = match source {
+            PointerSource::Null => None,
+            PointerSource::AddressOf(e) => Some(self.expr_to_name(e)),
+            PointerSource::Pointer(e) => {
+                let id = self.eval_expr(e, e.span())?.as_i64().unwrap_or(0);
+                self.env.addr_target(id)
+            }
+        };
+        if let Some(item) = address_of {
+            // `SET ADDRESS OF item TO …` — (re)alias item onto target's storage.
+            let alias = self.canonical_no_alias(item);
+            match &target_key {
+                Some(t) => self.env.set_alias(&alias, t),
+                None => self.env.clear_alias(&alias),
+            }
+        } else {
+            // `SET ptr … TO ADDRESS OF x` — store the address id (0 = NULL).
+            let id = match &target_key {
+                Some(t) => self.env.addr_of(t),
+                None => 0,
+            };
+            for tgt in targets {
+                let name = self.resolve_lvalue(tgt);
+                self.env.set(&name, CobolValue::from_i64(id));
+            }
+        }
+        Ok(())
+    }
+
+    /// Canonical key for an lvalue **without** following an address alias.
+    fn canonical_no_alias(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Identifier(name, _) => self.env.canonical_name(name, &[]),
+            Expr::Qualified { name, of, .. } =>
+                self.env.canonical_name(name, &collect_quals(of)),
+            _ => self.expr_to_name(expr),
+        }
     }
 
     // ── SEARCH / SEARCH ALL ─────────────────────────────────────────────────────

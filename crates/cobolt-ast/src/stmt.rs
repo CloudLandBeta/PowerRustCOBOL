@@ -255,6 +255,17 @@ pub struct ExecRustBinding {
     pub rust_name: String,
 }
 
+/// The source of a pointer assignment (`SET … TO …`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PointerSource {
+    /// `NULL` / `NULLS`.
+    Null,
+    /// `ADDRESS OF item`.
+    AddressOf(Expr),
+    /// Another pointer data item.
+    Pointer(Expr),
+}
+
 /// A data category for `INITIALIZE … REPLACING`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InitCategory {
@@ -393,6 +404,18 @@ pub enum Stmt {
     /// `UNLOCK file [RECORD[S]]` — release record locks on `file`.
     Unlock {
         file: String,
+        span: Span,
+    },
+
+    /// Pointer assignment:
+    /// `SET ptr … TO ADDRESS OF item` (`address_of` = None), or
+    /// `SET ADDRESS OF item TO {ADDRESS OF x | ptr | NULL}` (`address_of` = item).
+    SetPointer {
+        /// `Some(item)` for `SET ADDRESS OF item TO …`; `None` for pointer LHS.
+        address_of: Option<Expr>,
+        /// Pointer receivers when `address_of` is `None`.
+        targets: Vec<Expr>,
+        source: PointerSource,
         span: Span,
     },
 
@@ -743,6 +766,7 @@ impl Stmt {
             Stmt::Continue { span }              => *span,
             Stmt::Alter { span, .. }             => *span,
             Stmt::Unlock { span, .. }            => *span,
+            Stmt::SetPointer { span, .. }        => *span,
             Stmt::Exit { span, .. }              => *span,
             Stmt::NextSentence { span }          => *span,
             Stmt::Open { span, .. }              => *span,

@@ -85,6 +85,10 @@ pub struct CobolEnvironment {
     by_leaf: IndexMap<String, Vec<String>>,
     /// 88-level condition-names → their parent item key + VALUE set.
     cond_names: IndexMap<String, CondName>,
+    /// Pointer address table: `addr_of(key)` returns `index + 1` (0 = NULL).
+    addr_table: Vec<String>,
+    /// `SET ADDRESS OF item TO ptr` aliases: alias key → target storage key.
+    addr_aliases: IndexMap<String, String>,
 }
 
 /// An 88-level condition-name: the parent data item it qualifies and the set of
@@ -226,6 +230,22 @@ impl CobolEnvironment {
     /// resolves to itself; a duplicated name is matched against the candidates'
     /// ancestor paths (an ambiguous reference picks the first declaration).
     pub fn resolve_name(&self, leaf: &str, quals: &[String]) -> String {
+        let key = self.resolve_canonical(leaf, quals);
+        // A `SET ADDRESS OF item TO ptr` aliases `item` onto another item's
+        // storage — redirect here so every interpreter reference follows it.
+        if let Some(target) = self.addr_aliases.get(&key) {
+            return target.clone();
+        }
+        key
+    }
+
+    /// The canonical storage key for a reference, **without** following an
+    /// address alias (used when (re)defining the alias itself).
+    pub fn canonical_name(&self, leaf: &str, quals: &[String]) -> String {
+        self.resolve_canonical(leaf, quals)
+    }
+
+    fn resolve_canonical(&self, leaf: &str, quals: &[String]) -> String {
         let leaf = leaf.to_ascii_uppercase();
         if !self.dup_names.contains(&leaf) {
             return leaf;
@@ -380,6 +400,36 @@ impl CobolEnvironment {
     /// The 88-level condition-name metadata for `name`, if it is one.
     pub fn cond_name(&self, name: &str) -> Option<&CondName> {
         self.cond_names.get(&name.to_ascii_uppercase())
+    }
+
+    // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────
+
+    /// A stable non-zero address id for the storage key `key` (0 is reserved
+    /// for NULL). Idempotent — the same key always yields the same id.
+    pub fn addr_of(&mut self, key: &str) -> i64 {
+        let key = key.to_ascii_uppercase();
+        if let Some(i) = self.addr_table.iter().position(|k| k == &key) {
+            return i as i64 + 1;
+        }
+        self.addr_table.push(key);
+        self.addr_table.len() as i64
+    }
+
+    /// The storage key an address id points at (`None` for NULL / unknown).
+    pub fn addr_target(&self, id: i64) -> Option<String> {
+        if id < 1 { return None; }
+        self.addr_table.get((id - 1) as usize).cloned()
+    }
+
+    /// `SET ADDRESS OF alias TO …` — make `alias` read/write `target`'s storage.
+    pub fn set_alias(&mut self, alias: &str, target: &str) {
+        self.addr_aliases
+            .insert(alias.to_ascii_uppercase(), target.to_ascii_uppercase());
+    }
+
+    /// Remove an address alias (`SET ADDRESS OF alias TO NULL`).
+    pub fn clear_alias(&mut self, alias: &str) {
+        self.addr_aliases.shift_remove(&alias.to_ascii_uppercase());
     }
 
     /// Initialise a numeric-edited item: remember its template and store the

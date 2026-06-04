@@ -1845,8 +1845,18 @@ fn parse_initialize_as_move(p: &mut Parser) -> Stmt {
 // ── SET ───────────────────────────────────────────────────────────────────────
 
 fn parse_set(p: &mut Parser) -> Stmt {
+    use cobolt_ast::stmt::PointerSource;
     let span = p.peek_span();
     p.advance(); // SET
+
+    // SET ADDRESS OF item TO {ADDRESS OF x | NULL | ptr}
+    if at_address_of(p) {
+        eat_address_of(p);
+        let item = parse_expr(p);
+        p.eat(&Token::To);
+        let source = parse_pointer_source(p);
+        return Stmt::SetPointer { address_of: Some(item), targets: vec![], source, span };
+    }
 
     let mut targets = Vec::new();
     while is_expr_start(p) && !p.at(&Token::To) {
@@ -1880,7 +1890,17 @@ fn parse_set(p: &mut Parser) -> Stmt {
 
     p.eat(&Token::To);
 
-    // TO TRUE / FALSE / expression
+    // SET ptr … TO ADDRESS OF x  — pointer assignment.
+    if at_address_of(p) {
+        eat_address_of(p);
+        let of = parse_expr(p);
+        return Stmt::SetPointer {
+            address_of: None, targets,
+            source: PointerSource::AddressOf(of), span,
+        };
+    }
+
+    // TO TRUE / FALSE / expression (NULL → 0, handled as a plain MOVE)
     let from = match p.peek().clone() {
         Token::True_  => { p.advance(); Expr::Literal(Literal::Integer(1), span) }
         Token::False_ => { p.advance(); Expr::Literal(Literal::Integer(0), span) }
@@ -1889,6 +1909,39 @@ fn parse_set(p: &mut Parser) -> Stmt {
 
     // Encode as MOVE
     Stmt::Move { from, to: targets, span }
+}
+
+/// Parse the source of a pointer SET: `ADDRESS OF x | NULL | ptr`.
+fn parse_pointer_source(p: &mut Parser) -> cobolt_ast::stmt::PointerSource {
+    use cobolt_ast::stmt::PointerSource;
+    if at_address_of(p) {
+        eat_address_of(p);
+        PointerSource::AddressOf(parse_expr(p))
+    } else if p.at(&Token::Nulls) {
+        p.advance();
+        PointerSource::Null
+    } else {
+        PointerSource::Pointer(parse_expr(p))
+    }
+}
+
+/// True if positioned at `ADDRESS OF` (the `ADDRESS-OF` token or the two words).
+fn at_address_of(p: &Parser) -> bool {
+    p.at(&Token::AddressOf)
+        || (matches!(ident_upper(p).as_deref(), Some("ADDRESS")) && *p.peek_at(1) == Token::Of)
+}
+
+/// Consume an `ADDRESS OF` (either spelling). Returns whether it matched.
+fn eat_address_of(p: &mut Parser) -> bool {
+    if p.eat(&Token::AddressOf) {
+        return true;
+    }
+    if matches!(ident_upper(p).as_deref(), Some("ADDRESS")) && *p.peek_at(1) == Token::Of {
+        p.advance(); // ADDRESS
+        p.advance(); // OF
+        return true;
+    }
+    false
 }
 
 // ── EXEC RUST ─────────────────────────────────────────────────────────────────
