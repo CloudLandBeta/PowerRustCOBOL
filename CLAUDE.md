@@ -230,6 +230,40 @@ planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
   `indexed_disk.rs`. (The old `indexed-files/` suite was consolidated into
   `fileio/`.)
 
+### COBOL-85 language coverage (1.5 / 1.6)
+The ground-truth reference is **`docs/cobol85-supported-syntax.md`** (read it
+before claiming a verb works); the test plan is `docs/cobol85-verb-test-matrix.md`.
+
+- **Occurrence-aware environment** (`environment.rs`) — `CobolEnvironment` keeps a
+  per-item symbol table (`ItemSym`: OCCURS `dims`, group `children` + canonical
+  `child_keys`, ancestor `quals`, `index_names`) plus a duplicate-name index.
+  `resolve_name(name, quals)` maps a (possibly `OF`/`IN`-qualified) reference to a
+  **canonical storage key** — unique names key by themselves (flat-store fast
+  path); duplicated leaf names get a path-qualified key so `BALANCE OF ACCOUNT`
+  ≠ `BALANCE OF SUMMARY`. Subscripts → `subscript_key` (`NAME(i[,j])`, lazy slots).
+- **88-level condition-names are real** — `cond_names` maps each 88 → `CondName {
+  parent, values }`. `IF 88-name` tests the host against its VALUEs/THRU ranges;
+  `SET 88-name TO TRUE/FALSE` writes a satisfying/violating value to the host
+  (handled in `exec_move`/`set_condition`). 88s are NOT data-item slots.
+- **Control-flow signals** (`error.rs`): `ExitPerform{cycle}` (caught by inline
+  PERFORM loops via `exec_loop_body`/`LoopStep`), `ExitParagraph`/`ExitSection`
+  (absorbed by `exec_para_body` + the run loops). `NEXT SENTENCE` ≈ `CONTINUE`
+  (no sentence-boundary tracking). Plain `EXIT` = no-op; `EXIT PROGRAM` = GoBack.
+- **SORT/MERGE** — in-memory `sort_buffers`/`sort_cursors`; `exec_release` appends
+  a materialized SD record, `exec_sort` fills (INPUT PROCEDURE or USING),
+  `sort_records` stable-sorts by keys (`cob_ordering`), then delivers (OUTPUT
+  PROCEDURE via `exec_return`, or GIVING via `write_all_records`). SD files use the
+  same `FileSpec.layout` machinery as FDs.
+- **Arithmetic receivers** are `Vec<(Expr, bool)>` (per-receiver `ROUNDED`);
+  `giving` is a list. `INSPECT` carries an `InspectRegion` (BEFORE/AFTER INITIAL)
+  per phrase. `EVALUATE` has `subjects: Vec<…>` (ALSO) and `WhenValue::Not`.
+- **Not implemented (don't claim otherwise):** `SET ADDRESS OF`/pointers,
+  `66 RENAMES`, `INITIALIZE … REPLACING`, identifier-object abbreviation
+  (`a = b OR c`), faithful `NEXT SENTENCE`. `UNLOCK`/`ALTER` are recognized no-ops.
+- Tests: `test_hierarchy`, `test_arith_receivers`, `test_control_flow`,
+  `test_inspect`, `test_intrinsics_date`, `test_conditions`, `test_sort`
+  (all in `crates/cobolt-runtime/tests/`).
+
 ---
 
 ## i18n Keys (Tr struct in i18n.rs)
