@@ -541,9 +541,35 @@ impl Interpreter {
     // ── Statement dispatch ────────────────────────────────────────────────────
 
     fn exec_stmts(&mut self, stmts: &[Stmt]) -> Result<(), RuntimeError> {
-        for stmt in stmts {
+        let mut i = 0;
+        while i < stmts.len() {
+            let stmt = &stmts[i];
+            if matches!(stmt, Stmt::SentenceEnd { .. }) {
+                i += 1;
+                continue;
+            }
             self.debug_check(stmt)?;
-            self.exec_stmt(stmt)?;
+            match self.exec_stmt(stmt) {
+                Ok(()) => {}
+                Err(RuntimeError::NextSentence) => {
+                    // Skip to the statement after the next sentence boundary in
+                    // this list; if there is none, propagate to the enclosing
+                    // list (ultimately ending the paragraph).
+                    let mut j = i + 1;
+                    while j < stmts.len()
+                        && !matches!(stmts[j], Stmt::SentenceEnd { .. })
+                    {
+                        j += 1;
+                    }
+                    if j < stmts.len() {
+                        i = j + 1;
+                        continue;
+                    }
+                    return Err(RuntimeError::NextSentence);
+                }
+                Err(e) => return Err(e),
+            }
+            i += 1;
         }
         Ok(())
     }
@@ -682,11 +708,11 @@ impl Interpreter {
                 self.exec_set_pointer(address_of.as_ref(), targets, source),
             Stmt::GoToDepending { targets, depending, span } =>
                 self.exec_go_to_depending(targets, depending, *span),
-            // NEXT SENTENCE is approximated as CONTINUE: faithful semantics
-            // (jump past the next period) would require sentence-boundary
-            // tracking in the AST, which we do not keep. This matches the
-            // dominant `IF … NEXT SENTENCE END-IF` idiom.
-            Stmt::Continue { .. } | Stmt::NextSentence { .. } => Ok(()),
+            Stmt::Continue { .. } => Ok(()),
+            // NEXT SENTENCE transfers control past the next sentence boundary
+            // (a SentenceEnd marker); handled by exec_stmts.
+            Stmt::NextSentence { .. } => Err(RuntimeError::NextSentence),
+            Stmt::SentenceEnd { .. } => Ok(()),
             Stmt::Exit { kind, .. } => match kind {
                 ExitKind::Point => Ok(()),
                 ExitKind::Program => Err(RuntimeError::GoBack),

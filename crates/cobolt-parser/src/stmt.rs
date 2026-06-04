@@ -73,8 +73,12 @@ pub(crate) fn is_stmt_start(tok: &Token) -> bool {
 pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<Stmt> {
     let mut stmts = Vec::new();
     loop {
-        // Consume optional sentence-terminating periods
-        while p.eat(&Token::Period) {}
+        // Consume optional sentence-terminating periods, remembering whether one
+        // was seen so a sentence-boundary marker can be inserted (for NEXT
+        // SENTENCE) between two sentences of the same list.
+        let mut saw_period = false;
+        let period_span = p.peek_span();
+        while p.eat(&Token::Period) { saw_period = true; }
 
         let tok = p.peek().clone();
 
@@ -95,6 +99,11 @@ pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<
             Token::Procedure | Token::Environment | Token::Data | Token::Identification
         ) {
             break;
+        }
+
+        // Mark the boundary between the previous sentence and this one.
+        if saw_period && !stmts.is_empty() {
+            stmts.push(Stmt::SentenceEnd { span: period_span });
         }
 
         if let Some(stmt) = parse_stmt(p) {
@@ -123,6 +132,12 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
             "SEARCH" => return Some(parse_search(p)),
             "ALTER"  => return Some(parse_alter(p)),
             "UNLOCK" => return Some(parse_unlock(p)),
+            "NEXT" if matches!(p.peek_at(1), Token::Identifier(s) if s.eq_ignore_ascii_case("SENTENCE")) => {
+                let span = p.peek_span();
+                p.advance(); // NEXT
+                p.advance(); // SENTENCE
+                return Some(Stmt::NextSentence { span });
+            }
             _ => {}
         }
     }

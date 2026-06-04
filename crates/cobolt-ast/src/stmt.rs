@@ -474,6 +474,11 @@ pub enum Stmt {
     /// `NEXT SENTENCE`
     NextSentence { span: Span },
 
+    /// Synthetic marker inserted by the parser at each sentence boundary (the
+    /// period between sentences of a paragraph). A no-op at execution; used to
+    /// implement `NEXT SENTENCE` (skip to the statement after the next marker).
+    SentenceEnd { span: Span },
+
     // ── I/O ──────────────────────────────────────────────────────────────────
 
     /// `OPEN mode file …`
@@ -769,6 +774,7 @@ impl Stmt {
             Stmt::SetPointer { span, .. }        => *span,
             Stmt::Exit { span, .. }              => *span,
             Stmt::NextSentence { span }          => *span,
+            Stmt::SentenceEnd { span }           => *span,
             Stmt::Open { span, .. }              => *span,
             Stmt::Close { span, .. }             => *span,
             Stmt::Read { span, .. }              => *span,

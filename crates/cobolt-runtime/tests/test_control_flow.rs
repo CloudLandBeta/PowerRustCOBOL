@@ -145,6 +145,24 @@ fn perform_paragraph_varying_executes_paragraph() {
 }
 
 #[test]
+fn next_sentence_skips_rest_of_sentence() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. NS.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 X PIC 9 VALUE 1.
+       PROCEDURE DIVISION.
+       MAIN.
+           IF X = 1 NEXT SENTENCE END-IF DISPLAY "SKIPPED".
+           DISPLAY "NEXT".
+           STOP RUN.
+    "#;
+    // NEXT SENTENCE jumps past the period → "SKIPPED" is not displayed.
+    assert_eq!(run_capture(src), vec!["NEXT"]);
+}
+
+#[test]
 fn alter_redirects_go_to() {
     let src = r#"
        IDENTIFICATION DIVISION.
