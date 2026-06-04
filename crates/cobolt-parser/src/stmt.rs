@@ -1567,17 +1567,15 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
 fn parse_initialize_as_move(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // INITIALIZE
-    let mut to = Vec::new();
+    let mut items = Vec::new();
     while is_expr_start(p) {
-        to.push(parse_expr(p));
+        items.push(parse_expr(p));
     }
-    // REPLACING … (skip)
+    // REPLACING … (skip — TODO: honour the REPLACING category map)
     if p.at(&Token::Replacing) {
         while !p.at_end_of_sentence() && !p.at(&Token::Eof) { p.advance(); }
     }
-    use cobolt_ast::expr::{FigurativeConstant, Literal as Lit};
-    let from = Expr::Literal(Lit::Figurative(FigurativeConstant::Space), span);
-    Stmt::Move { from, to, span }
+    Stmt::Initialize { items, span }
 }
 
 // ── SET ───────────────────────────────────────────────────────────────────────

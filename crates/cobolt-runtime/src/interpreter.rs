@@ -602,6 +602,8 @@ impl Interpreter {
                 Ok(())
             }
 
+            Stmt::Initialize { items, .. } => self.exec_initialize(items),
+
             // ── Arithmetic ────────────────────────────────────────────────────
             Stmt::Add { operands, to, giving, rounded, on_size_error, not_on_size_error, span } =>
                 self.exec_add(operands, to, giving.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
@@ -761,6 +763,59 @@ impl Interpreter {
             }
         }
         Ok(())
+    }
+
+    // ── INITIALIZE (category-aware) ─────────────────────────────────────────────
+
+    fn exec_initialize(&mut self, items: &[Expr]) -> Result<(), RuntimeError> {
+        for item in items {
+            let name = self.expr_to_name(item);
+            // Walk the DATA DIVISION for the item's declaration so groups recurse
+            // into their elementary children; fall back to field-cap inference.
+            let decl = self.program.data.as_ref()
+                .and_then(|d| find_decl_in_division(d, &name))
+                .cloned();
+            match decl {
+                Some(d) => self.init_decl(&d),
+                None => self.init_by_caps(&name),
+            }
+        }
+        Ok(())
+    }
+
+    /// Recursively initialise a declaration: groups recurse; elementary items
+    /// reset to ZERO (numeric) or SPACES (everything else).
+    fn init_decl(&mut self, d: &cobolt_ast::data::DataDecl) {
+        use cobolt_ast::data::PicKind;
+        if !d.children.is_empty() {
+            for c in &d.children {
+                self.init_decl(c);
+            }
+        } else if let Some(name) = &d.name {
+            let key = name.to_ascii_uppercase();
+            let numeric = matches!(
+                d.picture.as_ref().map(|p| p.kind),
+                Some(PicKind::Numeric) | Some(PicKind::NumericEdited)
+            );
+            if numeric {
+                let decimals = d.picture.as_ref().map(|p| p.decimals).unwrap_or(0).min(u8::MAX as u16) as u8;
+                self.env.set(&key, CobolValue::Numeric(CobolNumeric::new(0, decimals)));
+            } else {
+                let width = self.env.display_string(&key).map(|s| s.len()).unwrap_or(0);
+                self.env.set_str(&key, &" ".repeat(width));
+            }
+        }
+    }
+
+    /// Initialise an item not found in the AST, using field-capacity inference
+    /// (numeric → 0, otherwise spaces preserving width).
+    fn init_by_caps(&mut self, name: &str) {
+        if self.env.integer_capacity(name).is_some() {
+            self.env.set(name, CobolValue::from_i64(0));
+        } else {
+            let width = self.env.display_string(name).map(|s| s.len()).unwrap_or(0);
+            self.env.set_str(name, &" ".repeat(width));
+        }
     }
 
     // ── Arithmetic ────────────────────────────────────────────────────────────
@@ -2602,6 +2657,43 @@ impl Interpreter {
         self.env.set_str(&name, &String::from_utf8_lossy(&cur));
         Ok(())
     }
+}
+
+// ── DATA DIVISION lookup (for INITIALIZE) ─────────────────────────────────────
+
+/// Find the declaration of `name` anywhere in the WORKING-STORAGE / LOCAL-STORAGE
+/// / LINKAGE sections (recursing into group items).
+fn find_decl_in_division<'a>(
+    div: &'a cobolt_ast::program::DataDivision,
+    name: &str,
+) -> Option<&'a cobolt_ast::data::DataDecl> {
+    use cobolt_ast::program::DataSection;
+    for sec in &div.sections {
+        let decls = match sec {
+            DataSection::WorkingStorage(d)
+            | DataSection::LocalStorage(d)
+            | DataSection::Linkage(d) => d,
+            _ => continue,
+        };
+        for d in decls {
+            if let Some(found) = find_decl(d, name) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_decl<'a>(d: &'a cobolt_ast::data::DataDecl, name: &str) -> Option<&'a cobolt_ast::data::DataDecl> {
+    if d.name.as_deref().map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false) {
+        return Some(d);
+    }
+    for c in &d.children {
+        if let Some(f) = find_decl(c, name) {
+            return Some(f);
+        }
+    }
+    None
 }
 
 // ── Debugger span extractor ───────────────────────────────────────────────────

@@ -246,6 +246,13 @@ pub enum Stmt {
         span: Span,
     },
 
+    /// `INITIALIZE item …` — category-aware reset (numeric → ZERO, others →
+    /// SPACE), recursing into group items.
+    Initialize {
+        items: Vec<Expr>,
+        span: Span,
+    },
+
     // ── Arithmetic ───────────────────────────────────────────────────────────
 
     /// `ADD operand … TO receiving … [GIVING receiving]`
@@ -597,6 +604,7 @@ impl Stmt {
         match self {
             Stmt::Move { span, .. }              => *span,
             Stmt::MoveCorresponding { span, .. } => *span,
+            Stmt::Initialize { span, .. }        => *span,
             Stmt::Add { span, .. }               => *span,
             Stmt::Subtract { span, .. }          => *span,
             Stmt::Multiply { span, .. }          => *span,
