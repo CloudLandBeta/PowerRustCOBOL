@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Persistent, paged on-disk INDEXED (ISAM) engine — the `STORAGE MODE IS DISK`
+//! Persistent, paged on-disk INDEXED (ISAM) engine — the `STORAGE IS DISK`
 //! backend.
 //!
 //! Unlike the in-memory engine (`indexed.rs`), records and indexes live in a
@@ -24,7 +24,7 @@
 //! * **slotted data pages** packing multiple records per page, with an overflow
 //!   page chain for records larger than a page.
 //!
-//! Optional `WITH DATA COMPRESSING` compresses each stored record via
+//! Optional `WITH COMPRESSION` compresses each stored record via
 //! [`crate::compress`]. Self-contained: no external dependencies.
 
 use std::fs::{File, OpenOptions};

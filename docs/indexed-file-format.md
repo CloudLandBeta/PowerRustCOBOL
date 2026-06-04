@@ -185,10 +185,10 @@ for it (it always loads leniently).
 
 ---
 
-## Storage modes (`STORAGE MODE IS MEMORY | DISK`)
+## Storage modes (`STORAGE IS MEMORY | DISK`)
 
 The `STORAGE MODE` clause selects which engine — and therefore which on-disk
-container — backs an INDEXED file. `WITH DATA COMPRESSING` applies to either.
+container — backs an INDEXED file. `WITH COMPRESSION` applies to either.
 
 | Mode | Engine | Container | Notes |
 |------|--------|-----------|-------|
@@ -206,7 +206,7 @@ The **`PRCIDXD1`** disk container is a single paged file (4 KiB pages):
 * **directory pages** — the `RecordId` → physical-location map.
 * a **free list** threads freed pages for reuse.
 
-`WITH DATA COMPRESSING` (`compress.rs`) is a dependency-free PackBits-style RLE
+`WITH COMPRESSION` (`compress.rs`) is a dependency-free PackBits-style RLE
 applied to each stored record (`PRCIDXD1`) or each record in the records section
 (`PRCIDX1`); a one-byte tag guarantees the encoding never grows, and the
 container header records that compression is on.

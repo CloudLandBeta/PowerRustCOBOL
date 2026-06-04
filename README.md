@@ -105,7 +105,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
     required.
     ```cobol
     SELECT CUSTOMER-FILE
-        STORAGE MODE IS DISK WITH DATA COMPRESSING
+        STORAGE IS DISK WITH COMPRESSION
         ASSIGN TO "customers.dat"
         ORGANIZATION IS INDEXED
         ACCESS MODE IS DYNAMIC

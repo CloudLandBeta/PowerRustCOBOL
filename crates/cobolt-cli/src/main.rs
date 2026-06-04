@@ -583,25 +583,13 @@ fn read_source(path: &PathBuf) -> String {
     }
 }
 
-fn detect_format(source: &str, path: &PathBuf) -> SourceFormat {
+fn detect_format(_source: &str, _path: &PathBuf) -> SourceFormat {
+    // PowerRustCOBOL source is treated as free form. (Set COBOLT_FIXED=1 to opt
+    // into fixed-form parsing for legacy fixed-column sources.)
     if std::env::var("COBOLT_FIXED").as_deref() == Ok("1") {
         return SourceFormat::Fixed;
     }
-    // Strict fixed-form code never extends past column 72 (cols 73+ are the
-    // identification area). A line with real (non-blank) content beyond column
-    // 72 therefore can't be fixed form — treat the file as free so those long
-    // lines (e.g. long ASSIGN paths / DISPLAY literals) are not truncated.
-    let has_content_past_72 = source.lines().any(|line| line.trim_end().chars().count() > 72);
-    if has_content_past_72 {
-        return SourceFormat::Free;
-    }
-    let looks_fixed = source.lines().any(|line| {
-        let bytes = line.as_bytes();
-        bytes.len() > 6
-            && bytes[6] != b' '
-            && bytes[..6].iter().all(|&b| b == b' ' || b.is_ascii_digit())
-    });
-    if looks_fixed { SourceFormat::Fixed } else { SourceFormat::Free }
+    SourceFormat::Free
 }
 
 fn print_diagnostics(

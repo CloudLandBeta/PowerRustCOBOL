@@ -73,7 +73,7 @@ fn idxbasic_suite_reports_pass() {
 
 #[test]
 fn idxstorage_disk_suite_reports_pass() {
-    // The STORAGE MODE IS DISK WITH DATA COMPRESSING regression suite, run end
+    // The STORAGE IS DISK WITH COMPRESSION regression suite, run end
     // to end on the on-disk B+tree backend (ASSIGN redirected to a temp file).
     let raw = include_str!("../../../tests/cobol/indexed-files/idxstorage.cbl");
     let path = temp_idx("storage");
@@ -119,13 +119,13 @@ fn prog(procedure: &str, path: &std::path::Path) -> String {
     )
 }
 
-/// A `STORAGE MODE IS DISK [WITH DATA COMPRESSING]` program with a primary key,
+/// A `STORAGE IS DISK [WITH COMPRESSION]` program with a primary key,
 /// an alternate key WITH DUPLICATES, and a roomy record (so compression bites).
 fn prog_disk(procedure: &str, path: &std::path::Path, compress: bool) -> String {
     let storage = if compress {
-        "STORAGE MODE IS DISK WITH DATA COMPRESSING"
+        "STORAGE IS DISK WITH COMPRESSION"
     } else {
-        "STORAGE MODE IS DISK"
+        "STORAGE IS DISK"
     };
     format!(
         "       IDENTIFICATION DIVISION.\n\
@@ -161,7 +161,7 @@ fn prog_disk(procedure: &str, path: &std::path::Path, compress: bool) -> String 
 
 #[test]
 fn disk_mode_persists_writes_random_and_sequential() {
-    // Full pipeline: parse STORAGE MODE IS DISK, run on the paged B+tree engine,
+    // Full pipeline: parse STORAGE IS DISK, run on the paged B+tree engine,
     // then prove a fresh OPEN INPUT reads records back (random + ascending scan).
     let path = temp_idx("diskmode");
     let _ = std::fs::remove_file(&path);
@@ -201,7 +201,7 @@ fn disk_mode_persists_writes_random_and_sequential() {
 
 #[test]
 fn disk_mode_with_data_compressing_round_trips() {
-    // DATA COMPRESSING on the disk backend: write padded records, reopen, read.
+    // COMPRESSION on the disk backend: write padded records, reopen, read.
     let path = temp_idx("diskzip");
     let _ = std::fs::remove_file(&path);
     let out = run_capture(&prog_disk(

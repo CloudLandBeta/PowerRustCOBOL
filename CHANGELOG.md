@@ -20,18 +20,18 @@ File I/O fixes surfaced by the storage/compression File I/O test pack
   by organization. Previously the reader used line reads for every sequential
   file, so the first `READ` of a record-sequential file consumed the whole file
   and subsequent reads hit EOF. (`interpreter.rs`)
-- **Source-format detection** — a file with real (non-blank) content beyond
-  column 72 is now treated as free-form, since strict fixed-form code never
-  exceeds column 72. This keeps long `ASSIGN` paths / `DISPLAY` literals from
-  being truncated. (`rcrun` `detect_format`)
+- **Source is always free form.** `rcrun` no longer auto-detects fixed vs free;
+  it treats source as free form (set `COBOLT_FIXED=1` to opt into fixed-form
+  parsing). This keeps long `ASSIGN` paths / `DISPLAY` literals from being
+  truncated at column 72.
 
-### Grammar
+### Grammar (final, lean)
 
-- `STORAGE [MODE] IS MEMORY | DISK` — the `MODE` keyword is optional, so both
-  `STORAGE IS DISK` and `STORAGE MODE IS DISK` parse.
-- Compression accepts `WITH COMPRESSION`, `WITH DATA COMPRESSING`, or a bare
-  `COMPRESSION`/`COMPRESSING`, with or without a preceding `STORAGE` clause
-  (a standalone `WITH COMPRESSION` uses the default storage backend).
+- The INDEXED storage clause is **`STORAGE [MODE] IS MEMORY | DISK`** (`MODE`
+  optional) and compression is **`WITH COMPRESSION`** — in the storage clause or
+  as a standalone clause (which uses the default storage backend). The earlier
+  `WITH COMPRESSION` spelling and other variations were removed to keep the
+  grammar clean.
 
 ### Behaviour
 
@@ -54,9 +54,9 @@ File I/O fixes surfaced by the storage/compression File I/O test pack
 
 INDEXED files gain a selectable storage backend and record compression.
 
-### `STORAGE MODE IS MEMORY | DISK` (new) + persistent on-disk B+tree
+### `STORAGE IS MEMORY | DISK` (new) + persistent on-disk B+tree
 
-- **New SELECT clause** `STORAGE MODE IS MEMORY | DISK [WITH DATA COMPRESSING]`
+- **New SELECT clause** `STORAGE IS MEMORY | DISK [WITH COMPRESSION]`
   for INDEXED files (a PowerRustCOBOL extension). `ASSIGN TO` is still required —
   it is where the data is persisted. Parsed in `parse_file_control_entry`
   (`StorageMode` on `FileControl`); the parser now also recognises the spaced
@@ -78,9 +78,9 @@ INDEXED files gain a selectable storage backend and record compression.
 - Both backends share one `IndexedStore` trait, dispatched from
   `make_indexed_engine` by `STORAGE MODE`.
 
-### `WITH DATA COMPRESSING` (new)
+### `WITH COMPRESSION` (new)
 
-- Optional `WITH DATA COMPRESSING` compresses stored record data in **both**
+- Optional `WITH COMPRESSION` compresses stored record data in **both**
   storage modes via a self-contained, **dependency-free** PackBits-style RLE
   (`cobolt-runtime/src/compress.rs`) chosen for maximum speed; a one-byte tag
   guarantees the output never grows. On the padded, fixed-length records typical
@@ -93,7 +93,7 @@ INDEXED files gain a selectable storage backend and record compression.
   `indexed_disk.rs` (pager/free-list, B+tree splits over 2 000 records +
   persistence, all `START` relations, NEXT/PREVIOUS, alt keys with/without
   duplicates, REWRITE/DELETE, compression round-trip, status 35/39), and
-  end-to-end COBOL `STORAGE MODE IS DISK [WITH DATA COMPRESSING]` programs in
+  end-to-end COBOL `STORAGE IS DISK [WITH COMPRESSION]` programs in
   `tests/test_indexed.rs`.
 
 ## [PowerRustCOBOL 1.2.0] — 2026-06-03

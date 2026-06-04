@@ -374,6 +374,11 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
     Some(EnvironmentDivision { configuration: None, input_output, span })
 }
 
+/// True if the token is the `COMPRESSION` word of a `WITH COMPRESSION` clause.
+fn is_compression(tok: &cobolt_lexer::Token) -> bool {
+    matches!(tok, cobolt_lexer::Token::Identifier(w) if w.eq_ignore_ascii_case("COMPRESSION"))
+}
+
 /// Parse a single `SELECT … ASSIGN …` entry in FILE-CONTROL.
 fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let span = p.peek_span();
@@ -400,26 +405,23 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         // Clauses introduced by a non-keyword word (STORAGE, ALTERNATE).
         if let Token::Identifier(id) = p.peek() {
             match id.to_ascii_uppercase().as_str() {
-                // STORAGE [MODE] IS MEMORY | DISK  [WITH [DATA] COMPRESSING|COMPRESSION]
+                // STORAGE [MODE] IS MEMORY | DISK  [WITH COMPRESSION]
                 "STORAGE" => {
                     p.advance(); // STORAGE
                     p.eat(&Token::Mode); // optional MODE
                     p.eat(&Token::Is);
                     if let Some((w, _)) = p.eat_identifier() {
-                        if w.eq_ignore_ascii_case("DISK") {
-                            storage_mode = StorageMode::Disk;
+                        storage_mode = if w.eq_ignore_ascii_case("MEMORY") {
+                            StorageMode::Memory
                         } else {
-                            storage_mode = StorageMode::Memory; // MEMORY (default)
-                        }
+                            StorageMode::Disk
+                        };
                     }
-                    // optional [WITH] [DATA] (COMPRESSING | COMPRESSION)
-                    p.eat(&Token::With);
-                    p.eat(&Token::Data);
-                    if let Token::Identifier(c) = p.peek() {
-                        if c.eq_ignore_ascii_case("COMPRESSING") || c.eq_ignore_ascii_case("COMPRESSION") {
-                            p.advance();
-                            data_compressing = true;
-                        }
+                    // optional WITH COMPRESSION
+                    if p.at(&Token::With) && is_compression(p.peek_at(1)) {
+                        p.advance(); // WITH
+                        p.advance(); // COMPRESSION
+                        data_compressing = true;
                     }
                     continue;
                 }
@@ -445,24 +447,13 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                 _ => {}
             }
         }
-        // A standalone "WITH [DATA] COMPRESSING|COMPRESSION" clause (no STORAGE);
-        // the file uses the default storage backend with compression on.
-        if p.at(&Token::With) {
-            let n1 = p.peek_at(1);
-            let is_comp = matches!(n1, Token::Data)
-                || matches!(n1, Token::Identifier(w)
-                    if w.eq_ignore_ascii_case("COMPRESSION") || w.eq_ignore_ascii_case("COMPRESSING"));
-            if is_comp {
-                p.advance(); // WITH
-                p.eat(&Token::Data); // optional DATA
-                if let Token::Identifier(c) = p.peek() {
-                    if c.eq_ignore_ascii_case("COMPRESSION") || c.eq_ignore_ascii_case("COMPRESSING") {
-                        p.advance();
-                        data_compressing = true;
-                    }
-                }
-                continue;
-            }
+        // A standalone "WITH COMPRESSION" clause (no STORAGE clause); the file
+        // uses the default storage backend with compression on.
+        if p.at(&Token::With) && is_compression(p.peek_at(1)) {
+            p.advance(); // WITH
+            p.advance(); // COMPRESSION
+            data_compressing = true;
+            continue;
         }
         match p.peek() {
             Token::Assign => {

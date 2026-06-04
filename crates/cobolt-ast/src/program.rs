@@ -87,9 +87,9 @@ pub struct FileControl {
     pub alternate_keys: Vec<AlternateKey>,
     /// FILE STATUS data-item name.
     pub file_status: Option<String>,
-    /// STORAGE MODE IS MEMORY | DISK (INDEXED files; PowerRustCOBOL extension).
+    /// STORAGE IS MEMORY | DISK (INDEXED files; PowerRustCOBOL extension).
     pub storage_mode: StorageMode,
-    /// WITH DATA COMPRESSING — compress stored record data (memory + disk).
+    /// WITH COMPRESSION — compress stored record data (memory + disk).
     pub data_compressing: bool,
     pub span: Span,
 }

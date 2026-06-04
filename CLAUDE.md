@@ -177,21 +177,21 @@ planned. Dispatch lives in `interpreter.rs` (`OpenFile` enum:
   subfields (WRITE/REWRITE) and `distribute(env, buf)` scatters it back (READ).
   Key fields → `KeySpec { offset, len, duplicates }`.
 - `cobolt-runtime/src/indexed.rs` — the in-memory **INDEXED (ISAM) engine**
-  (`IndexedFile`, `STORAGE MODE IS MEMORY`): `BTreeMap` primary store +
+  (`IndexedFile`, `STORAGE IS MEMORY`): `BTreeMap` primary store +
   alternate-key indexes, ascending key order, journaled `commit`/`rollback`,
   record locking, `status` module (00/02/10/22/23/35/39/…). No external deps.
   Defines the `IndexedStore` trait both backends implement.
 - `cobolt-runtime/src/indexed_disk.rs` — the **persistent paged on-disk B+tree
-  engine** (`DiskIndexedFile`, `STORAGE MODE IS DISK`, container `PRCIDXD1`):
+  engine** (`DiskIndexedFile`, `STORAGE IS DISK`, container `PRCIDXD1`):
   4 KiB pages + free list, one B+tree per key (split-on-insert, doubly-linked
   leaves), a RecordId directory, slotted data pages + overflow chain. Records
   read on demand → bounded RAM. Lazy index delete (data pages reclaimed).
-- `cobolt-runtime/src/compress.rs` — `WITH DATA COMPRESSING` (PackBits RLE, raw
+- `cobolt-runtime/src/compress.rs` — `WITH COMPRESSION` (PackBits RLE, raw
   fallback, no deps); used by both storage modes.
 - **`STORAGE [MODE] IS MEMORY | DISK [WITH [DATA] COMPRESSION|COMPRESSING]`** — a
   SELECT clause (PowerRustCOBOL extension) on
   `FileControl.storage_mode`/`.data_compressing`; `ASSIGN TO` still required.
-  `MODE` optional; compression accepts `COMPRESSION` or `DATA COMPRESSING`, and a
+  `MODE` optional; compression accepts `COMPRESSION` or `COMPRESSION`, and a
   standalone `WITH COMPRESSION` (no STORAGE clause) is allowed. **Default storage
   (no STORAGE clause) = DISK** (`StorageMode` derives `#[default] Disk`; the
   parser inits to `Disk`). `make_indexed_engine` dispatches by `StorageMode` to a

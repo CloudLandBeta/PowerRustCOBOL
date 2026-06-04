@@ -28,9 +28,9 @@ use std::path::{Path, PathBuf};
 pub type Bytes = Vec<u8>;
 
 /// The runtime surface every indexed-file backend exposes, so the interpreter
-/// can drive either the in-memory engine ([`IndexedFile`], `STORAGE MODE IS
+/// can drive either the in-memory engine ([`IndexedFile`], `STORAGE IS
 /// MEMORY`) or the on-disk B+tree engine
-/// ([`crate::indexed_disk::DiskIndexedFile`], `STORAGE MODE IS DISK`) through a
+/// ([`crate::indexed_disk::DiskIndexedFile`], `STORAGE IS DISK`) through a
 /// single `Box<dyn IndexedStore>` handle.
 pub trait IndexedStore {
     fn open(&mut self, mode: OpenMode) -> &'static str;
@@ -323,7 +323,7 @@ pub struct IndexedFile {
     /// When `true`, OPEN validates the stored schema against the declared keys
     /// and returns FILE STATUS 39 on mismatch.
     strict_metadata: bool,
-    /// `WITH DATA COMPRESSING`: compress each record in the persisted container.
+    /// `WITH COMPRESSION`: compress each record in the persisted container.
     compressing: bool,
     /// Creation timestamp (ms), preserved across load/save.
     created_ms: u64,
@@ -363,7 +363,7 @@ impl IndexedFile {
         self.strict_metadata = strict;
     }
 
-    /// Enable/disable `WITH DATA COMPRESSING` for the persisted container.
+    /// Enable/disable `WITH COMPRESSION` for the persisted container.
     pub fn set_compressing(&mut self, on: bool) {
         self.compressing = on;
     }
@@ -932,7 +932,7 @@ impl IndexedFile {
             keys.push(KeyDescriptor { key_number, name, parts, duplicates_allowed, ordering });
         }
 
-        // Records (decompressed when the container is DATA-COMPRESSING-encoded).
+        // Records (decompressed when the container is COMPRESSION-encoded).
         let record_count = c.u64()?;
         for _ in 0..record_count {
             let rlen = c.u32()? as usize;
@@ -957,7 +957,7 @@ impl IndexedFile {
         let mut out = Vec::new();
         out.extend_from_slice(b"PRCIDX1\0"); // 8-byte magic
         out.extend_from_slice(&1u16.to_le_bytes()); // version
-        // flags: bit0 = records are DATA-COMPRESSING-encoded.
+        // flags: bit0 = records are COMPRESSION-encoded.
         let flags: u16 = if self.compressing { 1 } else { 0 };
         out.extend_from_slice(&flags.to_le_bytes());
         let (rf, fixed, minl, maxl) = match info.record_format {

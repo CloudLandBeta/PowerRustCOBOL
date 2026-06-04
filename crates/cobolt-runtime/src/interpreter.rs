@@ -68,9 +68,9 @@ struct FileSpec {
     record_key: Option<String>,
     /// ALTERNATE RECORD KEY entries (INDEXED files).
     alternate_keys: Vec<AlternateKey>,
-    /// STORAGE MODE IS MEMORY | DISK (INDEXED files).
+    /// STORAGE IS MEMORY | DISK (INDEXED files).
     storage_mode: cobolt_ast::program::StorageMode,
-    /// WITH DATA COMPRESSING — compress stored record data.
+    /// WITH COMPRESSION — compress stored record data.
     data_compressing: bool,
     /// Byte layout of the primary FD record (subfield offsets/widths).
     layout: crate::files::RecordLayout,
@@ -204,7 +204,7 @@ fn map_open_mode(m: OpenMode) -> crate::indexed::OpenMode {
 
 /// Build an indexed engine for `spec` from its layout + key fields. The concrete
 /// backend follows `STORAGE MODE`: MEMORY → the in-RAM engine; DISK → the
-/// persistent paged B+tree engine. `WITH DATA COMPRESSING` applies to both.
+/// persistent paged B+tree engine. `WITH COMPRESSION` applies to both.
 fn make_indexed_engine(
     spec: &FileSpec,
     path: &str,

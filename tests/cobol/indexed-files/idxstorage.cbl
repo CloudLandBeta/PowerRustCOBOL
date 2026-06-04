@@ -1,12 +1,12 @@
       *>****************************************************************
-      *> IDXSTORAGE — STORAGE MODE IS DISK WITH DATA COMPRESSING.
+      *> IDXSTORAGE — STORAGE IS DISK WITH COMPRESSION.
       *>
       *> Exercises the persistent on-disk B+tree backend through the full
       *> COBOL pipeline: an INDEXED file with a primary RECORD KEY and an
       *> ALTERNATE RECORD KEY WITH DUPLICATES, written out of key order,
       *> persisted to disk, reopened, and read back random + sequentially,
       *> plus REWRITE and DELETE. Records carry a roomy padded field so
-      *> WITH DATA COMPRESSING has something to crush.
+      *> WITH COMPRESSION has something to crush.
       *>
       *> Self-checking: PASS Tnnn / FAIL Tnnn + a final RESULT line.
       *> All COBOL identifiers stay in English.
@@ -17,7 +17,7 @@
        INPUT-OUTPUT SECTION.
        FILE-CONTROL.
            SELECT CUST-FILE
-               STORAGE MODE IS DISK WITH DATA COMPRESSING
+               STORAGE IS DISK WITH COMPRESSION
                ASSIGN TO "idxstorage.idx"
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC

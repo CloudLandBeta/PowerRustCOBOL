@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! `WITH DATA COMPRESSING` record compression for INDEXED files.
+//! `WITH COMPRESSION` record compression for INDEXED files.
 //!
 //! A self-contained, dependency-free, byte-oriented run-length encoder
 //! (PackBits-style) chosen for **maximum speed**. COBOL records are typically
