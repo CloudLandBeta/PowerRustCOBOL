@@ -18,6 +18,16 @@ and ⚠️ forms parse but behave partially. This is the companion to
 Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recognized
 (avoid, or test only to confirm the gap).
 
+> **Update (gap-implementation pass):** the following were implemented and are
+> now ✅ — **reference modification** `id(start:len)`, **inline
+> `PERFORM n TIMES`**, **`SET … UP/DOWN BY`**, **STRING/UNSTRING `ON OVERFLOW` +
+> `END-STRING`/`END-UNSTRING`**, **category-aware `INITIALIZE`**, **operator-
+> prefixed abbreviated conditions** (`a > 1 AND < 9`), **`CALL … ON EXCEPTION`**
+> (runs on unresolved CALL), **`COMPUTE` multiple receivers + per-receiver
+> `ROUNDED`**, a much larger **intrinsic-function set**, and **recognized**
+> `SEARCH`/`RELEASE`/`RETURN`/`UNLOCK`/`ALTER` + extended `ACCEPT`/`DISPLAY`
+> screen forms (parsed, not executed). The avoid-list at the bottom is current.
+
 ---
 
 ## Recognized statements (verbs)
@@ -201,16 +211,34 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 
 ---
 
-## "Will break the parse" — quick avoid‑list
+## Still NOT supported — current avoid‑list
 
-1. Reference modification `id(start:len)` anywhere.
-2. `ON OVERFLOW` / `END-STRING` / `END-UNSTRING` on STRING/UNSTRING.
-3. `SEARCH` / `SEARCH ALL`, `RELEASE`, `RETURN`, `UNLOCK`.
-4. Screen `ACCEPT`/`DISPLAY` (`AT`, `WITH CONTROL`, color/attribute phrases).
-5. `ADD/SUBTRACT CORRESPONDING`, multiple receivers on MULTIPLY/DIVIDE/COMPUTE.
-6. `SET … UP/DOWN BY`, `SET ADDRESS OF`.
-7. Abbreviated combined conditions.
-8. Inline `PERFORM n TIMES … END-PERFORM`.
+These remain ❌ (parse error) or ⚠️ (parsed/recognized but a no‑op):
 
-> When a test *intentionally* targets one of these (to drive the fix), expect a
-> parser diagnostic or a no‑op — that is the signal for the implementation pass.
+1. **`ADD/SUBTRACT CORRESPONDING`** and **multiple receivers on `MULTIPLY`/
+   `DIVIDE`** — and `ADD`/`SUBTRACT` per‑receiver `ROUNDED` (still statement
+   level). (`COMPUTE` multiple receivers + per‑receiver `ROUNDED` **is** done.)
+2. **Functional `SEARCH` / `SEARCH ALL`** — recognized (parses) but a no‑op;
+   blocked by the flat data model (no per‑occurrence table storage).
+3. **Qualified-name disambiguation** (`A OF B` vs `A OF C`) and **subscripted
+   table indexing** `t(i)` — also blocked by the flat data model (subscript
+   currently evaluates the base, ignoring the index).
+4. **`MOVE/ADD/SUBTRACT CORRESPONDING`** — needs group‑subfield matching (data
+   model).
+5. **`SET ADDRESS OF`**, `SET pointer TO {ADDRESS OF … | NULL}`.
+6. **Identifier-object abbreviated conditions** (`a = b OR c` where `c` is a
+   data‑item) — needs semantic resolution; the **operator‑prefixed** form
+   (`a > 1 AND < 9`, `a = 5 OR = 7`) **is** supported.
+7. **Screen `ACCEPT`/`DISPLAY` execution** — `AT`/`WITH` phrases parse and are
+   ignored (the form designer supersedes SCREEN SECTION I/O).
+8. **`RELEASE`/`RETURN`/`UNLOCK`/`ALTER`** — recognized (parse) but no‑ops
+   (`RELEASE`/`RETURN` await the full `SORT` runtime).
+9. **`INSPECT … TALLYING … REPLACING`** combined (REPLACING half skipped) and
+   `INSPECT … BEFORE/AFTER INITIAL`.
+10. Intrinsics outside the implemented set still return **0**.
+
+> A test that *intentionally* targets one of these (to drive the fix) will hit a
+> parser diagnostic or a no‑op — that is the signal for the next pass. The big
+> remaining theme is the **flat data model**: a hierarchical / occurrence‑aware
+> environment unblocks CORRESPONDING, qualified names, table subscripting, and
+> functional SEARCH together.
