@@ -8,6 +8,46 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.5.0] — 2026-06-04
+
+Hierarchical / occurrence-aware runtime environment. One dedicated effort
+unblocks four interrelated COBOL-85 capabilities that the flat data store
+previously could not express. The IDE is unchanged.
+
+### New language features
+
+- **Runtime table subscripting** — `TABLE-ITEM(i)` (and multi-dimension
+  `T(i, j)`) now read and write per-occurrence storage slots, materialised
+  lazily from the item's template on first write. Variable subscripts
+  (`T(WS-I)`) are evaluated each access.
+- **Qualified-name disambiguation** — `data-item OF group` / `… IN group`
+  now resolves to the correct item when a leaf name is **declared in more than
+  one group**. Duplicated names are stored under path-qualified canonical keys,
+  so `BALANCE OF ACCOUNT` and `BALANCE OF SUMMARY` are independent fields
+  (previously they collided into one slot). Unique names are unaffected.
+- **`MOVE CORRESPONDING g1 TO g2`** — moves each subordinate item that the two
+  groups share by name, recursing through matching sub-groups; items present in
+  only one group are untouched.
+- **`ADD CORRESPONDING g1 TO g2 [ROUNDED]`** and
+  **`SUBTRACT CORRESPONDING g1 FROM g2 [ROUNDED]`** — new
+  `Stmt::AddCorresponding` / `Stmt::SubtractCorresponding`; combine each matching
+  numeric pair, recursing through matching sub-groups.
+- **Functional `SEARCH` / `SEARCH ALL`** — `Stmt::Search` now drives the table's
+  index (the `VARYING` item, else its first `INDEXED BY` index) from its current
+  value to the table bound, evaluating each `WHEN` per occurrence and running the
+  first matching imperative, else the `AT END` body. `INDEXED BY` index-names are
+  registered as numeric index registers (recognised by `SET` and the resolver).
+- **`DISPLAY` of qualified & subscripted numerics** now renders with full PIC
+  width (leading zeros), matching plain-item DISPLAY.
+
+### Internal
+
+- `CobolEnvironment` gains a per-item symbol table (`ItemSym`: OCCURS dims, child
+  names + canonical child keys, ancestor path, INDEXED BY names) plus a
+  duplicate-name index; `resolve_name()` maps a (name, qualifiers) reference to
+  its canonical storage key.
+- Tests: `crates/cobolt-runtime/tests/test_hierarchy.rs`.
+
 ## [PowerRustCOBOL 1.4.0] — 2026-06-04
 
 A COBOL-85 language-coverage pass: closing parser/runtime gaps surfaced by the

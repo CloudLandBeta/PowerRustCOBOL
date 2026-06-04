@@ -319,6 +319,13 @@ honest map of where things stand.
   prefixed abbreviated conditions** (`a > 1 AND < 9`), and **`CALL … ON
   EXCEPTION`** (runs on an unresolved CALL). See the
   [supported-syntax reference](docs/cobol85-supported-syntax.md).
+- **Hierarchical / occurrence-aware tables (1.5.0)** — **runtime table
+  subscripting** `t(i)` / `t(i, j)` (per-occurrence storage, variable
+  subscripts), **qualified-name disambiguation** `id OF/IN group` (a leaf name
+  declared under more than one group resolves to independent storage),
+  **`MOVE`/`ADD`/`SUBTRACT CORRESPONDING`** (group-subfield matching), and
+  **functional `SEARCH` / `SEARCH ALL`** (drives the table index / `INDEXED BY`,
+  runs the first matching `WHEN`, else `AT END`).
 - **`INDEXED` (ISAM) files** — a built-in, dependency-free keyed-file engine with
   primary + alternate keys, ascending on-disk key order, journaled
   `COMMIT`/`ROLLBACK`, record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
@@ -332,15 +339,10 @@ honest map of where things stand.
 - **SCREEN SECTION** — parsed in simplified form (incl. extended `ACCEPT`/`DISPLAY`
   `AT`/`WITH` phrases); terminal screen handling is not executed (the visual form
   designer supersedes it).
-- **Tables / `OCCURS`** — declared and parsed (incl. subscripts and qualification),
-  but subscript **indexing** and **qualified-name disambiguation** are not yet
-  evaluated at runtime (a flat data store; hierarchical storage is the next step).
-- **`SEARCH` / `SEARCH ALL`**, **`RELEASE` / `RETURN` / `UNLOCK` / `ALTER`** — parse
-  (recognized) but are currently no-ops.
+- **`RELEASE` / `RETURN` / `UNLOCK` / `ALTER`** — parse (recognized) but are
+  currently no-ops (`RELEASE`/`RETURN` await the full `SORT` runtime).
 
 ### ⛔ Not yet implemented (planned)
-- **`MOVE`/`ADD`/`SUBTRACT CORRESPONDING`** and runtime table indexing / `SEARCH`
-  (await an occurrence-aware data model).
 - Multiple receivers on `MULTIPLY`/`DIVIDE`; per-receiver `ROUNDED` on
   `ADD`/`SUBTRACT`. `SET ADDRESS OF` / pointer manipulation.
 - **RELATIVE** file organization; **`SORT` / `MERGE`** runtime; file sharing /

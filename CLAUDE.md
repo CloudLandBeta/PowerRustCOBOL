@@ -63,7 +63,7 @@ The i18n system translates the IDE interface only.
 - **y** — new features: new widgets, properties, IDE panels, language features
 - **z** — bug fixes, polish, performance
 
-Current version: **1.4.0**
+Current version: **1.5.0**
 
 ---
 

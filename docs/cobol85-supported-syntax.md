@@ -24,9 +24,15 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 > `END-STRING`/`END-UNSTRING`**, **category-aware `INITIALIZE`**, **operator-
 > prefixed abbreviated conditions** (`a > 1 AND < 9`), **`CALL … ON EXCEPTION`**
 > (runs on unresolved CALL), **`COMPUTE` multiple receivers + per-receiver
-> `ROUNDED`**, a much larger **intrinsic-function set**, and **recognized**
-> `SEARCH`/`RELEASE`/`RETURN`/`UNLOCK`/`ALTER` + extended `ACCEPT`/`DISPLAY`
-> screen forms (parsed, not executed). The avoid-list at the bottom is current.
+> `ROUNDED`**, a much larger **intrinsic-function set**, and extended
+> `ACCEPT`/`DISPLAY` screen forms (parsed, not executed).
+>
+> **Update (hierarchical / occurrence-aware environment pass — 1.5.0):** four
+> data-model-blocked features are now ✅ — **runtime table subscripting** `t(i)`
+> / `t(i, j)` (per-occurrence storage), **qualified-name disambiguation**
+> `id OF/IN group` (duplicated leaf names resolve to independent storage),
+> **`MOVE/ADD/SUBTRACT CORRESPONDING`**, and **functional `SEARCH` / `SEARCH ALL`**.
+> The avoid-list at the bottom is current.
 
 ---
 
@@ -40,8 +46,10 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 `INVOKE` (parsed as no‑op) · `CANCEL` (skipped)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 
-⚠️ **Recognized but no‑op** (parse cleanly, do nothing yet): `SEARCH` /
-`SEARCH ALL`, `RELEASE`, `RETURN`, `UNLOCK`, `ALTER`.
+✅ `SEARCH` / `SEARCH ALL` (functional — drives the table index and runs the
+first matching `WHEN`, else `AT END`).
+⚠️ **Recognized but no‑op** (parse cleanly, do nothing yet): `RELEASE`,
+`RETURN`, `UNLOCK`, `ALTER`.
 ❌ **Not recognized — do not use:** `ENTRY`, `USE`,
 `GENERATE`/`INITIATE`/`TERMINATE`, `SEND`/`RECEIVE`, `ENABLE`/`DISABLE`.
 
@@ -51,18 +59,22 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 
 ### MOVE
 - ✅ `MOVE {id|lit|figurative} TO id1 [id2 …]` (multiple receivers).
-- ⚠️ `MOVE CORRESPONDING g1 TO g2` parses but is a no‑op (data‑model gap).
+- ✅ `MOVE CORRESPONDING g1 TO g2` — moves each subordinate item the two groups
+  share by name, recursing through matching sub-groups.
 - ✅ **Reference modification `id(start:len)`** — sender (substring) and receiver
   (spliced partial assignment); works on every verb's operands. `length` optional.
-- ✅ subscripts `t(i)`, `t(i, j)` parse; ⚠️ but the index is currently ignored at
-  runtime (data‑model gap). Qualification `id OF/IN group` parses; the qualifier
-  is ignored at runtime.
+- ✅ subscripts `t(i)`, `t(i, j)` — read/write the per-occurrence storage slot;
+  variable subscripts `t(WS-I)` evaluated each access.
+- ✅ qualification `id OF/IN group` (`… OF g1 OF g2`) — resolves to the correct
+  item even when the leaf name is declared under more than one group.
 
 ### ADD / SUBTRACT
 - ✅ `ADD a [b …] TO r1 [r2 …] [ROUNDED] [[ON] SIZE ERROR …][NOT …][END-ADD]`.
 - ✅ `ADD a [b …] GIVING r [ROUNDED] …` · `SUBTRACT a … FROM r …` · `… GIVING …`.
 - ⚠️ `ROUNDED` is **one flag for the whole statement**, not per‑receiver.
-- ❌ `ADD/SUBTRACT CORRESPONDING` (only `MOVE` has CORRESPONDING).
+- ✅ `ADD CORRESPONDING g1 TO g2 [ROUNDED]` /
+  `SUBTRACT CORRESPONDING g1 FROM g2 [ROUNDED]` — combine each matching numeric
+  pair, recursing through matching sub-groups.
 
 ### MULTIPLY / DIVIDE
 - ✅ `MULTIPLY a BY b [GIVING r] [ROUNDED] [SIZE ERROR …][END-MULTIPLY]`.
@@ -225,30 +237,25 @@ Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THRO
 
 These remain ❌ (parse error) or ⚠️ (parsed/recognized but a no‑op):
 
-1. **`ADD/SUBTRACT CORRESPONDING`** and **multiple receivers on `MULTIPLY`/
-   `DIVIDE`** — and `ADD`/`SUBTRACT` per‑receiver `ROUNDED` (still statement
-   level). (`COMPUTE` multiple receivers + per‑receiver `ROUNDED` **is** done.)
-2. **Functional `SEARCH` / `SEARCH ALL`** — recognized (parses) but a no‑op;
-   blocked by the flat data model (no per‑occurrence table storage).
-3. **Qualified-name disambiguation** (`A OF B` vs `A OF C`) and **subscripted
-   table indexing** `t(i)` — also blocked by the flat data model (subscript
-   currently evaluates the base, ignoring the index).
-4. **`MOVE/ADD/SUBTRACT CORRESPONDING`** — needs group‑subfield matching (data
-   model).
-5. **`SET ADDRESS OF`**, `SET pointer TO {ADDRESS OF … | NULL}`.
-6. **Identifier-object abbreviated conditions** (`a = b OR c` where `c` is a
+1. **Multiple receivers on `MULTIPLY`/`DIVIDE`** — and `ADD`/`SUBTRACT`
+   per‑receiver `ROUNDED` (still statement level). (`COMPUTE` multiple receivers
+   + per‑receiver `ROUNDED` **is** done; `ADD/SUBTRACT CORRESPONDING` **is** done.)
+2. **`SET ADDRESS OF`**, `SET pointer TO {ADDRESS OF … | NULL}`.
+3. **Identifier-object abbreviated conditions** (`a = b OR c` where `c` is a
    data‑item) — needs semantic resolution; the **operator‑prefixed** form
    (`a > 1 AND < 9`, `a = 5 OR = 7`) **is** supported.
-7. **Screen `ACCEPT`/`DISPLAY` execution** — `AT`/`WITH` phrases parse and are
+4. **Screen `ACCEPT`/`DISPLAY` execution** — `AT`/`WITH` phrases parse and are
    ignored (the form designer supersedes SCREEN SECTION I/O).
-8. **`RELEASE`/`RETURN`/`UNLOCK`/`ALTER`** — recognized (parse) but no‑ops
+5. **`RELEASE`/`RETURN`/`UNLOCK`/`ALTER`** — recognized (parse) but no‑ops
    (`RELEASE`/`RETURN` await the full `SORT` runtime).
-9. **`INSPECT … TALLYING … REPLACING`** combined (REPLACING half skipped) and
+6. **`INSPECT … TALLYING … REPLACING`** combined (REPLACING half skipped) and
    `INSPECT … BEFORE/AFTER INITIAL`.
-10. Intrinsics outside the implemented set still return **0**.
+7. Intrinsics outside the implemented set still return **0**.
 
 > A test that *intentionally* targets one of these (to drive the fix) will hit a
-> parser diagnostic or a no‑op — that is the signal for the next pass. The big
-> remaining theme is the **flat data model**: a hierarchical / occurrence‑aware
-> environment unblocks CORRESPONDING, qualified names, table subscripting, and
-> functional SEARCH together.
+> parser diagnostic or a no‑op — that is the signal for the next pass.
+>
+> **Resolved (1.5.0):** the **flat data model** has been replaced by a
+> hierarchical / occurrence‑aware environment, unblocking **CORRESPONDING**
+> (`MOVE`/`ADD`/`SUBTRACT`), **qualified names**, **table subscripting**, and
+> **functional `SEARCH` / `SEARCH ALL`** together.
