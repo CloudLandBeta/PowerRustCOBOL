@@ -1079,6 +1079,10 @@ fn parse_accept(p: &mut Parser) -> Stmt {
     p.advance(); // ACCEPT
     let target = parse_expr(p);
 
+    // Optional screen position before / after FROM (parsed, not executed —
+    // terminal screen handling is superseded by the form designer).
+    eat_accept_screen(p);
+
     let from = if p.at(&Token::From) {
         p.advance();
         Some(parse_accept_source(p))
@@ -1086,7 +1090,36 @@ fn parse_accept(p: &mut Parser) -> Stmt {
         None
     };
 
+    // Optional trailing screen position / attribute phrases.
+    eat_accept_screen(p);
+
     Stmt::Accept { target, from, span }
+}
+
+/// Consume the screen-handling phrases of an extended ACCEPT — `AT {nnnn |
+/// LINE n [COLUMN n]}` and `WITH attribute …` — which PowerRustCOBOL recognizes
+/// but does not execute (the visual designer supersedes SCREEN SECTION I/O).
+fn eat_accept_screen(p: &mut Parser) {
+    let stop = |p: &Parser| {
+        p.at(&Token::With) || p.at(&Token::From) || p.at(&Token::Upon)
+            || p.at(&Token::No) || p.at(&Token::Eof) || p.at(&Token::Period)
+            || is_stmt_start(p.peek())
+    };
+    loop {
+        if is_word(p.peek(), "AT") {
+            p.advance(); // AT — then the position tokens (LINE/COLUMN words + numbers)
+            while !stop(p) {
+                p.advance();
+            }
+        } else if p.at(&Token::With) && !is_word(p.peek_at(1), "NO") {
+            p.advance(); // WITH — then attribute words up to the next clause.
+            while !stop(p) {
+                p.advance();
+            }
+        } else {
+            break;
+        }
+    }
 }
 
 fn parse_accept_source(p: &mut Parser) -> AcceptSource {
@@ -1097,11 +1130,21 @@ fn parse_accept_source(p: &mut Parser) -> AcceptSource {
             "DAY"         => Some(AcceptSource::Day),
             "DAY-OF-WEEK" => Some(AcceptSource::DayOfWeek),
             "COMMAND-LINE" => Some(AcceptSource::CommandLine),
+            // Recognized but read as a no-op (argument / environment registers).
+            "ARGUMENT-NUMBER" | "ARGUMENT-VALUE" | "ENVIRONMENT-VALUE" => {
+                Some(AcceptSource::CommandLine)
+            }
             _ => None,
         };
         if let Some(s) = src {
             p.advance();
             return s;
+        }
+        // Two-word registers: `ESCAPE KEY`, `CRT STATUS` — recognized no-ops.
+        if name == "ESCAPE" || name == "CRT" {
+            p.advance(); // ESCAPE / CRT
+            p.advance(); // KEY / STATUS (keyword or identifier)
+            return AcceptSource::CommandLine;
         }
         // ENVIRONMENT "name"
         if name == "ENVIRONMENT" {
@@ -1126,14 +1169,18 @@ fn parse_display(p: &mut Parser) -> Stmt {
     p.advance(); // DISPLAY
 
     let mut operands = Vec::new();
-    // Collect operands until UPON, WITH, NO, or end of statement
+    // Collect operands until UPON, WITH, NO, AT (screen position), or end.
     while is_expr_start(p)
         && !p.at(&Token::Upon)
         && !p.at(&Token::With)
         && !p.at(&Token::No)
+        && !is_word(p.peek(), "AT")
     {
         operands.push(parse_expr(p));
     }
+
+    // Optional screen position / attribute phrases (recognized, not executed).
+    eat_accept_screen(p);
 
     let upon = if p.eat(&Token::Upon) {
         p.eat_identifier().map(|(s, _)| s)
