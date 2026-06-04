@@ -117,7 +117,17 @@ pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<
 /// Try to parse one statement at the current position.
 /// Returns `None` if the current token does not start a known statement.
 pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
+    // Statements introduced by a non-keyword word (SEARCH, UNLOCK, ALTER).
+    if let Token::Identifier(w) = p.peek() {
+        match w.to_ascii_uppercase().as_str() {
+            "SEARCH" => return Some(parse_search(p)),
+            "UNLOCK" | "ALTER" => return Some(parse_recognized_noop(p)),
+            _ => {}
+        }
+    }
     match p.peek().clone() {
+        // SORT I/O verbs — recognized; tied to the (incomplete) SORT runtime.
+        Token::Release | Token::Return_ => Some(parse_recognized_noop(p)),
         Token::Move       => Some(parse_move(p)),
         Token::Add        => Some(parse_add(p)),
         Token::Subtract   => Some(parse_subtract(p)),
@@ -707,6 +717,40 @@ fn parse_go(p: &mut Parser) -> Stmt {
 fn parse_continue(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // CONTINUE
+    Stmt::Continue { span }
+}
+
+/// Recognize a verb we don't execute yet (UNLOCK, ALTER, RELEASE, RETURN):
+/// consume its operands up to the sentence end / next verb and emit a no-op.
+fn parse_recognized_noop(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    p.advance(); // the verb
+    while !p.at(&Token::Period) && !p.at(&Token::Eof) && !is_stmt_start(p.peek()) {
+        p.advance();
+    }
+    Stmt::Continue { span }
+}
+
+/// Recognize `SEARCH` / `SEARCH ALL` (full table indexing is not yet supported,
+/// so this is parsed as a no-op): consume through the matching `END-SEARCH` or
+/// the sentence terminator.
+fn parse_search(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    p.advance(); // SEARCH
+    let mut depth = 1usize;
+    while depth > 0 && !p.at(&Token::Eof) {
+        if let Token::Identifier(w) = p.peek() {
+            match w.to_ascii_uppercase().as_str() {
+                "SEARCH" => depth += 1,
+                "END-SEARCH" => { depth -= 1; p.advance(); continue; }
+                _ => {}
+            }
+        }
+        if p.at(&Token::Period) && depth == 1 {
+            break;
+        }
+        p.advance();
+    }
     Stmt::Continue { span }
 }
 

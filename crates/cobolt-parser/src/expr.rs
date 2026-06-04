@@ -427,11 +427,82 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
     }
 }
 
+/// The subject (`lhs`) of the right-most `Comparison` in a condition, used to
+/// expand abbreviated combined conditions (`a > 1 AND < 9`).
+fn rightmost_subject(c: &Condition) -> Option<&Expr> {
+    match c {
+        Condition::Comparison { lhs, .. } => Some(lhs),
+        Condition::And(_, b, _) | Condition::Or(_, b, _) => rightmost_subject(b),
+        Condition::Not(inner, _) => rightmost_subject(inner),
+        _ => None,
+    }
+}
+
+/// True if the current token begins a relational operator (the signal for an
+/// operator-prefixed abbreviated condition, e.g. the `< 9` in `a > 1 AND < 9`).
+fn at_relop(p: &Parser) -> bool {
+    matches!(
+        p.peek(),
+        Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
+            | Token::Greater | Token::Less | Token::Equal
+    )
+}
+
+/// Parse one relational operator + RHS as a comparison reusing `subject`.
+fn parse_abbrev_comparison(p: &mut Parser, subject: &Expr) -> Condition {
+    let span = p.peek_span();
+    let negated = p.eat(&Token::Not);
+    let op = if p.eat(&Token::Equal) {
+        p.eat(&Token::To);
+        if negated { CmpOp::Ne } else { CmpOp::Eq }
+    } else if p.eat(&Token::Greater) {
+        let ge = check_or_equal(p);
+        p.eat(&Token::Than);
+        let base = if ge { CmpOp::Ge } else { CmpOp::Gt };
+        if negated { negate_cmp(base) } else { base }
+    } else if p.eat(&Token::Less) {
+        let le = check_or_equal(p);
+        p.eat(&Token::Than);
+        let base = if le { CmpOp::Le } else { CmpOp::Lt };
+        if negated { negate_cmp(base) } else { base }
+    } else {
+        let t = p.peek().clone();
+        p.advance();
+        match t {
+            Token::Eq => if negated { CmpOp::Ne } else { CmpOp::Eq },
+            Token::NotEq => CmpOp::Ne,
+            Token::Lt => if negated { CmpOp::Ge } else { CmpOp::Lt },
+            Token::Gt => if negated { CmpOp::Le } else { CmpOp::Gt },
+            Token::LtEq => if negated { CmpOp::Gt } else { CmpOp::Le },
+            Token::GtEq => if negated { CmpOp::Lt } else { CmpOp::Ge },
+            _ => CmpOp::Eq,
+        }
+    };
+    let rhs = parse_expr(p);
+    let sp = span.merge(rhs.span());
+    Condition::Comparison { lhs: subject.clone(), op, rhs, span: sp }
+}
+
+/// A continuation term after AND/OR: an operator-prefixed abbreviation reuses the
+/// preceding subject; otherwise a fresh primary condition.
+fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
+    if at_relop(p) || (p.at(&Token::Not) && {
+        let n = p.peek_at(1);
+        matches!(n, Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
+            | Token::Greater | Token::Less | Token::Equal)
+    }) {
+        if let Some(subject) = rightmost_subject(prev) {
+            return parse_abbrev_comparison(p, &subject.clone());
+        }
+    }
+    parse_condition_primary(p)
+}
+
 fn parse_condition_and(p: &mut Parser) -> Condition {
     let mut lhs = parse_condition_primary(p);
     while p.at(&Token::And) {
         p.advance();
-        let rhs = parse_condition_primary(p);
+        let rhs = parse_continuation(p, &lhs);
         let sp = lhs.span().merge(rhs.span());
         lhs = Condition::And(Box::new(lhs), Box::new(rhs), sp);
     }
@@ -444,7 +515,11 @@ fn parse_condition_or(p: &mut Parser) -> Condition {
         // Guard: don't consume OR that's part of GREATER/LESS OR EQUAL
         // (those are consumed inside parse_condition_primary before returning)
         p.advance();
-        let rhs = parse_condition_and(p);
+        let rhs = if at_relop(p) {
+            parse_continuation(p, &lhs)
+        } else {
+            parse_condition_and(p)
+        };
         let sp = lhs.span().merge(rhs.span());
         lhs = Condition::Or(Box::new(lhs), Box::new(rhs), sp);
     }
