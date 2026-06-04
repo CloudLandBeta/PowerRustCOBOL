@@ -298,7 +298,7 @@ fn stmt_if_else() {
 #[test]
 fn stmt_evaluate() {
     let s = Stmt::Evaluate {
-        subject: EvalSubject::Expr(Expr::Identifier("WS-CODE".into(), dummy_span())),
+        subjects: vec![EvalSubject::Expr(Expr::Identifier("WS-CODE".into(), dummy_span()))],
         whens: vec![WhenClause {
             values: vec![WhenValue::Literal(Literal::Integer(1))],
             stmts: vec![Stmt::Continue { span: dummy_span() }],
@@ -341,6 +341,7 @@ fn stmt_call() {
         ],
         returning: None,
         on_exception: vec![],
+        not_on_exception: vec![],
         span: dummy_span(),
     };
     let _ = format!("{s:?}");

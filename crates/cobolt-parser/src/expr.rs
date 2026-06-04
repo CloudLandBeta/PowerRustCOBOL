@@ -438,6 +438,37 @@ fn rightmost_subject(c: &Condition) -> Option<&Expr> {
     }
 }
 
+/// The subject + operator of the right-most `Comparison`, for expanding a
+/// *literal-object* abbreviation (`a = 1 OR 2` → `a = 1 OR a = 2`).
+fn rightmost_comparison(c: &Condition) -> Option<(Expr, CmpOp)> {
+    match c {
+        Condition::Comparison { lhs, op, .. } => Some((lhs.clone(), *op)),
+        Condition::And(_, b, _) | Condition::Or(_, b, _) => rightmost_comparison(b),
+        Condition::Not(inner, _) => rightmost_comparison(inner),
+        _ => None,
+    }
+}
+
+/// True if the current token starts a bare literal operand (the object of a
+/// literal-object abbreviation). Identifiers are excluded — a bare identifier
+/// after AND/OR remains a condition-name (88-level), which the parser cannot
+/// distinguish from a data-item object without the symbol table.
+fn at_literal_object(p: &Parser) -> bool {
+    matches!(
+        p.peek(),
+        Token::IntegerLiteral(_)
+            | Token::DecimalLiteral { .. }
+            | Token::StringLiteral(_)
+            | Token::Spaces
+            | Token::Zeros
+            | Token::HighValues
+            | Token::LowValues
+            | Token::Quotes
+            | Token::Nulls
+            | Token::AllLiteral
+    )
+}
+
 /// True if the current token begins a relational operator (the signal for an
 /// operator-prefixed abbreviated condition, e.g. the `< 9` in `a > 1 AND < 9`).
 fn at_relop(p: &Parser) -> bool {
@@ -495,6 +526,15 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
             return parse_abbrev_comparison(p, &subject.clone());
         }
     }
+    // Literal-object abbreviation: reuse the previous subject AND operator.
+    if at_literal_object(p) {
+        if let Some((subject, op)) = rightmost_comparison(prev) {
+            let span = p.peek_span();
+            let rhs = parse_expr(p);
+            let sp = span.merge(rhs.span());
+            return Condition::Comparison { lhs: subject, op, rhs, span: sp };
+        }
+    }
     parse_condition_primary(p)
 }
 
@@ -515,7 +555,7 @@ fn parse_condition_or(p: &mut Parser) -> Condition {
         // Guard: don't consume OR that's part of GREATER/LESS OR EQUAL
         // (those are consumed inside parse_condition_primary before returning)
         p.advance();
-        let rhs = if at_relop(p) {
+        let rhs = if at_relop(p) || at_literal_object(p) {
             parse_continuation(p, &lhs)
         } else {
             parse_condition_and(p)

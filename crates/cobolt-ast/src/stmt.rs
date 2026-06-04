@@ -63,10 +63,11 @@ pub struct AdvancingClause {
     pub before: bool,
 }
 
-/// A single WHEN clause inside EVALUATE.
+/// A single WHEN clause inside EVALUATE. With `ALSO`, `values` holds one entry
+/// per EVALUATE subject (matched positionally, AND-combined).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WhenClause {
-    /// One or more values / ranges / ANY / OTHER that match this arm.
+    /// One selection object per subject column (AND-combined across columns).
     pub values: Vec<WhenValue>,
     pub stmts: Vec<Stmt>,
     pub span: Span,
@@ -84,6 +85,8 @@ pub enum WhenValue {
     Other,
     /// A condition used directly: `WHEN condition`
     Condition(Condition),
+    /// A negated selection object: `WHEN NOT value`.
+    Not(Box<WhenValue>),
 }
 
 /// The subject of an EVALUATE statement.
@@ -374,9 +377,10 @@ pub enum Stmt {
         span: Span,
     },
 
-    /// `EVALUATE subject WHEN … [WHEN OTHER …] END-EVALUATE`
+    /// `EVALUATE subject [ALSO subject …] WHEN … [WHEN OTHER …] END-EVALUATE`
     Evaluate {
-        subject: EvalSubject,
+        /// One or more subjects (more than one when `ALSO` is used).
+        subjects: Vec<EvalSubject>,
         whens: Vec<WhenClause>,
         other_stmts: Vec<Stmt>,
         span: Span,

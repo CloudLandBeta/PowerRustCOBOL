@@ -463,11 +463,18 @@ fn parse_evaluate(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // EVALUATE
 
-    let subject = match p.peek().clone() {
-        Token::True_  => { p.advance(); EvalSubject::True_ }
-        Token::False_ => { p.advance(); EvalSubject::False_ }
-        _             => EvalSubject::Expr(parse_expr(p)),
-    };
+    // One or more subjects, separated by ALSO.
+    let mut subjects = Vec::new();
+    loop {
+        let subj = match p.peek().clone() {
+            Token::True_  => { p.advance(); EvalSubject::True_ }
+            Token::False_ => { p.advance(); EvalSubject::False_ }
+            _             => EvalSubject::Expr(parse_expr(p)),
+        };
+        subjects.push(subj);
+        if !p.at(&Token::Also) { break; }
+        p.advance(); // ALSO
+    }
 
     let mut whens: Vec<WhenClause> = Vec::new();
     let mut other_stmts: Vec<Stmt> = Vec::new();
@@ -503,7 +510,7 @@ fn parse_evaluate(p: &mut Parser) -> Stmt {
 
     p.eat(&Token::EndEvaluate);
 
-    Stmt::Evaluate { subject, whens, other_stmts, span }
+    Stmt::Evaluate { subjects, whens, other_stmts, span }
 }
 
 fn parse_when_value(p: &mut Parser) -> WhenValue {
@@ -519,8 +526,11 @@ fn parse_when_value(p: &mut Parser) -> WhenValue {
         p.advance();
         return WhenValue::Other;
     }
-    // NOT literal / literal THRU literal / condition
-    let negated = p.eat(&Token::Not);
+    // NOT {literal | literal THRU literal | condition}
+    if p.eat(&Token::Not) {
+        let inner = parse_when_value(p);
+        return WhenValue::Not(Box::new(inner));
+    }
     if let Some((lit, _)) = parse_literal(p) {
         if p.at(&Token::Through) {
             p.advance();
@@ -528,9 +538,6 @@ fn parse_when_value(p: &mut Parser) -> WhenValue {
                 return WhenValue::Range(lit, lit2);
             }
         }
-        // MVP: negated literal in WHEN encoded as plain literal;
-        // the evaluator is responsible for handling the negation.
-        let _ = negated;
         return WhenValue::Literal(lit);
     }
     // Condition-based WHEN

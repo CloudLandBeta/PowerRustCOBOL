@@ -651,8 +651,8 @@ impl Interpreter {
             // ── Control flow ──────────────────────────────────────────────────
             Stmt::If { condition, then_stmts, else_stmts, .. } =>
                 self.exec_if(condition, then_stmts, else_stmts),
-            Stmt::Evaluate { subject, whens, other_stmts, .. } =>
-                self.exec_evaluate(subject, whens, other_stmts),
+            Stmt::Evaluate { subjects, whens, other_stmts, .. } =>
+                self.exec_evaluate(subjects, whens, other_stmts),
             Stmt::Perform { target, span } =>
                 self.exec_perform(target, *span),
             Stmt::Search { all, table, varying, at_end, whens, .. } =>
@@ -1219,24 +1219,35 @@ impl Interpreter {
 
     fn exec_evaluate(
         &mut self,
-        subject: &EvalSubject,
+        subjects: &[EvalSubject],
         whens: &[WhenClause],
         other_stmts: &[Stmt],
     ) -> Result<(), RuntimeError> {
-        'when: for when in whens {
-            for val in &when.values {
-                let matched = self.when_value_matches(subject, val)?;
-                if matched {
-                    // Don't match purely-OTHER clauses here (handled below).
-                    if !matches!(val, WhenValue::Other) {
-                        return self.exec_stmts(&when.stmts);
-                    }
-                    // If ALL values in this WHEN are OTHER, skip to other_stmts.
-                    let all_other = when.values.iter().all(|v| matches!(v, WhenValue::Other));
-                    if !all_other {
-                        return self.exec_stmts(&when.stmts);
-                    }
+        for when in whens {
+            // A WHEN whose every column is OTHER is the catch-all.
+            if !when.values.is_empty()
+                && when.values.iter().all(|v| matches!(v, WhenValue::Other))
+            {
+                return self.exec_stmts(&when.stmts);
+            }
+            if when.values.is_empty() {
+                continue;
+            }
+            // Each column is matched against the corresponding subject; the
+            // WHEN matches when every column matches (ALSO = AND).
+            let mut all = true;
+            for (i, val) in when.values.iter().enumerate() {
+                let subj = match subjects.get(i) {
+                    Some(s) => s,
+                    None => { all = false; break; }
+                };
+                if !self.when_value_matches(subj, val)? {
+                    all = false;
+                    break;
                 }
+            }
+            if all {
+                return self.exec_stmts(&when.stmts);
             }
         }
         // WHEN OTHER / no match
@@ -1251,6 +1262,7 @@ impl Interpreter {
         match (subject, val) {
             (_, WhenValue::Any) => Ok(true),
             (_, WhenValue::Other) => Ok(false), // handled specially in exec_evaluate
+            (s, WhenValue::Not(inner)) => Ok(!self.when_value_matches(s, inner)?),
             (EvalSubject::True_, WhenValue::Condition(c)) => self.eval_condition(c),
             (EvalSubject::False_, WhenValue::Condition(c)) => {
                 Ok(!self.eval_condition(c)?)
