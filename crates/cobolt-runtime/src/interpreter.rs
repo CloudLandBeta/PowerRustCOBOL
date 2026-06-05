@@ -339,6 +339,14 @@ pub struct Interpreter {
     sort_cursors: HashMap<String, usize>,
     /// `ALTER` overrides: paragraph name → the `GO TO` target it now proceeds to.
     alter_map: HashMap<String, String>,
+    /// The COBOL program's command-line arguments (excludes the program name).
+    program_args: Vec<String>,
+    /// 1-based argument pointer for `ACCEPT … FROM ARGUMENT-VALUE`
+    /// (set by `DISPLAY n UPON ARGUMENT-NUMBER`).
+    argument_pointer: usize,
+    /// Variable name set by `DISPLAY "VAR" UPON ENVIRONMENT-NAME`, read back by
+    /// `ACCEPT … FROM ENVIRONMENT-VALUE`.
+    env_name_register: String,
 }
 
 const MAX_PERFORM_DEPTH: usize = 512;
@@ -391,7 +399,18 @@ impl Interpreter {
             sort_buffers: HashMap::new(),
             sort_cursors: HashMap::new(),
             alter_map: HashMap::new(),
+            // Default to this process's args (correct for a compiled binary; the
+            // CLI overrides with the program's own args via set_program_args).
+            program_args: std::env::args().skip(1).collect(),
+            argument_pointer: 1,
+            env_name_register: String::new(),
         }
+    }
+
+    /// Set the COBOL program's command-line arguments (for `ACCEPT FROM
+    /// COMMAND-LINE` / `ARGUMENT-NUMBER` / `ARGUMENT-VALUE`).
+    pub fn set_program_args(&mut self, args: Vec<String>) {
+        self.program_args = args;
     }
 
     /// Select the indexed (ISAM) file engine for this run. All engines present
@@ -725,8 +744,8 @@ impl Interpreter {
             // ── I/O ───────────────────────────────────────────────────────────
             Stmt::Accept { target, from, screen, span } =>
                 self.exec_accept(target, from.as_ref(), screen.as_ref(), *span),
-            Stmt::Display { operands, no_advancing, screen, .. } =>
-                self.exec_display(operands, *no_advancing, screen.as_ref()),
+            Stmt::Display { operands, no_advancing, screen, upon, .. } =>
+                self.exec_display(operands, *no_advancing, screen.as_ref(), upon.as_deref()),
             Stmt::Open { mode, files, span } =>
                 self.exec_open(*mode, files, *span),
             Stmt::Close { files, .. } =>
@@ -1703,7 +1722,25 @@ impl Interpreter {
             Some(AcceptSource::Time)      => self.env.set_str(&name, &runtime_time()),
             Some(AcceptSource::Day)       => self.env.set_str(&name, &runtime_julian_day()),
             Some(AcceptSource::DayOfWeek) => self.env.set_i64(&name, runtime_day_of_week()),
-            Some(AcceptSource::CommandLine) => {} // no-op
+            Some(AcceptSource::CommandLine) => {
+                self.env.set_str(&name, &self.program_args.join(" "));
+            }
+            Some(AcceptSource::ArgumentNumber) => {
+                self.env.set_i64(&name, self.program_args.len() as i64);
+            }
+            Some(AcceptSource::ArgumentValue) => {
+                let val = self.program_args
+                    .get(self.argument_pointer.saturating_sub(1))
+                    .cloned()
+                    .unwrap_or_default();
+                self.env.set_str(&name, &val);
+            }
+            Some(AcceptSource::EnvironmentValue) => {
+                let val = std::env::var(&self.env_name_register).unwrap_or_default();
+                self.env.set_str(&name, &val);
+            }
+            Some(AcceptSource::EscapeKey) => self.env.set_str(&name, "00"),
+            Some(AcceptSource::CrtStatus) => self.env.set_str(&name, "0000"),
             Some(AcceptSource::Environment(var)) => {
                 let val = std::env::var(var).unwrap_or_default();
                 self.env.set_str(&name, &val);
@@ -1717,7 +1754,27 @@ impl Interpreter {
         operands: &[Expr],
         no_advancing: bool,
         screen: Option<&cobolt_ast::stmt::ScreenPhrase>,
+        upon: Option<&str>,
     ) -> Result<(), RuntimeError> {
+        // `DISPLAY … UPON {ARGUMENT-NUMBER | ENVIRONMENT-NAME}` sets a register
+        // consumed by a later ACCEPT — it produces no output.
+        match upon.map(|u| u.to_ascii_uppercase()) {
+            Some(ref u) if u == "ARGUMENT-NUMBER" => {
+                if let Some(op) = operands.first() {
+                    let n = self.eval_expr(op, op.span())?.as_i64().unwrap_or(1);
+                    self.argument_pointer = n.max(1) as usize;
+                }
+                return Ok(());
+            }
+            Some(ref u) if u == "ENVIRONMENT-NAME" => {
+                if let Some(op) = operands.first() {
+                    self.env_name_register = self.eval_expr(op, op.span())?
+                        .as_display_string().trim().to_string();
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
         let mut out = String::new();
         for op in operands {
             // A bare numeric data item displays as its full fixed-width digit

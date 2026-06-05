@@ -1290,22 +1290,26 @@ fn parse_accept_source(p: &mut Parser) -> AcceptSource {
             "TIME"        => Some(AcceptSource::Time),
             "DAY"         => Some(AcceptSource::Day),
             "DAY-OF-WEEK" => Some(AcceptSource::DayOfWeek),
-            "COMMAND-LINE" => Some(AcceptSource::CommandLine),
-            // Recognized but read as a no-op (argument / environment registers).
-            "ARGUMENT-NUMBER" | "ARGUMENT-VALUE" | "ENVIRONMENT-VALUE" => {
-                Some(AcceptSource::CommandLine)
-            }
+            "COMMAND-LINE"      => Some(AcceptSource::CommandLine),
+            "ARGUMENT-NUMBER"   => Some(AcceptSource::ArgumentNumber),
+            "ARGUMENT-VALUE"    => Some(AcceptSource::ArgumentValue),
+            "ENVIRONMENT-VALUE" => Some(AcceptSource::EnvironmentValue),
             _ => None,
         };
         if let Some(s) = src {
             p.advance();
             return s;
         }
-        // Two-word registers: `ESCAPE KEY`, `CRT STATUS` — recognized no-ops.
-        if name == "ESCAPE" || name == "CRT" {
-            p.advance(); // ESCAPE / CRT
-            p.advance(); // KEY / STATUS (keyword or identifier)
-            return AcceptSource::CommandLine;
+        // Two-word registers: `ESCAPE KEY`, `CRT STATUS`.
+        if name == "ESCAPE" {
+            p.advance(); // ESCAPE
+            p.advance(); // KEY
+            return AcceptSource::EscapeKey;
+        }
+        if name == "CRT" {
+            p.advance(); // CRT
+            p.advance(); // STATUS
+            return AcceptSource::CrtStatus;
         }
         // ENVIRONMENT "name"
         if name == "ENVIRONMENT" {

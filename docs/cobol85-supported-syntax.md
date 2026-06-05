@@ -146,10 +146,12 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 - ✅ `ACCEPT id`.
 - ✅ `ACCEPT id FROM {DATE | TIME | DAY | DAY-OF-WEEK | COMMAND-LINE |
   ENVIRONMENT "name" | mnemonic}`.
-- ⚠️ **screen forms parse but do not execute** (SCREEN I/O superseded by the form
-  designer): `ACCEPT id AT nnnn`, `… AT LINE n COLUMN n`, `… WITH <attributes>`.
-- ⚠️ `FROM {ENVIRONMENT-VALUE | ARGUMENT-NUMBER | ARGUMENT-VALUE | ESCAPE KEY |
-  CRT STATUS}` are recognized as no‑op sources.
+- ✅ `ACCEPT id AT {nnnn | LINE n COLUMN n}` positions the cursor (ANSI, CLI).
+- ✅ `FROM COMMAND-LINE` (whole command line) · `FROM ARGUMENT-NUMBER` (arg count)
+  · `FROM ARGUMENT-VALUE` (arg at the pointer set by `DISPLAY n UPON
+  ARGUMENT-NUMBER`) · `FROM ENVIRONMENT "name"` / `FROM ENVIRONMENT-VALUE` (the
+  variable named by `DISPLAY "name" UPON ENVIRONMENT-NAME`) · `FROM ESCAPE KEY`
+  → `"00"` · `FROM CRT STATUS` → `"0000"`.
 
 ### DISPLAY
 - ✅ `DISPLAY {id|lit} … [UPON mnemonic] [[WITH] NO ADVANCING]`.

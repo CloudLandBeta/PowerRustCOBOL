@@ -8,6 +8,26 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.7.1] — 2026-06-05
+
+Completes the previously recognized-but-no-op `ACCEPT` register sources.
+
+### New language features
+
+- **`ACCEPT … FROM COMMAND-LINE`** — the whole command line (arguments joined).
+- **`ACCEPT … FROM ARGUMENT-NUMBER`** — the count of command-line arguments;
+  **`DISPLAY n UPON ARGUMENT-NUMBER`** sets the argument pointer, and
+  **`ACCEPT … FROM ARGUMENT-VALUE`** returns the argument at that pointer.
+- **`ACCEPT … FROM ENVIRONMENT-VALUE`** — the value of the variable named by
+  **`DISPLAY "name" UPON ENVIRONMENT-NAME`** (paired registers).
+- **`ACCEPT … FROM ESCAPE KEY`** → `"00"`, **`FROM CRT STATUS`** → `"0000"`.
+- The CLI passes a program's own arguments through (`rcrun run prog.cbl a b c`),
+  and a compiled binary uses its real `argv`.
+
+### Notes
+
+- New test: `test_accept_sources`. Full suite: **373 passed, 0 failed**.
+
 ## [PowerRustCOBOL 1.7.0] — 2026-06-04
 
 Avoid-list clearance: the remaining ⚠️/❌ items in the RustCOBOL-85 Supported

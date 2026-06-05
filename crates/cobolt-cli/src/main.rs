@@ -129,6 +129,7 @@ fn cmd_run(args: &[String]) {
     // Execute.
     let mut interp = Interpreter::new(program);
     interp.set_indexed_engine(resolve_indexed_engine(args));
+    interp.set_program_args(extract_program_args(args));
     match interp.run() {
         Ok(()) => {}
         Err(e) if e.is_exit_signal() => {}
@@ -542,6 +543,27 @@ fn find_cobolt_binary() -> Option<PathBuf> {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// The COBOL program's own command-line arguments: everything after the source
+/// path (rcrun's own flags before the path are skipped). These feed
+/// `ACCEPT … FROM COMMAND-LINE / ARGUMENT-NUMBER / ARGUMENT-VALUE`.
+fn extract_program_args(args: &[String]) -> Vec<String> {
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if a == "--indexed-engine" || a == "-I" {
+            i += 2;
+            continue;
+        }
+        if a.starts_with("--indexed-engine=") || a.starts_with('-') {
+            i += 1;
+            continue;
+        }
+        // `a` is the source path — the rest are program arguments.
+        return args.get(i + 1..).map(|s| s.to_vec()).unwrap_or_default();
+    }
+    Vec::new()
+}
 
 fn require_path(args: &[String], cmd: &str) -> PathBuf {
     // The first non-flag argument is the source path. Skip recognised options

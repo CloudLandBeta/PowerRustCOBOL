@@ -50,8 +50,22 @@ pub enum AcceptSource {
     Time,
     Day,
     DayOfWeek,
+    /// `FROM COMMAND-LINE` — the whole command line (arguments joined by spaces).
     CommandLine,
+    /// `FROM ENVIRONMENT "name"` — the named environment variable.
     Environment(String),
+    /// `FROM ENVIRONMENT-VALUE` — the variable named by the most recent
+    /// `DISPLAY … UPON ENVIRONMENT-NAME`.
+    EnvironmentValue,
+    /// `FROM ARGUMENT-NUMBER` — the count of command-line arguments.
+    ArgumentNumber,
+    /// `FROM ARGUMENT-VALUE` — the argument at the current argument pointer
+    /// (set by `DISPLAY n UPON ARGUMENT-NUMBER`).
+    ArgumentValue,
+    /// `FROM ESCAPE KEY` — the key code that ended the last ACCEPT (`"00"`).
+    EscapeKey,
+    /// `FROM CRT STATUS` — the screen status of the last operation (`"0000"`).
+    CrtStatus,
 }
 
 /// WRITE … ADVANCING clause.
