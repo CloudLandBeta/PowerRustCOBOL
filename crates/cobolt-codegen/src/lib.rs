@@ -797,6 +797,16 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
     for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::SqlDatabase) {
         let id   = ctrl.id.as_str();
         let pfx  = format!("WS-{}", id.to_ascii_uppercase());
+        // Backend label derived from the Driver property (sqlite / postgres /
+        // mysql). The runtime actually routes on the connection-string scheme,
+        // so this only affects the generated comments.
+        let drv  = ctrl.get_prop("Driver").map(|v| v.as_str().to_owned())
+                       .unwrap_or_else(|| "sqlite".into());
+        let drv_label = match drv.to_ascii_lowercase().as_str() {
+            "postgres" | "postgresql" => "PostgreSQL",
+            "mysql"                   => "MySQL",
+            _                          => "SQLite",
+        };
 
         let conn_para  = format!("{id}-CONNECT");
         let exec_para  = format!("{id}-EXEC");
@@ -820,7 +830,7 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         // Opens a SQLite connection using the connection string in
         // {pfx}-CONN-STRING.  Stores the handle in {pfx}-HANDLE.
         out.push_str(&format!("       {conn_para}.\n"));
-        out.push_str(&format!("      *>  Open a SQLite connection for {id}.\n"));
+        out.push_str(&format!("      *>  Open a {drv_label} connection for {id}.\n"));
         out.push_str(&format!("      *>  Connection string is in {pfx}-CONN-STRING.\n"));
         out.push_str(&format!("      *>  On success: {pfx}-HANDLE holds the connection handle.\n"));
         out.push_str(&format!("      *>  On error:   WS-SQL-ERROR contains the message.\n"));
@@ -891,7 +901,7 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
 
         // ── {id}-CLOSE ─────────────────────────────────────────────────────
         out.push_str(&format!("       {close_para}.\n"));
-        out.push_str(&format!("      *>  Close the SQLite connection for {id}.\n"));
+        out.push_str(&format!("      *>  Close the {drv_label} connection for {id}.\n"));
         out.push_str(&format!("           CALL \"COBOL-CLOSE-DB\"\n"));
         out.push_str(&format!("               USING BY REFERENCE {pfx}-HANDLE.\n"));
         out.push('\n');

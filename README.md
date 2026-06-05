@@ -152,7 +152,11 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   `WRITE … [FROM]`, `CLOSE`, with **FILE STATUS** codes (00/10/30/35/…).
 
 ### Built-in integrations (runtime `CALL`s and `INVOKE`)
-- **SQL (SQLite)** — open/exec/fetch/row-count/close.
+- **SQL (SQLite, PostgreSQL, MySQL)** — open/exec/fetch/row-count/close. One
+  identical CALL surface for all three; the backend is chosen from the
+  connection string (`:memory:` / `sqlite:` / `postgres://` / `mysql://`). All
+  drivers are pure Rust (no system libraries). See
+  [`docs/database-runtime.md`](docs/database-runtime.md).
 - **HTTP / REST** — GET/POST/PUT/DELETE with custom headers.
 - **GUI** — `COBOL-WAIT-EVENT`, `COBOL-SET-PROPERTY`, `COBOL-GET-PROPERTY`, `COBOL-INIT-FORM`.
 - **Charts** — 6 chart types bound to COBOL tables (bar/line/pie/area/scatter/donut).

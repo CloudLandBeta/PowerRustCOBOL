@@ -8,6 +8,46 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.9.0] — 2026-06-05
+
+PostgreSQL and MySQL support for the database runtime.
+
+### New features
+
+- **The SQL database runtime now speaks three backends** — SQLite,
+  **PostgreSQL**, and **MySQL** — behind one unchanged CALL surface
+  (`COBOL-OPEN-DB` / `COBOL-EXEC-SQL` / `COBOL-FETCH-ROW` / `COBOL-NEXT-ROW` /
+  `COBOL-ROW-COUNT` / `COBOL-CLOSE-DB`). The engine is selected from the
+  connection string's scheme:
+  - `:memory:` / `sqlite:<path>` / bare path → **SQLite** (bundled)
+  - `postgres://…` / `postgresql://…` → **PostgreSQL** (`postgres`, sync)
+  - `mysql://…` → **MySQL** (`mysql`, rustls)
+  - A COBOL program is portable across all three — only the connection string
+    literal changes.
+- All values are normalised to text uniformly across backends (NULL → spaces,
+  integers/reals as digits, dates as `YYYY-MM-DD[ HH:MM:SS]`), so existing
+  `COBOL-FETCH-ROW` code is unaffected.
+- **Pure-Rust drivers** — both new backends build with no system library
+  (`libpq`/`libmysqlclient`) and no OpenSSL; MySQL uses rustls.
+- Form-designer **SqlDatabase** control: the `Driver` property now labels
+  generated comments as SQLite / PostgreSQL / MySQL (routing stays by
+  connection string).
+
+### Docs & tests
+
+- New guide: `docs/database-runtime.md` (connection strings, CALL reference,
+  value normalisation, transactions, TLS notes, testing).
+- Tests: connection-string routing + value normalisation + in-memory SQLite CRUD
+  (`db_runtime` unit tests, `test_sql.rs`), plus opt-in `#[ignore]`d live
+  PostgreSQL/MySQL round-trips (`PRC_TEST_PG_URL` / `PRC_TEST_MYSQL_URL`).
+
+### Notes
+
+- The synchronous PostgreSQL driver connects without TLS (`NoTls`); see
+  `docs/database-runtime.md` for the recommended TLS approach. The COBOL
+  `COMMIT`/`ROLLBACK` verbs remain INDEXED-file transactions — use
+  `COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK` for SQL.
+
 ## [PowerRustCOBOL 1.8.0] — 2026-06-05
 
 Program-controlled `COMMIT` / `ROLLBACK` transactions for INDEXED files.

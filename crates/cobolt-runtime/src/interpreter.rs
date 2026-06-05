@@ -2849,10 +2849,15 @@ impl Interpreter {
             "COBOL-CHART-REFRESH" => {
                 tracing::debug!("COBOL-CHART-REFRESH: CLI mode — skipped");
             }
-            // ── Database Runtime Engine (Phase 8) — SQLite built-ins ──────────
+            // ── Database Runtime Engine (Phase 8) — SQL built-ins ─────────────
+            //
+            // The backend (SQLite / PostgreSQL / MySQL) is chosen from the
+            // connection string's scheme; the CALL surface below is identical
+            // for every engine. See `docs/database-runtime.md`.
             //
             // COBOL-OPEN-DB   USING conn-string-var, handle-var, status-var
-            //   Opens a SQLite connection. Stores the integer handle in
+            //   Opens a database connection (SQLite file/`:memory:`,
+            //   `postgres://…`, or `mysql://…`). Stores the integer handle in
             //   handle-var (PIC 9(9)) and clears status-var on success, or
             //   writes an error message into status-var on failure.
             "COBOL-OPEN-DB" if using.len() >= 3 => {

@@ -20,8 +20,13 @@ cobolt-semantic = { path = "../cobolt-semantic" }
 thiserror       = { workspace = true }
 indexmap        = { workspace = true }
 tracing         = { workspace = true }
-# Phase 8 — SQLite database runtime (bundled = no system library required)
+# Phase 8 — database runtime.
+# SQLite is bundled (no system library required). PostgreSQL and MySQL use the
+# pure-Rust synchronous drivers; MySQL is pinned to its rustls feature set so no
+# OpenSSL / system library is needed to build.
 rusqlite        = { version = "0.31", features = ["bundled"] }
+postgres        = { version = "0.19" }
+mysql           = { version = "28", default-features = false, features = ["minimal-rust"] }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
 ureq            = { version = "2", features = ["json"] }
 
