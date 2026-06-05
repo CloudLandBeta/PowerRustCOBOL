@@ -7,6 +7,10 @@ target/
 # Local agent / editor settings
 .claude/
 
+# Agent project-context file — kept local only (lives in
+# ~/Documents/PowerRustCOBOL-local-settings/CLAUDE.md), never committed.
+CLAUDE.md
+
 # Editor/OS cruft
 *.swp
 *~

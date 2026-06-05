@@ -115,6 +115,21 @@ pub struct DiskIndexedFile {
 
     // RecordId directory, held in memory while open, persisted on close.
     directory: Vec<RecLoc>,
+
+    // Transaction undo log (since the last COMMIT/OPEN) for ROLLBACK, plus a
+    // guard so the inverse operations applied during a rollback don't re-log.
+    undo: Vec<DiskUndo>,
+    tx_replay: bool,
+}
+
+/// An undoable mutation recorded since the last `COMMIT`/`OPEN`.
+enum DiskUndo {
+    /// A `WRITE` — undone by deleting the record (carries its primary key).
+    Insert(Bytes),
+    /// A `REWRITE` — undone by rewriting the prior record image.
+    Update(Bytes),
+    /// A `DELETE` — undone by writing the prior record image back.
+    Delete(Bytes),
 }
 
 type R<T> = std::io::Result<T>;
@@ -148,6 +163,8 @@ impl DiskIndexedFile {
             alt_roots: vec![0; n],
             dir_head: 0,
             directory: Vec::new(),
+            undo: Vec::new(),
+            tx_replay: false,
         }
     }
 
@@ -730,6 +747,7 @@ impl DiskIndexedFile {
         self.kor = 0;
         self.cursor = None;
         self.current = None;
+        self.undo.clear(); // a fresh transaction starts at OPEN
         status::OK
     }
 
@@ -812,6 +830,9 @@ impl DiskIndexedFile {
             return status::IO_ERROR;
         }
         self.record_count += 1;
+        if !self.tx_replay {
+            self.undo.push(DiskUndo::Insert(pkey));
+        }
         status::OK
     }
 
@@ -1091,6 +1112,9 @@ impl DiskIndexedFile {
             Ok(loc) => self.directory[recid as usize] = loc,
             Err(_) => return status::IO_ERROR,
         }
+        if !self.tx_replay {
+            self.undo.push(DiskUndo::Update(old));
+        }
         status::OK
     }
 
@@ -1129,19 +1153,49 @@ impl DiskIndexedFile {
         self.directory[recid as usize] = RecLoc::FREE;
         self.record_count = self.record_count.saturating_sub(1);
         self.current = None;
+        if !self.tx_replay {
+            self.undo.push(DiskUndo::Delete(rec));
+        }
         status::OK
     }
 
-    // DISK mode persists synchronously; COMMIT flushes, ROLLBACK is a no-op
-    // (a write-ahead journal for on-disk rollback is future work).
+    /// `COMMIT` — make all changes since the last `COMMIT`/`OPEN` durable and
+    /// start a fresh transaction (drops the undo log).
     pub fn commit(&mut self) {
+        self.undo.clear();
         let _ = self.persist_directory();
         let _ = self.write_header();
         if let Some(f) = self.file.as_mut() {
             let _ = f.sync_all();
         }
     }
-    pub fn rollback(&mut self) {}
+
+    /// `ROLLBACK` — undo every `WRITE`/`REWRITE`/`DELETE` since the last
+    /// `COMMIT`/`OPEN`, in reverse order, then persist the reverted state.
+    pub fn rollback(&mut self) {
+        let saved_open = self.open;
+        self.open = Some(OpenMode::Io); // allow the inverse ops regardless of mode
+        self.tx_replay = true;
+        for entry in std::mem::take(&mut self.undo).into_iter().rev() {
+            match entry {
+                DiskUndo::Insert(pkey) => { self.delete(Some(&pkey)); }
+                DiskUndo::Update(old) => {
+                    let pk = Self::extract(&self.primary, &old);
+                    self.rewrite(&old, Some(&pk));
+                }
+                DiskUndo::Delete(old) => { self.write(&old); }
+            }
+        }
+        self.tx_replay = false;
+        self.open = saved_open;
+        self.current = None;
+        self.cursor = None;
+        let _ = self.persist_directory();
+        let _ = self.write_header();
+        if let Some(f) = self.file.as_mut() {
+            let _ = f.sync_all();
+        }
+    }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1416,6 +1470,8 @@ impl crate::indexed::IndexedStore for DiskIndexedFile {
     fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str { self.delete(random_key) }
     fn set_key_of_reference(&mut self, kor: usize) { self.set_key_of_reference(kor) }
     fn is_open(&self) -> bool { self.is_open() }
+    fn commit(&mut self) { self.commit() }
+    fn rollback(&mut self) { self.rollback() }
 }
 
 // ── Free helpers ─────────────────────────────────────────────────────────────

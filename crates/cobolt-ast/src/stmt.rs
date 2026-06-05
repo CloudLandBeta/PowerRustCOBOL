@@ -450,6 +450,14 @@ pub enum Stmt {
         span: Span,
     },
 
+    /// `COMMIT` — make all uncommitted INDEXED-file changes durable and start a
+    /// new transaction.
+    Commit { span: Span },
+
+    /// `ROLLBACK` — undo all INDEXED-file changes since the last `COMMIT`
+    /// (or since `OPEN`).
+    Rollback { span: Span },
+
     /// Pointer assignment:
     /// `SET ptr … TO ADDRESS OF item` (`address_of` = None), or
     /// `SET ADDRESS OF item TO {ADDRESS OF x | ptr | NULL}` (`address_of` = item).
@@ -833,6 +841,8 @@ impl Stmt {
             Stmt::Continue { span }              => *span,
             Stmt::Alter { span, .. }             => *span,
             Stmt::Unlock { span, .. }            => *span,
+            Stmt::Commit { span }                => *span,
+            Stmt::Rollback { span }              => *span,
             Stmt::SetPointer { span, .. }        => *span,
             Stmt::Exit { span, .. }              => *span,
             Stmt::NextSentence { span }          => *span,

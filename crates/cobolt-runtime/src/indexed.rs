@@ -45,6 +45,10 @@ pub trait IndexedStore {
     fn is_open(&self) -> bool;
     /// Release all record locks held on the file (`UNLOCK`). Default: no-op.
     fn unlock(&mut self) {}
+    /// `COMMIT` — make changes durable and start a new transaction. Default: no-op.
+    fn commit(&mut self) {}
+    /// `ROLLBACK` — undo changes since the last `COMMIT`/`OPEN`. Default: no-op.
+    fn rollback(&mut self) {}
 }
 
 /// Status codes (the FILE STATUS two-character values this engine produces).
@@ -1099,6 +1103,8 @@ impl IndexedStore for IndexedFile {
     fn set_key_of_reference(&mut self, kor: usize) { self.set_key_of_reference(kor) }
     fn is_open(&self) -> bool { self.is_open() }
     fn unlock(&mut self) { self.locks.clear(); }
+    fn commit(&mut self) { self.commit() }
+    fn rollback(&mut self) { self.rollback() }
 }
 
 fn pad(key: &[u8], len: usize) -> Bytes {

@@ -54,6 +54,10 @@ pub(crate) fn is_stmt_start(tok: &Token) -> bool {
             | Token::Inspect
             | Token::Sort
             | Token::Merge
+            | Token::Release
+            | Token::Return_
+            | Token::Commit
+            | Token::Rollback
             | Token::Call
             | Token::Invoke
             | Token::Initialize
@@ -145,6 +149,9 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
         // SORT I/O verbs.
         Token::Release => Some(parse_release(p)),
         Token::Return_ => Some(parse_return(p)),
+        // Indexed-file transaction verbs (no operands).
+        Token::Commit   => { let span = p.peek_span(); p.advance(); Some(Stmt::Commit { span }) }
+        Token::Rollback => { let span = p.peek_span(); p.advance(); Some(Stmt::Rollback { span }) }
         Token::Move       => Some(parse_move(p)),
         Token::Add        => Some(parse_add(p)),
         Token::Subtract   => Some(parse_subtract(p)),

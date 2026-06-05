@@ -731,6 +731,24 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Cancel { programs, .. } => self.exec_cancel(programs),
+            Stmt::Commit { .. } => {
+                // Make every open INDEXED file's changes durable; start a new tx.
+                for f in self.open_files.values_mut() {
+                    if let OpenFile::Indexed(engine) = f {
+                        engine.commit();
+                    }
+                }
+                Ok(())
+            }
+            Stmt::Rollback { .. } => {
+                // Undo every open INDEXED file's changes since the last COMMIT.
+                for f in self.open_files.values_mut() {
+                    if let OpenFile::Indexed(engine) = f {
+                        engine.rollback();
+                    }
+                }
+                Ok(())
+            }
             Stmt::SetPointer { address_of, targets, source, .. } =>
                 self.exec_set_pointer(address_of.as_ref(), targets, source),
             Stmt::GoToDepending { targets, depending, span } =>

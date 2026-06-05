@@ -261,6 +261,8 @@ pub fn lookup(word: &str) -> Option<Token> {
         "RELEASE"                   => Token::Release,
         "RETURN"                    => Token::Return_,
         "END-RETURN"                => Token::EndReturn,
+        "COMMIT"                    => Token::Commit,
+        "ROLLBACK"                  => Token::Rollback,
 
         // ── PowerCOBOL / Fujitsu extensions ──────────────────────────────
         "WINDOW-STATUS"             => Token::WindowStatus,

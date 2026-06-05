@@ -385,6 +385,8 @@ pub enum Token {
     Release,
     Return_,            // RETURN (from sort)
     EndReturn,          // END-RETURN
+    Commit,             // COMMIT (indexed-file transaction)
+    Rollback,           // ROLLBACK (indexed-file transaction)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // PowerCOBOL / Fujitsu GUI extensions
