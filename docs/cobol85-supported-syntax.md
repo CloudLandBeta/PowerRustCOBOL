@@ -45,6 +45,17 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 > tested against its VALUEs/ranges); **`PERFORM para VARYING`**; and a functional
 > **`SORT`/`MERGE`** runtime (`RELEASE`/`RETURN`, `USING`/`GIVING`, `INPUT`/`OUTPUT
 > PROCEDURE`). The avoid-list at the bottom is current.
+>
+> **Update (avoid-list clearance pass — 1.7.0):** the remaining gaps are now
+> implemented — **identifier-object abbreviation** (`a = b OR c`, resolved via
+> 88-level metadata); **`INITIALIZE … REPLACING category DATA BY value`**;
+> **`66 RENAMES`** (read synthesizes / write distributes across covered items);
+> **pointers** (`USAGE POINTER`, `SET ptr TO ADDRESS OF x / NULL`,
+> `SET ADDRESS OF item TO …` aliasing, `IF ptr = NULL`); **`ALTER`** /
+> **`UNLOCK`**; faithful **`NEXT SENTENCE`**; the remaining standard
+> **intrinsics** (`PRESENT-VALUE`, `YEAR-TO-YYYY`, `BYTE-LENGTH`, `NUMVAL-F`,
+> `TEST-NUMVAL`); and extended **screen `ACCEPT`/`DISPLAY`** (`AT`/`WITH` via
+> ANSI in CLI mode).
 
 ---
 
@@ -55,8 +66,9 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 `READ` `WRITE` `REWRITE` `DELETE` `START` `ACCEPT` `DISPLAY` `STRING` `UNSTRING`
 `INSPECT` `CALL` `SET` `INITIALIZE` `SEARCH`/`SEARCH ALL` `SORT` `MERGE`
 `RELEASE` `RETURN`
-⚠️ `INVOKE` (parsed as no‑op) · `CANCEL` (skipped) · `UNLOCK` (no‑op — the
-locking model auto-unlocks) · `ALTER` (recognized no‑op; deprecated)
+✅ `ALTER para-1 TO [PROCEED TO] para-2` (redirects para-1's `GO TO`) ·
+`UNLOCK file` (releases record locks — a no‑op in the auto-unlock model)
+⚠️ `INVOKE` (parsed as no‑op) · `CANCEL` (skipped)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 
 ✅ `SEARCH` / `SEARCH ALL` (functional — drives the table index and runs the
@@ -127,8 +139,8 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 - ✅ plain `EXIT` is a no‑op return point; `EXIT PROGRAM` returns to the caller.
 - ✅ `EXIT PERFORM [CYCLE]` (break / continue the nearest inline PERFORM),
   `EXIT PARAGRAPH`, `EXIT SECTION`.
-- ⚠️ `NEXT SENTENCE` is accepted but treated as `CONTINUE` (no sentence‑boundary
-  tracking; correct for the dominant `IF … NEXT SENTENCE END-IF` idiom).
+- ✅ `NEXT SENTENCE` — transfers control past the next sentence boundary (the
+  parser inserts boundary markers at each period; faithful, not just `CONTINUE`).
 
 ### ACCEPT
 - ✅ `ACCEPT id`.
@@ -141,8 +153,10 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 
 ### DISPLAY
 - ✅ `DISPLAY {id|lit} … [UPON mnemonic] [[WITH] NO ADVANCING]`.
-- ⚠️ screen forms `DISPLAY id AT nnnn`, `AT LINE n COLUMN n`, `WITH <attributes>`
-  parse but are ignored (designer supersedes SCREEN I/O).
+- ✅ screen forms `DISPLAY id AT nnnn` / `AT LINE n COLUMN n`
+  `[WITH {HIGHLIGHT | REVERSE-VIDEO | UNDERLINE}]` — executed via ANSI cursor
+  positioning + SGR in **CLI mode** (`rcrun`); ignored in GUI mode (the form
+  designer supersedes SCREEN I/O there). `ACCEPT id AT …` positions then reads.
 
 ### STRING
 - ✅ `STRING {src DELIMITED BY {SIZE | delim}} … INTO target [WITH POINTER p]
@@ -170,12 +184,22 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 - ✅ `SET idx {UP|DOWN} BY n` (encoded as ADD / SUBTRACT).
 - ✅ `SET 88-name TO TRUE` sets the host item to the condition's first VALUE;
   `TO FALSE` sets a value outside the VALUE set (best effort — no FALSE clause).
-- ❌ `SET ADDRESS OF …`, `SET pointer TO {ADDRESS OF … | NULL}`.
+- ✅ `SET ptr TO {ADDRESS OF id | NULL | other-ptr}` and
+  `SET ADDRESS OF id TO {ADDRESS OF x | ptr | NULL}` — see **Pointers** below.
 
 ### INITIALIZE
 - ✅ `INITIALIZE id …` — category-aware: numeric / numeric-edited → ZERO,
   everything else → SPACES, recursing into group items.
-- ❌ `REPLACING …` (parsed but not applied — avoid).
+- ✅ `INITIALIZE id REPLACING {ALPHABETIC | ALPHANUMERIC | NUMERIC |
+  ALPHANUMERIC-EDITED | NUMERIC-EDITED} [DATA] BY value …` — sets each
+  subordinate item of that category to the value; others untouched.
+
+### Pointers (USAGE POINTER)
+- ✅ `USAGE POINTER` declares a pointer (NULL initially).
+- ✅ `SET ptr TO ADDRESS OF id` / `SET ptr TO NULL` / `SET ptr2 TO ptr`.
+- ✅ `SET ADDRESS OF id TO {ptr | ADDRESS OF x | NULL}` — aliases `id` onto the
+  target's storage (reads **and** writes follow the alias); typically a LINKAGE
+  record. `IF ptr = NULL` works.
 
 ### CALL / CANCEL
 - ✅ `CALL {lit|id} [USING [BY {REFERENCE|CONTENT|VALUE}] arg …] [RETURNING r]
@@ -220,10 +244,11 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 - ✅ **Operator‑prefixed abbreviated conditions** — `a > 1 AND < 9`,
   `a = 5 OR = 7` (the preceding comparison subject is reused).
 - ✅ **Literal‑object abbreviation** — `a = 1 OR 2 OR 3` (reuses both the subject
-  and the operator; the object must be a literal).
-- ❌ **Identifier‑object abbreviation** (`a = b OR c`, where `c` is a data‑item)
-  — a bare identifier after AND/OR stays a condition‑name (88‑level), which the
-  parser cannot distinguish from a data‑item object; repeat the LHS instead.
+  and the operator; the object is a literal).
+- ✅ **Identifier‑object abbreviation** — `a = b OR c` (where `c` is a data‑item).
+  A bare identifier after AND/OR following a comparison is resolved at runtime:
+  a known 88‑level condition‑name evaluates as one, otherwise it is the object
+  `a = c`. (An identifier immediately followed by `AND` keeps AND precedence.)
 
 ---
 
@@ -236,9 +261,11 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
   ORD, CHAR, ORD-MAX, ORD-MIN, SUM, MEAN, MEDIAN, MIDRANGE, RANGE, VARIANCE,
   STANDARD-DEVIATION, FACTORIAL, SIN, COS, TAN, ASIN, ACOS, ATAN, LOG, LOG10,
   EXP, EXP10, PI, STORED-CHAR-LENGTH, WHEN-COMPILED, INTEGER-OF-DATE,
-  DATE-OF-INTEGER, INTEGER-OF-DAY, DAY-OF-INTEGER, FRACTION-PART, ANNUITY`.
-  (Date conversions use the standard base 1601‑01‑01 = day 1.)
-  ⚠️ Any **other** `FUNCTION` name parses but returns **0** at runtime.
+  DATE-OF-INTEGER, INTEGER-OF-DAY, DAY-OF-INTEGER, FRACTION-PART, ANNUITY,
+  PRESENT-VALUE, YEAR-TO-YYYY, BYTE-LENGTH, LENGTH-AN, NUMVAL-F, TEST-NUMVAL`.
+  (Date conversions use the standard base 1601‑01‑01 = day 1.) The **complete
+  COBOL‑85 standard intrinsic set** is implemented.
+  ⚠️ Any unrecognised `FUNCTION` name still parses but returns **0** at runtime.
 - ✅ Literals: integer, decimal, string, all figurative constants
   (`SPACES/SPACE, ZEROS/ZERO/ZEROES, HIGH-VALUES, LOW-VALUES, QUOTES, NULLS`,
   `ALL "x"`).
@@ -259,10 +286,10 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 - ✅ `88 name VALUE v [v …]` / `VALUE a THRU b` — **real condition‑names**: the
   level‑88 binds to its host item; testing checks the host against the VALUEs /
   ranges, and `SET 88-name TO TRUE` stores a satisfying value into the host.
-- ✅ `USAGE INDEX` declares an integer index register (`SET`/`SEARCH` use it).
-  ⚠️ `USAGE POINTER` declares but pointer operations are not implemented.
-- ❌ `66 RENAMES` — the `RENAMES` clause is parsed but **not applied** (the alias
-  is not created); avoid.
+- ✅ `USAGE INDEX` declares an integer index register (`SET`/`SEARCH` use it);
+  `USAGE POINTER` — see **Pointers** above.
+- ✅ `66 NEW RENAMES item-1 [{THRU|THROUGH} item-2]` — a regrouping alias;
+  reading concatenates the covered items, writing distributes by field width.
 - Sections: `WORKING-STORAGE`, `LOCAL-STORAGE`, `LINKAGE`, `FILE`; `SCREEN`
   parsed but not executed.
 
@@ -270,26 +297,20 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 
 ## Still NOT supported — current avoid‑list
 
-These remain ❌ (parse error) or ⚠️ (parsed/recognized but a no‑op):
+The COBOL‑85 verb / clause set is **fully covered**. What remains outside scope
+is intentional or post‑85:
 
-1. **`SET ADDRESS OF`**, `SET pointer TO {ADDRESS OF … | NULL}`, and pointer
-   operations generally (`USAGE POINTER` declares but does nothing).
-2. **Identifier-object abbreviated conditions** (`a = b OR c` where `c` is a
-   data‑item) — a bare identifier after AND/OR stays a condition‑name. The
-   **operator‑prefixed** (`a > 1 AND < 9`) and **literal‑object** (`a = 1 OR 2`)
-   forms **are** supported.
-3. **Screen `ACCEPT`/`DISPLAY` execution** — `AT`/`WITH` phrases parse and are
-   ignored (the form designer supersedes SCREEN SECTION I/O).
-4. **`UNLOCK`** (no‑op — auto‑unlock model) and **`ALTER`** (recognized no‑op;
-   deprecated GO TO alteration).
-5. **`66 RENAMES`** (clause parsed, alias not created) and
-   **`INITIALIZE … REPLACING`** (parsed, not applied).
-6. **`NEXT SENTENCE`** treated as `CONTINUE` (no sentence‑boundary tracking).
-7. Intrinsics outside the implemented set still return **0**.
+1. **Screen `ACCEPT` input editing** — `DISPLAY … AT/WITH` and `ACCEPT … AT`
+   are executed (ANSI) in CLI mode, but full field‑level SCREEN SECTION editing
+   (auto‑tab, field validation, colour maps) is **superseded by the form
+   designer** in GUI mode.
+2. **Cross‑process file sharing / record locking** — `UNLOCK`/`OPEN SHARING`
+   are accepted; the engine auto‑unlocks (single run‑unit model).
+3. **Object‑Oriented COBOL** (class/method definitions) — `INVOKE` is a no‑op
+   for COBOL objects (it drives GUI/runtime objects only).
+4. **RELATIVE** file organization (SEQUENTIAL / LINE SEQUENTIAL / INDEXED done).
+5. Unrecognised intrinsic‑function names still return **0**.
 
-> A test that *intentionally* targets one of these (to drive the fix) will hit a
-> parser diagnostic or a no‑op — that is the signal for the next pass.
->
 > **Resolved (1.5.0):** the flat data model became hierarchical / occurrence‑aware,
 > unblocking **CORRESPONDING**, **qualified names**, **table subscripting**, and
 > **`SEARCH`**.
@@ -299,3 +320,7 @@ These remain ❌ (parse error) or ⚠️ (parsed/recognized but a no‑op):
 > intrinsics; literal‑object abbreviation; `EVALUATE ALSO`/`WHEN NOT`; real
 > 88‑level condition‑names; `PERFORM para VARYING`; and the `SORT`/`MERGE`
 > runtime with `RELEASE`/`RETURN`.
+> **Resolved (1.7.0):** identifier‑object abbreviation; `INITIALIZE … REPLACING`;
+> `66 RENAMES`; pointers (`USAGE POINTER`, `SET ADDRESS OF` / `TO ADDRESS OF` /
+> `NULL`); `ALTER` / `UNLOCK`; faithful `NEXT SENTENCE`; the remaining standard
+> intrinsics; and extended screen `ACCEPT`/`DISPLAY`.

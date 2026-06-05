@@ -63,7 +63,7 @@ The i18n system translates the IDE interface only.
 - **y** — new features: new widgets, properties, IDE panels, language features
 - **z** — bug fixes, polish, performance
 
-Current version: **1.6.0**
+Current version: **1.7.0**
 
 ---
 
@@ -257,12 +257,19 @@ before claiming a verb works); the test plan is `docs/cobol85-verb-test-matrix.m
 - **Arithmetic receivers** are `Vec<(Expr, bool)>` (per-receiver `ROUNDED`);
   `giving` is a list. `INSPECT` carries an `InspectRegion` (BEFORE/AFTER INITIAL)
   per phrase. `EVALUATE` has `subjects: Vec<…>` (ALSO) and `WhenValue::Not`.
-- **Not implemented (don't claim otherwise):** `SET ADDRESS OF`/pointers,
-  `66 RENAMES`, `INITIALIZE … REPLACING`, identifier-object abbreviation
-  (`a = b OR c`), faithful `NEXT SENTENCE`. `UNLOCK`/`ALTER` are recognized no-ops.
+- **1.7.0 — avoid-list cleared:** identifier-object abbreviation
+  (`Condition::NameOrAbbrev`, resolved via `cond_names`); `INITIALIZE … REPLACING`
+  (`InitCategory` + `init_decl_replacing`); **66 RENAMES** (env `elem_order` +
+  `renames`, read synthesizes / write distributes); **pointers** (`addr_table`
+  ids, `addr_aliases` redirected in `resolve_name`; `Stmt::SetPointer`); `ALTER`
+  (`alter_map`, consulted on `GO TO`) + `UNLOCK` (no-op); **faithful
+  `NEXT SENTENCE`** (`Stmt::SentenceEnd` markers from `parse_stmts`, handled in
+  `exec_stmts`); extended **screen ACCEPT/DISPLAY** (`ScreenPhrase` → ANSI in CLI).
+- **Genuinely out of scope:** RELATIVE files, cross-process locking, OO
+  class/method definitions, GUI-mode field-level SCREEN editing.
 - Tests: `test_hierarchy`, `test_arith_receivers`, `test_control_flow`,
-  `test_inspect`, `test_intrinsics_date`, `test_conditions`, `test_sort`
-  (all in `crates/cobolt-runtime/tests/`).
+  `test_inspect`, `test_intrinsics_date`, `test_conditions`, `test_sort`,
+  `test_initialize`, `test_pointers` (all in `crates/cobolt-runtime/tests/`).
 
 ---
 

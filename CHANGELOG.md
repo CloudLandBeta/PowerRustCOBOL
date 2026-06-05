@@ -8,6 +8,42 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.7.0] — 2026-06-04
+
+Avoid-list clearance: the remaining ⚠️/❌ items in the RustCOBOL-85 Supported
+Syntax Reference are now implemented. The COBOL-85 verb/clause set is fully
+covered. The IDE is unchanged.
+
+### New language features
+
+- **Identifier-object abbreviated conditions** — `a = b OR c` (where `c` is a
+  data item) is resolved at runtime via the 88-level metadata (new
+  `Condition::NameOrAbbrev`): a known condition-name evaluates as one, otherwise
+  it is the abbreviation object `a = c`.
+- **`INITIALIZE … REPLACING {ALPHABETIC|ALPHANUMERIC|NUMERIC|…-EDITED} [DATA] BY
+  value`** — sets each subordinate item of that category; others untouched.
+- **`66 RENAMES item-1 [THRU item-2]`** — a regrouping alias; reads synthesize
+  the concatenated value, writes distribute by field width.
+- **Pointers** — `USAGE POINTER`; `SET ptr TO {ADDRESS OF id | NULL | ptr2}`;
+  `SET ADDRESS OF id TO {ptr | ADDRESS OF x | NULL}` (aliases `id` onto the
+  target's storage — reads **and** writes follow it); `IF ptr = NULL`.
+- **`ALTER para-1 TO [PROCEED TO] para-2`** redirects para-1's `GO TO`;
+  **`UNLOCK file`** is a real statement (no-op in the auto-unlock model).
+- **Faithful `NEXT SENTENCE`** — was never actually parsed; now recognized and
+  it transfers control past the next sentence boundary (synthetic markers).
+- **Remaining standard intrinsics** — `PRESENT-VALUE` (completes the COBOL-85
+  set) plus `YEAR-TO-YYYY`, `BYTE-LENGTH`/`LENGTH-AN`, `NUMVAL-F`, `TEST-NUMVAL`.
+- **Extended screen `ACCEPT`/`DISPLAY`** — `DISPLAY … AT {nnnn | LINE n COLUMN n}
+  [WITH HIGHLIGHT|REVERSE-VIDEO|UNDERLINE]` and `ACCEPT … AT …` execute via ANSI
+  cursor positioning + SGR in CLI mode (ignored in GUI mode — the designer
+  supersedes SCREEN I/O there).
+
+### Notes
+
+- New tests: `test_pointers`, plus cases in `test_conditions`, `test_initialize`,
+  `test_control_flow`, `test_intrinsics_date`, and `test_statements`. Full suite:
+  **371 passed, 0 failed**.
+
 ## [PowerRustCOBOL 1.6.0] — 2026-06-04
 
 A COBOL-85 verb-completeness pass: closing every remaining ⚠️/❌ item in the

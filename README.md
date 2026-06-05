@@ -82,9 +82,10 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   BEFORE/AFTER`, `VARYING…AFTER`, `THRU`, out-of-line `para VARYING`), GO TO
   [`DEPENDING ON`], CONTINUE, STOP RUN, GOBACK, EXIT (`PERFORM [CYCLE]` /
   `PARAGRAPH` / `SECTION` / `PROGRAM`), SET (incl. `UP/DOWN BY`, 88-`TO TRUE`),
-  INITIALIZE (category-aware), STRING / UNSTRING (with `ON OVERFLOW`), INSPECT
-  (`TALLYING`/`REPLACING` combined, `BEFORE/AFTER INITIAL`, `CONVERTING`), SEARCH
-  / SEARCH ALL, SORT / MERGE / RELEASE / RETURN.
+  INITIALIZE (category-aware + `REPLACING`), STRING / UNSTRING (with
+  `ON OVERFLOW`), INSPECT (`TALLYING`/`REPLACING` combined, `BEFORE/AFTER
+  INITIAL`, `CONVERTING`), SEARCH / SEARCH ALL, SORT / MERGE / RELEASE / RETURN,
+  ALTER, UNLOCK, NEXT SENTENCE, pointer `SET ADDRESS OF` / `SET … TO ADDRESS OF`.
 - **Reference modification** `data-item(start:length)` on any operand (read and
   write); **abbreviated conditions** — operator-prefixed (`a > 1 AND < 9`) and
   literal-object (`a = 1 OR 2 OR 3`).
@@ -98,7 +99,8 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   `STANDARD-DEVIATION`, `FACTORIAL`, `SIN`, `COS`, `TAN`, `ASIN`, `ACOS`, `ATAN`,
   `LOG`, `LOG10`, `EXP`, `EXP10`, `PI`, `STORED-CHAR-LENGTH`, `WHEN-COMPILED`,
   `INTEGER-OF-DATE`, `DATE-OF-INTEGER`, `INTEGER-OF-DAY`, `DAY-OF-INTEGER`,
-  `FRACTION-PART`, `ANNUITY`.
+  `FRACTION-PART`, `ANNUITY`, `PRESENT-VALUE`, `YEAR-TO-YYYY`, `BYTE-LENGTH`,
+  `NUMVAL-F`, `TEST-NUMVAL` — the complete COBOL-85 standard intrinsic set.
 - COBOL-correct alphanumeric comparison (space-padded) and figurative constants
   (SPACES, ZEROS, HIGH/LOW-VALUES, QUOTES, NULLS).
 
@@ -340,6 +342,13 @@ honest map of where things stand.
   `EVALUATE … ALSO` and `WHEN NOT`; real **88-level condition-names**
   (`SET … TO TRUE`); `PERFORM para VARYING`; and a functional **`SORT` / `MERGE`**
   runtime (`RELEASE`/`RETURN`, `USING`/`GIVING`, `INPUT`/`OUTPUT PROCEDURE`).
+- **Full avoid-list clearance (1.7.0)** — identifier-object abbreviated
+  conditions (`a = b OR c`); `INITIALIZE … REPLACING`; **`66 RENAMES`**;
+  **pointers** (`USAGE POINTER`, `SET ADDRESS OF` / `SET … TO ADDRESS OF` / `NULL`,
+  alias read+write); `ALTER` / `UNLOCK`; **faithful `NEXT SENTENCE`**; the
+  remaining standard intrinsics; and extended **screen `ACCEPT`/`DISPLAY`**
+  (`AT`/`WITH` via ANSI in CLI mode). The COBOL-85 verb/clause set is now fully
+  covered.
 - **`INDEXED` (ISAM) files** — a built-in, dependency-free keyed-file engine with
   primary + alternate keys, ascending on-disk key order, journaled
   `COMMIT`/`ROLLBACK`, record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
@@ -350,19 +359,15 @@ honest map of where things stand.
   [`tests/cobol/fileio/`](tests/cobol/fileio/).
 
 ### 🚧 Partial / in progress
-- **SCREEN SECTION** — parsed in simplified form (incl. extended `ACCEPT`/`DISPLAY`
-  `AT`/`WITH` phrases); terminal screen handling is not executed (the visual form
-  designer supersedes it).
-- **`UNLOCK` / `ALTER`** — recognized no-ops (`UNLOCK` matches the auto-unlock
-  locking model; `ALTER` is deprecated). `NEXT SENTENCE` is treated as `CONTINUE`.
+- **SCREEN SECTION** — extended `ACCEPT`/`DISPLAY` `AT`/`WITH` phrases execute via
+  ANSI in CLI mode; full field-level screen editing is superseded by the visual
+  form designer in GUI mode.
+- **`UNLOCK`** is a real statement but a no-op (single-run-unit auto-unlock model).
 
 ### ⛔ Not yet implemented (planned)
-- `SET ADDRESS OF` / pointer manipulation (`USAGE POINTER` declares only).
-- `66 RENAMES`; `INITIALIZE … REPLACING`; identifier-object abbreviated
-  conditions (`a = b OR c` where `c` is a data-item).
-- **RELATIVE** file organization; file sharing / record locking across processes.
-- Object-Oriented COBOL **class/method definitions** (`INVOKE` is supported for GUI and
-  runtime objects only).
+- **RELATIVE** file organization; cross-process file sharing / record locking.
+- Object-Oriented COBOL **class/method definitions** (`INVOKE` is supported for
+  GUI and runtime objects only).
 
 ### 🚫 Explicitly out of scope — by design (will never be implemented)
 - **COMMUNICATION SECTION** (`CD` entries, message control / teleprocessing).
