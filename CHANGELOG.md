@@ -8,6 +8,28 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.7.2] — 2026-06-05
+
+File-sharing / locking phrases and `CANCEL` — previously parse errors or no-ops.
+
+### New language features
+
+- **`OPEN … [SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}] [WITH LOCK]`** —
+  parses and is honoured where meaningful (advisory in the single-run-unit model;
+  no longer a parse error).
+- **`READ … WITH [NO] LOCK` / `WITH KEPT LOCK`** — `WITH NO LOCK` releases the
+  record lock the INDEXED engine takes under `I-O`.
+- **`UNLOCK file [RECORD[S]]`** now releases the file's INDEXED record locks
+  (new `IndexedStore::unlock`).
+- **`CANCEL program …`** — was silently dropped at parse; now a real statement
+  that re-initialises the named (nested) program's WORKING-STORAGE so the next
+  `CALL` starts fresh.
+
+### Notes
+
+- New tests: `test_file_locking` (lock flow + CANCEL) and parser cases in
+  `test_statements`. Full suite: **378 passed, 0 failed**.
+
 ## [PowerRustCOBOL 1.7.1] — 2026-06-05
 
 Completes the previously recognized-but-no-op `ACCEPT` register sources.

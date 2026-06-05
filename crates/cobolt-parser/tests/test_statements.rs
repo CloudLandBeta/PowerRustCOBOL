@@ -311,3 +311,37 @@ fn call_subprogram() {
         assert_eq!(using.len(), 2);
     }
 }
+
+// ── OPEN / READ locking + CANCEL ──────────────────────────────────────────────
+
+#[test]
+fn open_sharing_and_with_lock() {
+    let stmts = parse_stmts(&prog(
+        "    OPEN I-O MY-FILE SHARING WITH ALL OTHER WITH LOCK.\n    STOP RUN.\n",
+    ));
+    if let Stmt::Open { sharing, lock, files, .. } = &stmts[0] {
+        assert_eq!(files, &vec!["MY-FILE".to_string()]);
+        assert!(lock, "WITH LOCK should set lock");
+        assert!(sharing.is_some(), "SHARING should be captured");
+    } else {
+        panic!("expected OPEN, got {:?}", stmts[0]);
+    }
+}
+
+#[test]
+fn read_with_no_lock() {
+    let stmts = parse_stmts(&prog(
+        "    READ MY-FILE WITH NO LOCK\n        AT END CONTINUE\n    END-READ.\n    STOP RUN.\n",
+    ));
+    if let Stmt::Read { lock, .. } = &stmts[0] {
+        assert_eq!(*lock, Some(false));
+    } else {
+        panic!("expected READ, got {:?}", stmts[0]);
+    }
+}
+
+#[test]
+fn cancel_is_a_real_statement() {
+    let stmts = parse_stmts(&prog("    CANCEL \"SUBP\".\n    STOP RUN.\n"));
+    assert!(matches!(stmts[0], Stmt::Cancel { .. }), "expected CANCEL, got {:?}", stmts[0]);
+}

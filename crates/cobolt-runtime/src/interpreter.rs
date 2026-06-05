@@ -722,7 +722,15 @@ impl Interpreter {
                 self.alter_map.insert(from.to_ascii_uppercase(), to.clone());
                 Ok(())
             }
-            Stmt::Unlock { .. } => Ok(()), // auto-unlock model — no held locks
+            Stmt::Unlock { file, .. } => {
+                // Release any record locks held on the file (INDEXED engine).
+                let fkey = file.to_ascii_uppercase();
+                if let Some(OpenFile::Indexed(engine)) = self.open_files.get_mut(&fkey) {
+                    engine.unlock();
+                }
+                Ok(())
+            }
+            Stmt::Cancel { programs, .. } => self.exec_cancel(programs),
             Stmt::SetPointer { address_of, targets, source, .. } =>
                 self.exec_set_pointer(address_of.as_ref(), targets, source),
             Stmt::GoToDepending { targets, depending, span } =>
@@ -746,14 +754,14 @@ impl Interpreter {
                 self.exec_accept(target, from.as_ref(), screen.as_ref(), *span),
             Stmt::Display { operands, no_advancing, screen, upon, .. } =>
                 self.exec_display(operands, *no_advancing, screen.as_ref(), upon.as_deref()),
-            Stmt::Open { mode, files, span } =>
-                self.exec_open(*mode, files, *span),
+            Stmt::Open { mode, files, lock, .. } =>
+                self.exec_open(*mode, files, *lock),
             Stmt::Close { files, .. } =>
                 self.exec_close(files),
             Stmt::Write { record, from, invalid_key, not_invalid_key, span, .. } =>
                 self.exec_write(record, from.as_ref(), invalid_key, not_invalid_key, *span),
-            Stmt::Read { file, into, key, direction, at_end, not_at_end, invalid_key, not_invalid_key, span } =>
-                self.exec_read(file, into.as_ref(), key.as_ref(), *direction,
+            Stmt::Read { file, into, key, direction, lock, at_end, not_at_end, invalid_key, not_invalid_key, span } =>
+                self.exec_read(file, into.as_ref(), key.as_ref(), *direction, *lock,
                     at_end, not_at_end, invalid_key, not_invalid_key, *span),
             Stmt::Rewrite { record, from, invalid_key, not_invalid_key, span } =>
                 self.exec_rewrite(record, from.as_ref(), invalid_key, not_invalid_key, *span),
@@ -2078,7 +2086,10 @@ impl Interpreter {
         }
     }
 
-    fn exec_open(&mut self, mode: OpenMode, files: &[String], _span: Span)
+    /// `OPEN`. `_lock` is `WITH LOCK` (exclusive); advisory in the single-run-unit
+    /// model — recorded for fidelity but does not change single-process behaviour.
+    /// `SHARING` is likewise advisory.
+    fn exec_open(&mut self, mode: OpenMode, files: &[String], _lock: bool)
         -> Result<(), RuntimeError>
     {
         use std::fs::OpenOptions;
@@ -2302,7 +2313,7 @@ impl Interpreter {
     fn read_all_records(&mut self, file: &str) -> Vec<Vec<u8>> {
         use std::io::{BufRead as _, Read as _};
         let fkey = file.to_ascii_uppercase();
-        let _ = self.exec_open(OpenMode::Input, &[file.to_string()], Span::dummy());
+        let _ = self.exec_open(OpenMode::Input, &[file.to_string()], false);
         let rlen = self.file_specs.get(&fkey).map(|s| s.layout.len.max(1)).unwrap_or(1);
         let mut out = Vec::new();
         loop {
@@ -2342,7 +2353,7 @@ impl Interpreter {
     fn write_all_records(&mut self, file: &str, recs: &[Vec<u8>]) -> Result<(), RuntimeError> {
         use std::io::Write as _;
         let fkey = file.to_ascii_uppercase();
-        self.exec_open(OpenMode::Output, &[file.to_string()], Span::dummy())?;
+        self.exec_open(OpenMode::Output, &[file.to_string()], false)?;
         for b in recs {
             if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
                 let _ = match org {
@@ -2417,6 +2428,7 @@ impl Interpreter {
         into: Option<&Expr>,
         key: Option<&Expr>,
         direction: cobolt_ast::stmt::ReadDirection,
+        lock: Option<bool>,
         at_end: &[Stmt],
         not_at_end: &[Stmt],
         invalid_key: &[Stmt],
@@ -2499,6 +2511,13 @@ impl Interpreter {
             },
             _ => (None, status::NOT_OPEN_INPUT),
         };
+
+        // `READ … WITH NO LOCK` releases the lock the engine takes under I-O.
+        if lock == Some(false) {
+            if let Some(OpenFile::Indexed(engine)) = self.open_files.get_mut(&file) {
+                engine.unlock();
+            }
+        }
 
         self.set_file_status(&file, code);
         // Pick the success / failure handler. Random reads branch on INVALID KEY,
@@ -2643,6 +2662,22 @@ impl Interpreter {
     // ── CALL ──────────────────────────────────────────────────────────────────
 
     #[allow(clippy::too_many_arguments)]
+    /// `CANCEL program …` — re-initialise each named (nested) program's
+    /// WORKING-STORAGE to its declared initial values, so the next `CALL` starts
+    /// fresh (as the standard requires after CANCEL).
+    fn exec_cancel(&mut self, programs: &[Expr]) -> Result<(), RuntimeError> {
+        for prog in programs {
+            let name = self.eval_expr(prog, prog.span())?
+                .as_display_string().trim().to_ascii_uppercase();
+            if let Some(np) = self.nested_registry.get(&name) {
+                for (key, val) in np.local_items.clone() {
+                    self.env.set(&key.to_ascii_uppercase(), val);
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn exec_call(
         &mut self,
         program: &Expr,

@@ -68,7 +68,7 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 `RELEASE` `RETURN`
 ✅ `ALTER para-1 TO [PROCEED TO] para-2` (redirects para-1's `GO TO`) ·
 `UNLOCK file` (releases record locks — a no‑op in the auto-unlock model)
-⚠️ `INVOKE` (parsed as no‑op) · `CANCEL` (skipped)
+✅ `CANCEL` (re‑initialises the program's storage) · ⚠️ `INVOKE` (parsed as no‑op)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 
 ✅ `SEARCH` / `SEARCH ALL` (functional — drives the table index and runs the
@@ -208,19 +208,26 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
   [[ON] {EXCEPTION|OVERFLOW} imp] [NOT [ON] {EXCEPTION|OVERFLOW} imp] [END-CALL]`.
 - ✅ The `ON EXCEPTION` / `ON OVERFLOW` body runs when the called program is
   unresolved; the `NOT ON EXCEPTION` body runs when the call **resolves**.
-- ⚠️ `CANCEL p` is skipped (no‑op).
+- ✅ `CANCEL program …` re-initialises the named program's WORKING-STORAGE so its
+  next `CALL` starts fresh.
 
 ### File verbs (the supported phrases — full coverage is in the file‑I/O suite)
-- ✅ `OPEN {INPUT|OUTPUT|I-O|EXTEND} f …`; `CLOSE f …`.
-- ✅ `READ f [RECORD] [{NEXT|PREVIOUS}] [INTO id] [KEY IS k]
+- ✅ `OPEN {INPUT|OUTPUT|I-O|EXTEND} f … [SHARING WITH {ALL OTHER|NO OTHER|READ
+  ONLY}] [WITH LOCK]`; `CLOSE f …`. (`SHARING` / `WITH LOCK` parse and are honoured
+  where meaningful — advisory in the single‑run‑unit model.)
+- ✅ `READ f [RECORD] [{NEXT|PREVIOUS}] [INTO id] [KEY IS k] [WITH [NO] LOCK]
   [AT END …][NOT AT END …][INVALID KEY …][NOT INVALID KEY …][END-READ]`.
+  `WITH NO LOCK` releases the record lock the INDEXED engine takes under I‑O.
+- ✅ `UNLOCK f [RECORD[S]]` releases the file's record locks.
 - ✅ `WRITE rec [FROM id] [{BEFORE|AFTER} ADVANCING n [LINE[S]]]
   [INVALID KEY …][NOT …][END-WRITE]`.
 - ✅ `REWRITE rec [FROM id] [INVALID KEY …][END-REWRITE]`;
   `DELETE f [RECORD] [INVALID KEY …][END-DELETE]`.
 - ✅ `START f [KEY IS {= | > | >= | < | <= | NOT … | GREATER [THAN] [OR EQUAL TO]
   | LESS [THAN] [OR EQUAL TO]} k] [INVALID KEY …][END-START]`.
-- ❌ `OPEN … SHARING`, `… WITH LOCK`, `READ … WITH [NO] LOCK`, `UNLOCK`.
+- ⚠️ Cross‑*process* file sharing is not enforced (single run unit); the
+  `SHARING`/`LOCK` phrases parse and the INDEXED engine's per‑run record locks
+  are honoured.
 
 ### SORT / MERGE / RELEASE / RETURN  ✅ (functional, in‑memory work buffer)
 - ✅ `SORT f [ON] {ASCENDING|DESCENDING} KEY k … {USING f1 … | INPUT PROCEDURE p}
@@ -306,8 +313,10 @@ is intentional or post‑85:
    are executed (ANSI) in CLI mode, but full field‑level SCREEN SECTION editing
    (auto‑tab, field validation, colour maps) is **superseded by the form
    designer** in GUI mode.
-2. **Cross‑process file sharing / record locking** — `UNLOCK`/`OPEN SHARING`
-   are accepted; the engine auto‑unlocks (single run‑unit model).
+2. **Cross‑*process* file sharing** — `OPEN … SHARING/WITH LOCK`,
+   `READ … WITH [NO] LOCK`, and `UNLOCK` parse and drive the INDEXED engine's
+   per‑run record locks, but locks are not enforced across separate OS processes
+   (single run‑unit model).
 3. **Object‑Oriented COBOL** (class/method definitions) — `INVOKE` is a no‑op
    for COBOL objects (it drives GUI/runtime objects only).
 4. **RELATIVE** file organization (SEQUENTIAL / LINE SEQUENTIAL / INDEXED done).

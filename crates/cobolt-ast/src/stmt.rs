@@ -22,6 +22,17 @@ pub enum OpenMode {
     Extend,
 }
 
+/// `OPEN … SHARING WITH …` mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShareMode {
+    /// `SHARING WITH ALL OTHER`
+    AllOther,
+    /// `SHARING WITH NO OTHER`
+    NoOther,
+    /// `SHARING WITH READ ONLY`
+    ReadOnly,
+}
+
 /// Direction of a sequential READ on an indexed/relative file.
 ///
 /// `Default` is an unqualified `READ` — random (by RECORD KEY) under RANDOM or
@@ -513,10 +524,15 @@ pub enum Stmt {
 
     // ── I/O ──────────────────────────────────────────────────────────────────
 
-    /// `OPEN mode file …`
+    /// `OPEN mode file … [SHARING WITH …] [WITH LOCK]`
     Open {
         mode: OpenMode,
         files: Vec<String>,
+        /// `SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}` (advisory in the
+        /// single-run-unit model; `None` = default).
+        sharing: Option<ShareMode>,
+        /// `WITH LOCK` — open the file exclusively.
+        lock: bool,
         span: Span,
     },
 
@@ -533,6 +549,9 @@ pub enum Stmt {
         into: Option<Expr>,
         key: Option<Expr>,
         direction: ReadDirection,
+        /// `WITH LOCK` → `Some(true)`, `WITH NO LOCK` → `Some(false)`,
+        /// unspecified → `None` (the file's default).
+        lock: Option<bool>,
         at_end: Vec<Stmt>,
         not_at_end: Vec<Stmt>,
         invalid_key: Vec<Stmt>,
@@ -687,6 +706,13 @@ pub enum Stmt {
         span: Span,
     },
 
+    /// `CANCEL program …` — drop the program(s) from memory so the next `CALL`
+    /// re-initialises their storage.
+    Cancel {
+        programs: Vec<Expr>,
+        span: Span,
+    },
+
     // ── Program termination ──────────────────────────────────────────────────
 
     /// `STOP RUN` or `STOP literal`
@@ -828,6 +854,7 @@ impl Stmt {
             Stmt::Release { span, .. }           => *span,
             Stmt::Return { span, .. }            => *span,
             Stmt::Call { span, .. }              => *span,
+            Stmt::Cancel { span, .. }            => *span,
             Stmt::Stop { span, .. }              => *span,
             Stmt::GoBack { span }                => *span,
             Stmt::WindowOp { span, .. }          => *span,

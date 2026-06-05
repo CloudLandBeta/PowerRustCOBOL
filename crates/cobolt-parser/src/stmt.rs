@@ -176,7 +176,7 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
         Token::Invoke     => Some(parse_invoke(p)),
         Token::Initialize => Some(parse_initialize_as_move(p)),
         Token::Set        => Some(parse_set(p)),
-        Token::Cancel              => { p.advance(); p.eat_identifier(); None } // skip CANCEL
+        Token::Cancel              => Some(parse_cancel(p)),
         // CoBolt animation verbs — parse as a no-op skip to end of sentence
         Token::Play | Token::StopAnim => {
             p.advance(); // consume PLAY / STOP-ANIMATION
@@ -809,6 +809,17 @@ fn parse_recognized_noop(p: &mut Parser) -> Stmt {
     Stmt::Continue { span }
 }
 
+/// `CANCEL program-name …`.
+fn parse_cancel(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    p.advance(); // CANCEL
+    let mut programs = Vec::new();
+    while is_expr_start(p) && !p.at_end_of_sentence() && !p.at(&Token::Eof) {
+        programs.push(parse_expr(p));
+    }
+    Stmt::Cancel { programs, span }
+}
+
 /// `ALTER paragraph-1 TO [PROCEED TO] paragraph-2`.
 fn parse_alter(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
@@ -925,12 +936,53 @@ fn parse_open(p: &mut Parser) -> Stmt {
     };
 
     let mut files = Vec::new();
-    while p.at_identifier() {
-        let (name, _) = p.eat_identifier().unwrap();
-        files.push(name);
+    let mut sharing = None;
+    let mut lock = false;
+    loop {
+        // SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}
+        if is_word(p.peek(), "SHARING") {
+            parse_sharing(p, &mut sharing);
+            continue;
+        }
+        // Per-file/trailing WITH {LOCK | [NO] REWIND}
+        if p.at(&Token::With) {
+            p.advance();
+            if is_word(p.peek(), "LOCK") { p.advance(); lock = true; }
+            else if p.at(&Token::No) { p.advance(); if is_word(p.peek(), "REWIND") { p.advance(); } }
+            else if is_word(p.peek(), "REWIND") { p.advance(); }
+            continue;
+        }
+        if p.at_identifier() {
+            let (name, _) = p.eat_identifier().unwrap();
+            files.push(name);
+            continue;
+        }
+        break;
     }
 
-    Stmt::Open { mode, files, span }
+    Stmt::Open { mode, files, sharing, lock, span }
+}
+
+/// Parse `SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}` into `out`.
+fn parse_sharing(p: &mut Parser, out: &mut Option<cobolt_ast::stmt::ShareMode>) {
+    use cobolt_ast::stmt::ShareMode;
+    if !is_word(p.peek(), "SHARING") { return; }
+    p.advance(); // SHARING
+    p.eat(&Token::With); // optional WITH
+    let mode = if p.at(&Token::No) {
+        p.advance();
+        if p.at(&Token::Other) { p.advance(); }
+        ShareMode::NoOther
+    } else if p.at(&Token::Read) {
+        p.advance();
+        if is_word(p.peek(), "ONLY") { p.advance(); }
+        ShareMode::ReadOnly
+    } else {
+        if p.at(&Token::All) || is_word(p.peek(), "ALL") { p.advance(); }
+        if p.at(&Token::Other) { p.advance(); }
+        ShareMode::AllOther
+    };
+    *out = Some(mode);
 }
 
 // ── CLOSE ─────────────────────────────────────────────────────────────────────
@@ -1049,6 +1101,29 @@ fn parse_read(p: &mut Parser) -> Stmt {
         None
     };
 
+    // WITH [NO] LOCK / WITH KEPT LOCK / WITH IGNORE LOCK
+    let lock = if p.at(&Token::With) {
+        p.advance();
+        if p.at(&Token::No) {
+            p.advance();
+            if is_word(p.peek(), "LOCK") { p.advance(); }
+            Some(false)
+        } else if is_word(p.peek(), "KEPT") {
+            p.advance();
+            if is_word(p.peek(), "LOCK") { p.advance(); }
+            Some(true)
+        } else if is_word(p.peek(), "LOCK") {
+            p.advance();
+            Some(true)
+        } else {
+            // some other WITH phrase we don't model — ignore the word
+            if p.at_identifier() { p.advance(); }
+            None
+        }
+    } else {
+        None
+    };
+
     // AT END … [NOT AT END …]. `AT END` may arrive as the single `AtEnd` token
     // or as the two words `AT` + `END`; likewise `NOT AT END`.
     let stop = |tok: &Token| matches!(
@@ -1064,7 +1139,7 @@ fn parse_read(p: &mut Parser) -> Stmt {
     p.eat(&Token::EndRead);
 
     Stmt::Read {
-        file, into, key, direction,
+        file, into, key, direction, lock,
         at_end, not_at_end, invalid_key, not_invalid_key, span,
     }
 }

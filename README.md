@@ -85,7 +85,8 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   INITIALIZE (category-aware + `REPLACING`), STRING / UNSTRING (with
   `ON OVERFLOW`), INSPECT (`TALLYING`/`REPLACING` combined, `BEFORE/AFTER
   INITIAL`, `CONVERTING`), SEARCH / SEARCH ALL, SORT / MERGE / RELEASE / RETURN,
-  ALTER, UNLOCK, NEXT SENTENCE, pointer `SET ADDRESS OF` / `SET … TO ADDRESS OF`.
+  ALTER, UNLOCK, CANCEL, NEXT SENTENCE, pointer `SET ADDRESS OF` / `SET … TO
+  ADDRESS OF`; `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO] LOCK`.
 - **Reference modification** `data-item(start:length)` on any operand (read and
   write); **abbreviated conditions** — operator-prefixed (`a > 1 AND < 9`) and
   literal-object (`a = 1 OR 2 OR 3`).
@@ -376,10 +377,13 @@ honest map of where things stand.
 - **SCREEN SECTION** — extended `ACCEPT`/`DISPLAY` `AT`/`WITH` phrases execute via
   ANSI in CLI mode; full field-level screen editing is superseded by the visual
   form designer in GUI mode.
-- **`UNLOCK`** is a real statement but a no-op (single-run-unit auto-unlock model).
+- **File sharing / locking** — `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO]
+  LOCK`, and `UNLOCK` parse and drive the INDEXED engine's per-run record locks,
+  but are not enforced across separate OS processes (single run-unit model).
 
 ### ⛔ Not yet implemented (planned)
-- **RELATIVE** file organization; cross-process file sharing / record locking.
+- **RELATIVE** file organization; cross-process (multi-OS-process) file sharing /
+  record locking enforcement.
 - Object-Oriented COBOL **class/method definitions** (`INVOKE` is supported for
   GUI and runtime objects only).
 

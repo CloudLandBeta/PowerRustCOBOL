@@ -43,6 +43,8 @@ pub trait IndexedStore {
     fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str;
     fn set_key_of_reference(&mut self, kor: usize);
     fn is_open(&self) -> bool;
+    /// Release all record locks held on the file (`UNLOCK`). Default: no-op.
+    fn unlock(&mut self) {}
 }
 
 /// Status codes (the FILE STATUS two-character values this engine produces).
@@ -1096,6 +1098,7 @@ impl IndexedStore for IndexedFile {
     fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str { self.delete(random_key) }
     fn set_key_of_reference(&mut self, kor: usize) { self.set_key_of_reference(kor) }
     fn is_open(&self) -> bool { self.is_open() }
+    fn unlock(&mut self) { self.locks.clear(); }
 }
 
 fn pad(key: &[u8], len: usize) -> Bytes {
