@@ -207,6 +207,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
     let mut usage = Usage::Display;
     let mut occurs: Option<OccursClause> = None;
     let mut redefines: Option<String> = None;
+    let mut renames: Option<cobolt_ast::data::RenamesClause> = None;
     let mut condition_values: Vec<ConditionValue> = Vec::new();
     let mut is_global   = false;
     let mut is_external = false;
@@ -288,6 +289,18 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
                 redefines = Some(p.expect_identifier("REDEFINES target"));
             }
 
+            // RENAMES item-1 [{THRU|THROUGH} item-2]  (66-level)
+            Token::Renames => {
+                p.advance();
+                let from = p.expect_identifier("RENAMES start item");
+                let thru = if p.eat(&Token::Thru) || p.eat(&Token::Through) {
+                    Some(p.expect_identifier("RENAMES THRU item"))
+                } else {
+                    None
+                };
+                renames = Some(cobolt_ast::data::RenamesClause { from, thru });
+            }
+
             // JUSTIFIED [RIGHT] — ignored for MVP
             Token::Justified => {
                 p.advance();
@@ -359,6 +372,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         usage,
         occurs,
         redefines,
+        renames,
         condition_values,
         is_global,
         is_external,

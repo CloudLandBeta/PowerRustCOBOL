@@ -89,6 +89,10 @@ pub struct CobolEnvironment {
     addr_table: Vec<String>,
     /// `SET ADDRESS OF item TO ptr` aliases: alias key → target storage key.
     addr_aliases: IndexMap<String, String>,
+    /// Elementary item keys in declaration order (for 66 RENAMES ranges).
+    elem_order: Vec<String>,
+    /// 66-level RENAMES items → the covered elementary keys (in order).
+    renames: IndexMap<String, Vec<String>>,
 }
 
 /// An 88-level condition-name: the parent data item it qualifies and the set of
@@ -290,6 +294,20 @@ impl CobolEnvironment {
         let upper = decl.name.as_ref().map(|n| n.to_ascii_uppercase());
         let is_named = matches!(&upper, Some(n) if n != "FILLER");
 
+        // 66-level RENAMES: register the regrouping over already-declared
+        // elementary items; it has no storage of its own.
+        if decl.level == 66 {
+            if let (Some(name), Some(ren)) = (&upper, &decl.renames) {
+                let from = self.canonical_name(&ren.from, &[]);
+                let thru = ren.thru.as_ref().map(|t| self.canonical_name(t, &[]));
+                if let Some(covered) = self.renames_range(&from, thru.as_deref()) {
+                    self.renames.insert(name.clone(), covered);
+                }
+            }
+            if occ.is_some() { dims.pop(); }
+            return;
+        }
+
         if is_named {
             let leaf = upper.clone().unwrap();
             // Canonical storage key: the leaf itself when unique, otherwise a
@@ -330,6 +348,10 @@ impl CobolEnvironment {
                 occurs: occ.unwrap_or(0),
             });
             self.by_leaf.entry(leaf.clone()).or_default().push(key.clone());
+            // Record elementary (leaf) items in declaration order for 66 RENAMES.
+            if decl.children.is_empty() {
+                self.elem_order.push(key.clone());
+            }
             // Base/template slot + caps/edited (one value; subscript slots are
             // created lazily from this template on first write).
             self.insert_value(&key, decl);
@@ -432,6 +454,90 @@ impl CobolEnvironment {
         self.addr_aliases.shift_remove(&alias.to_ascii_uppercase());
     }
 
+    // ── 66-level RENAMES ────────────────────────────────────────────────────────
+
+    /// The covered elementary keys for `RENAMES from [THRU thru]` — the slice of
+    /// `elem_order` spanning `from`'s first leaf to `thru`'s (or `from`'s) last.
+    fn renames_range(&self, from: &str, thru: Option<&str>) -> Option<Vec<String>> {
+        let (lo, _) = self.leaf_span(from)?;
+        let (_, hi) = self.leaf_span(thru.unwrap_or(from))?;
+        if hi >= lo {
+            Some(self.elem_order[lo..=hi].to_vec())
+        } else {
+            None
+        }
+    }
+
+    /// The `[first, last]` `elem_order` index span of an item: itself if
+    /// elementary, otherwise the range over all its descendant leaves.
+    fn leaf_span(&self, key: &str) -> Option<(usize, usize)> {
+        if let Some(p) = self.elem_order.iter().position(|k| k == key) {
+            return Some((p, p));
+        }
+        // A group: collect its descendant leaf positions via the child tree.
+        let mut positions = Vec::new();
+        self.collect_leaf_positions(key, &mut positions);
+        let lo = *positions.iter().min()?;
+        let hi = *positions.iter().max()?;
+        Some((lo, hi))
+    }
+
+    fn collect_leaf_positions(&self, key: &str, out: &mut Vec<usize>) {
+        if let Some(p) = self.elem_order.iter().position(|k| k == key) {
+            out.push(p);
+            return;
+        }
+        if let Some(sym) = self.symbols.get(key) {
+            for ck in &sym.child_keys {
+                self.collect_leaf_positions(ck, out);
+            }
+        }
+    }
+
+    /// `true` if `name` is a 66-level RENAMES item.
+    pub fn is_renames(&self, name: &str) -> bool {
+        self.renames.contains_key(&name.to_ascii_uppercase())
+    }
+
+    /// The synthesized value of a RENAMES item: the concatenated display strings
+    /// of the items it covers.
+    pub fn renames_value(&self, name: &str) -> Option<String> {
+        let covered = self.renames.get(&name.to_ascii_uppercase())?;
+        let mut s = String::new();
+        for k in covered {
+            s.push_str(&self.display_string(k).unwrap_or_default());
+        }
+        Some(s)
+    }
+
+    /// Distribute `s` across the covered items of a RENAMES item by each item's
+    /// stored width (left-to-right).
+    pub fn set_renames(&mut self, name: &str, s: &str) {
+        let Some(covered) = self.renames.get(&name.to_ascii_uppercase()).cloned() else { return };
+        let bytes = s.as_bytes();
+        let mut pos = 0usize;
+        for k in covered {
+            let width = self.display_string(&k).map(|d| d.len()).unwrap_or(0).max(1);
+            let end = (pos + width).min(bytes.len());
+            let chunk = if pos < bytes.len() {
+                String::from_utf8_lossy(&bytes[pos..end]).into_owned()
+            } else {
+                String::new()
+            };
+            // Pad the chunk to the field width.
+            let padded = format!("{chunk:<width$}");
+            if self.field_caps.contains_key(&k) {
+                // numeric receiver — store the digits
+                if let Ok(n) = padded.trim().parse::<i128>() {
+                    self.set(&k, CobolValue::from_i64(n as i64));
+                }
+            } else {
+                self.set_str(&k, &padded);
+            }
+            pos += width;
+        }
+    }
+
     /// Initialise a numeric-edited item: remember its template and store the
     /// edited string form of any VALUE (or spaces when there is none).
     fn init_edited(&mut self, name: &str, template: &str, value: Option<&Literal>, blank_when_zero: bool) {
@@ -521,6 +627,9 @@ impl CobolEnvironment {
     /// i.e. the characters as they are stored. Non-numeric items render verbatim.
     pub fn display_string(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_uppercase();
+        if self.renames.contains_key(&key) {
+            return self.renames_value(&key);
+        }
         let val = self.get(&key)?;
         if let CobolValue::Numeric(n) = val {
             if let Some(&(int_digits, _)) =

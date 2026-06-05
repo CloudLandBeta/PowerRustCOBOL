@@ -859,6 +859,11 @@ impl Interpreter {
                 self.set_condition(&info, !val.is_zero());
                 continue;
             }
+            // A 66-level RENAMES receiver distributes across its covered items.
+            if self.env.is_renames(&name) {
+                self.env.set_renames(&name, &val.as_display_string());
+                continue;
+            }
             match &src_digits {
                 Some(digits) if self.env.is_alphanumeric_field(&name) => {
                     self.env.set_str_left(&name, digits);
@@ -2916,6 +2921,13 @@ impl Interpreter {
 
             Expr::Identifier(name, _) => {
                 let key = self.env.resolve_name(name, &[]);
+                // A 66-level RENAMES item synthesizes its value from the items
+                // it regroups.
+                if self.env.is_renames(&key) {
+                    let s = self.env.renames_value(&key).unwrap_or_default();
+                    let n = s.len();
+                    return Ok(CobolValue::from_str(&s, n));
+                }
                 Ok(self.env.get(&key).cloned().unwrap_or_else(|| {
                     tracing::debug!("Identifier '{key}' not found in environment — using 0");
                     CobolValue::from_i64(0)

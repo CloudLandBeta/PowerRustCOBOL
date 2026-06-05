@@ -117,6 +117,8 @@ pub struct DataDecl {
     pub occurs: Option<OccursClause>,
     /// REDEFINES clause — name of the item being redefined.
     pub redefines: Option<String>,
+    /// 66-level `RENAMES item-1 [THRU item-2]` regrouping, if this is a 66 item.
+    pub renames: Option<RenamesClause>,
     /// For 88-level condition names: the list of values that make it TRUE.
     pub condition_values: Vec<ConditionValue>,
     /// GLOBAL clause — item is visible to all nested programs in this compilation unit.
@@ -128,6 +130,13 @@ pub struct DataDecl {
     /// Nested subordinate data items (group items only).
     pub children: Vec<DataDecl>,
     pub span: Span,
+}
+
+/// A 66-level `RENAMES item-1 [THRU item-2]` regrouping clause.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RenamesClause {
+    pub from: String,
+    pub thru: Option<String>,
 }
 
 /// A value entry in an 88-level condition-name declaration.

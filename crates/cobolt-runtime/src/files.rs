@@ -168,7 +168,7 @@ mod tests {
     fn elem(name: &str, p: PicClause) -> DataDecl {
         DataDecl {
             level: 5, name: Some(name.into()), picture: Some(p), value: None,
-            usage: Default::default(), occurs: None, redefines: None,
+            usage: Default::default(), occurs: None, redefines: None, renames: None,
             condition_values: vec![], is_global: false, is_external: false,
             blank_when_zero: false, children: vec![], span: Span::dummy(),
         }
@@ -176,7 +176,7 @@ mod tests {
     fn group(name: &str, children: Vec<DataDecl>) -> DataDecl {
         DataDecl {
             level: 1, name: Some(name.into()), picture: None, value: None,
-            usage: Default::default(), occurs: None, redefines: None,
+            usage: Default::default(), occurs: None, redefines: None, renames: None,
             condition_values: vec![], is_global: false, is_external: false,
             blank_when_zero: false, children, span: Span::dummy(),
         }

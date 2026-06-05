@@ -50,6 +50,31 @@ fn initialize_replacing_by_category() {
 }
 
 #[test]
+fn renames_66_read_and_write() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. REN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-REC.
+          05 WS-A PIC X(2) VALUE "AB".
+          05 WS-B PIC X(2) VALUE "CD".
+          05 WS-C PIC X(2) VALUE "EF".
+       66 WS-AB RENAMES WS-A THRU WS-B.
+       PROCEDURE DIVISION.
+       MAIN.
+           DISPLAY WS-AB
+           MOVE "XYZW" TO WS-AB
+           DISPLAY WS-A
+           DISPLAY WS-B
+           DISPLAY WS-C
+           STOP RUN.
+    "#;
+    // RENAMES reads "ABCD"; writing "XYZW" distributes XY/ZW; WS-C untouched.
+    assert_eq!(run_capture(src), vec!["ABCD", "XY", "ZW", "EF"]);
+}
+
+#[test]
 fn initialize_plain_still_works() {
     let src = r#"
        IDENTIFICATION DIVISION.
