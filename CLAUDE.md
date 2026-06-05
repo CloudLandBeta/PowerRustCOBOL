@@ -162,7 +162,11 @@ shows through the form background.
 ### Binary Compiler (Phase 11)
 `cobolt_compiler::build_project()` serializes the AST with `bincode`+`flate2`,
 generates a temp Cargo project that embeds everything via `include_bytes!`,
-runs `cargo build --release`, and copies the binary to `bin/`.
+runs `cargo build --release`, and copies the binary to `bin/`. The shared core
+is `build_core(proj, project_dir, opts)`; `build_single_file()` synthesizes the
+project metadata from a lone `.cbl` (no `cobolt.toml`) for console-only programs.
+`rcrun build <file.cbl>` routes to it (extension-detected); `rcrun build
+[cobolt.toml]` is the project path.
 
 ### File I/O — verb dispatch by ORGANIZATION (Phase 12)
 **CRITICAL:** file verbs (`OPEN`/`CLOSE`/`READ`/`WRITE`/`REWRITE`/`DELETE`/

@@ -263,6 +263,17 @@ cargo run -p cobolt-cli -- check main.cbl
 
 ### Generate a standalone binary
 
+A **single console-only program** needs no `cobolt.toml` — just point `build` at
+the `.cbl` file:
+
+```sh
+# Compile one source file → ./bin/<file-stem>  (native binary, next to the source)
+cargo run -p cobolt-cli -- build hello.cbl
+./bin/hello
+```
+
+For a **project** (multiple sources and/or forms), pass the manifest:
+
 ```sh
 # From inside the project directory:
 cargo run -p cobolt-cli -- build cobolt.toml
@@ -273,8 +284,11 @@ cargo run -p cobolt-cli -- build cobolt.toml
 ./bin/<app-name>
 ```
 
-If the project has forms, the binary launches the GUI application; otherwise it runs
-headless. The compressed AST and forms are embedded inside the executable.
+`rcrun build` decides by the argument: a `.cbl`/`.cob`/`.cbk`/`.cpy` file is a
+standalone build (project metadata is synthesized from the file name); anything
+else is treated as a `cobolt.toml` manifest. If the project has forms, the binary
+launches the GUI application; otherwise it runs headless. The compressed AST and
+forms are embedded inside the executable.
 
 ### Package a project for distribution
 

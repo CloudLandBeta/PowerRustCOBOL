@@ -161,12 +161,7 @@ pub fn build_project(
     manifest_path: &Path,
     opts: &BuildOptions,
 ) -> Result<BuildResult, CompilerError> {
-    let log = |msg: &str| {
-        if opts.verbose { eprintln!("{msg}"); }
-    };
-
-    // ── 1. Load manifest ──────────────────────────────────────────────────────
-    log("📖 Reading cobolt.toml …");
+    if opts.verbose { eprintln!("📖 Reading cobolt.toml …"); }
     let manifest_text = std::fs::read_to_string(manifest_path)?;
     let proj: CoboltProject = toml::from_str(&manifest_text)
         .map_err(|e| CompilerError::Toml(e.to_string()))?;
@@ -176,6 +171,47 @@ pub fn build_project(
         .parent()
         .map(|p| p.to_owned())
         .unwrap_or_else(|| PathBuf::from("."));
+
+    build_core(proj, project_dir, opts)
+}
+
+/// Compile a single standalone COBOL source file (no `cobolt.toml`) into a
+/// native binary. Project metadata is synthesized from the file name; the
+/// binary lands in `bin/` next to the source. Ideal for console-only programs.
+pub fn build_single_file(
+    source_path: &Path,
+    opts: &BuildOptions,
+) -> Result<BuildResult, CompilerError> {
+    let source_path = source_path.canonicalize()?;
+    let project_dir = source_path
+        .parent()
+        .map(|p| p.to_owned())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let main = source_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "main.cbl".to_string());
+    let name = source_path
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "program".to_string());
+
+    let proj = CoboltProject {
+        project: ProjectMeta { name, version: "1.0.0".into(), main },
+        files: ProjectFiles::default(),
+    };
+    build_core(proj, project_dir, opts)
+}
+
+/// Shared build pipeline used by both [`build_project`] and [`build_single_file`].
+fn build_core(
+    proj: CoboltProject,
+    project_dir: PathBuf,
+    opts: &BuildOptions,
+) -> Result<BuildResult, CompilerError> {
+    let log = |msg: &str| {
+        if opts.verbose { eprintln!("{msg}"); }
+    };
 
     let bin_name = proj.project.name
         .to_ascii_lowercase()

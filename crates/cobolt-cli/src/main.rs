@@ -11,7 +11,8 @@
 //! ```text
 //! rcrun run     <file.cbl>            # run a COBOL source file
 //! rcrun check   <file.cbl>            # parse + semantic analysis only
-//! rcrun build   [cobolt.toml]         # compile project → single native binary in bin/
+//! rcrun build   <file.cbl>            # compile a single console program → bin/<name>
+//! rcrun build   [cobolt.toml]         # compile a project → single native binary in bin/
 //! rcrun package [cobolt.toml]         # package project into a zip archive
 //! rcrun version                       # print version and exit
 //! ```
@@ -190,7 +191,8 @@ fn cmd_help() {
         "  rcrun run     <file.cbl>              Run a COBOL program\n",
         "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu\n",
         "  rcrun check   <file.cbl>              Parse and analyse without running\n",
-        "  rcrun build   [cobolt.toml]           Compile project → bin/<name> (single executable)\n",
+        "  rcrun build   <file.cbl>             Compile a console program → bin/<name> (native binary)\n",
+        "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",
         "         [--quiet]                       Suppress build progress output\n",
         "  rcrun package [cobolt.toml]           Package project into a zip archive\n",
         "         [--output <path.zip>]           Override the output archive path\n",
@@ -206,17 +208,19 @@ fn cmd_help() {
 
 // ── Build command (Phase 11) ──────────────────────────────────────────────────
 
-/// Compile a Cobolt project into a single native executable.
+/// Compile a Cobolt project (or a single COBOL source file) into a native binary.
 ///
-/// Usage: `rcrun build [cobolt.toml] [--quiet]`
+/// Usage:
+///   `rcrun build [cobolt.toml] [--quiet]`   — project build
+///   `rcrun build prog.cbl [--quiet]`        — standalone console program
 fn cmd_build(args: &[String]) {
-    let mut manifest: Option<std::path::PathBuf> = None;
+    let mut target: Option<std::path::PathBuf> = None;
     let mut quiet = false;
 
     for arg in args {
         match arg.as_str() {
             "--quiet" | "-q" => quiet = true,
-            a if !a.starts_with('-') => manifest = Some(std::path::PathBuf::from(a)),
+            a if !a.starts_with('-') => target = Some(std::path::PathBuf::from(a)),
             other => {
                 eprintln!("rcrun build: unknown flag '{other}'");
                 process::exit(2);
@@ -224,22 +228,40 @@ fn cmd_build(args: &[String]) {
         }
     }
 
-    let manifest = manifest.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));
-    if !manifest.exists() {
-        eprintln!(
-            "rcrun build: manifest not found: '{}'\n  \
-             Run inside a project directory or pass the path to cobolt.toml.",
-            manifest.display()
-        );
-        process::exit(1);
-    }
-
     let opts = cobolt_compiler::BuildOptions {
         verbose: !quiet,
         workspace_root: None,
     };
 
-    match cobolt_compiler::build_project(&manifest, &opts) {
+    let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));
+
+    // A bare COBOL source file → standalone single-file build (no manifest).
+    let is_source = matches!(
+        target.extension().and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase()).as_deref(),
+        Some("cbl" | "cob" | "cbk" | "cpy")
+    );
+
+    let result = if is_source {
+        if !target.exists() {
+            eprintln!("rcrun build: source file not found: '{}'", target.display());
+            process::exit(1);
+        }
+        cobolt_compiler::build_single_file(&target, &opts)
+    } else {
+        if !target.exists() {
+            eprintln!(
+                "rcrun build: manifest not found: '{}'\n  \
+                 Pass a COBOL source file (`rcrun build prog.cbl`) for a console-only\n  \
+                 program, or run inside a project directory containing a cobolt.toml.",
+                target.display()
+            );
+            process::exit(1);
+        }
+        cobolt_compiler::build_project(&target, &opts)
+    };
+
+    match result {
         Ok(result) => {
             println!(
                 "✅ Build complete!\n   Binary : {}\n   Sources: {}\n   Forms  : {}\n   AST    : {} bytes (compressed)",
