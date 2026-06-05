@@ -67,7 +67,8 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 `INSPECT` `CALL` `SET` `INITIALIZE` `SEARCH`/`SEARCH ALL` `SORT` `MERGE`
 `RELEASE` `RETURN`
 ✅ `ALTER para-1 TO [PROCEED TO] para-2` (redirects para-1's `GO TO`) ·
-`UNLOCK file` (releases record locks — a no‑op in the auto-unlock model)
+`UNLOCK file` (releases the file's record locks) · `OPEN … SHARING/WITH LOCK` ·
+`READ … WITH [NO] LOCK` (file sharing/locking — advisory in the single run unit)
 ✅ `CANCEL` (re‑initialises the program's storage) · ⚠️ `INVOKE` (parsed as no‑op)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 

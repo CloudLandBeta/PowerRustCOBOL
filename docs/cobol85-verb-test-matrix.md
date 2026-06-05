@@ -210,18 +210,22 @@ permutations (clauses/phrases) on top of the type mix.
    [RETURNING dn] [ON {EXCEPTION|OVERFLOW} …][NOT…][END-CALL]`.
 - Static (literal) vs dynamic (data-name) program name; unresolved → ON EXCEPTION.
 - Arg passing modes (observe caller-visibility); arg count/type mismatch.
-- `RETURNING` vs `RETURN-CODE`; recursion; `CANCEL prog`; `EXTERNAL` shared data.
+- `RETURNING` vs `RETURN-CODE`; recursion; `EXTERNAL` shared data.
+  (✅ `CANCEL prog` implemented — re-initialises the program's storage;
+  `NOT ON EXCEPTION` runs on a resolved CALL.)
 
 ### ARITHMETIC special-registers & misc verbs
 - `ADD/SUBTRACT … GIVING` zero-suppression vs `TO` accumulation.
 - `MOVE`/arith to/from `RETURN-CODE`, `TALLY`.
-- `ALTER` (legacy GO TO) — observe / decide deprecate.
+- ✅ `ALTER` (legacy GO TO) — implemented (redirects the paragraph's `GO TO`).
 - `ACCEPT/DISPLAY` round-trip through edited fields.
 
 ### File verbs — *(only the gaps not in the file-I/O suite)*
-- `OPEN … {SHARING WITH …|LOCK MODE …}`, `READ … {WITH [NO] LOCK}`,
-  `READ … INTO`, `WRITE … FROM`, `REWRITE … FROM`, `START … KEY IS {= > >= < <=}`
-  with reference-modified keys; `UNLOCK`; multiple FDs sharing a record area.
+- ✅ **Implemented & tested** (`test_file_locking`): `OPEN … SHARING WITH …
+  [WITH LOCK]`, `READ … WITH [NO] LOCK`, `UNLOCK` (advisory in the single run
+  unit — see the supported-syntax reference).
+- `READ … INTO`, `WRITE … FROM`, `REWRITE … FROM`, `START … KEY IS {= > >= < <=}`
+  with reference-modified keys; multiple FDs sharing a record area.
 
 ### Planned verbs (spec for when implemented)
 - `SORT f ON {ASCENDING|DESCENDING} KEY k … {USING f…|INPUT PROCEDURE p}
