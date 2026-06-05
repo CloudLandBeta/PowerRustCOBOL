@@ -723,10 +723,10 @@ impl Interpreter {
             },
 
             // ── I/O ───────────────────────────────────────────────────────────
-            Stmt::Accept { target, from, span } =>
-                self.exec_accept(target, from.as_ref(), *span),
-            Stmt::Display { operands, no_advancing, .. } =>
-                self.exec_display(operands, *no_advancing),
+            Stmt::Accept { target, from, screen, span } =>
+                self.exec_accept(target, from.as_ref(), screen.as_ref(), *span),
+            Stmt::Display { operands, no_advancing, screen, .. } =>
+                self.exec_display(operands, *no_advancing, screen.as_ref()),
             Stmt::Open { mode, files, span } =>
                 self.exec_open(*mode, files, *span),
             Stmt::Close { files, .. } =>
@@ -1678,9 +1678,17 @@ impl Interpreter {
         &mut self,
         target: &Expr,
         from: Option<&AcceptSource>,
+        screen: Option<&cobolt_ast::stmt::ScreenPhrase>,
         _span: Span,
     ) -> Result<(), RuntimeError> {
         let name = self.resolve_lvalue(target);
+        // Extended ACCEPT with a screen position: place the cursor first (CLI).
+        if let (Some(sc), None) = (screen, &self.display_tx) {
+            use std::io::Write;
+            let (row, col) = self.screen_pos(sc);
+            print!("\x1b[{row};{col}H");
+            let _ = std::io::stdout().flush();
+        }
         match from {
             None => {
                 // Read one line from stdin.
@@ -1704,7 +1712,12 @@ impl Interpreter {
         Ok(())
     }
 
-    fn exec_display(&mut self, operands: &[Expr], no_advancing: bool) -> Result<(), RuntimeError> {
+    fn exec_display(
+        &mut self,
+        operands: &[Expr],
+        no_advancing: bool,
+        screen: Option<&cobolt_ast::stmt::ScreenPhrase>,
+    ) -> Result<(), RuntimeError> {
         let mut out = String::new();
         for op in operands {
             // A bare numeric data item displays as its full fixed-width digit
@@ -1724,17 +1737,41 @@ impl Interpreter {
             };
             out.push_str(&s);
         }
-        // GUI mode: send through the display channel so the IDE output panel receives it.
+        // GUI mode: send through the display channel so the IDE output panel
+        // receives the text (cursor positioning is meaningless there).
         if let Some(tx) = &self.display_tx {
             let _ = tx.send(out.clone());
+            return Ok(());
+        }
+        // CLI mode: honour the extended-screen position / attributes with ANSI.
+        use std::io::Write;
+        if let Some(sc) = screen {
+            let (row, col) = self.screen_pos(sc);
+            let attrs = screen_attrs(sc);
+            print!("\x1b[{row};{col}H{attrs}{out}\x1b[0m");
+            let _ = std::io::stdout().flush();
         } else if no_advancing {
             print!("{out}");
-            use std::io::Write;
             let _ = std::io::stdout().flush();
         } else {
             println!("{out}");
         }
         Ok(())
+    }
+
+    /// Resolve a screen phrase to a 1-based `(row, col)` terminal position.
+    fn screen_pos(&mut self, sc: &cobolt_ast::stmt::ScreenPhrase) -> (i64, i64) {
+        if let Some(at) = &sc.at {
+            let v = self.eval_expr(at, at.span()).map(|x| x.as_i64().unwrap_or(0)).unwrap_or(0);
+            return ((v / 100).max(1), (v % 100).max(1));
+        }
+        let row = sc.line.as_ref()
+            .and_then(|e| self.eval_expr(e, e.span()).ok())
+            .and_then(|v| v.as_i64()).unwrap_or(1).max(1);
+        let col = sc.col.as_ref()
+            .and_then(|e| self.eval_expr(e, e.span()).ok())
+            .and_then(|v| v.as_i64()).unwrap_or(1).max(1);
+        (row, col)
     }
 
     // ── STRING ────────────────────────────────────────────────────────────────
@@ -3648,6 +3685,15 @@ fn call_arg_expr(arg: &CallArg) -> &Expr {
     match arg {
         CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e,
     }
+}
+
+/// ANSI SGR prefix for a screen phrase's display attributes (`""` if none).
+fn screen_attrs(sc: &cobolt_ast::stmt::ScreenPhrase) -> String {
+    let mut s = String::new();
+    if sc.highlight { s.push_str("\x1b[1m"); }
+    if sc.reverse   { s.push_str("\x1b[7m"); }
+    if sc.underline { s.push_str("\x1b[4m"); }
+    s
 }
 
 /// Flatten the `OF`/`IN` qualifier chain of a [`Expr::Qualified`] `of` operand

@@ -421,6 +421,7 @@ fn program_construction() {
                         operands: vec![Expr::Identifier("WS-MSG".into(), dummy_span())],
                         upon: None,
                         no_advancing: false,
+                        screen: None,
                         span: dummy_span(),
                     },
                     Stmt::Stop { run: true, literal: None, span: dummy_span() },

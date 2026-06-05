@@ -255,6 +255,24 @@ pub struct ExecRustBinding {
     pub rust_name: String,
 }
 
+/// Extended `ACCEPT`/`DISPLAY` screen phrase: a cursor position (`AT nnnn` or
+/// `AT LINE n [COLUMN n]`) plus display attributes.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ScreenPhrase {
+    /// `AT LINE n` — the row.
+    pub line: Option<Expr>,
+    /// `AT … COLUMN n` — the column.
+    pub col: Option<Expr>,
+    /// `AT nnnn` — a combined row*100+col position.
+    pub at: Option<Expr>,
+    /// `WITH HIGHLIGHT` / `BOLD`.
+    pub highlight: bool,
+    /// `WITH REVERSE-VIDEO`.
+    pub reverse: bool,
+    /// `WITH UNDERLINE`.
+    pub underline: bool,
+}
+
 /// The source of a pointer assignment (`SET … TO …`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PointerSource {
@@ -546,18 +564,22 @@ pub enum Stmt {
 
     // ── User interaction ─────────────────────────────────────────────────────
 
-    /// `ACCEPT target [FROM source]`
+    /// `ACCEPT target [AT …] [FROM source] [WITH …]`
     Accept {
         target: Expr,
         from: Option<AcceptSource>,
+        /// Extended screen position / attributes (`AT`/`WITH`), if any.
+        screen: Option<ScreenPhrase>,
         span: Span,
     },
 
-    /// `DISPLAY operand … [UPON mnemonic] [NO ADVANCING]`
+    /// `DISPLAY operand … [AT …] [WITH …] [UPON mnemonic] [NO ADVANCING]`
     Display {
         operands: Vec<Expr>,
         upon: Option<String>,
         no_advancing: bool,
+        /// Extended screen position / attributes (`AT`/`WITH`), if any.
+        screen: Option<ScreenPhrase>,
         span: Span,
     },
 

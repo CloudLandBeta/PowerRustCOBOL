@@ -222,6 +222,21 @@ fn display_multiple() {
     }
 }
 
+#[test]
+fn display_at_with_screen_phrase() {
+    let code = prog("    DISPLAY 'X' AT LINE 5 COLUMN 10 WITH HIGHLIGHT.\n    STOP RUN.\n");
+    let stmts = parse_stmts(&code);
+    if let Stmt::Display { operands, screen, .. } = &stmts[0] {
+        assert_eq!(operands.len(), 1);
+        let sc = screen.as_ref().expect("expected a screen phrase");
+        assert!(sc.line.is_some());
+        assert!(sc.col.is_some());
+        assert!(sc.highlight);
+    } else {
+        panic!("expected DISPLAY");
+    }
+}
+
 // ── STOP RUN ──────────────────────────────────────────────────────────────────
 
 #[test]

@@ -1206,9 +1206,8 @@ fn parse_accept(p: &mut Parser) -> Stmt {
     p.advance(); // ACCEPT
     let target = parse_expr(p);
 
-    // Optional screen position before / after FROM (parsed, not executed —
-    // terminal screen handling is superseded by the form designer).
-    eat_accept_screen(p);
+    // Optional screen position / attributes before and after FROM.
+    let mut screen = parse_screen_phrase(p);
 
     let from = if p.at(&Token::From) {
         p.advance();
@@ -1217,36 +1216,71 @@ fn parse_accept(p: &mut Parser) -> Stmt {
         None
     };
 
-    // Optional trailing screen position / attribute phrases.
-    eat_accept_screen(p);
+    if let Some(more) = parse_screen_phrase(p) {
+        screen = Some(merge_screen(screen, more));
+    }
 
-    Stmt::Accept { target, from, span }
+    Stmt::Accept { target, from, screen, span }
 }
 
-/// Consume the screen-handling phrases of an extended ACCEPT — `AT {nnnn |
-/// LINE n [COLUMN n]}` and `WITH attribute …` — which PowerRustCOBOL recognizes
-/// but does not execute (the visual designer supersedes SCREEN SECTION I/O).
-fn eat_accept_screen(p: &mut Parser) {
+/// Parse the screen-handling phrases of an extended ACCEPT/DISPLAY — `AT {nnnn |
+/// LINE n [COLUMN n]}` and `WITH attribute …`. Returns `None` if absent.
+fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase> {
+    use cobolt_ast::stmt::ScreenPhrase;
     let stop = |p: &Parser| {
-        p.at(&Token::With) || p.at(&Token::From) || p.at(&Token::Upon)
-            || p.at(&Token::No) || p.at(&Token::Eof) || p.at(&Token::Period)
+        p.at(&Token::From) || p.at(&Token::Upon)
+            || p.at(&Token::Eof) || p.at(&Token::Period)
             || is_stmt_start(p.peek())
     };
+    let mut sp = ScreenPhrase::default();
+    let mut got = false;
     loop {
         if is_word(p.peek(), "AT") {
-            p.advance(); // AT — then the position tokens (LINE/COLUMN words + numbers)
-            while !stop(p) {
+            p.advance(); // AT
+            got = true;
+            if p.at(&Token::Line) || is_word(p.peek(), "LINE") {
                 p.advance();
+                sp.line = Some(parse_expr(p));
+                if is_word(p.peek(), "COLUMN") || is_word(p.peek(), "COL") {
+                    p.advance();
+                    sp.col = Some(parse_expr(p));
+                }
+            } else if is_expr_start(p) {
+                // AT nnnn — a combined row*100+col position.
+                sp.at = Some(parse_expr(p));
             }
         } else if p.at(&Token::With) && !is_word(p.peek_at(1), "NO") {
-            p.advance(); // WITH — then attribute words up to the next clause.
-            while !stop(p) {
+            p.advance(); // WITH
+            got = true;
+            while !stop(p) && !p.at(&Token::With) && !is_word(p.peek(), "AT") {
+                match ident_upper(p).as_deref() {
+                    Some("HIGHLIGHT") | Some("BOLD")  => sp.highlight = true,
+                    Some("REVERSE-VIDEO") | Some("REVERSE") => sp.reverse = true,
+                    Some("UNDERLINE")     => sp.underline = true,
+                    _ => {}
+                }
                 p.advance();
             }
         } else {
             break;
         }
     }
+    if got { Some(sp) } else { None }
+}
+
+/// Combine two screen phrases (the second overrides set fields of the first).
+fn merge_screen(
+    a: Option<cobolt_ast::stmt::ScreenPhrase>,
+    b: cobolt_ast::stmt::ScreenPhrase,
+) -> cobolt_ast::stmt::ScreenPhrase {
+    let mut r = a.unwrap_or_default();
+    if b.line.is_some() { r.line = b.line; }
+    if b.col.is_some()  { r.col = b.col; }
+    if b.at.is_some()   { r.at = b.at; }
+    r.highlight |= b.highlight;
+    r.reverse  |= b.reverse;
+    r.underline |= b.underline;
+    r
 }
 
 fn parse_accept_source(p: &mut Parser) -> AcceptSource {
@@ -1306,8 +1340,8 @@ fn parse_display(p: &mut Parser) -> Stmt {
         operands.push(parse_expr(p));
     }
 
-    // Optional screen position / attribute phrases (recognized, not executed).
-    eat_accept_screen(p);
+    // Optional screen position / attribute phrases.
+    let screen = parse_screen_phrase(p);
 
     let upon = if p.eat(&Token::Upon) {
         p.eat_identifier().map(|(s, _)| s)
@@ -1319,7 +1353,7 @@ fn parse_display(p: &mut Parser) -> Stmt {
     p.eat(&Token::With); // optional WITH
     let no_advancing = p.eat(&Token::No) && { p.eat(&Token::Advancing); true };
 
-    Stmt::Display { operands, upon, no_advancing, span }
+    Stmt::Display { operands, upon, no_advancing, screen, span }
 }
 
 // ── STRING verb ───────────────────────────────────────────────────────────────
