@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.8.0] — 2026-06-05
+
+Program-controlled `COMMIT` / `ROLLBACK` transactions for INDEXED files.
+
+### New language features
+
+- **`COMMIT` and `ROLLBACK`** are now real COBOL verbs (reserved keyword tokens,
+  so a preceding `DISPLAY` no longer absorbs them). They apply to **every** open
+  INDEXED file in the run unit:
+  - `OPEN` begins a transaction; `COMMIT` makes all changes durable and starts a
+    new one; `ROLLBACK` undoes every `WRITE`/`REWRITE`/`DELETE` since the last
+    `COMMIT`/`OPEN`; `CLOSE` persists (implicit commit).
+  - The **memory engine**'s existing journal is now wired through.
+  - The **disk engine** gained a real in-run **undo log** (Insert/Update/Delete
+    inverses) — `ROLLBACK` was previously a no-op there.
+
+### Notes
+
+- This is *program-level* rollback; crash-recovery via a durable write-ahead log
+  remains future work.
+- New tests: `test_transactions` (disk + memory engines). Full suite: **382
+  passed, 0 failed**.
+
 ## [PowerRustCOBOL 1.7.2] — 2026-06-05
 
 File-sharing / locking phrases and `CANCEL` — previously parse errors or no-ops.

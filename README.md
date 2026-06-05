@@ -85,8 +85,8 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   INITIALIZE (category-aware + `REPLACING`), STRING / UNSTRING (with
   `ON OVERFLOW`), INSPECT (`TALLYING`/`REPLACING` combined, `BEFORE/AFTER
   INITIAL`, `CONVERTING`), SEARCH / SEARCH ALL, SORT / MERGE / RELEASE / RETURN,
-  ALTER, UNLOCK, CANCEL, NEXT SENTENCE, pointer `SET ADDRESS OF` / `SET … TO
-  ADDRESS OF`; `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO] LOCK`.
+  ALTER, UNLOCK, CANCEL, COMMIT, ROLLBACK, NEXT SENTENCE, pointer `SET ADDRESS
+  OF` / `SET … TO ADDRESS OF`; `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO] LOCK`.
 - **Reference modification** `data-item(start:length)` on any operand (read and
   write); **abbreviated conditions** — operator-prefixed (`a > 1 AND < 9`) and
   literal-object (`a = 1 OR 2 OR 3`).
@@ -365,8 +365,9 @@ honest map of where things stand.
   (`AT`/`WITH` via ANSI in CLI mode). The COBOL-85 verb/clause set is now fully
   covered.
 - **`INDEXED` (ISAM) files** — a built-in, dependency-free keyed-file engine with
-  primary + alternate keys, ascending on-disk key order, journaled
-  `COMMIT`/`ROLLBACK`, record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
+  primary + alternate keys (with/without duplicates), ascending on-disk key
+  order, **program-controlled `COMMIT`/`ROLLBACK` transactions** (real undo log,
+  memory + disk engines), record locking, `ACCESS MODE SEQUENTIAL/RANDOM/DYNAMIC`,
   and the full `READ`/`WRITE`/`REWRITE`/`DELETE`/`START` verb set with
   `INVALID KEY` phrases, plus `STORAGE IS MEMORY | DISK [WITH COMPRESSION]`. File
   verbs dispatch by each `SELECT`'s declared `ORGANIZATION`. Engine selectable

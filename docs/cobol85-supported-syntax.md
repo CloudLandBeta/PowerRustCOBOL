@@ -65,7 +65,12 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 > **Update (1.7.2):** file-sharing / locking phrases and `CANCEL` (were ❌ /
 > no-op) — **`OPEN … SHARING WITH … [WITH LOCK]`**, **`READ … WITH [NO] LOCK`**,
 > **`UNLOCK`** (releases the file's INDEXED record locks), and **`CANCEL program`**
-> (re-initialises the program's storage). The avoid-list at the bottom is current.
+> (re-initialises the program's storage).
+>
+> **Update (1.8.0):** **`COMMIT` / `ROLLBACK`** are now real COBOL verbs —
+> program-controlled transactions over the open INDEXED files (both the memory
+> and disk engines). The disk engine gained a real in-run undo log (it was a
+> no-op before). The avoid-list at the bottom is current.
 
 ---
 
@@ -79,7 +84,9 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 ✅ `ALTER para-1 TO [PROCEED TO] para-2` (redirects para-1's `GO TO`) ·
 `UNLOCK file` (releases the file's record locks) · `OPEN … SHARING/WITH LOCK` ·
 `READ … WITH [NO] LOCK` (file sharing/locking — advisory in the single run unit)
-✅ `CANCEL` (re‑initialises the program's storage) · ⚠️ `INVOKE` (parsed as no‑op)
+✅ `COMMIT` / `ROLLBACK` (program-controlled INDEXED-file transactions — see
+File verbs) · `CANCEL` (re‑initialises the program's storage) ·
+⚠️ `INVOKE` (parsed as no‑op)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 
 ✅ `SEARCH` / `SEARCH ALL` (functional — drives the table index and runs the
@@ -232,6 +239,12 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
   [AT END …][NOT AT END …][INVALID KEY …][NOT INVALID KEY …][END-READ]`.
   `WITH NO LOCK` releases the record lock the INDEXED engine takes under I‑O.
 - ✅ `UNLOCK f [RECORD[S]]` releases the file's record locks.
+- ✅ **`COMMIT` / `ROLLBACK`** — program-controlled transactions over **every**
+  open INDEXED file. `OPEN` starts a transaction; `COMMIT` makes changes durable
+  and starts a new one; `ROLLBACK` undoes every `WRITE`/`REWRITE`/`DELETE` since
+  the last `COMMIT`/`OPEN`; `CLOSE` persists (implicit commit). Works on both the
+  memory and disk engines. (Crash-recovery via a durable write-ahead log is
+  future work — this is in-run, program-level rollback.)
 - ✅ `WRITE rec [FROM id] [{BEFORE|AFTER} ADVANCING n [LINE[S]]]
   [INVALID KEY …][NOT …][END-WRITE]`.
 - ✅ `REWRITE rec [FROM id] [INVALID KEY …][END-REWRITE]`;
@@ -353,3 +366,5 @@ is intentional or post‑85:
 > `DISPLAY … UPON ARGUMENT-NUMBER / ENVIRONMENT-NAME` registers).
 > **Resolved (1.7.2):** `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO] LOCK`,
 > `UNLOCK` (releases INDEXED record locks), and `CANCEL program`.
+> **Resolved (1.8.0):** `COMMIT` / `ROLLBACK` as program-controlled INDEXED-file
+> transactions (memory + disk engines; real undo log on disk).
