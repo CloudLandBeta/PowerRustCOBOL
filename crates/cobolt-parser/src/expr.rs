@@ -292,6 +292,49 @@ fn peek_ident_upper(p: &Parser) -> Option<String> {
     }
 }
 
+/// True if `tok` can begin a relational operator (symbolic or word form).
+fn is_relop_start(tok: &Token) -> bool {
+    matches!(
+        tok,
+        Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
+            | Token::Equal | Token::Greater | Token::Less
+    )
+}
+
+/// Parse one relational operator — symbolic (`=` `<>` `<` `>` `<=` `>=`) or word
+/// (`EQUAL [TO]`, `GREATER [OR EQUAL] [THAN]`, `LESS [OR EQUAL] [THAN]`) — and
+/// return its `CmpOp`. `None` if the current token is not a relational operator.
+fn parse_relop(p: &mut Parser) -> Option<CmpOp> {
+    let op = match p.peek().clone() {
+        Token::Eq    => CmpOp::Eq,
+        Token::NotEq => CmpOp::Ne,
+        Token::Lt    => CmpOp::Lt,
+        Token::Gt    => CmpOp::Gt,
+        Token::LtEq  => CmpOp::Le,
+        Token::GtEq  => CmpOp::Ge,
+        Token::Equal => {
+            p.advance();
+            p.eat(&Token::To);
+            return Some(CmpOp::Eq);
+        }
+        Token::Greater => {
+            p.advance();
+            let ge = check_or_equal(p);
+            p.eat(&Token::Than);
+            return Some(if ge { CmpOp::Ge } else { CmpOp::Gt });
+        }
+        Token::Less => {
+            p.advance();
+            let le = check_or_equal(p);
+            p.eat(&Token::Than);
+            return Some(if le { CmpOp::Le } else { CmpOp::Lt });
+        }
+        _ => return None,
+    };
+    p.advance();
+    Some(op)
+}
+
 /// After consuming GREATER or LESS, check for `OR EQUAL [TO]` phrase.
 /// Returns `true` and consumes the tokens if present.
 fn check_or_equal(p: &mut Parser) -> bool {
@@ -368,29 +411,10 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
             return Condition::SignTest { expr: lhs, negated, sign: SignCond::Zero, span: sp };
         }
 
-        // Keyword comparisons: EQUAL TO, GREATER [OR EQUAL] [THAN], LESS [OR EQUAL] [THAN]
-        if p.eat(&Token::Equal) {
-            p.eat(&Token::To);
-            let rhs = parse_expr(p);
-            let op = if negated { CmpOp::Ne } else { CmpOp::Eq };
-            let sp = span.merge(rhs.span());
-            return Condition::Comparison { lhs, op, rhs, span: sp };
-        }
-        if p.eat(&Token::Greater) {
-            let ge = check_or_equal(p);
-            p.eat(&Token::Than);
-            let rhs = parse_expr(p);
-            let base = if ge { CmpOp::Ge } else { CmpOp::Gt };
+        // Relational operator after IS [NOT]: `IS [NOT] {= | EQUAL TO | GREATER …}`.
+        if let Some(base) = parse_relop(p) {
             let op = if negated { negate_cmp(base) } else { base };
-            let sp = span.merge(rhs.span());
-            return Condition::Comparison { lhs, op, rhs, span: sp };
-        }
-        if p.eat(&Token::Less) {
-            let le = check_or_equal(p);
-            p.eat(&Token::Than);
             let rhs = parse_expr(p);
-            let base = if le { CmpOp::Le } else { CmpOp::Lt };
-            let op = if negated { negate_cmp(base) } else { base };
             let sp = span.merge(rhs.span());
             return Condition::Comparison { lhs, op, rhs, span: sp };
         }
@@ -399,19 +423,17 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
         return Condition::ConditionName("<error>".into(), span);
     }
 
-    // Symbolic comparison operators: =, <>, <, >, <=, >=
-    let tok = p.peek().clone();
-    if matches!(tok, Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq) {
-        p.advance();
-        let op = match &tok {
-            Token::Eq    => CmpOp::Eq,
-            Token::NotEq => CmpOp::Ne,
-            Token::Lt    => CmpOp::Lt,
-            Token::Gt    => CmpOp::Gt,
-            Token::LtEq  => CmpOp::Le,
-            Token::GtEq  => CmpOp::Ge,
-            _ => unreachable!(),
-        };
+    // A bare leading `NOT` before a relational operator (no `IS`): `a NOT = b`,
+    // `a NOT > b`, `a NOT EQUAL b` → the negated comparison.
+    let lead_not = p.at(&Token::Not) && is_relop_start(p.peek_at(1));
+    if lead_not {
+        p.advance(); // NOT
+    }
+
+    // Relational comparison — symbolic (`=` `<>` `<` …) or word (`EQUAL TO`,
+    // `GREATER [THAN]`, `LESS [THAN]`), with or without the leading NOT.
+    if let Some(base) = parse_relop(p) {
+        let op = if lead_not { negate_cmp(base) } else { base };
         let rhs = parse_expr(p);
         let sp = span.merge(rhs.span());
         return Condition::Comparison { lhs, op, rhs, span: sp };
@@ -481,7 +503,7 @@ fn at_bare_object(p: &Parser) -> bool {
         p.peek_at(1),
         Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
             | Token::Greater | Token::Less | Token::Equal | Token::Is
-            | Token::Of | Token::In | Token::LParen | Token::And
+            | Token::Of | Token::In | Token::LParen | Token::And | Token::Not
     )
 }
 
