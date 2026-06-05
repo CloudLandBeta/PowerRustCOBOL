@@ -24,8 +24,7 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 > `END-STRING`/`END-UNSTRING`**, **category-aware `INITIALIZE`**, **operator-
 > prefixed abbreviated conditions** (`a > 1 AND < 9`), **`CALL … ON EXCEPTION`**
 > (runs on unresolved CALL), **`COMPUTE` multiple receivers + per-receiver
-> `ROUNDED`**, a much larger **intrinsic-function set**, and extended
-> `ACCEPT`/`DISPLAY` screen forms (parsed, not executed).
+> `ROUNDED`**, and a much larger **intrinsic-function set**.
 >
 > **Update (hierarchical / occurrence-aware environment pass — 1.5.0):** four
 > data-model-blocked features are now ✅ — **runtime table subscripting** `t(i)`
@@ -55,7 +54,18 @@ Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recogni
 > **`UNLOCK`**; faithful **`NEXT SENTENCE`**; the remaining standard
 > **intrinsics** (`PRESENT-VALUE`, `YEAR-TO-YYYY`, `BYTE-LENGTH`, `NUMVAL-F`,
 > `TEST-NUMVAL`); and extended **screen `ACCEPT`/`DISPLAY`** (`AT`/`WITH` via
-> ANSI in CLI mode).
+> ANSI in CLI mode — now *executed*, not just parsed).
+>
+> **Update (1.7.1):** the `ACCEPT` register sources are now functional (were
+> recognized no-ops) — **`FROM COMMAND-LINE`**, **`ARGUMENT-NUMBER`** /
+> **`ARGUMENT-VALUE`** (paired with `DISPLAY n UPON ARGUMENT-NUMBER`),
+> **`ENVIRONMENT-VALUE`** (paired with `DISPLAY "name" UPON ENVIRONMENT-NAME`),
+> **`ESCAPE KEY`** → `"00"`, **`CRT STATUS`** → `"0000"`.
+>
+> **Update (1.7.2):** file-sharing / locking phrases and `CANCEL` (were ❌ /
+> no-op) — **`OPEN … SHARING WITH … [WITH LOCK]`**, **`READ … WITH [NO] LOCK`**,
+> **`UNLOCK`** (releases the file's INDEXED record locks), and **`CANCEL program`**
+> (re-initialises the program's storage). The avoid-list at the bottom is current.
 
 ---
 
@@ -117,10 +127,12 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 ### IF / EVALUATE
 - ✅ `IF cond [THEN] stmts [ELSE stmts] [END-IF]`.
 - ✅ `EVALUATE {expr | TRUE | FALSE} [ALSO subject …]` … `WHEN {value | value THRU
-  value | NOT value | ANY} [ALSO …] stmts … [WHEN OTHER stmts] END-EVALUATE`.
+  value | NOT value | condition | ANY} [ALSO …] stmts … [WHEN OTHER stmts]
+  END-EVALUATE`.
 - ✅ **`ALSO` multi‑subject** — each `WHEN` column is matched positionally
   against its subject and AND‑combined.
-- ✅ **`WHEN NOT value`** negates a selection object.
+- ✅ **`WHEN NOT value`** negates a selection object; **`WHEN condition`**
+  (e.g. `EVALUATE TRUE WHEN a > b`) evaluates the boolean condition.
 
 ### PERFORM
 - ✅ `PERFORM p [THRU p2]`.
@@ -335,4 +347,9 @@ is intentional or post‑85:
 > **Resolved (1.7.0):** identifier‑object abbreviation; `INITIALIZE … REPLACING`;
 > `66 RENAMES`; pointers (`USAGE POINTER`, `SET ADDRESS OF` / `TO ADDRESS OF` /
 > `NULL`); `ALTER` / `UNLOCK`; faithful `NEXT SENTENCE`; the remaining standard
-> intrinsics; and extended screen `ACCEPT`/`DISPLAY`.
+> intrinsics; and extended screen `ACCEPT`/`DISPLAY` (executed in CLI mode).
+> **Resolved (1.7.1):** `ACCEPT FROM COMMAND-LINE / ARGUMENT-NUMBER /
+> ARGUMENT-VALUE / ENVIRONMENT-VALUE / ESCAPE KEY / CRT STATUS` (with the paired
+> `DISPLAY … UPON ARGUMENT-NUMBER / ENVIRONMENT-NAME` registers).
+> **Resolved (1.7.2):** `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO] LOCK`,
+> `UNLOCK` (releases INDEXED record locks), and `CANCEL program`.
