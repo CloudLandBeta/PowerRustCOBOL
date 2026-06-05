@@ -1,0 +1,69 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IDX-CRUD.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT CLIENTES ASSIGN TO "/tmp/idx-crud.dat"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS CL-COD
+               ALTERNATE RECORD KEY IS CL-CIDADE WITH DUPLICATES
+               STORAGE IS DISK WITH COMPRESSION
+               FILE STATUS IS WS-ST.
+       DATA DIVISION.
+       FILE SECTION.
+       FD CLIENTES.
+       01 CL-REC.
+          05 CL-COD     PIC 9(4).
+          05 CL-NOME    PIC X(10).
+          05 CL-CIDADE  PIC X(8).
+       WORKING-STORAGE SECTION.
+       01 WS-ST   PIC XX.
+       01 WS-EOF  PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN OUTPUT CLIENTES
+           MOVE 0003 TO CL-COD MOVE "CARLOS" TO CL-NOME
+           MOVE "SP" TO CL-CIDADE WRITE CL-REC
+           MOVE 0001 TO CL-COD MOVE "ANA" TO CL-NOME
+           MOVE "RIO" TO CL-CIDADE WRITE CL-REC
+           MOVE 0002 TO CL-COD MOVE "BRUNO" TO CL-NOME
+           MOVE "SP" TO CL-CIDADE WRITE CL-REC
+           CLOSE CLIENTES
+           OPEN I-O CLIENTES
+           MOVE 0002 TO CL-COD
+           READ CLIENTES
+               NOT INVALID KEY DISPLAY "RANDOM " CL-COD " " CL-NOME
+           END-READ
+           MOVE 0099 TO CL-COD
+           READ CLIENTES
+               INVALID KEY DISPLAY "MISSING ST " WS-ST
+           END-READ
+           MOVE 0002 TO CL-COD
+           READ CLIENTES END-READ
+           MOVE "BRUNINHO" TO CL-NOME
+           REWRITE CL-REC
+           MOVE 0000 TO CL-COD
+           START CLIENTES KEY IS GREATER THAN CL-COD END-START
+           PERFORM UNTIL WS-EOF = 1
+               READ CLIENTES NEXT
+                   AT END MOVE 1 TO WS-EOF
+                   NOT AT END DISPLAY "SEQ " CL-COD " " CL-NOME
+               END-READ
+           END-PERFORM
+           MOVE "SP" TO CL-CIDADE
+           READ CLIENTES KEY IS CL-CIDADE
+               NOT INVALID KEY DISPLAY "ALT 1 " CL-NOME
+           END-READ
+           READ CLIENTES NEXT
+               NOT AT END DISPLAY "ALT 2 " CL-NOME
+           END-READ
+           MOVE 0001 TO CL-COD
+           DELETE CLIENTES
+           DISPLAY "DELETE ST " WS-ST
+           MOVE 0001 TO CL-COD
+           READ CLIENTES
+               INVALID KEY DISPLAY "DELETED ST " WS-ST
+           END-READ
+           CLOSE CLIENTES
+           STOP RUN.
