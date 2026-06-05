@@ -64,6 +64,20 @@ impl AnimState {
     pub(crate) fn stop(&mut self) { self.playing = false; self.t = 1.0; }
 }
 
+/// ZoomOut "bounce" scale over progress `t`: a damped oscillation that starts at
+/// 100%, dips toward 25%, then bounces 3–4 times with decreasing amplitude,
+/// settling exactly at 100%.
+fn zoomout_scale(t: f32) -> f32 {
+    // N half-cycles (→ ~3–4 visible bounces); A sets the first dip (≈25%);
+    // D damps each successive bounce. sin(Nπ·t) = 0 at t=0 and t=1, so the curve
+    // begins and ends exactly at 100%.
+    const N: f32 = 5.0;
+    const A: f32 = 1.06;
+    const D: f32 = 3.5;
+    let osc = (N * std::f32::consts::PI * t).sin();
+    (1.0 - A * (-D * t).exp() * osc).max(0.02)
+}
+
 /// Compute offset in canvas-space for an animation at progress t.
 /// Returns (dx, dy, scale, alpha_mul) where alpha_mul is 0..1.
 pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f32) -> (f32, f32, f32, f32) {
@@ -80,8 +94,19 @@ pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f
         AnimKind::FlyFromBottomRight=> ( form_w * inv,  form_h * inv, 1.0, 1.0),
         AnimKind::FadeIn            => (0.0, 0.0, 1.0, te),
         AnimKind::FadeOut           => (0.0, 0.0, 1.0, 1.0 - te),
+        // ZoomIn grows 0 → 100% (eased; Elastic overshoots past 100% and settles).
         AnimKind::ZoomIn            => (0.0, 0.0, te.max(0.001), te),
-        AnimKind::ZoomOut           => (0.0, 0.0, (1.0 - te).max(0.001), 1.0 - te),
+        // ZoomOut dips and returns: 100% → 25% → 100%. With Elastic easing this
+        // becomes a damped multi-bounce (overshoots 3–4 times before settling).
+        AnimKind::ZoomOut           => {
+            let scale = if matches!(anim.easing, EasingKind::Elastic) {
+                zoomout_scale(t)
+            } else {
+                // Smooth single dip-and-return (no overshoot), timed by the easing.
+                (1.0 - 0.75 * (std::f32::consts::PI * te).sin()).max(0.02)
+            };
+            (0.0, 0.0, scale, 1.0)
+        }
         AnimKind::Bounce            => {
             let dy = -50.0 * (std::f32::consts::PI * t * 3.0).sin().abs() * inv;
             (0.0, dy, 1.0, 1.0)
@@ -4531,7 +4556,53 @@ mod anim_behavior_tests {
     }
 
     #[test]
+    fn zoom_out_elastic_is_a_damped_multi_bounce() {
+        // With Elastic easing: starts 100%, dips toward ~25%, bounces 3–4 times,
+        // settles 100%.
+        let a = AnimationDef { easing: EasingKind::Elastic, ..anim(AnimKind::ZoomOut) };
+        let s = |t: f32| anim_transform(&a, W, H, t).2;
+        assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
+        assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
+
+        // First dip drops well below 100% (toward ~25%).
+        let mut mn = f32::INFINITY;
+        for i in 0..=200 {
+            mn = mn.min(s(i as f32 / 200.0));
+        }
+        assert!(mn < 0.35, "should shrink toward ~25%, got {mn}");
+
+        // Counts how often the scale crosses the 100% baseline — each crossing is
+        // an over/undershoot, so several crossings ⇒ multiple bounces.
+        let mut crossings = 0;
+        let mut prev = (s(0.001) - 1.0).signum();
+        for i in 1..=400 {
+            let cur = (s(i as f32 / 400.0) - 1.0).signum();
+            if cur != 0.0 && cur != prev {
+                crossings += 1;
+                prev = cur;
+            }
+        }
+        assert!(crossings >= 4, "should bounce several times, got {crossings} baseline crossings");
+    }
+
+    #[test]
+    fn zoom_out_non_elastic_is_a_single_dip_and_return() {
+        // Linear (or any non-Elastic) easing: a single smooth dip — 100% → 25% →
+        // 100% — with no overshoot above 100%.
+        let a = anim(AnimKind::ZoomOut); // Linear
+        let s = |t: f32| anim_transform(&a, W, H, t).2;
+        assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
+        assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
+        assert!((s(0.5) - 0.25).abs() < 0.02, "deepest dip ≈25% at midpoint, got {}", s(0.5));
+        // Never overshoots above 100%.
+        for i in 0..=100 {
+            assert!(s(i as f32 / 100.0) <= 1.0001, "no overshoot expected");
+        }
+    }
+
+    #[test]
     fn zoom_in_ramps_scale_0_to_1() {
+        // Original ZoomIn: grows from nothing to full size (with a fade-in).
         let a = anim(AnimKind::ZoomIn);
         let (_, _, s0, _) = anim_transform(&a, W, H, 0.0);
         let (_, _, s1, _) = anim_transform(&a, W, H, 1.0);
