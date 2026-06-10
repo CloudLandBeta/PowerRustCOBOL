@@ -728,38 +728,80 @@ impl CoboltApp {
             }
         };
 
-        let (filter_name, exts): (&str, &[&str]) = match kind {
-            FileKind::Source        => ("COBOL Source", &["cbl", "cob", "cpy"]),
-            FileKind::Form          => ("RustCOBOL Form", &["cfrm"]),
-            FileKind::Documentation => ("Documentation", &["md", "markdown", "txt", "rst", "adoc", "pdf", "html", "htm"]),
-            FileKind::Asset         => ("All Files", &["*"]),
+        // Assets may be ANY binary/data file (images, audio, video, fonts, …).
+        // The picker must NOT restrict to a fixed extension list: a `"*"` filter
+        // greys out every file on macOS/GTK, and even named filters disable
+        // anything outside their lists. So assets get **no filter at all** — any
+        // file is selectable. The other kinds keep their helpful filters.
+        let spec = crate::file_dialog::DialogSpec::open().directory(proj_dir);
+        let spec = match kind {
+            FileKind::Source =>
+                spec.filter("COBOL Source", &["cbl", "cob", "cpy"]),
+            FileKind::Form =>
+                spec.filter("RustCOBOL Form", &["cfrm"]),
+            FileKind::Documentation =>
+                spec.filter("Documentation",
+                    &["md", "markdown", "txt", "rst", "adoc", "pdf", "html", "htm"]),
+            FileKind::Asset => spec, // no filter → every file selectable
         };
 
-        self.begin_file_dialog(
-            FileRequest::AddFile(kind),
-            crate::file_dialog::DialogSpec::open()
-                .filter(filter_name, exts)
-                .directory(proj_dir),
-        );
+        self.begin_file_dialog(FileRequest::AddFile(kind), spec);
     }
 
-    /// Add the chosen file to the open project (must be inside the project dir).
-    fn add_file_to_project_path(&mut self, path: PathBuf) {
+    /// Add the chosen file to the open project under `kind`'s category. A file
+    /// **outside** the project directory is **copied into** a category subfolder
+    /// (`src/`, `forms/`, `assets/`, `docs/`) so it becomes part of the project
+    /// (and ships with the build); a file already inside is tracked in place.
+    fn add_file_to_project_path(&mut self, kind: FileKind, path: PathBuf) {
+        use crate::project_model::Category;
         let proj_dir = match &self.project_path {
             Some(p) => p.parent().unwrap_or(p.as_path()).to_owned(),
             None => return,
         };
-        match relative_to(&path, &proj_dir) {
-            Some(rel) => {
-                if let Some(proj) = &mut self.cobolt_project {
-                    proj.add_file(&rel);
-                }
-                self.do_save_project();
-            }
+
+        // Resolve to a project-relative path, importing (copying) when external.
+        let rel = match relative_to(&path, &proj_dir) {
+            Some(rel) => rel,
             None => {
-                self.output.push_status("File must be inside the project directory.");
+                let subdir = match kind {
+                    FileKind::Source        => "src",
+                    FileKind::Form          => "forms",
+                    FileKind::Asset         => "assets",
+                    FileKind::Documentation => "docs",
+                };
+                let Some(fname) = path.file_name() else {
+                    self.output.push_status("Invalid file name.");
+                    return;
+                };
+                let dest_dir = proj_dir.join(subdir);
+                if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+                    self.output.push_status(format!("Could not create {subdir}/: {e}"));
+                    return;
+                }
+                let dest = dest_dir.join(fname);
+                if let Err(e) = std::fs::copy(&path, &dest) {
+                    self.output.push_status(format!("Could not import file: {e}"));
+                    return;
+                }
+                self.output.push_status(format!(
+                    "Imported {} → {}/{}",
+                    fname.to_string_lossy(), subdir, fname.to_string_lossy()
+                ));
+                relative_to(&dest, &proj_dir)
+                    .unwrap_or_else(|| format!("{subdir}/{}", fname.to_string_lossy()))
             }
+        };
+
+        let category = match kind {
+            FileKind::Source        => Category::CommonCode,
+            FileKind::Form          => Category::Forms,
+            FileKind::Asset         => Category::Assets,
+            FileKind::Documentation => Category::Documentation,
+        };
+        if let Some(proj) = &mut self.cobolt_project {
+            proj.add_file_to(&rel, category);
         }
+        self.do_save_project();
     }
 
     fn do_remove_file_from_project(&mut self, rel: String) {
@@ -1499,7 +1541,7 @@ impl CoboltApp {
                 self.do_save_project();
             }
             FileRequest::PackageProject => self.package_project_to(path),
-            FileRequest::AddFile(_)     => self.add_file_to_project_path(path),
+            FileRequest::AddFile(kind)  => self.add_file_to_project_path(kind, path),
             FileRequest::OpenForm       => self.load_form_from_path(path),
             FileRequest::NewForm(form)  => self.save_new_form_to(*form, path),
             FileRequest::PickBackgroundImage => self.set_background_image(path),

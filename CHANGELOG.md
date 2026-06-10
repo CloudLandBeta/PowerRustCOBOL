@@ -8,6 +8,30 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.15.2] — 2026-06-10
+
+IDE: assets can be added and ship with the build.
+
+### Fixed
+
+- **The Assets category now accepts any file** (images, audio, video, fonts,
+  data, …). The "Add" picker passed a `"*"` filter to the native dialog, which
+  greyed out every file on macOS/GTK; assets now open with **no extension
+  filter** so anything is selectable.
+- **Adding a file from outside the project now imports it.** Previously a file
+  outside the project directory was rejected ("must be inside the project
+  directory"). The chosen file is now **copied into a category subfolder**
+  (`src/`, `forms/`, `assets/`, `docs/`) and tracked, so it becomes part of the
+  project. The add is also routed to the category you clicked (not guessed from
+  the extension).
+
+### Changed
+
+- **Bundled assets ship with the native build.** `cobolt build` now copies every
+  tracked Assets/Documentation file next to the produced binary (under `bin/`,
+  preserving the project-relative layout), so images/audio/fonts are available
+  to the program at runtime. (The `.zip` package already included them.)
+
 ## [PowerRustCOBOL 1.15.1] — 2026-06-10
 
 IDE: background image now actually shows, lighter divider lines on dark themes,

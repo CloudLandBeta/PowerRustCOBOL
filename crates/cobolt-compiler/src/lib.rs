@@ -115,6 +115,11 @@ struct ProjectMeta {
 struct ProjectFiles {
     #[serde(default)] sources: Vec<String>,
     #[serde(default)] forms:   Vec<String>,
+    /// Bundled binary/data assets (images, audio, fonts, …) — copied next to
+    /// the produced binary so they ship with the build.
+    #[serde(default)] assets:  Vec<String>,
+    /// Documentation files — also copied next to the binary.
+    #[serde(default)] documentation: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -405,6 +410,29 @@ fn build_core(
     }
 
     log(&format!("✅ Binary → {}", dst_bin.display()));
+
+    // ── 11b. Copy bundled assets next to the binary ───────────────────────────
+    // Images, audio, fonts and other data files tracked under the project's
+    // Assets (and Documentation) must ship with the build so the program finds
+    // them by their relative path at runtime. They are copied into `bin/`
+    // preserving the project-relative layout (e.g. `bin/assets/logo.png`).
+    let mut asset_count = 0usize;
+    for rel in proj.files.assets.iter().chain(proj.files.documentation.iter()) {
+        let src = project_dir.join(rel);
+        if !src.exists() {
+            log(&format!("⚠️  Asset not found, skipped: {rel}"));
+            continue;
+        }
+        let dst = bin_dir.join(rel);
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&src, &dst)?;
+        asset_count += 1;
+    }
+    if asset_count > 0 {
+        log(&format!("📦 Bundled {asset_count} asset file(s) → {}", bin_dir.display()));
+    }
 
     // Drop the required Apache-2.0 notices next to the binary so the
     // distribution carries them.
