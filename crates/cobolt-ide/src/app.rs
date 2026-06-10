@@ -934,7 +934,9 @@ impl CoboltApp {
             st.reload_if_stale();
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        let card = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, self.current_theme());
+        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             let Some(st) = &mut self.inspect else { return; };
             ui.horizontal(|ui| {
                 ui.heading(format!("⚙ {}", st.designer.form.name));

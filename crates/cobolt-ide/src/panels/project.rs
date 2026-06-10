@@ -88,6 +88,18 @@ fn sel_file(rel: &str) -> String { format!("file:{rel}") }
 fn sel_ctrl(rel: &str, id: &str) -> String { format!("ctrl:{rel}#{id}") }
 fn sel_event(rel: &str, id: &str, ev: &str) -> String { format!("event:{rel}#{id}@{ev}") }
 
+/// A selectable tree row that fills the remaining width, so the selection
+/// highlight reads as a full-width rounded **pill** (matching the reference
+/// design) rather than hugging the text.
+fn full_width_select(
+    ui: &mut Ui,
+    selected: bool,
+    text: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    let h = ui.spacing().interact_size.y;
+    ui.add_sized([ui.available_width(), h], egui::SelectableLabel::new(selected, text))
+}
+
 impl ProjectPanel {
     pub fn new() -> Self { Self::default() }
 
@@ -397,7 +409,7 @@ impl ProjectPanel {
                 ui.add_space(8.0);
                 status_dot(ui, form_status);
                 ui.label(RichText::new(FileKind::Form.icon()).size(ICON_SIZE));
-                ui.selectable_label(form_selected, RichText::new(name)).on_hover_text(rel)
+                full_width_select(ui, form_selected, RichText::new(name)).on_hover_text(rel)
             })
             .body(|ui| {
                 let Some(form) = &form else {
@@ -466,7 +478,7 @@ fn control_node(
         let crow = ui.horizontal(|ui| {
             ui.add_space(26.0);
             status_dot(ui, status);
-            ui.selectable_label(csel, format!("• {}", c.id)).on_hover_text(hint)
+            full_width_select(ui, csel, format!("• {}", c.id)).on_hover_text(hint)
         }).inner;
         if crow.clicked() {
             events.push(ProjectPanelEvent::Select(ckey));
@@ -485,7 +497,7 @@ fn control_node(
         .show_header(ui, |ui| {
             ui.add_space(20.0);
             status_dot(ui, status);
-            ui.selectable_label(csel, format!("• {}", c.id)).on_hover_text(hint)
+            full_width_select(ui, csel, format!("• {}", c.id)).on_hover_text(hint)
         })
         .body(|ui| {
             ui.horizontal(|ui| {
@@ -497,7 +509,7 @@ fn control_node(
                 let esel = cur.as_deref() == Some(ekey.as_str());
                 let erow = ui.horizontal(|ui| {
                     ui.add_space(48.0);
-                    ui.selectable_label(esel, &ev.event).on_hover_text(&ev.paragraph)
+                    full_width_select(ui, esel, ev.event.as_str()).on_hover_text(&ev.paragraph)
                 }).inner;
                 if erow.clicked() {
                     events.push(ProjectPanelEvent::Select(ekey));
@@ -542,7 +554,7 @@ fn file_row(
         ui.add_space(8.0);
         status_dot(ui, status);
         ui.label(RichText::new(icon).size(ICON_SIZE));
-        ui.selectable_label(is_sel, text).on_hover_text(rel)
+        full_width_select(ui, is_sel, text).on_hover_text(rel)
     }).inner;
 
     // Single click selects + opens the file in the Main Pane.

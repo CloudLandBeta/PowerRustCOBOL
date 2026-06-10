@@ -141,6 +141,38 @@ pub const DARK_GLASS: Theme = Theme {
     ed_generated: rgb(96, 160, 240),
 };
 
+/// Deep Blue studio glass — a translucent blue-tinted glass look (a calm,
+/// professional "deep blue studio backdrop"). Pairs well with a blue background
+/// image + the transparent-background option.
+pub const DEEP_BLUE: Theme = Theme {
+    id: "deep-blue",
+    name: "Deep Blue",
+    dark: true,
+    bg_panel:    rgba(12, 20, 30, 210),
+    bg_widget:   rgba(20, 31, 45, 205),
+    bg_hover:    rgba(30, 45, 64, 218),
+    bg_active:   rgba(40, 92, 165, 232),
+    bg_extreme:  rgba(8, 14, 22, 215),
+    faint_bg:    rgba(14, 24, 36, 150),
+    code_bg:     rgba(10, 17, 27, 195),
+    accent:      rgb(90, 170, 255),
+    border_dim:  rgba(120, 180, 220, 46),
+    border_hi:   rgba(120, 185, 235, 180),
+    text_dim:    rgb(188, 203, 224),
+    text_bright: rgb(235, 242, 252),
+    selection:   rgba(40, 100, 190, 150),
+    hyperlink:   rgb(120, 190, 255),
+    warn:        rgb(255, 205, 90),
+    error:       rgb(255, 110, 110),
+    ed_plain:     rgb(206, 214, 228),
+    ed_keyword:   rgb(90, 170, 255),
+    ed_data:      rgb(80, 200, 180),
+    ed_paragraph: rgb(240, 140, 150),
+    ed_string:    rgb(220, 180, 120),
+    ed_comment:   rgb(110, 128, 150),
+    ed_generated: rgb(130, 195, 255),
+};
+
 /// VSCode "Dark+" — the editor's default dark theme.
 pub const DARK_PLUS: Theme = Theme {
     id: "dark-plus",
@@ -594,6 +626,7 @@ pub const PALENIGHT: Theme = Theme {
 /// All selectable themes, in display order. The first is the default.
 pub const THEMES: &[Theme] = &[
     DARK_GLASS,
+    DEEP_BLUE,
     DARK_PLUS,
     LIGHT_PLUS,
     MONOKAI,
@@ -659,8 +692,8 @@ mod tests {
     }
 
     #[test]
-    fn ships_sixteen_themes() {
-        assert_eq!(THEMES.len(), 16, "expected 6 original + 10 new themes");
+    fn ships_seventeen_themes() {
+        assert_eq!(THEMES.len(), 17, "6 original + 10 + Deep Blue");
     }
 
     #[test]

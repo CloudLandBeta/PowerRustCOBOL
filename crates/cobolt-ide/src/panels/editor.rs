@@ -687,7 +687,9 @@ impl EditorPanel {
         });
 
         // ─── Editor body ──────────────────────────────────────────────────────
-        CentralPanel::default().show(ctx, |ui| {
+        let body_frame = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, &crate::theme::active());
+        CentralPanel::default().frame(body_frame).show(ctx, |ui| {
             if self.tabs.is_empty() {
                 ui.centered_and_justified(|ui| {
                     ui.label(
