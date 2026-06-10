@@ -72,6 +72,7 @@ One line per **transaction event**: `OPEN`, `COMMIT`, `ROLLBACK`, `CLOSE`.
 |-------|------|---------|
 | `ts` | string | ISO-8601 UTC timestamp, ms precision (`2026-06-10T07:30:00.123Z`) |
 | `file` | string | the indexed file name |
+| `user` | string | the registered user (present only when supplied — see §1.3.1) |
 | `tx` | number | transaction counter (**per OPEN session**) |
 | `kind` | string | `OPEN` / `COMMIT` / `ROLLBACK` / `CLOSE` |
 | `writes` | number | `WRITE`s in this transaction |
@@ -104,6 +105,32 @@ One line per **transaction event**: `OPEN`, `COMMIT`, `ROLLBACK`, `CLOSE`.
 
 > **`tx` is per session.** The engine is re-created on each `OPEN`, so the
 > counter restarts at 1 per OPEN…CLOSE session; the `ts` field disambiguates.
+
+#### 1.3.1 Recording the logged-in user — `OPEN … WITH REGISTERED USER`
+
+COBOL programs rarely sit behind OAuth or any authentication engine, so the
+operator/user is supplied **explicitly** on the `OPEN`, as a PowerRustCOBOL
+extension:
+
+```cobol
+       OPEN I-O CUSTOMER-FILE WITH REGISTERED USER "ALICE"
+       OPEN I-O CUSTOMER-FILE WITH REGISTERED USER WS-OPERATOR
+```
+
+- The value is a **string literal** or a **data item** (`USER` is optional;
+  `WITH REGISTERED "ALICE"` also parses).
+- It applies to the whole `OPEN…CLOSE` session: **every** event line for that
+  file (`OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE`) carries a `user=` field.
+- It is purely observational — it does not authenticate or authorize anything,
+  and it has no effect when logging is off.
+
+Example log lines (one session per user):
+
+```
+ts=…Z file=customers.idx user=ALICE        tx=1 kind=OPEN   …
+ts=…Z file=customers.idx user=ALICE        tx=2 kind=COMMIT …
+ts=…Z file=customers.idx user=BOB-FROM-WS  tx=1 kind=OPEN   …
+```
 
 ### 1.4 Formats
 

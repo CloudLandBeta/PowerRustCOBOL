@@ -45,6 +45,9 @@ pub trait IndexedStore {
     fn is_open(&self) -> bool;
     /// Release all record locks held on the file (`UNLOCK`). Default: no-op.
     fn unlock(&mut self) {}
+    /// Record the operator/user opening the file (`OPEN … WITH REGISTERED USER`),
+    /// for the observability log. Default: no-op (engines without a log ignore it).
+    fn set_registered_user(&mut self, _user: Option<String>) {}
     /// `COMMIT` — make changes durable and start a new transaction. Default: no-op.
     fn commit(&mut self) {}
     /// `ROLLBACK` — undo changes since the last `COMMIT`/`OPEN`. Default: no-op.

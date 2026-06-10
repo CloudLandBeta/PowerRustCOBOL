@@ -233,8 +233,14 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
 
 ### File verbs (the supported phrases — full coverage is in the file‑I/O suite)
 - ✅ `OPEN {INPUT|OUTPUT|I-O|EXTEND} f … [SHARING WITH {ALL OTHER|NO OTHER|READ
-  ONLY}] [WITH LOCK]`; `CLOSE f …`. (`SHARING` / `WITH LOCK` parse and are honoured
-  where meaningful — advisory in the single‑run‑unit model.)
+  ONLY}] [WITH LOCK] [WITH REGISTERED [USER] {literal|data-item}]`; `CLOSE f …`.
+  (`SHARING` / `WITH LOCK` parse and are honoured where meaningful — advisory in
+  the single‑run‑unit model.)
+- ✅ **`OPEN … WITH REGISTERED [USER] {literal | data-item}`** (PowerRustCOBOL
+  extension) — records the operator/user in the INDEXED observability log
+  (`user=` field on every event line for that file's session). Purely
+  observational; no authentication/authorization. See
+  [`observability.md`](observability.md) §1.3.1.
 - ✅ `READ f [RECORD] [{NEXT|PREVIOUS}] [INTO id] [KEY IS k] [WITH [NO] LOCK]
   [AT END …][NOT AT END …][INVALID KEY …][NOT INVALID KEY …][END-READ]`.
   `WITH NO LOCK` releases the record lock the INDEXED engine takes under I‑O.

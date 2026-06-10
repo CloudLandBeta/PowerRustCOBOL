@@ -797,8 +797,8 @@ impl Interpreter {
                 self.exec_accept(target, from.as_ref(), screen.as_ref(), *span),
             Stmt::Display { operands, no_advancing, screen, upon, .. } =>
                 self.exec_display(operands, *no_advancing, screen.as_ref(), upon.as_deref()),
-            Stmt::Open { mode, files, lock, .. } =>
-                self.exec_open(*mode, files, *lock),
+            Stmt::Open { mode, files, lock, registered_user, span, .. } =>
+                self.exec_open(*mode, files, *lock, registered_user.as_ref(), *span),
             Stmt::Close { files, .. } =>
                 self.exec_close(files),
             Stmt::Write { record, from, invalid_key, not_invalid_key, span, .. } =>
@@ -2132,11 +2132,26 @@ impl Interpreter {
     /// `OPEN`. `_lock` is `WITH LOCK` (exclusive); advisory in the single-run-unit
     /// model — recorded for fidelity but does not change single-process behaviour.
     /// `SHARING` is likewise advisory.
-    fn exec_open(&mut self, mode: OpenMode, files: &[String], _lock: bool)
-        -> Result<(), RuntimeError>
-    {
+    fn exec_open(
+        &mut self,
+        mode: OpenMode,
+        files: &[String],
+        _lock: bool,
+        registered_user: Option<&cobolt_ast::expr::Expr>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
         use std::fs::OpenOptions;
         use std::io::{BufReader, BufWriter};
+
+        // `OPEN … WITH REGISTERED USER {literal | data-item}` — evaluate once for
+        // this OPEN; recorded in the INDEXED observability log.
+        let reg_user: Option<String> = match registered_user {
+            Some(e) => self
+                .eval_expr(e, span)
+                .ok()
+                .map(|v| v.as_display_string().trim_end().to_string()),
+            None => None,
+        };
 
         for raw in files {
             let file = raw.to_ascii_uppercase();
@@ -2156,6 +2171,7 @@ impl Interpreter {
                     self.indexed_log_level,
                     self.indexed_log_format,
                 );
+                engine.set_registered_user(reg_user.clone());
                 let code = engine.open(map_open_mode(mode));
                 self.open_files.insert(file.clone(), OpenFile::Indexed(engine));
                 self.set_file_status(&file, code);
@@ -2362,7 +2378,7 @@ impl Interpreter {
     fn read_all_records(&mut self, file: &str) -> Vec<Vec<u8>> {
         use std::io::{BufRead as _, Read as _};
         let fkey = file.to_ascii_uppercase();
-        let _ = self.exec_open(OpenMode::Input, &[file.to_string()], false);
+        let _ = self.exec_open(OpenMode::Input, &[file.to_string()], false, None, Span::dummy());
         let rlen = self.file_specs.get(&fkey).map(|s| s.layout.len.max(1)).unwrap_or(1);
         let mut out = Vec::new();
         loop {
@@ -2402,7 +2418,7 @@ impl Interpreter {
     fn write_all_records(&mut self, file: &str, recs: &[Vec<u8>]) -> Result<(), RuntimeError> {
         use std::io::Write as _;
         let fkey = file.to_ascii_uppercase();
-        self.exec_open(OpenMode::Output, &[file.to_string()], false)?;
+        self.exec_open(OpenMode::Output, &[file.to_string()], false, None, Span::dummy())?;
         for b in recs {
             if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
                 let _ = match org {

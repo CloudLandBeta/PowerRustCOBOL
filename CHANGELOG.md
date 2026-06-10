@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.12.0] — 2026-06-10
+
+`OPEN … WITH REGISTERED USER` — record the operator in the INDEXED log.
+
+### New language feature
+
+- **`OPEN {INPUT|OUTPUT|I-O|EXTEND} file … WITH REGISTERED [USER] {literal |
+  data-item}`** (PowerRustCOBOL extension). Since COBOL programs rarely sit
+  behind an authentication engine, the operator/user is supplied explicitly on
+  `OPEN`; it is recorded as a `user=` field on **every** event line of that
+  file's session in the INDEXED observability log (`OPEN`/`COMMIT`/`ROLLBACK`/
+  `CLOSE`). `USER` is optional; the value may be a string literal or a data item.
+  Purely observational — no authentication/authorization, and no effect when the
+  log is off.
+
+### Docs & tests
+
+- `docs/observability.md` §1.3.1 (the new clause + examples); the `user` field
+  added to the field table. `docs/cobol85-supported-syntax.md` updated.
+- Tests: parser (`open_with_registered_user_literal_and_data_item`) and an
+  end-to-end interpreter+log assertion (`open_with_registered_user_appears_in_log`).
+  Full suite 405 passing.
+
 ## [PowerRustCOBOL 1.11.0] — 2026-06-10
 
 redb engine: read/write optimizations + an optional per-file transaction log.

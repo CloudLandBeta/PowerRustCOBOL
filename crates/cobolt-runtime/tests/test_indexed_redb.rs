@@ -314,6 +314,79 @@ fn observability_log_records_transactions() {
 }
 
 #[test]
+fn open_with_registered_user_appears_in_log() {
+    use cobolt_runtime::indexed_log::LogLevel;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let base = std::env::temp_dir().join(format!("prc-redb-reguser-{nanos}"));
+    std::fs::create_dir_all(&base).unwrap();
+
+    let raw = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. REGUSER.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT F ASSIGN TO "/tmp/reguser.dat"
+               ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC
+               RECORD KEY IS R-COD STORAGE IS DISK FILE STATUS IS WS-ST.
+       DATA DIVISION.
+       FILE SECTION.
+       FD F.
+       01 R-REC.
+          05 R-COD  PIC 9(4).
+          05 R-NOME PIC X(8).
+       WORKING-STORAGE SECTION.
+       01 WS-ST   PIC XX.
+       01 WS-USER PIC X(12) VALUE "BOB-FROM-WS".
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN OUTPUT F WITH REGISTERED USER "ALICE"
+           MOVE 0001 TO R-COD MOVE "ANA" TO R-NOME WRITE R-REC
+           CLOSE F
+           OPEN I-O F WITH REGISTERED USER WS-USER
+           MOVE 0002 TO R-COD MOVE "BRUNO" TO R-NOME WRITE R-REC
+           CLOSE F
+           STOP RUN.
+    "#;
+    let src = raw.replace("\"/tmp/", &format!("\"{}/", base.display()));
+
+    let tokens = tokenize(&src, SourceFormat::Free);
+    let result = parse(tokens);
+    assert!(
+        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_e, erx) = mpsc::channel();
+    let (stx, _sr) = mpsc::channel();
+    let (dtx, _dr) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, erx, stx, dtx);
+    interp.set_indexed_engine(IndexedEngine::Redb);
+    interp.set_indexed_log_level(LogLevel::Basic);
+    interp.run().expect("run failed");
+
+    let log = std::fs::read_to_string(base.join("reguser.dat.log")).expect("log written");
+    let _ = std::fs::remove_dir_all(&base);
+
+    // The string-literal user tags the first session…
+    assert!(
+        log.lines().any(|l| l.contains("user=ALICE") && l.contains("kind=OPEN")),
+        "missing literal user:\n{log}"
+    );
+    // …and the data-item user tags the second.
+    assert!(
+        log.lines().any(|l| l.contains("user=BOB-FROM-WS") && l.contains("kind=CLOSE")),
+        "missing data-item user:\n{log}"
+    );
+    // Every event line in a session carries the user.
+    assert!(log.lines().all(|l| l.contains("user=ALICE") || l.contains("user=BOB-FROM-WS")));
+}
+
+#[test]
 fn observability_log_json_format() {
     use cobolt_runtime::indexed_log::{LogFormat, LogLevel};
     let path = tmp_path("logjson");

@@ -358,6 +358,7 @@ fn stmt_open_close() {
         files: vec!["MY-FILE".into()],
         sharing: None,
         lock: false,
+        registered_user: None,
         span: dummy_span(),
     };
     let close = Stmt::Close {

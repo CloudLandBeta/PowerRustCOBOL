@@ -135,6 +135,8 @@ pub struct RedbIndexedFile {
     // ── Optional observability log (see indexed_log.rs) ──────────────────────
     log_level: LogLevel,
     log_format: LogFormat,
+    /// Operator/user from `OPEN … WITH REGISTERED USER`, logged on every event.
+    registered_user: Option<String>,
     log: Option<LogWriter>,
     /// Per-transaction accumulators (reset at OPEN and after each COMMIT/ROLLBACK).
     tx_id: u64,
@@ -172,6 +174,7 @@ impl RedbIndexedFile {
             current: None,
             log_level: LogLevel::Off,
             log_format: LogFormat::Text,
+            registered_user: None,
             log: None,
             tx_id: 0,
             tx_writes: 0,
@@ -276,9 +279,11 @@ impl RedbIndexedFile {
             .unwrap_or_default();
 
         let mut rec = LogRecord::new();
-        rec.str("ts", now_iso())
-            .str("file", fname)
-            .num("tx", self.tx_id)
+        rec.str("ts", now_iso()).str("file", fname);
+        if let Some(user) = &self.registered_user {
+            rec.str("user", user.clone());
+        }
+        rec.num("tx", self.tx_id)
             .str("kind", kind)
             .num("writes", self.tx_writes)
             .num("rewrites", self.tx_rewrites)
@@ -1057,6 +1062,10 @@ impl IndexedStore for RedbIndexedFile {
 
     fn set_key_of_reference(&mut self, kor: usize) {
         self.kor = kor.min(self.alternates.len());
+    }
+
+    fn set_registered_user(&mut self, user: Option<String>) {
+        self.registered_user = user.map(|u| u.trim_end().to_string()).filter(|u| !u.is_empty());
     }
 
     fn is_open(&self) -> bool {

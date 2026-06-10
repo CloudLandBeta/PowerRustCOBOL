@@ -329,6 +329,38 @@ fn open_sharing_and_with_lock() {
 }
 
 #[test]
+fn open_with_registered_user_literal_and_data_item() {
+    use cobolt_ast::expr::{Expr, Literal};
+
+    // String literal.
+    let stmts = parse_stmts(&prog(
+        "    OPEN I-O MY-FILE WITH REGISTERED USER \"ALICE\".\n    STOP RUN.\n",
+    ));
+    if let Stmt::Open { files, registered_user, .. } = &stmts[0] {
+        assert_eq!(files, &vec!["MY-FILE".to_string()]);
+        match registered_user {
+            Some(Expr::Literal(Literal::String(s), _)) => assert_eq!(s, "ALICE"),
+            other => panic!("expected string-literal user, got {other:?}"),
+        }
+    } else {
+        panic!("expected OPEN, got {:?}", stmts[0]);
+    }
+
+    // Data item (and the `USER` keyword omitted).
+    let stmts = parse_stmts(&prog(
+        "    OPEN OUTPUT MY-FILE WITH REGISTERED WS-USER.\n    STOP RUN.\n",
+    ));
+    if let Stmt::Open { registered_user, .. } = &stmts[0] {
+        match registered_user {
+            Some(Expr::Identifier(name, _)) => assert_eq!(name, "WS-USER"),
+            other => panic!("expected identifier user, got {other:?}"),
+        }
+    } else {
+        panic!("expected OPEN, got {:?}", stmts[0]);
+    }
+}
+
+#[test]
 fn read_with_no_lock() {
     let stmts = parse_stmts(&prog(
         "    READ MY-FILE WITH NO LOCK\n        AT END CONTINUE\n    END-READ.\n    STOP RUN.\n",

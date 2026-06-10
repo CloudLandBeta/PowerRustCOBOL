@@ -541,6 +541,10 @@ pub enum Stmt {
         sharing: Option<ShareMode>,
         /// `WITH LOCK` — open the file exclusively.
         lock: bool,
+        /// `WITH REGISTERED USER {literal | data-item}` (PowerRustCOBOL
+        /// extension): the operator/user opening the file, recorded in the
+        /// per-file observability log. `None` = not supplied.
+        registered_user: Option<Expr>,
         span: Span,
     },
 

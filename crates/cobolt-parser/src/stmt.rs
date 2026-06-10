@@ -945,18 +945,25 @@ fn parse_open(p: &mut Parser) -> Stmt {
     let mut files = Vec::new();
     let mut sharing = None;
     let mut lock = false;
+    let mut registered_user = None;
     loop {
         // SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}
         if is_word(p.peek(), "SHARING") {
             parse_sharing(p, &mut sharing);
             continue;
         }
-        // Per-file/trailing WITH {LOCK | [NO] REWIND}
+        // Per-file/trailing WITH {LOCK | [NO] REWIND | REGISTERED USER …}
         if p.at(&Token::With) {
             p.advance();
             if is_word(p.peek(), "LOCK") { p.advance(); lock = true; }
+            else if is_word(p.peek(), "REGISTERED") { registered_user = parse_registered_user(p); }
             else if p.at(&Token::No) { p.advance(); if is_word(p.peek(), "REWIND") { p.advance(); } }
             else if is_word(p.peek(), "REWIND") { p.advance(); }
+            continue;
+        }
+        // `REGISTERED USER …` without a leading WITH.
+        if is_word(p.peek(), "REGISTERED") {
+            registered_user = parse_registered_user(p);
             continue;
         }
         if p.at_identifier() {
@@ -967,7 +974,17 @@ fn parse_open(p: &mut Parser) -> Stmt {
         break;
     }
 
-    Stmt::Open { mode, files, sharing, lock, span }
+    Stmt::Open { mode, files, sharing, lock, registered_user, span }
+}
+
+/// Parse `REGISTERED [USER] {literal | data-item}` (leading `WITH` already eaten
+/// by the caller). Returns the user expression, or `None` on a malformed clause.
+fn parse_registered_user(p: &mut Parser) -> Option<cobolt_ast::expr::Expr> {
+    p.advance(); // REGISTERED
+    if is_word(p.peek(), "USER") {
+        p.advance();
+    }
+    Some(parse_expr(p))
 }
 
 /// Parse `SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}` into `out`.
