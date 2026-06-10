@@ -163,6 +163,70 @@ fn next_sentence_skips_rest_of_sentence() {
 }
 
 #[test]
+fn next_sentence_in_if_else_period_terminated() {
+    // Regression: a period-terminated `IF … ELSE …` (no END-IF) must NOT absorb
+    // the following sentences, and NEXT SENTENCE must land on the next sentence.
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. NSE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 N PIC 9 VALUE 7.
+       PROCEDURE DIVISION.
+       MAIN.
+           DISPLAY "ONE".
+           IF N = 7 THEN NEXT SENTENCE ELSE DISPLAY "WRONG".
+           DISPLAY "TARGET".
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["ONE", "TARGET"]);
+}
+
+#[test]
+fn next_sentence_in_if_else_with_end_if() {
+    // With END-IF, the statement after END-IF is part of the SAME sentence, so
+    // NEXT SENTENCE skips it and lands on the following sentence.
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. NSEE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 N PIC 9 VALUE 7.
+       PROCEDURE DIVISION.
+       MAIN.
+           DISPLAY "ONE".
+           IF N = 7
+               NEXT SENTENCE
+           ELSE
+               DISPLAY "WRONG"
+           END-IF
+           DISPLAY "SAME-SENTENCE".
+           DISPLAY "TARGET".
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["ONE", "TARGET"]);
+}
+
+#[test]
+fn if_else_period_does_not_absorb_following_sentences() {
+    // Plain IF/ELSE regression (independent of NEXT SENTENCE): the false branch
+    // runs ELSE only, and the next sentence still executes.
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IFE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 N PIC 9 VALUE 3.
+       PROCEDURE DIVISION.
+       MAIN.
+           IF N = 7 THEN DISPLAY "THEN" ELSE DISPLAY "ELSE-RAN".
+           DISPLAY "AFTER".
+           STOP RUN.
+    "#;
+    assert_eq!(run_capture(src), vec!["ELSE-RAN", "AFTER"]);
+}
+
+#[test]
 fn alter_redirects_go_to() {
     let src = r#"
        IDENTIFICATION DIVISION.

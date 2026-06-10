@@ -77,6 +77,13 @@ pub(crate) fn is_stmt_start(tok: &Token) -> bool {
 pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<Stmt> {
     let mut stmts = Vec::new();
     loop {
+        // A period ends a scoped block whose caller treats it as a terminator
+        // (e.g. an `IF`/`ELSE` branch with no `END-IF`): stop *without* consuming
+        // it, so the enclosing sentence list sees the boundary. Callers that span
+        // multiple sentences (a paragraph) don't include `Period` in `stop`.
+        if p.at(&Token::Period) && stop(&Token::Period) {
+            break;
+        }
         // Consume optional sentence-terminating periods, remembering whether one
         // was seen so a sentence-boundary marker can be inserted (for NEXT
         // SENTENCE) between two sentences of the same list.
@@ -181,7 +188,7 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
         Token::Merge      => Some(parse_merge(p)),
         Token::Call       => Some(parse_call(p)),
         Token::Invoke     => Some(parse_invoke(p)),
-        Token::Initialize => Some(parse_initialize_as_move(p)),
+        Token::Initialize => Some(parse_initialize(p)),
         Token::Set        => Some(parse_set(p)),
         Token::Cancel              => Some(parse_cancel(p)),
         // CoBolt animation verbs — parse as a no-op skip to end of sentence
@@ -466,12 +473,15 @@ fn parse_if(p: &mut Parser) -> Stmt {
         if s.to_uppercase() == "THEN" { p.advance(); }
     }
 
+    // A branch ends at ELSE / END-IF, or at a period (which terminates the whole
+    // IF sentence when no END-IF is present). The period is left for the
+    // enclosing sentence list so its `NEXT SENTENCE` boundary is correct.
     let then_stmts = parse_stmts(p, &|tok| {
-        matches!(tok, Token::Else | Token::EndIf)
+        matches!(tok, Token::Else | Token::EndIf | Token::Period)
     });
 
     let else_stmts = if p.eat(&Token::Else) {
-        parse_stmts(p, &|tok| matches!(tok, Token::EndIf))
+        parse_stmts(p, &|tok| matches!(tok, Token::EndIf | Token::Period))
     } else {
         Vec::new()
     };
@@ -802,17 +812,6 @@ fn parse_go(p: &mut Parser) -> Stmt {
 fn parse_continue(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // CONTINUE
-    Stmt::Continue { span }
-}
-
-/// Recognize a verb we don't execute yet (UNLOCK, ALTER, RELEASE, RETURN):
-/// consume its operands up to the sentence end / next verb and emit a no-op.
-fn parse_recognized_noop(p: &mut Parser) -> Stmt {
-    let span = p.peek_span();
-    p.advance(); // the verb
-    while !p.at(&Token::Period) && !p.at(&Token::Eof) && !is_stmt_start(p.peek()) {
-        p.advance();
-    }
     Stmt::Continue { span }
 }
 
@@ -1962,9 +1961,13 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
     Stmt::Continue { span }
 }
 
-// ── INITIALIZE (simplified as MOVE SPACES) ────────────────────────────────────
+// ── INITIALIZE ────────────────────────────────────────────────────────────────
+//
+// Parses `INITIALIZE item … [REPLACING category [DATA] BY value …]` into a real
+// `Stmt::Initialize`; the runtime resets each elementary item by category (and
+// applies the REPLACING overrides). Not a MOVE-SPACES shortcut.
 
-fn parse_initialize_as_move(p: &mut Parser) -> Stmt {
+fn parse_initialize(p: &mut Parser) -> Stmt {
     use cobolt_ast::stmt::InitCategory;
     let span = p.peek_span();
     p.advance(); // INITIALIZE

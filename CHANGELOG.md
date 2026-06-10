@@ -8,6 +8,32 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.13.1] — 2026-06-10
+
+Bug fix: `IF … ELSE …` sentence scoping (and `NEXT SENTENCE` with it).
+
+### Fixed
+
+- **A period-terminated `IF … ELSE …` (no `END-IF`) no longer absorbs the
+  following sentences into the `ELSE` branch.** The parser now treats a period
+  as a terminator of an `IF` branch, so subsequent sentences are siblings of the
+  `IF`. This also fixes **`NEXT SENTENCE` inside an `IF … ELSE …`**, which had
+  jumped one sentence too far (the statement after the IF was skipped). `NEXT
+  SENTENCE` now lands correctly for both the period- and `END-IF`-terminated
+  forms. (`crates/cobolt-parser/src/stmt.rs`: `parse_if`/`parse_stmts`.)
+
+### Cleanup
+
+- Removed dead `parse_recognized_noop` (its "UNLOCK/ALTER/RELEASE/RETURN no-op"
+  comment was stale — all four are implemented). Renamed
+  `parse_initialize_as_move` → `parse_initialize` and corrected its comment
+  (INITIALIZE is fully implemented, not a MOVE-SPACES shortcut).
+
+### Tests
+
+- `test_control_flow`: NEXT SENTENCE in `IF … ELSE` (period and `END-IF`) and a
+  plain `IF/ELSE` sentence-scoping regression. Full suite 410 passing.
+
 ## [PowerRustCOBOL 1.13.0] — 2026-06-10
 
 INDEXED log rotation — keep each log file under 100 KiB.
