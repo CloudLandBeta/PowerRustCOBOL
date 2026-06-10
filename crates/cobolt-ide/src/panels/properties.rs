@@ -1874,8 +1874,7 @@ impl PropertiesPanel {
     // ── Form inspector ────────────────────────────────────────────────────────
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
-        ui.strong(tr.sec_form_props);
-        ui.separator();
+        section_header(ui, tr.sec_form_props);
 
         // ── Identity (read-only) ──────────────────────────────────────────────
         egui::Grid::new("form_identity").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
@@ -2186,10 +2185,16 @@ impl PropertiesPanel {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn section_header(ui: &mut Ui, title: &str) {
-    ui.add_space(2.0);
-    ui.separator();
-    ui.label(RichText::new(title).strong().color(Color32::from_rgb(160, 190, 255)));
-    ui.add_space(2.0);
+    let accent = crate::theme::active().accent;
+    ui.add_space(12.0);
+    ui.horizontal(|ui| {
+        // A short accent "tick" to the left of the title (reference style).
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(3.5, 17.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, egui::Rounding::same(2.0), accent);
+        ui.add_space(7.0);
+        ui.label(RichText::new(title).size(16.5).strong().color(accent));
+    });
+    ui.add_space(5.0);
 }
 
 fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut InspectorAction) {
