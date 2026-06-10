@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.15.1] — 2026-06-10
+
+IDE: background image now actually shows, lighter divider lines on dark themes,
+and 10 more colour themes.
+
+### Fixed
+
+- **The IDE background image now appears.** It was painted on the background
+  layer but the panels tiled the whole window at ~80–95 % opacity, hiding it.
+  Now, when a background image is set, the panels become noticeably more
+  translucent (frosted glass), the image is drawn over an **opaque themed base**
+  (replacing the desktop bleed-through) so it reads as a real wallpaper, and the
+  opacity slider dims it via a scrim. Default opacity raised to **70 %**.
+- **Divider/border lines are light-grey on dark themes** (and a mid-grey on
+  light themes) so separators are clearly visible against the dark chrome.
+
+### New features
+
+- **10 more colour themes** (16 total): Dracula, Nord, One Dark, Gruvbox Dark,
+  Tokyo Night, Night Owl, Cobalt2, Solarized Light, GitHub Dark, and Material
+  Palenight — alongside the existing Dark Glass (default), Dark+, Light+,
+  Monokai, Solarized Dark and High Contrast.
+
 ## [PowerRustCOBOL 1.15.0] — 2026-06-10
 
 IDE: selectable colour themes + per-project background image, and a real fix for

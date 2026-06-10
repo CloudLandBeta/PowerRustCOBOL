@@ -992,6 +992,13 @@ impl CoboltApp {
         crate::theme::theme_by_id(id)
     }
 
+    /// True when the open project has a visible background image configured.
+    fn bg_active(&self) -> bool {
+        self.cobolt_project.as_ref().is_some_and(|p| {
+            !p.ide.background_image.trim().is_empty() && p.ide.background_opacity > 0
+        })
+    }
+
     /// Absolute path of the project's IDE background image, if configured.
     fn bg_image_abs_path(&self) -> Option<PathBuf> {
         let proj = self.cobolt_project.as_ref()?;
@@ -1030,6 +1037,7 @@ impl CoboltApp {
                 None => return,
             }
         }
+        let theme = self.current_theme();
         let Some((_, tex)) = &self.bg_texture else { return; };
 
         let screen   = ctx.screen_rect();
@@ -1045,9 +1053,23 @@ impl CoboltApp {
         let oy = (screen.height() - dh) * 0.5;
         let dest = egui::Rect::from_min_size(screen.min + egui::vec2(ox, oy), egui::vec2(dw, dh));
         let uv   = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        let tint = egui::Color32::from_white_alpha((opacity as f32 / 100.0 * 255.0) as u8);
-        ctx.layer_painter(egui::LayerId::background())
-            .image(tex.id(), dest, uv, tint);
+
+        // An opaque base (theme background, alpha forced to 255) replaces the
+        // desktop bleed so the image reads as a real wallpaper behind the now
+        // more-translucent glass panels. `opacity` then dims the image via a
+        // scrim of that base colour (100 = full image, 0 = hidden).
+        let bp = ctx.layer_painter(egui::LayerId::background());
+        let base = egui::Color32::from_rgb(
+            theme.bg_extreme.r(), theme.bg_extreme.g(), theme.bg_extreme.b());
+        bp.rect_filled(screen, 0.0, base);
+        bp.image(tex.id(), dest, uv, egui::Color32::WHITE);
+        let scrim_a = ((100 - opacity) as f32 / 100.0 * 255.0) as u8;
+        if scrim_a > 0 {
+            bp.rect_filled(
+                screen, 0.0,
+                egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), scrim_a),
+            );
+        }
     }
 
     /// The IDE appearance settings dialog: colour theme + background image with
@@ -1504,7 +1526,7 @@ impl CoboltApp {
 
 // ── Liquid Glass visuals ──────────────────────────────────────────────────────
 
-fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
+fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, bg_active: bool) {
     use egui::{Rounding, Shadow, Stroke, Visuals, style::WidgetVisuals};
     use egui::Color32;
 
@@ -1513,8 +1535,24 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
 
     let mut v = if theme.dark { Visuals::dark() } else { Visuals::light() };
 
+    // When a background image is set, make the panels noticeably more
+    // translucent so the image reads through the "frosted glass" chrome.
+    let scale_a = |c: Color32| {
+        if bg_active {
+            let a = (c.a() as f32 * 0.62) as u8;
+            Color32::from_rgba_premultiplied(
+                (c.r() as f32 * 0.62) as u8,
+                (c.g() as f32 * 0.62) as u8,
+                (c.b() as f32 * 0.62) as u8,
+                a,
+            )
+        } else {
+            c
+        }
+    };
+
     // ── Theme palette ─────────────────────────────────────────────────────
-    let bg_panel    = theme.bg_panel;
+    let bg_panel    = scale_a(theme.bg_panel);
     let bg_widget   = theme.bg_widget;
     let bg_hover    = theme.bg_hover;
     let bg_active   = theme.bg_active;
@@ -1558,6 +1596,10 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     v.widgets.hovered        = make_widget(bg_hover,  border_hi,  text_bright);
     v.widgets.active         = make_widget(bg_active, accent,     Color32::WHITE);
     v.widgets.open           = make_widget(bg_hover,  border_hi,  text_bright);
+
+    // Separators / dividers draw with the noninteractive bg_stroke. On dark
+    // themes use a light-grey so the lines are clearly visible.
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, theme.line());
 
     // ── Selection ─────────────────────────────────────────────────────────
     v.selection.bg_fill = theme.selection;
@@ -1604,7 +1646,7 @@ impl eframe::App for CoboltApp {
         // (preview window calls ctx.set_visuals() on its viewport which in egui
         //  0.29 is global — re-applying here ensures the IDE shell always looks
         //  correct even when a preview window is open.)
-        apply_glass_visuals(ctx, self.current_theme());
+        apply_glass_visuals(ctx, self.current_theme(), self.bg_active());
         self.glass_visuals_applied = true;
 
         // ── Per-project background image (behind the glass panels) ─────────────
@@ -2865,7 +2907,7 @@ impl CoboltApp {
         // Re-apply glass visuals to this designer viewport every frame.
         // The preview viewport calls ctx.set_visuals() which is globally shared
         // in egui 0.29, so we must restore them here each frame.
-        apply_glass_visuals(ctx, self.current_theme());
+        apply_glass_visuals(ctx, self.current_theme(), false);
 
         // The designer viewport is OPAQUE (unlike the transparent preview/run
         // windows), so any area not covered by a panel shows a white clear — the

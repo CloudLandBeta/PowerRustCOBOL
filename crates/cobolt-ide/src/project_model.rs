@@ -61,7 +61,7 @@ pub struct IdeSettings {
     pub background_opacity: u8,
 }
 
-fn default_bg_opacity() -> u8 { 20 }
+fn default_bg_opacity() -> u8 { 70 }
 
 impl Default for IdeSettings {
     fn default() -> Self {
@@ -629,7 +629,7 @@ main = "src/main.cbl"
         let p: CoboltProject = toml::from_str(toml).expect("parse legacy toml");
         assert_eq!(p.ide.theme, "", "missing theme → empty (resolves to default)");
         assert_eq!(p.ide.background_image, "");
-        assert_eq!(p.ide.background_opacity, 20, "serde default opacity");
+        assert_eq!(p.ide.background_opacity, 70, "serde default opacity");
     }
 
     #[test]
