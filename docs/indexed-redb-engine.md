@@ -138,68 +138,18 @@ filesystem, not by resident RAM:
 
 ## Observability log (`--indexed-log`)
 
-An optional per-file transaction log aids diagnostics and capacity planning.
-Enable it with `rcrun --indexed-log <basic|full>` (`true` ⇒ `basic`) or
-`COBOL_INDEXED_LOG`. It is **off by default** and never affects program behavior
-(all errors are swallowed).
+The redb engine can write an optional per-file transaction log (off by default)
+at **`<assign-path>.log`** (e.g. `customers.idx` → `customers.idx.log`), with one
+line per `OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE` recording timestamp, record/byte
+counts, throughput, write key-ordering quality, and — at `full` level — redb
+index page statistics.
 
-Each indexed file writes a sidecar log at **`<assign-path>.log`** (e.g.
-`customers.idx` → `customers.idx.log`). One `key=value` line is appended per
-transaction event:
-
-```
-ts=2026-06-10T10:51:02.888Z file=customers.idx tx=2 kind=COMMIT writes=1 rewrites=0 \
-   deletes=0 records=1 bytes=12 dur_ms=3 rec_per_s=272 bytes_per_s=3266 \
-   order=ordered in_order=1 out_of_order=0
+```bash
+rcrun run app.cbl --indexed-engine redb --indexed-log full --indexed-log-format json
 ```
 
-| Field | Meaning |
-|-------|---------|
-| `ts` | ISO-8601 UTC timestamp (ms precision) |
-| `file` | the indexed file name |
-| `tx` | transaction counter (per OPEN session) |
-| `kind` | `OPEN` / `COMMIT` / `ROLLBACK` / `CLOSE` |
-| `writes` / `rewrites` / `deletes` | mutations in this transaction |
-| `records` | total mutations (`writes+rewrites+deletes`) |
-| `bytes` | record bytes written/rewritten |
-| `dur_ms` | wall-clock duration of the transaction |
-| `rec_per_s` / `bytes_per_s` | throughput |
-| `order` | `ordered` if the written keys were ascending, else `unordered` (`n/a` if no writes) |
-| `in_order` / `out_of_order` | per-write ordering tally (a proxy for B+tree write locality / fragmentation risk) |
+The line format is `text` (logfmt) or `json` (NDJSON, Grafana/Loki-ready).
 
-**`full` level** additionally appends redb index statistics to each `CLOSE`
-line — `tree_height`, `leaf_pages`, `branch_pages`, `allocated_pages`,
-`stored_bytes`, `fragmented_bytes`, `page_size`. Computing these **walks the
-index**, so its cost scales with file size; that is why it is opt-in and emitted
-only on CLOSE (not per commit).
-
-### Formats — Grafana / Loki
-
-`--indexed-log-format <text|json>` (or `COBOL_INDEXED_LOG_FORMAT`) selects the
-line format:
-
-| Format | Line shape | Grafana/Loki |
-|--------|-----------|--------------|
-| `text` (default) | logfmt (`key=value`, spaces quoted) | parse with `| logfmt` |
-| `json` | one JSON object per line (NDJSON); numeric metrics are **bare JSON numbers** | parse with `| json` |
-
-The `json` form is the most robust for Grafana because the numeric fields graph
-directly. Example line:
-
-```json
-{"ts":"2026-06-10T10:59:44.344Z","file":"customers.idx","tx":2,"kind":"COMMIT","writes":1,"rewrites":0,"deletes":0,"records":1,"bytes":12,"dur_ms":6,"rec_per_s":166,"bytes_per_s":1992,"order":"ordered","in_order":1,"out_of_order":0}
-```
-
-Typical pipeline: ship `*.idx.log` with **Promtail / Grafana Agent / Alloy** to
-**Loki**, then in Grafana:
-
-```logql
-{job="rustcobol"} | json | kind="COMMIT" | unwrap rec_per_s
-```
-
-Keep labels low-cardinality at the agent (`file`, `kind`); leave `tx`, `ts`, and
-the numeric metrics as parsed fields.
-
-Implementation: `crates/cobolt-runtime/src/indexed_log.rs` (`LogRecord` →
-logfmt/NDJSON renderer, writer, ISO formatter) and the per-transaction
-accumulators in `indexed_redb.rs`.
+**The full reference** — flags, the field table, formats, the Grafana/Loki
+pipeline (Promtail + LogQL), and cost/safety notes — lives in
+[`observability.md`](observability.md) §1.

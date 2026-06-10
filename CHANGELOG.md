@@ -43,7 +43,11 @@ redb engine: read/write optimizations + an optional per-file transaction log.
 
 ### Docs & tests
 
-- `docs/indexed-redb-engine.md` updated (optimizations + observability log).
+- New `docs/observability.md` — the observability reference (starts with the
+  INDEXED transaction log: flags, field table, formats, Grafana/Loki pipeline,
+  cost/safety; plus `COBOLT_LOG` tracing and a roadmap).
+- `docs/indexed-redb-engine.md` updated (optimizations; observability log now
+  summarized with a pointer to `observability.md`).
 - Tests: `indexed_log` unit tests (ISO timestamp, level parsing) and an
   end-to-end log assertion + sequential-scan timing in `test_indexed_redb.rs`.
   Full suite 400 passing.

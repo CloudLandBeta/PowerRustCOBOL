@@ -147,7 +147,8 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
     transaction log via `--indexed-log <basic|full>` → `<assign-path>.log`
     (timestamps, record/byte counts, throughput, key-ordering quality, and—at
     `full`—index page stats), in logfmt or **Grafana/Loki-ready NDJSON**
-    (`--indexed-log-format json`). See
+    (`--indexed-log-format json`) — see
+    [`docs/observability.md`](docs/observability.md). Engine details:
     [`docs/indexed-redb-engine.md`](docs/indexed-redb-engine.md).
   - **Self-describing `PRCIDX1` container** — embeds the file schema (record
     format + key descriptors) so files are discoverable and a future Fujitsu
