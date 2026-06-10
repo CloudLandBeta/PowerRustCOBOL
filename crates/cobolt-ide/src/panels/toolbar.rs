@@ -31,29 +31,31 @@ pub fn show(
         ui.horizontal(|ui| {
             ui.add_space(4.0);
 
-            // ── Run (interpreted) ─────────────────────────────────────────────
-            let run_btn = Button::new(
-                RichText::new(tr.tb_run).color(
-                    if busy || !compilable { Color32::GRAY } else { Color32::from_rgb(80, 200, 80) }
-                )
-            );
-            let run_resp = ui.add_enabled(!busy && compilable, run_btn);
-            if run_resp.clicked() { action = ToolbarAction::Run; }
-            if !compilable { run_resp.on_hover_text(tr.tb_need_program); }
+            // Order: Open | Save | Check | Build | Debug | Run | Stop | ⚙
 
-            ui.add_space(4.0);
-
-            // ── Stop ─────────────────────────────────────────────────────────
-            let stop_btn = Button::new(
-                RichText::new(tr.tb_stop).color(
-                    if busy { Color32::from_rgb(220, 80, 80) } else { Color32::GRAY }
-                )
-            );
-            if ui.add_enabled(busy, stop_btn).clicked() {
-                action = ToolbarAction::Stop;
+            // ── Open file ─────────────────────────────────────────────────────
+            if ui.button(tr.tb_open).clicked() {
+                action = ToolbarAction::Open;
             }
 
-            ui.add_space(4.0);
+            // ── Save ──────────────────────────────────────────────────────────
+            if ui.button(tr.tb_save).clicked() {
+                action = ToolbarAction::Save;
+            }
+
+            ui.separator();
+
+            // ── Check (parse/analyse only) ────────────────────────────────────
+            if ui.button(tr.tb_check).clicked() {
+                action = ToolbarAction::Check;
+            }
+
+            // ── Build binary ──────────────────────────────────────────────────
+            let build_resp = ui.add_enabled(compilable, Button::new(tr.tb_build));
+            if build_resp.clicked() { action = ToolbarAction::Build; }
+            if !compilable { build_resp.on_hover_text(tr.tb_need_program); }
+
+            ui.separator();
 
             // ── Debug (only when a Generated Code element is selected) ────────
             let dbg_resp = ui.add_enabled(
@@ -65,28 +67,24 @@ pub fn show(
             if dbg_resp.clicked() { action = ToolbarAction::Debug; }
             if !debuggable { dbg_resp.on_hover_text(tr.tb_debug_hint); }
 
-            ui.separator();
+            // ── Run (interpreted) ─────────────────────────────────────────────
+            let run_btn = Button::new(
+                RichText::new(tr.tb_run).color(
+                    if busy || !compilable { Color32::GRAY } else { Color32::from_rgb(80, 200, 80) }
+                )
+            );
+            let run_resp = ui.add_enabled(!busy && compilable, run_btn);
+            if run_resp.clicked() { action = ToolbarAction::Run; }
+            if !compilable { run_resp.on_hover_text(tr.tb_need_program); }
 
-            // ── Build binary ──────────────────────────────────────────────────
-            let build_resp = ui.add_enabled(compilable, Button::new(tr.tb_build));
-            if build_resp.clicked() { action = ToolbarAction::Build; }
-            if !compilable { build_resp.on_hover_text(tr.tb_need_program); }
-
-            // ── Check (parse/analyse only) ────────────────────────────────────
-            if ui.button(tr.tb_check).clicked() {
-                action = ToolbarAction::Check;
-            }
-
-            ui.separator();
-
-            // ── Open file ─────────────────────────────────────────────────────
-            if ui.button(tr.tb_open).clicked() {
-                action = ToolbarAction::Open;
-            }
-
-            // ── Save ──────────────────────────────────────────────────────────
-            if ui.button(tr.tb_save).clicked() {
-                action = ToolbarAction::Save;
+            // ── Stop ─────────────────────────────────────────────────────────
+            let stop_btn = Button::new(
+                RichText::new(tr.tb_stop).color(
+                    if busy { Color32::from_rgb(220, 80, 80) } else { Color32::GRAY }
+                )
+            );
+            if ui.add_enabled(busy, stop_btn).clicked() {
+                action = ToolbarAction::Stop;
             }
 
             ui.separator();
