@@ -30,6 +30,13 @@ IDE: controlled project tree, read-only generated code, richer toolbar.
   Dialogs). **Single-click a file** opens it in the **Main Pane** (formerly the
   editor area); **single-click a form** shows its properties inline, **double-click**
   opens the RAD designer.
+- **Widget events in the tree.** A control with event handlers expands to an
+  **Events** group; clicking an event opens the form's generated COBOL at that
+  event's paragraph (read-only).
+- **Selection highlight** — the clicked tree element is highlighted as selected.
+- **Debug is gated on a Generated Code selection** — the Debug button is enabled
+  only when a generated-code item is selected in the tree (debugging targets the
+  RAD-generated backend), with an explanatory tooltip otherwise.
 - **Inline property inspector in the Main Pane.** Clicking a form or one of its
   controls in the tree shows the **same properties pane as the RAD** in the Main
   Pane — edit parameters and they're saved back to the `.cfrm` without opening

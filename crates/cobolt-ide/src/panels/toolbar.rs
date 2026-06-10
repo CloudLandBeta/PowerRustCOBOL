@@ -22,6 +22,7 @@ pub fn show(
     tr: &Tr,
     lang: &mut Language,
     compilable: bool,
+    debuggable: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::None;
     let busy = runner.is_running();
@@ -54,15 +55,15 @@ pub fn show(
 
             ui.add_space(4.0);
 
-            // ── Debug ─────────────────────────────────────────────────────────
+            // ── Debug (only when a Generated Code element is selected) ────────
             let dbg_resp = ui.add_enabled(
-                !busy && compilable,
+                !busy && debuggable,
                 Button::new(RichText::new(tr.tb_debug).color(
-                    if busy || !compilable { Color32::GRAY } else { Color32::from_rgb(200, 150, 80) }
+                    if busy || !debuggable { Color32::GRAY } else { Color32::from_rgb(200, 150, 80) }
                 )),
             );
             if dbg_resp.clicked() { action = ToolbarAction::Debug; }
-            if !compilable { dbg_resp.on_hover_text(tr.tb_need_program); }
+            if !debuggable { dbg_resp.on_hover_text(tr.tb_debug_hint); }
 
             ui.separator();
 

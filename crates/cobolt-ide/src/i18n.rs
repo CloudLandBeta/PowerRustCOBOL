@@ -100,6 +100,7 @@ pub struct Tr {
     pub tb_save:    &'static str,
     pub tb_running: &'static str,
     pub tb_need_program: &'static str,
+    pub tb_debug_hint: &'static str,
 
     // ── Designer toolbar ──────────────────────────────────────────────────────
     pub dt_save:            &'static str,
@@ -167,6 +168,7 @@ pub struct Tr {
     pub tree_add_hover:    &'static str,   // "Add file to" tooltip prefix
     pub tree_empty:        &'static str,   // "(empty)" placeholder
     pub tree_generated_empty: &'static str, // empty Generated Code placeholder
+    pub tree_events:          &'static str,  // "Events" group under a widget
     pub inspect_open_designer: &'static str, // Main-Pane inspector → open RAD
     pub inspect_close:        &'static str,  // Main-Pane inspector close
     pub inspect_form_props:   &'static str,  // "Form properties" sub-label
@@ -368,6 +370,7 @@ const EN: Tr = Tr {
     tb_save:    "💾  Save",
     tb_running: "Running…",
     tb_need_program: "Add a COBOL program or a form first",
+    tb_debug_hint: "Select a Generated Code item to debug",
 
     dt_save:           "💾 Save",
     dt_save_tooltip:   "Save form and regenerate COBOL",
@@ -425,6 +428,7 @@ const EN: Tr = Tr {
     tree_add_hover:    "Add file to",
     tree_empty:        "(empty)",
     tree_generated_empty: "(no generated code yet)",
+    tree_events:          "Events",
     inspect_open_designer: "Open in Designer",
     inspect_close:        "Close",
     inspect_form_props:   "Form properties",
@@ -600,6 +604,7 @@ const ES: Tr = Tr {
     tb_save:    "💾  Guardar",
     tb_running: "Ejecutando…",
     tb_need_program: "Agregue un programa COBOL o un formulario",
+    tb_debug_hint: "Seleccione un Código Generado para depurar",
 
     dt_save:           "💾 Guardar",
     dt_save_tooltip:   "Guardar formulario y regenerar COBOL",
@@ -657,6 +662,7 @@ const ES: Tr = Tr {
     tree_add_hover:    "Agregar archivo a",
     tree_empty:        "(vacío)",
     tree_generated_empty: "(sin código generado)",
+    tree_events:          "Eventos",
     inspect_open_designer: "Abrir en Diseñador",
     inspect_close:        "Cerrar",
     inspect_form_props:   "Propiedades del formulario",
@@ -832,6 +838,7 @@ const PT: Tr = Tr {
     tb_save:    "💾  Salvar",
     tb_running: "Executando…",
     tb_need_program: "Adicione um programa COBOL ou um formulário",
+    tb_debug_hint: "Selecione um Código Gerado para depurar",
 
     dt_save:           "💾 Salvar",
     dt_save_tooltip:   "Salvar formulário e regenerar COBOL",
@@ -889,6 +896,7 @@ const PT: Tr = Tr {
     tree_add_hover:    "Adicionar arquivo a",
     tree_empty:        "(vazio)",
     tree_generated_empty: "(sem código gerado)",
+    tree_events:          "Eventos",
     inspect_open_designer: "Abrir no Designer",
     inspect_close:        "Fechar",
     inspect_form_props:   "Propriedades do formulário",
@@ -1064,6 +1072,7 @@ const JA: Tr = Tr {
     tb_save:    "💾  保存",
     tb_running: "実行中…",
     tb_need_program: "COBOLプログラムかフォームを追加してください",
+    tb_debug_hint: "デバッグする生成コードを選択してください",
 
     dt_save:           "💾 保存",
     dt_save_tooltip:   "フォームを保存してCOBOLを再生成",
@@ -1121,6 +1130,7 @@ const JA: Tr = Tr {
     tree_add_hover:    "ファイルを追加",
     tree_empty:        "（空）",
     tree_generated_empty: "（生成コードなし）",
+    tree_events:          "イベント",
     inspect_open_designer: "デザイナーで開く",
     inspect_close:        "閉じる",
     inspect_form_props:   "フォームのプロパティ",
@@ -1296,6 +1306,7 @@ const ZH: Tr = Tr {
     tb_save:    "💾  保存",
     tb_running: "运行中…",
     tb_need_program: "请先添加一个 COBOL 程序或窗体",
+    tb_debug_hint: "请选择一个生成的代码进行调试",
 
     dt_save:           "💾 保存",
     dt_save_tooltip:   "保存窗体并重新生成 COBOL",
@@ -1353,6 +1364,7 @@ const ZH: Tr = Tr {
     tree_add_hover:    "添加文件到",
     tree_empty:        "（空）",
     tree_generated_empty: "（暂无生成代码）",
+    tree_events:          "事件",
     inspect_open_designer: "在设计器中打开",
     inspect_close:        "关闭",
     inspect_form_props:   "窗体属性",

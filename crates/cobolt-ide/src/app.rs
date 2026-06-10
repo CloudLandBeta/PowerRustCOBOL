@@ -1535,7 +1535,12 @@ impl eframe::App for CoboltApp {
             Some(p) => p.is_compilable(),
             None => self.editor.active_source().is_some() || !self.designers.is_empty(),
         };
-        match toolbar::show(ctx, &self.runner, &tr, &mut self.lang, compilable) {
+        // Debug is enabled only when a Generated Code element is selected in the tree.
+        let debuggable = match (&self.cobolt_project, self.project.selected_file()) {
+            (Some(p), Some(rel)) => p.is_generated(rel),
+            _ => false,
+        };
+        match toolbar::show(ctx, &self.runner, &tr, &mut self.lang, compilable, debuggable) {
             ToolbarAction::Run   => self.do_run(),
             ToolbarAction::Stop  => self.do_stop(),
             ToolbarAction::Debug => self.do_debug(),
@@ -1599,6 +1604,13 @@ impl eframe::App for CoboltApp {
                 ProjectPanelEvent::InspectForm(path)  => self.open_inspect(path, None),
                 ProjectPanelEvent::InspectControl { form, ctrl_id } =>
                     self.open_inspect(form, Some(ctrl_id)),
+                ProjectPanelEvent::OpenEventCode { form, paragraph } => {
+                    self.inspect = None;
+                    // Open the form's read-only generated COBOL at the event's paragraph.
+                    self.pending_open_in_editor = Some(form.with_extension("cbl"));
+                    self.pending_goto_paragraph  = Some(paragraph);
+                }
+                ProjectPanelEvent::Select(_) => {} // applied inside the panel
                 ProjectPanelEvent::Add(kind)  => self.do_add_file_to_project(kind),
                 ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
             }

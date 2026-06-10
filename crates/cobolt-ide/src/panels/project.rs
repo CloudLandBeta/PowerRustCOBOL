@@ -49,6 +49,10 @@ pub enum ProjectPanelEvent {
     InspectForm(PathBuf),
     /// Show a control's properties in the Main Pane (click a control in a form).
     InspectControl { form: PathBuf, ctrl_id: String },
+    /// Open a widget event's generated COBOL paragraph (click an Events entry).
+    OpenEventCode { form: PathBuf, paragraph: String },
+    /// Internal: a tree element was selected (consumed by the panel, not the app).
+    Select(String),
     /// User clicked `[+]` on a category — show a file-picker for this kind.
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
@@ -66,6 +70,8 @@ pub struct ProjectPanel {
     forms: HashMap<PathBuf, (SystemTime, Form)>,
     /// Per-element "semaphore" status, keyed by relative path.
     status: HashMap<String, ElementStatus>,
+    /// The currently selected tree element (a unique key — see `sel_*` helpers).
+    selected: Option<String>,
 }
 
 impl Default for ProjectPanel {
@@ -75,9 +81,15 @@ impl Default for ProjectPanel {
             expanded: HashSet::new(),
             forms: HashMap::new(),
             status: HashMap::new(),
+            selected: None,
         }
     }
 }
+
+/// Selection keys (unique per tree element).
+fn sel_file(rel: &str) -> String { format!("file:{rel}") }
+fn sel_ctrl(rel: &str, id: &str) -> String { format!("ctrl:{rel}#{id}") }
+fn sel_event(rel: &str, id: &str, ev: &str) -> String { format!("event:{rel}#{id}@{ev}") }
 
 impl ProjectPanel {
     pub fn new() -> Self { Self::default() }
@@ -104,6 +116,12 @@ impl ProjectPanel {
         self.status.get(&rel.replace('\\', "/")).copied().unwrap_or_default()
     }
 
+    /// The relative path of the currently selected *file* element, if any
+    /// (used by the toolbar to gate Debug on a Generated Code selection).
+    pub fn selected_file(&self) -> Option<&str> {
+        self.selected.as_deref().and_then(|s| s.strip_prefix("file:"))
+    }
+
     /// Render the project panel and return all events that occurred this frame.
     ///
     /// * `project` — `Some(&project)` to render in project mode, `None` for
@@ -118,8 +136,8 @@ impl ProjectPanel {
 
         SidePanel::left("project_panel")
             .resizable(true)
-            .default_width(200.0)
-            .min_width(120.0)
+            .default_width(220.0)
+            .min_width(140.0)
             .show(ctx, |ui| {
                 match project {
                     Some(proj) => self.show_project_mode(ui, proj, &mut events, tr),
@@ -127,6 +145,15 @@ impl ProjectPanel {
                 }
             });
 
+        // Consume Select events internally (update the highlighted element).
+        events.retain(|e| {
+            if let ProjectPanelEvent::Select(key) = e {
+                self.selected = Some(key.clone());
+                false
+            } else {
+                true
+            }
+        });
         events
     }
 
@@ -139,6 +166,9 @@ impl ProjectPanel {
         events: &mut Vec<ProjectPanelEvent>,
         tr:     &Tr,
     ) {
+        // Current selection (read-only snapshot for highlighting); clicks emit a
+        // `Select` event that `show()` applies after rendering.
+        let cur = self.selected.clone();
         ScrollArea::vertical()
             .id_salt("project_panel_scroll")
             .show(ui, |ui| {
@@ -154,7 +184,7 @@ impl ProjectPanel {
                     .body(|ui| {
                         // L2 — the five fixed, IDE-owned categories.
                         for cat in Category::TOP {
-                            self.show_category(ui, cat, proj, events, tr);
+                            self.show_category(ui, cat, proj, &cur, events, tr);
                         }
                     });
             });
@@ -287,6 +317,7 @@ impl ProjectPanel {
         ui:     &mut Ui,
         cat:    Category,
         proj:   &CoboltProject,
+        cur:    &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
         tr:     &Tr,
     ) {
@@ -328,32 +359,35 @@ impl ProjectPanel {
                 for rel in &files {
                     let st = self.status_for(rel);
                     if is_forms {
-                        self.show_form_item(ui, rel, &root, events, tr);
+                        self.show_form_item(ui, rel, &root, cur, events, tr);
                     } else if is_generated {
-                        file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, st, &root, events);
+                        file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, st, cur, &root, events);
                     } else {
                         let icon = kind.map(|k| k.icon()).unwrap_or("📄");
-                        file_row(ui, rel, icon, None, true, st, &root, events);
+                        file_row(ui, rel, icon, None, true, st, cur, &root, events);
                     }
                 }
             });
         ui.add_space(2.0);
     }
 
-    /// A form item (L3) that expands to its controls grouped by toolbox category.
+    /// A form item (L3) that expands to its controls grouped by toolbox category;
+    /// each control with handlers expands to an "Events" group.
     fn show_form_item(
         &mut self,
         ui:     &mut Ui,
         rel:    &str,
         root:   &Option<PathBuf>,
+        cur:    &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
         tr:     &Tr,
     ) {
-        let _ = tr;
         let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
         let abs = root.as_ref().map(|d| d.join(rel));
         let form = abs.as_ref().and_then(|p| self.form_for(p));
         let form_status = self.status_for(rel);
+        let form_key = sel_file(rel);
+        let form_selected = cur.as_deref() == Some(form_key.as_str());
 
         let id = ui.make_persistent_id(("form_item", rel));
         // L3 form node is open by default (collapse only kicks in below it).
@@ -363,7 +397,7 @@ impl ProjectPanel {
                 ui.add_space(8.0);
                 status_dot(ui, form_status);
                 ui.label(RichText::new(FileKind::Form.icon()).size(ICON_SIZE));
-                ui.selectable_label(false, RichText::new(name)).on_hover_text(rel)
+                ui.selectable_label(form_selected, RichText::new(name)).on_hover_text(rel)
             })
             .body(|ui| {
                 let Some(form) = &form else {
@@ -388,22 +422,11 @@ impl ProjectPanel {
                             ui.add_space(16.0);
                             ui.label(RichText::new(format!("{} ({})",
                                 toolbox::category_display(cat_key), in_cat.len()))
-                                .color(Color32::from_gray(170)));
+                                .color(Color32::from_gray(120)));
                         })
                         .body(|ui| {
                             for c in &in_cat {
-                                let crow = ui.horizontal(|ui| {
-                                    ui.add_space(26.0);
-                                    status_dot(ui, form_status); // control inherits its form's status
-                                    ui.selectable_label(false, format!("• {}", c.id))
-                                        .on_hover_text(format!("{:?}", c.control_type))
-                                }).inner;
-                                if crow.clicked() {
-                                    events.push(ProjectPanelEvent::InspectControl {
-                                        form: form_path.clone(),
-                                        ctrl_id: c.id.clone(),
-                                    });
-                                }
+                                control_node(ui, rel, form_path, c, form_status, cur, events, tr);
                             }
                         });
                 }
@@ -414,10 +437,83 @@ impl ProjectPanel {
             if resp.double_clicked() {
                 events.push(ProjectPanelEvent::OpenDesigner(p.clone()));
             } else if resp.clicked() {
+                events.push(ProjectPanelEvent::Select(form_key));
                 events.push(ProjectPanelEvent::InspectForm(p.clone()));
             }
         }
         ui.add_space(1.0);
+    }
+}
+
+/// One control (L5). A leaf row, unless it has event handlers — then it expands
+/// to an "Events" group listing them (click → open the event's COBOL paragraph).
+#[allow(clippy::too_many_arguments)]
+fn control_node(
+    ui:        &mut Ui,
+    rel:       &str,
+    form_path: &Path,
+    c:         &cobolt_forms::model::Control,
+    status:    ElementStatus,
+    cur:       &Option<String>,
+    events:    &mut Vec<ProjectPanelEvent>,
+    tr:        &Tr,
+) {
+    let ckey = sel_ctrl(rel, &c.id);
+    let csel = cur.as_deref() == Some(ckey.as_str());
+    let hint = format!("{:?}", c.control_type);
+
+    if c.events.is_empty() {
+        let crow = ui.horizontal(|ui| {
+            ui.add_space(26.0);
+            status_dot(ui, status);
+            ui.selectable_label(csel, format!("• {}", c.id)).on_hover_text(hint)
+        }).inner;
+        if crow.clicked() {
+            events.push(ProjectPanelEvent::Select(ckey));
+            events.push(ProjectPanelEvent::InspectControl {
+                form: form_path.to_path_buf(),
+                ctrl_id: c.id.clone(),
+            });
+        }
+        return;
+    }
+
+    // Has events → an expandable control node (collapsed) with an Events group.
+    let id = ui.make_persistent_id(("ctrl", rel, &c.id));
+    let (_t, header_inner, _b) =
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+        .show_header(ui, |ui| {
+            ui.add_space(20.0);
+            status_dot(ui, status);
+            ui.selectable_label(csel, format!("• {}", c.id)).on_hover_text(hint)
+        })
+        .body(|ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(36.0);
+                ui.label(RichText::new(format!("⚡ {}", tr.tree_events)).color(Color32::from_gray(120)));
+            });
+            for ev in &c.events {
+                let ekey = sel_event(rel, &c.id, &ev.event);
+                let esel = cur.as_deref() == Some(ekey.as_str());
+                let erow = ui.horizontal(|ui| {
+                    ui.add_space(48.0);
+                    ui.selectable_label(esel, &ev.event).on_hover_text(&ev.paragraph)
+                }).inner;
+                if erow.clicked() {
+                    events.push(ProjectPanelEvent::Select(ekey));
+                    events.push(ProjectPanelEvent::OpenEventCode {
+                        form: form_path.to_path_buf(),
+                        paragraph: ev.paragraph.clone(),
+                    });
+                }
+            }
+        });
+    if header_inner.inner.clicked() {
+        events.push(ProjectPanelEvent::Select(ckey));
+        events.push(ProjectPanelEvent::InspectControl {
+            form: form_path.to_path_buf(),
+            ctrl_id: c.id.clone(),
+        });
     }
 }
 
@@ -431,10 +527,13 @@ fn file_row(
     color:     Option<Color32>,
     removable: bool,
     status:    ElementStatus,
+    cur:       &Option<String>,
     root:      &Option<PathBuf>,
     events:    &mut Vec<ProjectPanelEvent>,
 ) {
     let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
+    let key = sel_file(rel);
+    let is_sel = cur.as_deref() == Some(key.as_str());
     let mut text = RichText::new(name);
     if let Some(c) = color {
         text = text.color(c);
@@ -443,11 +542,12 @@ fn file_row(
         ui.add_space(8.0);
         status_dot(ui, status);
         ui.label(RichText::new(icon).size(ICON_SIZE));
-        ui.selectable_label(false, text).on_hover_text(rel)
+        ui.selectable_label(is_sel, text).on_hover_text(rel)
     }).inner;
 
-    // Single click opens the file in the Main Pane.
+    // Single click selects + opens the file in the Main Pane.
     if resp.clicked() {
+        events.push(ProjectPanelEvent::Select(key));
         if let Some(dir) = root {
             events.push(ProjectPanelEvent::Open(dir.join(rel)));
         }
