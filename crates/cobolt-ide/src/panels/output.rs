@@ -88,10 +88,13 @@ impl OutputPanel {
 
     /// Render the output panel at the bottom.
     pub fn show(&mut self, ctx: &Context, tr: &Tr) {
+        let frame = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, &crate::theme::active());
         TopBottomPanel::bottom("output_panel")
             .resizable(true)
             .default_height(160.0)
             .min_height(60.0)
+            .frame(frame)
             .show(ctx, |ui| {
                 // Header bar
                 ui.horizontal(|ui| {

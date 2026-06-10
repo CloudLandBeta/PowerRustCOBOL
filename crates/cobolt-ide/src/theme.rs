@@ -66,6 +66,36 @@ impl Theme {
             Color32::from_rgb(168, 168, 174)
         }
     }
+
+    /// Subtle border for glass "card" panel surfaces (a faint cool tint on dark
+    /// themes, a soft shadow-grey on light themes).
+    pub fn panel_border(&self) -> Color32 {
+        if self.dark {
+            Color32::from_rgba_unmultiplied(120, 180, 220, 46)
+        } else {
+            Color32::from_rgba_unmultiplied(40, 70, 100, 40)
+        }
+    }
+}
+
+/// A glass "card" frame for a panel surface: rounded corners, a subtle border,
+/// inner padding and an outer gap so panels read as separated floating cards
+/// over the background. `fill` should be the live `visuals.panel_fill` so it
+/// respects the active theme / transparent-background mode.
+pub fn glass_panel_frame(fill: Color32, theme: &Theme) -> egui::Frame {
+    use egui::{Margin, Rounding, Shadow, Stroke, Vec2};
+    egui::Frame::none()
+        .fill(fill)
+        .stroke(Stroke::new(1.0, theme.panel_border()))
+        .rounding(Rounding::same(10.0))
+        .inner_margin(Margin::same(10.0))
+        .outer_margin(Margin::same(6.0))
+        .shadow(Shadow {
+            offset: Vec2::new(0.0, 4.0),
+            blur:   16.0,
+            spread: 0.0,
+            color:  Color32::from_black_alpha(60),
+        })
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color32 {

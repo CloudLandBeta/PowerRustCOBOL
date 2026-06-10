@@ -131,10 +131,13 @@ impl ProjectPanel {
     ) -> Vec<ProjectPanelEvent> {
         let mut events = Vec::new();
 
+        let frame = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, &crate::theme::active());
         SidePanel::left("project_panel")
             .resizable(true)
             .default_width(220.0)
             .min_width(140.0)
+            .frame(frame)
             .show(ctx, |ui| {
                 match project {
                     Some(proj) => self.show_project_mode(ui, proj, &mut events, tr),
