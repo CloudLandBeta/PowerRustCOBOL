@@ -64,6 +64,26 @@ const TOOLS: &[ToolEntry] = &[
     ToolEntry { label: "ModalWindow",    ct: ControlType::ModalWindow,    category: "Dialogs" },
 ];
 
+/// The toolbox category a control type belongs to (internal key). Used by the
+/// project tree to group a form's controls. Non-visual controls sort first.
+pub fn category_of(ct: ControlType) -> &'static str {
+    TOOLS
+        .iter()
+        .find(|t| t.ct == ct)
+        .map(|t| t.category)
+        .unwrap_or(if ct.is_non_visual() { "NonVisual" } else { "Common" })
+}
+
+/// Human label for a toolbox category key (e.g. `"NonVisual"` → `"Non-Visual"`).
+pub fn category_display(key: &str) -> &'static str {
+    CATEGORIES.iter().find(|(k, _)| *k == key).map(|(_, d)| *d).unwrap_or("Other")
+}
+
+/// Category display order for the project tree — **Non-Visual first**, then the
+/// rest of the toolbox order.
+pub const TREE_CATEGORY_ORDER: &[&str] =
+    &["NonVisual", "Common", "Container", "Data", "Graphics", "Menu", "Charts", "Dialogs"];
+
 const CATEGORIES: &[(&str, &str)] = &[
     ("Common",    "Common"),
     ("Container", "Containers"),

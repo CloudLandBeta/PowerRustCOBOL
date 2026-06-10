@@ -167,6 +167,9 @@ pub struct Tr {
     pub tree_add_hover:    &'static str,   // "Add file to" tooltip prefix
     pub tree_empty:        &'static str,   // "(empty)" placeholder
     pub tree_generated_empty: &'static str, // empty Generated Code placeholder
+    pub inspect_open_designer: &'static str, // Main-Pane inspector → open RAD
+    pub inspect_close:        &'static str,  // Main-Pane inspector close
+    pub inspect_form_props:   &'static str,  // "Form properties" sub-label
     pub no_project_open:   &'static str,   // tree mode empty state
 
     // ── Forms list panel ─────────────────────────────────────────────────────
@@ -422,6 +425,9 @@ const EN: Tr = Tr {
     tree_add_hover:    "Add file to",
     tree_empty:        "(empty)",
     tree_generated_empty: "(no generated code yet)",
+    inspect_open_designer: "Open in Designer",
+    inspect_close:        "Close",
+    inspect_form_props:   "Form properties",
     no_project_open: "No project open.\nUse File → Open Project\nor File → Open COBOL.",
 
     forms_list_title: "Forms",
@@ -651,6 +657,9 @@ const ES: Tr = Tr {
     tree_add_hover:    "Agregar archivo a",
     tree_empty:        "(vacío)",
     tree_generated_empty: "(sin código generado)",
+    inspect_open_designer: "Abrir en Diseñador",
+    inspect_close:        "Cerrar",
+    inspect_form_props:   "Propiedades del formulario",
     no_project_open: "Sin proyecto abierto.\nUse Archivo → Abrir proyecto\no Archivo → Abrir COBOL.",
 
     forms_list_title: "Formularios",
@@ -880,6 +889,9 @@ const PT: Tr = Tr {
     tree_add_hover:    "Adicionar arquivo a",
     tree_empty:        "(vazio)",
     tree_generated_empty: "(sem código gerado)",
+    inspect_open_designer: "Abrir no Designer",
+    inspect_close:        "Fechar",
+    inspect_form_props:   "Propriedades do formulário",
     no_project_open: "Nenhum projeto aberto.\nUse Arquivo → Abrir projeto\nou Arquivo → Abrir COBOL.",
 
     forms_list_title: "Formulários",
@@ -1109,6 +1121,9 @@ const JA: Tr = Tr {
     tree_add_hover:    "ファイルを追加",
     tree_empty:        "（空）",
     tree_generated_empty: "（生成コードなし）",
+    inspect_open_designer: "デザイナーで開く",
+    inspect_close:        "閉じる",
+    inspect_form_props:   "フォームのプロパティ",
     no_project_open: "プロジェクトが開かれていません。\nファイル → プロジェクトを開く\nまたは ファイル → COBOLを開く。",
 
     forms_list_title: "フォーム",
@@ -1338,6 +1353,9 @@ const ZH: Tr = Tr {
     tree_add_hover:    "添加文件到",
     tree_empty:        "（空）",
     tree_generated_empty: "（暂无生成代码）",
+    inspect_open_designer: "在设计器中打开",
+    inspect_close:        "关闭",
+    inspect_form_props:   "窗体属性",
     no_project_open: "没有打开的项目。\n使用 文件 → 打开项目\n或 文件 → 打开 COBOL。",
 
     forms_list_title: "窗体",

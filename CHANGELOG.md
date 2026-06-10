@@ -21,6 +21,20 @@ IDE: controlled project tree, read-only generated code, richer toolbar.
   top nodes. (`Documentation` is a new category; `cobolt.toml` gains
   `documentation` + `generated` lists, loaded with serde defaults so existing
   projects upgrade transparently.)
+- **The project itself is the tree root** (project name + version); the five
+  categories nest under it. Category and file **icons are 80 % larger**, and
+  everything **below level 3 is collapsed by default** (Project · Category · Item
+  stay open).
+- **Forms expand to their controls**, grouped by RAD toolbox category with
+  **Non-Visual first** (then Common, Container, Data, Graphics, Menus, Charts,
+  Dialogs). **Single-click a file** opens it in the **Main Pane** (formerly the
+  editor area); **single-click a form** shows its properties inline, **double-click**
+  opens the RAD designer.
+- **Inline property inspector in the Main Pane.** Clicking a form or one of its
+  controls in the tree shows the **same properties pane as the RAD** in the Main
+  Pane — edit parameters and they're saved back to the `.cfrm` without opening
+  the designer (an "Open in Designer" button is offered for deeper edits). It
+  reuses the designer's edit machinery via a transient panel (no designer window).
 - **Generated Code is its own read-only category.** Each form's RAD-generated
   COBOL (output of the form designer, one entry per form, named after it) lives
   under the **Generated Code** node — IDE-owned (no `[+]`), shown in blue with a

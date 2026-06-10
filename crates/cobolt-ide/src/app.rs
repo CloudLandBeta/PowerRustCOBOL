@@ -198,6 +198,9 @@ pub struct CoboltApp {
     // Open form designers (each lives in its own viewport window)
     designers: Vec<(PathBuf, DesignerPanel)>,
 
+    // Inline form/control inspector shown in the Main Pane (from the project tree)
+    inspect: Option<InspectState>,
+
     // Running form instances — each has its own OS window (Phase 6)
     form_runtimes: Vec<FormRuntime>,
 
@@ -260,6 +263,15 @@ enum FileRequest {
 /// The shared egui key for the single app-level file dialog.
 const APP_FILE_KEY: &str = "app-file-dialog";
 
+/// Inline form/control inspector shown in the Main Pane (from the project tree).
+/// Holds a transient `DesignerPanel` so it reuses the designer's property-edit
+/// machinery without opening a designer window.
+struct InspectState {
+    path:     PathBuf,
+    ctrl_id:  Option<String>,
+    designer: DesignerPanel,
+}
+
 impl CoboltApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut style = (*cc.egui_ctx.style()).clone();
@@ -274,6 +286,7 @@ impl CoboltApp {
             runner:     Runner::new(),
             forms_list: FormsListPanel::new(),
             designers:     Vec::new(),
+            inspect:       None,
             form_runtimes: Vec::new(),
             debug_runner:  DebugRunner::new(),
             debugger:      DebuggerPanel::new(),
@@ -753,6 +766,88 @@ impl CoboltApp {
         // scroll to the paragraph once the editor has the file loaded.
         self.do_generate_cobol(idx);
         self.pending_goto_paragraph = Some(para);
+    }
+
+    /// Open the inline inspector in the Main Pane for a form (and optionally a
+    /// control), reusing a transient `DesignerPanel` (no designer window).
+    fn open_inspect(&mut self, path: PathBuf, ctrl_id: Option<String>) {
+        if let Some(st) = &mut self.inspect {
+            if st.path == path {
+                st.ctrl_id = ctrl_id;
+                return;
+            }
+        }
+        match load_form(&path) {
+            Ok(form) => {
+                self.inspect = Some(InspectState {
+                    path,
+                    ctrl_id,
+                    designer: DesignerPanel::new(form),
+                });
+            }
+            Err(e) => self.output.push_status(format!("Failed to read form: {e}")),
+        }
+    }
+
+    /// Render the inline inspector in the Main Pane (central panel).
+    fn show_inspector(&mut self, ctx: &egui::Context, tr: &Tr) {
+        let mut open_designer = false;
+        let mut close = false;
+        let mut changed = false;
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let Some(st) = &mut self.inspect else { return; };
+            ui.horizontal(|ui| {
+                ui.heading(format!("⚙ {}", st.designer.form.name));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(tr.inspect_close).clicked() { close = true; }
+                    if ui.button(tr.inspect_open_designer).clicked() { open_designer = true; }
+                });
+            });
+            match &st.ctrl_id {
+                Some(id) => { ui.label(egui::RichText::new(id).strong().monospace()); }
+                None     => { ui.label(egui::RichText::new(tr.inspect_form_props).italics()); }
+            }
+            ui.separator();
+
+            // Split-borrow form (read) + properties (mutable), like the designer.
+            let ctrl_id = st.ctrl_id.clone();
+            let action = {
+                let d = &mut st.designer;
+                let sel = ctrl_id.as_deref().and_then(|id| d.form.find_control(id));
+                let form = &d.form as *const cobolt_forms::Form;
+                let props = &mut d.properties;
+                props.show(ui, unsafe { &*form }, sel, tr)
+            };
+            for (cid, key, value) in action.set_props {
+                st.designer.set_property(&cid, &key, value);
+                changed = true;
+            }
+            for (key, value) in action.form_props {
+                st.designer.set_form_prop(&key, value);
+                changed = true;
+            }
+            // Event editing needs the full designer.
+            if action.open_event_editor.is_some() || action.open_event_in_code.is_some() {
+                open_designer = true;
+            }
+        });
+
+        if changed {
+            if let Some(st) = &mut self.inspect {
+                if save_form(&st.designer.form, &st.path).is_ok() {
+                    st.designer.dirty = false;
+                    self.project.refresh_form(&st.path);
+                }
+            }
+        }
+        if open_designer {
+            let path = self.inspect.take().map(|s| s.path);
+            if let Some(p) = path { self.load_form_from_path(p); }
+        }
+        if close {
+            self.inspect = None;
+        }
     }
 
     /// Open a file in the editor, marking RAD-generated COBOL read-only (blue).
@@ -1410,18 +1505,24 @@ impl eframe::App for CoboltApp {
         for ev in proj_events {
             match ev {
                 ProjectPanelEvent::Open(path) => {
-                    if path.extension().and_then(|e| e.to_str()) == Some("cfrm") {
-                        self.load_form_from_path(path);
-                    } else {
-                        self.open_in_editor(path);
-                    }
+                    self.inspect = None; // a file takes over the Main Pane
+                    self.open_in_editor(path);
                 }
+                ProjectPanelEvent::OpenDesigner(path) => self.load_form_from_path(path),
+                ProjectPanelEvent::InspectForm(path)  => self.open_inspect(path, None),
+                ProjectPanelEvent::InspectControl { form, ctrl_id } =>
+                    self.open_inspect(form, Some(ctrl_id)),
                 ProjectPanelEvent::Add(kind)  => self.do_add_file_to_project(kind),
                 ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
             }
         }
 
-        self.editor.show(ctx);
+        // Main Pane: the inline form/control inspector, else the code editor.
+        if self.inspect.is_some() {
+            self.show_inspector(ctx, &tr);
+        } else {
+            self.editor.show(ctx);
+        }
 
         // ── Designer viewports (one OS window per open form) ──────────────────
         let n = self.designers.len();
