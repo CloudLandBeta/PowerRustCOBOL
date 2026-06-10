@@ -41,6 +41,36 @@ pub struct CoboltProject {
     pub files:   ProjectFiles,
     #[serde(default)]
     pub runtime: RuntimeConfig,
+    /// Per-project IDE appearance (colour theme + background image).
+    #[serde(default)]
+    pub ide:     IdeSettings,
+}
+
+/// Per-project IDE appearance settings (colour theme + background image),
+/// persisted in `cobolt.toml` so the look travels with the project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdeSettings {
+    /// Colour-theme id (see `crate::theme`). Empty / unknown → default theme.
+    #[serde(default)]
+    pub theme: String,
+    /// Optional background image (relative to the project root, or absolute).
+    #[serde(default)]
+    pub background_image: String,
+    /// Background-image opacity, 0 (invisible) … 100 (fully opaque).
+    #[serde(default = "default_bg_opacity")]
+    pub background_opacity: u8,
+}
+
+fn default_bg_opacity() -> u8 { 20 }
+
+impl Default for IdeSettings {
+    fn default() -> Self {
+        Self {
+            theme: String::new(),
+            background_image: String::new(),
+            background_opacity: default_bg_opacity(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +119,7 @@ impl CoboltProject {
             },
             files:   ProjectFiles::default(),
             runtime: RuntimeConfig::default(),
+            ide:     IdeSettings::default(),
         }
     }
 
@@ -584,5 +615,33 @@ mod tests {
         let mut p3 = proj();
         p3.add_generated("gen/a.cbl");
         assert!(p3.is_compilable(), "generated COBOL alone is enough");
+    }
+
+    #[test]
+    fn ide_settings_default_when_missing_from_toml() {
+        // A project file written before 1.15.0 has no [ide] section.
+        let toml = r#"
+[project]
+name = "Legacy"
+version = "1.0.0"
+main = "src/main.cbl"
+"#;
+        let p: CoboltProject = toml::from_str(toml).expect("parse legacy toml");
+        assert_eq!(p.ide.theme, "", "missing theme → empty (resolves to default)");
+        assert_eq!(p.ide.background_image, "");
+        assert_eq!(p.ide.background_opacity, 20, "serde default opacity");
+    }
+
+    #[test]
+    fn ide_settings_round_trip() {
+        let mut p = proj();
+        p.ide.theme = "monokai".into();
+        p.ide.background_image = "assets/bg.png".into();
+        p.ide.background_opacity = 35;
+        let s = toml::to_string(&p).expect("serialize");
+        let back: CoboltProject = toml::from_str(&s).expect("deserialize");
+        assert_eq!(back.ide.theme, "monokai");
+        assert_eq!(back.ide.background_image, "assets/bg.png");
+        assert_eq!(back.ide.background_opacity, 35);
     }
 }

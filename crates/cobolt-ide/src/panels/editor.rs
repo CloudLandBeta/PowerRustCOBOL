@@ -447,9 +447,6 @@ impl EditorTab {
     }
 }
 
-/// The blue used for read-only RAD-generated source in the editor.
-pub const GENERATED_BLUE: Color32 = Color32::from_rgb(96, 160, 240);
-
 // ── Known control (for IntelliSense) ─────────────────────────────────────────
 
 #[derive(Clone)]
@@ -797,7 +794,7 @@ impl EditorPanel {
             let read_only = self.tabs.get(self.active).map(|t| t.read_only).unwrap_or(false);
             let mut layouter = move |ui: &egui::Ui, text: &str, _wrap: f32| -> Arc<egui::Galley> {
                 let lj = if read_only {
-                    mono_layout_job(text, font_hl.clone(), GENERATED_BLUE)
+                    mono_layout_job(text, font_hl.clone(), crate::theme::active().ed_generated)
                 } else {
                     cobol_layout_job(text, font_hl.clone(), &kw_set)
                 };
@@ -1508,12 +1505,14 @@ pub fn cobol_layout_job(
 ) -> egui::text::LayoutJob {
     use egui::text::{LayoutJob, TextFormat};
 
-    let c_plain   = Color32::from_rgb(212, 212, 212);
-    let c_kw      = Color32::from_rgb(100, 180, 255);
-    let c_data    = Color32::from_rgb( 78, 201, 130);
-    let c_para    = Color32::from_rgb(220,  80,  80);
-    let c_str     = Color32::from_rgb(210, 165,  80);
-    let c_comment = Color32::from_rgb(140, 140, 140);
+    // Syntax colours come from the active IDE theme (published once per frame).
+    let th        = crate::theme::active();
+    let c_plain   = th.ed_plain;
+    let c_kw      = th.ed_keyword;
+    let c_data    = th.ed_data;
+    let c_para    = th.ed_paragraph;
+    let c_str     = th.ed_string;
+    let c_comment = th.ed_comment;
 
     let fmt = |c: Color32| TextFormat { font_id: font_id.clone(), color: c, ..Default::default() };
 

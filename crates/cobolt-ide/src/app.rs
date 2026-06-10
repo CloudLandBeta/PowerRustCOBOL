@@ -217,6 +217,11 @@ pub struct CoboltApp {
     cobolt_project: Option<CoboltProject>,
     project_path:   Option<PathBuf>,
 
+    // Appearance settings dialog (theme + background image, per project)
+    show_settings:  bool,
+    /// Cached background-image texture, keyed by the resolved absolute path.
+    bg_texture:     Option<(PathBuf, egui::TextureHandle)>,
+
     // Dialog state
     new_form:    NewFormDialog,
     new_project: NewProjectDialog,
@@ -262,6 +267,8 @@ enum FileRequest {
     AddFile(FileKind),
     OpenForm,
     NewForm(Box<cobolt_forms::Form>),
+    /// Pick a background image for the IDE appearance settings.
+    PickBackgroundImage,
 }
 
 /// The shared egui key for the single app-level file dialog.
@@ -274,6 +281,47 @@ struct InspectState {
     path:     PathBuf,
     ctrl_id:  Option<String>,
     designer: DesignerPanel,
+    /// `.cfrm` modification time of the form currently held in `designer`.
+    /// Used to live-refresh the Main-Pane inspector when the form is changed
+    /// elsewhere (e.g. saved from the Designer window) so edits reflect back.
+    mtime:    Option<std::time::SystemTime>,
+}
+
+impl InspectState {
+    /// Reload the form from disk if the `.cfrm` changed since we last read it
+    /// (e.g. saved from the Designer window). Returns true when reloaded.
+    fn reload_if_stale(&mut self) -> bool {
+        let disk = file_mtime(&self.path);
+        let stale = match (disk, self.mtime) {
+            (Some(d), Some(cur)) => d > cur,
+            (Some(_), None)      => true,
+            _                    => false,
+        };
+        if !stale {
+            return false;
+        }
+        if let Ok(form) = load_form(&self.path) {
+            // Preserve the current selection if the control still exists.
+            let keep = self.ctrl_id.clone();
+            self.designer = DesignerPanel::new(form);
+            self.mtime = disk;
+            if let Some(id) = keep {
+                if self.designer.form.find_control(&id).is_some() {
+                    self.ctrl_id = Some(id);
+                } else {
+                    self.ctrl_id = None;
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Last-modified time of a file, if available.
+fn file_mtime(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 impl CoboltApp {
@@ -299,6 +347,9 @@ impl CoboltApp {
 
             cobolt_project: None,
             project_path:   None,
+
+            show_settings:  false,
+            bg_texture:     None,
 
             new_form:    NewFormDialog::new(),
             new_project: NewProjectDialog::new(),
@@ -807,16 +858,22 @@ impl CoboltApp {
     fn open_inspect(&mut self, path: PathBuf, ctrl_id: Option<String>) {
         if let Some(st) = &mut self.inspect {
             if st.path == path {
+                // Same form already open in the Main Pane: just retarget the
+                // selected control, but pull in any on-disk change first so a
+                // Designer save (or external edit) is reflected.
                 st.ctrl_id = ctrl_id;
+                st.reload_if_stale();
                 return;
             }
         }
         match load_form(&path) {
             Ok(form) => {
+                let mtime = file_mtime(&path);
                 self.inspect = Some(InspectState {
                     path,
                     ctrl_id,
                     designer: DesignerPanel::new(form),
+                    mtime,
                 });
             }
             Err(e) => self.output.push_status(format!("Failed to read form: {e}")),
@@ -828,6 +885,12 @@ impl CoboltApp {
         let mut open_designer = false;
         let mut close = false;
         let mut changed = false;
+
+        // Live-refresh from disk before drawing so a Designer save (or any
+        // external write) of this form is reflected in the Main-Pane inspector.
+        if let Some(st) = &mut self.inspect {
+            st.reload_if_stale();
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let Some(st) = &mut self.inspect else { return; };
@@ -871,6 +934,9 @@ impl CoboltApp {
             let saved_path = if let Some(st) = &mut self.inspect {
                 if save_form(&st.designer.form, &st.path).is_ok() {
                     st.designer.dirty = false;
+                    // Record our own write time so the live-refresh check does
+                    // not treat this save as an external change and reload.
+                    st.mtime = file_mtime(&st.path);
                     self.project.refresh_form(&st.path);
                     Some(st.path.clone())
                 } else {
@@ -918,6 +984,161 @@ impl CoboltApp {
         }
         self.editor.reload_file(&cbl);
         self.output.push_status(format!("Regenerated {}", cbl.display()));
+    }
+
+    /// The active IDE colour theme (from the open project, or the default).
+    fn current_theme(&self) -> &'static crate::theme::Theme {
+        let id = self.cobolt_project.as_ref().map(|p| p.ide.theme.as_str()).unwrap_or("");
+        crate::theme::theme_by_id(id)
+    }
+
+    /// Absolute path of the project's IDE background image, if configured.
+    fn bg_image_abs_path(&self) -> Option<PathBuf> {
+        let proj = self.cobolt_project.as_ref()?;
+        let raw = proj.ide.background_image.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let p = Path::new(raw);
+        if p.is_absolute() {
+            return Some(p.to_path_buf());
+        }
+        let dir = self.project_path.as_ref()?.parent()?;
+        Some(dir.join(p))
+    }
+
+    /// Paint the per-project background image (if any) on the background layer of
+    /// the main IDE window, scaled to cover, at the configured opacity. The
+    /// translucent glass panels then blend over it.
+    fn paint_ide_background(&mut self, ctx: &Context) {
+        let opacity = match &self.cobolt_project {
+            Some(p) => p.ide.background_opacity.min(100),
+            None => return,
+        };
+        if opacity == 0 {
+            return;
+        }
+        let Some(abs) = self.bg_image_abs_path() else { return; };
+
+        let need_load = match &self.bg_texture {
+            Some((p, _)) => p != &abs,
+            None => true,
+        };
+        if need_load {
+            match load_image_texture(ctx, &abs.display().to_string()) {
+                Some(tex) => self.bg_texture = Some((abs.clone(), tex)),
+                None => return,
+            }
+        }
+        let Some((_, tex)) = &self.bg_texture else { return; };
+
+        let screen   = ctx.screen_rect();
+        let tex_size = tex.size_vec2();
+        if tex_size.x <= 0.0 || tex_size.y <= 0.0 {
+            return;
+        }
+        // Cover: scale up so the image fills the window, centred.
+        let s  = (screen.width() / tex_size.x).max(screen.height() / tex_size.y);
+        let dw = tex_size.x * s;
+        let dh = tex_size.y * s;
+        let ox = (screen.width()  - dw) * 0.5;
+        let oy = (screen.height() - dh) * 0.5;
+        let dest = egui::Rect::from_min_size(screen.min + egui::vec2(ox, oy), egui::vec2(dw, dh));
+        let uv   = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        let tint = egui::Color32::from_white_alpha((opacity as f32 / 100.0 * 255.0) as u8);
+        ctx.layer_painter(egui::LayerId::background())
+            .image(tex.id(), dest, uv, tint);
+    }
+
+    /// The IDE appearance settings dialog: colour theme + background image with
+    /// an opacity (transparency) control. All values are per project.
+    fn show_settings_window(&mut self, ctx: &Context, tr: &Tr) {
+        if !self.show_settings {
+            return;
+        }
+        let mut open = true;
+        let has_project = self.cobolt_project.is_some();
+        let mut pick_bg = false;
+        let mut clear_bg = false;
+        let mut new_theme: Option<String> = None;
+        let mut new_opacity: Option<u8> = None;
+
+        egui::Window::new(format!("⚙ {}", tr.settings_title))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                if !has_project {
+                    ui.label(tr.settings_no_project);
+                    return;
+                }
+                let proj = self.cobolt_project.as_ref().unwrap();
+                let cur_theme = crate::theme::theme_by_id(&proj.ide.theme);
+
+                // ── Colour theme ──────────────────────────────────────────────
+                ui.horizontal(|ui| {
+                    ui.label(tr.settings_theme);
+                    egui::ComboBox::from_id_salt("ide_theme_combo")
+                        .selected_text(cur_theme.name)
+                        .width(210.0)
+                        .show_ui(ui, |ui| {
+                            for t in crate::theme::THEMES {
+                                if ui.selectable_label(t.id == cur_theme.id, t.name).clicked() {
+                                    new_theme = Some(t.id.to_string());
+                                }
+                            }
+                        });
+                });
+                ui.add_space(8.0);
+                ui.separator();
+
+                // ── Background image ──────────────────────────────────────────
+                ui.label(egui::RichText::new(tr.settings_background).strong());
+                let cur_bg = proj.ide.background_image.clone();
+                let shown = if cur_bg.is_empty() { tr.settings_bg_none.to_string() } else { cur_bg.clone() };
+                ui.label(egui::RichText::new(shown).monospace().small());
+                ui.horizontal(|ui| {
+                    if ui.button(tr.settings_bg_browse).clicked() { pick_bg = true; }
+                    if !cur_bg.is_empty() && ui.button(tr.settings_bg_clear).clicked() {
+                        clear_bg = true;
+                    }
+                });
+                ui.add_space(4.0);
+                let mut op = proj.ide.background_opacity as i32;
+                ui.horizontal(|ui| {
+                    ui.label(tr.settings_bg_opacity);
+                    if ui.add(egui::Slider::new(&mut op, 0..=100).suffix("%")).changed() {
+                        new_opacity = Some(op.clamp(0, 100) as u8);
+                    }
+                });
+            });
+
+        // ── Apply (in-memory; persisted once the dialog closes) ───────────────
+        let mut dirty = false;
+        if let Some(id) = new_theme {
+            if let Some(p) = &mut self.cobolt_project { p.ide.theme = id; dirty = true; }
+        }
+        if let Some(o) = new_opacity {
+            if let Some(p) = &mut self.cobolt_project { p.ide.background_opacity = o; dirty = true; }
+        }
+        if clear_bg {
+            if let Some(p) = &mut self.cobolt_project { p.ide.background_image.clear(); dirty = true; }
+            self.bg_texture = None;
+        }
+        if dirty {
+            self.do_save_project();
+        }
+        if pick_bg {
+            self.begin_file_dialog(
+                FileRequest::PickBackgroundImage,
+                crate::file_dialog::DialogSpec::open()
+                    .filter("Images", &["png", "jpg", "jpeg", "bmp", "gif"]),
+            );
+        }
+        if !open {
+            self.show_settings = false;
+        }
     }
 
     /// Open a file in the editor, marking RAD-generated COBOL read-only (blue).
@@ -1259,35 +1480,57 @@ impl CoboltApp {
             FileRequest::AddFile(_)     => self.add_file_to_project_path(path),
             FileRequest::OpenForm       => self.load_form_from_path(path),
             FileRequest::NewForm(form)  => self.save_new_form_to(*form, path),
+            FileRequest::PickBackgroundImage => self.set_background_image(path),
+        }
+    }
+
+    /// Store the chosen background image in the project's IDE settings
+    /// (relative to the project root when possible), persist, and drop the
+    /// texture cache so it reloads.
+    fn set_background_image(&mut self, path: PathBuf) {
+        let rel = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .and_then(|dir| relative_to(&path, dir))
+            .unwrap_or_else(|| path.display().to_string());
+        if let Some(proj) = &mut self.cobolt_project {
+            proj.ide.background_image = rel;
+            self.bg_texture = None;
+            self.do_save_project();
         }
     }
 }
 
 // ── Liquid Glass visuals ──────────────────────────────────────────────────────
 
-fn apply_glass_visuals(ctx: &Context) {
-    use egui::{Color32, Rounding, Shadow, Stroke, Visuals, style::WidgetVisuals};
+fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
+    use egui::{Rounding, Shadow, Stroke, Visuals, style::WidgetVisuals};
+    use egui::Color32;
 
-    let mut v = Visuals::dark();
+    // Publish the editor palette for this theme so the syntax layouter picks it up.
+    crate::theme::set_active(theme);
 
-    // ── Semi-transparent black palette ────────────────────────────────────
-    let bg_panel   = Color32::from_rgba_unmultiplied(  8,   8,   8,  205);
-    let bg_widget  = Color32::from_rgba_unmultiplied( 18,  18,  18,  195);
-    let bg_hover   = Color32::from_rgba_unmultiplied( 35,  35,  40,  215);
-    let bg_active  = Color32::from_rgba_unmultiplied( 45,  75, 160,  230);
-    let bg_extreme = Color32::from_rgba_unmultiplied(  4,   4,   4,  210);
-    let accent     = Color32::from_rgb(100, 160, 255);
-    let border_dim = Color32::from_rgba_unmultiplied(255, 255, 255,  40);
-    let border_hi  = Color32::from_rgba_unmultiplied(130, 170, 255, 170);
-    let text_dim   = Color32::from_rgb(185, 190, 200);
-    let text_bright = Color32::from_rgb(230, 235, 245);
+    let mut v = if theme.dark { Visuals::dark() } else { Visuals::light() };
+
+    // ── Theme palette ─────────────────────────────────────────────────────
+    let bg_panel    = theme.bg_panel;
+    let bg_widget   = theme.bg_widget;
+    let bg_hover    = theme.bg_hover;
+    let bg_active   = theme.bg_active;
+    let bg_extreme  = theme.bg_extreme;
+    let accent      = theme.accent;
+    let border_dim  = theme.border_dim;
+    let border_hi   = theme.border_hi;
+    let text_dim    = theme.text_dim;
+    let text_bright = theme.text_bright;
 
     // ── Window / panel fills ──────────────────────────────────────────────
     v.window_fill      = bg_panel;
     v.panel_fill       = bg_panel;
-    v.faint_bg_color   = Color32::from_rgba_unmultiplied(  5,   5,   5, 140);
+    v.faint_bg_color   = theme.faint_bg;
     v.extreme_bg_color = bg_extreme;
-    v.code_bg_color    = Color32::from_rgba_unmultiplied( 12,  12,  14, 185);
+    v.code_bg_color    = theme.code_bg;
 
     // ── Window chrome ─────────────────────────────────────────────────────
     v.window_stroke   = Stroke::new(1.0, border_hi);
@@ -1317,14 +1560,14 @@ fn apply_glass_visuals(ctx: &Context) {
     v.widgets.open           = make_widget(bg_hover,  border_hi,  text_bright);
 
     // ── Selection ─────────────────────────────────────────────────────────
-    v.selection.bg_fill = Color32::from_rgba_unmultiplied(65, 115, 225, 145);
+    v.selection.bg_fill = theme.selection;
     v.selection.stroke  = Stroke::new(1.0, accent);
 
     // ── Text / decorations ────────────────────────────────────────────────
     v.override_text_color     = None;
-    v.hyperlink_color         = Color32::from_rgb(130, 185, 255);
-    v.warn_fg_color           = Color32::from_rgb(255, 205, 80);
-    v.error_fg_color          = Color32::from_rgb(255, 100, 100);
+    v.hyperlink_color         = theme.hyperlink;
+    v.warn_fg_color           = theme.warn;
+    v.error_fg_color          = theme.error;
 
     ctx.set_visuals(v);
 
@@ -1361,8 +1604,11 @@ impl eframe::App for CoboltApp {
         // (preview window calls ctx.set_visuals() on its viewport which in egui
         //  0.29 is global — re-applying here ensures the IDE shell always looks
         //  correct even when a preview window is open.)
-        apply_glass_visuals(ctx);
+        apply_glass_visuals(ctx, self.current_theme());
         self.glass_visuals_applied = true;
+
+        // ── Per-project background image (behind the glass panels) ─────────────
+        self.paint_ide_background(ctx);
 
         // ── Drain a finished async file dialog (Open/Save/Browse) ──────────────
         // Repaint while one is open so its result is collected promptly.
@@ -1455,6 +1701,7 @@ impl eframe::App for CoboltApp {
         self.show_new_form_dialog(ctx);
         self.show_report_bug_dialog(ctx);
         self.show_save_alert(ctx);
+        self.show_settings_window(ctx, &tr);
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
@@ -1539,6 +1786,7 @@ impl eframe::App for CoboltApp {
             ToolbarAction::Check => self.do_check(),
             ToolbarAction::Open  => self.do_open(),
             ToolbarAction::Save  => self.do_save(),
+            ToolbarAction::Settings => self.show_settings = true,
             ToolbarAction::None  => {}
         }
 
@@ -2617,7 +2865,7 @@ impl CoboltApp {
         // Re-apply glass visuals to this designer viewport every frame.
         // The preview viewport calls ctx.set_visuals() which is globally shared
         // in egui 0.29, so we must restore them here each frame.
-        apply_glass_visuals(ctx);
+        apply_glass_visuals(ctx, self.current_theme());
 
         // The designer viewport is OPAQUE (unlike the transparent preview/run
         // windows), so any area not covered by a panel shows a white clear — the
@@ -3700,5 +3948,63 @@ mod run_interaction_tests {
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(220.0, 150.0));
         let shapes = render_run_shapes(CT::BarChart, &cs(&[("Title", "Sales")]), rect);
         assert!(shapes.len() > 3, "BarChart drew almost nothing ({} shapes)", shapes.len());
+    }
+}
+
+#[cfg(test)]
+mod inspect_refresh_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, Form, PropValue};
+
+    fn form_with_title(title: &str) -> Form {
+        let mut f = Form::new("FRM_MAIN", title, 400, 300);
+        let mut c = Control::new("BTN_OK", ControlType::Button, 10, 10);
+        c.properties.insert("Caption".to_string(), PropValue::String("Old".to_string()));
+        f.controls.push(c);
+        f
+    }
+
+    /// Editing a form on disk (e.g. a Designer save) must live-refresh the
+    /// Main-Pane inspector: `reload_if_stale` pulls the new values in.
+    #[test]
+    fn inspector_reloads_when_cfrm_changes_on_disk() {
+        let dir = std::env::temp_dir().join(format!("prc_inspect_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("main.cfrm");
+
+        save_form(&form_with_title("First"), &path).unwrap();
+        let mut st = InspectState {
+            path: path.clone(),
+            ctrl_id: Some("BTN_OK".to_string()),
+            designer: DesignerPanel::new(load_form(&path).unwrap()),
+            mtime: file_mtime(&path),
+        };
+        assert_eq!(st.designer.form.title, "First");
+
+        // Simulate a Designer save: rewrite the .cfrm with new values after a
+        // short delay so the modification time advances.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut updated = form_with_title("Second");
+        updated.controls[0]
+            .properties
+            .insert("Caption".to_string(), PropValue::String("New".to_string()));
+        save_form(&updated, &path).unwrap();
+
+        assert!(st.reload_if_stale(), "should detect the on-disk change");
+        assert_eq!(st.designer.form.title, "Second", "form prop not refreshed");
+        let c = st.designer.form.find_control("BTN_OK").unwrap();
+        assert_eq!(c.get_prop("Caption").map(|v| v.as_str().to_owned()).as_deref(), Some("New"));
+        // Selection preserved because the control still exists.
+        assert_eq!(st.ctrl_id.as_deref(), Some("BTN_OK"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn filetime_set(path: &Path, t: std::time::SystemTime) {
+        // Best-effort: touch mtime via a second write so it advances even if the
+        // platform clamps to second granularity.
+        let _ = (path, t);
+        // Re-save with a tiny delay already covers the > comparison; nothing else
+        // to do here without an extra dependency.
     }
 }

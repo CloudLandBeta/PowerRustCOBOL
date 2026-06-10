@@ -22,6 +22,7 @@ pub mod i18n;
 mod panels;
 mod project_model;
 mod runner;
+pub mod theme;
 pub mod version;
 
 use app::CoboltApp;

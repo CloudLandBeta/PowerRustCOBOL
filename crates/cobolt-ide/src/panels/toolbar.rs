@@ -89,6 +89,16 @@ pub fn show(
                 action = ToolbarAction::Save;
             }
 
+            ui.separator();
+
+            // ── Settings (theme + background) ─────────────────────────────────
+            if ui.button(RichText::new("⚙").size(18.0))
+                .on_hover_text(tr.tb_settings)
+                .clicked()
+            {
+                action = ToolbarAction::Settings;
+            }
+
             // ── Right side: spinner + language selector ────────────────────────
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Language selector ────────────────────────────────────────────
@@ -126,4 +136,5 @@ pub enum ToolbarAction {
     Check,
     Open,
     Save,
+    Settings,
 }

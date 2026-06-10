@@ -8,6 +8,38 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.15.0] — 2026-06-10
+
+IDE: selectable colour themes + per-project background image, and a real fix for
+form edits not reflecting in the Main Pane.
+
+### New features
+
+- **IDE colour themes (VSCode-inspired).** A new **Appearance** dialog (the ⚙
+  button on the toolbar) lets you pick a colour theme. Six themes ship:
+  **Dark Glass** (the default — identical to the previous look), **Dark+**,
+  **Light+**, **Monokai**, **Solarized Dark**, and **High Contrast**. The theme
+  drives the whole IDE chrome *and* the COBOL editor's syntax colours. The choice
+  is saved **per project** (`cobolt.toml` → `[ide] theme`). New `theme` module
+  (`crate::theme`): a flat `Theme` palette + registry; `apply_glass_visuals` and
+  the editor's syntax layouter both read it.
+- **Per-project background image with opacity (transparency) control** — just like
+  the RAD form designer. In the same Appearance dialog you can browse for an image
+  and set its opacity (0–100 %); it is painted behind the translucent glass panels
+  of the main IDE window, scaled to cover. Stored per project
+  (`[ide] background_image` + `background_opacity`). `IdeSettings` added to the
+  project model with serde defaults so existing projects upgrade transparently.
+
+### Fixed
+
+- **Form property changes now reflect in the Main Pane.** The inline
+  form/control inspector loaded the form once and never refreshed, so edits made
+  (and saved) in the Designer window — or any external write of the `.cfrm` —
+  were not shown when you returned to the Main Pane. The inspector now
+  **live-reloads from disk on modification-time change** (preserving the selected
+  control), so saving a form anywhere is reflected immediately. (Regression test:
+  `inspect_refresh_tests`.)
+
 ## [PowerRustCOBOL 1.14.0] — 2026-06-10
 
 IDE: controlled project tree, read-only generated code, richer toolbar.

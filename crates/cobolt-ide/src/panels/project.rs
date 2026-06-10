@@ -30,8 +30,6 @@ use crate::project_model::{CoboltProject, Category, ElementStatus, FileKind};
 use crate::i18n::Tr;
 use crate::panels::toolbox;
 
-/// Blue for read-only RAD-generated COBOL in the tree (matches the editor).
-const GENERATED_BLUE: Color32 = Color32::from_rgb(96, 160, 240);
 /// Icon size in the tree — 80 % larger than the default body text (~12 px).
 const ICON_SIZE: f32 = 21.6;
 
@@ -360,7 +358,7 @@ impl ProjectPanel {
                     if is_forms {
                         self.show_form_item(ui, rel, &root, cur, events, tr);
                     } else if is_generated {
-                        file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, st, cur, &root, events);
+                        file_row(ui, rel, "🔒", Some(crate::theme::active().ed_generated), false, st, cur, &root, events);
                     } else {
                         let icon = kind.map(|k| k.icon()).unwrap_or("📄");
                         file_row(ui, rel, icon, None, true, st, cur, &root, events);
