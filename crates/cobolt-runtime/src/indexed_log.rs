@@ -48,6 +48,116 @@ impl LogLevel {
     }
 }
 
+/// Output format for the log lines.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LogFormat {
+    /// `key=value` (logfmt) — Loki parses this with `| logfmt`.
+    #[default]
+    Text,
+    /// One JSON object per line (NDJSON) — Loki parses this with `| json`.
+    /// Numeric fields are emitted as JSON numbers so Grafana can graph them.
+    Json,
+}
+
+impl LogFormat {
+    pub fn parse(s: &str) -> LogFormat {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "json" | "ndjson" | "grafana" | "loki" => LogFormat::Json,
+            _ => LogFormat::Text,
+        }
+    }
+}
+
+/// One field value in a log record: a number (graphable) or a string (label).
+pub enum FieldVal {
+    U(u64),
+    Str(String),
+}
+
+/// An ordered set of fields for one transaction event, rendered to either
+/// logfmt (`Text`) or NDJSON (`Json`).
+#[derive(Default)]
+pub struct LogRecord {
+    fields: Vec<(&'static str, FieldVal)>,
+}
+
+impl LogRecord {
+    pub fn new() -> Self {
+        LogRecord::default()
+    }
+    /// Add a numeric field (rendered as a bare number in JSON).
+    pub fn num(&mut self, key: &'static str, v: u64) -> &mut Self {
+        self.fields.push((key, FieldVal::U(v)));
+        self
+    }
+    /// Add a string field.
+    pub fn str(&mut self, key: &'static str, v: impl Into<String>) -> &mut Self {
+        self.fields.push((key, FieldVal::Str(v.into())));
+        self
+    }
+
+    /// Render the record to a single line in the requested format.
+    pub fn render(&self, fmt: LogFormat) -> String {
+        match fmt {
+            LogFormat::Text => {
+                let mut out = String::new();
+                for (i, (k, v)) in self.fields.iter().enumerate() {
+                    if i > 0 {
+                        out.push(' ');
+                    }
+                    match v {
+                        FieldVal::U(n) => {
+                            out.push_str(k);
+                            out.push('=');
+                            out.push_str(&n.to_string());
+                        }
+                        FieldVal::Str(s) => out.push_str(&field(k, s)),
+                    }
+                }
+                out
+            }
+            LogFormat::Json => {
+                let mut out = String::from("{");
+                for (i, (k, v)) in self.fields.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    out.push('"');
+                    out.push_str(k);
+                    out.push_str("\":");
+                    match v {
+                        FieldVal::U(n) => out.push_str(&n.to_string()),
+                        FieldVal::Str(s) => {
+                            out.push('"');
+                            out.push_str(&json_escape(s));
+                            out.push('"');
+                        }
+                    }
+                }
+                out.push('}');
+                out
+            }
+        }
+    }
+}
+
+/// Minimal JSON string escaping (quotes, backslash, control chars).
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// Appends transaction lines to `<assign-path>.log`.
 pub struct LogWriter {
     path: PathBuf,
@@ -143,5 +253,33 @@ mod tests {
         assert_eq!(LogLevel::parse("full"), LogLevel::Full);
         assert_eq!(LogLevel::parse("off"), LogLevel::Off);
         assert_eq!(LogLevel::parse("false"), LogLevel::Off);
+    }
+
+    #[test]
+    fn format_parse() {
+        assert_eq!(LogFormat::parse("json"), LogFormat::Json);
+        assert_eq!(LogFormat::parse("grafana"), LogFormat::Json);
+        assert_eq!(LogFormat::parse("text"), LogFormat::Text);
+        assert_eq!(LogFormat::parse(""), LogFormat::Text);
+    }
+
+    #[test]
+    fn record_renders_both_formats() {
+        let mut r = LogRecord::new();
+        r.str("ts", "2026-06-10T07:30:00.123Z")
+            .str("file", "my file.idx")
+            .num("tx", 2)
+            .str("kind", "COMMIT")
+            .num("records", 100)
+            .str("order", "ordered");
+
+        assert_eq!(
+            r.render(LogFormat::Text),
+            "ts=2026-06-10T07:30:00.123Z file=\"my file.idx\" tx=2 kind=COMMIT records=100 order=ordered"
+        );
+        assert_eq!(
+            r.render(LogFormat::Json),
+            r#"{"ts":"2026-06-10T07:30:00.123Z","file":"my file.idx","tx":2,"kind":"COMMIT","records":100,"order":"ordered"}"#
+        );
     }
 }

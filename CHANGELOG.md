@@ -25,6 +25,10 @@ redb engine: read/write optimizations + an optional per-file transaction log.
   appends redb **index statistics** on `CLOSE` (tree height, leaf/branch/
   allocated pages, stored/fragmented bytes) — this walks the index, so it is
   opt-in. Logging is off by default and never affects program behavior.
+- **Grafana/Loki-ready log formats.** `--indexed-log-format <text|json>`
+  (`COBOL_INDEXED_LOG_FORMAT`) selects the line format. `text` is logfmt
+  (Loki `| logfmt`); `json` emits **NDJSON** (Loki `| json`) with numeric metrics
+  as bare JSON numbers so Grafana can graph them directly. Default `text`.
 
 ### Performance
 

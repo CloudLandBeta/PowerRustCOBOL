@@ -173,5 +173,33 @@ line — `tree_height`, `leaf_pages`, `branch_pages`, `allocated_pages`,
 index**, so its cost scales with file size; that is why it is opt-in and emitted
 only on CLOSE (not per commit).
 
-Implementation: `crates/cobolt-runtime/src/indexed_log.rs` (writer + ISO
-formatter) and the per-transaction accumulators in `indexed_redb.rs`.
+### Formats — Grafana / Loki
+
+`--indexed-log-format <text|json>` (or `COBOL_INDEXED_LOG_FORMAT`) selects the
+line format:
+
+| Format | Line shape | Grafana/Loki |
+|--------|-----------|--------------|
+| `text` (default) | logfmt (`key=value`, spaces quoted) | parse with `| logfmt` |
+| `json` | one JSON object per line (NDJSON); numeric metrics are **bare JSON numbers** | parse with `| json` |
+
+The `json` form is the most robust for Grafana because the numeric fields graph
+directly. Example line:
+
+```json
+{"ts":"2026-06-10T10:59:44.344Z","file":"customers.idx","tx":2,"kind":"COMMIT","writes":1,"rewrites":0,"deletes":0,"records":1,"bytes":12,"dur_ms":6,"rec_per_s":166,"bytes_per_s":1992,"order":"ordered","in_order":1,"out_of_order":0}
+```
+
+Typical pipeline: ship `*.idx.log` with **Promtail / Grafana Agent / Alloy** to
+**Loki**, then in Grafana:
+
+```logql
+{job="rustcobol"} | json | kind="COMMIT" | unwrap rec_per_s
+```
+
+Keep labels low-cardinality at the agent (`file`, `kind`); leave `tx`, `ts`, and
+the numeric metrics as parsed fields.
+
+Implementation: `crates/cobolt-runtime/src/indexed_log.rs` (`LogRecord` →
+logfmt/NDJSON renderer, writer, ISO formatter) and the per-transaction
+accumulators in `indexed_redb.rs`.

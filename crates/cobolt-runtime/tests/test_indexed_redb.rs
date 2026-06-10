@@ -312,3 +312,41 @@ fn observability_log_records_transactions() {
     // Every line is timestamped and names the file.
     assert!(log.lines().all(|l| l.starts_with("ts=") && l.contains("file=")));
 }
+
+#[test]
+fn observability_log_json_format() {
+    use cobolt_runtime::indexed_log::{LogFormat, LogLevel};
+    let path = tmp_path("logjson");
+    let log_path = {
+        let mut os = path.as_os_str().to_owned();
+        os.push(".log");
+        std::path::PathBuf::from(os)
+    };
+    let primary = KeySpec { offset: 0, len: 4, duplicates: false };
+    let mut f = RedbIndexedFile::new(&path, 9, primary, vec![]);
+    f.set_log_level(LogLevel::Basic);
+    f.set_log_format(LogFormat::Json);
+
+    assert_eq!(f.open(OpenMode::Io), status::OK);
+    assert_eq!(f.write(&rec("1", "A")), status::OK);
+    assert_eq!(f.write(&rec("2", "B")), status::OK);
+    f.commit();
+    assert_eq!(f.close(), status::OK);
+
+    let log = std::fs::read_to_string(&log_path).expect("json log written");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&log_path);
+
+    // Every line is a JSON object (NDJSON).
+    for l in log.lines() {
+        assert!(l.starts_with('{') && l.ends_with('}'), "not a JSON object: {l}");
+        assert!(l.contains(r#""ts":""#) && l.contains(r#""kind":""#), "missing fields: {l}");
+    }
+    // Numeric fields are bare numbers (graphable in Grafana), strings are quoted.
+    assert!(
+        log.lines().any(|l| l.contains(r#""kind":"COMMIT""#)
+            && l.contains(r#""writes":2"#)
+            && l.contains(r#""order":"ordered""#)),
+        "COMMIT json wrong:\n{log}"
+    );
+}

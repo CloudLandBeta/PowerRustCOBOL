@@ -130,6 +130,7 @@ fn cmd_run(args: &[String]) {
     let mut interp = Interpreter::new(program);
     interp.set_indexed_engine(resolve_indexed_engine(args));
     interp.set_indexed_log_level(resolve_indexed_log_level(args));
+    interp.set_indexed_log_format(resolve_indexed_log_format(args));
     interp.set_program_args(extract_program_args(args));
     match interp.run() {
         Ok(()) => {}
@@ -193,6 +194,7 @@ fn cmd_help() {
         "  rcrun run     <file.cbl>              Run a COBOL program\n",
         "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu | redb\n",
         "         [--indexed-log <basic|full>]    Per-file INDEXED txn log → <assign-path>.log (redb)\n",
+        "         [--indexed-log-format <text|json>]  Log line format (json = NDJSON for Grafana/Loki)\n",
         "  rcrun check   <file.cbl>              Parse and analyse without running\n",
         "  rcrun build   <file.cbl>             Compile a console program → bin/<name> (native binary)\n",
         "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",
@@ -554,7 +556,7 @@ fn extract_program_args(args: &[String]) -> Vec<String> {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" {
+        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" || a == "--indexed-log-format" {
             i += 2;
             continue;
         }
@@ -574,7 +576,7 @@ fn require_path(args: &[String], cmd: &str) -> PathBuf {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" {
+        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" || a == "--indexed-log-format" {
             i += 2; // skip the flag and its separate value
             continue;
         }
@@ -641,6 +643,28 @@ fn resolve_indexed_log_level(args: &[String]) -> cobolt_runtime::indexed_log::Lo
     chosen
         .map(|s| cobolt_runtime::indexed_log::LogLevel::parse(&s))
         .unwrap_or(cobolt_runtime::indexed_log::LogLevel::Off)
+}
+
+/// Resolve the INDEXED log line format: `--indexed-log-format <text|json>` /
+/// `--indexed-log-format=<...>`, then `COBOL_INDEXED_LOG_FORMAT`, then text
+/// (logfmt). `json` emits NDJSON for Grafana/Loki (`| json`).
+fn resolve_indexed_log_format(args: &[String]) -> cobolt_runtime::indexed_log::LogFormat {
+    let mut chosen: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(v) = a.strip_prefix("--indexed-log-format=") {
+            chosen = Some(v.to_string());
+        } else if a == "--indexed-log-format" {
+            chosen = args.get(i + 1).cloned();
+            i += 1;
+        }
+        i += 1;
+    }
+    let chosen = chosen.or_else(|| std::env::var("COBOL_INDEXED_LOG_FORMAT").ok());
+    chosen
+        .map(|s| cobolt_runtime::indexed_log::LogFormat::parse(&s))
+        .unwrap_or(cobolt_runtime::indexed_log::LogFormat::Text)
 }
 
 fn read_source(path: &PathBuf) -> String {

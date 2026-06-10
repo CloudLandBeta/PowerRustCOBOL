@@ -52,7 +52,7 @@ use redb::{
 
 use crate::compress;
 use crate::indexed::{status, Bytes, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp};
-use crate::indexed_log::{field, now_iso, LogLevel, LogWriter};
+use crate::indexed_log::{now_iso, LogFormat, LogLevel, LogRecord, LogWriter};
 
 type Slice = &'static [u8];
 const PRIMARY: TableDefinition<Slice, Slice> = TableDefinition::new("primary");
@@ -134,6 +134,7 @@ pub struct RedbIndexedFile {
 
     // ── Optional observability log (see indexed_log.rs) ──────────────────────
     log_level: LogLevel,
+    log_format: LogFormat,
     log: Option<LogWriter>,
     /// Per-transaction accumulators (reset at OPEN and after each COMMIT/ROLLBACK).
     tx_id: u64,
@@ -170,6 +171,7 @@ impl RedbIndexedFile {
             start_at: None,
             current: None,
             log_level: LogLevel::Off,
+            log_format: LogFormat::Text,
             log: None,
             tx_id: 0,
             tx_writes: 0,
@@ -195,6 +197,10 @@ impl RedbIndexedFile {
     /// Enable the per-file transaction log at `<assign-path>.log`.
     pub fn set_log_level(&mut self, level: LogLevel) {
         self.log_level = level;
+    }
+    /// Choose the log line format (logfmt text or NDJSON).
+    pub fn set_log_format(&mut self, format: LogFormat) {
+        self.log_format = format;
     }
 
     // ── Observability log bookkeeping ────────────────────────────────────────
@@ -225,30 +231,30 @@ impl RedbIndexedFile {
         self.tx_last_key = Some(pkey.to_vec());
     }
 
-    /// Compute the redb index-statistics suffix from the live write transaction
+    /// Redb index statistics from the live write transaction, as numeric fields
     /// (used for `full`-level CLOSE lines). Walks the index — cost scales with
-    /// file size — so it is only called at CLOSE under `LogLevel::Full`.
-    fn full_stats_suffix(&self) -> Option<String> {
+    /// file size — so it is only populated at CLOSE under `LogLevel::Full`.
+    fn full_stats_fields(&self) -> Vec<(&'static str, u64)> {
         if self.log_level != LogLevel::Full {
-            return None;
+            return Vec::new();
         }
-        let s = self.wtx.as_ref()?.stats().ok()?;
-        Some(format!(
-            " tree_height={} allocated_pages={} leaf_pages={} branch_pages={} \
-             stored_bytes={} fragmented_bytes={} page_size={}",
-            s.tree_height(),
-            s.allocated_pages(),
-            s.leaf_pages(),
-            s.branch_pages(),
-            s.stored_bytes(),
-            s.fragmented_bytes(),
-            s.page_size(),
-        ))
+        let Some(Ok(s)) = self.wtx.as_ref().map(|w| w.stats()) else {
+            return Vec::new();
+        };
+        vec![
+            ("tree_height", s.tree_height() as u64),
+            ("allocated_pages", s.allocated_pages()),
+            ("leaf_pages", s.leaf_pages()),
+            ("branch_pages", s.branch_pages()),
+            ("stored_bytes", s.stored_bytes()),
+            ("fragmented_bytes", s.fragmented_bytes()),
+            ("page_size", s.page_size() as u64),
+        ]
     }
 
     /// Emit one log line for a transaction event and reset the accumulators.
-    /// `suffix` carries optional pre-computed extra fields (e.g. CLOSE stats).
-    fn log_event(&mut self, kind: &str, suffix: Option<&str>) {
+    /// `extra` carries optional pre-computed numeric fields (e.g. CLOSE stats).
+    fn log_event(&mut self, kind: &str, extra: &[(&'static str, u64)]) {
         if !self.log_level.is_on() {
             return;
         }
@@ -268,28 +274,28 @@ impl RedbIndexedFile {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let mut line = format!(
-            "ts={} {} tx={} kind={} writes={} rewrites={} deletes={} records={} bytes={} \
-             dur_ms={} rec_per_s={} bytes_per_s={} order={} in_order={} out_of_order={}",
-            now_iso(),
-            field("file", &fname),
-            self.tx_id,
-            kind,
-            self.tx_writes,
-            self.tx_rewrites,
-            self.tx_deletes,
-            records,
-            self.tx_bytes,
-            dur.as_millis(),
-            (records as f64 / secs) as u64,
-            (self.tx_bytes as f64 / secs) as u64,
-            order,
-            self.tx_in_order,
-            self.tx_out_of_order,
-        );
-        if let Some(suffix) = suffix {
-            line.push_str(suffix);
+
+        let mut rec = LogRecord::new();
+        rec.str("ts", now_iso())
+            .str("file", fname)
+            .num("tx", self.tx_id)
+            .str("kind", kind)
+            .num("writes", self.tx_writes)
+            .num("rewrites", self.tx_rewrites)
+            .num("deletes", self.tx_deletes)
+            .num("records", records)
+            .num("bytes", self.tx_bytes)
+            .num("dur_ms", dur.as_millis() as u64)
+            .num("rec_per_s", (records as f64 / secs) as u64)
+            .num("bytes_per_s", (self.tx_bytes as f64 / secs) as u64)
+            .str("order", order)
+            .num("in_order", self.tx_in_order)
+            .num("out_of_order", self.tx_out_of_order);
+        for (k, v) in extra {
+            rec.num(k, *v);
         }
+
+        let line = rec.render(self.log_format);
         if let Some(log) = self.log.as_mut() {
             log.line(&line);
         }
@@ -746,7 +752,7 @@ impl IndexedStore for RedbIndexedFile {
         if self.log_level.is_on() {
             self.log = Some(LogWriter::new(&self.path, self.log_level));
             self.tx_reset();
-            self.log_event("OPEN", None);
+            self.log_event("OPEN", &[]);
         }
         status::OK
     }
@@ -757,14 +763,14 @@ impl IndexedStore for RedbIndexedFile {
         }
         // `full`-level index stats must be read from the live write transaction
         // before it is consumed by commit.
-        let suffix = self.full_stats_suffix();
+        let stats = self.full_stats_fields();
         let mut st = status::OK;
         if let Some(wtx) = self.wtx.take() {
             if wtx.commit().is_err() {
                 st = status::IO_ERROR;
             }
         }
-        self.log_event("CLOSE", suffix.as_deref());
+        self.log_event("CLOSE", &stats);
         self.log = None;
         self.db = None;
         self.open = None;
@@ -1061,7 +1067,7 @@ impl IndexedStore for RedbIndexedFile {
         if let Some(wtx) = self.wtx.take() {
             let _ = wtx.commit();
         }
-        self.log_event("COMMIT", None);
+        self.log_event("COMMIT", &[]);
         if matches!(self.open, Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)) {
             if let Some(db) = &self.db {
                 self.wtx = db.begin_write().ok();
@@ -1073,7 +1079,7 @@ impl IndexedStore for RedbIndexedFile {
         if let Some(wtx) = self.wtx.take() {
             let _ = wtx.abort();
         }
-        self.log_event("ROLLBACK", None);
+        self.log_event("ROLLBACK", &[]);
         if let Some(db) = &self.db {
             self.wtx = db.begin_write().ok();
         }
