@@ -8,6 +8,44 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.14.0] — 2026-06-10
+
+IDE: controlled project tree, read-only generated code, richer toolbar.
+
+### New features
+
+- **Controlled project treeview** with four fixed, IDE-owned top categories —
+  **Forms · Common Code · Assets · Documentation** — each with a professional
+  icon and a `[+]` to add sub-entries. Developers can only add files *within* a
+  category, never create new top nodes. (`Documentation` is a new category;
+  `cobolt.toml` gains `documentation` + `generated` lists, loaded with serde
+  defaults so existing projects upgrade transparently.)
+- **RAD-generated COBOL is read-only and shown in blue.** Generated `.cbl`
+  (output of the form designer) is tracked separately, listed under Common Code
+  in blue with a 🔒 badge, and opened **non-editable** in the editor (a flat-blue
+  layout, never saved over). Hand-written "Common Code" — the pure COBOL-85
+  modules `CALL`ed by forms — stays fully editable.
+- **Toolbar gains Build (binary), Run (interpreted) and Debug**, alongside Stop /
+  Check / Open / Save.
+- **Compile-gating**: Run / Debug / Build are enabled only when the project has
+  at least one COBOL program (hand-written or generated) **or** at least one
+  form; otherwise they're disabled with an explanatory tooltip.
+- i18n: new keys for all five languages (categories, tree affordances, toolbar
+  Build/Debug, the compile-gating tooltip).
+
+### Design (not yet implemented)
+
+- `docs/ide-collaboration-design.md` — the multi-developer collaboration design
+  (Phase B): a **pluggable `SyncBackend`** (local-only · local git · GitHub ·
+  Google Drive), pessimistic file-level locking (warn-once, read-only for the
+  second developer, re-offer on release), change propagation, and a phased
+  rollout starting from a trivial local backend. Design only — no code.
+
+### Tests
+
+- `project_model` unit tests (category routing, generated detection incl. legacy
+  stem-match, compile-gating). Full suite 414 passing.
+
 ## [PowerRustCOBOL 1.13.1] — 2026-06-10
 
 Bug fix: `IF … ELSE …` sentence scoping (and `NEXT SENTENCE` with it).

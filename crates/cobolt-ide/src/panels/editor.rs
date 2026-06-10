@@ -427,17 +427,28 @@ pub struct EditorTab {
     pub path:    PathBuf,
     pub content: String,
     pub dirty:   bool,
+    /// RAD-generated code: shown in blue, never editable.
+    pub read_only: bool,
 }
 
 impl EditorTab {
     pub fn new(path: PathBuf, content: String) -> Self {
-        Self { path, content, dirty: false }
+        Self { path, content, dirty: false, read_only: false }
     }
     pub fn title(&self) -> String {
         let name = self.path.file_name().and_then(|n| n.to_str()).unwrap_or("untitled");
-        if self.dirty { format!("● {name}") } else { name.into() }
+        if self.read_only {
+            format!("🔒 {name}")
+        } else if self.dirty {
+            format!("● {name}")
+        } else {
+            name.into()
+        }
     }
 }
+
+/// The blue used for read-only RAD-generated source in the editor.
+pub const GENERATED_BLUE: Color32 = Color32::from_rgb(96, 160, 240);
 
 // ── Known control (for IntelliSense) ─────────────────────────────────────────
 
@@ -511,17 +522,27 @@ impl EditorPanel {
     // ── File operations ────────────────────────────────────────────────────────
 
     pub fn open_file(&mut self, path: PathBuf) {
+        self.open_file_ro(path, false);
+    }
+
+    /// Open `path`, marking the tab read-only (blue, non-editable) when
+    /// `read_only` is set (RAD-generated COBOL).
+    pub fn open_file_ro(&mut self, path: PathBuf, read_only: bool) {
         if let Some(idx) = self.tabs.iter().position(|t| t.path == path) {
             self.active = idx;
+            self.tabs[idx].read_only = read_only;
             return;
         }
         let content = std::fs::read_to_string(&path).unwrap_or_default();
-        self.tabs.push(EditorTab::new(path, content));
+        let mut tab = EditorTab::new(path, content);
+        tab.read_only = read_only;
+        self.tabs.push(tab);
         self.active = self.tabs.len() - 1;
     }
 
     pub fn save_active(&mut self) -> std::io::Result<()> {
         let Some(tab) = self.tabs.get_mut(self.active) else { return Ok(()); };
+        if tab.read_only { return Ok(()); } // never write generated source
         std::fs::write(&tab.path, &tab.content)?;
         tab.dirty = false;
         Ok(())
@@ -760,8 +781,15 @@ impl EditorPanel {
                 .copied()
                 .collect();
             let font_hl = font.clone();
+            // Read-only RAD-generated source renders in flat blue (no syntax
+            // colours) so it's visually distinct from editable Common Code.
+            let read_only = self.tabs.get(self.active).map(|t| t.read_only).unwrap_or(false);
             let mut layouter = move |ui: &egui::Ui, text: &str, _wrap: f32| -> Arc<egui::Galley> {
-                let lj = cobol_layout_job(text, font_hl.clone(), &kw_set);
+                let lj = if read_only {
+                    mono_layout_job(text, font_hl.clone(), GENERATED_BLUE)
+                } else {
+                    cobol_layout_job(text, font_hl.clone(), &kw_set)
+                };
                 ui.fonts(|f| f.layout_job(lj))
             };
 
@@ -851,19 +879,20 @@ impl EditorPanel {
                             ui.add(egui::Separator::default().vertical().spacing(2.0));
                         }
 
-                        // ── Editable source ───────────────────────────────────
+                        // ── Source (read-only for RAD-generated code) ─────────
                         let tab = &mut self.tabs[self.active];
                         let te_out = TextEdit::multiline(&mut tab.content)
                             .id(editor_id)
                             .font(font.clone())
                             .desired_width(f32::INFINITY)
                             .lock_focus(true)
+                            .interactive(!tab.read_only)
                             .layouter(&mut layouter)
                             .show(ui);
 
                         editor_rect_cell.set(te_out.response.rect);
 
-                        if te_out.response.changed() { tab.dirty = true; }
+                        if te_out.response.changed() && !tab.read_only { tab.dirty = true; }
 
                         // Reposition cursor (completion apply or search navigate)
                         // Search navigation: set cursor to match position
@@ -1483,6 +1512,14 @@ pub fn cobol_layout_job(
         cobol_highlight_line(&mut job, line, kw_set, &fmt,
             c_plain, c_kw, c_data, c_para, c_str, c_comment);
     }
+    job
+}
+
+/// Lay out `text` in a single flat colour (used for read-only generated code).
+pub fn mono_layout_job(text: &str, font_id: FontId, color: Color32) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let mut job = LayoutJob::default();
+    job.append(text, 0.0, TextFormat { font_id, color, ..Default::default() });
     job
 }
 

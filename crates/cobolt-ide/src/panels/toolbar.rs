@@ -14,38 +14,64 @@ use crate::i18n::{Language, Tr};
 /// Render the toolbar and return the user's action (if any).
 ///
 /// `lang` is updated in-place when the user picks a different language.
-pub fn show(ctx: &Context, runner: &Runner, tr: &Tr, lang: &mut Language) -> ToolbarAction {
+/// `compilable` gates the Run / Debug / Build actions (a project needs at least
+/// one COBOL program or one form).
+pub fn show(
+    ctx: &Context,
+    runner: &Runner,
+    tr: &Tr,
+    lang: &mut Language,
+    compilable: bool,
+) -> ToolbarAction {
     let mut action = ToolbarAction::None;
+    let busy = runner.is_running();
 
     TopBottomPanel::top("toolbar").show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.add_space(4.0);
 
-            // ── Run ──────────────────────────────────────────────────────────
+            // ── Run (interpreted) ─────────────────────────────────────────────
             let run_btn = Button::new(
                 RichText::new(tr.tb_run).color(
-                    if runner.is_running() { Color32::GRAY } else { Color32::from_rgb(80, 200, 80) }
+                    if busy || !compilable { Color32::GRAY } else { Color32::from_rgb(80, 200, 80) }
                 )
             );
-            if ui.add_enabled(!runner.is_running(), run_btn).clicked() {
-                action = ToolbarAction::Run;
-            }
+            let run_resp = ui.add_enabled(!busy && compilable, run_btn);
+            if run_resp.clicked() { action = ToolbarAction::Run; }
+            if !compilable { run_resp.on_hover_text(tr.tb_need_program); }
 
             ui.add_space(4.0);
 
             // ── Stop ─────────────────────────────────────────────────────────
             let stop_btn = Button::new(
                 RichText::new(tr.tb_stop).color(
-                    if runner.is_running() { Color32::from_rgb(220, 80, 80) } else { Color32::GRAY }
+                    if busy { Color32::from_rgb(220, 80, 80) } else { Color32::GRAY }
                 )
             );
-            if ui.add_enabled(runner.is_running(), stop_btn).clicked() {
+            if ui.add_enabled(busy, stop_btn).clicked() {
                 action = ToolbarAction::Stop;
             }
 
+            ui.add_space(4.0);
+
+            // ── Debug ─────────────────────────────────────────────────────────
+            let dbg_resp = ui.add_enabled(
+                !busy && compilable,
+                Button::new(RichText::new(tr.tb_debug).color(
+                    if busy || !compilable { Color32::GRAY } else { Color32::from_rgb(200, 150, 80) }
+                )),
+            );
+            if dbg_resp.clicked() { action = ToolbarAction::Debug; }
+            if !compilable { dbg_resp.on_hover_text(tr.tb_need_program); }
+
             ui.separator();
 
-            // ── Build (check only) ────────────────────────────────────────────
+            // ── Build binary ──────────────────────────────────────────────────
+            let build_resp = ui.add_enabled(compilable, Button::new(tr.tb_build));
+            if build_resp.clicked() { action = ToolbarAction::Build; }
+            if !compilable { build_resp.on_hover_text(tr.tb_need_program); }
+
+            // ── Check (parse/analyse only) ────────────────────────────────────
             if ui.button(tr.tb_check).clicked() {
                 action = ToolbarAction::Check;
             }
@@ -94,6 +120,8 @@ pub enum ToolbarAction {
     None,
     Run,
     Stop,
+    Debug,
+    Build,
     Check,
     Open,
     Save,

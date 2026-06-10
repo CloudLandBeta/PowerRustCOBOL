@@ -23,8 +23,11 @@ use std::path::{Path, PathBuf};
 
 use egui::{Color32, Context, RichText, ScrollArea, SidePanel, Ui};
 
-use crate::project_model::{CoboltProject, FileKind};
+use crate::project_model::{CoboltProject, Category, FileKind};
 use crate::i18n::Tr;
+
+/// Blue for read-only RAD-generated COBOL in the tree (matches the editor).
+const GENERATED_BLUE: Color32 = Color32::from_rgb(96, 160, 240);
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
@@ -122,18 +125,11 @@ impl ProjectPanel {
         ScrollArea::vertical()
             .id_salt("project_panel_scroll")
             .show(ui, |ui| {
-                show_section(
-                    ui, tr.panel_sources, FileKind::Source, "📄",
-                    &proj.files.sources, &self.root, events,
-                );
-                show_section(
-                    ui, tr.panel_forms, FileKind::Form, "🗔",
-                    &proj.files.forms, &self.root, events,
-                );
-                show_section(
-                    ui, tr.panel_assets, FileKind::Asset, "📦",
-                    &proj.files.assets, &self.root, events,
-                );
+                // The four fixed, IDE-owned top categories. Developers can only
+                // add sub-entries within a category — never new top nodes.
+                for cat in Category::TOP {
+                    show_category(ui, cat, proj, &self.root, events, tr);
+                }
             });
     }
 
@@ -235,62 +231,97 @@ impl ProjectPanel {
     }
 }
 
-// ── Section renderer ──────────────────────────────────────────────────────────
+// ── Category tree node ─────────────────────────────────────────────────────────
 
-/// Draw one file-group section (Sources / Forms / Assets).
-///
-/// Free function to avoid borrow-checker conflicts with `&mut self`.
-fn show_section(
+/// Draw one fixed top-level category (a collapsible tree node) with its files.
+/// The header carries the category icon, label and a `[+]` add-button; for
+/// Common Code the read-only RAD-generated COBOL is overlaid in blue.
+fn show_category(
     ui:     &mut Ui,
-    title:  &str,
-    kind:   FileKind,
-    icon:   &str,
-    files:  &[String],
+    cat:    Category,
+    proj:   &CoboltProject,
     root:   &Option<PathBuf>,
     events: &mut Vec<ProjectPanelEvent>,
+    tr:     &Tr,
 ) {
-    // Section header row with [+] button on the right
-    ui.horizontal(|ui| {
-        ui.strong(title);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("+")
-                .on_hover_text(format!("Add file to {title}"))
-                .clicked()
-            {
-                events.push(ProjectPanelEvent::Add(kind));
-            }
-        });
-    });
+    let (label, kind): (&str, FileKind) = match cat {
+        Category::Forms         => (tr.panel_forms, FileKind::Form),
+        Category::CommonCode    => (tr.cat_common_code, FileKind::Source),
+        Category::Assets        => (tr.panel_assets, FileKind::Asset),
+        Category::Documentation => (tr.cat_documentation, FileKind::Documentation),
+        Category::Generated     => return,
+    };
 
-    if files.is_empty() {
-        ui.label(RichText::new("  (none)").color(Color32::GRAY).small());
-    } else {
-        for rel in files {
-            let name = Path::new(rel)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(rel.as_str());
-
-            let resp = ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                ui.selectable_label(false, format!("{icon} {name}"))
-                    .on_hover_text(rel.as_str())
-            }).inner;
-
-            if resp.double_clicked() {
-                if let Some(dir) = root {
-                    events.push(ProjectPanelEvent::Open(dir.join(rel)));
-                }
-            }
-
-            resp.context_menu(|ui| {
-                if ui.button("Remove from project").clicked() {
-                    events.push(ProjectPanelEvent::Remove(rel.clone()));
-                    ui.close_menu();
+    let id = ui.make_persistent_id(("project_cat", label));
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+        .show_header(ui, |ui| {
+            ui.label(RichText::new(format!("{} {}", cat.icon(), label)).strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("➕")
+                    .on_hover_text(format!("{}: {label}", tr.tree_add_hover))
+                    .clicked()
+                {
+                    events.push(ProjectPanelEvent::Add(kind));
                 }
             });
+        })
+        .body(|ui| {
+            let editable = proj.files_in(cat);
+            let generated: &[String] = if cat == Category::CommonCode {
+                proj.files_in(Category::Generated)
+            } else {
+                &[]
+            };
+
+            if editable.is_empty() && generated.is_empty() {
+                ui.label(RichText::new(format!("  {}", tr.tree_empty)).color(Color32::GRAY).small());
+                return;
+            }
+            // Editable files (normal colour, removable).
+            for rel in editable {
+                file_row(ui, rel, kind.icon(), None, true, root, events);
+            }
+            // RAD-generated COBOL (blue, read-only, not removable here).
+            for rel in generated {
+                file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, root, events);
+            }
+        });
+
+    ui.add_space(2.0);
+}
+
+/// One file row inside a category. `color` tints the label (generated = blue);
+/// `removable` controls the right-click "Remove from project" entry.
+fn file_row(
+    ui:        &mut Ui,
+    rel:       &str,
+    icon:      &str,
+    color:     Option<Color32>,
+    removable: bool,
+    root:      &Option<PathBuf>,
+    events:    &mut Vec<ProjectPanelEvent>,
+) {
+    let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
+    let mut text = RichText::new(format!("{icon} {name}"));
+    if let Some(c) = color {
+        text = text.color(c);
+    }
+    let resp = ui.horizontal(|ui| {
+        ui.add_space(14.0);
+        ui.selectable_label(false, text).on_hover_text(rel)
+    }).inner;
+
+    if resp.double_clicked() {
+        if let Some(dir) = root {
+            events.push(ProjectPanelEvent::Open(dir.join(rel)));
         }
     }
-
-    ui.add_space(4.0);
+    if removable {
+        resp.context_menu(|ui| {
+            if ui.button("Remove from project").clicked() {
+                events.push(ProjectPanelEvent::Remove(rel.to_string()));
+                ui.close_menu();
+            }
+        });
+    }
 }

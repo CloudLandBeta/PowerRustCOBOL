@@ -633,9 +633,10 @@ impl CoboltApp {
         };
 
         let (filter_name, exts): (&str, &[&str]) = match kind {
-            FileKind::Source => ("COBOL Source", &["cbl", "cob", "cpy"]),
-            FileKind::Form   => ("RustCOBOL Form",  &["cfrm"]),
-            FileKind::Asset  => ("All Files",    &["*"]),
+            FileKind::Source        => ("COBOL Source", &["cbl", "cob", "cpy"]),
+            FileKind::Form          => ("RustCOBOL Form", &["cfrm"]),
+            FileKind::Documentation => ("Documentation", &["md", "markdown", "txt", "rst", "adoc", "pdf", "html", "htm"]),
+            FileKind::Asset         => ("All Files", &["*"]),
         };
 
         self.begin_file_dialog(
@@ -754,6 +755,24 @@ impl CoboltApp {
         self.pending_goto_paragraph = Some(para);
     }
 
+    /// Open a file in the editor, marking RAD-generated COBOL read-only (blue).
+    fn open_in_editor(&mut self, path: PathBuf) {
+        let read_only = self.path_is_generated(&path);
+        self.editor.open_file_ro(path, read_only);
+    }
+
+    /// True when `path` is RAD-generated code in the open project (read-only).
+    fn path_is_generated(&self, path: &std::path::Path) -> bool {
+        if let (Some(proj), Some(pp)) = (&self.cobolt_project, &self.project_path) {
+            if let Some(dir) = pp.parent() {
+                if let Some(rel) = relative_to(path, dir) {
+                    return proj.is_generated(&rel);
+                }
+            }
+        }
+        false
+    }
+
     fn do_generate_cobol(&mut self, idx: usize) {
         if idx >= self.designers.len() { return; }
         let cbl_path = self.designers[idx].0.with_extension("cbl");
@@ -767,7 +786,7 @@ impl CoboltApp {
                 if let Some(dir) = proj_dir {
                     if let Some(rel) = relative_to(&cbl_path, &dir) {
                         if let Some(proj) = &mut self.cobolt_project {
-                            proj.add_file(&rel);
+                            proj.add_generated(&rel); // RAD output → read-only
                         }
                         self.do_save_project();
                     }
@@ -1063,7 +1082,7 @@ impl CoboltApp {
                     }
                     self.forms_list.set_root(parent);
                 }
-                self.editor.open_file(path);
+                self.open_in_editor(path);
             }
             FileRequest::CreateProject  => self.create_new_project_at(path),
             FileRequest::OpenProject    => self.open_project_at(path),
@@ -1245,7 +1264,7 @@ impl eframe::App for CoboltApp {
 
         // ── Pending editor open from a designer window ────────────────────────
         if let Some(path) = self.pending_open_in_editor.take() {
-            self.editor.open_file(path);
+            self.open_in_editor(path);
             // If a paragraph jump was queued (event row double-click), perform it
             // now that the freshly-generated file is the active editor tab.
             if let Some(para) = self.pending_goto_paragraph.take() {
@@ -1328,9 +1347,17 @@ impl eframe::App for CoboltApp {
         });
 
         // ── Toolbar ───────────────────────────────────────────────────────────
-        match toolbar::show(ctx, &self.runner, &tr, &mut self.lang) {
+        // A project compiles only if it has a COBOL program or a form; with no
+        // project (single-file mode) gate on an open source / designer.
+        let compilable = match &self.cobolt_project {
+            Some(p) => p.is_compilable(),
+            None => self.editor.active_source().is_some() || !self.designers.is_empty(),
+        };
+        match toolbar::show(ctx, &self.runner, &tr, &mut self.lang, compilable) {
             ToolbarAction::Run   => self.do_run(),
             ToolbarAction::Stop  => self.do_stop(),
+            ToolbarAction::Debug => self.do_debug(),
+            ToolbarAction::Build => self.do_build_binary(),
             ToolbarAction::Check => self.do_check(),
             ToolbarAction::Open  => self.do_open(),
             ToolbarAction::Save  => self.do_save(),
@@ -1386,7 +1413,7 @@ impl eframe::App for CoboltApp {
                     if path.extension().and_then(|e| e.to_str()) == Some("cfrm") {
                         self.load_form_from_path(path);
                     } else {
-                        self.editor.open_file(path);
+                        self.open_in_editor(path);
                     }
                 }
                 ProjectPanelEvent::Add(kind)  => self.do_add_file_to_project(kind),

@@ -53,12 +53,19 @@ pub struct ProjectMeta {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectFiles {
+    /// Hand-written pure COBOL-85 ("Common Code") — editable, CALLed by forms.
     #[serde(default)]
     pub sources: Vec<String>, // relative paths
     #[serde(default)]
     pub forms:   Vec<String>,
     #[serde(default)]
     pub assets:  Vec<String>,
+    /// Documentation files (Markdown, text, PDF, …).
+    #[serde(default)]
+    pub documentation: Vec<String>,
+    /// RAD-generated COBOL (output of the form designer) — **read-only**.
+    #[serde(default)]
+    pub generated: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,18 +94,39 @@ impl CoboltProject {
 
     // ── File membership helpers ───────────────────────────────────────────────
 
-    /// Add a file to the appropriate list (deduplicates).
-    /// `rel` must be a relative path string (e.g. `"src/main.cbl"`).
-    pub fn add_file(&mut self, rel: &str) {
-        let kind = FileKind::from_path(rel);
-        let list = match kind {
-            FileKind::Source => &mut self.files.sources,
-            FileKind::Form   => &mut self.files.forms,
-            FileKind::Asset  => &mut self.files.assets,
-        };
+    /// Add a file to the appropriate list (deduplicates), routed by `Category`
+    /// (so a `.cbl` can be added as Common Code even though its extension is the
+    /// same as a generated file).
+    pub fn add_file_to(&mut self, rel: &str, category: Category) {
         let rel = rel.replace('\\', "/");
+        let list = self.list_mut(category);
         if !list.contains(&rel) {
             list.push(rel);
+        }
+    }
+
+    /// Add a file, routing it to a category by its extension.
+    pub fn add_file(&mut self, rel: &str) {
+        self.add_file_to(rel, Category::of_path(rel));
+    }
+
+    /// Register a RAD-generated COBOL file (read-only). Also removes it from the
+    /// editable Common Code list if it had been tracked there.
+    pub fn add_generated(&mut self, rel: &str) {
+        let rel = rel.replace('\\', "/");
+        self.files.sources.retain(|f| f != &rel);
+        if !self.files.generated.contains(&rel) {
+            self.files.generated.push(rel);
+        }
+    }
+
+    fn list_mut(&mut self, category: Category) -> &mut Vec<String> {
+        match category {
+            Category::Forms         => &mut self.files.forms,
+            Category::CommonCode    => &mut self.files.sources,
+            Category::Assets        => &mut self.files.assets,
+            Category::Documentation => &mut self.files.documentation,
+            Category::Generated     => &mut self.files.generated,
         }
     }
 
@@ -108,22 +136,106 @@ impl CoboltProject {
         self.files.sources.retain(|f| f != &rel);
         self.files.forms.retain(|f| f != &rel);
         self.files.assets.retain(|f| f != &rel);
+        self.files.documentation.retain(|f| f != &rel);
+        self.files.generated.retain(|f| f != &rel);
     }
 
     /// True if `rel` is tracked by the project.
     pub fn contains(&self, rel: &str) -> bool {
         let rel = rel.replace('\\', "/");
-        self.files.sources.contains(&rel)
-            || self.files.forms.contains(&rel)
-            || self.files.assets.contains(&rel)
+        self.all_files().any(|f| f == rel)
     }
 
-    /// All tracked files (sources + forms + assets) as relative path strings.
+    /// True if `rel` is RAD-generated (read-only). Robust against legacy projects
+    /// that tracked generated `.cbl` in `sources`: a `.cbl` whose stem matches a
+    /// tracked `.cfrm` form is treated as generated.
+    pub fn is_generated(&self, rel: &str) -> bool {
+        let rel = rel.replace('\\', "/");
+        if self.files.generated.iter().any(|f| f == &rel) {
+            return true;
+        }
+        let stem = Path::new(&rel).file_stem().and_then(|s| s.to_str());
+        let is_cobol = FileKind::from_path(&rel) == FileKind::Source;
+        is_cobol
+            && stem.is_some()
+            && self.files.forms.iter().any(|form| {
+                Path::new(form).file_stem().and_then(|s| s.to_str()) == stem
+            })
+    }
+
+    /// Files in a given UI category (Generated is overlaid on Common Code in the
+    /// tree, so callers usually iterate CommonCode + Generated separately).
+    pub fn files_in(&self, category: Category) -> &[String] {
+        match category {
+            Category::Forms         => &self.files.forms,
+            Category::CommonCode    => &self.files.sources,
+            Category::Assets        => &self.files.assets,
+            Category::Documentation => &self.files.documentation,
+            Category::Generated     => &self.files.generated,
+        }
+    }
+
+    /// All tracked files as relative path strings.
     pub fn all_files(&self) -> impl Iterator<Item = &str> {
         self.files.sources.iter()
             .chain(self.files.forms.iter())
             .chain(self.files.assets.iter())
+            .chain(self.files.documentation.iter())
+            .chain(self.files.generated.iter())
             .map(|s| s.as_str())
+    }
+
+    /// Whether the project is compilable: it must contain at least one pure
+    /// COBOL-85 program (hand-written or generated) **or** at least one form.
+    pub fn is_compilable(&self) -> bool {
+        !self.files.sources.is_empty()
+            || !self.files.generated.is_empty()
+            || !self.files.forms.is_empty()
+    }
+}
+
+// ── Category (the IDE's fixed top-level tree nodes) ─────────────────────────────
+
+/// The fixed top-level categories shown in the project tree. The IDE owns these
+/// nodes; developers only add sub-entries within a category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    Forms,
+    CommonCode,
+    Assets,
+    Documentation,
+    /// Not a top node — RAD output, overlaid (read-only) under Common Code.
+    Generated,
+}
+
+impl Category {
+    /// The four developer-visible top categories, in display order.
+    pub const TOP: [Category; 4] = [
+        Category::Forms,
+        Category::CommonCode,
+        Category::Assets,
+        Category::Documentation,
+    ];
+
+    /// Route a path to a category by extension.
+    pub fn of_path(path: &str) -> Category {
+        match FileKind::from_path(path) {
+            FileKind::Form          => Category::Forms,
+            FileKind::Source        => Category::CommonCode,
+            FileKind::Documentation => Category::Documentation,
+            FileKind::Asset         => Category::Assets,
+        }
+    }
+
+    /// A professional Unicode icon for the category header.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Category::Forms         => "🖼",
+            Category::CommonCode    => "🧩",
+            Category::Assets        => "🎴",
+            Category::Documentation => "📚",
+            Category::Generated     => "⚙",
+        }
     }
 }
 
@@ -134,6 +246,7 @@ pub enum FileKind {
     Source,
     Form,
     Asset,
+    Documentation,
 }
 
 impl FileKind {
@@ -144,25 +257,30 @@ impl FileKind {
             .unwrap_or("")
             .to_ascii_lowercase();
         match ext.as_str() {
-            "cbl" | "cob" | "cpy" => FileKind::Source,
-            "cfrm"                 => FileKind::Form,
-            _                     => FileKind::Asset,
+            "cbl" | "cob" | "cpy"                          => FileKind::Source,
+            "cfrm"                                          => FileKind::Form,
+            "md" | "markdown" | "txt" | "rst" | "adoc"
+            | "pdf" | "html" | "htm"                       => FileKind::Documentation,
+            _                                              => FileKind::Asset,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            FileKind::Source => "Sources",
-            FileKind::Form   => "Forms",
-            FileKind::Asset  => "Assets",
+            FileKind::Source        => "Common Code",
+            FileKind::Form          => "Forms",
+            FileKind::Asset         => "Assets",
+            FileKind::Documentation => "Documentation",
         }
     }
 
+    /// A professional Unicode icon for a file of this kind.
     pub fn icon(self) -> &'static str {
         match self {
-            FileKind::Source => "📄",
-            FileKind::Form   => "🗔",
-            FileKind::Asset  => "📦",
+            FileKind::Source        => "🧾",
+            FileKind::Form          => "🖼",
+            FileKind::Asset         => "🎴",
+            FileKind::Documentation => "📄",
         }
     }
 }
@@ -363,4 +481,67 @@ pub fn relative_to(path: &Path, base: &Path) -> Option<String> {
     path.strip_prefix(base)
         .ok()
         .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proj() -> CoboltProject {
+        CoboltProject::new("T", "src/main.cbl")
+    }
+
+    #[test]
+    fn add_file_routes_by_category() {
+        let mut p = proj();
+        p.add_file("src/calc.cbl");
+        p.add_file("forms/login.cfrm");
+        p.add_file("img/logo.png");
+        p.add_file("docs/manual.md");
+        assert_eq!(p.files.sources, vec!["src/calc.cbl"]);
+        assert_eq!(p.files.forms, vec!["forms/login.cfrm"]);
+        assert_eq!(p.files.assets, vec!["img/logo.png"]);
+        assert_eq!(p.files.documentation, vec!["docs/manual.md"]);
+        assert_eq!(Category::of_path("a.cbl"), Category::CommonCode);
+        assert_eq!(Category::of_path("a.cfrm"), Category::Forms);
+        assert_eq!(Category::of_path("a.md"), Category::Documentation);
+        assert_eq!(Category::of_path("a.png"), Category::Assets);
+    }
+
+    #[test]
+    fn generated_is_flagged_and_removed_from_common_code() {
+        let mut p = proj();
+        p.add_file("forms/login.cbl"); // landed in sources first
+        p.add_generated("forms/login.cbl");
+        assert!(p.files.sources.is_empty(), "moved out of common code");
+        assert_eq!(p.files.generated, vec!["forms/login.cbl"]);
+        assert!(p.is_generated("forms/login.cbl"));
+    }
+
+    #[test]
+    fn legacy_generated_detected_by_stem_match_with_form() {
+        // A legacy project that tracked the generated .cbl in `sources`.
+        let mut p = proj();
+        p.add_file("forms/login.cfrm");
+        p.add_file("forms/login.cbl"); // same stem as the form → generated
+        p.add_file("src/calc.cbl"); // hand-written, no matching form
+        assert!(p.is_generated("forms/login.cbl"));
+        assert!(!p.is_generated("src/calc.cbl"));
+    }
+
+    #[test]
+    fn is_compilable_requires_program_or_form() {
+        let mut p = proj();
+        assert!(!p.is_compilable(), "empty project is not compilable");
+        p.add_file("forms/a.cfrm");
+        assert!(p.is_compilable(), "a form alone is enough");
+
+        let mut p2 = proj();
+        p2.add_file("src/a.cbl");
+        assert!(p2.is_compilable(), "a COBOL program alone is enough");
+
+        let mut p3 = proj();
+        p3.add_generated("gen/a.cbl");
+        assert!(p3.is_compilable(), "generated COBOL alone is enough");
+    }
 }

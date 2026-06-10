@@ -93,10 +93,13 @@ pub struct Tr {
     // ── Main IDE toolbar ──────────────────────────────────────────────────────
     pub tb_run:     &'static str,
     pub tb_stop:    &'static str,
+    pub tb_debug:   &'static str,
+    pub tb_build:   &'static str,
     pub tb_check:   &'static str,
     pub tb_open:    &'static str,
     pub tb_save:    &'static str,
     pub tb_running: &'static str,
+    pub tb_need_program: &'static str,
 
     // ── Designer toolbar ──────────────────────────────────────────────────────
     pub dt_save:            &'static str,
@@ -158,6 +161,10 @@ pub struct Tr {
     pub panel_sources:     &'static str,
     pub panel_forms:       &'static str,
     pub panel_assets:      &'static str,
+    pub cat_common_code:   &'static str,   // tree category: hand-written COBOL
+    pub cat_documentation: &'static str,   // tree category: docs
+    pub tree_add_hover:    &'static str,   // "Add file to" tooltip prefix
+    pub tree_empty:        &'static str,   // "(empty)" placeholder
     pub no_project_open:   &'static str,   // tree mode empty state
 
     // ── Forms list panel ─────────────────────────────────────────────────────
@@ -349,10 +356,13 @@ const EN: Tr = Tr {
 
     tb_run:     "▶  Run",
     tb_stop:    "■  Stop",
+    tb_debug:   "🐞  Debug",
+    tb_build:   "🔨  Build",
     tb_check:   "⚙  Check",
     tb_open:    "📂  Open",
     tb_save:    "💾  Save",
     tb_running: "Running…",
+    tb_need_program: "Add a COBOL program or a form first",
 
     dt_save:           "💾 Save",
     dt_save_tooltip:   "Save form and regenerate COBOL",
@@ -404,6 +414,10 @@ const EN: Tr = Tr {
     panel_sources:   "Sources",
     panel_forms:     "Forms",
     panel_assets:    "Assets",
+    cat_common_code:   "Common Code",
+    cat_documentation: "Documentation",
+    tree_add_hover:    "Add file to",
+    tree_empty:        "(empty)",
     no_project_open: "No project open.\nUse File → Open Project\nor File → Open COBOL.",
 
     forms_list_title: "Forms",
@@ -569,10 +583,13 @@ const ES: Tr = Tr {
 
     tb_run:     "▶  Ejecutar",
     tb_stop:    "■  Detener",
+    tb_debug:   "🐞  Depurar",
+    tb_build:   "🔨  Compilar",
     tb_check:   "⚙  Verificar",
     tb_open:    "📂  Abrir",
     tb_save:    "💾  Guardar",
     tb_running: "Ejecutando…",
+    tb_need_program: "Agregue un programa COBOL o un formulario",
 
     dt_save:           "💾 Guardar",
     dt_save_tooltip:   "Guardar formulario y regenerar COBOL",
@@ -624,6 +641,10 @@ const ES: Tr = Tr {
     panel_sources:   "Fuentes",
     panel_forms:     "Formularios",
     panel_assets:    "Recursos",
+    cat_common_code:   "Código Común",
+    cat_documentation: "Documentación",
+    tree_add_hover:    "Agregar archivo a",
+    tree_empty:        "(vacío)",
     no_project_open: "Sin proyecto abierto.\nUse Archivo → Abrir proyecto\no Archivo → Abrir COBOL.",
 
     forms_list_title: "Formularios",
@@ -789,10 +810,13 @@ const PT: Tr = Tr {
 
     tb_run:     "▶  Executar",
     tb_stop:    "■  Parar",
+    tb_debug:   "🐞  Depurar",
+    tb_build:   "🔨  Compilar",
     tb_check:   "⚙  Verificar",
     tb_open:    "📂  Abrir",
     tb_save:    "💾  Salvar",
     tb_running: "Executando…",
+    tb_need_program: "Adicione um programa COBOL ou um formulário",
 
     dt_save:           "💾 Salvar",
     dt_save_tooltip:   "Salvar formulário e regenerar COBOL",
@@ -844,6 +868,10 @@ const PT: Tr = Tr {
     panel_sources:   "Fontes",
     panel_forms:     "Formulários",
     panel_assets:    "Recursos",
+    cat_common_code:   "Código Comum",
+    cat_documentation: "Documentação",
+    tree_add_hover:    "Adicionar arquivo a",
+    tree_empty:        "(vazio)",
     no_project_open: "Nenhum projeto aberto.\nUse Arquivo → Abrir projeto\nou Arquivo → Abrir COBOL.",
 
     forms_list_title: "Formulários",
@@ -1009,10 +1037,13 @@ const JA: Tr = Tr {
 
     tb_run:     "▶  実行",
     tb_stop:    "■  停止",
+    tb_debug:   "🐞  デバッグ",
+    tb_build:   "🔨  ビルド",
     tb_check:   "⚙  確認",
     tb_open:    "📂  開く",
     tb_save:    "💾  保存",
     tb_running: "実行中…",
+    tb_need_program: "COBOLプログラムかフォームを追加してください",
 
     dt_save:           "💾 保存",
     dt_save_tooltip:   "フォームを保存してCOBOLを再生成",
@@ -1064,6 +1095,10 @@ const JA: Tr = Tr {
     panel_sources:   "ソース",
     panel_forms:     "フォーム",
     panel_assets:    "アセット",
+    cat_common_code:   "共通コード",
+    cat_documentation: "ドキュメント",
+    tree_add_hover:    "ファイルを追加",
+    tree_empty:        "（空）",
     no_project_open: "プロジェクトが開かれていません。\nファイル → プロジェクトを開く\nまたは ファイル → COBOLを開く。",
 
     forms_list_title: "フォーム",
@@ -1229,10 +1264,13 @@ const ZH: Tr = Tr {
 
     tb_run:     "▶  运行",
     tb_stop:    "■  停止",
+    tb_debug:   "🐞  调试",
+    tb_build:   "🔨  构建",
     tb_check:   "⚙  检查",
     tb_open:    "📂  打开",
     tb_save:    "💾  保存",
     tb_running: "运行中…",
+    tb_need_program: "请先添加一个 COBOL 程序或窗体",
 
     dt_save:           "💾 保存",
     dt_save_tooltip:   "保存窗体并重新生成 COBOL",
@@ -1284,6 +1322,10 @@ const ZH: Tr = Tr {
     panel_sources:   "源文件",
     panel_forms:     "窗体",
     panel_assets:    "资源",
+    cat_common_code:   "公共代码",
+    cat_documentation: "文档",
+    tree_add_hover:    "添加文件到",
+    tree_empty:        "（空）",
     no_project_open: "没有打开的项目。\n使用 文件 → 打开项目\n或 文件 → 打开 COBOL。",
 
     forms_list_title: "窗体",
