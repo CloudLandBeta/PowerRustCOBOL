@@ -14,17 +14,20 @@ IDE: controlled project tree, read-only generated code, richer toolbar.
 
 ### New features
 
-- **Controlled project treeview** with four fixed, IDE-owned top categories —
-  **Forms · Common Code · Assets · Documentation** — each with a professional
-  icon and a `[+]` to add sub-entries. Developers can only add files *within* a
-  category, never create new top nodes. (`Documentation` is a new category;
-  `cobolt.toml` gains `documentation` + `generated` lists, loaded with serde
-  defaults so existing projects upgrade transparently.)
-- **RAD-generated COBOL is read-only and shown in blue.** Generated `.cbl`
-  (output of the form designer) is tracked separately, listed under Common Code
-  in blue with a 🔒 badge, and opened **non-editable** in the editor (a flat-blue
-  layout, never saved over). Hand-written "Common Code" — the pure COBOL-85
-  modules `CALL`ed by forms — stays fully editable.
+- **Controlled project treeview** with five fixed, IDE-owned top categories —
+  **Forms · Common Code · Generated Code · Assets · Documentation** — each with a
+  professional icon. The four developer categories have a `[+]` to add
+  sub-entries; developers can only add files *within* a category, never create
+  top nodes. (`Documentation` is a new category; `cobolt.toml` gains
+  `documentation` + `generated` lists, loaded with serde defaults so existing
+  projects upgrade transparently.)
+- **Generated Code is its own read-only category.** Each form's RAD-generated
+  COBOL (output of the form designer, one entry per form, named after it) lives
+  under the **Generated Code** node — IDE-owned (no `[+]`), shown in blue with a
+  🔒 badge, and opened **non-editable** in the editor (a flat-blue layout, never
+  saved over) for review/debug only. Hand-written **Common Code** — the pure
+  COBOL-85 modules `CALL`ed by forms — stays fully editable and contains no
+  generated files.
 - **Toolbar gains Build (binary), Run (interpreted) and Debug**, alongside Stop /
   Check / Open / Save.
 - **Compile-gating**: Run / Debug / Build are enabled only when the project has

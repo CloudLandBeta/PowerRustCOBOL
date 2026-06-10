@@ -202,20 +202,28 @@ impl CoboltProject {
 pub enum Category {
     Forms,
     CommonCode,
+    /// RAD output — its own read-only top category (one file per form).
+    Generated,
     Assets,
     Documentation,
-    /// Not a top node — RAD output, overlaid (read-only) under Common Code.
-    Generated,
 }
 
 impl Category {
-    /// The four developer-visible top categories, in display order.
-    pub const TOP: [Category; 4] = [
+    /// The fixed top categories, in display order. `Generated` is IDE-owned and
+    /// read-only (developers cannot add to it — forms populate it).
+    pub const TOP: [Category; 5] = [
         Category::Forms,
         Category::CommonCode,
+        Category::Generated,
         Category::Assets,
         Category::Documentation,
     ];
+
+    /// True if developers may add files to this category (Generated is populated
+    /// by the form designer only).
+    pub fn is_addable(self) -> bool {
+        !matches!(self, Category::Generated)
+    }
 
     /// Route a path to a category by extension.
     pub fn of_path(path: &str) -> Category {
@@ -232,9 +240,9 @@ impl Category {
         match self {
             Category::Forms         => "🖼",
             Category::CommonCode    => "🧩",
+            Category::Generated     => "⚙",
             Category::Assets        => "🎴",
             Category::Documentation => "📚",
-            Category::Generated     => "⚙",
         }
     }
 }

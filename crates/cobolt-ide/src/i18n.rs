@@ -162,9 +162,11 @@ pub struct Tr {
     pub panel_forms:       &'static str,
     pub panel_assets:      &'static str,
     pub cat_common_code:   &'static str,   // tree category: hand-written COBOL
+    pub cat_generated_code:   &'static str, // tree category: RAD-generated COBOL
     pub cat_documentation: &'static str,   // tree category: docs
     pub tree_add_hover:    &'static str,   // "Add file to" tooltip prefix
     pub tree_empty:        &'static str,   // "(empty)" placeholder
+    pub tree_generated_empty: &'static str, // empty Generated Code placeholder
     pub no_project_open:   &'static str,   // tree mode empty state
 
     // ── Forms list panel ─────────────────────────────────────────────────────
@@ -415,9 +417,11 @@ const EN: Tr = Tr {
     panel_forms:     "Forms",
     panel_assets:    "Assets",
     cat_common_code:   "Common Code",
+    cat_generated_code:"Generated Code",
     cat_documentation: "Documentation",
     tree_add_hover:    "Add file to",
     tree_empty:        "(empty)",
+    tree_generated_empty: "(no generated code yet)",
     no_project_open: "No project open.\nUse File → Open Project\nor File → Open COBOL.",
 
     forms_list_title: "Forms",
@@ -642,9 +646,11 @@ const ES: Tr = Tr {
     panel_forms:     "Formularios",
     panel_assets:    "Recursos",
     cat_common_code:   "Código Común",
+    cat_generated_code:"Código Generado",
     cat_documentation: "Documentación",
     tree_add_hover:    "Agregar archivo a",
     tree_empty:        "(vacío)",
+    tree_generated_empty: "(sin código generado)",
     no_project_open: "Sin proyecto abierto.\nUse Archivo → Abrir proyecto\no Archivo → Abrir COBOL.",
 
     forms_list_title: "Formularios",
@@ -869,9 +875,11 @@ const PT: Tr = Tr {
     panel_forms:     "Formulários",
     panel_assets:    "Recursos",
     cat_common_code:   "Código Comum",
+    cat_generated_code:"Código Gerado",
     cat_documentation: "Documentação",
     tree_add_hover:    "Adicionar arquivo a",
     tree_empty:        "(vazio)",
+    tree_generated_empty: "(sem código gerado)",
     no_project_open: "Nenhum projeto aberto.\nUse Arquivo → Abrir projeto\nou Arquivo → Abrir COBOL.",
 
     forms_list_title: "Formulários",
@@ -1096,9 +1104,11 @@ const JA: Tr = Tr {
     panel_forms:     "フォーム",
     panel_assets:    "アセット",
     cat_common_code:   "共通コード",
+    cat_generated_code:"生成コード",
     cat_documentation: "ドキュメント",
     tree_add_hover:    "ファイルを追加",
     tree_empty:        "（空）",
+    tree_generated_empty: "（生成コードなし）",
     no_project_open: "プロジェクトが開かれていません。\nファイル → プロジェクトを開く\nまたは ファイル → COBOLを開く。",
 
     forms_list_title: "フォーム",
@@ -1323,9 +1333,11 @@ const ZH: Tr = Tr {
     panel_forms:     "窗体",
     panel_assets:    "资源",
     cat_common_code:   "公共代码",
+    cat_generated_code:"生成的代码",
     cat_documentation: "文档",
     tree_add_hover:    "添加文件到",
     tree_empty:        "（空）",
+    tree_generated_empty: "（暂无生成代码）",
     no_project_open: "没有打开的项目。\n使用 文件 → 打开项目\n或 文件 → 打开 COBOL。",
 
     forms_list_title: "窗体",

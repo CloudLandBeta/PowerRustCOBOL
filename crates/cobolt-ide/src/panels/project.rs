@@ -244,46 +244,48 @@ fn show_category(
     events: &mut Vec<ProjectPanelEvent>,
     tr:     &Tr,
 ) {
-    let (label, kind): (&str, FileKind) = match cat {
-        Category::Forms         => (tr.panel_forms, FileKind::Form),
-        Category::CommonCode    => (tr.cat_common_code, FileKind::Source),
-        Category::Assets        => (tr.panel_assets, FileKind::Asset),
-        Category::Documentation => (tr.cat_documentation, FileKind::Documentation),
-        Category::Generated     => return,
+    let (label, kind): (&str, Option<FileKind>) = match cat {
+        Category::Forms         => (tr.panel_forms, Some(FileKind::Form)),
+        Category::CommonCode    => (tr.cat_common_code, Some(FileKind::Source)),
+        Category::Generated     => (tr.cat_generated_code, None),
+        Category::Assets        => (tr.panel_assets, Some(FileKind::Asset)),
+        Category::Documentation => (tr.cat_documentation, Some(FileKind::Documentation)),
     };
+    let is_generated = cat == Category::Generated;
 
     let id = ui.make_persistent_id(("project_cat", label));
     egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
         .show_header(ui, |ui| {
             ui.label(RichText::new(format!("{} {}", cat.icon(), label)).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("➕")
-                    .on_hover_text(format!("{}: {label}", tr.tree_add_hover))
-                    .clicked()
-                {
-                    events.push(ProjectPanelEvent::Add(kind));
-                }
-            });
+            // The Generated Code node is IDE-owned (forms populate it) — no [+].
+            if let Some(kind) = kind {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("➕")
+                        .on_hover_text(format!("{}: {label}", tr.tree_add_hover))
+                        .clicked()
+                    {
+                        events.push(ProjectPanelEvent::Add(kind));
+                    }
+                });
+            }
         })
         .body(|ui| {
-            let editable = proj.files_in(cat);
-            let generated: &[String] = if cat == Category::CommonCode {
-                proj.files_in(Category::Generated)
-            } else {
-                &[]
-            };
-
-            if editable.is_empty() && generated.is_empty() {
-                ui.label(RichText::new(format!("  {}", tr.tree_empty)).color(Color32::GRAY).small());
+            let files = proj.files_in(cat);
+            if files.is_empty() {
+                let hint = if is_generated { tr.tree_generated_empty } else { tr.tree_empty };
+                ui.label(RichText::new(format!("  {hint}")).color(Color32::GRAY).small());
                 return;
             }
-            // Editable files (normal colour, removable).
-            for rel in editable {
-                file_row(ui, rel, kind.icon(), None, true, root, events);
-            }
-            // RAD-generated COBOL (blue, read-only, not removable here).
-            for rel in generated {
-                file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, root, events);
+            if is_generated {
+                // RAD output: blue, read-only, named after its form, not removable.
+                for rel in files {
+                    file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, root, events);
+                }
+            } else {
+                let icon = kind.map(|k| k.icon()).unwrap_or("📄");
+                for rel in files {
+                    file_row(ui, rel, icon, None, true, root, events);
+                }
             }
         });
 
