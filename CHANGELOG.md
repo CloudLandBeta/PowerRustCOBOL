@@ -8,6 +8,31 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.13.0] — 2026-06-10
+
+INDEXED log rotation — keep each log file under 100 KiB.
+
+### New feature
+
+- **The INDEXED observability log now rotates** (logrotate/Grafana style). When
+  the active `<assign-path>.log` approaches **100 KiB** it is renamed to
+  **`<user|no-user>.<datafile>.log.<timestamp>`** and a fresh active log is
+  started, so no single file grows without bound.
+  - `<user>` is the `OPEN … WITH REGISTERED USER` value (sanitized for the
+    filesystem); when the OPEN supplies no user, **`no-user`** is used in the
+    rotated file name.
+  - `<timestamp>` is a compact UTC stamp, e.g. `20260610T120230461Z`.
+  - Rotated archives are complete, parseable logs; the runtime never deletes
+    them (prune/ship them with your log pipeline).
+
+### Tests & docs
+
+- `indexed_log` unit tests for rotation (active stays under the cap; rotated file
+  named with the user, and `no-user` when absent). Verified end-to-end via
+  `rcrun` (a 700-commit run rotates at 512 lines, active stays ~38 KiB). Full
+  suite 407 passing.
+- `docs/observability.md` §1.2 documents rotation.
+
 ## [PowerRustCOBOL 1.12.0] — 2026-06-10
 
 `OPEN … WITH REGISTERED USER` — record the operator in the INDEXED log.

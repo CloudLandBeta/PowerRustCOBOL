@@ -755,7 +755,11 @@ impl IndexedStore for RedbIndexedFile {
         self.start_at = None;
         self.current = None;
         if self.log_level.is_on() {
-            self.log = Some(LogWriter::new(&self.path, self.log_level));
+            self.log = Some(LogWriter::new(
+                &self.path,
+                self.log_level,
+                self.registered_user.as_deref(),
+            ));
             self.tx_reset();
             self.log_event("OPEN", &[]);
         }

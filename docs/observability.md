@@ -64,6 +64,29 @@ customers.idx        →  customers.idx.log
 
 Lines are **appended** (never truncated), so a log accumulates across runs.
 
+#### Rotation (kept under 100 KiB)
+
+To keep any single file small, the active log is **rotated** once it approaches
+**100 KiB** (`MAX_LOG_BYTES`), logrotate/Grafana style:
+
+1. the active `<datafile>.log` is renamed to
+   **`<user|no-user>.<datafile>.log.<timestamp>`**, and
+2. a fresh, empty active log is started.
+
+The timestamp is a compact UTC stamp, e.g. `20260610T120230461Z`. The `<user>`
+is the `OPEN … WITH REGISTERED USER` value (sanitized for the filesystem), or
+**`no-user`** when none was supplied. Example after one rotation:
+
+```
+customers.idx.log                                 # active (< 100 KiB)
+alice.customers.idx.log.20260610T120230461Z       # rotated archive (~100 KiB)
+no-user.orders.dat.log.20260610T120051301Z        # rotated, no user supplied
+```
+
+Rotated files are never deleted by the runtime — prune or ship them with your
+log pipeline (e.g. Promtail then delete). Each archive is a complete, parseable
+log on its own.
+
 ### 1.3 What is recorded
 
 One line per **transaction event**: `OPEN`, `COMMIT`, `ROLLBACK`, `CLOSE`.

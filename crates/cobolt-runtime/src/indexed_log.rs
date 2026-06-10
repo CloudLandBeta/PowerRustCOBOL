@@ -158,37 +158,107 @@ fn json_escape(s: &str) -> String {
     out
 }
 
-/// Appends transaction lines to `<assign-path>.log`.
+/// The active log file is kept under this size; when the next line would exceed
+/// it the file is rotated out and a fresh one is started (logrotate/Grafana style).
+pub const MAX_LOG_BYTES: u64 = 100 * 1024;
+
+/// Appends transaction lines to `<assign-path>.log`, rotating the file once it
+/// approaches [`MAX_LOG_BYTES`]. A rotated file is renamed to
+/// `<user|no-user>.<datafile>.log.<timestamp>` and a fresh active log is started.
 pub struct LogWriter {
+    /// Active log path, `<idx_path>.log`.
     path: PathBuf,
+    /// Directory the rotated files are written into.
+    dir: PathBuf,
+    /// The data file's name, e.g. `customers.idx`.
+    idx_name: String,
+    /// Sanitized user for rotated file names (`no-user` when absent).
+    user: String,
     file: Option<File>,
+    /// Bytes in the active file (tracked to avoid a stat per line).
+    written: u64,
     level: LogLevel,
 }
 
 impl LogWriter {
-    /// Create a writer for the indexed file at `idx_path` (the log is
-    /// `idx_path` + `.log`). The file is opened lazily on the first line.
-    pub fn new(idx_path: &Path, level: LogLevel) -> Self {
+    /// Create a writer for the indexed file at `idx_path` (active log is
+    /// `idx_path` + `.log`). `user` (from `OPEN … WITH REGISTERED USER`) is used
+    /// in rotated file names. The file is opened lazily on the first line.
+    pub fn new(idx_path: &Path, level: LogLevel, user: Option<&str>) -> Self {
         let mut os = idx_path.as_os_str().to_owned();
         os.push(".log");
-        LogWriter { path: PathBuf::from(os), file: None, level }
+        let path = PathBuf::from(os);
+        let dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let idx_name = idx_path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "file".to_string());
+        LogWriter { path, dir, idx_name, user: sanitize_user(user), file: None, written: 0, level }
     }
 
     pub fn level(&self) -> LogLevel {
         self.level
     }
 
+    fn ensure_open(&mut self) {
+        if self.file.is_none() {
+            self.file = OpenOptions::new().create(true).append(true).open(&self.path).ok();
+            // Continue counting from whatever is already in the file (the log
+            // persists and is appended across sessions).
+            self.written = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+        }
+    }
+
+    /// Rotate the active log out to `<user>.<datafile>.log.<timestamp>` and start
+    /// a fresh active log on the next write.
+    fn rotate(&mut self) {
+        self.file = None; // close before renaming
+        let rotated = self
+            .dir
+            .join(format!("{}.{}.log.{}", self.user, self.idx_name, compact_stamp()));
+        let _ = std::fs::rename(&self.path, &rotated);
+        self.written = 0;
+    }
+
     /// Append one already-formatted line (a trailing newline is added). Errors
     /// are swallowed — logging must never affect program behavior.
     pub fn line(&mut self, line: &str) {
-        if self.file.is_none() {
-            self.file = OpenOptions::new().create(true).append(true).open(&self.path).ok();
+        self.ensure_open();
+        let needed = line.len() as u64 + 1;
+        // Rotate before writing if this line would push a non-empty file over the
+        // cap (a lone oversized line on an empty file is written as-is).
+        if self.written > 0 && self.written + needed > MAX_LOG_BYTES {
+            self.rotate();
+            self.ensure_open();
         }
         if let Some(f) = self.file.as_mut() {
-            let _ = writeln!(f, "{line}");
-            let _ = f.flush();
+            if writeln!(f, "{line}").is_ok() {
+                let _ = f.flush();
+                self.written += needed;
+            }
         }
     }
+}
+
+/// Make a user string safe for a file name (`no-user` when empty/absent).
+fn sanitize_user(user: Option<&str>) -> String {
+    let cleaned: String = user
+        .map(|s| s.trim())
+        .unwrap_or("")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
+        .collect();
+    if cleaned.is_empty() {
+        "no-user".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// A compact, filesystem-safe UTC timestamp for rotated file names, e.g.
+/// `20260610T073000123Z` (ISO-8601 with the separators removed).
+pub fn compact_stamp() -> String {
+    now_iso().chars().filter(|c| !matches!(c, '-' | ':' | '.')).collect()
 }
 
 /// Quote a value for the `key=value` line if it contains spaces.
@@ -261,6 +331,61 @@ mod tests {
         assert_eq!(LogFormat::parse("grafana"), LogFormat::Json);
         assert_eq!(LogFormat::parse("text"), LogFormat::Text);
         assert_eq!(LogFormat::parse(""), LogFormat::Text);
+    }
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let d = std::env::temp_dir().join(format!("prc-logrot-{tag}-{n}"));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn rotates_over_100k_with_user_in_name() {
+        let dir = unique_dir("user");
+        let idx = dir.join("customers.idx");
+        let mut w = LogWriter::new(&idx, LogLevel::Basic, Some("alice"));
+
+        let line = "x".repeat(200); // ~201 bytes/line
+        for _ in 0..700 {
+            w.line(&line); // ~140 KiB total → at least one rotation
+        }
+
+        // Active log stays under the cap.
+        let active = dir.join("customers.idx.log");
+        let active_len = std::fs::metadata(&active).unwrap().len();
+        assert!(active_len <= MAX_LOG_BYTES, "active log too big: {active_len}");
+
+        // A rotated file exists, named `<user>.<datafile>.log.<timestamp>`.
+        let rotated: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("alice.customers.idx.log.") && n != "customers.idx.log")
+            .collect();
+        assert!(!rotated.is_empty(), "no rotated file found in {dir:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rotation_uses_no_user_when_absent() {
+        let dir = unique_dir("nouser");
+        let idx = dir.join("orders.dat");
+        let mut w = LogWriter::new(&idx, LogLevel::Basic, None);
+        let line = "y".repeat(200);
+        for _ in 0..700 {
+            w.line(&line);
+        }
+        let has_no_user = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().starts_with("no-user.orders.dat.log."));
+        assert!(has_no_user, "expected a no-user rotated file");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
