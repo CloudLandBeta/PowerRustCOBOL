@@ -1239,26 +1239,26 @@ impl CoboltApp {
 fn apply_glass_visuals(ctx: &Context) {
     use egui::{Color32, Rounding, Shadow, Stroke, Visuals, style::WidgetVisuals};
 
-    let mut v = Visuals::dark();
+    let mut v = Visuals::light();
 
-    // ── Semi-transparent black palette — same alpha as before ─────────────
-    let bg_panel   = Color32::from_rgba_unmultiplied(  8,   8,   8,  205);
-    let bg_widget  = Color32::from_rgba_unmultiplied( 18,  18,  18,  195);
-    let bg_hover   = Color32::from_rgba_unmultiplied( 35,  35,  40,  215);
-    let bg_active  = Color32::from_rgba_unmultiplied( 45,  75, 160,  230);
-    let bg_extreme = Color32::from_rgba_unmultiplied(  4,   4,   4,  210);
-    let accent     = Color32::from_rgb(100, 160, 255);
-    let border_dim = Color32::from_rgba_unmultiplied(255, 255, 255,  40);
-    let border_hi  = Color32::from_rgba_unmultiplied(130, 170, 255, 170);
-    let text_dim   = Color32::from_rgb(185, 190, 200);
-    let text_bright = Color32::from_rgb(230, 235, 245);
+    // ── Frosted "frozen glass" palette — light & translucent, dark text ───
+    let bg_panel   = Color32::from_rgba_unmultiplied(236, 242, 250, 224);
+    let bg_widget  = Color32::from_rgba_unmultiplied(224, 232, 245, 224);
+    let bg_hover   = Color32::from_rgba_unmultiplied(208, 224, 248, 236);
+    let bg_active  = Color32::from_rgba_unmultiplied( 80, 138, 226, 238);
+    let bg_extreme = Color32::from_rgba_unmultiplied(247, 250, 254, 236);
+    let accent     = Color32::from_rgb( 46, 110, 214);
+    let border_dim = Color32::from_rgba_unmultiplied( 40,  60,  95,  55);
+    let border_hi  = Color32::from_rgba_unmultiplied( 70, 120, 210, 150);
+    let text_dim   = Color32::from_rgb( 64,  74,  94);
+    let text_bright = Color32::from_rgb( 26,  34,  52);
 
     // ── Window / panel fills ──────────────────────────────────────────────
     v.window_fill      = bg_panel;
     v.panel_fill       = bg_panel;
-    v.faint_bg_color   = Color32::from_rgba_unmultiplied(  5,   5,   5, 140);
+    v.faint_bg_color   = Color32::from_rgba_unmultiplied(255, 255, 255, 120);
     v.extreme_bg_color = bg_extreme;
-    v.code_bg_color    = Color32::from_rgba_unmultiplied( 12,  12,  14, 185);
+    v.code_bg_color    = Color32::from_rgba_unmultiplied(246, 249, 253, 230);
 
     // ── Window chrome ─────────────────────────────────────────────────────
     v.window_stroke   = Stroke::new(1.0, border_hi);
@@ -1266,7 +1266,7 @@ fn apply_glass_visuals(ctx: &Context) {
         offset: Vec2::new(0.0, 10.0),
         blur:   40.0,
         spread: 0.0,
-        color:  Color32::from_rgba_unmultiplied(0, 0, 0, 100),
+        color:  Color32::from_rgba_unmultiplied(30, 50, 90, 55),
     };
     v.window_rounding = Rounding::same(12.0);
     v.window_highlight_topmost = false;
@@ -1288,23 +1288,68 @@ fn apply_glass_visuals(ctx: &Context) {
     v.widgets.open           = make_widget(bg_hover,  border_hi,  text_bright);
 
     // ── Selection ─────────────────────────────────────────────────────────
-    v.selection.bg_fill = Color32::from_rgba_unmultiplied(65, 115, 225, 145);
+    v.selection.bg_fill = Color32::from_rgba_unmultiplied(120, 168, 236, 140);
     v.selection.stroke  = Stroke::new(1.0, accent);
 
     // ── Text / decorations ────────────────────────────────────────────────
     v.override_text_color     = None;
-    v.hyperlink_color         = Color32::from_rgb(130, 185, 255);
-    v.warn_fg_color           = Color32::from_rgb(255, 205, 80);
-    v.error_fg_color          = Color32::from_rgb(255, 100, 100);
+    v.hyperlink_color         = Color32::from_rgb( 36,  96, 196);
+    v.warn_fg_color           = Color32::from_rgb(176, 116,  10);
+    v.error_fg_color          = Color32::from_rgb(196,  48,  48);
 
     ctx.set_visuals(v);
 
-    // Polished, slightly tighter spacing
+    // Polished spacing + fonts 50 % larger (absolute → idempotent each frame).
+    use egui::{FontFamily, FontId, TextStyle};
     let mut style = (*ctx.style()).clone();
-    style.spacing.item_spacing   = egui::Vec2::new(6.0, 4.0);
-    style.spacing.button_padding = egui::Vec2::new(8.0, 4.0);
-    style.spacing.indent         = 16.0;
+    style.spacing.item_spacing   = egui::Vec2::new(6.0, 5.0);
+    style.spacing.button_padding = egui::Vec2::new(9.0, 5.0);
+    style.spacing.indent         = 18.0;
+    style.text_styles = [
+        (TextStyle::Small,     FontId::new(13.5, FontFamily::Proportional)),
+        (TextStyle::Body,      FontId::new(18.75, FontFamily::Proportional)),
+        (TextStyle::Button,    FontId::new(18.75, FontFamily::Proportional)),
+        (TextStyle::Heading,   FontId::new(27.0, FontFamily::Proportional)),
+        (TextStyle::Monospace, FontId::new(18.0, FontFamily::Monospace)),
+    ].into();
     ctx.set_style(style);
+}
+
+/// Paint a light, uneven "frozen glass" texture on the background layer, so the
+/// translucent panels sit on a frosted surface instead of a flat dark void.
+fn paint_frosted_background(ctx: &Context) {
+    use egui::{Color32, LayerId, Pos2, Stroke};
+    let rect = ctx.screen_rect();
+    let w = rect.width().max(1.0);
+    let h = rect.height().max(1.0);
+    let p = ctx.layer_painter(LayerId::background());
+
+    // Opaque light base (covers any dark window clear colour).
+    p.rect_filled(rect, 0.0, Color32::from_rgb(224, 232, 245));
+
+    // Uneven frost: deterministic soft light/blue patches across the surface.
+    let blobs: &[(f32, f32, f32, (u8, u8, u8, u8))] = &[
+        (0.10, 0.14, 0.30, (255, 255, 255, 30)),
+        (0.33, 0.55, 0.36, (206, 222, 246, 34)),
+        (0.55, 0.20, 0.32, (255, 255, 255, 26)),
+        (0.78, 0.60, 0.38, (200, 218, 244, 30)),
+        (0.20, 0.84, 0.32, (255, 255, 255, 24)),
+        (0.66, 0.88, 0.34, (212, 226, 248, 28)),
+        (0.90, 0.16, 0.28, (255, 255, 255, 24)),
+        (0.46, 0.40, 0.44, (232, 240, 252, 26)),
+    ];
+    for &(fx, fy, fr, (r, g, b, a)) in blobs {
+        let c = Pos2::new(rect.left() + fx * w, rect.top() + fy * h);
+        p.circle_filled(c, fr * w.min(h), Color32::from_rgba_unmultiplied(r, g, b, a));
+    }
+    // Subtle diagonal frost streaks (the "frozen" striations).
+    for i in 0..6 {
+        let x = rect.left() + (i as f32 + 0.5) / 6.0 * w;
+        p.line_segment(
+            [Pos2::new(x, rect.top()), Pos2::new(x - 0.12 * w, rect.bottom())],
+            Stroke::new(44.0, Color32::from_rgba_unmultiplied(255, 255, 255, 10)),
+        );
+    }
 }
 
 // ── eframe::App ───────────────────────────────────────────────────────────────
@@ -1325,6 +1370,7 @@ impl eframe::App for CoboltApp {
         //  0.29 is global — re-applying here ensures the IDE shell always looks
         //  correct even when a preview window is open.)
         apply_glass_visuals(ctx);
+        paint_frosted_background(ctx);
         self.glass_visuals_applied = true;
 
         // ── Drain a finished async file dialog (Open/Save/Browse) ──────────────

@@ -30,8 +30,9 @@ use crate::project_model::{CoboltProject, Category, ElementStatus, FileKind};
 use crate::i18n::Tr;
 use crate::panels::toolbox;
 
-/// Blue for read-only RAD-generated COBOL in the tree (matches the editor).
-const GENERATED_BLUE: Color32 = Color32::from_rgb(96, 160, 240);
+/// Blue for read-only RAD-generated COBOL in the tree (matches the editor,
+/// readable on the light frosted background).
+const GENERATED_BLUE: Color32 = Color32::from_rgb(38, 92, 200);
 /// Icon size in the tree — 80 % larger than the default body text (~12 px).
 const ICON_SIZE: f32 = 21.6;
 

@@ -65,6 +65,16 @@ IDE: controlled project tree, read-only generated code, richer toolbar.
   second developer, re-offer on release), change propagation, and a phased
   rollout starting from a trivial local backend. Design only — no code.
 
+### Theme
+
+- **Frosted "frozen glass" theme.** The near-black glass palette is replaced with
+  a light, translucent frosted surface: an opaque light base plus a deterministic
+  uneven frost texture (soft patches + diagonal striations) is painted on the
+  background layer, with semi-transparent light panels over it. **Fonts are 50 %
+  larger** (UI text styles and the code editor), and text/syntax colours are
+  retuned dark-on-light for readability (editor highlight palette, generated-code
+  blue, links/warn/error).
+
 ### Tests
 
 - `project_model` unit tests (category routing, generated detection incl. legacy

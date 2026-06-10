@@ -25,7 +25,7 @@ use crate::runner::DiagMsg;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-pub const EDITOR_FONT_SIZE: f32 = 12.0;
+pub const EDITOR_FONT_SIZE: f32 = 18.0;
 
 // ── COBOL keyword tables ──────────────────────────────────────────────────────
 
@@ -447,8 +447,9 @@ impl EditorTab {
     }
 }
 
-/// The blue used for read-only RAD-generated source in the editor.
-pub const GENERATED_BLUE: Color32 = Color32::from_rgb(96, 160, 240);
+/// The blue used for read-only RAD-generated source in the editor (readable on
+/// the light frosted background).
+pub const GENERATED_BLUE: Color32 = Color32::from_rgb(38, 92, 200);
 
 // ── Known control (for IntelliSense) ─────────────────────────────────────────
 
@@ -1497,12 +1498,13 @@ pub fn cobol_layout_job(
 ) -> egui::text::LayoutJob {
     use egui::text::{LayoutJob, TextFormat};
 
-    let c_plain   = Color32::from_rgb(212, 212, 212);
-    let c_kw      = Color32::from_rgb(100, 180, 255);
-    let c_data    = Color32::from_rgb( 78, 201, 130);
-    let c_para    = Color32::from_rgb(220,  80,  80);
-    let c_str     = Color32::from_rgb(210, 165,  80);
-    let c_comment = Color32::from_rgb(140, 140, 140);
+    // Tuned for the light "frozen glass" editor background (dark on light).
+    let c_plain   = Color32::from_rgb( 30,  36,  52);
+    let c_kw      = Color32::from_rgb( 34,  88, 186);
+    let c_data    = Color32::from_rgb( 22, 124,  68);
+    let c_para    = Color32::from_rgb(176,  42,  42);
+    let c_str     = Color32::from_rgb(150,  92,  20);
+    let c_comment = Color32::from_rgb(108, 118, 132);
 
     let fmt = |c: Color32| TextFormat { font_id: font_id.clone(), color: c, ..Default::default() };
 
