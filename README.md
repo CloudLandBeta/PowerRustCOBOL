@@ -137,8 +137,14 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
     `GREATER/LESS THAN`, `NOT LESS THAN`, …).
   - `INVALID KEY` / `NOT INVALID KEY` phrases and full **FILE STATUS** codes
     (00/02/10/22/23/…).
-  - Engine selectable via `rcrun --indexed-engine <rust|rm-cobol85|fujitsu>` or
-    the `COBOL_INDEXED_ENGINE` env var (all behaviour-compatible; `rust` default).
+  - Engine selectable via `rcrun --indexed-engine <rust|rm-cobol85|fujitsu|redb>`
+    or the `COBOL_INDEXED_ENGINE` env var (all behaviour-compatible; `rust` default).
+  - **`redb` — crash-safe engine** (opt-in): a `STORAGE IS DISK` engine on the
+    pure-Rust **redb** ACID store. **O(1) OPEN** (no directory load / recovery
+    scan, ~5 ms at 200 k records), working-set RAM (≥250 M records), and ACID
+    `COMMIT`/`ROLLBACK` that survives power loss with no index corruption. Same
+    observable COBOL behavior as the default engine. See
+    [`docs/indexed-redb-engine.md`](docs/indexed-redb-engine.md).
   - **Self-describing `PRCIDX1` container** — embeds the file schema (record
     format + key descriptors) so files are discoverable and a future Fujitsu
     importer can write faithful data; strict open-time validation maps schema

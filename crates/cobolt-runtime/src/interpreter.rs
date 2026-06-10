@@ -226,11 +226,7 @@ fn make_indexed_engine(
     use cobolt_ast::program::StorageMode;
     use crate::indexed::{IndexedEngine, IndexedFile, KeySpec};
     use crate::indexed_disk::DiskIndexedFile;
-    // RM/COBOL-85 and Fujitsu currently delegate to the Rust container; the
-    // engine selector is honoured here once their native formats are added.
-    let _ = match engine {
-        IndexedEngine::Rust | IndexedEngine::RmCobol85 | IndexedEngine::Fujitsu => engine,
-    };
+    use crate::indexed_redb::RedbIndexedFile;
     let layout = &spec.layout;
     let reclen = layout.len.max(1);
     let primary = spec
@@ -249,6 +245,14 @@ fn make_indexed_engine(
         }
     }
     let compressing = spec.data_compressing;
+    // The redb engine is a disk substrate; selecting it routes DISK storage to
+    // the crash-safe ACID engine. MEMORY storage always uses the in-RAM engine.
+    if engine == IndexedEngine::Redb && spec.storage_mode == StorageMode::Disk {
+        let mut e = RedbIndexedFile::new(path, reclen, primary, alts);
+        e.set_key_names(names);
+        e.set_compressing(compressing);
+        return Box::new(e);
+    }
     match spec.storage_mode {
         StorageMode::Memory => {
             let mut e = IndexedFile::new(path, reclen, primary, alts);
@@ -257,6 +261,7 @@ fn make_indexed_engine(
             Box::new(e)
         }
         StorageMode::Disk => {
+            // Rust / RM-COBOL / Fujitsu currently share the PRCIDXD1 container.
             let mut e = DiskIndexedFile::new(path, reclen, primary, alts);
             e.set_key_names(names);
             e.set_compressing(compressing);

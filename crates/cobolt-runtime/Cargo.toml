@@ -27,6 +27,8 @@ tracing         = { workspace = true }
 rusqlite        = { version = "0.31", features = ["bundled"] }
 postgres        = { version = "0.19" }
 mysql           = { version = "28", default-features = false, features = ["minimal-rust"] }
+# Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).
+redb            = { version = "2.2" }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
 ureq            = { version = "2", features = ["json"] }
 

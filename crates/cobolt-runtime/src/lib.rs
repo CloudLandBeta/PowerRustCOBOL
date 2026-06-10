@@ -43,6 +43,7 @@ pub mod http_runtime;
 pub mod files;
 pub mod indexed;
 pub mod indexed_disk;
+pub mod indexed_redb;
 pub mod interpreter;
 pub mod numedit;
 pub mod objects;

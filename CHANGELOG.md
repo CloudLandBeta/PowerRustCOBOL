@@ -8,6 +8,45 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.10.0] — 2026-06-05
+
+Crash-safe INDEXED engine on a redb substrate (opt-in).
+
+### New features
+
+- **New `STORAGE IS DISK` engine for `ORGANIZATION IS INDEXED`**, built on
+  **redb** (pure-Rust embedded ACID key-value store; copy-on-write B+tree, dual
+  meta pages, per-page checksums). Opt-in via `--indexed-engine redb` or
+  `COBOL_INDEXED_ENGINE=redb`; the default disk engine stays `PRCIDXD1`. It meets
+  four operational goals the bespoke engine could not at scale:
+  - **OPEN is O(1)** — only the meta page is read; no in-RAM record directory and
+    no recovery scan, even after a crash (~5 ms to OPEN a 200 000-record file).
+  - **RANDOM/NEXT reads** are B+tree / range operations over redb's page cache
+    (~21 µs per random read at 200 000 records).
+  - **Resident RAM = working set**, not record count (≥250 M records).
+  - **Crash safety** — `COMMIT` is a durable redb transaction commit, `ROLLBACK`
+    is an abort; a power loss can never leave a torn index.
+- Behavioral parity with the default engine: the same versioned fixtures
+  (`idx_crud` / `idx_persist` / `idx_tx`) run identically under redb (CRUD,
+  primary + alternate `WITH DUPLICATES` in creation order, persistence,
+  `COMMIT`/`ROLLBACK`), with matching file-status codes.
+- Pure-Rust dependency (`redb`), no system library — consistent with the bundled
+  SQLite / rustls philosophy.
+
+### Docs & tests
+
+- New guide: `docs/indexed-redb-engine.md` (goals, table layout, transaction
+  model, parity, limits). Cross-referenced from `docs/indexed-file-internals.md`.
+- Tests: `test_indexed_redb.rs` — the three fixtures under redb + direct
+  `IndexedStore` checks + an `#[ignore]`d scale smoke test. Full suite 397 passing.
+
+### Notes
+
+- Bulk `WRITE` throughput (~20 k rec/s in one transaction) is a one-time load
+  cost; OPEN, reads, and crash-safety are unaffected. Faster bulk loading is a
+  tracked future optimization. Promoting redb to the disk default is deferred
+  until it has more mileage.
+
 ## [PowerRustCOBOL 1.9.0] — 2026-06-05
 
 PostgreSQL and MySQL support for the database runtime.

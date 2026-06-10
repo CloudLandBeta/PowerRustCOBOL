@@ -109,6 +109,9 @@ pub enum IndexedEngine {
     RmCobol85,
     /// Fujitsu COBOL-85 indexed files (delegates to the Rust engine for now).
     Fujitsu,
+    /// Crash-safe redb substrate (`STORAGE IS DISK`): O(1) OPEN, working-set RAM,
+    /// ACID COMMIT/ROLLBACK. See [`crate::indexed_redb`].
+    Redb,
 }
 
 impl IndexedEngine {
@@ -118,6 +121,7 @@ impl IndexedEngine {
             "rust" | "rstcobol" | "rustcobol" | "native" | "default" => Some(Self::Rust),
             "rm" | "rm-cobol" | "rm-cobol85" | "rmcobol" | "rmcobol85" => Some(Self::RmCobol85),
             "fujitsu" | "fujitsu-cobol" | "fujitsu-cobol85" | "fj" => Some(Self::Fujitsu),
+            "redb" | "crash-safe" | "acid" => Some(Self::Redb),
             _ => None,
         }
     }
@@ -128,6 +132,7 @@ impl IndexedEngine {
             Self::Rust => "rust",
             Self::RmCobol85 => "rm-cobol85",
             Self::Fujitsu => "fujitsu",
+            Self::Redb => "redb",
         }
     }
 }
