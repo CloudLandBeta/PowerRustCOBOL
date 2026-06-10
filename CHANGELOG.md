@@ -8,6 +8,42 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.11.0] — 2026-06-10
+
+redb engine: read/write optimizations + an optional per-file transaction log.
+
+### New features
+
+- **Per-file INDEXED observability log** (redb engine). Enable with
+  `rcrun --indexed-log <basic|full>` (`--indexed-log true` = `basic`) or
+  `COBOL_INDEXED_LOG`. Each file gets a sidecar log at `<assign-path>.log`
+  (e.g. `customers.idx` → `customers.idx.log`). One `key=value` line per
+  transaction event (`OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE`) records: ISO-8601 UTC
+  timestamp, tx id, kind, write/rewrite/delete counts, records, bytes, duration,
+  rec/s + bytes/s, and the **ordering quality** of the written keys
+  (`order=ordered|unordered`, `in_order`/`out_of_order`). The `full` level also
+  appends redb **index statistics** on `CLOSE` (tree height, leaf/branch/
+  allocated pages, stored/fragmented bytes) — this walks the index, so it is
+  opt-in. Logging is off by default and never affects program behavior.
+
+### Performance
+
+- **READ NEXT** by the primary key of reference now returns the record straight
+  from the range cursor (one B+tree descent per record instead of two) —
+  ~17 µs/record sequential scan at 200 k.
+- **WRITE** opens the `primary`/`alt` tables once per operation (was twice for
+  the duplicate-check + insert). A micro-benchmark showed that caching the table
+  handle *across* calls adds only ~8% over once-per-operation, so the simpler,
+  `unsafe`-free single-open path was chosen; write cost is dominated by redb's
+  ACID insert (~44 µs/record). Durability/crash-safety is unchanged.
+
+### Docs & tests
+
+- `docs/indexed-redb-engine.md` updated (optimizations + observability log).
+- Tests: `indexed_log` unit tests (ISO timestamp, level parsing) and an
+  end-to-end log assertion + sequential-scan timing in `test_indexed_redb.rs`.
+  Full suite 400 passing.
+
 ## [PowerRustCOBOL 1.10.0] — 2026-06-05
 
 Crash-safe INDEXED engine on a redb substrate (opt-in).

@@ -129,6 +129,7 @@ fn cmd_run(args: &[String]) {
     // Execute.
     let mut interp = Interpreter::new(program);
     interp.set_indexed_engine(resolve_indexed_engine(args));
+    interp.set_indexed_log_level(resolve_indexed_log_level(args));
     interp.set_program_args(extract_program_args(args));
     match interp.run() {
         Ok(()) => {}
@@ -190,7 +191,8 @@ fn cmd_help() {
         "\n",
         "USAGE:\n",
         "  rcrun run     <file.cbl>              Run a COBOL program\n",
-        "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu\n",
+        "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu | redb\n",
+        "         [--indexed-log <basic|full>]    Per-file INDEXED txn log → <assign-path>.log (redb)\n",
         "  rcrun check   <file.cbl>              Parse and analyse without running\n",
         "  rcrun build   <file.cbl>             Compile a console program → bin/<name> (native binary)\n",
         "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",
@@ -203,7 +205,8 @@ fn cmd_help() {
         "ENVIRONMENT:\n",
         "  COBOLT_LOG            Logging filter (e.g. warn, debug, cobolt-runtime=trace)\n",
         "  COBOLT_FIXED          Set to '1' to force fixed-form source parsing\n",
-        "  COBOL_INDEXED_ENGINE  Indexed (ISAM) engine: rust | rm-cobol85 | fujitsu\n",
+        "  COBOL_INDEXED_ENGINE  Indexed (ISAM) engine: rust | rm-cobol85 | fujitsu | redb\n",
+        "  COBOL_INDEXED_LOG     INDEXED transaction log level: off (default) | basic | full\n",
     ));
 }
 
@@ -551,11 +554,11 @@ fn extract_program_args(args: &[String]) -> Vec<String> {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--indexed-engine" || a == "-I" {
+        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" {
             i += 2;
             continue;
         }
-        if a.starts_with("--indexed-engine=") || a.starts_with('-') {
+        if a.starts_with('-') {
             i += 1;
             continue;
         }
@@ -571,11 +574,11 @@ fn require_path(args: &[String], cmd: &str) -> PathBuf {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--indexed-engine" || a == "-I" {
+        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" {
             i += 2; // skip the flag and its separate value
             continue;
         }
-        if a.starts_with("--indexed-engine=") || a.starts_with('-') {
+        if a.starts_with('-') {
             i += 1; // skip `--flag=value` or any other lone flag
             continue;
         }
@@ -608,13 +611,36 @@ fn resolve_indexed_engine(args: &[String]) -> IndexedEngine {
             None => {
                 eprintln!(
                     "cobolt: unknown indexed engine '{name}' \
-                     (expected: rust | rm-cobol85 | fujitsu); using rust"
+                     (expected: rust | rm-cobol85 | fujitsu | redb); using rust"
                 );
                 IndexedEngine::Rust
             }
         },
         None => IndexedEngine::Rust,
     }
+}
+
+/// Resolve the INDEXED observability log level: `--indexed-log <basic|full>` /
+/// `--indexed-log=<...>` takes priority, then `COBOL_INDEXED_LOG`, then Off.
+/// `--indexed-log true` is an alias for `basic`. The log (redb engine only) is
+/// written to `<assign-path>.log`.
+fn resolve_indexed_log_level(args: &[String]) -> cobolt_runtime::indexed_log::LogLevel {
+    let mut chosen: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(v) = a.strip_prefix("--indexed-log=") {
+            chosen = Some(v.to_string());
+        } else if a == "--indexed-log" {
+            chosen = args.get(i + 1).cloned();
+            i += 1;
+        }
+        i += 1;
+    }
+    let chosen = chosen.or_else(|| std::env::var("COBOL_INDEXED_LOG").ok());
+    chosen
+        .map(|s| cobolt_runtime::indexed_log::LogLevel::parse(&s))
+        .unwrap_or(cobolt_runtime::indexed_log::LogLevel::Off)
 }
 
 fn read_source(path: &PathBuf) -> String {

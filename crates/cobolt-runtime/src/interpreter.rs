@@ -222,6 +222,7 @@ fn make_indexed_engine(
     spec: &FileSpec,
     path: &str,
     engine: crate::indexed::IndexedEngine,
+    log_level: crate::indexed_log::LogLevel,
 ) -> Box<dyn crate::indexed::IndexedStore> {
     use cobolt_ast::program::StorageMode;
     use crate::indexed::{IndexedEngine, IndexedFile, KeySpec};
@@ -251,6 +252,7 @@ fn make_indexed_engine(
         let mut e = RedbIndexedFile::new(path, reclen, primary, alts);
         e.set_key_names(names);
         e.set_compressing(compressing);
+        e.set_log_level(log_level);
         return Box::new(e);
     }
     match spec.storage_mode {
@@ -338,6 +340,8 @@ pub struct Interpreter {
     open_files: HashMap<String, OpenFile>,
     /// Selected indexed (ISAM) file engine (default: the built-in Rust engine).
     indexed_engine: crate::indexed::IndexedEngine,
+    /// Per-file INDEXED observability log level (redb engine; default Off).
+    indexed_log_level: crate::indexed_log::LogLevel,
     /// SORT/MERGE work buffers (SD file name → released/merged record bytes).
     sort_buffers: HashMap<String, Vec<Vec<u8>>>,
     /// RETURN cursor per SD file (index of the next record to hand back).
@@ -401,6 +405,7 @@ impl Interpreter {
             record_to_file,
             open_files: HashMap::new(),
             indexed_engine: crate::indexed::IndexedEngine::default(),
+            indexed_log_level: crate::indexed_log::LogLevel::Off,
             sort_buffers: HashMap::new(),
             sort_cursors: HashMap::new(),
             alter_map: HashMap::new(),
@@ -429,6 +434,11 @@ impl Interpreter {
             );
         }
         self.indexed_engine = engine;
+    }
+
+    /// Set the per-file INDEXED observability log level (redb engine only).
+    pub fn set_indexed_log_level(&mut self, level: crate::indexed_log::LogLevel) {
+        self.indexed_log_level = level;
     }
 
     /// Create an interpreter wired to the GUI Form Runtime Engine channels.
@@ -2129,7 +2139,8 @@ impl Interpreter {
 
             // ── INDEXED: dispatch to the keyed engine ──────────────────────
             if org == FileOrganization::Indexed {
-                let mut engine = make_indexed_engine(&spec, &path, self.indexed_engine);
+                let mut engine =
+                    make_indexed_engine(&spec, &path, self.indexed_engine, self.indexed_log_level);
                 let code = engine.open(map_open_mode(mode));
                 self.open_files.insert(file.clone(), OpenFile::Indexed(engine));
                 self.set_file_status(&file, code);

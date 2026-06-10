@@ -43,6 +43,7 @@
 
 use std::ops::Bound::{Excluded, Included, Unbounded};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use redb::{
     Database, MultimapTableDefinition, ReadableMultimapTable, ReadableTable, TableDefinition,
@@ -51,6 +52,7 @@ use redb::{
 
 use crate::compress;
 use crate::indexed::{status, Bytes, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp};
+use crate::indexed_log::{field, now_iso, LogLevel, LogWriter};
 
 type Slice = &'static [u8];
 const PRIMARY: TableDefinition<Slice, Slice> = TableDefinition::new("primary");
@@ -129,6 +131,20 @@ pub struct RedbIndexedFile {
     start_at: Option<(Bytes, Bytes)>,
     /// Last successfully read primary key (for REWRITE/DELETE current).
     current: Option<Bytes>,
+
+    // ── Optional observability log (see indexed_log.rs) ──────────────────────
+    log_level: LogLevel,
+    log: Option<LogWriter>,
+    /// Per-transaction accumulators (reset at OPEN and after each COMMIT/ROLLBACK).
+    tx_id: u64,
+    tx_writes: u64,
+    tx_rewrites: u64,
+    tx_deletes: u64,
+    tx_bytes: u64,
+    tx_in_order: u64,
+    tx_out_of_order: u64,
+    tx_last_key: Option<Bytes>,
+    tx_start: Instant,
 }
 
 impl RedbIndexedFile {
@@ -153,6 +169,17 @@ impl RedbIndexedFile {
             cursor: None,
             start_at: None,
             current: None,
+            log_level: LogLevel::Off,
+            log: None,
+            tx_id: 0,
+            tx_writes: 0,
+            tx_rewrites: 0,
+            tx_deletes: 0,
+            tx_bytes: 0,
+            tx_in_order: 0,
+            tx_out_of_order: 0,
+            tx_last_key: None,
+            tx_start: Instant::now(),
         }
     }
 
@@ -164,6 +191,109 @@ impl RedbIndexedFile {
     }
     pub fn set_compressing(&mut self, on: bool) {
         self.compressing = on;
+    }
+    /// Enable the per-file transaction log at `<assign-path>.log`.
+    pub fn set_log_level(&mut self, level: LogLevel) {
+        self.log_level = level;
+    }
+
+    // ── Observability log bookkeeping ────────────────────────────────────────
+
+    /// Reset the per-transaction accumulators and start the clock.
+    fn tx_reset(&mut self) {
+        self.tx_writes = 0;
+        self.tx_rewrites = 0;
+        self.tx_deletes = 0;
+        self.tx_bytes = 0;
+        self.tx_in_order = 0;
+        self.tx_out_of_order = 0;
+        self.tx_last_key = None;
+        self.tx_start = Instant::now();
+    }
+
+    /// Record one WRITE for the log (count, bytes, and key-ordering quality).
+    fn note_write(&mut self, pkey: &[u8], bytes: usize) {
+        if !self.log_level.is_on() {
+            return;
+        }
+        self.tx_writes += 1;
+        self.tx_bytes += bytes as u64;
+        match &self.tx_last_key {
+            Some(last) if pkey <= last.as_slice() => self.tx_out_of_order += 1,
+            _ => self.tx_in_order += 1,
+        }
+        self.tx_last_key = Some(pkey.to_vec());
+    }
+
+    /// Compute the redb index-statistics suffix from the live write transaction
+    /// (used for `full`-level CLOSE lines). Walks the index — cost scales with
+    /// file size — so it is only called at CLOSE under `LogLevel::Full`.
+    fn full_stats_suffix(&self) -> Option<String> {
+        if self.log_level != LogLevel::Full {
+            return None;
+        }
+        let s = self.wtx.as_ref()?.stats().ok()?;
+        Some(format!(
+            " tree_height={} allocated_pages={} leaf_pages={} branch_pages={} \
+             stored_bytes={} fragmented_bytes={} page_size={}",
+            s.tree_height(),
+            s.allocated_pages(),
+            s.leaf_pages(),
+            s.branch_pages(),
+            s.stored_bytes(),
+            s.fragmented_bytes(),
+            s.page_size(),
+        ))
+    }
+
+    /// Emit one log line for a transaction event and reset the accumulators.
+    /// `suffix` carries optional pre-computed extra fields (e.g. CLOSE stats).
+    fn log_event(&mut self, kind: &str, suffix: Option<&str>) {
+        if !self.log_level.is_on() {
+            return;
+        }
+        self.tx_id += 1;
+        let dur = self.tx_start.elapsed();
+        let records = self.tx_writes + self.tx_rewrites + self.tx_deletes;
+        let secs = dur.as_secs_f64().max(1e-9);
+        let order = if self.tx_writes == 0 {
+            "n/a"
+        } else if self.tx_out_of_order == 0 {
+            "ordered"
+        } else {
+            "unordered"
+        };
+        let fname = self
+            .path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut line = format!(
+            "ts={} {} tx={} kind={} writes={} rewrites={} deletes={} records={} bytes={} \
+             dur_ms={} rec_per_s={} bytes_per_s={} order={} in_order={} out_of_order={}",
+            now_iso(),
+            field("file", &fname),
+            self.tx_id,
+            kind,
+            self.tx_writes,
+            self.tx_rewrites,
+            self.tx_deletes,
+            records,
+            self.tx_bytes,
+            dur.as_millis(),
+            (records as f64 / secs) as u64,
+            (self.tx_bytes as f64 / secs) as u64,
+            order,
+            self.tx_in_order,
+            self.tx_out_of_order,
+        );
+        if let Some(suffix) = suffix {
+            line.push_str(suffix);
+        }
+        if let Some(log) = self.log.as_mut() {
+            log.line(&line);
+        }
+        self.tx_reset();
     }
 
     // ── small helpers ────────────────────────────────────────────────────────
@@ -297,24 +427,26 @@ impl RedbIndexedFile {
         }, None)
     }
 
-    fn primary_edge(&self, dir: ReadDir) -> Option<Bytes> {
+    /// First/last `(key, raw value)` of the primary table. Returning the value
+    /// here lets a primary-key `READ NEXT` skip a second lookup (one descent).
+    fn primary_edge(&self, dir: ReadDir) -> Option<(Bytes, Bytes)> {
         with_primary!(self, t => {
             let mut r = t.range::<&[u8]>(..).ok()?;
             let item = match dir { ReadDir::Next => r.next(), ReadDir::Previous => r.next_back() };
-            item.and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
+            item.and_then(|x| x.ok()).map(|(k, v)| (k.value().to_vec(), v.value().to_vec()))
         }, None)
     }
 
-    fn primary_step(&self, pk: &[u8], dir: ReadDir) -> Option<Bytes> {
+    fn primary_step(&self, pk: &[u8], dir: ReadDir) -> Option<(Bytes, Bytes)> {
         with_primary!(self, t => {
             match dir {
                 ReadDir::Next => {
                     let mut r = t.range::<&[u8]>((Excluded(pk), Unbounded)).ok()?;
-                    r.next().and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
+                    r.next().and_then(|x| x.ok()).map(|(k, v)| (k.value().to_vec(), v.value().to_vec()))
                 }
                 ReadDir::Previous => {
                     let mut r = t.range::<&[u8]>((Unbounded, Excluded(pk))).ok()?;
-                    r.next_back().and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
+                    r.next_back().and_then(|x| x.ok()).map(|(k, v)| (k.value().to_vec(), v.value().to_vec()))
                 }
             }
         }, None)
@@ -365,10 +497,12 @@ impl RedbIndexedFile {
         }
     }
 
-    /// First record in key-of-reference order → `(ref value, primary key)`.
-    fn first_in_kor(&self, dir: ReadDir) -> Option<(Bytes, Bytes)> {
+    /// First record in key-of-reference order → `(ref value, primary key, record?)`.
+    /// The record is returned directly for the primary key of reference (the
+    /// range cursor already yields the value), so the caller skips a lookup.
+    fn first_in_kor(&self, dir: ReadDir) -> Option<(Bytes, Bytes, Option<Bytes>)> {
         if self.kor == 0 {
-            self.primary_edge(dir).map(|pk| (pk.clone(), pk))
+            self.primary_edge(dir).map(|(k, v)| (k.clone(), k, Some(self.decode_value(&v))))
         } else {
             let idx = self.kor - 1;
             let comp = self.alt_edge_composite(idx, dir)?;
@@ -378,14 +512,15 @@ impl RedbIndexedFile {
                 ReadDir::Next => vals.first().cloned(),
                 ReadDir::Previous => vals.last().cloned(),
             }?;
-            Some((rv, pk))
+            Some((rv, pk, None))
         }
     }
 
-    /// Successor / predecessor of `(rv, pk)` in key-of-reference order.
-    fn step_kor(&self, rv: &[u8], pk: &[u8], dir: ReadDir) -> Option<(Bytes, Bytes)> {
+    /// Successor / predecessor of `(rv, pk)` in key-of-reference order, with the
+    /// record bytes when stepping by the primary key of reference.
+    fn step_kor(&self, rv: &[u8], pk: &[u8], dir: ReadDir) -> Option<(Bytes, Bytes, Option<Bytes>)> {
         if self.kor == 0 {
-            return self.primary_step(pk, dir).map(|p| (p.clone(), p));
+            return self.primary_step(pk, dir).map(|(k, v)| (k.clone(), k, Some(self.decode_value(&v))));
         }
         let idx = self.kor - 1;
         let comp = composite(idx, rv);
@@ -397,7 +532,7 @@ impl RedbIndexedFile {
                 ReadDir::Previous => pos.checked_sub(1).and_then(|i| vals.get(i)).cloned(),
             };
             if let Some(p) = same {
-                return Some((rv.to_vec(), p));
+                return Some((rv.to_vec(), p, None));
             }
         }
         // Move to the adjacent alternate value.
@@ -408,7 +543,7 @@ impl RedbIndexedFile {
             ReadDir::Next => vals2.first().cloned(),
             ReadDir::Previous => vals2.last().cloned(),
         }?;
-        Some((rv2, p))
+        Some((rv2, p, None))
     }
 
     fn find_start(&self, op: StartOp, key: &[u8]) -> Option<(Bytes, Bytes)> {
@@ -608,6 +743,11 @@ impl IndexedStore for RedbIndexedFile {
         self.cursor = None;
         self.start_at = None;
         self.current = None;
+        if self.log_level.is_on() {
+            self.log = Some(LogWriter::new(&self.path, self.log_level));
+            self.tx_reset();
+            self.log_event("OPEN", None);
+        }
         status::OK
     }
 
@@ -615,12 +755,17 @@ impl IndexedStore for RedbIndexedFile {
         if self.open.is_none() {
             return status::LOGIC_ERROR;
         }
+        // `full`-level index stats must be read from the live write transaction
+        // before it is consumed by commit.
+        let suffix = self.full_stats_suffix();
         let mut st = status::OK;
         if let Some(wtx) = self.wtx.take() {
             if wtx.commit().is_err() {
                 st = status::IO_ERROR;
             }
         }
+        self.log_event("CLOSE", suffix.as_deref());
+        self.log = None;
         self.db = None;
         self.open = None;
         self.cursor = None;
@@ -633,38 +778,17 @@ impl IndexedStore for RedbIndexedFile {
         if !matches!(self.open, Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)) {
             return status::NOT_OPEN_OUTPUT;
         }
+        if self.wtx.is_none() {
+            return status::NOT_OPEN_OUTPUT;
+        }
         let rec = self.fit(rec);
         let pkey = extract(&self.primary, &rec);
-        let w = match self.wtx.as_ref() {
-            Some(w) => w,
-            None => return status::NOT_OPEN_OUTPUT,
-        };
-        // Primary key must be unique.
-        match w.open_table(PRIMARY) {
-            Ok(t) => match t.get(pkey.as_slice()) {
-                Ok(Some(_)) => return status::DUP_KEY,
-                Ok(None) => {}
-                Err(_) => return status::IO_ERROR,
-            },
-            Err(_) => return status::IO_ERROR,
-        }
-        // WITHOUT-DUPLICATES alternates must not already hold this value.
-        for (i, ks) in self.alternates.iter().enumerate() {
-            if ks.duplicates {
-                continue;
-            }
-            let comp = composite(i, &extract(ks, &rec));
-            let occupied = match w.open_multimap_table(ALT) {
-                Ok(mt) => mt.get(comp.as_slice()).map(|mut it| it.next().is_some()).unwrap_or(false),
-                Err(_) => return status::IO_ERROR,
-            };
-            if occupied {
-                return status::DUP_KEY;
-            }
-        }
+        let stored = self.encode_value(&rec);
         // A record only needs a stored insertion sequence when there are
         // alternate keys (it orders their duplicates). Keyed-only files skip all
-        // of that and pay just one B+tree insert per WRITE.
+        // of that and pay just one B+tree insert per WRITE. Allocate the seq up
+        // front so the table handles below are each opened exactly once (a
+        // duplicate-key rejection just leaves a harmless gap in the sequence).
         let has_alts = !self.alternates.is_empty();
         let seq = if has_alts {
             match self.alloc_seq() {
@@ -674,35 +798,68 @@ impl IndexedStore for RedbIndexedFile {
         } else {
             0
         };
-        let w = self.wtx.as_ref().unwrap();
-        let stored = self.encode_value(&rec);
-        if match w.open_table(PRIMARY) {
-            Ok(mut t) => t.insert(pkey.as_slice(), stored.as_slice()).is_err(),
-            Err(_) => true,
-        } {
-            return status::IO_ERROR;
-        }
-        if has_alts {
-            if match w.open_table(SEQ) {
-                Ok(mut t) => t.insert(pkey.as_slice(), seq.to_be_bytes().as_slice()).is_err(),
-                Err(_) => true,
-            } {
-                return status::IO_ERROR;
+        let alt_val = Self::alt_value(seq, &pkey);
+        // The redb table handles borrow the transaction, so do all of the table
+        // work in a scoped block; the handles drop at its end, freeing `self` to
+        // update the observability counters afterward.
+        let st = 'redb: {
+            let w = self.wtx.as_ref().unwrap();
+            // One `primary` handle for both the duplicate check and the insert.
+            let mut tp = match w.open_table(PRIMARY) {
+                Ok(t) => t,
+                Err(_) => break 'redb status::IO_ERROR,
+            };
+            match tp.get(pkey.as_slice()) {
+                Ok(Some(_)) => break 'redb status::DUP_KEY,
+                Ok(None) => {}
+                Err(_) => break 'redb status::IO_ERROR,
             }
-            match w.open_multimap_table(ALT) {
-                Ok(mut mt) => {
-                    let val = Self::alt_value(seq, &pkey);
-                    for (i, ks) in self.alternates.iter().enumerate() {
-                        let comp = composite(i, &extract(ks, &rec));
-                        if mt.insert(comp.as_slice(), val.as_slice()).is_err() {
-                            return status::IO_ERROR;
-                        }
+            // One `alt` multimap handle for the duplicate check and the inserts.
+            let mut mt = if has_alts {
+                match w.open_multimap_table(ALT) {
+                    Ok(m) => Some(m),
+                    Err(_) => break 'redb status::IO_ERROR,
+                }
+            } else {
+                None
+            };
+            if let Some(mt) = mt.as_ref() {
+                for (i, ks) in self.alternates.iter().enumerate() {
+                    if ks.duplicates {
+                        continue;
+                    }
+                    let comp = composite(i, &extract(ks, &rec));
+                    let occupied = mt.get(comp.as_slice()).map(|mut it| it.next().is_some()).unwrap_or(false);
+                    if occupied {
+                        break 'redb status::DUP_KEY;
                     }
                 }
-                Err(_) => return status::IO_ERROR,
             }
+            // Insert the record; then (if needed) its sequence and alt entries.
+            if tp.insert(pkey.as_slice(), stored.as_slice()).is_err() {
+                break 'redb status::IO_ERROR;
+            }
+            if has_alts {
+                if match w.open_table(SEQ) {
+                    Ok(mut t) => t.insert(pkey.as_slice(), seq.to_be_bytes().as_slice()).is_err(),
+                    Err(_) => true,
+                } {
+                    break 'redb status::IO_ERROR;
+                }
+                let mt = mt.as_mut().unwrap();
+                for (i, ks) in self.alternates.iter().enumerate() {
+                    let comp = composite(i, &extract(ks, &rec));
+                    if mt.insert(comp.as_slice(), alt_val.as_slice()).is_err() {
+                        break 'redb status::IO_ERROR;
+                    }
+                }
+            }
+            status::OK
+        };
+        if st == status::OK {
+            self.note_write(&pkey, rec.len());
         }
-        status::OK
+        st
     }
 
     fn read_key(&mut self, key: &[u8]) -> (Option<Bytes>, &'static str) {
@@ -746,8 +903,10 @@ impl IndexedStore for RedbIndexedFile {
             }
         };
         match next {
-            Some((rv, pk)) => {
-                let rec = self.lookup_primary(&pk);
+            Some((rv, pk, rec_opt)) => {
+                // For the primary key of reference the record came straight from
+                // the range cursor; otherwise fetch it (alternate key of reference).
+                let rec = rec_opt.or_else(|| self.lookup_primary(&pk));
                 self.cursor = Some((rv, pk.clone()));
                 self.current = Some(pk);
                 (rec, status::OK)
@@ -833,6 +992,10 @@ impl IndexedStore for RedbIndexedFile {
                 Err(_) => return status::IO_ERROR,
             }
         }
+        if self.log_level.is_on() {
+            self.tx_rewrites += 1;
+            self.tx_bytes += rec.len() as u64;
+        }
         status::OK
     }
 
@@ -880,6 +1043,9 @@ impl IndexedStore for RedbIndexedFile {
         if self.current.as_deref() == Some(pkey.as_slice()) {
             self.current = None;
         }
+        if self.log_level.is_on() {
+            self.tx_deletes += 1;
+        }
         status::OK
     }
 
@@ -895,6 +1061,7 @@ impl IndexedStore for RedbIndexedFile {
         if let Some(wtx) = self.wtx.take() {
             let _ = wtx.commit();
         }
+        self.log_event("COMMIT", None);
         if matches!(self.open, Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)) {
             if let Some(db) = &self.db {
                 self.wtx = db.begin_write().ok();
@@ -906,11 +1073,86 @@ impl IndexedStore for RedbIndexedFile {
         if let Some(wtx) = self.wtx.take() {
             let _ = wtx.abort();
         }
+        self.log_event("ROLLBACK", None);
         if let Some(db) = &self.db {
             self.wtx = db.begin_write().ok();
         }
         self.cursor = None;
         self.start_at = None;
         self.current = None;
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use std::time::Instant;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("prc-redb-bench-{tag}-{n}.rdb"))
+    }
+
+    /// Micro-benchmark: cost of opening the table per insert (×2, current), once
+    /// per insert (×1), and once for all inserts (cached). Decides whether the
+    /// cross-call cached handle is worth the self-referential complexity.
+    /// `cargo test -p cobolt-runtime --lib bench::open_table_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore = "micro-benchmark"]
+    fn open_table_cost() {
+        let n: u64 = std::env::var("PRC_BENCH_N").ok().and_then(|s| s.parse().ok()).unwrap_or(200_000);
+
+        // (a) open twice per insert
+        let p = tmp("a");
+        let db = Database::create(&p).unwrap();
+        let t0 = Instant::now();
+        let w = db.begin_write().unwrap();
+        for i in 0..n {
+            let k = i.to_be_bytes();
+            { let t = w.open_table(PRIMARY).unwrap(); let _ = t.get(k.as_slice()).unwrap(); }
+            { let mut t = w.open_table(PRIMARY).unwrap(); t.insert(k.as_slice(), k.as_slice()).unwrap(); }
+        }
+        w.commit().unwrap();
+        let a = t0.elapsed();
+        drop(db); let _ = std::fs::remove_file(&p);
+
+        // (b) open once per insert
+        let p = tmp("b");
+        let db = Database::create(&p).unwrap();
+        let t0 = Instant::now();
+        let w = db.begin_write().unwrap();
+        for i in 0..n {
+            let k = i.to_be_bytes();
+            let mut t = w.open_table(PRIMARY).unwrap();
+            let _ = t.get(k.as_slice()).unwrap();
+            t.insert(k.as_slice(), k.as_slice()).unwrap();
+        }
+        w.commit().unwrap();
+        let b = t0.elapsed();
+        drop(db); let _ = std::fs::remove_file(&p);
+
+        // (c) cached: open once for all inserts
+        let p = tmp("c");
+        let db = Database::create(&p).unwrap();
+        let t0 = Instant::now();
+        let w = db.begin_write().unwrap();
+        {
+            let mut t = w.open_table(PRIMARY).unwrap();
+            for i in 0..n {
+                let k = i.to_be_bytes();
+                let _ = t.get(k.as_slice()).unwrap();
+                t.insert(k.as_slice(), k.as_slice()).unwrap();
+            }
+        }
+        w.commit().unwrap();
+        let c = t0.elapsed();
+        drop(db); let _ = std::fs::remove_file(&p);
+
+        eprintln!(
+            "open_table_cost n={n}: (a)2-opens/ins={a:?} {:.1}us  (b)1-open/ins={b:?} {:.1}us  (c)cached={c:?} {:.1}us",
+            a.as_micros() as f64 / n as f64,
+            b.as_micros() as f64 / n as f64,
+            c.as_micros() as f64 / n as f64,
+        );
     }
 }

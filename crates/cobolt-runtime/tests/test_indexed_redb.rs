@@ -224,11 +224,29 @@ fn scale_open_is_instant_and_reads_are_fast() {
         assert_eq!(&r.unwrap()[..9], key.as_bytes());
     }
     let reads = t2.elapsed();
+
+    // Sequential READ NEXT scan of the whole file (exercises opt 1: one descent
+    // per record instead of two).
+    let t3 = Instant::now();
+    assert_eq!(f.start(StartOp::Gt, b"\x00"), status::OK);
+    let mut scanned = 0u32;
+    loop {
+        let (r, st) = f.read_seq(ReadDir::Next);
+        if st == status::EOF {
+            break;
+        }
+        assert!(r.is_some());
+        scanned += 1;
+    }
+    assert_eq!(scanned, n);
+    let scan = t3.elapsed();
     assert_eq!(f.close(), status::OK);
     let _ = std::fs::remove_file(&path);
 
     eprintln!(
-        "redb scale: n={n}  load={load:?}  OPEN={open:?}  1000 random reads={reads:?}"
+        "redb scale: n={n}  load={load:?}  OPEN={open:?}  1000 random reads={reads:?}  \
+         READ NEXT x{n}={scan:?} ({:.2}us/rec)",
+        scan.as_micros() as f64 / n as f64
     );
     // OPEN must not scale with record count — generously bounded.
     assert!(open.as_millis() < 250, "OPEN was not instant: {open:?}");
@@ -240,4 +258,57 @@ fn open_input_missing_file_is_35() {
     let primary = KeySpec { offset: 0, len: 4, duplicates: false };
     let mut f = RedbIndexedFile::new(&path, 9, primary, vec![]);
     assert_eq!(f.open(OpenMode::Input), status::FILE_NOT_FOUND);
+}
+
+#[test]
+fn observability_log_records_transactions() {
+    use cobolt_runtime::indexed_log::LogLevel;
+    let path = tmp_path("log");
+    let log_path = {
+        let mut os = path.as_os_str().to_owned();
+        os.push(".log");
+        std::path::PathBuf::from(os)
+    };
+    let primary = KeySpec { offset: 0, len: 4, duplicates: false };
+    let mut f = RedbIndexedFile::new(&path, 9, primary, vec![]);
+    f.set_log_level(LogLevel::Full);
+
+    assert_eq!(f.open(OpenMode::Io), status::OK);
+    assert_eq!(f.write(&rec("1", "A")), status::OK);
+    assert_eq!(f.write(&rec("2", "B")), status::OK); // two ordered writes
+    f.commit();
+    assert_eq!(f.write(&rec("3", "C")), status::OK); // one write, then undone
+    f.rollback();
+    assert_eq!(f.close(), status::OK);
+
+    let log = std::fs::read_to_string(&log_path).expect("log file written");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&log_path);
+
+    // One line per transaction event.
+    assert!(log.contains("kind=OPEN"), "missing OPEN:\n{log}");
+    assert!(log.contains("kind=ROLLBACK"), "missing ROLLBACK:\n{log}");
+    // The COMMIT recorded two writes, in ascending key order.
+    assert!(
+        log.lines().any(|l| l.contains("kind=COMMIT")
+            && l.contains("writes=2")
+            && l.contains("order=ordered")
+            && l.contains("out_of_order=0")),
+        "COMMIT line wrong:\n{log}"
+    );
+    // The ROLLBACK recorded the single (undone) write.
+    assert!(
+        log.lines().any(|l| l.contains("kind=ROLLBACK") && l.contains("writes=1")),
+        "ROLLBACK line wrong:\n{log}"
+    );
+    // The full-level CLOSE line carries redb index statistics.
+    assert!(
+        log.lines().any(|l| l.contains("kind=CLOSE")
+            && l.contains("tree_height=")
+            && l.contains("leaf_pages=")
+            && l.contains("allocated_pages=")),
+        "CLOSE stats missing:\n{log}"
+    );
+    // Every line is timestamped and names the file.
+    assert!(log.lines().all(|l| l.starts_with("ts=") && l.contains("file=")));
 }

@@ -143,7 +143,10 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
     pure-Rust **redb** ACID store. **O(1) OPEN** (no directory load / recovery
     scan, ~5 ms at 200 k records), working-set RAM (≥250 M records), and ACID
     `COMMIT`/`ROLLBACK` that survives power loss with no index corruption. Same
-    observable COBOL behavior as the default engine. See
+    observable COBOL behavior as the default engine. Optional per-file
+    transaction log via `--indexed-log <basic|full>` → `<assign-path>.log`
+    (timestamps, record/byte counts, throughput, key-ordering quality, and—at
+    `full`—index page stats). See
     [`docs/indexed-redb-engine.md`](docs/indexed-redb-engine.md).
   - **Self-describing `PRCIDX1` container** — embeds the file schema (record
     format + key descriptors) so files are discoverable and a future Fujitsu

@@ -119,10 +119,59 @@ filesystem, not by resident RAM:
 
 ---
 
-## Known trade-off
+## Performance notes
 
-Bulk `WRITE` throughput is currently ~20 k records/s in a single transaction
-(redb opens the table per call under our borrow model). This is a **one-time
-load** cost; OPEN, random/sequential reads, and crash-safety — the four stated
-goals — are unaffected. Faster bulk loading (cached table handles / batched
-commits) is a tracked future optimization.
+- **Sequential `READ NEXT`** by the primary key of reference returns the record
+  straight from the range cursor — one B+tree descent per record, not two
+  (~17 µs/record at 200 000). Alternate-key scans still do one alt descent plus a
+  primary fetch.
+- **`WRITE`** opens the `primary`/`alt` tables once per operation (duplicate
+  check + insert share the handle). A micro-benchmark showed caching the handle
+  *across* calls adds only ~8% over once-per-operation, so the engine keeps the
+  simple, `unsafe`-free path. Write cost (~44 µs/record) is dominated by redb's
+  ACID B+tree insert, which is the safe floor — none of the write optimizations
+  change the commit points or durability.
+- **Bulk `WRITE`** is therefore ~20 k records/s in a single transaction (a
+  one-time load cost). OPEN, reads, and crash-safety are unaffected.
+
+---
+
+## Observability log (`--indexed-log`)
+
+An optional per-file transaction log aids diagnostics and capacity planning.
+Enable it with `rcrun --indexed-log <basic|full>` (`true` ⇒ `basic`) or
+`COBOL_INDEXED_LOG`. It is **off by default** and never affects program behavior
+(all errors are swallowed).
+
+Each indexed file writes a sidecar log at **`<assign-path>.log`** (e.g.
+`customers.idx` → `customers.idx.log`). One `key=value` line is appended per
+transaction event:
+
+```
+ts=2026-06-10T10:51:02.888Z file=customers.idx tx=2 kind=COMMIT writes=1 rewrites=0 \
+   deletes=0 records=1 bytes=12 dur_ms=3 rec_per_s=272 bytes_per_s=3266 \
+   order=ordered in_order=1 out_of_order=0
+```
+
+| Field | Meaning |
+|-------|---------|
+| `ts` | ISO-8601 UTC timestamp (ms precision) |
+| `file` | the indexed file name |
+| `tx` | transaction counter (per OPEN session) |
+| `kind` | `OPEN` / `COMMIT` / `ROLLBACK` / `CLOSE` |
+| `writes` / `rewrites` / `deletes` | mutations in this transaction |
+| `records` | total mutations (`writes+rewrites+deletes`) |
+| `bytes` | record bytes written/rewritten |
+| `dur_ms` | wall-clock duration of the transaction |
+| `rec_per_s` / `bytes_per_s` | throughput |
+| `order` | `ordered` if the written keys were ascending, else `unordered` (`n/a` if no writes) |
+| `in_order` / `out_of_order` | per-write ordering tally (a proxy for B+tree write locality / fragmentation risk) |
+
+**`full` level** additionally appends redb index statistics to each `CLOSE`
+line — `tree_height`, `leaf_pages`, `branch_pages`, `allocated_pages`,
+`stored_bytes`, `fragmented_bytes`, `page_size`. Computing these **walks the
+index**, so its cost scales with file size; that is why it is opt-in and emitted
+only on CLOSE (not per commit).
+
+Implementation: `crates/cobolt-runtime/src/indexed_log.rs` (writer + ISO
+formatter) and the per-transaction accumulators in `indexed_redb.rs`.
