@@ -59,6 +59,11 @@ pub struct IdeSettings {
     /// Background-image opacity, 0 (invisible) … 100 (fully opaque).
     #[serde(default = "default_bg_opacity")]
     pub background_opacity: u8,
+    /// Make the IDE background **fully transparent** (the desktop shows through
+    /// the glass panels). A background image, if set, is still drawn at its own
+    /// opacity — only the solid base colour is removed.
+    #[serde(default)]
+    pub transparent_background: bool,
 }
 
 fn default_bg_opacity() -> u8 { 70 }
@@ -69,6 +74,7 @@ impl Default for IdeSettings {
             theme: String::new(),
             background_image: String::new(),
             background_opacity: default_bg_opacity(),
+            transparent_background: false,
         }
     }
 }
@@ -638,10 +644,19 @@ main = "src/main.cbl"
         p.ide.theme = "monokai".into();
         p.ide.background_image = "assets/bg.png".into();
         p.ide.background_opacity = 35;
+        p.ide.transparent_background = true;
         let s = toml::to_string(&p).expect("serialize");
         let back: CoboltProject = toml::from_str(&s).expect("deserialize");
         assert_eq!(back.ide.theme, "monokai");
         assert_eq!(back.ide.background_image, "assets/bg.png");
         assert_eq!(back.ide.background_opacity, 35);
+        assert!(back.ide.transparent_background);
+    }
+
+    #[test]
+    fn transparent_background_defaults_false() {
+        let toml = "[project]\nname=\"L\"\nversion=\"1.0.0\"\nmain=\"m.cbl\"\n";
+        let p: CoboltProject = toml::from_str(toml).expect("parse");
+        assert!(!p.ide.transparent_background, "default must be opaque");
     }
 }

@@ -8,6 +8,30 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.16.0] — 2026-06-10
+
+IDE: transparent-background option, calmer background, roomier UI.
+
+### New features
+
+- **Transparent background option** (Appearance dialog). When enabled, the IDE
+  background colour is fully transparent — the desktop shows through the glass
+  panels — and a background image, if set, **keeps its own transparency** (its
+  alpha is preserved, scaled only by the opacity slider). Per project
+  (`[ide] transparent_background`). In this mode the panels become more
+  translucent so the desktop/image reads through.
+
+### Changed
+
+- **Calmer background, more readable panels.** With an opaque background the
+  image is now drawn over the themed base and a **low-noise dark overlay** so it
+  reads as a subtle backdrop instead of competing with the editor; panels stay
+  at full readable opacity (they are no longer force-thinned just because an
+  image is set).
+- **Roomier, softer UI.** More spacing between rows and around sections (larger
+  item spacing, button padding, row height, window/menu margins) and softer
+  widget corners (8 px radius) for a less cramped, more polished feel.
+
 ## [PowerRustCOBOL 1.15.2] — 2026-06-10
 
 IDE: assets can be added and ship with the build.

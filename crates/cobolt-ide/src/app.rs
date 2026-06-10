@@ -1034,11 +1034,9 @@ impl CoboltApp {
         crate::theme::theme_by_id(id)
     }
 
-    /// True when the open project has a visible background image configured.
-    fn bg_active(&self) -> bool {
-        self.cobolt_project.as_ref().is_some_and(|p| {
-            !p.ide.background_image.trim().is_empty() && p.ide.background_opacity > 0
-        })
+    /// True when the project requests a fully transparent IDE background.
+    fn bg_transparent(&self) -> bool {
+        self.cobolt_project.as_ref().is_some_and(|p| p.ide.transparent_background)
     }
 
     /// Absolute path of the project's IDE background image, if configured.
@@ -1096,21 +1094,35 @@ impl CoboltApp {
         let dest = egui::Rect::from_min_size(screen.min + egui::vec2(ox, oy), egui::vec2(dw, dh));
         let uv   = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
 
-        // An opaque base (theme background, alpha forced to 255) replaces the
-        // desktop bleed so the image reads as a real wallpaper behind the now
-        // more-translucent glass panels. `opacity` then dims the image via a
-        // scrim of that base colour (100 = full image, 0 = hidden).
+        let transparent = self.bg_transparent();
         let bp = ctx.layer_painter(egui::LayerId::background());
-        let base = egui::Color32::from_rgb(
-            theme.bg_extreme.r(), theme.bg_extreme.g(), theme.bg_extreme.b());
-        bp.rect_filled(screen, 0.0, base);
-        bp.image(tex.id(), dest, uv, egui::Color32::WHITE);
-        let scrim_a = ((100 - opacity) as f32 / 100.0 * 255.0) as u8;
-        if scrim_a > 0 {
-            bp.rect_filled(
-                screen, 0.0,
-                egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), scrim_a),
-            );
+
+        if transparent {
+            // 100 % transparent background colour: no opaque base — the desktop
+            // shows through. The image is still drawn, scaled by `opacity`, which
+            // **preserves the image's own transparency** (its alpha is multiplied
+            // by the opacity, so transparent regions stay transparent).
+            let a = (opacity as f32 / 100.0 * 255.0) as u8;
+            bp.image(tex.id(), dest, uv, egui::Color32::from_white_alpha(a));
+        } else {
+            // Opaque themed base replaces the desktop bleed so the image reads as
+            // a real wallpaper behind the glass panels. `opacity` dims the image
+            // via a scrim of that base colour (100 = full image, 0 = hidden), and
+            // a fixed dark overlay reduces the overall intensity for readability.
+            let base = egui::Color32::from_rgb(
+                theme.bg_extreme.r(), theme.bg_extreme.g(), theme.bg_extreme.b());
+            bp.rect_filled(screen, 0.0, base);
+            bp.image(tex.id(), dest, uv, egui::Color32::WHITE);
+            let scrim_a = ((100 - opacity) as f32 / 100.0 * 255.0) as u8;
+            if scrim_a > 0 {
+                bp.rect_filled(
+                    screen, 0.0,
+                    egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), scrim_a),
+                );
+            }
+            // Low-noise readability overlay (subtle dark blue) so the texture
+            // never competes with the editor/panels above it.
+            bp.rect_filled(screen, 0.0, egui::Color32::from_rgba_unmultiplied(5, 12, 18, 70));
         }
     }
 
@@ -1126,6 +1138,7 @@ impl CoboltApp {
         let mut clear_bg = false;
         let mut new_theme: Option<String> = None;
         let mut new_opacity: Option<u8> = None;
+        let mut new_transparent: Option<bool> = None;
 
         egui::Window::new(format!("⚙ {}", tr.settings_title))
             .collapsible(false)
@@ -1157,6 +1170,15 @@ impl CoboltApp {
                 ui.add_space(8.0);
                 ui.separator();
 
+                // ── Transparent background ────────────────────────────────────
+                let mut transparent = proj.ide.transparent_background;
+                if ui.checkbox(&mut transparent, tr.settings_transparent).changed() {
+                    new_transparent = Some(transparent);
+                }
+                ui.label(egui::RichText::new(tr.settings_transparent_hint).small().weak());
+                ui.add_space(8.0);
+                ui.separator();
+
                 // ── Background image ──────────────────────────────────────────
                 ui.label(egui::RichText::new(tr.settings_background).strong());
                 let cur_bg = proj.ide.background_image.clone();
@@ -1185,6 +1207,9 @@ impl CoboltApp {
         }
         if let Some(o) = new_opacity {
             if let Some(p) = &mut self.cobolt_project { p.ide.background_opacity = o; dirty = true; }
+        }
+        if let Some(t) = new_transparent {
+            if let Some(p) = &mut self.cobolt_project { p.ide.transparent_background = t; dirty = true; }
         }
         if clear_bg {
             if let Some(p) = &mut self.cobolt_project { p.ide.background_image.clear(); dirty = true; }
@@ -1568,7 +1593,7 @@ impl CoboltApp {
 
 // ── Liquid Glass visuals ──────────────────────────────────────────────────────
 
-fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, bg_active: bool) {
+fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, transparent: bool) {
     use egui::{Rounding, Shadow, Stroke, Visuals, style::WidgetVisuals};
     use egui::Color32;
 
@@ -1577,16 +1602,17 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, bg_active: bo
 
     let mut v = if theme.dark { Visuals::dark() } else { Visuals::light() };
 
-    // When a background image is set, make the panels noticeably more
-    // translucent so the image reads through the "frosted glass" chrome.
+    // In "transparent background" mode, make the panels noticeably more
+    // translucent so the desktop / background image reads through the glass.
+    // Otherwise keep panels readable (the image stays a subtle backdrop).
     let scale_a = |c: Color32| {
-        if bg_active {
-            let a = (c.a() as f32 * 0.62) as u8;
+        if transparent {
+            let k = 0.66;
             Color32::from_rgba_premultiplied(
-                (c.r() as f32 * 0.62) as u8,
-                (c.g() as f32 * 0.62) as u8,
-                (c.b() as f32 * 0.62) as u8,
-                a,
+                (c.r() as f32 * k) as u8,
+                (c.g() as f32 * k) as u8,
+                (c.b() as f32 * k) as u8,
+                (c.a() as f32 * k) as u8,
             )
         } else {
             c
@@ -1629,7 +1655,7 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, bg_active: bo
         bg_fill:      bg,
         bg_stroke:    Stroke::new(1.0, stroke_c),
         fg_stroke:    Stroke::new(1.5, text),
-        rounding:     Rounding::same(6.0),
+        rounding:     Rounding::same(8.0),
         expansion:    0.0,
     };
 
@@ -1656,11 +1682,15 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, bg_active: bo
     ctx.set_visuals(v);
 
     // Polished spacing + fonts 50 % larger (absolute → idempotent each frame).
+    // Roomier rows/padding for a less cramped, more professional feel.
     use egui::{FontFamily, FontId, TextStyle};
     let mut style = (*ctx.style()).clone();
-    style.spacing.item_spacing   = egui::Vec2::new(6.0, 5.0);
-    style.spacing.button_padding = egui::Vec2::new(9.0, 5.0);
-    style.spacing.indent         = 18.0;
+    style.spacing.item_spacing      = egui::Vec2::new(8.0, 8.0);
+    style.spacing.button_padding    = egui::Vec2::new(12.0, 7.0);
+    style.spacing.indent            = 20.0;
+    style.spacing.window_margin     = egui::Margin::same(12.0);
+    style.spacing.menu_margin       = egui::Margin::same(8.0);
+    style.spacing.interact_size.y   = 30.0;
     style.text_styles = [
         (TextStyle::Small,     FontId::new(13.5, FontFamily::Proportional)),
         (TextStyle::Body,      FontId::new(18.75, FontFamily::Proportional)),
@@ -1688,7 +1718,7 @@ impl eframe::App for CoboltApp {
         // (preview window calls ctx.set_visuals() on its viewport which in egui
         //  0.29 is global — re-applying here ensures the IDE shell always looks
         //  correct even when a preview window is open.)
-        apply_glass_visuals(ctx, self.current_theme(), self.bg_active());
+        apply_glass_visuals(ctx, self.current_theme(), self.bg_transparent());
         self.glass_visuals_applied = true;
 
         // ── Per-project background image (behind the glass panels) ─────────────
