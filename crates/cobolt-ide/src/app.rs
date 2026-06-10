@@ -1667,9 +1667,9 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, transparent: 
     v.widgets.active         = make_widget(bg_active, accent,     Color32::WHITE);
     v.widgets.open           = make_widget(bg_hover,  border_hi,  text_bright);
 
-    // Separators / dividers draw with the noninteractive bg_stroke. On dark
-    // themes use a light-grey so the lines are clearly visible.
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, theme.line());
+    // Keep separators / dividers very faint (the prominent light-grey lines were
+    // too noisy). Use the theme's dim border colour.
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, theme.border_dim);
 
     // ── Selection ─────────────────────────────────────────────────────────
     v.selection.bg_fill = theme.selection;
@@ -1693,6 +1693,8 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, transparent: 
     style.spacing.window_margin     = egui::Margin::same(12.0);
     style.spacing.menu_margin       = egui::Margin::same(8.0);
     style.spacing.interact_size.y   = 30.0;
+    // No vertical indent guide lines in the tree (the grey lines looked noisy).
+    style.visuals.indent_has_left_vline = false;
     style.text_styles = [
         (TextStyle::Small,     FontId::new(13.5, FontFamily::Proportional)),
         (TextStyle::Body,      FontId::new(18.75, FontFamily::Proportional)),

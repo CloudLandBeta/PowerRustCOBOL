@@ -1874,17 +1874,16 @@ impl PropertiesPanel {
     // ── Form inspector ────────────────────────────────────────────────────────
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
-        section_header(ui, tr.sec_form_props);
-
+        section_card(ui, "form-sec-props", tr.sec_form_props, true, |ui| {
         // ── Identity (read-only) ──────────────────────────────────────────────
         egui::Grid::new("form_identity").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             ui.label(tr.lbl_name);  ui.label(&form.name);  ui.end_row();
             ui.label(tr.lbl_size);  ui.label(format!("{} × {}", form.width, form.height)); ui.end_row();
         });
+        });
 
         // ── Target device ─────────────────────────────────────────────────────
-        ui.add_space(6.0);
-        section_header(ui, tr.sec_target);
+        section_card(ui, "form-sec-target", tr.sec_target, true, |ui| {
         egui::Grid::new("form_target").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             use super::designer::TARGET_PRESETS;
 
@@ -1978,10 +1977,10 @@ impl PropertiesPanel {
             });
             ui.end_row();
         });
+        });
 
         // ── Appearance ────────────────────────────────────────────────────────
-        ui.add_space(6.0);
-        section_header(ui, tr.sec_appearance);
+        section_card(ui, "form-sec-appearance", tr.sec_appearance, true, |ui| {
         egui::Grid::new("form_appearance").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             // Title
             ui.label(tr.lbl_title);
@@ -2042,10 +2041,10 @@ impl PropertiesPanel {
             }
             ui.end_row();
         });
+        });
 
         // ── Background Image ──────────────────────────────────────────────────
-        ui.add_space(4.0);
-        section_header(ui, tr.sec_bg_image);
+        section_card(ui, "form-sec-bgimage", tr.sec_bg_image, true, |ui| {
         egui::Grid::new("form_bgimage").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             // Image path + browse button
             ui.label(tr.lbl_image_path);
@@ -2099,10 +2098,10 @@ impl PropertiesPanel {
             "Stretch = fill exactly  •  Fill = crop to fill  •  Fit = letterbox\n\
              Center = original size  •  Tile = repeat"
         ).small().color(Color32::GRAY).italics());
+        });
 
         // ── Size ──────────────────────────────────────────────────────────────
-        ui.add_space(4.0);
-        section_header(ui, tr.sec_size);
+        section_card(ui, "form-sec-size", tr.sec_size, true, |ui| {
         egui::Grid::new("form_size").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             ui.label(tr.lbl_width);
             {
@@ -2128,10 +2127,10 @@ impl PropertiesPanel {
             }
             ui.end_row();
         });
+        });
 
         // ── Form-level Events ─────────────────────────────────────────────────
-        ui.add_space(6.0);
-        section_header(ui, tr.sec_form_events);
+        section_card(ui, "form-sec-events", tr.sec_form_events, true, |ui| {
         ui.label(RichText::new(tr.hint_click_event)
             .small().color(Color32::GRAY).italics());
         ui.add_space(4.0);
@@ -2173,6 +2172,7 @@ impl PropertiesPanel {
                 action.open_event_editor = Some((String::new(), ev_name.to_string()));
             }
         }
+        });
 
         ui.add_space(8.0);
         ui.label(
@@ -2195,6 +2195,42 @@ fn section_header(ui: &mut Ui, title: &str) {
         ui.label(RichText::new(title).size(16.5).strong().color(accent));
     });
     ui.add_space(5.0);
+}
+
+/// A collapsible **section card**: a rounded, subtly-bordered, padded container
+/// with a blue ▸/▾ header (the reference's property-section style). `body` runs
+/// inside the card when expanded.
+fn section_card(
+    ui: &mut Ui,
+    id_salt: &str,
+    title: &str,
+    default_open: bool,
+    body: impl FnOnce(&mut Ui),
+) {
+    let theme = crate::theme::active();
+    let card_fill = if theme.dark {
+        Color32::from_white_alpha(10)
+    } else {
+        Color32::from_black_alpha(6)
+    };
+    egui::Frame::none()
+        .fill(card_fill)
+        .stroke(egui::Stroke::new(1.0, theme.panel_border()))
+        .rounding(egui::Rounding::same(8.0))
+        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+        .outer_margin(egui::Margin { left: 0.0, right: 0.0, top: 0.0, bottom: 8.0 })
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            let id = ui.make_persistent_id(id_salt);
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open)
+                .show_header(ui, |ui| {
+                    ui.label(RichText::new(title).size(16.0).strong().color(theme.accent));
+                })
+                .body_unindented(|ui| {
+                    ui.add_space(4.0);
+                    body(ui);
+                });
+        });
 }
 
 fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut InspectorAction) {
