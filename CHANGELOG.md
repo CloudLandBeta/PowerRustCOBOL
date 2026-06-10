@@ -74,13 +74,15 @@ IDE: controlled project tree, read-only generated code, richer toolbar.
 
 ### Theme
 
-- **Frosted "frozen glass" theme.** The near-black glass palette is replaced with
-  a light, translucent frosted surface: an opaque light base plus a deterministic
-  uneven frost texture (soft patches + diagonal striations) is painted on the
-  background layer, with semi-transparent light panels over it. **Fonts are 50 %
-  larger** (UI text styles and the code editor), and text/syntax colours are
-  retuned dark-on-light for readability (editor highlight palette, generated-code
-  blue, links/warn/error).
+- **Fonts are 50 % larger** (UI text styles and the code editor). The colour
+  palette is unchanged (the dark glass theme is kept).
+
+### Fixed
+
+- **Form property changes now reflect in the IDE on save.** Saving a form (from
+  the RAD designer or the inline Main-Pane inspector) refreshes the tree's cached
+  form, **regenerates the backend COBOL** (so Generated Code reflects the change),
+  keeps it tracked, and reloads any open generated editor tab.
 
 ### Tests
 
