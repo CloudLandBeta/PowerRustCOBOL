@@ -34,7 +34,7 @@ use crate::panels::{
     toolbar::{self, ToolbarAction},
 };
 use crate::project_model::{
-    CoboltProject, FileKind,
+    CoboltProject, ElementStatus, FileKind,
     load_project, save_project, package_project, relative_to,
 };
 use crate::form_runtime::FormRuntime;
@@ -201,6 +201,10 @@ pub struct CoboltApp {
     // Inline form/control inspector shown in the Main Pane (from the project tree)
     inspect: Option<InspectState>,
 
+    // Content hash of each file at its last successful/failed check (for the tree
+    // "semaphore": a file edited since its last check shows yellow again).
+    checked: std::collections::HashMap<PathBuf, u64>,
+
     // Running form instances — each has its own OS window (Phase 6)
     form_runtimes: Vec<FormRuntime>,
 
@@ -287,6 +291,7 @@ impl CoboltApp {
             forms_list: FormsListPanel::new(),
             designers:     Vec::new(),
             inspect:       None,
+            checked:       std::collections::HashMap::new(),
             form_runtimes: Vec::new(),
             debug_runner:  DebugRunner::new(),
             debugger:      DebuggerPanel::new(),
@@ -396,6 +401,23 @@ impl CoboltApp {
         }
     }
 
+    /// Set a tracked element's semaphore status (converts abs path → rel).
+    fn set_element_status(&mut self, abs: &std::path::Path, s: ElementStatus) {
+        if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
+            if let Some(rel) = relative_to(abs, dir) {
+                self.project.set_status(&rel, s);
+            }
+        }
+    }
+
+    /// Stable content hash for the change-since-check semaphore rule.
+    fn content_hash(s: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        s.hash(&mut h);
+        h.finish()
+    }
+
     fn do_check(&mut self) {
         let Some((path, src)) = self.editor.active_source() else { return; };
         let path   = path.clone();
@@ -458,6 +480,16 @@ impl CoboltApp {
                 }
             }
         }
+
+        // ── Update the tree semaphore for the checked file ────────────────────
+        let had_error = self.editor.diags.get(&path)
+            .map(|v| v.iter().any(|d| d.severity == DiagSeverity::Error))
+            .unwrap_or(false);
+        self.checked.insert(path.clone(), Self::content_hash(&source));
+        self.set_element_status(
+            &path,
+            if had_error { ElementStatus::Failed } else { ElementStatus::Tested },
+        );
     }
 
     fn do_open(&mut self) {
@@ -834,11 +866,20 @@ impl CoboltApp {
         });
 
         if changed {
-            if let Some(st) = &mut self.inspect {
+            let saved_path = if let Some(st) = &mut self.inspect {
                 if save_form(&st.designer.form, &st.path).is_ok() {
                     st.designer.dirty = false;
                     self.project.refresh_form(&st.path);
+                    Some(st.path.clone())
+                } else {
+                    None
                 }
+            } else {
+                None
+            };
+            // An inline edit means the form changed and isn't re-tested → yellow.
+            if let Some(p) = saved_path {
+                self.set_element_status(&p, ElementStatus::Changed);
             }
         }
         if open_designer {
@@ -1522,6 +1563,16 @@ impl eframe::App for CoboltApp {
             self.show_inspector(ctx, &tr);
         } else {
             self.editor.show(ctx);
+        }
+
+        // Tree semaphore: the active file, if edited since its last check, goes
+        // back to yellow ("changed — not tested").
+        let active = self.editor.active_source().map(|(p, c)| (p.clone(), Self::content_hash(c)));
+        if let Some((path, h)) = active {
+            let changed = self.checked.get(&path).map(|c| *c != h).unwrap_or(true);
+            if changed {
+                self.set_element_status(&path, ElementStatus::Changed);
+            }
         }
 
         // ── Designer viewports (one OS window per open form) ──────────────────

@@ -194,6 +194,39 @@ impl CoboltProject {
     }
 }
 
+// ── Element status (the tree "semaphore") ──────────────────────────────────────
+
+/// A traffic-light status shown to the left of each tree element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ElementStatus {
+    /// Green — tested/compiled successfully and unchanged since.
+    Tested,
+    /// Yellow — changed since the last successful test (or never tested).
+    #[default]
+    Changed,
+    /// Red — an issue was found / compilation or check failed.
+    Failed,
+}
+
+impl ElementStatus {
+    /// `(r, g, b)` for the status dot.
+    pub fn rgb(self) -> (u8, u8, u8) {
+        match self {
+            ElementStatus::Tested  => (70, 200, 90),   // green
+            ElementStatus::Changed => (230, 195, 60),   // yellow
+            ElementStatus::Failed  => (220, 70, 70),    // red
+        }
+    }
+    /// Hover text key idea (tooltip).
+    pub fn tooltip(self) -> &'static str {
+        match self {
+            ElementStatus::Tested  => "Tested OK",
+            ElementStatus::Changed => "Changed — not tested",
+            ElementStatus::Failed  => "Issue / failed",
+        }
+    }
+}
+
 // ── Category (the IDE's fixed top-level tree nodes) ─────────────────────────────
 
 /// The fixed top-level categories shown in the project tree. The IDE owns these

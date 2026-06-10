@@ -26,7 +26,7 @@ use egui::{Color32, Context, RichText, ScrollArea, SidePanel, Ui};
 
 use cobolt_forms::model::Form;
 
-use crate::project_model::{CoboltProject, Category, FileKind};
+use crate::project_model::{CoboltProject, Category, ElementStatus, FileKind};
 use crate::i18n::Tr;
 use crate::panels::toolbox;
 
@@ -63,11 +63,18 @@ pub struct ProjectPanel {
     expanded: HashSet<PathBuf>,
     /// mtime-keyed cache of loaded forms (for the controls sub-tree).
     forms: HashMap<PathBuf, (SystemTime, Form)>,
+    /// Per-element "semaphore" status, keyed by relative path.
+    status: HashMap<String, ElementStatus>,
 }
 
 impl Default for ProjectPanel {
     fn default() -> Self {
-        Self { root: None, expanded: HashSet::new(), forms: HashMap::new() }
+        Self {
+            root: None,
+            expanded: HashSet::new(),
+            forms: HashMap::new(),
+            status: HashMap::new(),
+        }
     }
 }
 
@@ -84,6 +91,16 @@ impl ProjectPanel {
     /// an inline-inspector edit / designer save).
     pub fn refresh_form(&mut self, path: &Path) {
         self.forms.remove(path);
+    }
+
+    /// Set the semaphore status for a tracked element (relative path).
+    pub fn set_status(&mut self, rel: &str, s: ElementStatus) {
+        self.status.insert(rel.replace('\\', "/"), s);
+    }
+
+    /// The status for `rel` — defaults to `Changed` (yellow / not yet tested).
+    fn status_for(&self, rel: &str) -> ElementStatus {
+        self.status.get(&rel.replace('\\', "/")).copied().unwrap_or_default()
     }
 
     /// Render the project panel and return all events that occurred this frame.
@@ -240,6 +257,13 @@ impl ProjectPanel {
     }
 }
 
+/// A small "semaphore" dot to the left of an element's icon.
+fn status_dot(ui: &mut Ui, status: ElementStatus) {
+    let (r, g, b) = status.rgb();
+    ui.label(RichText::new("●").color(Color32::from_rgb(r, g, b)).size(12.0))
+        .on_hover_text(status.tooltip());
+}
+
 // ── Category tree node (L2) ─────────────────────────────────────────────────────
 
 impl ProjectPanel {
@@ -301,13 +325,14 @@ impl ProjectPanel {
                     return;
                 }
                 for rel in &files {
+                    let st = self.status_for(rel);
                     if is_forms {
                         self.show_form_item(ui, rel, &root, events, tr);
                     } else if is_generated {
-                        file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, &root, events);
+                        file_row(ui, rel, "🔒", Some(GENERATED_BLUE), false, st, &root, events);
                     } else {
                         let icon = kind.map(|k| k.icon()).unwrap_or("📄");
-                        file_row(ui, rel, icon, None, true, &root, events);
+                        file_row(ui, rel, icon, None, true, st, &root, events);
                     }
                 }
             });
@@ -327,6 +352,7 @@ impl ProjectPanel {
         let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
         let abs = root.as_ref().map(|d| d.join(rel));
         let form = abs.as_ref().and_then(|p| self.form_for(p));
+        let form_status = self.status_for(rel);
 
         let id = ui.make_persistent_id(("form_item", rel));
         // L3 form node is open by default (collapse only kicks in below it).
@@ -334,6 +360,7 @@ impl ProjectPanel {
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
             .show_header(ui, |ui| {
                 ui.add_space(8.0);
+                status_dot(ui, form_status);
                 ui.label(RichText::new(FileKind::Form.icon()).size(ICON_SIZE));
                 ui.selectable_label(false, RichText::new(name)).on_hover_text(rel)
             })
@@ -366,6 +393,7 @@ impl ProjectPanel {
                             for c in &in_cat {
                                 let crow = ui.horizontal(|ui| {
                                     ui.add_space(26.0);
+                                    status_dot(ui, form_status); // control inherits its form's status
                                     ui.selectable_label(false, format!("• {}", c.id))
                                         .on_hover_text(format!("{:?}", c.control_type))
                                 }).inner;
@@ -394,12 +422,14 @@ impl ProjectPanel {
 
 /// One file row (L3) inside a non-form category. Single click opens it in the
 /// Main Pane; `color` tints the label; `removable` adds a remove context menu.
+#[allow(clippy::too_many_arguments)]
 fn file_row(
     ui:        &mut Ui,
     rel:       &str,
     icon:      &str,
     color:     Option<Color32>,
     removable: bool,
+    status:    ElementStatus,
     root:      &Option<PathBuf>,
     events:    &mut Vec<ProjectPanelEvent>,
 ) {
@@ -410,6 +440,7 @@ fn file_row(
     }
     let resp = ui.horizontal(|ui| {
         ui.add_space(8.0);
+        status_dot(ui, status);
         ui.label(RichText::new(icon).size(ICON_SIZE));
         ui.selectable_label(false, text).on_hover_text(rel)
     }).inner;

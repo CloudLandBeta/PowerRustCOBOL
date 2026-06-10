@@ -34,7 +34,14 @@ IDE: controlled project tree, read-only generated code, richer toolbar.
   controls in the tree shows the **same properties pane as the RAD** in the Main
   Pane — edit parameters and they're saved back to the `.cfrm` without opening
   the designer (an "Open in Designer" button is offered for deeper edits). It
-  reuses the designer's edit machinery via a transient panel (no designer window).
+  **reuses the designer's `PropertiesPanel`** (and its `set_property`/
+  `set_form_prop` logic) via a transient panel — no duplicated property code, no
+  designer window.
+- **Semaphore status dot** to the left of every tree element: **green** = tested/
+  checked OK and unchanged, **yellow** = changed since the last check (or never
+  tested), **red** = check found an error / failed. `do_check` sets green/red;
+  editing a file (since its last check) flips it back to yellow; controls inherit
+  their form's status.
 - **Generated Code is its own read-only category.** Each form's RAD-generated
   COBOL (output of the form designer, one entry per form, named after it) lives
   under the **Generated Code** node — IDE-owned (no `[+]`), shown in blue with a
