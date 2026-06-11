@@ -1079,7 +1079,6 @@ impl CoboltApp {
                 None => return,
             }
         }
-        let theme = self.current_theme();
         let Some((_, tex)) = &self.bg_texture else { return; };
 
         let screen   = ctx.screen_rect();
@@ -1096,36 +1095,30 @@ impl CoboltApp {
         let dest = egui::Rect::from_min_size(screen.min + egui::vec2(ox, oy), egui::vec2(dw, dh));
         let uv   = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
 
-        let transparent = self.bg_transparent();
         let bp = ctx.layer_painter(egui::LayerId::background());
 
-        if transparent {
-            // 100 % transparent background colour: no opaque base — the desktop
-            // shows through. The image is still drawn, scaled by `opacity`, which
-            // **preserves the image's own transparency** (its alpha is multiplied
-            // by the opacity, so transparent regions stay transparent).
-            let a = (opacity as f32 / 100.0 * 255.0) as u8;
-            bp.image(tex.id(), dest, uv, egui::Color32::from_white_alpha(a));
+        // Draw the image (cover), scaled by `background_opacity` so the texture
+        // shows through more or less.
+        let img_a = (opacity as f32 / 100.0 * 255.0) as u8;
+        bp.image(tex.id(), dest, uv, egui::Color32::from_white_alpha(img_a));
+
+        // Cover the WHOLE window with the same semi-opaque dark-blue surface the
+        // panels use, so the area **outside** the panes matches the panes (no raw
+        // bright image showing through the gaps). The "transparent background"
+        // option lightens this base so the image/desktop reads through more.
+        let panel = ctx.style().visuals.panel_fill;
+        let base = if self.bg_transparent() {
+            let k = 0.6;
+            egui::Color32::from_rgba_premultiplied(
+                (panel.r() as f32 * k) as u8,
+                (panel.g() as f32 * k) as u8,
+                (panel.b() as f32 * k) as u8,
+                (panel.a() as f32 * k) as u8,
+            )
         } else {
-            // Opaque themed base replaces the desktop bleed so the image reads as
-            // a real wallpaper behind the glass panels. `opacity` dims the image
-            // via a scrim of that base colour (100 = full image, 0 = hidden), and
-            // a fixed dark overlay reduces the overall intensity for readability.
-            let base = egui::Color32::from_rgb(
-                theme.bg_extreme.r(), theme.bg_extreme.g(), theme.bg_extreme.b());
-            bp.rect_filled(screen, 0.0, base);
-            bp.image(tex.id(), dest, uv, egui::Color32::WHITE);
-            let scrim_a = ((100 - opacity) as f32 / 100.0 * 255.0) as u8;
-            if scrim_a > 0 {
-                bp.rect_filled(
-                    screen, 0.0,
-                    egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), scrim_a),
-                );
-            }
-            // Low-noise readability overlay (subtle dark blue) so the texture
-            // never competes with the editor/panels above it.
-            bp.rect_filled(screen, 0.0, egui::Color32::from_rgba_unmultiplied(5, 12, 18, 70));
-        }
+            panel
+        };
+        bp.rect_filled(screen, 0.0, base);
     }
 
     /// The IDE appearance settings dialog: colour theme + background image with
@@ -1595,7 +1588,7 @@ impl CoboltApp {
 
 // ── Liquid Glass visuals ──────────────────────────────────────────────────────
 
-fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, transparent: bool) {
+fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, _transparent: bool) {
     use egui::{Rounding, Shadow, Stroke, Visuals, style::WidgetVisuals};
     use egui::Color32;
 
@@ -1604,25 +1597,10 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme, transparent: 
 
     let mut v = if theme.dark { Visuals::dark() } else { Visuals::light() };
 
-    // In "transparent background" mode, make the panels noticeably more
-    // translucent so the desktop / background image reads through the glass.
-    // Otherwise keep panels readable (the image stays a subtle backdrop).
-    let scale_a = |c: Color32| {
-        if transparent {
-            let k = 0.66;
-            Color32::from_rgba_premultiplied(
-                (c.r() as f32 * k) as u8,
-                (c.g() as f32 * k) as u8,
-                (c.b() as f32 * k) as u8,
-                (c.a() as f32 * k) as u8,
-            )
-        } else {
-            c
-        }
-    };
-
+    // Panels keep a consistent semi-opaque fill (the background painter draws a
+    // matching base so the area *outside* the panes looks the same as the panes).
     // ── Theme palette ─────────────────────────────────────────────────────
-    let bg_panel    = scale_a(theme.bg_panel);
+    let bg_panel    = theme.bg_panel;
     let bg_widget   = theme.bg_widget;
     let bg_hover    = theme.bg_hover;
     let bg_active   = theme.bg_active;
