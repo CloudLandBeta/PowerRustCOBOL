@@ -729,6 +729,79 @@ impl CoboltApp {
         self.pending_build_rx = Some(rx);
     }
 
+    /// The project's root directory (where `cobolt.toml` lives), if a project is open.
+    fn project_dir(&self) -> Option<PathBuf> {
+        self.project_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_owned())
+    }
+
+    /// First available `<base>.<ext>` / `<base>-N.<ext>` name in `dir`.
+    fn unique_file_name(dir: &Path, base: &str, ext: &str) -> String {
+        let first = format!("{base}.{ext}");
+        if !dir.join(&first).exists() {
+            return first;
+        }
+        for n in 1.. {
+            let cand = format!("{base}-{n}.{ext}");
+            if !dir.join(&cand).exists() {
+                return cand;
+            }
+        }
+        first
+    }
+
+    /// `+` on a category — **create** a new item of that kind.
+    fn do_create_in_category(&mut self, kind: FileKind) {
+        match kind {
+            // A form has a real "create" dialog.
+            FileKind::Form          => self.new_form.open = true,
+            FileKind::Source        => self.create_new_text_file(FileKind::Source),
+            FileKind::Documentation => self.create_new_text_file(FileKind::Documentation),
+            // Assets can't be authored in the IDE — creating one means importing.
+            FileKind::Asset         => self.do_add_file_to_project(FileKind::Asset),
+        }
+    }
+
+    /// Create a new editable text file (COBOL source or documentation) in the
+    /// project, with a starter template, then track it and open it in the editor.
+    fn create_new_text_file(&mut self, kind: FileKind) {
+        use crate::project_model::Category;
+        let Some(dir) = self.project_dir() else {
+            self.output.push_status("Save the project first.");
+            return;
+        };
+        let (sub, base, ext, category) = match kind {
+            FileKind::Source => ("src", "new-program", "cbl", Category::CommonCode),
+            _                => ("docs", "new-document", "md", Category::Documentation),
+        };
+        let sub_dir = dir.join(sub);
+        if let Err(e) = std::fs::create_dir_all(&sub_dir) {
+            self.output.push_status(format!("Could not create {sub}/: {e}"));
+            return;
+        }
+        let fname = Self::unique_file_name(&sub_dir, base, ext);
+        let stem  = fname.trim_end_matches(&format!(".{ext}")).to_string();
+        let content = if kind == FileKind::Source {
+            let prog = stem.to_ascii_uppercase().replace('_', "-");
+            format!(
+                "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. {prog}.\n\
+                 \n       PROCEDURE DIVISION.\n           DISPLAY \"Hello from {prog}\".\n           GOBACK.\n")
+        } else {
+            format!("# {stem}\n\n")
+        };
+        let path = sub_dir.join(&fname);
+        if let Err(e) = std::fs::write(&path, content) {
+            self.output.push_status(format!("Could not create file: {e}"));
+            return;
+        }
+        let rel = format!("{sub}/{fname}");
+        if let Some(proj) = &mut self.cobolt_project {
+            proj.add_file_to(&rel, category);
+        }
+        self.do_save_project();
+        self.output.push_status(format!("Created {rel}"));
+        self.open_in_editor(path);
+    }
+
     fn do_add_file_to_project(&mut self, kind: FileKind) {
         let proj_dir = match &self.project_path {
             Some(p) => p.parent().unwrap_or(p.as_path()).to_owned(),
@@ -1474,12 +1547,16 @@ impl CoboltApp {
         form.background_color = "00000000".into(); // transparent — matches IDE glass
 
         let default_name = format!("{}.cfrm", self.new_form.form_name.to_lowercase());
-        self.begin_file_dialog(
-            FileRequest::NewForm(Box::new(form)),
-            crate::file_dialog::DialogSpec::save()
-                .filter("RustCOBOL Form", &["cfrm"])
-                .file_name(default_name),
-        );
+        let mut spec = crate::file_dialog::DialogSpec::save()
+            .filter("RustCOBOL Form", &["cfrm"])
+            .file_name(default_name);
+        // Default into the project's forms/ folder when a project is open.
+        if let Some(dir) = self.project_dir() {
+            let forms = dir.join("forms");
+            let _ = std::fs::create_dir_all(&forms);
+            spec = spec.directory(forms);
+        }
+        self.begin_file_dialog(FileRequest::NewForm(Box::new(form)), spec);
     }
 
     /// Save a freshly-created form to `path`, register it, and open its designer.
@@ -1823,7 +1900,7 @@ impl eframe::App for CoboltApp {
                     ui.separator();
                     if ui.button(tr.menu_open_cobol).clicked()  { self.do_open();             ui.close_menu(); }
                     if ui.button(tr.menu_open_form).clicked()   { self.do_open_form();         ui.close_menu(); }
-                    if ui.button(tr.menu_new_form).clicked()    { self.new_form.open = true;   ui.close_menu(); }
+                    if ui.button(tr.menu_import_form).clicked() { self.do_add_file_to_project(FileKind::Form); ui.close_menu(); }
                     ui.separator();
                     if ui.button(tr.menu_save).clicked() { self.do_save(); ui.close_menu(); }
                     ui.separator();
@@ -1937,6 +2014,7 @@ impl eframe::App for CoboltApp {
                     self.pending_goto_paragraph  = Some(paragraph);
                 }
                 ProjectPanelEvent::Select(_) => {} // applied inside the panel
+                ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
                 ProjectPanelEvent::Add(kind)  => self.do_add_file_to_project(kind),
                 ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
             }

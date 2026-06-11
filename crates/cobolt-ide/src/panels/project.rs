@@ -50,7 +50,9 @@ pub enum ProjectPanelEvent {
     OpenEventCode { form: PathBuf, paragraph: String },
     /// Internal: a tree element was selected (consumed by the panel, not the app).
     Select(String),
-    /// User clicked `[+]` on a category — show a file-picker for this kind.
+    /// User clicked `[+]` on a category — **create** a new item of this kind.
+    Create(FileKind),
+    /// User chose "Import existing…" — add an existing file of this kind.
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
     Remove(String),
@@ -390,12 +392,18 @@ impl ProjectPanel {
                 // Generated Code is IDE-owned (forms populate it) — no [+].
                 if let Some(kind) = kind {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("➕")
-                            .on_hover_text(format!("{}: {label}", tr.tree_add_hover))
-                            .clicked()
-                        {
-                            events.push(ProjectPanelEvent::Add(kind));
+                        let plus = ui.small_button("➕")
+                            .on_hover_text(format!("{}: {label}", tr.tree_create_hover));
+                        if plus.clicked() {
+                            events.push(ProjectPanelEvent::Create(kind));
                         }
+                        // Right-click → import an existing file into this category.
+                        plus.context_menu(|ui| {
+                            if ui.button(tr.tree_import_existing).clicked() {
+                                events.push(ProjectPanelEvent::Add(kind));
+                                ui.close_menu();
+                            }
+                        });
                     });
                 }
             })
