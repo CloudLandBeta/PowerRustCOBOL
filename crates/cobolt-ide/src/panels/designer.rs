@@ -2307,8 +2307,9 @@ fn nv_label(painter: &egui::Painter, rect: egui::Rect, text: &str, a: u8) {
         rect.center_bottom() - Vec2::new(0.0, 7.0),
         egui::Align2::CENTER_BOTTOM,
         t,
-        egui::FontId::proportional(16.0),
-        Color32::from_rgba_premultiplied(206, 220, 248, a),
+        // 20% smaller than 16px, and 25% darker label colour.
+        egui::FontId::proportional(12.8),
+        Color32::from_rgba_premultiplied(154, 165, 186, a),
     );
 }
 
