@@ -938,7 +938,17 @@ impl DesignerPanel {
     /// Commit the modal editor's content back into the form's event binding.
     pub fn save_event_handler(&mut self, ctrl_id: &str, event_name: &str, ws: String, code: String) {
         if ctrl_id.is_empty() {
-            // Form-level event
+            // Form-level event — create the binding if it doesn't exist yet
+            // (only onLoad/onClose are pre-stubbed; the rest are created lazily).
+            if !self.form.form_events.iter().any(|e| e.event == event_name) {
+                let paragraph = cobolt_forms::model::derive_paragraph_name(&self.form.name, event_name);
+                self.form.form_events.push(cobolt_forms::EventBinding {
+                    event:     event_name.to_string(),
+                    paragraph,
+                    code:      String::new(),
+                    local_ws:  String::new(),
+                });
+            }
             if let Some(ev) = self.form.form_events.iter_mut().find(|e| e.event == event_name) {
                 ev.local_ws = ws;
                 ev.code     = code;

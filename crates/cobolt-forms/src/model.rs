@@ -644,6 +644,61 @@ impl ControlType {
     }
 }
 
+// ── Form events ─────────────────────────────────────────────────────────────────
+
+/// The events the **form** itself supports, grouped by category (display order).
+/// A handler binding is created lazily when the user first attaches code to one;
+/// `onLoad` / `onClose` are pre-stubbed by `Form::new`. (Not all are wired into
+/// the runtime/codegen yet — they are designable now, fired as support lands.)
+pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
+    ("Lifecycle", &[
+        "onCreate", "onInitialize", "onLoad", "onOpened", "onShow",
+        "onHide", "onClose", "onClosing", "onClosed", "onDestroy",
+    ]),
+    ("Activation & Focus", &[
+        "onActivate", "onActivated", "onDeactivate", "onDeactivated",
+        "onGotFocus", "onLostFocus",
+    ]),
+    ("Window State", &[
+        "onResize", "onResizing", "onMove", "onMoving", "onMinimize",
+        "onMaximize", "onRestore", "onFullscreen", "onExitFullscreen",
+    ]),
+    ("Layout & Painting", &[
+        "onLayout", "onPaint", "onRepaint", "onThemeChanged",
+        "onDpiChanged", "onFontChanged",
+    ]),
+    ("Mouse", &[
+        "onClick", "onDoubleClick", "onMouseDown", "onMouseUp", "onMouseMove",
+        "onMouseEnter", "onMouseLeave", "onMouseWheel", "onContextMenu",
+    ]),
+    ("Touch & Pointer", &[
+        "onPointerDown", "onPointerUp", "onPointerMove", "onPointerEnter",
+        "onPointerLeave", "onPointerCancel", "onGesture",
+    ]),
+    ("Scrolling", &[
+        "onScroll", "onScrollStart", "onScrollEnd",
+        "onHorizontalScroll", "onVerticalScroll",
+    ]),
+    ("Drag & Drop", &[
+        "onDragEnter", "onDragLeave", "onDragOver", "onDrop",
+    ]),
+    ("Clipboard", &[
+        "onCut", "onCopy", "onPaste",
+    ]),
+    ("System / OS", &[
+        "onSystemColorChanged", "onDisplayChanged", "onPowerSuspend",
+        "onPowerResume", "onSessionLock", "onSessionUnlock",
+    ]),
+    ("Error Handling", &[
+        "onUnhandledException",
+    ]),
+];
+
+/// Flat iterator over every supported form event name (across all groups).
+pub fn form_supported_events() -> impl Iterator<Item = &'static str> {
+    FORM_EVENT_GROUPS.iter().flat_map(|(_, evs)| evs.iter().copied())
+}
+
 // ── Control ───────────────────────────────────────────────────────────────────
 
 /// A single visual (or non-visual) control on a form.
@@ -1332,6 +1387,25 @@ fn collect_paragraphs(ctrl: &Control, out: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn form_events_unique_and_include_lifecycle() {
+        let all: Vec<&str> = form_supported_events().collect();
+        // No duplicates across groups.
+        let mut seen = std::collections::HashSet::new();
+        for ev in &all {
+            assert!(seen.insert(*ev), "duplicate form event: {ev}");
+            assert!(ev.starts_with("on"), "form event not 'on'-prefixed: {ev}");
+        }
+        // Pre-stubbed lifecycle events are present.
+        assert!(all.contains(&"onLoad"));
+        assert!(all.contains(&"onClose"));
+        // A representative sample from later groups.
+        for ev in ["onResize", "onDoubleClick", "onPaste", "onUnhandledException"] {
+            assert!(all.contains(&ev), "missing form event: {ev}");
+        }
+        assert_eq!(all.len(), 66, "expected 66 form events");
+    }
 
     #[test]
     fn form_add_and_find() {

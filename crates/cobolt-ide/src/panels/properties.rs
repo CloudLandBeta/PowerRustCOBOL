@@ -2135,42 +2135,50 @@ impl PropertiesPanel {
             .small().color(Color32::GRAY).italics());
         ui.add_space(4.0);
 
-        for ev_name in &["onLoad", "onClose"] {
-            let binding  = form.form_events.iter().find(|e| e.event == *ev_name);
-            let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
-            let lines    = binding.map(|e| e.code_line_count()).unwrap_or(0);
+        // All supported form events, grouped by category (collapsible). A group
+        // that has any handler-with-code starts expanded; others collapsed.
+        for &(group, events) in cobolt_forms::model::FORM_EVENT_GROUPS {
+            let any_code = events.iter().any(|ev|
+                form.form_events.iter().any(|e| e.event == *ev && e.has_code()));
+            egui::CollapsingHeader::new(RichText::new(group).strong().color(Color32::from_gray(170)))
+                .id_salt(format!("form-evgrp-{group}"))
+                .default_open(any_code)
+                .show(ui, |ui| {
+                    for &ev_name in events {
+                        let binding  = form.form_events.iter().find(|e| e.event == ev_name);
+                        let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
+                        let lines    = binding.map(|e| e.code_line_count()).unwrap_or(0);
 
-            let row_resp = ui.horizontal(|ui| {
-                let dot_color = if has_code {
-                    Color32::from_rgb(100, 220, 100)
-                } else {
-                    Color32::from_rgb(120, 120, 120)
-                };
-                ui.label(RichText::new(if has_code { "●" } else { "○" }).color(dot_color));
-                let lbl = ui.add(
-                    egui::Label::new(
-                        RichText::new(format!("⚙ {ev_name}"))
-                            .color(Color32::from_rgb(200, 200, 100))
-                    ).sense(egui::Sense::click())
-                ).on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text(tr.hint_dblclick_event);
-                if has_code {
-                    ui.label(RichText::new(format!("({lines} {})", tr.hint_lines))
-                        .small().color(Color32::GRAY));
-                } else {
-                    ui.label(RichText::new(tr.hint_click_to_add)
-                        .small().color(Color32::from_rgb(100, 100, 100)).italics());
-                }
-                (lbl.clicked(), lbl.double_clicked())
-            });
+                        let row_resp = ui.horizontal(|ui| {
+                            let dot_color = if has_code {
+                                Color32::from_rgb(100, 220, 100)
+                            } else {
+                                Color32::from_rgb(120, 120, 120)
+                            };
+                            ui.label(RichText::new(if has_code { "●" } else { "○" }).color(dot_color));
+                            let lbl = ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!("⚙ {ev_name}"))
+                                        .color(Color32::from_rgb(200, 200, 100))
+                                ).sense(egui::Sense::click())
+                            ).on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text(tr.hint_dblclick_event);
+                            if has_code {
+                                ui.label(RichText::new(format!("({lines} {})", tr.hint_lines))
+                                    .small().color(Color32::GRAY));
+                            }
+                            (lbl.clicked(), lbl.double_clicked())
+                        });
 
-            let (clicked, double_clicked) = row_resp.inner;
-            // ctrl_id = "" signals form-level event to the designer.
-            if double_clicked {
-                action.open_event_in_code = Some((String::new(), ev_name.to_string()));
-            } else if clicked {
-                action.open_event_editor = Some((String::new(), ev_name.to_string()));
-            }
+                        let (clicked, double_clicked) = row_resp.inner;
+                        // ctrl_id = "" signals form-level event to the designer.
+                        if double_clicked {
+                            action.open_event_in_code = Some((String::new(), ev_name.to_string()));
+                        } else if clicked {
+                            action.open_event_editor = Some((String::new(), ev_name.to_string()));
+                        }
+                    }
+                });
         }
         });
 
