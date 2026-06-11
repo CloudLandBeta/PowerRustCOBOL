@@ -123,6 +123,28 @@ pub enum Expr {
         operand: Box<Expr>,
         span: Span,
     },
+
+    /// Visual-object **property reference** (PowerCOBOL-style), usable as a
+    /// sending or receiving operand:
+    ///   `"Caption" OF CmStatic1`
+    ///   `"Text" OF "ListItems" (4) OF Listview1`
+    /// `control` is the rightmost name (the control); `path` is the property
+    /// chain from the control outward, so its **last** element is the property
+    /// actually read/written. Property names are quoted string literals; an
+    /// element may carry a 1-based subscript.
+    PropertyRef {
+        control: String,
+        path: Vec<PropSeg>,
+        span: Span,
+    },
+}
+
+/// One segment of a [`Expr::PropertyRef`] path: a property/collection name with
+/// an optional 1-based subscript (`"ListItems" (4)`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PropSeg {
+    pub name: String,
+    pub index: Option<Box<Expr>>,
 }
 
 impl Expr {
@@ -137,6 +159,7 @@ impl Expr {
             Expr::FunctionCall { span, .. } => *span,
             Expr::Arithmetic { span, .. } => *span,
             Expr::Unary { span, .. }     => *span,
+            Expr::PropertyRef { span, .. } => *span,
         }
     }
 }

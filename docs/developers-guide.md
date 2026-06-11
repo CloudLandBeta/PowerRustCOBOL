@@ -462,8 +462,37 @@ shared state lives in the program's global working-storage.
 
 ## 11. Talking to the UI from COBOL
 
-Inside event handlers (and ordinary paragraphs) you read and write control state
-through built-in `CALL`s. The three you will use most:
+### Property reference syntax (the concise way)
+
+You can read and write a control's properties **directly as COBOL operands**,
+the way PowerCOBOL does — a quoted property name `OF` the control:
+
+```cobol
+      *> Write a property (literal → property)
+           MOVE "Hello!" TO "Caption" OF CmStatic1.
+
+      *> Read a property into a data item — no temporary needed
+           MOVE "Caption" OF CmStatic1 TO WS-NAME.
+
+      *> Property → property, directly. The type is inferred, so you do NOT
+      *> declare a temp data item to shuttle the value:
+           MOVE "Caption" OF CmStatic1 TO "Text" OF "ListItems" (4) OF Listview1.
+```
+
+A property reference works as both a **sending** and a **receiving** operand. The
+rightmost name is the control; the quoted names are its properties, read
+control-outward, and a name may carry a 1-based subscript
+(`"ListItems" (4)`). Property names are exactly the ones in the properties pane
+(e.g. `"Caption"`, `"Text"`, `"BackgroundColor"`, `"Value"`).
+
+> **Type inference.** Because the runtime carries the property value directly,
+> `MOVE propertyA TO propertyB` needs **no intermediate `PIC` data item** — a
+> step that classic GUI COBOL forces on you.
+
+### Property access via CALL (also supported)
+
+The explicit `CALL` form remains available and is interchangeable with the
+syntax above:
 
 | `CALL` | Purpose |
 |--------|---------|

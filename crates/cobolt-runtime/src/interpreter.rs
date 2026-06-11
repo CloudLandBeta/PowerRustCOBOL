@@ -922,6 +922,22 @@ impl Interpreter {
                 self.assign_refmod(base, start, length.as_deref(), &val, *span)?;
                 continue;
             }
+            // PowerCOBOL-style property receiver: write the control's property
+            // (the value's type is inferred from the moved value — no temp item).
+            if let Expr::PropertyRef { control, path, span } = target {
+                let (ctrl, key) = self.property_ref_key(control, path, *span);
+                let v = val.as_display_string().trim_end().to_owned();
+                // A control referenced by the property syntax exists by virtue of
+                // being on the form — register it on first write if needed.
+                if !self.objects.contains(&ctrl) {
+                    self.objects.register(&ctrl, "Control");
+                }
+                self.objects.set_property(&ctrl, &key, v.clone());
+                if let Some(tx) = &self.state_tx {
+                    let _ = tx.send(StateUpdate::new(ctrl, key, v));
+                }
+                continue;
+            }
             let name = self.resolve_lvalue(target);
             // `SET 88-name TO TRUE|FALSE` arrives here as MOVE 1|0 → set the
             // host item to (a value satisfying / violating) the condition.
@@ -3114,9 +3130,43 @@ impl Interpreter {
     // ── Expression evaluation ─────────────────────────────────────────────────
 
     /// Evaluate an expression to a `CobolValue`.
+    /// Resolve a PowerCOBOL-style property reference to `(control, property-key)`,
+    /// evaluating any subscripts. A nested path becomes a composite key, e.g.
+    /// `"Text" OF "ListItems" (4) OF Listview1` → `("Listview1", "ListItems(4).Text")`.
+    fn property_ref_key(
+        &mut self,
+        control: &str,
+        path: &[cobolt_ast::expr::PropSeg],
+        span: Span,
+    ) -> (String, String) {
+        let mut parts: Vec<String> = Vec::with_capacity(path.len());
+        for seg in path {
+            match &seg.index {
+                Some(idx) => {
+                    let i = self.eval_expr(idx, span).ok().and_then(|v| v.as_i64()).unwrap_or(0);
+                    parts.push(format!("{}({})", seg.name, i));
+                }
+                None => parts.push(seg.name.clone()),
+            }
+        }
+        (control.trim().to_owned(), parts.join("."))
+    }
+
     pub fn eval_expr(&mut self, expr: &Expr, span: Span) -> Result<CobolValue, RuntimeError> {
         match expr {
             Expr::Literal(lit, _) => Ok(literal_to_value(lit)),
+
+            // PowerCOBOL-style property reference as a *sending* operand: read the
+            // control's current property value (a string — its type is inferred,
+            // so no temporary data item is needed).
+            Expr::PropertyRef { control, path, span: s } => {
+                let (ctrl, key) = self.property_ref_key(control, path, *s);
+                let val_s = self.objects.get_property(&ctrl, &key)
+                    .map(|pv| pv.to_string())
+                    .unwrap_or_default();
+                let n = val_s.len();
+                Ok(CobolValue::from_str(&val_s, n))
+            }
 
             Expr::Identifier(name, _) => {
                 let key = self.env.resolve_name(name, &[]);

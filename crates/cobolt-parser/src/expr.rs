@@ -22,7 +22,7 @@
 //! ```
 
 use cobolt_ast::expr::{
-    ArithOp, CmpOp, Condition, DataClass, Expr, FigurativeConstant, Literal, SignCond, UnaryOp,
+    ArithOp, CmpOp, Condition, DataClass, Expr, FigurativeConstant, Literal, PropSeg, SignCond, UnaryOp,
 };
 use cobolt_lexer::{Span, Token};
 
@@ -150,6 +150,13 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         return Some(Expr::FunctionCall { name, args, span: sp });
     }
 
+    // PowerCOBOL-style property reference: a quoted property name followed by
+    // `OF` — e.g. `"Caption" OF CmStatic1`. A plain string literal (no `OF`)
+    // falls through to `parse_literal` below.
+    if matches!(p.peek(), Token::StringLiteral(_)) && *p.peek_at(1) == Token::Of {
+        return parse_property_ref(p);
+    }
+
     // Figurative constants / literals
     if let Some((lit, sp)) = parse_literal(p) {
         return Some(Expr::Literal(lit, sp));
@@ -216,6 +223,52 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
     }
 
     None
+}
+
+/// Consume a string literal if the current token is one.
+fn take_string_literal(p: &mut Parser) -> Option<String> {
+    if let Token::StringLiteral(s) = p.peek() {
+        let s = s.clone();
+        p.advance();
+        Some(s)
+    } else {
+        None
+    }
+}
+
+/// Parse a visual-object property reference, the current token being a string
+/// literal known to be followed by `OF`:
+///   `"Caption" OF CmStatic1`
+///   `"Text" OF "ListItems" (4) OF Listview1`
+fn parse_property_ref(p: &mut Parser) -> Option<Expr> {
+    let start = p.peek_span();
+    // Leaf property (no subscript on the leaf), then its `OF`.
+    let leaf = take_string_literal(p)?;
+    p.expect(&Token::Of);
+    // Parse order is leaf-first; we reverse to control→leaf order at the end.
+    let mut segs = vec![PropSeg { name: leaf, index: None }];
+    loop {
+        if let Some(name) = take_string_literal(p) {
+            // Container segment: `"Name" [(index)] OF`.
+            let index = if p.eat(&Token::LParen) {
+                let i = parse_expr(p);
+                p.expect(&Token::RParen);
+                Some(Box::new(i))
+            } else {
+                None
+            };
+            p.expect(&Token::Of);
+            segs.push(PropSeg { name, index });
+        } else if let Some((control, ctrl_span)) = p.eat_identifier() {
+            segs.reverse(); // control→leaf order; last element is the property
+            let span = start.merge(ctrl_span);
+            return Some(Expr::PropertyRef { control, path: segs, span });
+        } else {
+            p.emit_error("expected a control name after OF in a property reference");
+            segs.reverse();
+            return Some(Expr::PropertyRef { control: "<missing>".into(), path: segs, span: start });
+        }
+    }
 }
 
 /// Left/right binding powers for binary arithmetic operators.
