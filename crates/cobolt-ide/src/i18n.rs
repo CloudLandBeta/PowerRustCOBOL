@@ -112,8 +112,6 @@ pub struct Tr {
     pub settings_bg_clear:   &'static str,
     pub settings_bg_none:    &'static str,
     pub settings_no_project: &'static str,
-    pub settings_transparent:      &'static str,
-    pub settings_transparent_hint: &'static str,
 
     // ── Designer toolbar ──────────────────────────────────────────────────────
     pub dt_save:            &'static str,
@@ -393,8 +391,6 @@ const EN: Tr = Tr {
     settings_bg_clear:   "Clear",
     settings_bg_none:    "(none)",
     settings_no_project: "Open a project to change its appearance.",
-    settings_transparent: "Transparent background",
-    settings_transparent_hint: "The desktop shows through the glass panels. A background image, if set, keeps its own transparency.",
 
     dt_save:           "💾 Save",
     dt_save_tooltip:   "Save form and regenerate COBOL",
@@ -638,8 +634,6 @@ const ES: Tr = Tr {
     settings_bg_clear:   "Quitar",
     settings_bg_none:    "(ninguna)",
     settings_no_project: "Abra un proyecto para cambiar su apariencia.",
-    settings_transparent: "Fondo transparente",
-    settings_transparent_hint: "El escritorio se ve a través de los paneles de vidrio. Una imagen de fondo, si existe, conserva su transparencia.",
 
     dt_save:           "💾 Guardar",
     dt_save_tooltip:   "Guardar formulario y regenerar COBOL",
@@ -883,8 +877,6 @@ const PT: Tr = Tr {
     settings_bg_clear:   "Remover",
     settings_bg_none:    "(nenhuma)",
     settings_no_project: "Abra um projeto para alterar sua aparência.",
-    settings_transparent: "Fundo transparente",
-    settings_transparent_hint: "A área de trabalho aparece através dos painéis de vidro. Uma imagem de fundo, se definida, mantém sua transparência.",
 
     dt_save:           "💾 Salvar",
     dt_save_tooltip:   "Salvar formulário e regenerar COBOL",
@@ -1128,8 +1120,6 @@ const JA: Tr = Tr {
     settings_bg_clear:   "クリア",
     settings_bg_none:    "（なし）",
     settings_no_project: "外観を変更するにはプロジェクトを開いてください。",
-    settings_transparent: "背景を透明にする",
-    settings_transparent_hint: "ガラスパネルの背後にデスクトップが透けて見えます。背景画像を設定している場合はその透明度が保持されます。",
 
     dt_save:           "💾 保存",
     dt_save_tooltip:   "フォームを保存してCOBOLを再生成",
@@ -1373,8 +1363,6 @@ const ZH: Tr = Tr {
     settings_bg_clear:   "清除",
     settings_bg_none:    "（无）",
     settings_no_project: "打开一个项目以更改其外观。",
-    settings_transparent: "透明背景",
-    settings_transparent_hint: "桌面会透过玻璃面板显示。如果设置了背景图片，则保留其自身的透明度。",
 
     dt_save:           "💾 保存",
     dt_save_tooltip:   "保存窗体并重新生成 COBOL",
