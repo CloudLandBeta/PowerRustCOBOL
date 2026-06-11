@@ -274,6 +274,11 @@ enum FileRequest {
 /// The shared egui key for the single app-level file dialog.
 const APP_FILE_KEY: &str = "app-file-dialog";
 
+/// Standard project sub-folders — one per category plus working/build folders.
+/// Created when a project is made, and back-filled (if missing) when one is opened.
+const PROJECT_FOLDERS: &[&str] =
+    &["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp", "dist"];
+
 /// Inline form/control inspector shown in the Main Pane (from the project tree).
 /// Holds a transient `DesignerPanel` so it reuses the designer's property-edit
 /// machinery without opening a designer window.
@@ -590,7 +595,7 @@ impl CoboltApp {
                     // build/debug/temp working folders and `dist/` (a future
                     // self-contained bundle — binary + assets + libs — for running
                     // the project on a machine without PowerRustCOBOL installed).
-                    for sub in ["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp", "dist"] {
+                    for sub in PROJECT_FOLDERS {
                         if let Err(e) = std::fs::create_dir_all(dir.join(sub)) {
                             self.output.push_status(format!("Could not create {sub}/: {e}"));
                         }
@@ -650,6 +655,15 @@ impl CoboltApp {
                 self.cobolt_project = Some(proj);
                 self.project_path   = Some(path);
                 if let Some(dir) = dir {
+                    // Back-fill any standard sub-folders missing from older projects.
+                    let mut created = 0;
+                    for sub in PROJECT_FOLDERS {
+                        let p = dir.join(sub);
+                        if !p.exists() && std::fs::create_dir_all(&p).is_ok() { created += 1; }
+                    }
+                    if created > 0 {
+                        self.output.push_status(format!("Added {created} standard project folder(s)"));
+                    }
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
                 }
@@ -3324,6 +3338,32 @@ pub(crate) fn render_run_control(
     let mut out = RunOutcome { events: Vec::new(), prop_updates: Vec::new() };
     let painter = ui.painter_at(screen_rect);
 
+    // ── Generic pointer events for every control ──────────────────────────────
+    // Detected from pointer geometry (no extra interactable, so the type-specific
+    // interaction below is unaffected). Fired for all controls; the data-driven
+    // event loop only dispatches the ones with a bound handler, so unbound events
+    // are harmless no-ops. Names match each control's `supported_events`.
+    if enabled {
+        let over = ui.rect_contains_pointer(screen_rect);
+        let (pressed, released, dbl) = ui.input(|i| (
+            i.pointer.primary_pressed(),
+            i.pointer.primary_released(),
+            i.pointer.button_double_clicked(egui::PointerButton::Primary),
+        ));
+        if over {
+            if pressed  { out.events.push(FormEvent::new(id, "onMouseDown")); }
+            if released { out.events.push(FormEvent::new(id, "onMouseUp")); }
+            if dbl      { out.events.push(FormEvent::new(id, "onDblClick")); }
+        }
+        // Enter / leave, remembered per control in egui memory.
+        let mem_id = ctrl_id.with("ptr-over");
+        let was = ui.ctx().memory(|m| m.data.get_temp::<bool>(mem_id).unwrap_or(false));
+        if over != was {
+            out.events.push(FormEvent::new(id, if over { "onMouseEnter" } else { "onMouseLeave" }));
+            ui.ctx().memory_mut(|m| m.data.insert_temp(mem_id, over));
+        }
+    }
+
     match &ct {
         CT::Button => {
             let label = {
@@ -3922,6 +3962,25 @@ mod run_interaction_tests {
             "Button click produced no Click event; got {:?}",
             evs.iter().map(|e| (e.ctrl_id.clone(), e.event_id.clone())).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn generic_pointer_events_fire() {
+        // Moving onto a control, pressing and releasing should raise the generic
+        // pointer events (in addition to the type-specific onClick).
+        let rect = Rect::from_min_size(pos2(50.0, 50.0), vec2(80.0, 30.0));
+        let c = rect.center();
+        let away = pos2(5.0, 5.0); // outside the rect
+        let (evs, _st) = drive(CT::Button, cs(&[("Caption", "OK")]), rect, vec![
+            vec![Event::PointerMoved(away)],            // start outside
+            vec![Event::PointerMoved(c), press(c)],     // enter + down
+            vec![Event::PointerMoved(c), release(c)],   // up
+            vec![Event::PointerMoved(away)],            // leave
+        ]);
+        let names: Vec<&str> = evs.iter().map(|e| e.event_id.as_str()).collect();
+        for ev in ["onMouseEnter", "onMouseDown", "onMouseUp", "onMouseLeave"] {
+            assert!(names.contains(&ev), "missing {ev}; got {names:?}");
+        }
     }
 
     #[test]

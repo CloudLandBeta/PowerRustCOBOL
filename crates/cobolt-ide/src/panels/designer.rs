@@ -374,7 +374,6 @@ pub struct DesignerPanel {
     /// Format-painter (copy-style) state.
     pub(crate) format_painter: FormatPainter,
 
-    next_id: u32,
 
     pub toolbox: ToolboxPanel,
     pub properties: PropertiesPanel,
@@ -423,7 +422,6 @@ pub struct DesignerPanel {
 impl DesignerPanel {
     pub fn new(form: Form) -> Self {
         Self {
-            next_id:          form.controls.len() as u32 + 1,
             form,
             selected_ids:     Vec::new(),
             drag:             DragState::None,
@@ -615,48 +613,26 @@ impl DesignerPanel {
 
     // ── Control manipulation ──────────────────────────────────────────────────
 
-    fn next_unique_id(&mut self, ct: &ControlType) -> String {
-        let prefix = match ct {
-            ControlType::Button       => "BTN",
-            ControlType::Label        => "LBL",
-            ControlType::TextBox      => "TXT",
-            ControlType::CheckBox     => "CHK",
-            ControlType::RadioButton  => "RDO",
-            ControlType::ComboBox     => "CMB",
-            ControlType::ListBox      => "LST",
-            ControlType::PictureBox   => "PIC",
-            ControlType::Animator     => "ANM",
-            ControlType::GroupBox     => "GRP",
-            ControlType::Panel        => "PNL",
-            ControlType::TabControl   => "TAB",
-            ControlType::ProgressBar  => "PGR",
-            ControlType::DataGrid     => "GRD",
-            ControlType::MenuBar      => "MNU",
-            ControlType::ToolBar      => "TBR",
-            ControlType::StatusBar    => "SBR",
-            ControlType::Line         => "LIN",
-            ControlType::DateTimePicker => "DTP",
-            ControlType::NumericUpDown  => "NUD",
-            ControlType::TreeView       => "TRV",
-            ControlType::Splitter       => "SPL",
-            ControlType::Timer          => "TMR",
-            ControlType::Shape          => "SHP",
-            ControlType::AgentObject    => "AGT",
-            ControlType::ModalWindow    => "MDL",
-            ControlType::RestClient     => "RST",
-            ControlType::Slider         => "SLD",
-            ControlType::Custom { .. }  => "CTL",
-            ControlType::SqlDatabase    => "SQL",
-            ControlType::BarChart       => "BAR",
-            ControlType::LineChart      => "LIN",
-            ControlType::PieChart       => "PIE",
-            ControlType::AreaChart      => "ARE",
-            ControlType::ScatterChart   => "SCT",
-            ControlType::DonutChart     => "DNT",
-        };
-        let id = format!("{}-{}", prefix, self.next_id);
-        self.next_id += 1;
-        id
+    // (see `control_type_name` free function below for the prefix.)
+
+    /// A fresh, readable control ID: `<TypeName>-<n>` with a **per-type** counter
+    /// (e.g. `Button-1`, `Button-2`, `TextBox-1`). `n` is one past the highest
+    /// existing number for that type, so IDs stay unique and gap-free.
+    fn next_unique_id(&self, ct: &ControlType) -> String {
+        let prefix = control_type_name(ct);
+        fn scan(ctrls: &[Control], prefix: &str, max_n: &mut u32) {
+            for c in ctrls {
+                if let Some(num) = c.id.strip_prefix(prefix).and_then(|r| r.strip_prefix('-')) {
+                    if let Ok(n) = num.parse::<u32>() {
+                        *max_n = (*max_n).max(n);
+                    }
+                }
+                scan(&c.children, prefix, max_n);
+            }
+        }
+        let mut max_n = 0u32;
+        scan(&self.form.controls, prefix, &mut max_n);
+        format!("{prefix}-{}", max_n + 1)
     }
 
     pub fn add_control(&mut self, ct: ControlType, x: i32, y: i32) {
@@ -2271,6 +2247,32 @@ pub(crate) fn scale_rect_about_center(base: egui::Rect, scale: f32) -> egui::Rec
         base
     } else {
         egui::Rect::from_center_size(base.center(), base.size() * scale)
+    }
+}
+
+/// The readable type name used as the prefix of an auto-generated control ID
+/// (`Button-1`, `TextBox-2`, …) and, uppercased, of its generated COBOL names.
+fn control_type_name(ct: &ControlType) -> &'static str {
+    use ControlType as CT;
+    match ct {
+        CT::Button => "Button",            CT::Label => "Label",
+        CT::TextBox => "TextBox",          CT::CheckBox => "CheckBox",
+        CT::RadioButton => "RadioButton",  CT::ComboBox => "ComboBox",
+        CT::ListBox => "ListBox",          CT::PictureBox => "PictureBox",
+        CT::Animator => "Animator",        CT::GroupBox => "GroupBox",
+        CT::Panel => "Panel",              CT::TabControl => "TabControl",
+        CT::ProgressBar => "ProgressBar",  CT::DataGrid => "DataGrid",
+        CT::MenuBar => "MenuBar",          CT::ToolBar => "ToolBar",
+        CT::StatusBar => "StatusBar",      CT::Line => "Line",
+        CT::DateTimePicker => "DateTimePicker", CT::NumericUpDown => "NumericUpDown",
+        CT::TreeView => "TreeView",        CT::Splitter => "Splitter",
+        CT::Timer => "Timer",              CT::Shape => "Shape",
+        CT::AgentObject => "AgentObject",  CT::ModalWindow => "ModalWindow",
+        CT::RestClient => "RestClient",    CT::Slider => "Slider",
+        CT::SqlDatabase => "SqlDatabase",  CT::BarChart => "BarChart",
+        CT::LineChart => "LineChart",      CT::PieChart => "PieChart",
+        CT::AreaChart => "AreaChart",      CT::ScatterChart => "ScatterChart",
+        CT::DonutChart => "DonutChart",    CT::Custom { .. } => "Control",
     }
 }
 

@@ -235,6 +235,10 @@ A new project also gets a **runnable starter `main` program** (by default
 `src/main.cbl`) — a minimal `IDENTIFICATION DIVISION` / `DISPLAY` / `GOBACK` that
 you can **Run** straight away and then grow.
 
+> **Note.** Opening an older project that predates this layout **back-fills any
+> missing standard folders** automatically, so every project ends up with the
+> same structure.
+
 ### The five tree categories
 
 | Category | Holds | Editable? |
@@ -374,6 +378,13 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **Control IDs.** When you drop a control, it gets a readable, per-type ID —
+> `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
+> data-name (`WS-BUTTON-1`) and the base of its handler paragraph
+> (`BUTTON-1--ONCLICK`). You can rename a control's ID to something meaningful
+> (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
+> digits, hyphens; no leading/trailing hyphen).
+
 ---
 
 ## 10. Event-driven programming
@@ -431,11 +442,13 @@ In words:
 
 > ⚠️ **Caveat — designable vs. fired.** Every listed event is **designable**: you
 > can attach a COBOL handler to any of them today and it will be generated. The
-> **runtime currently fires** the core set — form `onLoad`/`onClose`, and widget
-> `onClick` / `onChange` / focus events — and additional events are being wired
-> into the live runtime over time. Attach handlers freely, but verify in a *Run
-> Form* session which ones fire before relying on, say, `onPaint` or
-> `onPowerSuspend`.
+> **runtime currently fires** form `onLoad`/`onClose`, and for widgets:
+> `onClick`, `onChange`, the focus pair `onGotFocus`/`onLostFocus`, and the
+> pointer set `onDblClick`, `onMouseDown`, `onMouseUp`, `onMouseEnter`,
+> `onMouseLeave`. More events (keyboard, scrolling, and the form-level
+> window-state events such as `onResize`/`onShow`) are being wired into the live
+> runtime over time. Attach handlers freely, but verify in a *Run Form* session
+> which ones fire before relying on, say, `onPaint` or `onPowerSuspend`.
 
 ### Adding a handler
 
