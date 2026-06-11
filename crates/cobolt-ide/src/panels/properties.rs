@@ -2189,7 +2189,7 @@ fn section_header(ui: &mut Ui, title: &str) {
     // Same dark-blue card-style header bar as `section_card`, so the widget
     // inspector's sections look consistent with the form inspector's cards.
     let fill = if theme.dark {
-        Color32::from_rgba_unmultiplied(12, 22, 36, 150)
+        Color32::from_rgba_unmultiplied(10, 11, 14, 150)
     } else {
         Color32::from_rgba_unmultiplied(255, 255, 255, 150)
     };
@@ -2226,7 +2226,7 @@ fn section_card(
     // A translucent **dark-blue** card (not a semi-white lift): it darkens the
     // backdrop into a "dark glass" panel while staying partly see-through.
     let card_fill = if theme.dark {
-        Color32::from_rgba_unmultiplied(12, 22, 36, 150)
+        Color32::from_rgba_unmultiplied(10, 11, 14, 150)
     } else {
         Color32::from_rgba_unmultiplied(255, 255, 255, 150)
     };
