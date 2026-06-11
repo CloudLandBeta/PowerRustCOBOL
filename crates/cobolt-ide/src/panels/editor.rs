@@ -77,133 +77,197 @@ const DATA_KEYWORDS: &[&str] = &[
 // ── Control member tables ─────────────────────────────────────────────────────
 
 /// Methods exposed by each control type (shown after `INVOKE ctrl-id '`).
-fn methods_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str)] {
-    match ctrl_type {
-        "Button"      => &[
-            ("Click",         "Trigger click event"),
-            ("Show",          "Make visible"),
-            ("Hide",          "Make invisible"),
-            ("Enable",        "Enable interaction"),
-            ("Disable",       "Disable interaction"),
-            ("SetCaption",    "Change button text"),
-            ("PlayAnimation", "Run a named animation"),
-            ("StopAnimation", "Stop a running animation"),
-        ],
-        "TextBox"     => &[
-            ("GetText",  "Return current text value"),
-            ("SetText",  "Set text value"),
-            ("Clear",    "Clear text"),
-            ("Focus",    "Move focus here"),
-            ("Show",     "Make visible"),
-            ("Hide",     "Make invisible"),
-        ],
-        "Label"       => &[
-            ("SetCaption",    "Change label text"),
-            ("SetColor",      "Change foreground colour"),
-            ("Show",          "Make visible"),
-            ("Hide",          "Make invisible"),
-            ("PlayAnimation", "Run a named animation"),
-        ],
-        "CheckBox"    => &[
-            ("IsChecked",  "Returns 1 if checked"),
-            ("SetChecked", "Set checked state (0/1)"),
-            ("GetValue",   "Get current value"),
-            ("Show",       "Make visible"),
-            ("Hide",       "Make invisible"),
-        ],
-        "RadioButton" => &[
-            ("IsChecked",  "Returns 1 if selected"),
-            ("SetChecked", "Set selected state (0/1)"),
-            ("Show",       "Make visible"),
-            ("Hide",       "Make invisible"),
-        ],
-        "ComboBox"    => &[
-            ("GetText",   "Get selected text"),
-            ("SetText",   "Set/select text"),
-            ("AddItem",   "Add item to list"),
-            ("Clear",     "Clear all items"),
-            ("GetIndex",  "Get selected index"),
-            ("Show",      "Make visible"),
-            ("Hide",      "Make invisible"),
-        ],
-        "ListBox"     => &[
-            ("AddItem",    "Append item"),
-            ("RemoveItem", "Remove item by index"),
-            ("Clear",      "Remove all items"),
-            ("GetSelected","Return selected text"),
-            ("GetCount",   "Return item count"),
-            ("Show",       "Make visible"),
-            ("Hide",       "Make invisible"),
-        ],
-        "PictureBox"  => &[
-            ("SetImage",   "Load image from file path"),
-            ("Clear",      "Clear the displayed image"),
-            ("Show",       "Make visible"),
-            ("Hide",       "Make invisible"),
-            ("Refresh",    "Reload image from ImagePath"),
-        ],
-        "DataGrid"    => &[
-            ("Refresh",       "Reload data"),
-            ("ExportCSV",     "Export rows as CSV"),
-            ("GetRowCount",   "Return row count"),
-            ("GetCellValue",  "Read a cell"),
-            ("SetCellValue",  "Write a cell"),
-            ("AddRow",        "Append empty row"),
-            ("DeleteRow",     "Delete row by index"),
-            ("Show",          "Make visible"),
-            ("Hide",          "Make invisible"),
-        ],
-        "Timer"       => &[
-            ("Start",       "Start / resume timer"),
-            ("Stop",        "Pause timer"),
-            ("SetInterval", "Change interval in ms"),
-            ("IsEnabled",   "Returns 1 if running"),
-        ],
-        "ProgressBar" => &[
-            ("SetValue",  "Set current value"),
-            ("GetValue",  "Get current value"),
-            ("Show",      "Make visible"),
-            ("Hide",      "Make invisible"),
-        ],
-        "Slider"      => &[
-            ("SetValue",  "Set thumb position"),
-            ("GetValue",  "Get current value"),
-            ("Show",      "Make visible"),
-            ("Hide",      "Make invisible"),
-        ],
-        "AgentObject" => &[
-            ("Ask",        "Send prompt to LLM, get reply"),
-            ("SetPrompt",  "Set the system prompt"),
-            ("SetModel",   "Switch model name"),
-            ("Stop",       "Abort current request"),
-        ],
-        "RestClient"  => &[
-            ("call",       "Generic HTTP call"),
-            ("get",        "HTTP GET request"),
-            ("post",       "HTTP POST request"),
-            ("setHeader",  "Add/replace a request header"),
-            ("setTimeout", "Set timeout in ms"),
-        ],
-        "ModalWindow" => &[
-            ("Show",        "Open the modal window"),
-            ("Close",       "Close the modal window"),
-            ("GetResult",   "Return modal result value"),
-            ("SetTitle",    "Change window title"),
-        ],
-        _ => &[
-            ("Show",          "Make visible"),
-            ("Hide",          "Make invisible"),
-            ("Enable",        "Enable"),
-            ("Disable",       "Disable"),
-            ("SetProperty",   "Set any property by name"),
-            ("GetProperty",   "Get any property by name"),
-            ("PlayAnimation", "Run a named animation"),
-            ("StopAnimation", "Stop running animation"),
-        ],
-    }
+type Method = (&'static str, &'static str);
+
+/// Methods every *visual* widget supports (lifecycle, geometry, animation,
+/// validation, generic property access).
+const UNIVERSAL_VISUAL: &[Method] = &[
+    ("Show",          "Make the control visible"),
+    ("Hide",          "Make the control invisible"),
+    ("Enable",        "Enable interaction"),
+    ("Disable",       "Disable interaction"),
+    ("SetFocus",      "Move keyboard focus to this control"),
+    ("MoveTo",        "Move to (X, Y) in pixels"),
+    ("Resize",        "Resize to (Width, Height) in pixels"),
+    ("BringToFront",  "Raise above sibling controls"),
+    ("SendToBack",    "Lower beneath sibling controls"),
+    ("Refresh",       "Force a redraw"),
+    ("Validate",      "Run the control's validation rule"),
+    ("PlayAnimation", "Run a named animation"),
+    ("StopAnimation", "Stop a running animation"),
+    ("SetProperty",   "Set any property by name"),
+    ("GetProperty",   "Get any property by name"),
+];
+
+/// Methods for non-visual widgets (Timer, AI agent, REST/SQL clients).
+const UNIVERSAL_NONVISUAL: &[Method] = &[
+    ("SetProperty", "Set any property by name"),
+    ("GetProperty", "Get any property by name"),
+];
+
+/// Per-type methods plus the relevant universal set, used by `ctrl::`/`INVOKE`
+/// completion. Returns an owned vec so universal + specific can be merged.
+fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
+    let (base, specific): (&[Method], &[Method]) = match ctrl_type {
+        "Button"      => (UNIVERSAL_VISUAL, &[
+            ("Click", "Raise the onClick event"),
+            ("SetCaption", "Change the button text"),
+            ("PerformClick", "Programmatically click"),
+        ]),
+        "TextBox"     => (UNIVERSAL_VISUAL, &[
+            ("GetText", "Return the current text"),
+            ("SetText", "Replace the text"),
+            ("AppendText", "Append to the text"),
+            ("Clear", "Clear the text"),
+            ("SelectAll", "Select all text"),
+        ]),
+        "Label"       => (UNIVERSAL_VISUAL, &[
+            ("SetCaption", "Change the label text"),
+            ("SetColor", "Change the foreground colour"),
+        ]),
+        "CheckBox"    => (UNIVERSAL_VISUAL, &[
+            ("IsChecked", "Returns 1 if checked"),
+            ("SetChecked", "Set the checked state (0/1)"),
+            ("Toggle", "Flip the checked state"),
+        ]),
+        "RadioButton" => (UNIVERSAL_VISUAL, &[
+            ("IsChecked", "Returns 1 if selected"),
+            ("SetChecked", "Set the selected state (0/1)"),
+            ("Select", "Select this option"),
+        ]),
+        "ComboBox"    => (UNIVERSAL_VISUAL, &[
+            ("GetText", "Get the selected text"),
+            ("SetText", "Set / select text"),
+            ("AddItem", "Append an item"),
+            ("RemoveItem", "Remove an item by index"),
+            ("Clear", "Remove all items"),
+            ("GetIndex", "Get the selected index"),
+            ("SetIndex", "Select an item by index"),
+            ("GetCount", "Return the item count"),
+        ]),
+        "ListBox"     => (UNIVERSAL_VISUAL, &[
+            ("AddItem", "Append an item"),
+            ("RemoveItem", "Remove an item by index"),
+            ("Clear", "Remove all items"),
+            ("GetSelected", "Return the selected text"),
+            ("GetSelectedIndex", "Return the selected index"),
+            ("SetSelectedIndex", "Select an item by index"),
+            ("GetCount", "Return the item count"),
+        ]),
+        "PictureBox"  => (UNIVERSAL_VISUAL, &[
+            ("SetImage", "Load an image from a file path"),
+            ("Clear", "Clear the displayed image"),
+        ]),
+        "Animator"    => (UNIVERSAL_VISUAL, &[
+            ("Play", "Play the animation"),
+            ("Pause", "Pause the animation"),
+            ("Stop", "Stop the animation"),
+            ("SetSource", "Load a new animated image"),
+        ]),
+        "DataGrid"    => (UNIVERSAL_VISUAL, &[
+            ("ExportCSV", "Export rows as CSV"),
+            ("GetRowCount", "Return the row count"),
+            ("GetCellValue", "Read a cell (row, col)"),
+            ("SetCellValue", "Write a cell (row, col, value)"),
+            ("AddRow", "Append an empty row"),
+            ("DeleteRow", "Delete a row by index"),
+            ("ClearRows", "Remove all rows"),
+            ("Sort", "Sort by a column"),
+        ]),
+        "TreeView"    => (UNIVERSAL_VISUAL, &[
+            ("AddNode", "Add a node (parent, text)"),
+            ("RemoveNode", "Remove a node by path"),
+            ("Clear", "Remove all nodes"),
+            ("ExpandAll", "Expand every node"),
+            ("CollapseAll", "Collapse every node"),
+            ("GetSelectedNode", "Return the selected node"),
+            ("SetSelectedNode", "Select a node by path"),
+        ]),
+        "TabControl"  => (UNIVERSAL_VISUAL, &[
+            ("SelectTab", "Activate a tab by index/name"),
+            ("GetSelectedTab", "Return the active tab"),
+            ("AddTab", "Add a tab"),
+            ("RemoveTab", "Remove a tab by index"),
+        ]),
+        "ProgressBar" => (UNIVERSAL_VISUAL, &[
+            ("SetValue", "Set the current value"),
+            ("GetValue", "Get the current value"),
+            ("Increment", "Increase the value by a step"),
+            ("Reset", "Reset to the minimum"),
+        ]),
+        "Slider"      => (UNIVERSAL_VISUAL, &[
+            ("SetValue", "Set the thumb position"),
+            ("GetValue", "Get the current value"),
+        ]),
+        "NumericUpDown" => (UNIVERSAL_VISUAL, &[
+            ("GetValue", "Get the current value"),
+            ("SetValue", "Set the value"),
+            ("Increment", "Add one step"),
+            ("Decrement", "Subtract one step"),
+        ]),
+        "DateTimePicker" => (UNIVERSAL_VISUAL, &[
+            ("GetValue", "Return the selected date/time"),
+            ("SetValue", "Set the date/time"),
+        ]),
+        "MenuBar" | "ToolBar" | "StatusBar" => (UNIVERSAL_VISUAL, &[
+            ("SetItems", "Replace the item list"),
+            ("GetItem", "Read an item by index"),
+        ]),
+        "BarChart" | "LineChart" | "PieChart"
+        | "AreaChart" | "ScatterChart" | "DonutChart" => (UNIVERSAL_VISUAL, &[
+            ("SetData", "Bind a COBOL table/array as data"),
+            ("AddSeries", "Add a data series"),
+            ("Clear", "Remove all data"),
+            ("ExportImage", "Save the chart as an image"),
+        ]),
+        "ModalWindow" => (UNIVERSAL_NONVISUAL, &[
+            ("Show", "Open the modal window"),
+            ("Close", "Close the modal window"),
+            ("GetResult", "Return the modal result"),
+            ("SetTitle", "Change the window title"),
+        ]),
+        "Timer"       => (UNIVERSAL_NONVISUAL, &[
+            ("Start", "Start / resume the timer"),
+            ("Stop", "Pause the timer"),
+            ("Reset", "Reset the elapsed time"),
+            ("SetInterval", "Change the interval (ms)"),
+            ("IsEnabled", "Returns 1 if running"),
+        ]),
+        "AgentObject" => (UNIVERSAL_NONVISUAL, &[
+            ("Ask", "Send a prompt to the LLM, get a reply"),
+            ("SetPrompt", "Set the system prompt"),
+            ("SetModel", "Switch the model name"),
+            ("Stop", "Abort the current request"),
+        ]),
+        "RestClient"  => (UNIVERSAL_NONVISUAL, &[
+            ("call", "Generic HTTP call"),
+            ("get", "HTTP GET request"),
+            ("post", "HTTP POST request"),
+            ("put", "HTTP PUT request"),
+            ("delete", "HTTP DELETE request"),
+            ("setHeader", "Add / replace a request header"),
+            ("clearHeaders", "Remove all custom headers"),
+            ("setTimeout", "Set the timeout (ms)"),
+        ]),
+        "SqlDatabase" => (UNIVERSAL_NONVISUAL, &[
+            ("open", "Open the database connection"),
+            ("close", "Close the connection"),
+            ("query", "Run a SELECT, return a cursor"),
+            ("execute", "Run an INSERT/UPDATE/DELETE"),
+            ("fetch", "Fetch the next row"),
+            ("fetchAll", "Fetch all rows"),
+        ]),
+        // Containers / decorative widgets: universal-visual only.
+        "GroupBox" => (UNIVERSAL_VISUAL, &[("SetCaption", "Change the title")]),
+        _ => (UNIVERSAL_VISUAL, &[]),
+    };
+    base.iter().chain(specific).copied().collect()
 }
 
-/// Properties for each control type — shown when a control ID is typed exactly.
+/// Curated property descriptions (kept for tooltips/docs). The live IntelliSense
+/// now derives the full property set from `cobolt_forms::model::property_names_for`
+/// so it can never drift from the control model.
+#[allow(dead_code)]
 fn properties_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str)] {
     match ctrl_type {
         "Button" => &[
@@ -359,10 +423,13 @@ struct AcItem {
 
 impl AcItem {
     fn kw(word: &str) -> Self {
-        Self { label: word.into(), insert: word.into(), detail: "keyword".into(), kind: AcKind::Keyword }
+        // Insert the bare word + a trailing space and let the user keep typing —
+        // never an auto-closed template (e.g. `DISPLAY ""`).
+        Self { label: word.into(), insert: format!("{word} "), detail: "keyword".into(), kind: AcKind::Keyword }
     }
-    fn snip(label: &str, insert: &str, detail: &str) -> Self {
-        Self { label: label.into(), insert: insert.into(), detail: detail.into(), kind: AcKind::Snippet }
+    fn property(name: &str) -> Self {
+        // Property name inside a string ref: accepting it closes the quote.
+        Self { label: name.into(), insert: format!("{name}\""), detail: "property".into(), kind: AcKind::Property }
     }
     fn para(name: &str) -> Self {
         Self { label: name.into(), insert: name.into(), detail: "paragraph".into(), kind: AcKind::Paragraph }
@@ -405,6 +472,9 @@ struct AutoComplete {
     popup_pos:    Pos2,
     /// When true the popup is showing members of a specific control (property/method list).
     member_mode:  bool,
+    /// Set when the selection moved via the keyboard, so the popup scrolls the
+    /// highlighted row back into view on the next frame.
+    scroll_to_sel: bool,
 }
 
 // ── Search / Find state ───────────────────────────────────────────────────────
@@ -455,6 +525,8 @@ impl EditorTab {
 pub struct KnownControl {
     pub id:        String,
     pub ctrl_type: String,
+    /// Property names this control exposes (for `"Prop" OF Ctrl` completion).
+    pub properties: Vec<String>,
 }
 
 // ── EditorPanel ───────────────────────────────────────────────────────────────
@@ -1226,6 +1298,7 @@ impl EditorPanel {
                 });
                 if key_down    { self.ac.selected = (self.ac.selected + 1).min(self.ac.items.len().saturating_sub(1)); }
                 if key_up      { self.ac.selected = self.ac.selected.saturating_sub(1); }
+                if key_down || key_up { self.ac.scroll_to_sel = true; }
                 if key_dismiss { self.ac.visible = false; }
             }
 
@@ -1446,13 +1519,25 @@ impl EditorPanel {
                             let (word_start, prefix) =
                                 word_before_cursor(&tab.content, char_idx);
 
+                            // Current line up to the cursor (for property refs).
+                            let cur_byte = tab.content.char_indices().nth(char_idx)
+                                .map(|(b, _)| b).unwrap_or(tab.content.len());
+                            let line_start = tab.content[..cur_byte]
+                                .rfind('\n').map(|p| p + 1).unwrap_or(0);
+                            let line_to_cursor = &tab.content[line_start..cur_byte];
+
+                            // PowerCOBOL property reference: `"Prop" OF Widget`.
+                            let prop_ref = detect_property_ref(line_to_cursor);
+
                             // Detect INVOKE … ' context → method completions
-                            let invoke = detect_invoke_context(
-                                &tab.content, char_idx, &self.known_controls,
-                            );
+                            let invoke = if prop_ref.is_none() {
+                                detect_invoke_context(&tab.content, char_idx, &self.known_controls)
+                            } else {
+                                None
+                            };
 
                             // Detect exact control ID → member (property+method) popup
-                            let member_ctrl = if invoke.is_none() {
+                            let member_ctrl = if invoke.is_none() && prop_ref.is_none() {
                                 detect_control_exact(&prefix, &self.known_controls)
                             } else {
                                 None
@@ -1461,10 +1546,24 @@ impl EditorPanel {
                             let refresh = trigger_manual
                                 || (te_out.response.changed() && prefix.len() >= 2)
                                 || (te_out.response.changed() && invoke.is_some())
-                                || (te_out.response.changed() && member_ctrl.is_some());
+                                || (te_out.response.changed() && member_ctrl.is_some())
+                                || (te_out.response.changed() && prop_ref.is_some());
 
-                            if refresh || (self.ac.visible && prefix.len() >= 1) {
-                                let (items, member_mode) = if let Some((ctrl_id, ctrl_type, method_pfx)) = &invoke {
+                            if refresh
+                                || (self.ac.visible && prefix.len() >= 1)
+                                || (self.ac.visible && prop_ref.is_some())
+                            {
+                                let (items, member_mode) = if let Some(pc) = &prop_ref {
+                                    let v = match pc {
+                                        PropRefCtx::PropertyName =>
+                                            property_name_items(&self.known_controls, &prefix),
+                                        PropRefCtx::OfKeyword =>
+                                            of_qualifier_items(&prefix),
+                                        PropRefCtx::WidgetForProp { property } =>
+                                            widgets_with_property(&self.known_controls, property, &prefix),
+                                    };
+                                    (v, true)
+                                } else if let Some((ctrl_id, ctrl_type, method_pfx)) = &invoke {
                                     // Inside INVOKE ctrl-id '…' → filter methods
                                     let _ = ctrl_id;
                                     let v = methods_for_type(ctrl_type)
@@ -1474,13 +1573,15 @@ impl EditorPanel {
                                         .collect::<Vec<_>>();
                                     (v, true)
                                 } else if let Some((ctrl_type, member_pfx)) = &member_ctrl {
-                                    // Exact control ID typed → show properties + methods
+                                    // Exact control ID typed → show EVERY property
+                                    // (derived from the canonical control model) + methods.
                                     let up = member_pfx.to_ascii_uppercase();
-                                    let mut v: Vec<AcItem> = properties_for_type(ctrl_type)
-                                        .iter()
-                                        .filter(|(p, _)| p.to_ascii_uppercase().starts_with(&up))
-                                        .map(|(p, d)| AcItem::prop(p, d))
-                                        .collect();
+                                    let mut v: Vec<AcItem> =
+                                        cobolt_forms::model::property_names_for(ctrl_type)
+                                            .into_iter()
+                                            .filter(|p| p.to_ascii_uppercase().starts_with(&up))
+                                            .map(|p| AcItem::prop(&p, "property"))
+                                            .collect();
                                     for (m, d) in methods_for_type(ctrl_type)
                                         .iter()
                                         .filter(|(m, _)| m.to_ascii_uppercase().starts_with(&up))
@@ -1548,9 +1649,10 @@ impl EditorPanel {
                 let items      = self.ac.items.clone();
                 let selected   = self.ac.selected;
                 let member_mode = self.ac.member_mode;
+                let scroll_sel = self.ac.scroll_to_sel;
                 let mut clicked: Option<usize> = None;
 
-                egui::Area::new(egui::Id::new("cobolt_ac_popup"))
+                let area = egui::Area::new(egui::Id::new("cobolt_ac_popup"))
                     .fixed_pos(popup_pos)
                     .order(egui::Order::Tooltip)
                     .interactable(true)
@@ -1623,6 +1725,10 @@ impl EditorPanel {
                                             if click_resp.clicked() {
                                                 clicked = Some(i);
                                             }
+                                            // Keep the keyboard-selected row visible.
+                                            if is_sel && scroll_sel {
+                                                click_resp.scroll_to_me(Some(egui::Align::Center));
+                                            }
                                         }
                                     });
 
@@ -1660,6 +1766,15 @@ impl EditorPanel {
                             ctx.memory_mut(|m| m.request_focus(editor_id));
                         }
                     }
+                    self.ac.visible = false;
+                    self.ac.member_mode = false;
+                }
+
+                // Scroll request is one-shot.
+                self.ac.scroll_to_sel = false;
+
+                // Click anywhere outside the popup dismisses it.
+                if area.response.clicked_elsewhere() {
                     self.ac.visible = false;
                     self.ac.member_mode = false;
                 }
@@ -2145,6 +2260,86 @@ fn detect_invoke_context(
     None
 }
 
+/// PowerCOBOL-style property reference context: `"Property" OF Widget`.
+#[derive(Debug, PartialEq)]
+enum PropRefCtx {
+    /// A property name is being typed inside an open double quote.
+    PropertyName,
+    /// Just after `"Prop"` — offer / accept the `OF` qualifier.
+    OfKeyword,
+    /// After `"Prop" OF ` — offer widgets that expose `property`.
+    WidgetForProp { property: String },
+}
+
+/// Detect a property-reference context from the current line up to the cursor.
+fn detect_property_ref(line: &str) -> Option<PropRefCtx> {
+    // Inside an open double quote → typing a property name.
+    if line.matches('"').count() % 2 == 1 {
+        let open  = line.rfind('"').unwrap();
+        let typed = &line[open + 1..];
+        return if typed.contains(char::is_whitespace) { None } else { Some(PropRefCtx::PropertyName) };
+    }
+    // Otherwise, look at the last closed "…" pair and what follows it.
+    let close = line.rfind('"')?;
+    let open  = line[..close].rfind('"')?;
+    let prop  = &line[open + 1..close];
+    if prop.is_empty() || prop.contains(char::is_whitespace) { return None; }
+    let rest = &line[close + 1..];
+    let ends_ws = rest.ends_with(char::is_whitespace);
+    let toks: Vec<&str> = rest.split_whitespace().collect();
+    match toks.as_slice() {
+        [] => Some(PropRefCtx::OfKeyword),
+        [w] => {
+            let wu = w.to_ascii_uppercase();
+            if wu == "OF" && ends_ws {
+                Some(PropRefCtx::WidgetForProp { property: prop.to_string() })
+            } else if "OF".starts_with(&wu) && !ends_ws {
+                Some(PropRefCtx::OfKeyword)
+            } else {
+                None
+            }
+        }
+        [w1, _] if w1.eq_ignore_ascii_case("OF") && !ends_ws => {
+            Some(PropRefCtx::WidgetForProp { property: prop.to_string() })
+        }
+        _ => None,
+    }
+}
+
+/// All property names across the known controls (union), sorted + prefix-filtered.
+fn property_name_items(controls: &[KnownControl], prefix: &str) -> Vec<AcItem> {
+    let up = prefix.to_ascii_uppercase();
+    let mut names: Vec<&str> = controls.iter()
+        .flat_map(|c| c.properties.iter().map(|s| s.as_str()))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names.into_iter()
+        .filter(|n| n.to_ascii_uppercase().starts_with(&up))
+        .map(AcItem::property)
+        .take(60)
+        .collect()
+}
+
+/// The `OF` qualifier completion (shown while its prefix still matches).
+fn of_qualifier_items(prefix: &str) -> Vec<AcItem> {
+    if "OF".starts_with(&prefix.to_ascii_uppercase()) {
+        vec![AcItem { label: "OF".into(), insert: "OF ".into(), detail: "qualifier".into(), kind: AcKind::Keyword }]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Widgets that expose `property`, filtered by id prefix.
+fn widgets_with_property(controls: &[KnownControl], property: &str, prefix: &str) -> Vec<AcItem> {
+    let up = prefix.to_ascii_uppercase();
+    controls.iter()
+        .filter(|c| c.properties.iter().any(|p| p.eq_ignore_ascii_case(property)))
+        .filter(|c| c.id.to_ascii_uppercase().starts_with(&up))
+        .map(|c| AcItem::ctrl(&c.id, &c.ctrl_type))
+        .collect()
+}
+
 /// Build the completion list for a given prefix string.
 fn build_completions(
     prefix: &str,
@@ -2155,43 +2350,7 @@ fn build_completions(
     let mut seen: std::collections::HashSet<String> = Default::default();
     let mut items: Vec<AcItem> = Vec::new();
 
-    // ── 1. Snippets ───────────────────────────────────────────────────────
-    const SNIPPETS: &[(&str, &str, &str)] = &[
-        ("IF",            "IF \nEND-IF",                                                           "IF … END-IF"),
-        ("EVALUATE",      "EVALUATE \n    WHEN \n        CONTINUE\n    WHEN OTHER\n        CONTINUE\nEND-EVALUATE", "EVALUATE block"),
-        ("PERFORM",       "PERFORM \nEND-PERFORM",                                                 "PERFORM … END-PERFORM"),
-        ("PERFORM UNTIL", "PERFORM UNTIL  = 1\n    \nEND-PERFORM",                                "Loop with condition"),
-        ("MOVE",          "MOVE  TO ",                                                             "Move value"),
-        ("INVOKE",        "INVOKE \"\" ''\n    USING BY VALUE \n    RETURNING ",                   "OO method call"),
-        ("SET",           "SET  TO ",                                                              "Set variable / OO call"),
-        ("CALL",          "CALL \"\" USING \nEND-CALL",                                           "Static sub-program call"),
-        ("DISPLAY",       "DISPLAY \"\"",                                                         "Display text"),
-        ("ACCEPT",        "ACCEPT  FROM ",                                                         "Accept input"),
-        ("COMPUTE",       "COMPUTE  = ",                                                           "Arithmetic"),
-        ("ADD",           "ADD  TO ",                                                              "Add"),
-        ("SUBTRACT",      "SUBTRACT  FROM ",                                                       "Subtract"),
-        ("MULTIPLY",      "MULTIPLY  BY  GIVING ",                                                 "Multiply"),
-        ("DIVIDE",        "DIVIDE  INTO  GIVING ",                                                 "Divide"),
-        ("STOP RUN",      "STOP RUN",                                                             "End program"),
-        ("GOBACK",        "GOBACK",                                                               "Return to caller"),
-        ("IDENTIFICATION DIVISION", "IDENTIFICATION DIVISION.\nPROGRAM-ID. .\n",                  "Program header"),
-        ("DATA DIVISION", "DATA DIVISION.\nWORKING-STORAGE SECTION.\n",                           "Data division"),
-        ("PROCEDURE DIVISION", "PROCEDURE DIVISION.\n",                                           "Procedure division"),
-        ("COBOLT-SET-PROPERTY",
-         "CALL 'COBOLT-SET-PROPERTY'\n    USING BY VALUE \n          BY VALUE \n          BY VALUE .",
-         "Set control property at runtime"),
-        ("COBOLT-GET-PROPERTY",
-         "CALL 'COBOLT-GET-PROPERTY'\n    USING BY VALUE \n          BY VALUE \n          BY REFERENCE .",
-         "Get control property at runtime"),
-    ];
-    for (label, insert, detail) in SNIPPETS {
-        if label.to_ascii_uppercase().starts_with(&up) {
-            let key = label.to_ascii_uppercase();
-            if seen.insert(key) { items.push(AcItem::snip(label, insert, detail)); }
-        }
-    }
-
-    // ── 2. COBOL keywords ─────────────────────────────────────────────────
+    // ── 1. COBOL keywords (insert the bare word + space, then await input) ──
     for &kw in VERBS.iter().chain(DIVISION_KEYWORDS).chain(DATA_KEYWORDS) {
         if kw.starts_with(&up) && seen.insert(kw.into()) {
             items.push(AcItem::kw(kw));
@@ -2612,6 +2771,81 @@ END-EVALUATE
         assert!(out.contains("\n                   MOVE A TO B\n")); // col 20
         assert!(out.contains("\n               WHEN OTHER\n"));     // col 16
         assert!(out.contains("\n           END-EVALUATE\n"));       // col 12
+    }
+
+    #[test]
+    fn keyword_inserts_word_and_space_not_template() {
+        assert_eq!(AcItem::kw("DISPLAY").insert, "DISPLAY ");
+        assert_eq!(AcItem::kw("MOVE").insert, "MOVE ");
+        // property completion closes the opening quote
+        assert_eq!(AcItem::property("Caption").insert, "Caption\"");
+    }
+
+    #[test]
+    fn detect_property_ref_contexts() {
+        use PropRefCtx::*;
+        assert_eq!(detect_property_ref("           MOVE \""),          Some(PropertyName));
+        assert_eq!(detect_property_ref("           MOVE \"Captio"),    Some(PropertyName));
+        assert_eq!(detect_property_ref("           MOVE \"Caption\""), Some(OfKeyword));
+        assert_eq!(detect_property_ref("           MOVE \"Caption\" O"), Some(OfKeyword));
+        assert_eq!(
+            detect_property_ref("           MOVE \"Caption\" OF "),
+            Some(WidgetForProp { property: "Caption".into() })
+        );
+        assert_eq!(
+            detect_property_ref("           MOVE \"Caption\" OF Bu"),
+            Some(WidgetForProp { property: "Caption".into() })
+        );
+        // a normal display string with a space is not a property context
+        assert_eq!(detect_property_ref("           DISPLAY \"hello world"), None);
+        // fully-typed reference (trailing space after the widget) → done
+        assert_eq!(detect_property_ref("           MOVE \"Caption\" OF Button-1 "), None);
+    }
+
+    #[test]
+    fn property_and_widget_completions() {
+        let controls = vec![
+            KnownControl { id: "Button-1".into(), ctrl_type: "Button".into(),
+                           properties: vec!["Caption".into(), "FontSize".into()] },
+            KnownControl { id: "Label-1".into(),  ctrl_type: "Label".into(),
+                           properties: vec!["Text".into(), "FontSize".into()] },
+            KnownControl { id: "Button-2".into(), ctrl_type: "Button".into(),
+                           properties: vec!["Caption".into()] },
+        ];
+        // union, sorted, deduped, prefix-filtered
+        let all: Vec<String> = property_name_items(&controls, "")
+            .into_iter().map(|i| i.label).collect();
+        assert_eq!(all, vec!["Caption", "FontSize", "Text"]);
+        let cap: Vec<String> = property_name_items(&controls, "Capt")
+            .into_iter().map(|i| i.label).collect();
+        assert_eq!(cap, vec!["Caption"]);
+        // widgets exposing Caption, filtered by "Bu"
+        let w: Vec<String> = widgets_with_property(&controls, "Caption", "Bu")
+            .into_iter().map(|i| i.label).collect();
+        assert_eq!(w, vec!["Button-1", "Button-2"]);
+        // OF qualifier appears only while its prefix matches
+        assert_eq!(of_qualifier_items("").len(), 1);
+        assert_eq!(of_qualifier_items("O").len(), 1);
+        assert_eq!(of_qualifier_items("X").len(), 0);
+    }
+
+    #[test]
+    fn methods_for_type_universal_and_specific_coverage() {
+        for t in ["Button", "BarChart", "TreeView", "Label", "PieChart", "DataGrid"] {
+            let m: Vec<&str> = methods_for_type(t).iter().map(|(n, _)| *n).collect();
+            assert!(m.contains(&"MoveTo"), "{t} missing MoveTo");
+            assert!(m.contains(&"Show") && m.contains(&"Hide"), "{t} missing Show/Hide");
+            assert!(m.contains(&"PlayAnimation"), "{t} missing PlayAnimation");
+            assert!(m.contains(&"Validate"), "{t} missing Validate");
+        }
+        // Charts expose data binding.
+        assert!(methods_for_type("BarChart").iter().any(|(n, _)| *n == "SetData"));
+        // Non-visual widgets: no geometry methods, but specific + generic.
+        let timer: Vec<&str> = methods_for_type("Timer").iter().map(|(n, _)| *n).collect();
+        assert!(!timer.contains(&"MoveTo"));
+        assert!(timer.contains(&"Start") && timer.contains(&"SetProperty"));
+        let sql: Vec<&str> = methods_for_type("SqlDatabase").iter().map(|(n, _)| *n).collect();
+        assert!(sql.contains(&"query") && sql.contains(&"fetchAll"));
     }
 
     #[test]

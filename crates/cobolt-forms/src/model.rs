@@ -376,6 +376,24 @@ impl EventBinding {
     }
 }
 
+/// The canonical property names a control of `type_name` exposes — exactly the
+/// keys [`Control::new`] populates, so the editor's IntelliSense always reflects
+/// what the runtime can `SET`/`GET` with no separate catalogue to drift.
+/// `type_name` is the `ControlType` debug name (e.g. `"Button"`, `"ListBox"`).
+pub fn property_names_for(type_name: &str) -> Vec<String> {
+    let ct = ControlType::from_str(type_name);
+    let mut names: Vec<String> =
+        Control::new("_", ct, 0, 0).properties.keys().cloned().collect();
+    // Field-backed properties: stored on the `Control` struct (not the property
+    // map) but still settable/gettable by name via `set_property`.
+    for f in ["Name", "Visible", "Enabled", "X", "Y", "Width", "Height", "TabOrder"] {
+        names.push(f.to_string());
+    }
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
 /// The LINKAGE-SECTION data items and the matching `PROCEDURE DIVISION USING`
 /// names for one event — i.e. the data the runtime delivers to the handler.
 ///
@@ -1442,6 +1460,25 @@ fn collect_paragraphs(ctrl: &Control, out: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn property_names_for_reflects_control_model() {
+        // Type-specific properties are surfaced, not just the universal ones.
+        let lb = property_names_for("ListBox");
+        assert!(lb.contains(&"Items".to_string()));
+        assert!(lb.contains(&"SelectedIndex".to_string()));
+        assert!(lb.contains(&"Visible".to_string())); // universal
+
+        assert!(property_names_for("Timer").contains(&"Interval".to_string()));
+        assert!(property_names_for("ProgressBar").contains(&"BarColor".to_string()));
+        assert!(property_names_for("TreeView").contains(&"ShowLines".to_string()));
+        // sorted + non-empty for every named type
+        for t in ["Button", "BarChart", "DateTimePicker", "NumericUpDown", "Shape"] {
+            let p = property_names_for(t);
+            assert!(!p.is_empty(), "{t} has no properties");
+            assert!(p.windows(2).all(|w| w[0] <= w[1]), "{t} not sorted");
+        }
+    }
 
     #[test]
     fn form_events_unique_and_include_lifecycle() {

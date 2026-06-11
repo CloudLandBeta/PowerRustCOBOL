@@ -941,9 +941,13 @@ impl DesignerPanel {
             source.clone(),
         );
         self.event_editor.known_controls = self.form.controls.iter()
-            .map(|c| super::editor::KnownControl {
-                id:        c.id.clone(),
-                ctrl_type: format!("{:?}", c.control_type),
+            .map(|c| {
+                let type_name = format!("{:?}", c.control_type);
+                super::editor::KnownControl {
+                    properties: cobolt_forms::model::property_names_for(&type_name),
+                    ctrl_type:  type_name,
+                    id:         c.id.clone(),
+                }
             })
             .collect();
 
@@ -1629,17 +1633,13 @@ impl DesignerPanel {
                     .color(scaffold_color).size(12.0));
                 ui.add_space(4.0);
 
-                // ── Hosted COBOL editor — occupies a fixed container that fills
-                //    most of the window. The editor scrolls *inside* this box
-                //    (never moving the box). Height is clamped to a fraction of
-                //    the screen so the editor can never overflow and make the
-                //    whole window scroll.
-                let screen_h = ui.ctx().screen_rect().height();
-                // Fill the window's remaining height (so the editor grows with
-                // the window), but never taller than the screen minus room for
-                // the title/header/footer — otherwise the whole window scrolls.
-                let editor_h = (ui.available_height() - 90.0)
-                    .clamp(220.0, (screen_h - 160.0).max(240.0));
+                // ── Hosted COBOL editor — a FIXED-size container the editor fills
+                //    and scrolls inside. The height is a constant fraction of the
+                //    window's default height; it must NOT be derived from
+                //    `available_height`, which feeds back through the editor's own
+                //    fill and makes the box creep taller on every repaint
+                //    (e.g. when the mouse moves over it).
+                let editor_h = (default_h - 150.0).max(240.0);
                 let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
@@ -1652,7 +1652,6 @@ impl DesignerPanel {
                     .inner_margin(egui::Margin::same(2.0));
                 ui.allocate_ui(egui::vec2(editor_w, editor_h), |ui| {
                     frame.show(ui, |ui| {
-                        ui.set_min_size(ui.available_size());
                         self.event_editor.render_code_area(&ectx, ui);
                     });
                 });
