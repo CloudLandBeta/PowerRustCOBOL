@@ -3126,10 +3126,14 @@ impl CoboltApp {
         // ── Properties panel (right) ──────────────────────────────────────────
         let sel_id = self.designers[idx].1.selected_ids.first().cloned();
 
+        // Allow the properties panel to be resized up to half the window width so
+        // long values (paths, titles) aren't clipped by the window border.
+        let half_win = (ctx.screen_rect().width() * 0.5).max(320.0);
         let inspector_action = egui::SidePanel::right(format!("props_{idx}"))
             .resizable(true)
-            .default_width(260.0)
-            .max_width(320.0)
+            .default_width(300.0)
+            .min_width(220.0)
+            .max_width(half_win)
             .show(ctx, |ui| {
                 // Split-borrow: form (immutable) and properties (mutable) from DesignerPanel.
                 let d = &mut self.designers[idx].1;
