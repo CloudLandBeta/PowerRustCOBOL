@@ -2264,6 +2264,115 @@ pub(crate) fn scale_rect_about_center(base: egui::Rect, scale: f32) -> egui::Rec
     }
 }
 
+// ── Non-visual widget rendering (standardised "liquid glass" icons) ─────────────
+//
+// All non-visual controls (Timer / AgentObject / RestClient / SqlDatabase) share
+// one dark glass card + a consistent light, stroke-drawn ("hand-drawn") icon and
+// a larger label, so they look uniform on the canvas.
+
+/// Shared glass-card colour for every non-visual widget.
+const NV_CARD: Color32 = Color32::from_rgb(40, 54, 84);
+
+/// Light "glass" colour for the stroke icons + labels.
+fn nv_icon_color(a: u8) -> Color32 { Color32::from_rgba_premultiplied(212, 226, 255, a) }
+
+/// Draw the shared non-visual card background.
+fn nv_card(painter: &egui::Painter, rect: egui::Rect, selected: bool, glass: bool, alpha_mul: f32, a: u8) {
+    if glass {
+        draw_glass(painter, rect, NV_CARD, 12.0, selected, alpha_mul);
+    } else {
+        let fill   = Color32::from_rgba_premultiplied(NV_CARD.r(), NV_CARD.g(), NV_CARD.b(), a);
+        let border = if selected {
+            Color32::from_rgba_premultiplied(90, 160, 255, a)
+        } else {
+            Color32::from_rgba_premultiplied(110, 130, 180, a)
+        };
+        painter.rect_filled(rect, 12.0, fill);
+        painter.rect_stroke(rect, 12.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border));
+    }
+}
+
+/// Centre / size / stroke for a non-visual icon within `rect`.
+fn nv_icon_geom(rect: egui::Rect, a: u8) -> (Pos2, f32, Stroke) {
+    let cen = Pos2::new(rect.center().x, rect.min.y + rect.height() * 0.40);
+    let s   = rect.height().min(rect.width()) * 0.22;
+    let sw  = (s * 0.18).clamp(1.6, 3.0);
+    (cen, s, Stroke::new(sw, nv_icon_color(a)))
+}
+
+/// A larger label centred at the bottom of the card (≈2× the previous size).
+fn nv_label(painter: &egui::Painter, rect: egui::Rect, text: &str, a: u8) {
+    let t: String = text.chars().take(14).collect();
+    painter.text(
+        rect.center_bottom() - Vec2::new(0.0, 7.0),
+        egui::Align2::CENTER_BOTTOM,
+        t,
+        egui::FontId::proportional(16.0),
+        Color32::from_rgba_premultiplied(206, 220, 248, a),
+    );
+}
+
+fn nv_ellipse(painter: &egui::Painter, cx: f32, cy: f32, rw: f32, rh: f32, st: Stroke) {
+    let steps = 28u32;
+    let pts: Vec<Pos2> = (0..=steps).map(|i| {
+        let t = i as f32 / steps as f32 * std::f32::consts::TAU;
+        Pos2::new(cx + rw * t.cos(), cy + rh * t.sin())
+    }).collect();
+    painter.add(egui::Shape::closed_line(pts, st));
+}
+
+fn nv_icon_clock(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    painter.circle_stroke(c, s, st);
+    // top stem (stopwatch button)
+    painter.line_segment([c + Vec2::new(0.0, -s), c + Vec2::new(0.0, -s - s * 0.30)], st);
+    // hands
+    painter.line_segment([c, c + Vec2::new(0.0, -s * 0.6)], st);
+    painter.line_segment([c, c + Vec2::new(s * 0.45, s * 0.12)], st);
+}
+
+fn nv_icon_robot(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    let head = egui::Rect::from_center_size(c + Vec2::new(0.0, s * 0.1), Vec2::new(s * 1.7, s * 1.5));
+    painter.rect_stroke(head, s * 0.28, st);
+    // antenna
+    painter.line_segment([Pos2::new(c.x, head.min.y), Pos2::new(c.x, head.min.y - s * 0.4)], st);
+    painter.circle_filled(Pos2::new(c.x, head.min.y - s * 0.45), st.width * 1.1, st.color);
+    // eyes
+    painter.circle_filled(c + Vec2::new(-s * 0.42, 0.0), st.width * 1.2, st.color);
+    painter.circle_filled(c + Vec2::new(s * 0.42, 0.0), st.width * 1.2, st.color);
+    // mouth
+    painter.line_segment([c + Vec2::new(-s * 0.4, s * 0.5), c + Vec2::new(s * 0.4, s * 0.5)], st);
+}
+
+fn nv_icon_globe(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    painter.circle_stroke(c, s, st);
+    // equator + two latitude lines
+    painter.line_segment([c + Vec2::new(-s, 0.0), c + Vec2::new(s, 0.0)], st);
+    painter.line_segment([c + Vec2::new(-s * 0.86, -s * 0.5), c + Vec2::new(s * 0.86, -s * 0.5)], st);
+    painter.line_segment([c + Vec2::new(-s * 0.86, s * 0.5), c + Vec2::new(s * 0.86, s * 0.5)], st);
+    // central meridian
+    nv_ellipse(painter, c.x, c.y, s * 0.45, s, st);
+}
+
+fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    let rw = s;
+    let rh = s * 0.40;
+    let top = c.y - s * 0.72;
+    let bot = c.y + s * 0.72;
+    // top + middle rings
+    nv_ellipse(painter, c.x, top, rw, rh, st);
+    nv_ellipse(painter, c.x, c.y, rw, rh, st);
+    // sides
+    painter.line_segment([Pos2::new(c.x - rw, top), Pos2::new(c.x - rw, bot)], st);
+    painter.line_segment([Pos2::new(c.x + rw, top), Pos2::new(c.x + rw, bot)], st);
+    // front-bottom curve
+    let steps = 18u32;
+    let front: Vec<Pos2> = (0..=steps).map(|i| {
+        let t = i as f32 / steps as f32 * std::f32::consts::PI;
+        Pos2::new(c.x + rw * t.cos(), bot + rh * t.sin())
+    }).collect();
+    painter.add(egui::Shape::line(front, st));
+}
+
 fn draw_control(
     painter:   &egui::Painter,
     origin:    Pos2,
@@ -2433,101 +2542,30 @@ fn draw_control(
         return;
     }
 
-    // ── Timer (non-visual) ────────────────────────────────────────────────────
-    if matches!(ctrl.control_type, CT::Timer) {
-        let fill = Color32::from_rgba_premultiplied(60,60,80,a);
-        let border = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { Color32::from_rgba_premultiplied(100,100,130,a) };
-        if glass {
-            draw_glass(painter, rect, Color32::from_rgb(60,60,100), 8.0, selected, alpha_mul);
-        } else {
-            painter.rect_filled(rect, 6.0, fill);
-            painter.rect_stroke(rect, 6.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border));
-        }
-        painter.text(rect.center() - Vec2::new(0.0, 4.0), egui::Align2::CENTER_CENTER,
-            "⏱", egui::FontId::proportional(18.0), Color32::from_rgba_premultiplied(200,200,255,a));
-        let iv = ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000);
-        painter.text(rect.center_bottom() - Vec2::new(0.0, 3.0), egui::Align2::CENTER_BOTTOM,
-            format!("{iv}ms"), egui::FontId::proportional(8.0), Color32::from_rgba_premultiplied(180,180,200,a));
-        return;
-    }
-
-    // ── Agent Object (non-visual) ─────────────────────────────────────────────
-    if matches!(ctrl.control_type, CT::AgentObject) {
-        let model = ctrl.get_prop("AgentModel").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "LLM".into());
-        if glass {
-            draw_glass(painter, rect, Color32::from_rgb(30,60,100), 10.0, selected, alpha_mul);
-        } else {
-            let fill = Color32::from_rgba_premultiplied(30,60,100,a);
-            let border = if selected { Color32::from_rgba_premultiplied(60,150,255,a) } else { Color32::from_rgba_premultiplied(80,120,200,a) };
-            painter.rect_filled(rect, 10.0, fill);
-            painter.rect_stroke(rect, 10.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border));
-        }
-        painter.text(rect.center() - Vec2::new(0.0, 5.0), egui::Align2::CENTER_CENTER,
-            "🤖", egui::FontId::proportional(20.0), Color32::from_rgba_premultiplied(200,230,255,a));
-        painter.text(rect.center_bottom() - Vec2::new(0.0, 3.0), egui::Align2::CENTER_BOTTOM,
-            &model[..model.len().min(10)], egui::FontId::proportional(7.5), Color32::from_rgba_premultiplied(160,200,255,a));
-        return;
-    }
-
-    // ── REST Client (non-visual) ──────────────────────────────────────────────
-    if matches!(ctrl.control_type, CT::RestClient) {
-        let method = ctrl.get_prop("DefaultMethod").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "GET".into());
-        if glass {
-            draw_glass(painter, rect, Color32::from_rgb(20,80,60), 10.0, selected, alpha_mul);
-        } else {
-            let fill = Color32::from_rgba_premultiplied(20,80,60,a);
-            let border = if selected { Color32::from_rgba_premultiplied(60,200,120,a) } else { Color32::from_rgba_premultiplied(60,140,90,a) };
-            painter.rect_filled(rect, 10.0, fill);
-            painter.rect_stroke(rect, 10.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border));
-        }
-        painter.text(rect.center() - Vec2::new(0.0, 5.0), egui::Align2::CENTER_CENTER,
-            "🌐", egui::FontId::proportional(20.0), Color32::from_rgba_premultiplied(180,255,200,a));
-        painter.text(rect.center_bottom() - Vec2::new(0.0, 3.0), egui::Align2::CENTER_BOTTOM,
-            &method, egui::FontId::proportional(8.0), Color32::from_rgba_premultiplied(140,220,170,a));
-        return;
-    }
-
-    // ── SQL Database (non-visual) ─────────────────────────────────────────────
-    if matches!(ctrl.control_type, CT::SqlDatabase) {
-        let driver = ctrl.get_prop("Driver").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "sqlite".into());
-        if glass {
-            draw_glass(painter, rect, Color32::from_rgb(80,40,10), 10.0, selected, alpha_mul);
-        } else {
-            let fill   = Color32::from_rgba_premultiplied(80,40,10,a);
-            let border = if selected { Color32::from_rgba_premultiplied(230,160,60,a) } else { Color32::from_rgba_premultiplied(160,100,40,a) };
-            painter.rect_filled(rect, 10.0, fill);
-            painter.rect_stroke(rect, 10.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border));
-        }
-        // Draw a stacked-cylinders database icon
-        let cx = rect.center().x;
-        let top_y = rect.min.y + rect.height() * 0.20;
-        let mid_y = rect.min.y + rect.height() * 0.48;
-        let bot_y = rect.min.y + rect.height() * 0.68;
-        let rw    = rect.width()  * 0.36;
-        let rh    = rect.height() * 0.12;
-        let cyl_c = Color32::from_rgba_premultiplied(230,160,60,a);
-        let rim_c = Color32::from_rgba_premultiplied(255,200,100,a);
-        // Three cylinder "disks"
-        for cy in [bot_y, mid_y, top_y] {
-            // body rect
-            painter.rect_filled(
-                egui::Rect::from_center_size(Pos2::new(cx, cy), Vec2::new(rw*2.0, rh*3.5)),
-                2.0, cyl_c);
-            // top ellipse
-            let steps = 20u32;
-            let mut pts: Vec<Pos2> = (0..=steps).map(|i| {
-                let t = i as f32 / steps as f32 * std::f32::consts::TAU;
-                Pos2::new(cx + rw * t.cos(), cy - rh*1.75 + rh * t.sin() * 0.5)
-            }).collect();
-            painter.add(egui::Shape::closed_line(pts.clone(), Stroke::new(1.0, rim_c)));
-            pts.iter_mut().for_each(|p| p.y += rh * 3.5);
-            painter.add(egui::Shape::closed_line(pts, Stroke::new(1.0, rim_c)));
-        }
-        painter.text(rect.center_bottom() - Vec2::new(0.0, 3.0), egui::Align2::CENTER_BOTTOM,
-            &driver, egui::FontId::proportional(8.0), Color32::from_rgba_premultiplied(230,180,90,a));
-        if selected {
-            painter.rect_stroke(rect, 10.0, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
-        }
+    // ── Non-visual widgets — standardised glass card + stroke icon + label ─────
+    if matches!(ctrl.control_type, CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase) {
+        nv_card(painter, rect, selected, glass, alpha_mul, a);
+        let (cen, s, st) = nv_icon_geom(rect, a);
+        let label: String = match ctrl.control_type {
+            CT::Timer => {
+                nv_icon_clock(painter, cen, s, st);
+                let iv = ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000);
+                format!("{iv}ms")
+            }
+            CT::AgentObject => {
+                nv_icon_robot(painter, cen, s, st);
+                ctrl.get_prop("AgentModel").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "LLM".into())
+            }
+            CT::RestClient => {
+                nv_icon_globe(painter, cen, s, st);
+                ctrl.get_prop("DefaultMethod").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "GET".into())
+            }
+            _ /* SqlDatabase */ => {
+                nv_icon_database(painter, cen, s, st);
+                ctrl.get_prop("Driver").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "sqlite".into())
+            }
+        };
+        nv_label(painter, rect, &label, a);
         return;
     }
 
