@@ -595,8 +595,35 @@ impl CoboltApp {
                             self.output.push_status(format!("Could not create {sub}/: {e}"));
                         }
                     }
+                    // Scaffold a runnable starter main program so the project can
+                    // be Run immediately. Track it under Common Code and open it.
+                    let proj_name = self.cobolt_project.as_ref().unwrap().project.name.clone();
+                    let main_rel  = self.cobolt_project.as_ref().unwrap().project.main.clone();
+                    let main_path = dir.join(&main_rel);
+                    if !main_path.exists() {
+                        if let Some(parent) = main_path.parent() { let _ = std::fs::create_dir_all(parent); }
+                        let prog: String = main_path.file_stem().and_then(|s| s.to_str()).unwrap_or("MAIN")
+                            .chars()
+                            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '-' })
+                            .collect();
+                        let template = format!(
+                            "       IDENTIFICATION DIVISION.\n\
+                             \x20      PROGRAM-ID. {prog}.\n\
+                             \x20     *> {proj_name} — main program.\n\
+                             \n\
+                             \x20      PROCEDURE DIVISION.\n\
+                             \x20          DISPLAY \"Hello from {proj_name}\".\n\
+                             \x20          GOBACK.\n");
+                        if std::fs::write(&main_path, template).is_ok() {
+                            if let Some(p) = &mut self.cobolt_project {
+                                p.add_file_to(&main_rel, crate::project_model::Category::CommonCode);
+                            }
+                        }
+                    }
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
+                    self.do_save_project();      // persist the tracked main
+                    if main_path.exists() { self.open_in_editor(main_path); }
                 }
                 let name = self.cobolt_project.as_ref().unwrap().project.name.clone();
                 self.output.push_status(format!("Created project '{name}'"));
