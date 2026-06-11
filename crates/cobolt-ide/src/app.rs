@@ -1666,10 +1666,11 @@ impl eframe::App for CoboltApp {
         apply_glass_visuals(ctx, self.current_theme());
         self.glass_visuals_applied = true;
 
-        // ── Opaque background floor (no desktop bleed) + optional image ─────────
-        // Cover the whole window with an opaque dark version of the pane colour so
-        // the area around/between the glass panes is solid (not transparent), then
-        // paint the per-project background image (if any) over it.
+        // ── Opaque background that matches the panes ───────────────────────────
+        // 1) an opaque dark floor (no desktop bleed), 2) the optional background
+        // image as a subtle texture, 3) the SAME semi-opaque pane fill over the
+        // whole window, so the area around/between the panes looks exactly like a
+        // pane (not a brighter "transparent" wallpaper showing through the gaps).
         {
             let p = ctx.style().visuals.panel_fill;
             let floor = egui::Color32::from_rgb(p.r(), p.g(), p.b());
@@ -1677,6 +1678,11 @@ impl eframe::App for CoboltApp {
                 .rect_filled(ctx.screen_rect(), 0.0, floor);
         }
         self.paint_ide_background(ctx);
+        {
+            let p = ctx.style().visuals.panel_fill;
+            ctx.layer_painter(egui::LayerId::background())
+                .rect_filled(ctx.screen_rect(), 0.0, p);
+        }
 
         // ── Drain a finished async file dialog (Open/Save/Browse) ──────────────
         // Repaint while one is open so its result is collected promptly.

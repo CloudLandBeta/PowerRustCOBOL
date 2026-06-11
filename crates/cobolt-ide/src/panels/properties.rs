@@ -2185,16 +2185,31 @@ impl PropertiesPanel {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn section_header(ui: &mut Ui, title: &str) {
-    let accent = crate::theme::active().accent;
-    ui.add_space(12.0);
-    ui.horizontal(|ui| {
-        // A short accent "tick" to the left of the title (reference style).
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(3.5, 17.0), egui::Sense::hover());
-        ui.painter().rect_filled(rect, egui::Rounding::same(2.0), accent);
-        ui.add_space(7.0);
-        ui.label(RichText::new(title).size(16.5).strong().color(accent));
-    });
-    ui.add_space(5.0);
+    let theme = crate::theme::active();
+    // Same dark-blue card-style header bar as `section_card`, so the widget
+    // inspector's sections look consistent with the form inspector's cards.
+    let fill = if theme.dark {
+        Color32::from_rgba_unmultiplied(12, 22, 36, 150)
+    } else {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 150)
+    };
+    ui.add_space(8.0);
+    egui::Frame::none()
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, theme.panel_border()))
+        .rounding(egui::Rounding::same(8.0))
+        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .outer_margin(egui::Margin { left: 0.0, right: 0.0, top: 0.0, bottom: 4.0 })
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(3.5, 17.0), egui::Sense::hover());
+                ui.painter().rect_filled(rect, egui::Rounding::same(2.0), theme.accent);
+                ui.add_space(7.0);
+                ui.label(RichText::new(title).size(16.0).strong().color(theme.accent));
+            });
+        });
+    ui.add_space(2.0);
 }
 
 /// A collapsible **section card**: a rounded, subtly-bordered, padded container
