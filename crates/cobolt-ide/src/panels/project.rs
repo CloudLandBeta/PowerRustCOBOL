@@ -88,16 +88,44 @@ fn sel_file(rel: &str) -> String { format!("file:{rel}") }
 fn sel_ctrl(rel: &str, id: &str) -> String { format!("ctrl:{rel}#{id}") }
 fn sel_event(rel: &str, id: &str, ev: &str) -> String { format!("event:{rel}#{id}@{ev}") }
 
-/// A selectable tree row that fills the remaining width, so the selection
-/// highlight reads as a full-width rounded **pill** (matching the reference
-/// design) rather than hugging the text.
+/// A selectable tree row that fills the remaining width: a full-width rounded
+/// **pill** (selection / hover) painted behind a **left-aligned** label. (Using
+/// `add_sized` centred the text and made it shift while resizing.)
 fn full_width_select(
     ui: &mut Ui,
     selected: bool,
     text: impl Into<egui::WidgetText>,
 ) -> egui::Response {
-    let h = ui.spacing().interact_size.y;
-    ui.add_sized([ui.available_width(), h], egui::SelectableLabel::new(selected, text))
+    let theme = crate::theme::active();
+    let text: egui::WidgetText = text.into();
+    let full_w = ui.available_width();
+    let galley = text.into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        (full_w - 14.0).max(0.0),
+        egui::TextStyle::Body,
+    );
+    let h = (galley.size().y + 8.0).max(24.0);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(full_w, h), egui::Sense::click());
+
+    // Full-width rounded pill for selection / hover.
+    let fill = if selected {
+        theme.selection
+    } else if resp.hovered() {
+        egui::Color32::from_rgba_unmultiplied(255, 255, 255, if theme.dark { 14 } else { 22 })
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    if fill != egui::Color32::TRANSPARENT {
+        ui.painter().rect_filled(rect, egui::Rounding::same(7.0), fill);
+    }
+
+    // Left-aligned, vertically-centred label. RichText colours (e.g. generated
+    // blue) are preserved; plain text uses the fallback colour.
+    let fallback = if selected { egui::Color32::WHITE } else { ui.visuals().text_color() };
+    let text_pos = egui::pos2(rect.left() + 7.0, rect.center().y - galley.size().y / 2.0);
+    ui.painter().galley(text_pos, galley, fallback);
+    resp
 }
 
 impl ProjectPanel {
