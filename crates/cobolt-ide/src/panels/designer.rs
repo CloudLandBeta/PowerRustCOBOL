@@ -270,11 +270,11 @@ fn form_edge_cursor(e: FormEdge) -> CursorIcon {
 
 /// Visual style properties that can be copied between controls.
 const STYLE_PROP_KEYS: &[&str] = &[
-    "BackColor", "ForeColor", "BorderColor",
+    "BackgroundColor", "ForegroundColor", "BorderColor",
     "FontSize", "Bold", "Italic", "Underline", "Strikethrough",
     "FontName", "Opacity",
     "CornerRadius", "BorderWidth", "BorderStyle",
-    "HeaderBackColor", "HeaderForeColor",
+    "HeaderBackgroundColor", "HeaderForegroundColor",
     "AlternatingRowColor", "GridLineColor",
 ];
 
@@ -1068,7 +1068,7 @@ impl DesignerPanel {
     pub fn set_form_prop(&mut self, key: &str, value: String) {
         match key {
             "Title"     => { self.form.title            = value; self.dirty = true; }
-            "BackColor" => { self.form.background_color = value.trim_start_matches('#').to_owned(); self.dirty = true; }
+            "BackgroundColor" => { self.form.background_color = value.trim_start_matches('#').to_owned(); self.dirty = true; }
             "Width"     => { if let Ok(w) = value.parse::<u32>() { self.form.width  = w.max(64); self.dirty = true; } }
             "Height"    => { if let Ok(h) = value.parse::<u32>() { self.form.height = h.max(64); self.dirty = true; } }
             "Transparency"    => { if let Ok(v) = value.parse::<u8>() { self.form.transparency = v.min(100); self.dirty = true; } }
@@ -2835,8 +2835,8 @@ fn draw_control(
 
     let (default_fill, default_border, default_text) = control_colors(&ctrl.control_type, selected);
 
-    let fill = ctrl.get_prop("BackColor").map(|v| parse_color(v.as_str())).unwrap_or(default_fill);
-    let label_color = ctrl.get_prop("ForeColor").map(|v| parse_color(v.as_str())).unwrap_or(default_text);
+    let fill = ctrl.get_prop("BackgroundColor").map(|v| parse_color(v.as_str())).unwrap_or(default_fill);
+    let label_color = ctrl.get_prop("ForegroundColor").map(|v| parse_color(v.as_str())).unwrap_or(default_text);
     let stroke_color = ctrl.get_prop("BorderColor").map(|v| parse_color(v.as_str())).unwrap_or(default_border);
 
     let corner = match ctrl.control_type {
@@ -4535,7 +4535,7 @@ mod render_behavior_tests {
     fn label_forecolor_is_applied() {
         let mut c = Control::new("LBL", ControlType::Label, 5, 7);
         c.set_prop("Caption", PropValue::String("RED-RC".into()));
-        c.set_prop("ForeColor", PropValue::String("#FF0000".into()));
+        c.set_prop("ForegroundColor", PropValue::String("#FF0000".into()));
         let t = texts(&render(&c)).into_iter().find(|t| t.galley.text().contains("RED-RC")).expect("painted");
         let col = t.galley.job.sections.first().map(|s| s.format.color).unwrap_or(egui::Color32::TRANSPARENT);
         assert!(col.r() > 180 && col.g() < 90 && col.b() < 90, "ForeColor not applied; got {col:?}");

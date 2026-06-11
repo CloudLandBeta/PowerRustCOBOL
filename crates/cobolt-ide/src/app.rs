@@ -2357,7 +2357,7 @@ impl CoboltApp {
                             let font_size = ctrl.get_prop("FontSize").map(|v| v.as_i64() as f32).unwrap_or(12.0);
                             let font_name = ctrl.get_prop("FontName").map(|v| v.as_str().to_owned()).unwrap_or_default();
                             // Resolve ForeColor; default to near-white so labels are always readable.
-                            let fore = ctrl.get_prop("ForeColor").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                            let fore = ctrl.get_prop("ForegroundColor").map(|v| v.as_str().to_owned()).unwrap_or_default();
                             let hex = if fore.starts_with('#') { &fore[1..] } else { &fore };
                             let (fr, fg, fb) = if hex.len() >= 6 {
                                 let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(230);
@@ -2714,7 +2714,7 @@ impl CoboltApp {
                             let font_size = state.get("FontSize").parse::<f32>().unwrap_or(12.0);
                             let font_name = state.get("FontName").to_owned();
                             // Resolve ForeColor; fall back to near-white.
-                            let hex = state.get("ForeColor");
+                            let hex = state.get("ForegroundColor");
                             let (fr, fg, fb) = if hex.len() >= 7 && hex.starts_with('#') {
                                 (
                                     u8::from_str_radix(&hex[1..3], 16).unwrap_or(230),
@@ -3384,8 +3384,8 @@ pub(crate) fn render_run_control(
             let row_h = state.get("RowHeight").parse::<f32>().unwrap_or(22.0).clamp(14.0, 60.0);
             let col_w = screen_rect.width() / ncols as f32;
 
-            let header_bg = parse_hex(state.get("HeaderBackColor")).unwrap_or(Color32::from_rgb(60, 66, 96));
-            let header_fg = parse_hex(state.get("HeaderForeColor")).unwrap_or(Color32::from_rgb(235, 238, 250));
+            let header_bg = parse_hex(state.get("HeaderBackgroundColor")).unwrap_or(Color32::from_rgb(60, 66, 96));
+            let header_fg = parse_hex(state.get("HeaderForegroundColor")).unwrap_or(Color32::from_rgb(235, 238, 250));
             let alt_bg = parse_hex(state.get("AlternatingRowColor")).unwrap_or(Color32::from_rgb(38, 44, 72));
             let grid_c = parse_hex(state.get("GridLineColor"))
                 .unwrap_or(Color32::from_rgba_premultiplied(150, 160, 200, 90));

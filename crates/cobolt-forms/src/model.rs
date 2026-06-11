@@ -684,8 +684,8 @@ impl Control {
         }
 
         // ── Universal appearance props ─────────────────────────────────────────
-        props.insert("BackColor".into(),       PropValue::String("#F0F0F0".into()));
-        props.insert("ForeColor".into(),       PropValue::String("#000000".into()));
+        props.insert("BackgroundColor".into(),       PropValue::String("#F0F0F0".into()));
+        props.insert("ForegroundColor".into(),       PropValue::String("#000000".into()));
         props.insert("FontName".into(),        PropValue::String("Arial".into()));
         props.insert("FontSize".into(),        PropValue::Int(10));
         props.insert("Bold".into(),            PropValue::Bool(false));
@@ -723,9 +723,9 @@ impl Control {
             ControlType::TextBox => {
                 props.insert("Text".into(),         PropValue::String("".into()));
                 props.insert("HintText".into(),     PropValue::String("".into()));
-                props.insert("MaxLength".into(),    PropValue::Int(0));
+                props.insert("MaximumLength".into(),    PropValue::Int(0));
                 props.insert("Multiline".into(),    PropValue::Bool(false));
-                props.insert("PasswordChar".into(), PropValue::String("".into()));
+                props.insert("PasswordCharacter".into(), PropValue::String("".into()));
                 props.insert("ReadOnly".into(),     PropValue::Bool(false));
                 props.insert("ScrollBars".into(),   PropValue::String("None".into()));
                 props.insert("WordWrap".into(),     PropValue::Bool(true));
@@ -733,7 +733,7 @@ impl Control {
                 props.insert("BorderColor".into(),  PropValue::String("#AAAAAA".into()));
             }
             ControlType::Label => {
-                props.insert("TextAlign".into(),  PropValue::String("Left".into()));
+                props.insert("TextAlignment".into(),  PropValue::String("Left".into()));
                 props.insert("WordWrap".into(),   PropValue::Bool(false));
                 props.insert("AutoSize".into(),   PropValue::Bool(false));
                 props.insert("BorderStyle".into(),PropValue::String("None".into()));
@@ -741,13 +741,13 @@ impl Control {
             ControlType::CheckBox | ControlType::RadioButton => {
                 props.insert("Checked".into(),    PropValue::Bool(false));
                 props.insert("GroupName".into(),  PropValue::String("".into()));
-                props.insert("CheckAlign".into(), PropValue::String("Left".into()));
+                props.insert("CheckAlignment".into(), PropValue::String("Left".into()));
                 props.insert("CheckColor".into(), PropValue::String("#0078D7".into()));
             }
             ControlType::PictureBox => {
                 props.insert("ImagePath".into(),  PropValue::String("".into()));
                 props.insert("SizeMode".into(),   PropValue::String("Normal".into()));
-                props.insert("ImageAlign".into(), PropValue::String("MiddleCenter".into()));
+                props.insert("ImageAlignment".into(), PropValue::String("MiddleCenter".into()));
                 props.insert("BorderStyle".into(),PropValue::String("None".into()));
                 props.insert("BorderColor".into(),PropValue::String("#888888".into()));
                 // When false, the surrounding frame/background is not drawn — only
@@ -760,7 +760,7 @@ impl Control {
                 props.insert("AutoPlay".into(),   PropValue::Bool(true));
                 props.insert("Loop".into(),       PropValue::Bool(true));
                 props.insert("SizeMode".into(),   PropValue::String("Fit".into()));
-                props.insert("BackColor".into(),  PropValue::String("#00000000".into()));
+                props.insert("BackgroundColor".into(),  PropValue::String("#00000000".into()));
                 props.insert("BorderStyle".into(),PropValue::String("None".into()));
                 props.insert("BorderColor".into(),PropValue::String("#888888".into()));
             }
@@ -798,8 +798,8 @@ impl Control {
                 props.insert("CornerRadius".into(), PropValue::Int(3));
                 props.insert("FlatStyle".into(),    PropValue::Bool(false));
                 props.insert("ImagePath".into(),    PropValue::String("".into()));
-                props.insert("ImageAlign".into(),   PropValue::String("MiddleLeft".into()));
-                props.insert("TextAlign".into(),    PropValue::String("MiddleCenter".into()));
+                props.insert("ImageAlignment".into(),   PropValue::String("MiddleLeft".into()));
+                props.insert("TextAlignment".into(),    PropValue::String("MiddleCenter".into()));
             }
             ControlType::Panel | ControlType::GroupBox => {
                 props.insert("BorderStyle".into(),  PropValue::String("Single".into()));
@@ -814,8 +814,8 @@ impl Control {
                 props.insert("Rows".into(),                PropValue::String("".into()));
                 props.insert("ReadOnly".into(),            PropValue::Bool(false));
                 props.insert("AlternatingRowColor".into(), PropValue::String("#F0F8FF".into()));
-                props.insert("HeaderBackColor".into(),     PropValue::String("#E0E0E0".into()));
-                props.insert("HeaderForeColor".into(),     PropValue::String("#000000".into()));
+                props.insert("HeaderBackgroundColor".into(),     PropValue::String("#E0E0E0".into()));
+                props.insert("HeaderForegroundColor".into(),     PropValue::String("#000000".into()));
                 props.insert("GridLineColor".into(),       PropValue::String("#CCCCCC".into()));
                 props.insert("SelectionMode".into(),       PropValue::String("Row".into()));
                 props.insert("RowHeight".into(),           PropValue::Int(22));
@@ -845,8 +845,8 @@ impl Control {
                 props.insert("Format".into(),       PropValue::String("Short".into()));
                 props.insert("CustomFormat".into(), PropValue::String("".into()));
                 props.insert("ShowUpDown".into(),   PropValue::Bool(false));
-                props.insert("MinDate".into(),      PropValue::String("".into()));
-                props.insert("MaxDate".into(),      PropValue::String("".into()));
+                props.insert("MinimumDate".into(),      PropValue::String("".into()));
+                props.insert("MaximumDate".into(),      PropValue::String("".into()));
                 props.insert("BorderColor".into(),  PropValue::String("#888888".into()));
             }
             ControlType::NumericUpDown => {
@@ -855,7 +855,7 @@ impl Control {
                 props.insert("Maximum".into(),      PropValue::Int(100));
                 props.insert("Step".into(),         PropValue::Int(1));
                 props.insert("DecimalPlaces".into(),PropValue::Int(0));
-                props.insert("ThousandsSep".into(), PropValue::Bool(false));
+                props.insert("ThousandsSeparator".into(), PropValue::Bool(false));
                 props.insert("ReadOnly".into(),     PropValue::Bool(false));
                 props.insert("BorderColor".into(),  PropValue::String("#888888".into()));
             }
@@ -872,7 +872,7 @@ impl Control {
             }
             ControlType::Splitter => {
                 props.insert("Orientation".into(),   PropValue::String("Horizontal".into()));
-                props.insert("MinSize".into(),        PropValue::Int(25));
+                props.insert("MinimumSize".into(),        PropValue::Int(25));
                 props.insert("SplitPosition".into(), PropValue::Int(100));
                 props.insert("BorderColor".into(),   PropValue::String("#CCCCCC".into()));
             }
@@ -899,15 +899,15 @@ impl Control {
                 // Behaviour
                 props.insert("SystemPrompt".into(),      PropValue::String("You are a helpful assistant.".into()));
                 props.insert("Temperature".into(),       PropValue::Int(70)); // stored as int 0-100 (0.0-1.0)
-                props.insert("MaxTokens".into(),         PropValue::Int(1024));
+                props.insert("MaximumTokens".into(),         PropValue::Int(1024));
                 props.insert("Stream".into(),            PropValue::Bool(true));
-                props.insert("TimeoutSec".into(),        PropValue::Int(30));
+                props.insert("TimeoutSeconds".into(),        PropValue::Int(30));
                 // Target controls — comma-sep list of IDs this agent is allowed to modify
                 props.insert("TargetControls".into(),    PropValue::String("".into()));
                 // COBOL paragraphs for events
-                props.insert("ResponsePara".into(),      PropValue::String("".into()));
-                props.insert("ErrorPara".into(),         PropValue::String("".into()));
-                props.insert("StreamChunkPara".into(),   PropValue::String("".into()));
+                props.insert("ResponseParagraph".into(),      PropValue::String("".into()));
+                props.insert("ErrorParagraph".into(),         PropValue::String("".into()));
+                props.insert("StreamChunkParagraph".into(),   PropValue::String("".into()));
                 // Data item to put the response into
                 props.insert("ResponseDataItem".into(),  PropValue::String("".into()));
             }
@@ -922,10 +922,10 @@ impl Control {
                 // Shared COBOL data items (comma-separated) passed to/from the modal
                 props.insert("SharedDataItems".into(),   PropValue::String("".into()));
                 // COBOL paragraphs
-                props.insert("OpenPara".into(),          PropValue::String("".into()));
-                props.insert("ClosedPara".into(),        PropValue::String("".into()));
-                props.insert("ConfirmedPara".into(),     PropValue::String("".into()));
-                props.insert("CancelledPara".into(),     PropValue::String("".into()));
+                props.insert("OpenParagraph".into(),          PropValue::String("".into()));
+                props.insert("ClosedParagraph".into(),        PropValue::String("".into()));
+                props.insert("ConfirmedParagraph".into(),     PropValue::String("".into()));
+                props.insert("CancelledParagraph".into(),     PropValue::String("".into()));
                 props.insert("ModalResult".into(),       PropValue::String("None".into())); // None | OK | Cancel | Yes | No
             }
             ControlType::Slider => {
@@ -942,7 +942,7 @@ impl Control {
                 props.insert("FillColor".into(),     PropValue::String("#0078D7".into())); // filled portion of track
                 props.insert("ShowValue".into(),     PropValue::Bool(false)); // label current value
                 props.insert("DataItem".into(),      PropValue::String("".into()));
-                props.insert("ChangePara".into(),    PropValue::String("".into())); // COBOL para called on change
+                props.insert("ChangeParagraph".into(),    PropValue::String("".into())); // COBOL para called on change
             }
             ControlType::RestClient => {
                 props.insert("BaseURL".into(),       PropValue::String("https://api.example.com".into()));
@@ -950,7 +950,7 @@ impl Control {
                 props.insert("AuthType".into(),      PropValue::String("None".into())); // None | Bearer | Basic | APIKey
                 props.insert("AuthToken".into(),     PropValue::String("".into()));
                 props.insert("DefaultHeaders".into(),PropValue::String("".into())); // key:value pairs, newline-separated
-                props.insert("TimeoutSec".into(),    PropValue::Int(30));
+                props.insert("TimeoutSeconds".into(),    PropValue::Int(30));
                 props.insert("FollowRedirects".into(),PropValue::Bool(true));
                 props.insert("VerifyTLS".into(),     PropValue::Bool(true));
                 // COBOL data items
@@ -958,22 +958,22 @@ impl Control {
                 props.insert("ResponseDataItem".into(),  PropValue::String("".into())); // where response goes
                 props.insert("StatusDataItem".into(),    PropValue::String("".into())); // HTTP status code
                 // COBOL paragraphs
-                props.insert("ResponsePara".into(),  PropValue::String("".into()));
-                props.insert("ErrorPara".into(),     PropValue::String("".into()));
+                props.insert("ResponseParagraph".into(),  PropValue::String("".into()));
+                props.insert("ErrorParagraph".into(),     PropValue::String("".into()));
             }
             ControlType::SqlDatabase => {
                 // Connection
                 props.insert("Driver".into(),            PropValue::String("sqlite".into())); // sqlite | postgres | mysql | mssql
                 props.insert("ConnectionString".into(),  PropValue::String("sqlite::memory:".into()));
                 props.insert("AutoConnect".into(),       PropValue::Bool(false));
-                props.insert("MaxConnections".into(),    PropValue::Int(5));
+                props.insert("MaximumConnections".into(),    PropValue::Int(5));
                 // COBOL object data items generated in WORKING-STORAGE
-                props.insert("ConnDataItem".into(),      PropValue::String("".into())); // e.g. conn1
+                props.insert("ConnectionDataItem".into(),      PropValue::String("".into())); // e.g. conn1
                 props.insert("ResultSetDataItem".into(), PropValue::String("".into())); // e.g. resultset1
                 // COBOL paragraphs
-                props.insert("ConnectPara".into(),       PropValue::String("".into())); // called after connect
-                props.insert("ErrorPara".into(),         PropValue::String("".into())); // called on any SQL error
-                props.insert("QueryCompletePara".into(), PropValue::String("".into())); // called after exec
+                props.insert("ConnectParagraph".into(),       PropValue::String("".into())); // called after connect
+                props.insert("ErrorParagraph".into(),         PropValue::String("".into())); // called on any SQL error
+                props.insert("QueryCompleteParagraph".into(), PropValue::String("".into())); // called after exec
             }
 
             // ── Charts ────────────────────────────────────────────────────────
@@ -1000,8 +1000,8 @@ impl Control {
                 props.insert("ValueFields".into(),     PropValue::String("".into())); // comma-sep sub-fields for Y series
                 props.insert("SeriesLabels".into(),    PropValue::String("".into())); // display names for series
                 // COBOL paragraphs
-                props.insert("DataChangedPara".into(), PropValue::String("".into()));
-                props.insert("ClickPara".into(),       PropValue::String("".into()));
+                props.insert("DataChangedParagraph".into(), PropValue::String("".into()));
+                props.insert("ClickParagraph".into(),       PropValue::String("".into()));
                 // Bar/Line/Area specifics
                 if matches!(control_type, ControlType::BarChart) {
                     props.insert("Horizontal".into(),  PropValue::Bool(false));

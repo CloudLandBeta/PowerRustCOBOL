@@ -531,10 +531,10 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
         let para_get  = format!("{}-GET",  ctrl.id);
         let para_post = format!("{}-POST", ctrl.id);
         let para_put  = format!("{}-PUT",  ctrl.id);
-        let resp_para = ctrl.get_prop("ResponsePara")
+        let resp_para = ctrl.get_prop("ResponseParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-RESPONSE", ctrl.id));
-        let err_para = ctrl.get_prop("ErrorPara")
+        let err_para = ctrl.get_prop("ErrorParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-ERROR", ctrl.id));
         let resp_item   = ctrl.get_prop("ResponseDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -634,10 +634,10 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
 fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
     for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::AgentObject) {
         let ask_para = format!("{}-ASK", ctrl.id);
-        let resp_para = ctrl.get_prop("ResponsePara")
+        let resp_para = ctrl.get_prop("ResponseParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-RESPONSE", ctrl.id));
-        let err_para = ctrl.get_prop("ErrorPara")
+        let err_para = ctrl.get_prop("ErrorParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-ERROR", ctrl.id));
         let resp_item = ctrl.get_prop("ResponseDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -813,15 +813,15 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         let fetch_para = format!("{id}-FETCH-ALL");
         let close_para = format!("{id}-CLOSE");
 
-        let connect_ok = ctrl.get_prop("ConnectPara")
+        let connect_ok = ctrl.get_prop("ConnectParagraph")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{id}-ON-CONNECT"));
-        let query_done = ctrl.get_prop("QueryCompletePara")
+        let query_done = ctrl.get_prop("QueryCompleteParagraph")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{id}-ON-QUERY-DONE"));
-        let error_para = ctrl.get_prop("ErrorPara")
+        let error_para = ctrl.get_prop("ErrorParagraph")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{id}-ON-ERROR"));
@@ -921,16 +921,16 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
 fn write_modal_stubs(out: &mut String, all_controls: &[&Control]) {
     for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::ModalWindow) {
         let pfx       = format!("WS-{}", ctrl.id.replace('-', "-"));
-        let open_para = ctrl.get_prop("OpenPara")
+        let open_para = ctrl.get_prop("OpenParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-OPEN", ctrl.id));
-        let closed_para = ctrl.get_prop("ClosedPara")
+        let closed_para = ctrl.get_prop("ClosedParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-CLOSED", ctrl.id));
-        let confirmed_para = ctrl.get_prop("ConfirmedPara")
+        let confirmed_para = ctrl.get_prop("ConfirmedParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-CONFIRMED", ctrl.id));
-        let cancelled_para = ctrl.get_prop("CancelledPara")
+        let cancelled_para = ctrl.get_prop("CancelledParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-CANCELLED", ctrl.id));
         let prog = ctrl.get_prop("ProgramName")

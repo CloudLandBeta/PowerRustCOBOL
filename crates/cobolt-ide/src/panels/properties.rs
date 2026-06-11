@@ -234,13 +234,13 @@ impl PropertiesPanel {
             }
 
             // BackColor
-            if ctrl.get_prop("BackColor").is_some() {
-                let hex = ctrl.get_prop("BackColor").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "#F0F0F0".into());
+            if ctrl.get_prop("BackgroundColor").is_some() {
+                let hex = ctrl.get_prop("BackgroundColor").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "#F0F0F0".into());
                 let mut color = hex_to_color32(&hex);
                 ui.label(tr.lbl_back_color);
                 ui.horizontal(|ui| {
                     if color_edit_button_closing(ui, &mut color).changed() {
-                        action.set_props.push((id.clone(), "BackColor".into(), PropValue::String(color32_to_hex(color))));
+                        action.set_props.push((id.clone(), "BackgroundColor".into(), PropValue::String(color32_to_hex(color))));
                     }
                     ui.label(RichText::new(color32_to_hex(color)).monospace().small().color(Color32::GRAY));
                 });
@@ -248,13 +248,13 @@ impl PropertiesPanel {
             }
 
             // ForeColor
-            if ctrl.get_prop("ForeColor").is_some() {
-                let hex = ctrl.get_prop("ForeColor").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "#000000".into());
+            if ctrl.get_prop("ForegroundColor").is_some() {
+                let hex = ctrl.get_prop("ForegroundColor").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "#000000".into());
                 let mut color = hex_to_color32(&hex);
                 ui.label(tr.lbl_fore_color);
                 ui.horizontal(|ui| {
                     if color_edit_button_closing(ui, &mut color).changed() {
-                        action.set_props.push((id.clone(), "ForeColor".into(), PropValue::String(color32_to_hex(color))));
+                        action.set_props.push((id.clone(), "ForegroundColor".into(), PropValue::String(color32_to_hex(color))));
                     }
                     ui.label(RichText::new(color32_to_hex(color)).monospace().small().color(Color32::GRAY));
                 });
@@ -850,14 +850,14 @@ impl PropertiesPanel {
                         &["None","OK","Cancel","Yes","No","Abort","Retry","Ignore"]);
                     ui.end_row();
 
-                    combo_row(ui, id, "TextAlign", ctrl, action,
+                    combo_row(ui, id, "TextAlignment", ctrl, action,
                         &["MiddleCenter","TopLeft","TopCenter","TopRight",
                           "MiddleLeft","MiddleRight","BottomLeft","BottomCenter","BottomRight"]);
                     ui.end_row();
                 });
                 // Image
                 image_browse_row(ui, id, "ImagePath", ctrl, action, &mut self.text_bufs);
-                combo_row_inline(ui, id, "ImageAlign", ctrl, action,
+                combo_row_inline(ui, id, "ImageAlignment", ctrl, action,
                     &["MiddleLeft","MiddleCenter","MiddleRight","TopLeft","BottomLeft"]);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
@@ -866,7 +866,7 @@ impl PropertiesPanel {
             // ── Label ─────────────────────────────────────────────────────────
             ControlType::Label => {
                 section_header(ui, "Label");
-                combo_row_inline(ui, id, "TextAlign", ctrl, action, &["Left","Center","Right"]);
+                combo_row_inline(ui, id, "TextAlignment", ctrl, action, &["Left","Center","Right"]);
                 bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
                 bool_row_inline(ui, id, "AutoSize", "AutoSize", ctrl, action);
                 combo_row_inline(ui, id, "BorderStyle", ctrl, action, &["None","Single","Fixed3D"]);
@@ -883,9 +883,9 @@ impl PropertiesPanel {
                 }
                 egui::Grid::new(format!("tbx_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     ui.label("MaxLength:");
-                    let mut ml = ctrl.get_prop("MaxLength").map(|v| v.as_i64()).unwrap_or(0);
+                    let mut ml = ctrl.get_prop("MaximumLength").map(|v| v.as_i64()).unwrap_or(0);
                     if ui.add(DragValue::new(&mut ml).speed(1).range(0..=32767)).changed() {
-                        action.set_props.push((id.to_owned(), "MaxLength".into(), PropValue::Int(ml)));
+                        action.set_props.push((id.to_owned(), "MaximumLength".into(), PropValue::Int(ml)));
                     }
                     ui.end_row();
                     bool_row(ui, id, "Multiline", "Multiline", ctrl, action); ui.end_row();
@@ -895,12 +895,12 @@ impl PropertiesPanel {
                     ui.label("PwdChar:");
                     let buf_key = format!("{id}-PasswordChar");
                     let wid = egui::Id::new(&buf_key);
-                    let cur = ctrl.get_prop("PasswordChar").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    let cur = ctrl.get_prop("PasswordCharacter").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) { *buf = cur; }
                     if ui.add(egui::TextEdit::singleline(buf).id(wid).desired_width(30.0)).lost_focus() {
                         buf.truncate(1);
-                        action.set_props.push((id.to_owned(), "PasswordChar".into(), PropValue::String(buf.clone())));
+                        action.set_props.push((id.to_owned(), "PasswordCharacter".into(), PropValue::String(buf.clone())));
                     }
                     ui.end_row();
 
@@ -916,7 +916,7 @@ impl PropertiesPanel {
             ControlType::CheckBox | ControlType::RadioButton => {
                 section_header(ui, "Check Options");
                 bool_row_inline(ui, id, "Checked",  "Checked (default)", ctrl, action);
-                combo_row_inline(ui, id, "CheckAlign", ctrl, action, &["Left","Center","Right"]);
+                combo_row_inline(ui, id, "CheckAlignment", ctrl, action, &["Left","Center","Right"]);
                 color_row(ui, id, "CheckColor", ctrl, action);
                 if matches!(ctrl.control_type, ControlType::RadioButton) {
                     let cur = ctrl.get_prop("GroupName").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -932,7 +932,7 @@ impl PropertiesPanel {
                 image_browse_row(ui, id, "ImagePath", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(ui, id, "SizeMode", ctrl, action,
                     &["Normal","Stretch","Zoom","CenterImage","AutoSize"]);
-                combo_row_inline(ui, id, "ImageAlign", ctrl, action,
+                combo_row_inline(ui, id, "ImageAlignment", ctrl, action,
                     &["TopLeft","TopCenter","TopRight",
                       "MiddleLeft","MiddleCenter","MiddleRight",
                       "BottomLeft","BottomCenter","BottomRight"]);
@@ -1036,8 +1036,8 @@ impl PropertiesPanel {
                 color_row(ui, id, "ThumbColor", ctrl, action);
                 color_row(ui, id, "FillColor",  ctrl, action);
                 {
-                    let cur = ctrl.get_prop("ChangePara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ChangePara", &cur,
+                    let cur = ctrl.get_prop("ChangeParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ChangeParagraph", &cur,
                         "On change PERFORM:", "SLIDER-CHANGED-PARA", action);
                 }
                 ui.add_space(4.0);
@@ -1097,8 +1097,8 @@ impl PropertiesPanel {
                     }
                     ui.end_row();
                 });
-                color_row(ui, id, "HeaderBackColor",     ctrl, action);
-                color_row(ui, id, "HeaderForeColor",     ctrl, action);
+                color_row(ui, id, "HeaderBackgroundColor",     ctrl, action);
+                color_row(ui, id, "HeaderForegroundColor",     ctrl, action);
                 color_row(ui, id, "AlternatingRowColor", ctrl, action);
                 color_row(ui, id, "GridLineColor",       ctrl, action);
 
@@ -1192,13 +1192,13 @@ impl PropertiesPanel {
                         "Custom fmt:", "dd/MM/yyyy HH:mm", action);
                 }
                 {
-                    let cur = ctrl.get_prop("MinDate").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "MinDate", &cur,
+                    let cur = ctrl.get_prop("MinimumDate").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "MinimumDate", &cur,
                         "Min date:", "YYYY-MM-DD", action);
                 }
                 {
-                    let cur = ctrl.get_prop("MaxDate").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "MaxDate", &cur,
+                    let cur = ctrl.get_prop("MaximumDate").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "MaximumDate", &cur,
                         "Max date:", "YYYY-MM-DD", action);
                 }
                 color_row(ui, id, "BorderColor", ctrl, action);
@@ -1239,7 +1239,7 @@ impl PropertiesPanel {
                         action.set_props.push((id.to_owned(), "DecimalPlaces".into(), PropValue::Int(dp)));
                     }
                     ui.end_row();
-                    bool_row(ui, id, "ThousandsSep", "Thousands sep", ctrl, action); ui.end_row();
+                    bool_row(ui, id, "ThousandsSeparator", "Thousands sep", ctrl, action); ui.end_row();
                     bool_row(ui, id, "ReadOnly",     "ReadOnly",      ctrl, action); ui.end_row();
                 });
                 color_row(ui, id, "BorderColor", ctrl, action);
@@ -1281,9 +1281,9 @@ impl PropertiesPanel {
                 egui::Grid::new(format!("sp_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     combo_row(ui, id, "Orientation", ctrl, action, &["Horizontal","Vertical"]); ui.end_row();
                     ui.label("MinSize:");
-                    let mut ms = ctrl.get_prop("MinSize").map(|v| v.as_i64()).unwrap_or(25);
+                    let mut ms = ctrl.get_prop("MinimumSize").map(|v| v.as_i64()).unwrap_or(25);
                     if ui.add(DragValue::new(&mut ms).speed(1).range(0..=500)).changed() {
-                        action.set_props.push((id.to_owned(), "MinSize".into(), PropValue::Int(ms)));
+                        action.set_props.push((id.to_owned(), "MinimumSize".into(), PropValue::Int(ms)));
                     }
                     ui.end_row();
                     ui.label("SplitPosition:");
@@ -1427,15 +1427,15 @@ impl PropertiesPanel {
                     }
                     ui.end_row();
                     ui.label("Max tokens:");
-                    let mut mt = ctrl.get_prop("MaxTokens").map(|v| v.as_i64()).unwrap_or(1024);
+                    let mut mt = ctrl.get_prop("MaximumTokens").map(|v| v.as_i64()).unwrap_or(1024);
                     if ui.add(DragValue::new(&mut mt).speed(10).range(1..=128000)).changed() {
-                        action.set_props.push((id.to_owned(), "MaxTokens".into(), PropValue::Int(mt)));
+                        action.set_props.push((id.to_owned(), "MaximumTokens".into(), PropValue::Int(mt)));
                     }
                     ui.end_row();
                     ui.label("Timeout (s):");
-                    let mut to = ctrl.get_prop("TimeoutSec").map(|v| v.as_i64()).unwrap_or(30);
+                    let mut to = ctrl.get_prop("TimeoutSeconds").map(|v| v.as_i64()).unwrap_or(30);
                     if ui.add(DragValue::new(&mut to).speed(1).range(1..=300)).changed() {
-                        action.set_props.push((id.to_owned(), "TimeoutSec".into(), PropValue::Int(to)));
+                        action.set_props.push((id.to_owned(), "TimeoutSeconds".into(), PropValue::Int(to)));
                     }
                     ui.end_row();
                     bool_row(ui, id, "Stream", "Streaming mode", ctrl, action); ui.end_row();
@@ -1453,18 +1453,18 @@ impl PropertiesPanel {
                         "Response data item:", "WS-AGENT-RESPONSE", action);
                 }
                 {
-                    let cur = ctrl.get_prop("ResponsePara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ResponsePara", &cur,
+                    let cur = ctrl.get_prop("ResponseParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ResponseParagraph", &cur,
                         "On response PERFORM:", "AGENT-RESPONSE-HANDLER", action);
                 }
                 {
-                    let cur = ctrl.get_prop("StreamChunkPara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "StreamChunkPara", &cur,
+                    let cur = ctrl.get_prop("StreamChunkParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "StreamChunkParagraph", &cur,
                         "On stream chunk:", "AGENT-CHUNK-HANDLER", action);
                 }
                 {
-                    let cur = ctrl.get_prop("ErrorPara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorPara", &cur,
+                    let cur = ctrl.get_prop("ErrorParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorParagraph", &cur,
                         "On error PERFORM:", "AGENT-ERROR-HANDLER", action);
                 }
                 ui.label(RichText::new(
@@ -1540,10 +1540,10 @@ impl PropertiesPanel {
                     .small().color(Color32::GRAY).italics());
                 section_header(ui, "⊞ Modal COBOL Events");
                 for (key, hint) in [
-                    ("OpenPara",      "MODAL-OPEN-PARA"),
-                    ("ClosedPara",    "MODAL-CLOSED-PARA"),
-                    ("ConfirmedPara", "MODAL-OK-PARA"),
-                    ("CancelledPara", "MODAL-CANCEL-PARA"),
+                    ("OpenParagraph",      "MODAL-OPEN-PARA"),
+                    ("ClosedParagraph",    "MODAL-CLOSED-PARA"),
+                    ("ConfirmedParagraph", "MODAL-OK-PARA"),
+                    ("CancelledParagraph", "MODAL-CANCEL-PARA"),
                 ] {
                     let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, key, &cur,
@@ -1582,9 +1582,9 @@ impl PropertiesPanel {
                     }
                     ui.end_row();
                     ui.label("Timeout (s):");
-                    let mut to = ctrl.get_prop("TimeoutSec").map(|v| v.as_i64()).unwrap_or(30);
+                    let mut to = ctrl.get_prop("TimeoutSeconds").map(|v| v.as_i64()).unwrap_or(30);
                     if ui.add(DragValue::new(&mut to).speed(1).range(1..=300)).changed() {
-                        action.set_props.push((id.to_owned(), "TimeoutSec".into(), PropValue::Int(to)));
+                        action.set_props.push((id.to_owned(), "TimeoutSeconds".into(), PropValue::Int(to)));
                     }
                     ui.end_row();
                     bool_row(ui, id, "FollowRedirects", "Follow redirects", ctrl, action); ui.end_row();
@@ -1620,13 +1620,13 @@ impl PropertiesPanel {
                         "HTTP status item:", "WS-HTTP-STATUS", action);
                 }
                 {
-                    let cur = ctrl.get_prop("ResponsePara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ResponsePara", &cur,
+                    let cur = ctrl.get_prop("ResponseParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ResponseParagraph", &cur,
                         "On response PERFORM:", "REST-RESPONSE-HANDLER", action);
                 }
                 {
-                    let cur = ctrl.get_prop("ErrorPara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorPara", &cur,
+                    let cur = ctrl.get_prop("ErrorParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorParagraph", &cur,
                         "On error PERFORM:", "REST-ERROR-HANDLER", action);
                 }
                 ui.label(RichText::new(
@@ -1672,9 +1672,9 @@ impl PropertiesPanel {
 
                     ui.label("Max connections:");
                     {
-                        let mut n = ctrl.get_prop("MaxConnections").map(|v| v.as_i64()).unwrap_or(5);
+                        let mut n = ctrl.get_prop("MaximumConnections").map(|v| v.as_i64()).unwrap_or(5);
                         if ui.add(DragValue::new(&mut n).range(1..=100)).changed() {
-                            action.set_props.push((id.to_owned(), "MaxConnections".into(), PropValue::Int(n)));
+                            action.set_props.push((id.to_owned(), "MaximumConnections".into(), PropValue::Int(n)));
                         }
                     }
                     ui.end_row();
@@ -1682,8 +1682,8 @@ impl PropertiesPanel {
 
                 section_header(ui, "🗄 SQL Database — COBOL Data Items");
                 egui::Grid::new(format!("sql_items_{id}")).num_columns(1).spacing([8.0, 4.0]).show(ui, |ui| {
-                    let cur = ctrl.get_prop("ConnDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ConnDataItem", &cur,
+                    let cur = ctrl.get_prop("ConnectionDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ConnectionDataItem", &cur,
                         "Connection item:", "conn1", action);
                     ui.end_row();
 
@@ -1692,18 +1692,18 @@ impl PropertiesPanel {
                         "Result set item:", "resultset1", action);
                     ui.end_row();
 
-                    let cur = ctrl.get_prop("ConnectPara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ConnectPara", &cur,
+                    let cur = ctrl.get_prop("ConnectParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ConnectParagraph", &cur,
                         "After connect:", "DB-CONNECTED", action);
                     ui.end_row();
 
-                    let cur = ctrl.get_prop("QueryCompletePara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "QueryCompletePara", &cur,
+                    let cur = ctrl.get_prop("QueryCompleteParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "QueryCompleteParagraph", &cur,
                         "After query:", "DB-QUERY-DONE", action);
                     ui.end_row();
 
-                    let cur = ctrl.get_prop("ErrorPara").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorPara", &cur,
+                    let cur = ctrl.get_prop("ErrorParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorParagraph", &cur,
                         "On SQL error:", "DB-ERROR-HANDLER", action);
                     ui.end_row();
                 });
@@ -2004,7 +2004,7 @@ impl PropertiesPanel {
                 let mut color = hex_to_color32(&hex);
                 ui.horizontal(|ui| {
                     if color_edit_button_closing(ui, &mut color).changed() {
-                        action.form_props.push(("BackColor".into(), color32_to_hex(color)));
+                        action.form_props.push(("BackgroundColor".into(), color32_to_hex(color)));
                     }
                     ui.label(RichText::new(color32_to_hex(color)).monospace().small().color(Color32::GRAY));
                 });

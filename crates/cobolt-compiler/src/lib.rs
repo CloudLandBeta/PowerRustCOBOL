@@ -742,7 +742,7 @@ impl eframe::App for FormApp {
                             let painter = ui.painter_at(rect);
 
                             // BackColor fill.
-                            if let Some(bc) = parse_hex_color(&self.getp(&meta.id, "BackColor")) {
+                            if let Some(bc) = parse_hex_color(&self.getp(&meta.id, "BackgroundColor")) {
                                 painter.rect_filled(rect, 0.0, amul(bc));
                             }
                             // Border.
@@ -756,7 +756,7 @@ impl eframe::App for FormApp {
                             // Text colour: ForeColor, with sensible defaults.
                             let fsize = self.getp(&meta.id, "FontSize").trim()
                                 .parse::<f32>().unwrap_or(14.0).max(1.0);
-                            let mut fg = parse_hex_color(&self.getp(&meta.id, "ForeColor"))
+                            let mut fg = parse_hex_color(&self.getp(&meta.id, "ForegroundColor"))
                                 .unwrap_or(egui::Color32::from_gray(230));
                             if fg == egui::Color32::BLACK { fg = egui::Color32::from_gray(230); }
                             if !enabled { fg = egui::Color32::from_gray(120); }
@@ -774,7 +774,7 @@ impl eframe::App for FormApp {
                                 .parse::<f32>().unwrap_or(0.0).max(0.0);
                             let inner = rect.shrink(pad);
 
-                            let (halign, anchor_x) = match self.getp(&meta.id, "TextAlign").as_str() {
+                            let (halign, anchor_x) = match self.getp(&meta.id, "TextAlignment").as_str() {
                                 "Center" => (egui::Align::Center, inner.center().x),
                                 "Right"  => (egui::Align::Max,    inner.right()),
                                 _        => (egui::Align::Min,    inner.left()),
