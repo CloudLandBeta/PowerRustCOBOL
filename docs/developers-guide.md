@@ -143,7 +143,8 @@ This walkthrough produces a one-button window that shows a message.
 
 1. **Create a project.** `File ▸ New Project…`, give it a name (e.g.
    `HelloPower`) and a main program. The IDE creates the standard folder layout
-   on disk (see §6).
+   on disk **and a runnable starter `main` program** (a tiny `DISPLAY`/`GOBACK`
+   you can Run immediately), then opens it in the editor (see §6).
 2. **Create a form.** In the project tree, click the **➕** next to **Forms**.
    This opens the *New Form* dialog — set a name (`main-form`), a title, and a
    size, then create. The form is saved under `forms/` and opens in the **Form
@@ -229,6 +230,10 @@ HelloPower/
 ├── temp/               ← temporary files
 └── dist/               ← (reserved) self-contained distribution bundle
 ```
+
+A new project also gets a **runnable starter `main` program** (by default
+`src/main.cbl`) — a minimal `IDENTIFICATION DIVISION` / `DISPLAY` / `GOBACK` that
+you can **Run** straight away and then grow.
 
 ### The five tree categories
 
