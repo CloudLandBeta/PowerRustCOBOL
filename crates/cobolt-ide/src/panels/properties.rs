@@ -2135,7 +2135,7 @@ impl PropertiesPanel {
             .small().color(Color32::GRAY).italics());
         ui.add_space(4.0);
 
-        for ev_name in &["OnLoad", "OnClose"] {
+        for ev_name in &["onLoad", "onClose"] {
             let binding  = form.form_events.iter().find(|e| e.event == *ev_name);
             let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
             let lines    = binding.map(|e| e.code_line_count()).unwrap_or(0);

@@ -19,10 +19,10 @@
 //!
 //!   <!-- Form-level lifecycle events -->
 //!   <form-events>
-//!     <Event name="OnLoad" paragraph="MAIN-FORM--ONLOAD"><![CDATA[
+//!     <Event name="onLoad" paragraph="MAIN-FORM--ONLOAD"><![CDATA[
 //!         MOVE 0 TO WS-COUNTER
 //!     ]]></Event>
-//!     <Event name="OnClose" paragraph="MAIN-FORM--ONCLOSE"><![CDATA[
+//!     <Event name="onClose" paragraph="MAIN-FORM--ONCLOSE"><![CDATA[
 //!         CONTINUE.
 //!     ]]></Event>
 //!   </form-events>
@@ -30,7 +30,7 @@
 //!   <!-- Controls with per-event code -->
 //!   <Control id="BTN-OK" type="Button" x="10" y="10" w="80" h="30" ...>
 //!     <Property name="Caption">OK</Property>
-//!     <Event name="Click" paragraph="BTN-OK--CLICK"><![CDATA[
+//!     <Event name="onClick" paragraph="BTN-OK--CLICK"><![CDATA[
 //!         MOVE WS-COUNTER TO WS-TXT-1-VALUE
 //!     ]]></Event>
 //!   </Control>
@@ -38,7 +38,7 @@
 //!   <!-- Recycle bin — never emitted into .cbl -->
 //!   <deleted-controls>
 //!     <DeletedControl id="BTN-OLD" deleted-at="2026-05-29T10:00:00">
-//!       <Event name="Click" paragraph="BTN-OLD--CLICK"><![CDATA[
+//!       <Event name="onClick" paragraph="BTN-OLD--CLICK"><![CDATA[
 //!           CONTINUE.
 //!       ]]></Event>
 //!     </DeletedControl>
@@ -350,8 +350,8 @@ fn parse_form_body<R: std::io::BufRead>(
             // ── <form-events> ─────────────────────────────────────────────────
             OwnedEvent::FormEventsStart => {
                 form.form_events = parse_event_list(reader, buf, b"form-events")?;
-                // Ensure OnLoad / OnClose stubs exist even if file omits them.
-                for ev_name in &["OnLoad", "OnClose"] {
+                // Ensure onLoad / onClose stubs exist even if file omits them.
+                for ev_name in &["onLoad", "onClose"] {
                     if !form.form_events.iter().any(|e| e.event == *ev_name) {
                         form.form_events.push(EventBinding {
                             event:     ev_name.to_string(),
@@ -705,7 +705,7 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
 ///
 /// Format (v1.1):
 /// ```xml
-/// <Event name="Click" paragraph="BTN-OK--CLICK">
+/// <Event name="onClick" paragraph="BTN-OK--CLICK">
 ///   <LocalWS><![CDATA[ 01 WS-TEMP PIC X(80). ]]></LocalWS>
 ///   <![CDATA[ DISPLAY "hello". ]]>
 /// </Event>
@@ -814,7 +814,7 @@ mod tests {
         let mut form = Form::new("MAIN-FORM", "Test App", 800, 600);
         form.background_color = "#F0F0F0".into();
         // Set OnLoad code
-        if let Some(ev) = form.form_events.iter_mut().find(|e| e.event == "OnLoad") {
+        if let Some(ev) = form.form_events.iter_mut().find(|e| e.event == "onLoad") {
             ev.code = "    MOVE 0 TO WS-COUNTER".into();
         }
         form.user_ws_source = "       01 WS-COUNTER  PIC 9(8) VALUE 0 GLOBAL.\n".into();
@@ -825,7 +825,7 @@ mod tests {
         btn.properties.insert("Caption".into(), PropValue::String("OK".into()));
         btn.properties.insert("FontSize".into(), PropValue::Int(12));
         btn.events.push(EventBinding {
-            event:     "Click".into(),
+            event:     "onClick".into(),
             paragraph: "BTN-OK--CLICK".into(),
             code:      "    MOVE 1 TO WS-COUNTER".into(),
             local_ws:  String::new(),
@@ -853,7 +853,7 @@ mod tests {
         assert!(loaded.user_ws_source.contains("WS-COUNTER"));
 
         // Form events with code
-        let on_load = loaded.form_events.iter().find(|e| e.event == "OnLoad");
+        let on_load = loaded.form_events.iter().find(|e| e.event == "onLoad");
         assert!(on_load.is_some());
         assert!(on_load.unwrap().code.contains("WS-COUNTER"));
 
@@ -865,7 +865,7 @@ mod tests {
         assert_eq!(btn.rect.x,         10);
         assert_eq!(btn.rect.w,         80);
         assert_eq!(btn.events.len(),   1);
-        assert_eq!(btn.events[0].event,     "Click");
+        assert_eq!(btn.events[0].event,     "onClick");
         assert_eq!(btn.events[0].paragraph, "BTN-OK--CLICK");
         assert!(btn.events[0].code.contains("WS-COUNTER"));
 
@@ -883,7 +883,7 @@ mod tests {
         assert!(xml.contains(r#"name="MAIN-FORM""#));
         assert!(xml.contains(r#"<Control id="BTN-OK""#));
         assert!(xml.contains(r#"<Property name="Caption">OK</Property>"#));
-        assert!(xml.contains(r#"<Event name="Click" paragraph="BTN-OK--CLICK">"#));
+        assert!(xml.contains(r#"<Event name="onClick" paragraph="BTN-OK--CLICK">"#));
         assert!(xml.contains("WS-COUNTER"));
         assert!(xml.contains("<working-storage>"));
         assert!(xml.contains("<form-events>"));

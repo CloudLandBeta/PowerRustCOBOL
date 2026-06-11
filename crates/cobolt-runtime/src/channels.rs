@@ -33,7 +33,7 @@
 pub struct FormEvent {
     /// The COBOL control ID (e.g. `"BTN-OK"`).
     pub ctrl_id:  String,
-    /// The event name (e.g. `"Click"`, `"Change"`, `"GotFocus"`, `"LostFocus"`).
+    /// The event name (e.g. `"onClick"`, `"onChange"`, `"onGotFocus"`, `"onLostFocus"`).
     pub event_id: String,
 }
 
@@ -42,14 +42,14 @@ impl FormEvent {
         Self { ctrl_id: ctrl_id.into(), event_id: event_id.into() }
     }
 
-    /// Convenience: a `"Click"` event on `ctrl_id`.
+    /// Convenience: an `"onClick"` event on `ctrl_id`.
     pub fn click(ctrl_id: impl Into<String>) -> Self {
-        Self::new(ctrl_id, "Click")
+        Self::new(ctrl_id, "onClick")
     }
 
-    /// Convenience: a `"Change"` event carrying a new value.
+    /// Convenience: an `"onChange"` event carrying a new value.
     pub fn change(ctrl_id: impl Into<String>, _new_value: impl Into<String>) -> Self {
-        Self::new(ctrl_id, "Change")
+        Self::new(ctrl_id, "onChange")
     }
 
     /// Sentinel sent by the UI when the form window is closed, so the

@@ -580,59 +580,59 @@ impl ControlType {
 
     pub fn primary_event(&self) -> &str {
         match self {
-            ControlType::Button         => "Click",
-            ControlType::TextBox        => "Change",
-            ControlType::CheckBox       => "Click",
-            ControlType::RadioButton    => "Click",
-            ControlType::ListBox        => "Click",
-            ControlType::ComboBox       => "Change",
-            ControlType::DateTimePicker => "Change",
-            ControlType::NumericUpDown  => "Change",
-            ControlType::TreeView       => "NodeClick",
-            ControlType::Timer          => "Tick",
-            ControlType::AgentObject    => "Response",
-            ControlType::ModalWindow    => "Closed",
-            ControlType::RestClient     => "ResponseReceived",
-            ControlType::SqlDatabase    => "QueryComplete",
-            ControlType::Slider         => "Change",
+            ControlType::Button         => "onClick",
+            ControlType::TextBox        => "onChange",
+            ControlType::CheckBox       => "onClick",
+            ControlType::RadioButton    => "onClick",
+            ControlType::ListBox        => "onClick",
+            ControlType::ComboBox       => "onChange",
+            ControlType::DateTimePicker => "onChange",
+            ControlType::NumericUpDown  => "onChange",
+            ControlType::TreeView       => "onNodeClick",
+            ControlType::Timer          => "onTick",
+            ControlType::AgentObject    => "onResponse",
+            ControlType::ModalWindow    => "onClosed",
+            ControlType::RestClient     => "onResponseReceived",
+            ControlType::SqlDatabase    => "onQueryComplete",
+            ControlType::Slider         => "onChange",
             ControlType::BarChart
             | ControlType::LineChart
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart   => "DataChanged",
-            _                           => "Click",
+            | ControlType::DonutChart   => "onDataChanged",
+            _                           => "onClick",
         }
     }
 
     pub fn supported_events(&self) -> &'static [&'static str] {
         match self {
-            ControlType::Button      => &["Click", "DblClick", "MouseEnter", "MouseLeave", "MouseDown", "MouseUp"],
-            ControlType::TextBox     => &["Change", "KeyPress", "KeyDown", "KeyUp", "GotFocus", "LostFocus", "Enter", "Leave"],
-            ControlType::Label       => &["Click", "DblClick", "MouseEnter", "MouseLeave"],
-            ControlType::CheckBox    => &["Click", "CheckedChanged"],
-            ControlType::RadioButton => &["Click", "CheckedChanged"],
-            ControlType::ListBox     => &["Click", "DblClick", "Change", "SelectedIndexChanged"],
-            ControlType::ComboBox    => &["Change", "Click", "SelectedIndexChanged", "DropDown"],
-            ControlType::DateTimePicker => &["Change", "GotFocus", "LostFocus"],
-            ControlType::NumericUpDown  => &["Change", "GotFocus", "LostFocus"],
-            ControlType::TreeView    => &["NodeClick", "NodeDblClick", "NodeExpand", "NodeCollapse", "NodeChecked"],
-            ControlType::Timer       => &["Tick"],
-            ControlType::PictureBox  => &["Click", "DblClick", "MouseEnter", "MouseLeave"],
-            ControlType::Animator    => &["Click", "DblClick", "Started", "Ended"],
-            ControlType::DataGrid    => &["CellClick", "CellChange", "RowSelect", "ColumnClick", "ExportCSV"],
-            ControlType::AgentObject => &["Response", "Error", "StreamChunk", "Thinking"],
-            ControlType::ModalWindow => &["Closed", "Loaded", "Confirmed", "Cancelled"],
-            ControlType::RestClient   => &["ResponseReceived", "Error", "Timeout", "Progress"],
-            ControlType::SqlDatabase  => &["QueryComplete", "ConnectOk", "ConnectError", "QueryError", "RowFetched"],
-            ControlType::Slider       => &["Change", "MouseUp", "GotFocus", "LostFocus"],
+            ControlType::Button      => &["onClick", "onDblClick", "onMouseEnter", "onMouseLeave", "onMouseDown", "onMouseUp"],
+            ControlType::TextBox     => &["onChange", "onKeyPress", "onKeyDown", "onKeyUp", "onGotFocus", "onLostFocus", "onEnter", "onLeave"],
+            ControlType::Label       => &["onClick", "onDblClick", "onMouseEnter", "onMouseLeave"],
+            ControlType::CheckBox    => &["onClick", "onCheckedChanged"],
+            ControlType::RadioButton => &["onClick", "onCheckedChanged"],
+            ControlType::ListBox     => &["onClick", "onDblClick", "onChange", "onSelectedIndexChanged"],
+            ControlType::ComboBox    => &["onChange", "onClick", "onSelectedIndexChanged", "onDropDown"],
+            ControlType::DateTimePicker => &["onChange", "onGotFocus", "onLostFocus"],
+            ControlType::NumericUpDown  => &["onChange", "onGotFocus", "onLostFocus"],
+            ControlType::TreeView    => &["onNodeClick", "onNodeDblClick", "onNodeExpand", "onNodeCollapse", "onNodeChecked"],
+            ControlType::Timer       => &["onTick"],
+            ControlType::PictureBox  => &["onClick", "onDblClick", "onMouseEnter", "onMouseLeave"],
+            ControlType::Animator    => &["onClick", "onDblClick", "onStarted", "onEnded"],
+            ControlType::DataGrid    => &["onCellClick", "onCellChange", "onRowSelect", "onColumnClick", "onExportCSV"],
+            ControlType::AgentObject => &["onResponse", "onError", "onStreamChunk", "onThinking"],
+            ControlType::ModalWindow => &["onClosed", "onLoaded", "onConfirmed", "onCancelled"],
+            ControlType::RestClient   => &["onResponseReceived", "onError", "onTimeout", "onProgress"],
+            ControlType::SqlDatabase  => &["onQueryComplete", "onConnectOk", "onConnectError", "onQueryError", "onRowFetched"],
+            ControlType::Slider       => &["onChange", "onMouseUp", "onGotFocus", "onLostFocus"],
             ControlType::BarChart
             | ControlType::LineChart
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => &["DataChanged", "Click", "SeriesClick", "TooltipShow"],
-            _                        => &["Click"],
+            | ControlType::DonutChart => &["onDataChanged", "onClick", "onSeriesClick", "onTooltipShow"],
+            _                        => &["onClick"],
         }
     }
 
@@ -1183,18 +1183,18 @@ pub struct Form {
 impl Form {
     pub fn new(name: impl Into<String>, title: impl Into<String>, width: u32, height: u32) -> Self {
         let form_name = name.into();
-        // Pre-populate OnLoad and OnClose with empty stubs so the Code View
+        // Pre-populate onLoad and onClose with empty stubs so the Code View
         // always shows them even before the user writes anything.
         let form_events = vec![
             EventBinding {
-                event:     "OnLoad".into(),
-                paragraph: derive_paragraph_name(&form_name, "OnLoad"),
+                event:     "onLoad".into(),
+                paragraph: derive_paragraph_name(&form_name, "onLoad"),
                 code:      String::new(),
                 local_ws:  String::new(),
             },
             EventBinding {
-                event:     "OnClose".into(),
-                paragraph: derive_paragraph_name(&form_name, "OnClose"),
+                event:     "onClose".into(),
+                paragraph: derive_paragraph_name(&form_name, "onClose"),
                 code:      String::new(),
                 local_ws:  String::new(),
             },

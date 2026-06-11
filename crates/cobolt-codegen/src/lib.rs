@@ -43,22 +43,22 @@
 //!          EVALUATE COBOL-CONTROL-ID
 //!              WHEN "BTN-OK"
 //!                  EVALUATE COBOL-EVENT-ID
-//!                      WHEN "Click"
-//!                          CALL "BTN-OK--CLICK"
+//!                      WHEN "onClick"
+//!                          CALL "BTN-OK--ONCLICK"
 //!                  END-EVALUATE
 //!          END-EVALUATE
 //!      END-PERFORM.
 //!
 //!  *> ── Nested event-handler programs (COBOL-85) ────────────
 //!       IDENTIFICATION DIVISION.
-//!       PROGRAM-ID. BTN-OK--CLICK.
+//!       PROGRAM-ID. BTN-OK--ONCLICK.
 //!       DATA DIVISION.
 //!       WORKING-STORAGE SECTION.
 //!       *>    (local_ws from EventBinding goes here)
 //!       PROCEDURE DIVISION.
 //!           *>    (code from EventBinding goes here)
 //!           GOBACK.
-//!       END PROGRAM BTN-OK--CLICK.
+//!       END PROGRAM BTN-OK--ONCLICK.
 //!
 //!       END PROGRAM MAIN-FORM.
 //! ```
@@ -392,14 +392,14 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     }
 
     // Call OnLoad nested program
-    if let Some(ev) = form.form_events.iter().find(|e| e.event == "OnLoad") {
+    if let Some(ev) = form.form_events.iter().find(|e| e.event == "onLoad") {
         out.push_str(&format!("           CALL \"{}\"\n", ev.paragraph));
     }
 
     out.push_str("           PERFORM COBOL-EVENT-LOOP\n");
 
     // Call OnClose nested program
-    if let Some(ev) = form.form_events.iter().find(|e| e.event == "OnClose") {
+    if let Some(ev) = form.form_events.iter().find(|e| e.event == "onClose") {
         out.push_str(&format!("           CALL \"{}\"\n", ev.paragraph));
     }
 
@@ -1250,7 +1250,7 @@ mod tests {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
 
         let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
-        btn.events.push(EventBinding::for_control("BTN-OK", "Click"));
+        btn.events.push(EventBinding::for_control("BTN-OK", "onClick"));
         form.controls.push(btn);
 
         form
@@ -1267,9 +1267,9 @@ mod tests {
         let src = generate(&make_form());
         assert!(src.contains("COBOL-EVENT-LOOP"), "missing event loop paragraph");
         assert!(src.contains("WHEN \"BTN-OK\""), "missing control WHEN");
-        assert!(src.contains("WHEN \"Click\""), "missing event WHEN");
+        assert!(src.contains("WHEN \"onClick\""), "missing event WHEN");
         // v1.0.0: dispatch via CALL to nested program (double-hyphen name)
-        assert!(src.contains("CALL \"BTN-OK--CLICK\""), "missing nested CALL dispatch");
+        assert!(src.contains("CALL \"BTN-OK--ONCLICK\""), "missing nested CALL dispatch");
     }
 
     #[test]
@@ -1282,8 +1282,8 @@ mod tests {
     fn generate_contains_nested_program() {
         let src = generate(&make_form());
         // v1.0.0: event handlers are nested COBOL-85 programs
-        assert!(src.contains("PROGRAM-ID. BTN-OK--CLICK."), "missing nested program ID");
-        assert!(src.contains("END PROGRAM BTN-OK--CLICK."), "missing END PROGRAM for handler");
+        assert!(src.contains("PROGRAM-ID. BTN-OK--ONCLICK."), "missing nested program ID");
+        assert!(src.contains("END PROGRAM BTN-OK--ONCLICK."), "missing END PROGRAM for handler");
         assert!(src.contains("GOBACK."), "missing GOBACK in nested program");
         assert!(src.contains("END PROGRAM MAIN-FORM."), "missing outer END PROGRAM");
     }
@@ -1324,7 +1324,7 @@ mod tests {
     fn generate_emits_event_handler_code() {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
         let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
-        let mut ev = EventBinding::for_control("BTN-OK", "Click");
+        let mut ev = EventBinding::for_control("BTN-OK", "onClick");
         ev.code = "           MOVE 1 TO COBOL-QUIT".into();
         btn.events.push(ev);
         form.controls.push(btn);
@@ -1339,7 +1339,7 @@ mod tests {
     fn generate_emits_local_ws() {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
         let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
-        let mut ev = EventBinding::for_control("BTN-OK", "Click");
+        let mut ev = EventBinding::for_control("BTN-OK", "onClick");
         ev.local_ws = "       01 WS-LOCAL-FLAG  PIC 9 VALUE 0.".into();
         btn.events.push(ev);
         form.controls.push(btn);

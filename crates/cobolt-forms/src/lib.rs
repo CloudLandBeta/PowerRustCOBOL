@@ -16,7 +16,7 @@
 //! <Form name="MAIN-FORM" title="My App" width="800" height="600">
 //!   <Control id="BTN-OK" type="Button" x="10" y="10" w="80" h="30">
 //!     <Property name="Caption">OK</Property>
-//!     <Event name="Click" paragraph="BTN-OK-CLICK"/>
+//!     <Event name="onClick" paragraph="BTN-OK-CLICK"/>
 //!   </Control>
 //! </Form>
 //! ```

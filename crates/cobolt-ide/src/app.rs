@@ -3260,10 +3260,10 @@ pub(crate) fn render_run_control(
                 out.events.push(FormEvent::change(id, &buf));
             }
             if resp.gained_focus() {
-                out.events.push(FormEvent::new(id, "GotFocus"));
+                out.events.push(FormEvent::new(id, "onGotFocus"));
             }
             if resp.lost_focus() {
-                out.events.push(FormEvent::new(id, "LostFocus"));
+                out.events.push(FormEvent::new(id, "onLostFocus"));
             }
         }
         CT::Slider => {
@@ -3505,7 +3505,7 @@ pub(crate) fn render_run_control(
                     if active { Color32::from_rgb(235, 240, 255) } else { Color32::from_rgb(180, 188, 220) });
                 if ui.interact(tr, ctrl_id.with(("tab", i)), Sense::click()).clicked() && enabled {
                     out.prop_updates.push(("SelectedTab".to_owned(), i.to_string()));
-                    out.events.push(FormEvent::new(id, "Change"));
+                    out.events.push(FormEvent::new(id, "onChange"));
                 }
                 x += w + 2.0;
             }
@@ -3791,7 +3791,7 @@ mod run_interaction_tests {
         let (evs, _st) = drive(CT::Button, cs(&[("Caption", "OK")]), rect,
             vec![vec![], vec![Event::PointerMoved(c), press(c)], vec![Event::PointerMoved(c), release(c)]]);
         assert!(
-            evs.iter().any(|e| e.event_id == "Click" && e.ctrl_id == "W1"),
+            evs.iter().any(|e| e.event_id == "onClick" && e.ctrl_id == "W1"),
             "Button click produced no Click event; got {:?}",
             evs.iter().map(|e| (e.ctrl_id.clone(), e.event_id.clone())).collect::<Vec<_>>()
         );
@@ -3804,7 +3804,7 @@ mod run_interaction_tests {
         let (evs, _st) = drive(CT::CheckBox, cs(&[("Caption", "On"), ("Value", "0")]), rect,
             vec![vec![], vec![Event::PointerMoved(c), press(c)], vec![Event::PointerMoved(c), release(c)]]);
         assert!(
-            evs.iter().any(|e| e.event_id == "Change" && e.ctrl_id == "W1"),
+            evs.iter().any(|e| e.event_id == "onChange" && e.ctrl_id == "W1"),
             "CheckBox toggle produced no Change event"
         );
     }
@@ -3819,8 +3819,8 @@ mod run_interaction_tests {
             vec![Event::PointerMoved(c), release(c)],
             vec![Event::Text("Z".to_owned())],
         ]);
-        assert!(evs.iter().any(|e| e.event_id == "GotFocus"), "TextBox click produced no GotFocus");
-        assert!(evs.iter().any(|e| e.event_id == "Change"), "TextBox typing produced no Change");
+        assert!(evs.iter().any(|e| e.event_id == "onGotFocus"), "TextBox click produced no GotFocus");
+        assert!(evs.iter().any(|e| e.event_id == "onChange"), "TextBox typing produced no Change");
     }
 
     #[test]
@@ -3852,7 +3852,7 @@ mod run_interaction_tests {
         );
 
         assert!(
-            evs.iter().any(|e| e.event_id == "Change" && e.ctrl_id == "W1"),
+            evs.iter().any(|e| e.event_id == "onChange" && e.ctrl_id == "W1"),
             "picking a calendar day produced no Change event"
         );
         assert_eq!(
@@ -3971,7 +3971,7 @@ mod run_interaction_tests {
         let c = rect.center();
         let (evs, st) = drive(CT::RadioButton, cs(&[("Caption", "Opt"), ("Value", "0")]), rect,
             vec![vec![], vec![Event::PointerMoved(c), press(c)], vec![Event::PointerMoved(c), release(c)]]);
-        assert!(evs.iter().any(|e| e.event_id == "Change"), "radio click fired no Change");
+        assert!(evs.iter().any(|e| e.event_id == "onChange"), "radio click fired no Change");
         assert_eq!(st.get("Value"), "1", "radio not selected");
     }
 
@@ -3982,7 +3982,7 @@ mod run_interaction_tests {
         let tab1 = pos2(10.0 + 86.0 + 42.0, 10.0 + 13.0);
         let (evs, st) = drive(CT::TabControl, cs(&[("Tabs", "Alpha\nBeta\nGamma"), ("SelectedTab", "0")]), rect,
             vec![vec![], vec![Event::PointerMoved(tab1), press(tab1)], vec![Event::PointerMoved(tab1), release(tab1)]]);
-        assert!(evs.iter().any(|e| e.event_id == "Change"), "tab click fired no Change");
+        assert!(evs.iter().any(|e| e.event_id == "onChange"), "tab click fired no Change");
         assert_eq!(st.get("SelectedTab"), "1", "tab not switched to index 1");
     }
 
