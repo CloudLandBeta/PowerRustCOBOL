@@ -331,8 +331,18 @@ impl ProjectPanel {
 /// A small "semaphore" dot to the left of an element's icon.
 fn status_dot(ui: &mut Ui, status: ElementStatus) {
     let (r, g, b) = status.rgb();
-    ui.label(RichText::new("●").color(Color32::from_rgb(r, g, b)).size(12.0))
-        .on_hover_text(status.tooltip());
+    let color = Color32::from_rgb(r, g, b);
+    // A crisp, solid filled knob (painted, not a font glyph) for clear
+    // green/yellow/red semaphore visibility.
+    let d = 13.0;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(d, d), egui::Sense::hover());
+    let center = rect.center();
+    let radius = d * 0.42;
+    let painter = ui.painter();
+    painter.circle_filled(center, radius, color);
+    // Subtle dark ring so the knob reads on any background.
+    painter.circle_stroke(center, radius, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 110)));
+    resp.on_hover_text(status.tooltip());
 }
 
 // ── Category tree node (L2) ─────────────────────────────────────────────────────

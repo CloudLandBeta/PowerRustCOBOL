@@ -243,9 +243,9 @@ impl ElementStatus {
     /// `(r, g, b)` for the status dot.
     pub fn rgb(self) -> (u8, u8, u8) {
         match self {
-            ElementStatus::Tested  => (70, 200, 90),   // green
-            ElementStatus::Changed => (230, 195, 60),   // yellow
-            ElementStatus::Failed  => (220, 70, 70),    // red
+            ElementStatus::Tested  => (40, 200, 70),    // green
+            ElementStatus::Changed => (245, 200, 30),   // yellow
+            ElementStatus::Failed  => (235, 55, 55),    // red
         }
     }
     /// Hover text key idea (tooltip).
