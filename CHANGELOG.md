@@ -8,6 +8,37 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.17.0] — 2026-06-10
+
+IDE visual redesign — "dark glass" look.
+
+### Changed / New
+
+- **Glass card panels.** The project tree, output, main pane and property
+  inspector now sit on rounded, subtly-bordered glass cards with soft shadows
+  (`theme::glass_panel_frame`).
+- **Opaque, pane-matched background.** The whole window is painted with an opaque
+  floor + the optional background image + the same pane fill, so the area around
+  the panes matches the panes (no desktop bleed / no bright wallpaper in the
+  gaps). The "Transparent background" option was **removed**.
+- **Collapsible property section cards** in the form inspector (Form Properties /
+  Target Device / Appearance / Background Image / Size / Events) with blue ▸/▾
+  headers (`section_card`); the widget inspector shares the same blue card-style
+  section headers for consistency.
+- **New "Deep Blue" theme** (17 total) — near-black glass panes with blue accents.
+- **Full-width selection pill** + hover highlight in the tree; **left-aligned**,
+  snug rows (fixes centred/jittery labels); grey indent/divider lines removed.
+- **Solid semaphore knobs** — the green/yellow/red item-status dots are now crisp
+  filled circles.
+- **Standardised non-visual widget icons** — Timer/AI-Agent/REST/SQL share one
+  glass card and consistent stroke-drawn icons (no more mismatched colours, emoji
+  tofu boxes or the one-off orange SQL cylinder).
+- **Toolbar** reordered to **Open · Save · Check · Build · Run · Debug · Stop · ⚙**;
+  the separate Debug row now only appears during an active debug session.
+- **RAD properties panel** resizes up to half the window width (was capped at
+  320px, clipping long values); **project tree** defaults to 410px wide.
+- Roomier spacing, 8px widget corners, larger fonts retained.
+
 ## [PowerRustCOBOL 1.16.0] — 2026-06-10
 
 IDE: transparent-background option, calmer background, roomier UI.
