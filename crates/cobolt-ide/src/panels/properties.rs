@@ -2208,10 +2208,12 @@ fn section_card(
     body: impl FnOnce(&mut Ui),
 ) {
     let theme = crate::theme::active();
+    // A translucent **dark-blue** card (not a semi-white lift): it darkens the
+    // backdrop into a "dark glass" panel while staying partly see-through.
     let card_fill = if theme.dark {
-        Color32::from_white_alpha(10)
+        Color32::from_rgba_unmultiplied(12, 22, 36, 150)
     } else {
-        Color32::from_black_alpha(6)
+        Color32::from_rgba_unmultiplied(255, 255, 255, 150)
     };
     egui::Frame::none()
         .fill(card_fill)
