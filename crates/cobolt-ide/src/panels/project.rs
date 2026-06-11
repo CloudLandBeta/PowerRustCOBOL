@@ -175,7 +175,7 @@ impl ProjectPanel {
             ctx.style().visuals.panel_fill, &crate::theme::active());
         SidePanel::left("project_panel")
             .resizable(true)
-            .default_width(220.0)
+            .default_width(410.0)
             .min_width(140.0)
             .frame(frame)
             .show(ctx, |ui| {
