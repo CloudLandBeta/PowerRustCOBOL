@@ -413,6 +413,8 @@ struct AutoComplete {
 struct SearchState {
     visible:      bool,
     query:        String,
+    /// Replacement text for the find/replace bar.
+    replace:      String,
     /// Byte offsets of match starts in the active tab.
     matches:      Vec<usize>,
     /// Index into `matches` currently highlighted.
@@ -470,6 +472,30 @@ pub struct EditorPanel {
     ac:        AutoComplete,
     search:    SearchState,
     font_size: f32,
+
+    // ── AI assistant (only used when an LLM is configured) ───────────────────
+    /// The current prompt text in the editor's AI bar.
+    ai_prompt:  String,
+    /// Per-file conversation history (loaded lazily from disk).
+    ai_history: HashMap<PathBuf, Vec<crate::llm::ChatTurn>>,
+    /// Paths whose history has already been loaded from disk this session.
+    ai_loaded:  HashSet<PathBuf>,
+    /// In-flight request: the channel the worker thread will answer on, plus
+    /// the path it targets (so a tab switch mid-flight applies to the right file).
+    ai_pending: Option<(PathBuf, std::sync::mpsc::Receiver<crate::llm::LlmResponse>)>,
+    /// Last status / error line shown under the AI bar.
+    ai_status:  Option<String>,
+    /// Whether the conversation panel is expanded.
+    ai_show_history: bool,
+
+    // ── Status bar ───────────────────────────────────────────────────────────
+    /// 1-based caret line / column in the active tab (last known).
+    cur_line: usize,
+    cur_col:  usize,
+    /// Overwrite (vs. insert) typing mode — toggled with the Insert key.
+    overwrite: bool,
+    /// Trim trailing whitespace from every line when saving.
+    pub trim_on_save: bool,
 }
 
 impl Default for EditorPanel {
@@ -485,6 +511,16 @@ impl Default for EditorPanel {
             ac:                AutoComplete::default(),
             search:            SearchState::default(),
             font_size:         EDITOR_FONT_SIZE,
+            ai_prompt:         String::new(),
+            ai_history:        HashMap::new(),
+            ai_loaded:         HashSet::new(),
+            ai_pending:        None,
+            ai_status:         None,
+            ai_show_history:   false,
+            cur_line:          1,
+            cur_col:           1,
+            overwrite:         false,
+            trim_on_save:      true,
         }
     }
 }
@@ -522,6 +558,29 @@ impl EditorPanel {
         self.open_file_ro(path, false);
     }
 
+    /// Replace all tabs with a single in-memory editable buffer. Used by the
+    /// embedded RAD event editor (the modal hosts its own `EditorPanel`); the
+    /// synthetic `path` is an identity only and is never written to disk.
+    pub fn open_buffer(&mut self, path: PathBuf, content: String) {
+        self.tabs   = vec![EditorTab::new(path, content)];
+        self.active = 0;
+        self.search.visible = false;
+        self.ac.visible     = false;
+    }
+
+    /// The active buffer's text (for reading an embedded editor back).
+    pub fn buffer_content(&self) -> Option<&str> {
+        self.tabs.get(self.active).map(|t| t.content.as_str())
+    }
+
+    /// The active buffer's text, trimmed of trailing whitespace when the
+    /// `Trim on save` toggle is on (used when an embedded editor is committed).
+    pub fn buffer_for_save(&self) -> Option<String> {
+        self.tabs.get(self.active).map(|t| {
+            if self.trim_on_save { trim_trailing_ws(&t.content) } else { t.content.clone() }
+        })
+    }
+
     /// Open `path`, marking the tab read-only (blue, non-editable) when
     /// `read_only` is set (RAD-generated COBOL).
     pub fn open_file_ro(&mut self, path: PathBuf, read_only: bool) {
@@ -549,11 +608,31 @@ impl EditorPanel {
     }
 
     pub fn save_active(&mut self) -> std::io::Result<()> {
+        let trim = self.trim_on_save;
         let Some(tab) = self.tabs.get_mut(self.active) else { return Ok(()); };
         if tab.read_only { return Ok(()); } // never write generated source
+        if trim {
+            let trimmed = trim_trailing_ws(&tab.content);
+            if trimmed != tab.content {
+                tab.content = trimmed;
+            }
+        }
         std::fs::write(&tab.path, &tab.content)?;
         tab.dirty = false;
         Ok(())
+    }
+
+    /// "Beautify" the active tab: a conservative whitespace tidy that never
+    /// touches COBOL area-A/B alignment — trim trailing spaces, collapse runs of
+    /// blank lines, and end with a single newline.
+    pub fn beautify_active(&mut self) {
+        let Some(tab) = self.tabs.get_mut(self.active) else { return; };
+        if tab.read_only { return; }
+        let tidy = beautify_cobol(&tab.content);
+        if tidy != tab.content {
+            tab.content = tidy;
+            tab.dirty = true;
+        }
     }
 
     pub fn active_source(&self) -> Option<(&PathBuf, &str)> {
@@ -649,9 +728,360 @@ impl EditorPanel {
         self.search.needs_scroll = true;
     }
 
+    /// Replace the currently-highlighted match with the replacement text, then
+    /// re-scan and keep the find cursor valid.
+    fn replace_current(&mut self) {
+        let q = self.search.query.clone();
+        if q.is_empty() { return; }
+        let repl = self.search.replace.clone();
+        let cur  = self.search.current;
+        let Some(&byte_off) = self.search.matches.get(cur) else { return; };
+        {
+            let Some(tab) = self.tabs.get_mut(self.active) else { return; };
+            if tab.read_only { return; }
+            let end = (byte_off + q.len()).min(tab.content.len());
+            if byte_off <= tab.content.len()
+                && tab.content.is_char_boundary(byte_off)
+                && tab.content.is_char_boundary(end)
+                && tab.content[byte_off..end].eq_ignore_ascii_case(&q)
+            {
+                tab.content.replace_range(byte_off..end, &repl);
+                tab.dirty = true;
+            }
+        }
+        self.update_search_matches();
+        if self.search.current >= self.search.matches.len() {
+            self.search.current = 0;
+        }
+        self.search.needs_scroll = !self.search.matches.is_empty();
+    }
+
+    /// Replace every match in the active tab (case-insensitive).
+    fn replace_all(&mut self) {
+        let q = self.search.query.clone();
+        if q.is_empty() { return; }
+        let repl = self.search.replace.clone();
+        {
+            let Some(tab) = self.tabs.get_mut(self.active) else { return; };
+            if tab.read_only { return; }
+            let new = replace_all_ci(&tab.content, &q, &repl);
+            if new != tab.content {
+                tab.content = new;
+                tab.dirty = true;
+            }
+        }
+        self.update_search_matches();
+        self.search.current = 0;
+    }
+
     // ── Main render ────────────────────────────────────────────────────────────
 
-    pub fn show(&mut self, ctx: &Context) {
+    // ── AI assistant bar ─────────────────────────────────────────────────────
+
+    /// Render the AI prompt bar for an arbitrary target and return `Some(code)`
+    /// when the model's reply should replace the target's source.
+    ///
+    /// The bar is reusable: the code editor passes the active tab (editable), and
+    /// the inline form inspector passes the form's generated COBOL (read-only).
+    /// `target` is both the buffer identity and the conversation key. The model
+    /// receives the standard system prompt, the per-target conversation history,
+    /// the current `code`, and the developer's request.
+    pub fn ai_bar(
+        &mut self,
+        ctx: &Context,
+        cfg: &crate::llm::LlmConfig,
+        tr: &crate::i18n::Tr,
+        panel_id: &str,
+        target: &std::path::Path,
+        code: &str,
+        read_only: bool,
+        project_root: Option<&std::path::Path>,
+    ) -> Option<String> {
+        let path = target.to_path_buf();
+        let panel = egui::Id::new(panel_id);
+        let transcript_salt = egui::Id::new((panel_id, "transcript"));
+
+        // Lazily load this target's saved conversation the first time we see it.
+        if self.ai_loaded.insert(path.clone()) {
+            if let Some((data_dir, key)) = Self::ai_store_key(project_root, &path) {
+                let turns = crate::llm::load_history(&data_dir, &key);
+                if !turns.is_empty() {
+                    self.ai_history.insert(path.clone(), turns);
+                }
+            }
+        }
+
+        // Poll an in-flight request for this target.
+        let mut completed: Option<crate::llm::LlmResponse> = None;
+        if let Some((pending_path, rx)) = &self.ai_pending {
+            if pending_path == &path {
+                match rx.try_recv() {
+                    Ok(resp) => completed = Some(resp),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => { ctx.request_repaint(); }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        completed = Some(crate::llm::LlmResponse::Err(
+                            "The assistant worker stopped unexpectedly.".into(),
+                        ));
+                    }
+                }
+            } else {
+                ctx.request_repaint();
+            }
+        }
+        let mut applied: Option<String> = None;
+        if let Some(resp) = completed {
+            self.ai_pending = None;
+            applied = self.apply_ai_response(&path, resp, tr, read_only, project_root);
+        }
+
+        let busy = self.ai_pending.as_ref().map(|(p, _)| *p == path).unwrap_or(false);
+        let history_len = self.ai_history.get(&path).map(|v| v.len()).unwrap_or(0);
+
+        // Snapshot UI-owned state so the panel closure borrows locals, not `self`.
+        let mut prompt = std::mem::take(&mut self.ai_prompt);
+        let mut show_history = self.ai_show_history;
+        let status = self.ai_status.clone();
+        let history_snapshot: Vec<crate::llm::ChatTurn> =
+            self.ai_history.get(&path).cloned().unwrap_or_default();
+
+        let mut do_send  = false;
+        let mut do_clear = false;
+
+        let frame = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, &crate::theme::active());
+        TopBottomPanel::top(panel).frame(frame).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("✨").size(15.0));
+
+                let can_send = !busy && !prompt.trim().is_empty();
+                if ui.add_enabled(can_send, egui::Button::new(tr.ai_send)).clicked() {
+                    do_send = true;
+                }
+                if busy {
+                    ui.add(egui::Spinner::new());
+                    ui.label(egui::RichText::new(tr.ai_thinking)
+                        .small().color(Color32::from_gray(170)));
+                }
+                if history_len > 0 {
+                    ui.toggle_value(&mut show_history,
+                        egui::RichText::new(format!("💬 {history_len}")).small());
+                    if ui.small_button("🗑").on_hover_text(tr.ai_clear_history).clicked() {
+                        do_clear = true;
+                    }
+                }
+
+                // The prompt fills the rest of the row.
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut prompt)
+                        .hint_text(tr.ai_prompt_placeholder)
+                        .desired_width(ui.available_width())
+                        .interactive(!busy),
+                );
+                let entered = resp.lost_focus()
+                    && ui.input(|i| i.key_pressed(Key::Enter))
+                    && !prompt.trim().is_empty();
+                if entered && !busy {
+                    do_send = true;
+                }
+            });
+
+            if read_only {
+                ui.label(egui::RichText::new(tr.ai_read_only)
+                    .small().color(Color32::from_gray(150)));
+            } else if let Some(s) = &status {
+                ui.label(egui::RichText::new(s).small().color(Color32::from_gray(165)));
+            }
+
+            // Conversation transcript.
+            if show_history && !history_snapshot.is_empty() {
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .max_height(170.0)
+                    .auto_shrink([false, true])
+                    .id_salt(transcript_salt)
+                    .show(ui, |ui| {
+                        for turn in &history_snapshot {
+                            let (tag, colour) = if turn.role == "assistant" {
+                                ("AI", Color32::from_rgb(120, 180, 250))
+                            } else {
+                                ("You", Color32::from_rgb(180, 200, 160))
+                            };
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(egui::RichText::new(tag).small().strong().color(colour));
+                                ui.label(egui::RichText::new(turn.content.trim()).small());
+                            });
+                            ui.add_space(2.0);
+                        }
+                    });
+            }
+        });
+
+        // Restore UI-owned state.
+        self.ai_prompt = prompt;
+        self.ai_show_history = show_history;
+
+        if do_clear {
+            self.ai_history.remove(&path);
+            Self::persist_history(project_root, &path, &[]);
+            self.ai_status = None;
+            self.ai_show_history = false;
+        }
+
+        if do_send && !busy {
+            self.send_ai_prompt(&path, cfg, code, project_root);
+        }
+
+        applied
+    }
+
+    /// Conversation storage location: `(project data dir, relative-path key)`.
+    /// `None` when there is no open project (conversation stays in memory only).
+    fn ai_store_key(
+        project_root: Option<&std::path::Path>,
+        path: &std::path::Path,
+    ) -> Option<(PathBuf, String)> {
+        let root = project_root?;
+        let data_dir = root.join("data");
+        let key = path.strip_prefix(root).ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|| {
+                path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+            });
+        Some((data_dir, key))
+    }
+
+    /// Persist a target's conversation to the project's indexed file (if any).
+    fn persist_history(
+        project_root: Option<&std::path::Path>,
+        path: &std::path::Path,
+        turns: &[crate::llm::ChatTurn],
+    ) {
+        if let Some((data_dir, key)) = Self::ai_store_key(project_root, path) {
+            crate::llm::save_history(&data_dir, &key, turns);
+        }
+    }
+
+    /// Fire a request for `path` using the current prompt + supplied `code`.
+    fn send_ai_prompt(
+        &mut self,
+        path: &PathBuf,
+        cfg: &crate::llm::LlmConfig,
+        code: &str,
+        project_root: Option<&std::path::Path>,
+    ) {
+        let prompt = self.ai_prompt.trim().to_string();
+        if prompt.is_empty() { return; }
+        let filename = path.file_name()
+            .and_then(|n| n.to_str()).unwrap_or("source.cbl").to_string();
+
+        let prior = self.ai_history.get(path).cloned().unwrap_or_default();
+        let rx = crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename);
+
+        // Record the developer's turn (prompt only, to keep the log readable).
+        let log = self.ai_history.entry(path.clone()).or_default();
+        log.push(crate::llm::ChatTurn::user(&prompt));
+        Self::persist_history(project_root, path, log);
+
+        self.ai_pending = Some((path.clone(), rx));
+        self.ai_status = None;
+        self.ai_prompt.clear();
+        self.ai_show_history = true;
+    }
+
+    /// Handle a finished request: log the reply, and return the COBOL to apply
+    /// (when the target is editable and the reply carried a code block).
+    fn apply_ai_response(
+        &mut self,
+        path: &PathBuf,
+        resp: crate::llm::LlmResponse,
+        tr: &crate::i18n::Tr,
+        read_only: bool,
+        project_root: Option<&std::path::Path>,
+    ) -> Option<String> {
+        match resp {
+            crate::llm::LlmResponse::Ok(reply) => {
+                let log = self.ai_history.entry(path.clone()).or_default();
+                log.push(crate::llm::ChatTurn::assistant(&reply));
+                Self::persist_history(project_root, path, log);
+
+                match crate::llm::extract_code(&reply) {
+                    Some(code) if !read_only => {
+                        self.ai_status = Some(tr.ai_updated.to_string());
+                        Some(code)
+                    }
+                    Some(_) => {
+                        self.ai_status = Some(tr.ai_read_only.to_string());
+                        None
+                    }
+                    None => {
+                        self.ai_status = Some(tr.ai_no_code.to_string());
+                        None
+                    }
+                }
+            }
+            crate::llm::LlmResponse::Err(e) => {
+                self.ai_status = Some(e);
+                None
+            }
+        }
+    }
+
+    /// The bottom status bar: caret position, Insert/Overwrite mode, a
+    /// trim-on-save toggle, and a Beautify command. Dimmed-green text.
+    fn show_status_bar(&mut self, ctx: &Context) {
+        let frame = egui::Frame::default()
+            .fill(ctx.style().visuals.panel_fill)
+            .inner_margin(egui::Margin::symmetric(8.0, 3.0));
+        TopBottomPanel::bottom("editor_status").frame(frame).show(ctx, |ui| {
+            self.status_row(ui);
+        });
+    }
+
+    /// Draw the status row (caret position · Insert/Overwrite · Trim-on-save ·
+    /// Beautify) into an arbitrary `ui`, in dimmed green. Shared by the main
+    /// editor's bottom bar and the embedded RAD editor.
+    pub(crate) fn status_row(&mut self, ui: &mut egui::Ui) {
+        let read_only = self.tabs.get(self.active).map(|t| t.read_only).unwrap_or(false);
+        let green = Color32::from_rgb(118, 158, 110); // dimmed green
+        let txt = |s: String| egui::RichText::new(s).monospace().size(12.0).color(green);
+        let mut do_beautify = false;
+
+        ui.horizontal(|ui| {
+            ui.label(txt(format!("Ln {}, Col {}", self.cur_line, self.cur_col)));
+            ui.label(txt("│".into()));
+            let mode = if self.overwrite { "OVR" } else { "INS" };
+            if ui.add(egui::Label::new(txt(mode.into())).sense(egui::Sense::click()))
+                .on_hover_text("Toggle Insert/Overwrite (Insert key)")
+                .clicked()
+            {
+                self.overwrite = !self.overwrite;
+            }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.add_enabled(!read_only,
+                        egui::Button::new(txt("✨ Beautify".into())))
+                    .on_hover_text("Tidy whitespace (safe for COBOL columns)")
+                    .clicked()
+                {
+                    do_beautify = true;
+                }
+                ui.add_enabled(!read_only,
+                    egui::Checkbox::new(&mut self.trim_on_save, txt("Trim on save".into())));
+            });
+        });
+
+        if do_beautify {
+            self.beautify_active();
+        }
+    }
+
+    pub fn show(
+        &mut self,
+        ctx: &Context,
+        llm: Option<&crate::llm::LlmConfig>,
+        tr: &crate::i18n::Tr,
+        project_root: Option<&std::path::Path>,
+    ) {
         // ─── Tab bar ─────────────────────────────────────────────────────────
         TopBottomPanel::top("editor_tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -686,10 +1116,44 @@ impl EditorPanel {
             });
         });
 
+        // ─── AI assistant bar (only when a model is configured) ───────────────
+        if let Some(cfg) = llm {
+            if cfg.is_configured() && !self.tabs.is_empty() {
+                let (tpath, tcode, tro) = {
+                    let t = &self.tabs[self.active];
+                    (t.path.clone(), t.content.clone(), t.read_only)
+                };
+                if let Some(new_code) =
+                    self.ai_bar(ctx, cfg, tr, "editor_ai", &tpath, &tcode, tro, project_root)
+                {
+                    if let Some(t) = self.tabs.iter_mut().find(|t| t.path == tpath) {
+                        if !t.read_only {
+                            t.content = new_code;
+                            t.dirty = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─── Status bar (bottom) ──────────────────────────────────────────────
+        if !self.tabs.is_empty() {
+            self.show_status_bar(ctx);
+        }
+
         // ─── Editor body ──────────────────────────────────────────────────────
         let body_frame = crate::theme::glass_panel_frame(
             ctx.style().visuals.panel_fill, &crate::theme::active());
         CentralPanel::default().frame(body_frame).show(ctx, |ui| {
+            self.render_code_area(ctx, ui);
+        });
+    }
+
+    /// Render the code area (line numbers + editor + IntelliSense + find/replace
+    /// bar) into an arbitrary `ui`. The main editor calls this inside its central
+    /// panel; the embedded RAD event editor calls it inside its modal — so both
+    /// share identical behaviour.
+    pub(crate) fn render_code_area(&mut self, ctx: &Context, ui: &mut egui::Ui) {
             if self.tabs.is_empty() {
                 ui.centered_and_justified(|ui| {
                     ui.label(
@@ -724,6 +1188,11 @@ impl EditorPanel {
             let mut key_apply   = false;
             let mut key_dismiss = false;
             let trigger_manual  = ctx.input(|i| i.key_pressed(Key::Space) && i.modifiers.ctrl);
+
+            // Insert key toggles Insert/Overwrite typing mode.
+            if ctx.input(|i| i.key_pressed(Key::Insert) && i.modifiers.is_none()) {
+                self.overwrite = !self.overwrite;
+            }
 
             // Search key handling (only when search focused)
             let search_has_focus = ctx.memory(|m| m.has_focus(egui::Id::new("cobolt_search_input")));
@@ -889,6 +1358,34 @@ impl EditorPanel {
                             ui.add(egui::Separator::default().vertical().spacing(2.0));
                         }
 
+                        // ── Overwrite mode ────────────────────────────────────
+                        // egui's TextEdit is insert-only, so we emulate overwrite:
+                        // when a printable character is about to be typed and the
+                        // caret is collapsed, pre-select the next character so the
+                        // insert replaces it (unless at end-of-line / EOF).
+                        if self.overwrite && !self.tabs[self.active].read_only {
+                            let typing = ctx.input(|i| i.events.iter().any(|e|
+                                matches!(e, egui::Event::Text(t)
+                                    if t.chars().any(|c| !c.is_control()))));
+                            if typing {
+                                let content = self.tabs[self.active].content.clone();
+                                if let Some(mut st) = egui::TextEdit::load_state(ctx, editor_id) {
+                                    if let Some(range) = st.cursor.char_range() {
+                                        if range.primary == range.secondary {
+                                            let idx = range.primary.index;
+                                            let next = content.chars().nth(idx);
+                                            if matches!(next, Some(c) if c != '\n') {
+                                                let mut r = range;
+                                                r.secondary.index = idx + 1;
+                                                st.cursor.set_char_range(Some(r));
+                                                st.store(ctx, editor_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // ── Source (read-only for RAD-generated code) ─────────
                         let tab = &mut self.tabs[self.active];
                         let te_out = TextEdit::multiline(&mut tab.content)
@@ -943,6 +1440,9 @@ impl EditorPanel {
                         // ── IntelliSense update ───────────────────────────────
                         if let Some(cr) = te_out.cursor_range {
                             let char_idx = cr.primary.ccursor.index;
+                            let (l, c) = char_index_to_line_col(&tab.content, char_idx);
+                            self.cur_line = l;
+                            self.cur_col  = c;
                             let (word_start, prefix) =
                                 word_before_cursor(&tab.content, char_idx);
 
@@ -1174,6 +1674,9 @@ impl EditorPanel {
                 let bar_y   = editor_rect.min.y + 6.0;
 
                 let prev_query = self.search.query.clone();
+                let active_ro  = self.tabs.get(self.active).map(|t| t.read_only).unwrap_or(false);
+                let mut do_replace_one = false;
+                let mut do_replace_all = false;
 
                 egui::Area::new(egui::Id::new("cobolt_search_bar"))
                     .fixed_pos(Pos2::new(bar_x, bar_y))
@@ -1248,6 +1751,37 @@ impl EditorPanel {
                                         self.search.visible = false;
                                     }
                                 });
+
+                                // ── Replace row ───────────────────────────────
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("⇄")
+                                            .size(13.0)
+                                            .color(Color32::from_gray(160))
+                                    );
+                                    ui.add(
+                                        TextEdit::singleline(&mut self.search.replace)
+                                            .id(egui::Id::new("cobolt_replace_input"))
+                                            .desired_width(165.0)
+                                            .hint_text("Replace…")
+                                    );
+                                    ui.separator();
+                                    let can = !active_ro && !self.search.query.is_empty()
+                                        && !self.search.matches.is_empty();
+                                    if ui.add_enabled(can, egui::Button::new("Replace").small())
+                                        .on_hover_text("Replace this match")
+                                        .clicked()
+                                    {
+                                        do_replace_one = true;
+                                    }
+                                    if ui.add_enabled(can, egui::Button::new("All").small())
+                                        .on_hover_text("Replace all matches")
+                                        .clicked()
+                                    {
+                                        do_replace_all = true;
+                                    }
+                                });
+
                                 ui.label(
                                     egui::RichText::new("Enter = next   Shift+Enter = prev   Esc = close")
                                         .small()
@@ -1255,8 +1789,266 @@ impl EditorPanel {
                                 );
                             });
                     });
+
+                if do_replace_one { self.replace_current(); }
+                if do_replace_all { self.replace_all(); }
             }
-        });
+    }
+}
+
+// ── Status-bar / save helpers ──────────────────────────────────────────────────
+
+/// Case-insensitive (ASCII) replace-all. COBOL source is ASCII, so we match on
+/// ASCII-folded bytes and copy any non-matching UTF-8 char through verbatim.
+fn replace_all_ci(haystack: &str, needle: &str, repl: &str) -> String {
+    if needle.is_empty() { return haystack.to_string(); }
+    let hb = haystack.as_bytes();
+    let nb = needle.as_bytes();
+    let mut out = String::with_capacity(haystack.len());
+    let mut i = 0;
+    while i < hb.len() {
+        if i + nb.len() <= hb.len() && hb[i..i + nb.len()].eq_ignore_ascii_case(nb) {
+            out.push_str(repl);
+            i += nb.len();
+        } else {
+            let ch = haystack[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
+/// 1-based (line, column) for a char index into `text`.
+fn char_index_to_line_col(text: &str, char_idx: usize) -> (usize, usize) {
+    let mut line = 1usize;
+    let mut col  = 1usize;
+    for (i, ch) in text.chars().enumerate() {
+        if i >= char_idx { break; }
+        if ch == '\n' { line += 1; col = 1; } else { col += 1; }
+    }
+    (line, col)
+}
+
+/// Trim trailing spaces/tabs from every line, preserving line endings.
+fn trim_trailing_ws(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let ends_with_nl = text.ends_with('\n');
+    let mut lines = text.split('\n').peekable();
+    while let Some(line) = lines.next() {
+        out.push_str(line.trim_end_matches([' ', '\t']));
+        if lines.peek().is_some() {
+            out.push('\n');
+        }
+    }
+    if ends_with_nl && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum CobolDiv { Ident, Env, Data, Proc }
+
+#[derive(Clone, Copy, PartialEq)]
+enum CobolScope { If, Evaluate, When, Perform }
+
+/// **Beautify**: re-format free-format COBOL to the standard column layout.
+///
+///   * comment lines → indicator (`*` / `*>`) in **column 7**,
+///   * divisions, sections, paragraphs and `01`/`77`/`78` items → **Area A**
+///     (column 8),
+///   * PROCEDURE statements and lower-level data items → **Area B** (column 12),
+///   * nested blocks (`IF` / `EVALUATE` / inline `PERFORM`) indented **4 spaces**
+///     per level, honouring scope terminators (`END-…`, `ELSE`, `WHEN`) and the
+///     period that ends a sentence,
+///   * runs of spaces collapsed to one — **except** the gap that separates a
+///     `PIC` clause from its data name (alignment is preserved),
+///   * no fixed-format column-72 limit (free format), trailing blank lines and
+///     consecutive blank lines trimmed.
+fn beautify_cobol(text: &str) -> String {
+    let reserved: std::collections::HashSet<&'static str> = VERBS.iter()
+        .chain(DIVISION_KEYWORDS.iter())
+        .chain(DATA_KEYWORDS.iter())
+        .copied()
+        .collect();
+
+    let mut out  = String::with_capacity(text.len());
+    let mut div  = CobolDiv::Ident;
+    let mut scopes: Vec<CobolScope> = Vec::new();
+    let mut prev_blank = false;
+
+    // Append `content` at 1-based `col` (col-1 leading spaces).
+    fn put(out: &mut String, col: usize, content: &str) {
+        for _ in 1..col { out.push(' '); }
+        out.push_str(content);
+        out.push('\n');
+    }
+    let word_at = |words: &[&str], i: usize| -> String {
+        words.get(i).map(|w| w.trim_end_matches('.').to_string()).unwrap_or_default()
+    };
+
+    for raw in text.lines() {
+        let t = raw.trim();
+        if t.is_empty() {
+            if !prev_blank { out.push('\n'); prev_blank = true; }
+            continue;
+        }
+        prev_blank = false;
+
+        // Full-line comment → indicator in column 7.
+        if t.starts_with("*>") || t.starts_with('*') || t.starts_with('/') {
+            put(&mut out, 7, t);
+            continue;
+        }
+
+        let content = collapse_spaces_keep_pic(t);
+        let upper = content.to_ascii_uppercase();
+        let words: Vec<&str> = upper.split_whitespace().collect();
+        let first = words.first().copied().unwrap_or("");
+        let ends_period = content.trim_end().ends_with('.');
+
+        // Division header → Area A, and switch context.
+        if word_at(&words, 1) == "DIVISION"
+            && matches!(first, "IDENTIFICATION" | "ID" | "ENVIRONMENT" | "DATA" | "PROCEDURE")
+        {
+            put(&mut out, 8, &content);
+            div = match first {
+                "PROCEDURE"   => CobolDiv::Proc,
+                "DATA"        => CobolDiv::Data,
+                "ENVIRONMENT" => CobolDiv::Env,
+                _             => CobolDiv::Ident,
+            };
+            scopes.clear();
+            continue;
+        }
+
+        // Section header → Area A.
+        if word_at(&words, 1) == "SECTION" {
+            put(&mut out, 8, &content);
+            scopes.clear();
+            continue;
+        }
+
+        match div {
+            CobolDiv::Proc => {
+                // Paragraph header: a lone `name.` that is not a verb.
+                if words.len() == 1 && first.ends_with('.')
+                    && !reserved.contains(first.trim_end_matches('.'))
+                {
+                    put(&mut out, 8, &content);
+                    scopes.clear();
+                    continue;
+                }
+
+                // Dedent-before for terminators / case labels.
+                if first.starts_with("END-") {
+                    if first == "END-EVALUATE"
+                        && matches!(scopes.last(), Some(CobolScope::When))
+                    {
+                        scopes.pop(); // close a trailing WHEN body
+                    }
+                    scopes.pop();
+                } else if first == "WHEN"
+                    && matches!(scopes.last(), Some(CobolScope::When))
+                {
+                    scopes.pop(); // close the previous WHEN body
+                }
+
+                let mut level = scopes.len();
+                if first == "ELSE" { level = level.saturating_sub(1); }
+                put(&mut out, 12 + level * 4, &content);
+
+                // Indent-after for openers (only when the scope continues onto
+                // following lines — no inline terminator and no closing period).
+                if !ends_period {
+                    match first {
+                        "IF"       if !upper.contains("END-IF")       => scopes.push(CobolScope::If),
+                        "EVALUATE" if !upper.contains("END-EVALUATE") => scopes.push(CobolScope::Evaluate),
+                        "WHEN"                                        => scopes.push(CobolScope::When),
+                        "PERFORM"  if !upper.contains("END-PERFORM")
+                                      && is_inline_perform(&words)    => scopes.push(CobolScope::Perform),
+                        _ => {}
+                    }
+                }
+                // A period ends the sentence → all in-line scopes close.
+                if ends_period { scopes.clear(); }
+            }
+            CobolDiv::Data => {
+                if matches!(first, "FD" | "SD" | "RD" | "CD") {
+                    put(&mut out, 8, &content);
+                } else if let Some(level) = cobol_leading_level(&content) {
+                    let col = if matches!(level, 1 | 77 | 78) { 8 } else { 12 };
+                    put(&mut out, col, &content);
+                } else {
+                    put(&mut out, 12, &content); // a continued clause
+                }
+            }
+            CobolDiv::Env | CobolDiv::Ident => {
+                // Paragraph entries (`PROGRAM-ID.`, `SOURCE-COMPUTER.`, …) sit in
+                // Area A; anything else (a clause) goes to Area B.
+                if first.ends_with('.') {
+                    put(&mut out, 8, &content);
+                } else {
+                    put(&mut out, 12, &content);
+                }
+            }
+        }
+    }
+
+    while out.ends_with("\n\n") { out.pop(); }
+    out
+}
+
+/// Collapse runs of 2+ spaces to one, but preserve the gap immediately before a
+/// `PIC` / `PICTURE` clause (data-item alignment) and never touch the contents
+/// of `"…"` / `'…'` string literals.
+fn collapse_spaces_keep_pic(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut quote: Option<char> = None;
+    while i < chars.len() {
+        let c = chars[i];
+        if let Some(q) = quote {
+            out.push(c);
+            if c == q { quote = None; }
+            i += 1;
+            continue;
+        }
+        if c == '"' || c == '\'' { quote = Some(c); out.push(c); i += 1; continue; }
+        if c == ' ' {
+            let start = i;
+            while i < chars.len() && chars[i] == ' ' { i += 1; }
+            let run = i - start;
+            let rest: String = chars[i..].iter().collect();
+            let next = rest.trim_start().to_ascii_uppercase();
+            let before_pic = next.starts_with("PIC ") || next.starts_with("PICTURE");
+            if before_pic && run > 1 {
+                for _ in 0..run { out.push(' '); } // keep alignment
+            } else {
+                out.push(' ');
+            }
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+/// The leading level number of a data-description entry (e.g. `01`, `05`, `77`).
+fn cobol_leading_level(s: &str) -> Option<u32> {
+    s.split_whitespace().next()?.parse::<u32>().ok()
+}
+
+/// True when a `PERFORM` opens an *in-line* body (closed by `END-PERFORM`)
+/// rather than calling an out-of-line paragraph.
+fn is_inline_perform(words: &[&str]) -> bool {
+    match words.get(1).copied() {
+        None => true,                                              // bare PERFORM
+        Some("UNTIL") | Some("VARYING") | Some("WITH") | Some("FOREVER") => true,
+        _ => words.last().map_or(false, |w| w.trim_end_matches('.') == "TIMES"),
     }
 }
 
@@ -1743,5 +2535,90 @@ mod goto_tests {
     fn missing_paragraph_returns_false() {
         let mut ed = editor_with(SRC);
         assert!(!ed.goto_paragraph("DOES-NOT-EXIST"));
+    }
+
+    #[test]
+    fn line_col_from_char_index() {
+        let t = "AB\nCDE\nF";
+        assert_eq!(char_index_to_line_col(t, 0), (1, 1));
+        assert_eq!(char_index_to_line_col(t, 2), (1, 3));  // before the \n
+        assert_eq!(char_index_to_line_col(t, 3), (2, 1));  // start of line 2
+        assert_eq!(char_index_to_line_col(t, 7), (3, 1));  // 'F'
+    }
+
+    #[test]
+    fn trim_trailing_ws_preserves_lines() {
+        let s = "AB  \n  CD\t\nEF\n";
+        assert_eq!(trim_trailing_ws(s), "AB\n  CD\nEF\n");
+        assert_eq!(trim_trailing_ws("no newline   "), "no newline");
+    }
+
+    #[test]
+    fn beautify_indents_to_cobol_columns() {
+        let input = "\
+ENVIRONMENT DIVISION.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-X PIC 9(4).
+PROCEDURE DIVISION.
+MOVE 1 TO WS-X
+IF WS-X > 0
+DISPLAY \"POS\"
+END-IF
+*> trailing note
+";
+        let out = beautify_cobol(input);
+        // Area A (col 8 = 7 spaces): divisions, sections, 01 items.
+        assert!(out.starts_with("       ENVIRONMENT DIVISION.\n"), "got: {out:?}");
+        assert!(out.contains("\n       WORKING-STORAGE SECTION.\n"));
+        assert!(out.contains("\n       01 WS-X PIC 9(4).\n"));
+        assert!(out.contains("\n       PROCEDURE DIVISION.\n"));
+        // Area B (col 12 = 11 spaces): statements.
+        assert!(out.contains("\n           MOVE 1 TO WS-X\n"));
+        assert!(out.contains("\n           IF WS-X > 0\n"));
+        // Nested under IF → col 16 (15 spaces); END-IF back at col 12.
+        assert!(out.contains("\n               DISPLAY \"POS\"\n"));
+        assert!(out.contains("\n           END-IF\n"));
+        // Comment indicator in column 7 (6 spaces).
+        assert!(out.contains("\n      *> trailing note\n"));
+    }
+
+    #[test]
+    fn beautify_collapses_spaces_but_keeps_pic_gap() {
+        // Double spaces collapse, except the alignment gap before PIC.
+        assert_eq!(
+            collapse_spaces_keep_pic("01  WS-NAME      PIC X(20)."),
+            "01 WS-NAME      PIC X(20)."
+        );
+        assert_eq!(collapse_spaces_keep_pic("MOVE    1   TO   WS-X"), "MOVE 1 TO WS-X");
+        // Spaces inside a string literal are untouched.
+        assert_eq!(collapse_spaces_keep_pic("DISPLAY \"a    b\""), "DISPLAY \"a    b\"");
+    }
+
+    #[test]
+    fn beautify_evaluate_when_nesting() {
+        let input = "\
+PROCEDURE DIVISION.
+EVALUATE WS-X
+WHEN 1
+MOVE A TO B
+WHEN OTHER
+MOVE C TO D
+END-EVALUATE
+";
+        let out = beautify_cobol(input);
+        assert!(out.contains("\n           EVALUATE WS-X\n"));      // col 12
+        assert!(out.contains("\n               WHEN 1\n"));         // col 16
+        assert!(out.contains("\n                   MOVE A TO B\n")); // col 20
+        assert!(out.contains("\n               WHEN OTHER\n"));     // col 16
+        assert!(out.contains("\n           END-EVALUATE\n"));       // col 12
+    }
+
+    #[test]
+    fn replace_all_ci_is_case_insensitive() {
+        assert_eq!(replace_all_ci("Move move MOVE", "move", "ADD"), "ADD ADD ADD");
+        assert_eq!(replace_all_ci("abc", "x", "y"), "abc");
+        // Non-matching UTF-8 passes through untouched.
+        assert_eq!(replace_all_ci("café move", "MOVE", "ADD"), "café ADD");
     }
 }

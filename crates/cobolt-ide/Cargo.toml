@@ -59,7 +59,13 @@ zip = { version = "2", features = ["deflate"] }
 
 # Serialization (project files)
 serde       = { workspace = true }
+serde_json  = { workspace = true }
 toml        = { workspace = true }
+
+# AI assistant — optional cloud LLM for the COBOL code editor.
+# Requests run on a worker thread (ureq is blocking) and report back over an
+# mpsc channel, so the egui frame is never stalled.
+ureq        = { version = "2", features = ["json"] }
 
 # Data structures
 indexmap    = { workspace = true }

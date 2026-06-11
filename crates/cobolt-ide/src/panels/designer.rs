@@ -313,15 +313,10 @@ pub struct EventEditorModal {
     pub event_name:   String,
     /// The nested PROGRAM-ID that will be emitted for this handler.
     pub program_id:   String,
-    /// Editable WORKING-STORAGE content (items specific to this handler).
-    pub ws_buf:       String,
-    /// Editable PROCEDURE DIVISION body (user COBOL statements).
-    pub proc_buf:     String,
-    /// Original values — used to detect whether anything actually changed.
-    orig_ws:   String,
-    orig_proc: String,
-    /// True once Save was clicked.
-    pub saved: bool,
+    /// The handler source when the modal opened — used to detect real changes so
+    /// an untouched first-time template is not persisted as handler code. (The
+    /// live, editable text lives in the hosted `event_editor`.)
+    orig_source: String,
 }
 
 impl EventEditorModal {
@@ -330,26 +325,15 @@ impl EventEditorModal {
         ctrl_display: impl Into<String>,
         event_name:   impl Into<String>,
         program_id:   impl Into<String>,
-        ws_buf:       impl Into<String>,
-        proc_buf:     impl Into<String>,
+        source:       impl Into<String>,
     ) -> Self {
-        let ws   = ws_buf.into();
-        let proc = proc_buf.into();
         Self {
             ctrl_id:      ctrl_id.into(),
             ctrl_display: ctrl_display.into(),
             event_name:   event_name.into(),
             program_id:   program_id.into(),
-            orig_ws:   ws.clone(),
-            orig_proc: proc.clone(),
-            ws_buf:   ws,
-            proc_buf: proc,
-            saved: false,
+            orig_source:  source.into(),
         }
-    }
-
-    pub fn is_dirty(&self) -> bool {
-        self.ws_buf != self.orig_ws || self.proc_buf != self.orig_proc
     }
 }
 
@@ -393,6 +377,11 @@ pub struct DesignerPanel {
     /// `None` means the path was tried but failed to load.
     pub(crate) image_cache: HashMap<String, Option<egui::TextureHandle>>,
 
+    /// The font the user most recently set on a widget in this form. New widgets
+    /// inherit it so a form keeps a consistent typeface.
+    last_font_name: Option<String>,
+    last_font_size: Option<i64>,
+
     // ── Resize handle press capture ───────────────────────────────────────────
     /// Stores which resize handle the pointer was on when the mouse button was
     /// first pressed.  Consumed on `drag_started()` so the drag-start check
@@ -405,6 +394,9 @@ pub struct DesignerPanel {
     // ── Event editor modal ────────────────────────────────────────────────────
     /// When `Some`, a modal COBOL code editor is displayed over the canvas.
     pub event_modal: Option<EventEditorModal>,
+    /// The full-featured COBOL editor hosted inside the event modal (IntelliSense,
+    /// find/replace, status bar) — the same engine as the main code editor.
+    event_editor: super::editor::EditorPanel,
 
     // ── Form preview ──────────────────────────────────────────────────────────
     /// Whether the live preview viewport is open.
@@ -438,9 +430,12 @@ impl DesignerPanel {
             last_frame_time:  None,
             format_painter:   FormatPainter::Idle,
             image_cache:      HashMap::new(),
+            last_font_name:   None,
+            last_font_size:   None,
             press_handle:          None,
             press_form_edge:       None,
             event_modal:           None,
+            event_editor:          super::editor::EditorPanel::new(),
             show_preview:          false,
             preview_state:         HashMap::new(),
             preview_anim_states:   HashMap::new(),
@@ -655,6 +650,31 @@ impl DesignerPanel {
         if has_caption {
             ctrl.properties.insert("Caption".into(), PropValue::String(id.clone()));
         }
+
+        // Inherit the font the user last set this session, or — if none yet —
+        // the font of the most recently added control, so new widgets match the
+        // rest of the form instead of resetting to the default typeface.
+        let inherit_name = self.last_font_name.clone().or_else(|| {
+            self.form.controls.last()
+                .and_then(|c| c.get_prop("FontName"))
+                .map(|v| v.as_str().to_owned())
+        });
+        let inherit_size = self.last_font_size.or_else(|| {
+            self.form.controls.last()
+                .and_then(|c| c.get_prop("FontSize"))
+                .map(|v| v.as_i64())
+        });
+        if let Some(name) = inherit_name {
+            if ctrl.properties.contains_key("FontName") {
+                ctrl.properties.insert("FontName".into(), PropValue::String(name));
+            }
+        }
+        if let Some(size) = inherit_size {
+            if ctrl.properties.contains_key("FontSize") {
+                ctrl.properties.insert("FontSize".into(), PropValue::Int(size));
+            }
+        }
+
         let index = self.form.controls.len();
         self.apply(Cmd::AddControl { index, ctrl });
         self.set_selected_one(Some(id));
@@ -880,39 +900,60 @@ impl DesignerPanel {
     /// Open the modal COBOL code editor for `event_name` on control `ctrl_id`.
     /// Pass an empty `ctrl_id` for form-level events (OnLoad, OnClose).
     pub fn open_event_modal(&mut self, ctrl_id: &str, event_name: &str) {
-        // Find the event binding — either in a control or in form_events.
-        let (program_id, ws_buf, proc_buf, display) = if ctrl_id.is_empty() {
-            // Form-level event
+        // Find the event binding — either in a control or in form_events — and
+        // resolve its PROGRAM-ID and existing source.
+        let (program_id, existing, display) = if ctrl_id.is_empty() {
             let ev = self.form.form_events.iter().find(|e| e.event == event_name);
-            let (pid, ws, code) = ev.map(|e| (e.paragraph.clone(), e.local_ws.clone(), e.code.clone()))
+            let (pid, code) = ev.map(|e| (e.paragraph.clone(), e.code.clone()))
                 .unwrap_or_else(|| {
-                    // Auto-generate paragraph name
                     let pid = format!("{}--{}",
                         self.form.name,
                         event_name.to_ascii_uppercase().replace(' ', "-"));
-                    (pid, String::new(), String::new())
+                    (pid, String::new())
                 });
-            (pid, ws, code, format!("Form · {}", event_name))
+            (pid, code, format!("Form · {}", event_name))
         } else {
             let ev = self.form.find_control(ctrl_id)
                 .and_then(|c| c.events.iter().find(|e| e.event == event_name));
-            let (pid, ws, code) = ev.map(|e| (e.paragraph.clone(), e.local_ws.clone(), e.code.clone()))
+            let (pid, code) = ev.map(|e| (e.paragraph.clone(), e.code.clone()))
                 .unwrap_or_else(|| {
                     let pid = format!("{}--{}",
                         ctrl_id.to_ascii_uppercase(),
                         event_name.to_ascii_uppercase().replace(' ', "-"));
-                    (pid, String::new(), String::new())
+                    (pid, String::new())
                 });
-            (pid, ws, code, format!("{} · {}", ctrl_id, event_name))
+            (pid, code, format!("{} · {}", ctrl_id, event_name))
         };
 
+        // First time this handler is edited → open it with the standard
+        // skeleton (incl. the event's LINKAGE data and PROCEDURE DIVISION USING,
+        // if any). Otherwise show the saved source.
+        let source = if existing.trim().is_empty() {
+            cobolt_forms::model::event_handler_template(event_name)
+        } else {
+            existing
+        };
+
+        // Host the full COBOL editor (IntelliSense + find/replace + status bar)
+        // on this handler's source. Feed it the form's controls for completion.
+        self.event_editor.open_buffer(
+            std::path::PathBuf::from(format!("{program_id}.handler")),
+            source.clone(),
+        );
+        self.event_editor.known_controls = self.form.controls.iter()
+            .map(|c| super::editor::KnownControl {
+                id:        c.id.clone(),
+                ctrl_type: format!("{:?}", c.control_type),
+            })
+            .collect();
+
         self.event_modal = Some(EventEditorModal::new(
-            ctrl_id, display, event_name, program_id, ws_buf, proc_buf,
+            ctrl_id, display, event_name, program_id, source,
         ));
     }
 
     /// Commit the modal editor's content back into the form's event binding.
-    pub fn save_event_handler(&mut self, ctrl_id: &str, event_name: &str, ws: String, code: String) {
+    pub fn save_event_handler(&mut self, ctrl_id: &str, event_name: &str, source: String) {
         if ctrl_id.is_empty() {
             // Form-level event — create the binding if it doesn't exist yet
             // (only onLoad/onClose are pre-stubbed; the rest are created lazily).
@@ -922,19 +963,16 @@ impl DesignerPanel {
                     event:     event_name.to_string(),
                     paragraph,
                     code:      String::new(),
-                    local_ws:  String::new(),
                 });
             }
             if let Some(ev) = self.form.form_events.iter_mut().find(|e| e.event == event_name) {
-                ev.local_ws = ws;
-                ev.code     = code;
-                self.dirty  = true;
+                ev.code    = source;
+                self.dirty = true;
             }
         } else if let Some(ctrl) = self.form.find_control_mut(ctrl_id) {
             ctrl.ensure_event(event_name);
             if let Some(ev) = ctrl.events.iter_mut().find(|e| e.event == event_name) {
-                ev.local_ws = ws;
-                ev.code     = code;
+                ev.code = source;
             }
             self.dirty = true;
         }
@@ -1002,6 +1040,14 @@ impl DesignerPanel {
                 }
             }
             return;
+        }
+
+        // Remember the last font the user chose, so newly-added widgets inherit
+        // it (see `add_control`).
+        match key {
+            "FontName" => self.last_font_name = Some(value.as_str().to_owned()),
+            "FontSize" => self.last_font_size = Some(value.as_i64()),
+            _ => {}
         }
 
         match key {
@@ -1526,128 +1572,113 @@ impl DesignerPanel {
 
     /// Render the event code editor modal (if open).
     ///
-    /// The modal shows a read-only COBOL scaffold around two editable areas:
-    ///   • WORKING-STORAGE SECTION  (local data items for this handler)
-    ///   • PROCEDURE DIVISION body  (the handler's COBOL statements)
+    /// A single editable COBOL area holds the whole handler body (`ENVIRONMENT
+    /// DIVISION` … `PROCEDURE DIVISION` + statements). The generator-owned
+    /// `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the closing `GOBACK`
+    /// / `END PROGRAM` are shown read-only around it.
     fn show_event_modal(&mut self, ui: &mut Ui) {
-        // Work entirely with a local copy so we can close the modal based on its own state.
-        let Some(modal) = self.event_modal.as_mut() else { return };
+        // Snapshot the scalar modal fields and drop the borrow so we can render
+        // the hosted editor (`self.event_editor`) freely inside the window.
+        let (title, program_id, ctrl_id, event_name, orig_source) = {
+            let Some(m) = self.event_modal.as_ref() else { return };
+            (
+                format!("COBOL Event Editor  —  {}", m.ctrl_display),
+                m.program_id.clone(),
+                m.ctrl_id.clone(),
+                m.event_name.clone(),
+                m.orig_source.clone(),
+            )
+        };
 
-        // Dim overlay covering the canvas (drawn before the window so it sits behind it)
+        // Dim overlay covering the canvas (behind the window).
         let overlay = ui.ctx().screen_rect();
         ui.painter().rect_filled(overlay, 0.0,
             Color32::from_rgba_premultiplied(0, 0, 0, 140));
 
-        // Build window title
-        let title = format!("COBOL Event Editor  —  {}", modal.ctrl_display);
-
-        // ── Clone the mutable buffers out so we can pass them to the TextEdit widgets
-        //    and write results back without borrow conflicts.
-        let mut ws_buf   = modal.ws_buf.clone();
-        let mut proc_buf = modal.proc_buf.clone();
-        let program_id   = modal.program_id.clone();
-
         let mut save_clicked   = false;
         let mut cancel_clicked = false;
+
+        // Open at 70 % of the window size; `default_*` only seed the initial
+        // size, so the modal does not track the window — the user can resize.
+        let screen = ui.ctx().screen_rect();
+        let default_w = (screen.width()  * 0.70).max(360.0);
+        let default_h = (screen.height() * 0.70).max(420.0);
 
         egui::Window::new(&title)
             .id(egui::Id::new("event_editor_modal"))
             .collapsible(false)
             .resizable(true)
-            .min_width(560.0)
-            .min_height(480.0)
+            .default_width(default_w)
+            .default_height(default_h)
+            .min_width(360.0)
+            .min_height(420.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)))
             .show(ui.ctx(), |ui| {
-                // ── Read-only scaffold header ────────────────────────────────
                 let scaffold_color = Color32::from_rgb(140, 200, 140);  // muted green
                 let readonly_color = Color32::from_rgb(160, 170, 190);  // subdued blue-gray
 
-                ui.horizontal(|ui| {
-                    ui.monospace(egui::RichText::new("       IDENTIFICATION DIVISION.")
-                        .color(readonly_color).size(12.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.monospace(egui::RichText::new(
-                        format!("       PROGRAM-ID. {}.", program_id))
-                        .color(scaffold_color).size(12.0));
-                });
+                // ── Status row at the TOP (line/col · INS/OVR · trim · beautify)
+                self.event_editor.status_row(ui);
                 ui.add_space(4.0);
 
-                // ── DATA DIVISION + editable WS ──────────────────────────────
-                ui.horizontal(|ui| {
-                    ui.monospace(egui::RichText::new("       DATA DIVISION.")
-                        .color(readonly_color).size(12.0));
+                // ── Read-only scaffold header (generator-owned) ──────────────
+                ui.monospace(egui::RichText::new("       IDENTIFICATION DIVISION.")
+                    .color(readonly_color).size(12.0));
+                ui.monospace(egui::RichText::new(format!("       PROGRAM-ID. {}.", program_id))
+                    .color(scaffold_color).size(12.0));
+                ui.add_space(4.0);
+
+                // ── Hosted COBOL editor — occupies a fixed container that fills
+                //    most of the window. The editor scrolls *inside* this box
+                //    (never moving the box). Height is clamped to a fraction of
+                //    the screen so the editor can never overflow and make the
+                //    whole window scroll.
+                let screen_h = ui.ctx().screen_rect().height();
+                // Fill the window's remaining height (so the editor grows with
+                // the window), but never taller than the screen minus room for
+                // the title/header/footer — otherwise the whole window scrolls.
+                let editor_h = (ui.available_height() - 90.0)
+                    .clamp(220.0, (screen_h - 160.0).max(240.0));
+                let editor_w = ui.available_width();
+                let ectx = ui.ctx().clone();
+                let theme = crate::theme::active();
+                // A snug container (no outer gap) that fills the allocated box;
+                // the editor scrolls *inside* it.
+                let frame = egui::Frame::none()
+                    .fill(theme.bg_extreme)
+                    .stroke(egui::Stroke::new(1.0, theme.panel_border()))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(2.0));
+                ui.allocate_ui(egui::vec2(editor_w, editor_h), |ui| {
+                    frame.show(ui, |ui| {
+                        ui.set_min_size(ui.available_size());
+                        self.event_editor.render_code_area(&ectx, ui);
+                    });
                 });
-                ui.horizontal(|ui| {
-                    ui.monospace(egui::RichText::new("       WORKING-STORAGE SECTION.")
-                        .color(readonly_color).size(12.0));
-                });
-
-                // Editable WS area
-                let ws_font = egui::FontId::monospace(12.0);
-                let ws_resp = ui.add(
-                    egui::TextEdit::multiline(&mut ws_buf)
-                        .font(ws_font)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(4)
-                        .hint_text("       *> Add local data items here, e.g.:\n       01 WS-MY-VAR   PIC X(64) VALUE SPACES.")
-                        .code_editor(),
-                );
-                if ws_resp.changed() {}  // handled below via clone swap
-
-                ui.add_space(6.0);
-
-                // ── PROCEDURE DIVISION (read-only label) ─────────────────────
-                ui.horizontal(|ui| {
-                    ui.monospace(egui::RichText::new("       PROCEDURE DIVISION.")
-                        .color(readonly_color).size(12.0));
-                });
-
-                // Editable procedure body
-                let proc_font = egui::FontId::monospace(12.0);
-                let proc_resp = ui.add(
-                    egui::TextEdit::multiline(&mut proc_buf)
-                        .font(proc_font)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(14)
-                        .hint_text("           *> Write your COBOL statements here.\n           CONTINUE.")
-                        .code_editor(),
-                );
-                if proc_resp.changed() {}
 
                 ui.add_space(4.0);
 
-                // ── Read-only GOBACK / END PROGRAM footer ────────────────────
-                ui.horizontal(|ui| {
-                    ui.monospace(egui::RichText::new("           GOBACK.")
-                        .color(readonly_color).size(12.0));
-                });
-                ui.horizontal(|ui| {
-                    ui.monospace(egui::RichText::new(
-                        format!("       END PROGRAM {}.", program_id))
-                        .color(scaffold_color).size(12.0));
-                });
+                // ── Read-only GOBACK / END PROGRAM footer (generator-owned) ──
+                ui.monospace(egui::RichText::new("           GOBACK.")
+                    .color(readonly_color).size(12.0));
+                ui.monospace(egui::RichText::new(format!("       END PROGRAM {}.", program_id))
+                    .color(scaffold_color).size(12.0));
 
-                ui.add_space(10.0);
-                ui.separator();
                 ui.add_space(6.0);
-
                 ui.horizontal(|ui| {
                     if ui.button("💾  Save").clicked()   { save_clicked   = true; }
                     if ui.button("✖  Cancel").clicked() { cancel_clicked = true; }
                 });
             });
 
-        // Write updated buffers back into the modal state
-        if let Some(m) = self.event_modal.as_mut() {
-            m.ws_buf   = ws_buf;
-            m.proc_buf = proc_buf;
-        }
-
         if save_clicked {
-            let m = self.event_modal.take().unwrap();
-            self.save_event_handler(&m.ctrl_id, &m.event_name, m.ws_buf, m.proc_buf);
+            // Don't persist an untouched first-time template as real handler code.
+            let content = self.event_editor.buffer_for_save().unwrap_or_default();
+            if content != orig_source {
+                self.save_event_handler(&ctrl_id, &event_name, content);
+            }
+            self.event_modal = None;
         } else if cancel_clicked {
             self.event_modal = None;
         }
@@ -4687,5 +4718,57 @@ mod anim_behavior_tests {
         let (_, _, s0, _) = anim_transform(&a, W, H, 0.0);
         let collapsed = scale_rect_about_center(base, s0);
         assert!(collapsed.width() < 10.0 && collapsed.height() < 10.0);
+    }
+}
+
+// ── Sticky-font tests ───────────────────────────────────────────────────────────
+#[cfg(test)]
+mod sticky_font_tests {
+    use super::*;
+
+    fn font_of(d: &DesignerPanel, id: &str) -> (String, i64) {
+        let c = d.form.controls.iter().find(|c| c.id == id).unwrap();
+        (
+            c.get_prop("FontName").unwrap().as_str().to_owned(),
+            c.get_prop("FontSize").unwrap().as_i64(),
+        )
+    }
+
+    #[test]
+    fn new_widget_inherits_last_manual_font() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.add_control(ControlType::Label, 10, 10);
+        let first = d.form.controls[0].id.clone();
+        // User manually picks a font on the first widget.
+        d.set_property(&first, "FontName", PropValue::String("Courier New".into()));
+        d.set_property(&first, "FontSize", PropValue::Int(14));
+        // A newly-added widget inherits that exact font.
+        d.add_control(ControlType::Button, 50, 50);
+        let second = d.form.controls[1].id.clone();
+        assert_eq!(font_of(&d, &second), ("Courier New".to_string(), 14));
+    }
+
+    #[test]
+    fn new_widget_falls_back_to_last_control_font() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.add_control(ControlType::Label, 10, 10);
+        let first = d.form.controls[0].id.clone();
+        d.set_property(&first, "FontName", PropValue::String("Verdana".into()));
+        d.set_property(&first, "FontSize", PropValue::Int(18));
+        // Simulate a fresh session (no remembered font): a new widget should
+        // still match the existing control's font, not reset to the default.
+        d.last_font_name = None;
+        d.last_font_size = None;
+        d.add_control(ControlType::Button, 0, 0);
+        let added = d.form.controls.last().unwrap().id.clone();
+        assert_eq!(font_of(&d, &added), ("Verdana".to_string(), 18));
+    }
+
+    #[test]
+    fn first_widget_keeps_default_font() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.add_control(ControlType::Label, 10, 10);
+        let first = d.form.controls[0].id.clone();
+        assert_eq!(font_of(&d, &first), ("Arial".to_string(), 10));
     }
 }

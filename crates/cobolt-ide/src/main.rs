@@ -19,6 +19,7 @@ pub mod file_dialog;
 pub mod fonts;
 pub mod form_runtime;
 pub mod i18n;
+pub mod llm;
 mod panels;
 mod project_model;
 mod runner;

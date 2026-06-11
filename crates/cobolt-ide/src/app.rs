@@ -222,6 +222,14 @@ pub struct CoboltApp {
     /// Cached background-image texture, keyed by the resolved absolute path.
     bg_texture:     Option<(PathBuf, egui::TextureHandle)>,
 
+    /// Global AI-assistant configuration (cloud LLM for the code editor).
+    /// Stored outside the project so the API key never lands in a repo.
+    llm: crate::llm::LlmConfig,
+    /// In-flight "Test connection" request from the settings dialog.
+    llm_test_rx:     Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    /// Last test-connection result/status line.
+    llm_test_status: Option<String>,
+
     // Dialog state
     new_form:    NewFormDialog,
     new_project: NewProjectDialog,
@@ -277,7 +285,7 @@ const APP_FILE_KEY: &str = "app-file-dialog";
 /// Standard project sub-folders — one per category plus working/build folders.
 /// Created when a project is made, and back-filled (if missing) when one is opened.
 const PROJECT_FOLDERS: &[&str] =
-    &["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp", "dist"];
+    &["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp", "dist", "data"];
 
 /// Inline form/control inspector shown in the Main Pane (from the project tree).
 /// Holds a transient `DesignerPanel` so it reuses the designer's property-edit
@@ -355,6 +363,9 @@ impl CoboltApp {
 
             show_settings:  false,
             bg_texture:     None,
+            llm:            crate::llm::LlmConfig::load(),
+            llm_test_rx:     None,
+            llm_test_status: None,
 
             new_form:    NewFormDialog::new(),
             new_project: NewProjectDialog::new(),
@@ -1058,6 +1069,24 @@ impl CoboltApp {
             st.reload_if_stale();
         }
 
+        // AI assistant bar (above the inspector). Its context is the form's
+        // generated COBOL, which is read-only — so replies are shown in the
+        // transcript for reference and never overwrite generated code.
+        if self.llm.is_configured() {
+            let form_path = self.inspect.as_ref().map(|s| s.path.clone());
+            if let Some(form_path) = form_path {
+                let gen_path = self.generated_cbl_path(&form_path);
+                let code = std::fs::read_to_string(&gen_path).unwrap_or_default();
+                let root = self.project_path.as_ref()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_path_buf());
+                self.editor.ai_bar(
+                    ctx, &self.llm, tr, "inspector_ai",
+                    &form_path, &code, true, root.as_deref(),
+                );
+            }
+        }
+
         let card = crate::theme::glass_panel_frame(
             ctx.style().visuals.panel_fill, self.current_theme());
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
@@ -1245,12 +1274,106 @@ impl CoboltApp {
         let mut new_theme: Option<String> = None;
         let mut new_opacity: Option<u8> = None;
 
+        // Poll an in-flight "Test connection" request.
+        if let Some(rx) = &self.llm_test_rx {
+            match rx.try_recv() {
+                Ok(crate::llm::LlmResponse::Ok(_)) => {
+                    self.llm_test_status = Some(tr.ai_test_ok.to_string());
+                    self.llm_test_rx = None;
+                }
+                Ok(crate::llm::LlmResponse::Err(e)) => {
+                    self.llm_test_status = Some(e);
+                    self.llm_test_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => { ctx.request_repaint(); }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.llm_test_status = Some("The test worker stopped unexpectedly.".into());
+                    self.llm_test_rx = None;
+                }
+            }
+        }
+        let test_busy = self.llm_test_rx.is_some();
+        let test_status = self.llm_test_status.clone();
+        let mut do_test = false;
+
+        // Global AI config is edited on a clone, then persisted if it changed.
+        let mut llm_edit = self.llm.clone();
+        let mut llm_changed = false;
+
         egui::Window::new(format!("⚙ {}", tr.settings_title))
             .collapsible(false)
-            .resizable(false)
+            .resizable(true)
+            .default_width(460.0)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .open(&mut open)
             .show(ctx, |ui| {
+                // ── AI assistant (global; works without an open project) ──────
+                ui.label(egui::RichText::new(tr.settings_ai_title).strong());
+                ui.label(egui::RichText::new(tr.settings_ai_hint)
+                    .small().color(egui::Color32::from_gray(160)));
+                ui.add_space(4.0);
+                egui::Grid::new("ai_settings_grid")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(tr.settings_ai_endpoint);
+                        llm_changed |= ui.add(
+                            egui::TextEdit::singleline(&mut llm_edit.endpoint)
+                                .hint_text("https://…/v1/chat/completions")
+                                .desired_width(280.0),
+                        ).changed();
+                        ui.end_row();
+
+                        ui.label(tr.settings_ai_api_key);
+                        llm_changed |= ui.add(
+                            egui::TextEdit::singleline(&mut llm_edit.api_key)
+                                .password(true)
+                                .desired_width(280.0),
+                        ).changed();
+                        ui.end_row();
+
+                        ui.label(tr.settings_ai_model);
+                        llm_changed |= ui.add(
+                            egui::TextEdit::singleline(&mut llm_edit.model)
+                                .hint_text("model-id")
+                                .desired_width(280.0),
+                        ).changed();
+                        ui.end_row();
+
+                        ui.label(tr.settings_ai_temperature);
+                        llm_changed |= ui.add(
+                            egui::Slider::new(&mut llm_edit.temperature, 0.0..=2.0)
+                        ).changed();
+                        ui.end_row();
+                    });
+                ui.add_space(4.0);
+                ui.label(tr.settings_ai_system_prompt);
+                llm_changed |= ui.add(
+                    egui::TextEdit::multiline(&mut llm_edit.system_prompt)
+                        .desired_rows(5)
+                        .desired_width(f32::INFINITY),
+                ).changed();
+
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    let can_test = llm_edit.is_configured() && !test_busy;
+                    if ui.add_enabled(can_test, egui::Button::new(tr.settings_ai_test)).clicked() {
+                        do_test = true;
+                    }
+                    if test_busy {
+                        ui.add(egui::Spinner::new());
+                        ui.label(egui::RichText::new(tr.ai_testing)
+                            .small().color(egui::Color32::from_gray(170)));
+                    } else if let Some(s) = &test_status {
+                        ui.label(egui::RichText::new(s)
+                            .small().color(egui::Color32::from_gray(170)));
+                    }
+                });
+
+                ui.add_space(8.0);
+                ui.separator();
+
+                // ── Appearance (per project) ──────────────────────────────────
                 if !has_project {
                     ui.label(tr.settings_no_project);
                     return;
@@ -1295,6 +1418,19 @@ impl CoboltApp {
                     }
                 });
             });
+
+        // ── Persist global AI config when it changed ──────────────────────────
+        if llm_changed {
+            self.llm = llm_edit.clone();
+            if let Err(e) = self.llm.save() {
+                tracing::warn!("could not save AI settings: {e}");
+            }
+        }
+        // ── Test connection (uses the values currently in the form) ───────────
+        if do_test {
+            self.llm_test_status = Some(tr.ai_testing.to_string());
+            self.llm_test_rx = Some(crate::llm::spawn_test(&llm_edit));
+        }
 
         // ── Apply (in-memory; persisted once the dialog closes) ───────────────
         let mut dirty = false;
@@ -2065,7 +2201,10 @@ impl eframe::App for CoboltApp {
         if self.inspect.is_some() {
             self.show_inspector(ctx, &tr);
         } else {
-            self.editor.show(ctx);
+            let root = self.project_path.as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf());
+            self.editor.show(ctx, Some(&self.llm), &tr, root.as_deref());
         }
 
         // Tree semaphore: the active file, if edited since its last check, goes

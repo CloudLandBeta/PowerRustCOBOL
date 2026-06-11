@@ -211,6 +211,15 @@ impl ProjectPanel {
         // Current selection (read-only snapshot for highlighting); clicks emit a
         // `Select` event that `show()` applies after rendering.
         let cur = self.selected.clone();
+
+        // Tree guide lines connecting nodes: egui draws a vertical line on the
+        // left of each indented (collapsed) block from the noninteractive
+        // bg_stroke. Enable it here (it is off globally) and colour it with the
+        // theme's line tone — light-grey on dark themes, dark-grey on light.
+        ui.visuals_mut().indent_has_left_vline = true;
+        ui.visuals_mut().widgets.noninteractive.bg_stroke =
+            egui::Stroke::new(1.0, crate::theme::active().line());
+
         ScrollArea::vertical()
             .id_salt("project_panel_scroll")
             .show(ui, |ui| {

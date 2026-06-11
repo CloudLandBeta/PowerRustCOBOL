@@ -874,10 +874,12 @@ dependencies = [
  "pollster",
  "rfd",
  "serde",
+ "serde_json",
  "syntect",
  "toml",
  "tracing",
  "tracing-subscriber",
+ "ureq",
  "zip",
 ]
 

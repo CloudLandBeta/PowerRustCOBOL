@@ -27,7 +27,7 @@ use crate::i18n::Tr;
 /// `ui.color_edit_button_srgba`, the popup closes as soon as the user clicks **and
 /// releases** the mouse on a colour inside the picker (no need to click outside).
 fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
-    use egui::{Area, Frame, Key, Order, Sense, Stroke, UiKind, Vec2};
+    use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
     use egui::color_picker::{color_picker_color32, show_color_at, Alpha};
 
     // ── Colour swatch button ──────────────────────────────────────────────────
@@ -38,16 +38,25 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
         ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, Color32::from_gray(120)));
     }
 
-    let popup_id = resp.id.with("__closing_color_popup");
+    let popup_id  = resp.id.with("__closing_color_popup");
+    let anchor_id = resp.id.with("__closing_color_anchor");
     if resp.clicked() {
         ui.memory_mut(|m| m.toggle_popup(popup_id));
+        // Pin the popup to where the swatch is *at open time*. Using the live
+        // swatch rect each frame makes the popup drift when the panel reflows or
+        // scrolls during a drag (e.g. dragging the 2-D picker to its border).
+        ui.memory_mut(|m| m.data.insert_temp(anchor_id, resp.rect.left_bottom()));
     }
 
     if ui.memory(|m| m.is_popup_open(popup_id)) {
+        let anchor: Pos2 = ui
+            .memory(|m| m.data.get_temp(anchor_id))
+            .unwrap_or_else(|| resp.rect.left_bottom());
         let area = Area::new(popup_id)
             .kind(UiKind::Picker)
             .order(Order::Foreground)
-            .fixed_pos(resp.rect.max)
+            .fixed_pos(anchor)
+            .constrain(true)
             .show(ui.ctx(), |ui| {
                 ui.spacing_mut().slider_width = 275.0;
                 let inner = Frame::popup(ui.style())
