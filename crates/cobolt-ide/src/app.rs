@@ -1864,21 +1864,12 @@ impl eframe::App for CoboltApp {
             ToolbarAction::None  => {}
         }
 
-        // ── Debug toolbar addon (inline, in a secondary top panel) ────────────
-        egui::TopBottomPanel::top("debug_toolbar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let can_debug = self.editor.active_source().is_some()
-                    && !self.runner.is_running();
-
-                if !self.debug_active {
-                    if ui.add_enabled(can_debug, egui::Button::new(tr.dbg_debug))
-                        .on_hover_text("Start a debug session for the active file")
-                        .clicked()
-                    {
-                        self.do_debug();
-                    }
-                } else {
-                    // Already in debug session — show stop.
+        // ── Active debug-session controls (shown only while debugging) ────────
+        // Debugging is started from the main toolbar's Debug button (right of
+        // Run); this secondary row only appears during a session to Stop it.
+        if self.debug_active {
+            egui::TopBottomPanel::top("debug_toolbar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
                     if ui.button("■ Stop Debug").clicked() {
                         self.debug_runner.stop();
                         self.debug_active = false;
@@ -1892,9 +1883,9 @@ impl eframe::App for CoboltApp {
                     if ctx.input(|i| i.key_pressed(egui::Key::F10)) {
                         self.debug_runner.send_cmd(DebugCmd::StepOver);
                     }
-                }
+                });
             });
-        });
+        }
 
         // ── Debugger side panel ───────────────────────────────────────────────
         if self.debug_active {

@@ -57,16 +57,6 @@ pub fn show(
 
             ui.separator();
 
-            // ── Debug (only when a Generated Code element is selected) ────────
-            let dbg_resp = ui.add_enabled(
-                !busy && debuggable,
-                Button::new(RichText::new(tr.tb_debug).color(
-                    if busy || !debuggable { Color32::GRAY } else { Color32::from_rgb(200, 150, 80) }
-                )),
-            );
-            if dbg_resp.clicked() { action = ToolbarAction::Debug; }
-            if !debuggable { dbg_resp.on_hover_text(tr.tb_debug_hint); }
-
             // ── Run (interpreted) ─────────────────────────────────────────────
             let run_btn = Button::new(
                 RichText::new(tr.tb_run).color(
@@ -76,6 +66,16 @@ pub fn show(
             let run_resp = ui.add_enabled(!busy && compilable, run_btn);
             if run_resp.clicked() { action = ToolbarAction::Run; }
             if !compilable { run_resp.on_hover_text(tr.tb_need_program); }
+
+            // ── Debug (right of Run; enabled when a Generated Code item is selected) ─
+            let dbg_resp = ui.add_enabled(
+                !busy && debuggable,
+                Button::new(RichText::new(tr.tb_debug).color(
+                    if busy || !debuggable { Color32::GRAY } else { Color32::from_rgb(200, 150, 80) }
+                )),
+            );
+            if dbg_resp.clicked() { action = ToolbarAction::Debug; }
+            if !debuggable { dbg_resp.on_hover_text(tr.tb_debug_hint); }
 
             // ── Stop ─────────────────────────────────────────────────────────
             let stop_btn = Button::new(
