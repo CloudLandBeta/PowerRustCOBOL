@@ -298,6 +298,11 @@ pub struct Interpreter {
     pub env: CobolEnvironment,
     /// PowerRustCOBOL form/control object registry.
     pub objects: ObjectRegistry,
+    /// Property "shadows": a receiving property reference used by any verb is
+    /// resolved to a synthetic env item preloaded with the property's current
+    /// value; after each statement these are written back to the object store.
+    /// Maps synthetic-env-key → (control, property-key).
+    property_shadows: std::collections::HashMap<String, (String, String)>,
     /// Paragraph name (uppercase) → statement list.
     para_map: IndexMap<String, Vec<Stmt>>,
     /// Paragraph names in declaration order (for fall-through and THRU ranges).
@@ -391,6 +396,7 @@ impl Interpreter {
             program,
             env,
             objects: ObjectRegistry::new(),
+            property_shadows: std::collections::HashMap::new(),
             para_map,
             para_order,
             nested_registry,
@@ -693,6 +699,15 @@ impl Interpreter {
 
     #[allow(clippy::too_many_lines)]
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
+        let result = self.dispatch_stmt(stmt);
+        // Any property reference used as a receiving field by this statement is
+        // written back to its control here, so property receivers work with any
+        // verb (ADD, COMPUTE, STRING INTO, ACCEPT, INITIALIZE, …), not just MOVE.
+        self.flush_property_shadows();
+        result
+    }
+
+    fn dispatch_stmt(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
         match stmt {
             // ── Data movement ─────────────────────────────────────────────────
             Stmt::Move { from, to, .. } =>
@@ -926,7 +941,7 @@ impl Interpreter {
             // (the value's type is inferred from the moved value — no temp item).
             if let Expr::PropertyRef { control, path, span } = target {
                 let (ctrl, key) = self.property_ref_key(control, path, *span);
-                let v = val.as_display_string().trim_end().to_owned();
+                let v = val.as_display_string().trim().to_owned();
                 // A control referenced by the property syntax exists by virtue of
                 // being on the form — register it on first write if needed.
                 if !self.objects.contains(&ctrl) {
@@ -3674,7 +3689,46 @@ impl Interpreter {
                 let idx = self.eval_indices(indices, *span);
                 crate::environment::subscript_key(&base_name, &idx)
             }
+            // PowerCOBOL-style property receiver, usable by ANY verb: shadow the
+            // property as a synthetic env item preloaded with its current value;
+            // `flush_property_shadows` (run after each statement) writes it back.
+            Expr::PropertyRef { control, path, span } => {
+                let (ctrl, key) = self.property_ref_key(control, path, *span);
+                let synth = format!("\u{1}PROP\u{1}{ctrl}\u{1}{key}");
+                let cur = self.objects.get_property(&ctrl, &key)
+                    .map(|pv| pv.to_string())
+                    .unwrap_or_default();
+                // Generous capacity so arithmetic / STRING results into a
+                // property are never truncated by the shadow field's width.
+                self.env.set(&synth, CobolValue::from_str(&cur, cur.len().max(128)));
+                self.property_shadows.insert(synth.clone(), (ctrl, key));
+                synth
+            }
             _ => self.expr_to_name(expr),
+        }
+    }
+
+    /// Write any property "shadows" back to their controls (called after every
+    /// statement). See [`Self::resolve_lvalue`].
+    fn flush_property_shadows(&mut self) {
+        if self.property_shadows.is_empty() {
+            return;
+        }
+        let shadows: Vec<(String, (String, String))> =
+            self.property_shadows.drain().collect();
+        for (synth, (ctrl, key)) in shadows {
+            let v = self.env.get(&synth)
+                .map(|cv| cv.as_display_string())
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            if !self.objects.contains(&ctrl) {
+                self.objects.register(&ctrl, "Control");
+            }
+            self.objects.set_property(&ctrl, &key, v.clone());
+            if let Some(tx) = &self.state_tx {
+                let _ = tx.send(StateUpdate::new(ctrl, key, v));
+            }
         }
     }
 

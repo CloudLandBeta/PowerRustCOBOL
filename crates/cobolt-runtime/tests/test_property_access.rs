@@ -61,6 +61,37 @@ fn property_move_round_trip_and_type_inference() {
     assert!(joined.contains("Y=[Hello!"), "nested property round-trip failed: {out:?}");
 }
 
+const VERBS_SRC: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. T.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-A PIC X(10) VALUE "World".
+       PROCEDURE DIVISION.
+      *> a property as receiver across several verbs (not just MOVE)
+           COMPUTE "Value" OF S1 = 5 * 2.
+           ADD 3 TO "Value" OF S1.
+           SUBTRACT 1 FROM "Value" OF S1.
+           MULTIPLY 2 BY "Value" OF S1.
+           DISPLAY "arith=[" "Value" OF S1 "]".
+      *> STRING with a property as both a source and the INTO receiver
+           MOVE "Hi" TO "Text" OF Lbl1.
+           STRING "Text" OF Lbl1 DELIMITED BY SPACE
+                  WS-A DELIMITED BY SPACE
+                  INTO "Text" OF Lbl1.
+           DISPLAY "string=[" "Text" OF Lbl1 "]".
+           STOP RUN.
+"#;
+
+#[test]
+fn property_receiver_works_with_any_verb() {
+    let out = run_capture(VERBS_SRC);
+    let joined = out.join("\n");
+    // ((5*2)+3-1)*2 = 24
+    assert!(joined.contains("arith=[24]"), "arithmetic receivers failed: {out:?}");
+    assert!(joined.contains("string=[HiWorld]"), "STRING INTO property failed: {out:?}");
+}
+
 #[test]
 fn property_reference_does_not_warn_on_control_names() {
     // Control names in property references are form objects, not DATA DIVISION

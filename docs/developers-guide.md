@@ -479,8 +479,21 @@ the way PowerCOBOL does — a quoted property name `OF` the control:
            MOVE "Caption" OF CmStatic1 TO "Text" OF "ListItems" (4) OF Listview1.
 ```
 
-A property reference works as both a **sending** and a **receiving** operand. The
-rightmost name is the control; the quoted names are its properties, read
+A property reference works as both a **sending** and a **receiving** operand with
+**any verb** — not just `MOVE`. For example:
+
+```cobol
+           COMPUTE "Value" OF Slider1 = "Value" OF Slider1 + 1.
+           ADD 10 TO "Value" OF Spinner1.
+           STRING "First" OF Person DELIMITED BY SPACE
+                  " "                DELIMITED BY SIZE
+                  "Last"  OF Person  DELIMITED BY SPACE
+                  INTO "Caption" OF FullNameLabel.
+           IF "Text" OF TextBox1 = SPACES
+               DISPLAY "empty".
+```
+
+The rightmost name is the control; the quoted names are its properties, read
 control-outward, and a name may carry a 1-based subscript
 (`"ListItems" (4)`). Property names are exactly the ones in the properties pane
 (e.g. `"Caption"`, `"Text"`, `"BackgroundColor"`, `"Value"`).
