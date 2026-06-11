@@ -253,6 +253,9 @@ pub struct CoboltApp {
     report_bug: ReportBugDialog,
     /// Non-empty while the "Form saved" alert should be displayed.
     save_alert_msg: Option<String>,
+    /// Which surface owns the save alert: `Some(idx)` = the designer viewport at
+    /// `idx` (so the alert is not hidden behind it), `None` = the main IDE window.
+    save_alert_designer: Option<usize>,
 
     /// Pending binary build result channel (Phase 11).
     pending_build_rx: Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, String>>>,
@@ -376,6 +379,7 @@ impl CoboltApp {
             lang: Language::English,
             report_bug:      ReportBugDialog::new(),
             save_alert_msg:  None,
+            save_alert_designer: None,
             pending_build_rx: None,
             pending_file:     None,
         }
@@ -384,9 +388,16 @@ impl CoboltApp {
     // ── Code workspace actions ────────────────────────────────────────────────
 
     fn do_run(&mut self) {
-        let Some((path, src)) = self.editor.active_source() else { return; };
-        let path   = path.clone();
-        let source = src.to_owned();
+        // Prefer the file in the editor; otherwise fall back to the open
+        // project's main program, so Run always does something visible.
+        let target = self.editor.active_source()
+            .map(|(p, s)| (p.clone(), s.to_owned()))
+            .or_else(|| self.project_main_source());
+        let Some((path, source)) = target else {
+            self.output.clear();
+            self.output.push_status("Open a COBOL file, or open a project, to run.");
+            return;
+        };
         self.output.clear();
         self.output.push_status(format!(
             "── Running {} ──",
@@ -394,6 +405,15 @@ impl CoboltApp {
         ));
         self.editor.clear_diags();
         self.runner.start(path.display().to_string(), source);
+    }
+
+    /// The open project's main program as `(abs_path, source)`, if any.
+    fn project_main_source(&self) -> Option<(PathBuf, String)> {
+        let proj = self.cobolt_project.as_ref()?;
+        let root = self.project_path.as_ref()?.parent()?;
+        let main_abs = root.join(&proj.project.main);
+        let src = std::fs::read_to_string(&main_abs).ok()?;
+        Some((main_abs, src))
     }
 
     fn do_stop(&mut self) {
@@ -440,8 +460,11 @@ impl CoboltApp {
     /// Saves + regenerates COBOL first so the interpreter always runs the
     /// latest version of the form.
     fn do_run_form(&mut self, idx: usize) {
-        // Save the form and regenerate COBOL first.
+        // Save the form and regenerate COBOL first (silently — Run should not
+        // pop a "saved" alert).
         self.do_save_designer(idx);
+        self.save_alert_msg = None;
+        self.save_alert_designer = None;
         self.do_generate_cobol(idx);
 
         let form_path = self.designers[idx].0.clone();
@@ -987,8 +1010,10 @@ impl CoboltApp {
                 self.forms_list.refresh();
                 // Reflect the change in the tree + regenerate the backend COBOL.
                 self.after_form_saved(&path);
-                // Show the "Form <name> saved" alert (i18n template filled at render time).
+                // Show the "Form <name> saved" alert in THIS designer's viewport
+                // (so it is not hidden behind the designer window).
                 self.save_alert_msg = Some(form_name);
+                self.save_alert_designer = Some(idx);
             }
             Err(e) => {
                 self.output.push_status(format!("Save form failed: {e}"));
@@ -1559,12 +1584,51 @@ impl CoboltApp {
                 ui.add_space(8.0);
                 if ui.button("OK").clicked() {
                     self.save_alert_msg = None;
+                    self.save_alert_designer = None;
                 }
             });
 
         if !open {
             self.save_alert_msg = None;
+            self.save_alert_designer = None;
         }
+    }
+
+    /// A centred modal "Building…" popup with an animated progress bar, shown
+    /// while a binary build is in flight. It disappears on the frame the build
+    /// finishes (its receiver is drained earlier in `update`), i.e. right before
+    /// the result reaches the Output panel.
+    fn show_building_modal(&mut self, ctx: &Context) {
+        if self.pending_build_rx.is_none() {
+            return;
+        }
+        // Dim the rest of the IDE so the build reads as modal.
+        let screen = ctx.screen_rect();
+        ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Middle, egui::Id::new("building_dim")))
+            .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
+
+        // Loop the bar (indeterminate) and keep animating.
+        let t = ctx.input(|i| i.time);
+        let frac = (t * 0.5).rem_euclid(1.0) as f32;
+        ctx.request_repaint();
+
+        egui::Window::new("Building…")
+            .id(egui::Id::new("building_modal"))
+            .order(egui::Order::Foreground)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.add_space(8.0);
+                ui.add(egui::ProgressBar::new(frac).desired_width(280.0).animate(true));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new());
+                    ui.label(egui::RichText::new("Compiling the project…").size(13.0));
+                });
+                ui.add_space(4.0);
+            });
     }
 
     fn show_report_bug_dialog(&mut self, ctx: &Context) {
@@ -2050,7 +2114,13 @@ impl eframe::App for CoboltApp {
         self.show_new_project_dialog(ctx);
         self.show_new_form_dialog(ctx);
         self.show_report_bug_dialog(ctx);
-        self.show_save_alert(ctx);
+        // Save alert: render it in the MAIN window only when it doesn't belong
+        // to a designer viewport (those render it themselves, on top).
+        if self.save_alert_designer.is_none() {
+            self.show_save_alert(ctx);
+        }
+        // "Building…" progress modal (closes right before the result is shown).
+        self.show_building_modal(ctx);
         self.show_settings_window(ctx, &tr);
 
         // ── Menu bar ─────────────────────────────────────────────────────────
@@ -3446,6 +3516,12 @@ impl CoboltApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.designers[idx].1.show(ui);
         });
+
+        // The "Form saved" alert belongs to THIS viewport (so it appears on top
+        // of the designer, not hidden behind it in the main window).
+        if self.save_alert_designer == Some(idx) {
+            self.show_save_alert(ctx);
+        }
     }
 }
 
