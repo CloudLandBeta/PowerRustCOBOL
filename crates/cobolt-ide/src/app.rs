@@ -585,6 +585,14 @@ impl CoboltApp {
                 self.cobolt_project = Some(proj);
                 self.project_path   = Some(path);
                 if let Some(dir) = dir {
+                    // Create the standard project sub-folders: one per category
+                    // (Common Code / Forms / Generated Code / Assets / Docs) plus
+                    // build/debug/temp working folders.
+                    for sub in ["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp"] {
+                        if let Err(e) = std::fs::create_dir_all(dir.join(sub)) {
+                            self.output.push_status(format!("Could not create {sub}/: {e}"));
+                        }
+                    }
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
                 }
@@ -1011,7 +1019,8 @@ impl CoboltApp {
     fn after_form_saved(&mut self, cfrm_path: &std::path::Path) {
         self.project.refresh_form(cfrm_path);
         let Ok(form) = load_form(cfrm_path) else { return; };
-        let cbl = cfrm_path.with_extension("cbl");
+        let cbl = self.generated_cbl_path(cfrm_path);
+        if let Some(parent) = cbl.parent() { let _ = std::fs::create_dir_all(parent); }
         if std::fs::write(&cbl, generate(&form)).is_err() {
             return;
         }
@@ -1028,6 +1037,16 @@ impl CoboltApp {
         }
         self.editor.reload_file(&cbl);
         self.output.push_status(format!("Regenerated {}", cbl.display()));
+    }
+
+    /// Path for a form's generated `.cbl`: under the project's `generated/`
+    /// folder when a project is open, else next to the `.cfrm`.
+    fn generated_cbl_path(&self, cfrm: &std::path::Path) -> PathBuf {
+        let stem = cfrm.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
+        if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
+            return dir.join("generated").join(format!("{stem}.cbl"));
+        }
+        cfrm.with_extension("cbl")
     }
 
     /// The active IDE colour theme (from the open project, or the default).
@@ -1208,7 +1227,8 @@ impl CoboltApp {
 
     fn do_generate_cobol(&mut self, idx: usize) {
         if idx >= self.designers.len() { return; }
-        let cbl_path = self.designers[idx].0.with_extension("cbl");
+        let cbl_path = self.generated_cbl_path(&self.designers[idx].0);
+        if let Some(parent) = cbl_path.parent() { let _ = std::fs::create_dir_all(parent); }
         let cobol    = generate(&self.designers[idx].1.form);
         match std::fs::write(&cbl_path, &cobol) {
             Ok(()) => {
