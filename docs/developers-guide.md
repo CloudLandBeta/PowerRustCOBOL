@@ -605,6 +605,14 @@ the way PowerCOBOL does — a quoted property name `OF` the control:
            MOVE "Caption" OF CmStatic1 TO "Text" OF "ListItems" (4) OF Listview1.
 ```
 
+The editor's **IntelliSense guides you through this syntax**: type `"` and it
+lists every property alphabetically; keep typing to filter (`"Capt…"` → `Caption`)
+and accepting the suggestion closes the quote (`"Caption"`). Then it offers the
+`OF` qualifier, and after `OF` it lists the **widgets that actually expose that
+property** (`"Caption" OF Bu…` → `Button-1`, `Button-2`, …). For ordinary COBOL,
+accepting a reserved word simply inserts the word and a space and waits for what
+you type next — no auto-filled template.
+
 A property reference works as both a **sending** and a **receiving** operand with
 **any verb** — not just `MOVE`. For example:
 
