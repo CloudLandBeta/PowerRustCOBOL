@@ -335,24 +335,26 @@ impl AnimationDef {
 /// Maps a UI event to a COBOL nested-program handler.
 ///
 /// `paragraph` is auto-derived via `derive_paragraph_name()` as `"CTRL-ID--EVENT-NAME"`.
-/// `code` holds the raw COBOL statements (no paragraph header, no GOBACK) that
-/// the user typed in the IDE's Code View for this event.
+///
+/// `code` holds the **complete editable handler body** — from `ENVIRONMENT
+/// DIVISION` through the `PROCEDURE DIVISION` and its statements. The code
+/// generator only wraps it with the `IDENTIFICATION DIVISION` / `PROGRAM-ID`
+/// header and the closing `GOBACK` / `END PROGRAM`. When `code` is empty the
+/// handler is considered unwritten and the editor opens it with a fresh
+/// [`event_handler_template`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct EventBinding {
     pub event:     String,
     pub paragraph: String,  // auto-derived; kept for compat
-    /// CDATA body — the user's COBOL statements for the PROCEDURE DIVISION body
-    /// (no PROGRAM-ID, no GOBACK, no headers — just the statements).
+    /// CDATA body — the full handler source (`ENVIRONMENT DIVISION` …
+    /// `PROCEDURE DIVISION` + statements). Empty means "no handler yet".
     pub code:      String,
-    /// Optional WORKING-STORAGE declarations local to this handler.
-    /// Emitted verbatim into the nested program's DATA DIVISION WS section.
-    pub local_ws:  String,
 }
 
 impl EventBinding {
     /// Create a new binding with an empty code body.
     pub fn new(event: impl Into<String>, paragraph: impl Into<String>) -> Self {
-        Self { event: event.into(), paragraph: paragraph.into(), code: String::new(), local_ws: String::new() }
+        Self { event: event.into(), paragraph: paragraph.into(), code: String::new() }
     }
 
     /// Create a binding and derive the paragraph name automatically from
@@ -360,7 +362,7 @@ impl EventBinding {
     pub fn for_control(control_id: &str, event: impl Into<String>) -> Self {
         let ev = event.into();
         let para = derive_paragraph_name(control_id, &ev);
-        Self { event: ev, paragraph: para, code: String::new(), local_ws: String::new() }
+        Self { event: ev, paragraph: para, code: String::new() }
     }
 
     /// True if the user has written any code in this handler.
@@ -372,6 +374,61 @@ impl EventBinding {
     pub fn code_line_count(&self) -> usize {
         self.code.lines().filter(|l| !l.trim().is_empty()).count()
     }
+}
+
+/// The LINKAGE-SECTION data items and the matching `PROCEDURE DIVISION USING`
+/// names for one event — i.e. the data the runtime delivers to the handler.
+///
+/// Returns `(linkage_items, using_names)`:
+/// * `linkage_items` — COBOL `01/05` declarations placed in the LINKAGE SECTION
+///   (each line already indented), or empty when the event carries no data.
+/// * `using_names`    — the operands for `PROCEDURE DIVISION USING …`.
+///
+/// Most events carry no data, so the default is empty. This is the single
+/// extension point: an event that delivers, say, the clicked node index would
+/// return
+///
+/// ```text
+/// ("       01 COBOL-EVENT-DATA.\n            05 COBOL-ARRAY-INDEX PIC S9(9) COMP-5.\n",
+///  vec!["COBOL-ARRAY-INDEX".into()])
+/// ```
+///
+/// which the template renders as a LINKAGE SECTION block plus
+/// `PROCEDURE DIVISION USING COBOL-ARRAY-INDEX.`
+pub fn event_linkage(_event: &str) -> (String, Vec<String>) {
+    // No event delivers data to its handler yet; the mechanism is in place so
+    // events can declare their payload here as the runtime gains support.
+    (String::new(), Vec::new())
+}
+
+/// Build the first-time handler skeleton shown in the editor (and emitted as the
+/// stub for an unwritten handler). It spans `ENVIRONMENT DIVISION` through
+/// `PROCEDURE DIVISION` — the part the developer owns — with the event's data
+/// (if any) declared in the LINKAGE SECTION and bound via `USING`.
+pub fn event_handler_template(event: &str) -> String {
+    let (linkage_items, using) = event_linkage(event);
+    let using_clause = if using.is_empty() {
+        String::new()
+    } else {
+        format!(" USING {}", using.join(" "))
+    };
+
+    let mut t = String::new();
+    t.push_str("       ENVIRONMENT DIVISION.\n");
+    t.push_str("       DATA DIVISION.\n");
+    t.push_str("       WORKING-STORAGE SECTION.\n");
+    t.push_str("       LINKAGE SECTION.\n");
+    let items = linkage_items.trim_end();
+    if !items.is_empty() {
+        for line in items.lines() {
+            t.push_str(line);
+            t.push('\n');
+        }
+    }
+    t.push('\n');
+    t.push_str(&format!("       PROCEDURE DIVISION{using_clause}.\n"));
+    t.push_str("           CONTINUE.\n");
+    t
 }
 
 /// Derive the nested-program name for an event handler.
@@ -1245,13 +1302,11 @@ impl Form {
                 event:     "onLoad".into(),
                 paragraph: derive_paragraph_name(&form_name, "onLoad"),
                 code:      String::new(),
-                local_ws:  String::new(),
             },
             EventBinding {
                 event:     "onClose".into(),
                 paragraph: derive_paragraph_name(&form_name, "onClose"),
                 code:      String::new(),
-                local_ws:  String::new(),
             },
         ];
         Self {

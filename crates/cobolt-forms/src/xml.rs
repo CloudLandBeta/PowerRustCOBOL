@@ -357,7 +357,6 @@ fn parse_form_body<R: std::io::BufRead>(
                             event:     ev_name.to_string(),
                             paragraph: derive_paragraph_name(&form.name, ev_name),
                             code:      String::new(),
-                            local_ws:  String::new(),
                         });
                     }
                 }
@@ -414,7 +413,8 @@ fn parse_event_list<R: std::io::BufRead>(
             OwnedEvent::EventStart(ev_name, paragraph) => {
                 let (code, local_ws) = collect_event_body(reader, buf)?;
                 if !ev_name.is_empty() {
-                    events.push(EventBinding { event: ev_name, paragraph, code, local_ws });
+                    let code = migrate_handler_source(code, local_ws);
+                    events.push(EventBinding { event: ev_name, paragraph, code });
                 }
             }
             OwnedEvent::EndTag(tag) if tag.as_slice() == end_tag => break,
@@ -451,6 +451,48 @@ fn collect_event_body<R: std::io::BufRead>(
         }
     }
     Ok((code, local_ws))
+}
+
+/// Bring a loaded handler up to the current single-source format.
+///
+/// * New files store the **full** handler body (it already contains its own
+///   `ENVIRONMENT`/`DATA`/`PROCEDURE DIVISION`) and no `<LocalWS>` — passed
+///   through unchanged.
+/// * Legacy files store bare PROCEDURE statements in `code` plus optional
+///   `local_ws`; these are wrapped into a complete handler body so old forms
+///   keep working.
+/// * An empty handler (no code, no local WS) stays empty.
+fn migrate_handler_source(code: String, local_ws: String) -> String {
+    if code.trim().is_empty() && local_ws.trim().is_empty() {
+        return String::new();
+    }
+    let already_full = code.to_ascii_uppercase().contains("PROCEDURE DIVISION");
+    if already_full && local_ws.trim().is_empty() {
+        return code;
+    }
+    // Legacy → wrap statements (and any local WS) into a full handler body.
+    let mut t = String::new();
+    t.push_str("       ENVIRONMENT DIVISION.\n");
+    t.push_str("       DATA DIVISION.\n");
+    t.push_str("       WORKING-STORAGE SECTION.\n");
+    for line in local_ws.lines() {
+        if !line.trim().is_empty() {
+            t.push_str(line);
+            t.push('\n');
+        }
+    }
+    t.push_str("       LINKAGE SECTION.\n\n");
+    t.push_str("       PROCEDURE DIVISION.\n");
+    let body = code.trim_end();
+    if body.trim().is_empty() {
+        t.push_str("           CONTINUE.\n");
+    } else {
+        for line in body.lines() {
+            t.push_str(line);
+            t.push('\n');
+        }
+    }
+    t
 }
 
 /// Parse `<deleted-controls>` children.
@@ -564,7 +606,8 @@ fn parse_control<R: std::io::BufRead>(
             OwnedEvent::EventStart(ev_name, paragraph) => {
                 let (code, local_ws) = collect_event_body(reader, buf)?;
                 if !ev_name.is_empty() {
-                    ctrl.events.push(EventBinding { event: ev_name, paragraph, code, local_ws });
+                    let code = migrate_handler_source(code, local_ws);
+                    ctrl.events.push(EventBinding { event: ev_name, paragraph, code });
                 }
             }
             OwnedEvent::AnimationEmpty(attrs) => {
@@ -722,13 +765,7 @@ fn write_event_with_code<W: std::io::Write>(
     ee.push_attribute(("name",      ev.event.as_str()));
     ee.push_attribute(("paragraph", ev.paragraph.as_str()));
     w.write_event(Event::Start(ee))?;
-    // Write local WS section if non-empty
-    if !ev.local_ws.trim().is_empty() {
-        w.write_event(Event::Start(BytesStart::new("LocalWS")))?;
-        w.write_event(Event::CData(BytesCData::new(ev.local_ws.as_str())))?;
-        w.write_event(Event::End(BytesEnd::new("LocalWS")))?;
-    }
-    // Write procedure body as CDATA
+    // Write the full handler source as CDATA (single-source format).
     if !ev.code.is_empty() {
         w.write_event(Event::CData(BytesCData::new(ev.code.as_str())))?;
     }
@@ -828,7 +865,6 @@ mod tests {
             event:     "onClick".into(),
             paragraph: "BTN-OK--CLICK".into(),
             code:      "    MOVE 1 TO WS-COUNTER".into(),
-            local_ws:  String::new(),
         });
         form.controls.push(btn);
 
@@ -891,4 +927,45 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    #[test]
+    fn legacy_localws_is_migrated_into_full_source() {
+        // A legacy .cfrm: <LocalWS> child + bare PROCEDURE statements in CDATA.
+        let legacy = r#"<?xml version="1.0"?>
+<Form name="F" title="T" width="100" height="100">
+  <controls>
+    <Control id="BTN" type="Button" x="0" y="0" w="10" h="10">
+      <events>
+        <Event name="onClick" paragraph="BTN--ONCLICK">
+          <LocalWS><![CDATA[       01 WS-FLAG PIC 9 VALUE 0.]]></LocalWS>
+          <![CDATA[           MOVE 1 TO WS-FLAG.]]>
+        </Event>
+      </events>
+    </Control>
+  </controls>
+</Form>"#;
+        let dir = std::env::temp_dir();
+        let path: PathBuf = dir.join("cobolt_test_legacy.cfrm");
+        std::fs::write(&path, legacy).unwrap();
+
+        let loaded = load_form(&path).expect("load legacy form");
+        let ev = &loaded.controls[0].events[0];
+        // Migrated into a single full-source handler body.
+        assert!(ev.code.contains("WORKING-STORAGE SECTION."));
+        assert!(ev.code.contains("WS-FLAG"));
+        assert!(ev.code.contains("PROCEDURE DIVISION."));
+        assert!(ev.code.contains("MOVE 1 TO WS-FLAG"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn handler_template_has_skeleton() {
+        let t = crate::model::event_handler_template("onClick");
+        assert!(t.contains("ENVIRONMENT DIVISION."));
+        assert!(t.contains("WORKING-STORAGE SECTION."));
+        assert!(t.contains("LINKAGE SECTION."));
+        assert!(t.contains("PROCEDURE DIVISION."));
+        // No event carries data yet → no USING clause.
+        assert!(!t.contains("USING"));
+    }
 }

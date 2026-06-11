@@ -9,9 +9,10 @@
 //! # Architecture (v1.0 — COBOL-85 nested-program model)
 //!
 //! The `.cfrm` file is the **single source of truth**.  The generated `.cbl` is a
-//! build artifact — it is never edited by hand.  All event-handler code lives in
-//! [`cobolt_forms::EventBinding::code`] and [`EventBinding::local_ws`], stored in
-//! the form file and edited through the modal code editor in the Form Designer.
+//! build artifact — it is never edited by hand.  Each event handler's full body
+//! lives in [`cobolt_forms::EventBinding::code`] (from `ENVIRONMENT DIVISION`
+//! through `PROCEDURE DIVISION`), stored in the form file and edited through the
+//! modal code editor in the Form Designer.
 //!
 //! Each event handler becomes a COBOL-85 **nested program** inside the outer program:
 //!
@@ -52,11 +53,9 @@
 //!  *> ── Nested event-handler programs (COBOL-85) ────────────
 //!       IDENTIFICATION DIVISION.
 //!       PROGRAM-ID. BTN-OK--ONCLICK.
-//!       DATA DIVISION.
-//!       WORKING-STORAGE SECTION.
-//!       *>    (local_ws from EventBinding goes here)
-//!       PROCEDURE DIVISION.
-//!           *>    (code from EventBinding goes here)
+//!       *>    (full handler body from EventBinding.code goes here:
+//!       *>     ENVIRONMENT / DATA / WORKING-STORAGE / LINKAGE /
+//!       *>     PROCEDURE DIVISION + statements)
 //!           GOBACK.
 //!       END PROGRAM BTN-OK--ONCLICK.
 //!
@@ -1104,53 +1103,43 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
 
     // Form-level events: OnLoad, OnClose
     for ev in &form.form_events {
-        write_nested_program(out, &ev.paragraph, &ev.code, &ev.local_ws,
+        write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
             &format!("Form {} handler", ev.event));
     }
 
     // Per-control events
     for ctrl in all_controls {
         for ev in &ctrl.events {
-            write_nested_program(out, &ev.paragraph, &ev.code, &ev.local_ws,
+            write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
                 &format!("{} {} handler", ctrl.id, ev.event));
         }
     }
 }
 
-/// Emit a single COBOL-85 nested program.
+/// Emit a single COBOL-85 nested program for one event handler.
 ///
-/// If `code` is non-empty it is emitted verbatim as the procedure body.
-/// Otherwise a `CONTINUE` stub is written so the generated file compiles cleanly.
-/// `local_ws` is emitted in the WORKING-STORAGE SECTION when non-empty.
-fn write_nested_program(out: &mut String, prog_id: &str, code: &str, local_ws: &str, comment: &str) {
+/// The developer owns the whole handler body (`ENVIRONMENT DIVISION` …
+/// `PROCEDURE DIVISION` + statements), stored in `source`. The generator only
+/// adds the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the closing
+/// `GOBACK` / `END PROGRAM`. An unwritten handler is emitted from the shared
+/// [`event_handler_template`] so the generated file always compiles.
+fn write_nested_program(out: &mut String, prog_id: &str, event: &str, source: &str, comment: &str) {
     out.push_str("       IDENTIFICATION DIVISION.\n");
     out.push_str(&format!("       PROGRAM-ID. {}.\n", prog_id));
     out.push('\n');
-    out.push_str("       DATA DIVISION.\n");
-    out.push_str("       WORKING-STORAGE SECTION.\n");
-    let ws_trimmed = local_ws.trim();
-    if ws_trimmed.is_empty() {
-        out.push_str("      *>    Add LOCAL or EXTERNAL data items here.\n");
+
+    let trimmed = source.trim();
+    let body = if trimmed.is_empty() {
+        out.push_str(&format!("      *>    TODO: {}\n", comment));
+        cobolt_forms::model::event_handler_template(event)
     } else {
-        for line in ws_trimmed.lines() {
-            out.push_str(line);
-            out.push('\n');
-        }
+        source.to_string()
+    };
+    for line in body.trim_end().lines() {
+        out.push_str(line);
+        out.push('\n');
     }
     out.push('\n');
-    out.push_str("       PROCEDURE DIVISION.\n");
-
-    let trimmed = code.trim();
-    if trimmed.is_empty() {
-        out.push_str(&format!("      *>    TODO: {}\n", comment));
-        out.push_str("           CONTINUE.\n");
-    } else {
-        // Emit user's COBOL verbatim.
-        for line in trimmed.lines() {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
 
     out.push_str("           GOBACK.\n");
     out.push('\n');
@@ -1319,33 +1308,45 @@ mod tests {
         );
     }
 
-    /// Event-handler code stored in the model is emitted into the nested program body.
+    /// Event-handler source stored in the model is emitted into the nested
+    /// program body — including its own WORKING-STORAGE declarations.
     #[test]
     fn generate_emits_event_handler_code() {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
         let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
         let mut ev = EventBinding::for_control("BTN-OK", "onClick");
-        ev.code = "           MOVE 1 TO COBOL-QUIT".into();
+        ev.code = "\
+       ENVIRONMENT DIVISION.\n\
+       DATA DIVISION.\n\
+       WORKING-STORAGE SECTION.\n\
+       01 WS-LOCAL-FLAG  PIC 9 VALUE 0.\n\
+       LINKAGE SECTION.\n\
+\n\
+       PROCEDURE DIVISION.\n\
+           MOVE 1 TO COBOL-QUIT.".into();
         btn.events.push(ev);
         form.controls.push(btn);
 
         let src = generate(&form);
         assert!(src.contains("MOVE 1 TO COBOL-QUIT"),
-            "handler code from EventBinding must appear in nested program body");
+            "handler statements must appear in the nested program body");
+        assert!(src.contains("WS-LOCAL-FLAG"),
+            "handler-local WORKING-STORAGE must appear in the nested program");
     }
 
-    /// local_ws declared in EventBinding appears in the handler's WS section.
+    /// An unwritten handler is emitted from the shared template (it still
+    /// compiles): LINKAGE SECTION present, PROCEDURE DIVISION + CONTINUE.
     #[test]
-    fn generate_emits_local_ws() {
+    fn generate_emits_template_stub_for_empty_handler() {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
         let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
-        let mut ev = EventBinding::for_control("BTN-OK", "onClick");
-        ev.local_ws = "       01 WS-LOCAL-FLAG  PIC 9 VALUE 0.".into();
-        btn.events.push(ev);
+        btn.events.push(EventBinding::for_control("BTN-OK", "onClick")); // no code
         form.controls.push(btn);
 
         let src = generate(&form);
-        assert!(src.contains("WS-LOCAL-FLAG"),
-            "local_ws from EventBinding must appear in nested program WORKING-STORAGE");
+        assert!(src.contains("LINKAGE SECTION."),
+            "the stub handler must include a LINKAGE SECTION");
+        assert!(src.contains("PROCEDURE DIVISION."),
+            "the stub handler must include a PROCEDURE DIVISION");
     }
 }
