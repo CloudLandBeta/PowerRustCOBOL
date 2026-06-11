@@ -587,8 +587,10 @@ impl CoboltApp {
                 if let Some(dir) = dir {
                     // Create the standard project sub-folders: one per category
                     // (Common Code / Forms / Generated Code / Assets / Docs) plus
-                    // build/debug/temp working folders.
-                    for sub in ["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp"] {
+                    // build/debug/temp working folders and `dist/` (a future
+                    // self-contained bundle — binary + assets + libs — for running
+                    // the project on a machine without PowerRustCOBOL installed).
+                    for sub in ["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp", "dist"] {
                         if let Err(e) = std::fs::create_dir_all(dir.join(sub)) {
                             self.output.push_status(format!("Could not create {sub}/: {e}"));
                         }
