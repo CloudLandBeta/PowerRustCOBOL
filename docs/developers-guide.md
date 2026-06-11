@@ -195,15 +195,92 @@ flowchart TB
 - **Toolbar (top).** `Open · Save · Check · Build · Run · Debug · Stop · ⚙`.
   *Run* interprets the program; *Build* compiles a native binary; *Check* runs
   parse + semantic analysis only; *Debug* is enabled when a Generated Code item
-  is selected. ⚙ opens **Appearance** (theme + background image).
+  is selected. ⚙ opens **Settings** (the **AI assistant** plus per-project
+  **Appearance** — theme + background image).
 - **Main Pane (centre).** Shows the code editor, or the **property inspector**
-  when you click a form/control in the tree.
+  when you click a form/control in the tree. The code editor carries a
+  **status bar** along the bottom — caret `Ln, Col`, the **Insert/Overwrite**
+  mode (toggle with the `Insert` key), a **Trim on save** toggle (strips trailing
+  whitespace when you save), and a **Beautify** command (a safe whitespace tidy
+  that never disturbs COBOL's significant columns).
 - **Output panel (bottom).** Program `DISPLAY` output, build logs, and status
   messages.
 
 > 📷 **Screenshot needed — `ide-overview.png`.** A full-window capture with a
 > project open, a form selected (so the property inspector is visible), and some
 > text in the Output panel. Annotate the four regions if you can.
+
+### The AI assistant (optional)
+
+PowerRustCOBOL can put a cloud language model — one you provide, ideally trained
+on this documentation — right above the code editor. The assistant is **entirely
+optional and off by default**: until you fill in the connection details, the
+prompt bar never appears.
+
+**Configure it once (⚙ → AI assistant).** The settings are *global* to your
+machine, not stored in any project, so the API key never travels in a repository:
+
+| Field | Meaning |
+|-------|---------|
+| **Endpoint URL** | The full chat-completions URL of your model (an OpenAI-compatible endpoint, e.g. `https://…/v1/chat/completions`). |
+| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. |
+| **Model** | The model identifier passed in each request. |
+| **Temperature** | Sampling randomness (0 = deterministic). |
+| **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
+
+A **Test connection** button sends a tiny request to your endpoint and reports
+whether the model is reachable and the key/model are accepted — use it to
+confirm the setup before relying on it. The assistant becomes available as soon
+as **Endpoint URL** and **Model** are both set. Clear the endpoint to hide it
+again.
+
+**Using it.** Open a COBOL file, type a request in the prompt bar (for example
+*"add a paragraph that totals WS-LINES and DISPLAYs it"*), and press **Send**.
+The model receives, in this order:
+
+1. your **standard system prompt**;
+2. the **conversation history** for *this file* (it is remembered between
+   sessions, per source file);
+3. your **request** together with the **current source** of the file.
+
+When the reply arrives, PowerRustCOBOL extracts the COBOL from it and **updates
+the editor buffer in place** — so you can immediately review, tweak, run, or
+undo (Ctrl/Cmd-Z) the result like any other edit. The running transcript is
+shown under the prompt bar (💬), and **Clear conversation** (🗑) forgets the
+history for that file. Read-only Generated Code is never modified.
+
+**Also in the inspector.** The same prompt bar appears above the inline
+form/control inspector, with the form's **generated COBOL** as its (read-only)
+context — handy for asking how to wire an event handler. Because generated code
+is never hand-edited, replies there are shown in the transcript for reference
+rather than applied.
+
+**Where the conversation lives.** History is *not* kept in a hidden cache — it is
+stored in the project's `data/` folder in PowerRustCOBOL's **own indexed (ISAM)
+file** (`data/conversations.dat`), the very `ORGANIZATION IS INDEXED` format your
+COBOL programs use, keyed by the source file's relative path. (We dog-food our
+own runtime.) Conversations therefore travel with the project and require an open
+project to persist; without one, the assistant still works but only for the
+current session.
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Ed as Code editor
+    participant LLM as Your cloud model
+    Dev->>Ed: Type a request, press Send
+    Ed->>LLM: system prompt + history + request + current source
+    LLM-->>Ed: reply (COBOL in a code block)
+    Ed->>Ed: Replace buffer with the returned source
+    Dev->>Ed: Review / adjust / run / undo
+```
+
+> 📷 **Screenshot needed — `ide-ai-assistant.png`.** The code editor with the AI
+> prompt bar visible above it and an expanded conversation transcript.
+
+> **Privacy note.** Your prompt, the conversation history, and the **full source
+> of the open file** are sent to whatever endpoint you configure. Point it only
+> at a model you trust.
 
 ---
 
@@ -228,7 +305,8 @@ HelloPower/
 ├── bin/                ← built binaries
 ├── debug/              ← debugging working files
 ├── temp/               ← temporary files
-└── dist/               ← (reserved) self-contained distribution bundle
+├── dist/               ← (reserved) self-contained distribution bundle
+└── data/               ← project data files (e.g. the AI conversation store)
 ```
 
 A new project also gets a **runnable starter `main` program** (by default
@@ -453,10 +531,58 @@ In words:
 ### Adding a handler
 
 In the tree or the properties pane, click an event to open the COBOL editor for
-it. Inside a handler you have the full language plus the UI calls in §11. The
-handler is a self-contained nested program: declare its own local working-storage
-in the editor's *Local Working-Storage* area if you need scratch variables;
-shared state lives in the program's global working-storage.
+it. A handler is a self-contained **nested program**, and you edit its whole body
+in **one** editor — there is no separate box for working-storage.
+
+The event editor is the **same full editor as the main code editor**: as-you-type
+**IntelliSense** (keywords, verbs, and the form's control names; `Ctrl+Space` to
+trigger), **Find/Replace** (`Cmd/Ctrl+F`, with *Replace* and *Replace All*) in the
+top-right, and the **status bar** along the bottom (caret `Ln, Col`,
+**Insert/Overwrite** via the `Insert` key, **Trim on save**, and **Beautify**). It
+opens at 70 % of the window and is freely resizable.
+
+The **first time** you open an unwritten handler, the editor seeds it with the
+standard skeleton so you only fill in the blanks:
+
+```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           CONTINUE.
+```
+
+Everything from `ENVIRONMENT DIVISION` down to your statements is yours to edit;
+PowerRustCOBOL supplies only the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header
+and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
+
+- **Local scratch variables** go straight into this handler's own
+  `WORKING-STORAGE SECTION`.
+- **Shared state** lives in the form's global working-storage (visible to every
+  handler because it is declared `GLOBAL` in the outer program).
+- **Event data** — when an event delivers data to its handler, those items
+  appear in the `LINKAGE SECTION` and are bound by `PROCEDURE DIVISION USING …`.
+  For example, a handler that receives only the clicked node's index would be
+  seeded as:
+
+  ```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+       01 COBOL-EVENT-DATA.
+          05 COBOL-ARRAY-INDEX        PIC S9(9) COMP-5.
+
+       PROCEDURE DIVISION USING COBOL-ARRAY-INDEX.
+  ```
+
+  Events that carry no data simply have an empty `LINKAGE SECTION` and a plain
+  `PROCEDURE DIVISION.` (no `USING`).
+
+> If you leave the seeded template untouched and close the editor, nothing is
+> saved — the handler stays "unwritten" until you actually add code.
 
 ---
 
@@ -601,6 +727,38 @@ extensions. Highlights a working COBOL programmer will rely on:
 
 > ⚠️ **Out of scope (today):** RELATIVE file organisation, cross-process record
 > locking, and OO `CLASS`/`METHOD` definitions are not implemented.
+
+### Unique declarations are enforced
+
+Every program unit must declare its mandatory structural elements **once and only
+once**. PowerRustCOBOL checks this while it reads your source and **refuses to
+run the program** until you fix it — exactly as a compiler would flag a redeclared
+symbol. The rule covers:
+
+- a single `PROGRAM-ID`;
+- at most one `ENVIRONMENT`, `DATA`, and `PROCEDURE` DIVISION header;
+- unique **section** names within the program, and unique **paragraph** names
+  within their section (or within the program when no sections are used).
+
+For example, this is rejected because the program names itself twice:
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MYPROG.
+       PROCEDURE DIVISION.
+           DISPLAY "Hello".
+       PROGRAM-ID. MYPROGNEWNAME.   *> ✗ PROGRAM-ID declared more than once
+           STOP RUN.
+```
+
+The IDE shows the error in the **Problems** panel (and the CLI prints it) with the
+offending line, and the Run/Build action is blocked until the duplicate is
+removed. Legitimate multi-unit sources — sequential sibling programs each closed
+by `END PROGRAM name.`, or true nested programs — are **not** affected: each unit
+gets its own `IDENTIFICATION DIVISION` and is validated independently.
+
+> This is a structural check, not a style suggestion. There is no flag to
+> override it; redeclaring a unique element is always an error.
 
 ---
 
