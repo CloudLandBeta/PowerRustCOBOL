@@ -206,9 +206,108 @@ impl Parser {
         });
     }
 
+    /// Scan the raw token stream for redeclared unique elements and emit a hard
+    /// [`Severity::Error`] for each. A program unit must declare PROGRAM-ID and
+    /// each of the ENVIRONMENT / DATA / PROCEDURE DIVISION headers at most once.
+    ///
+    /// Program-unit boundaries are tracked structurally: a new IDENTIFICATION
+    /// DIVISION (or `ID DIVISION`) starts a fresh unit — that covers both nested
+    /// and sequentially-written programs — and an `END PROGRAM` closes one. The
+    /// per-unit counters reset at each boundary, so a legitimate nested program
+    /// is never mistaken for a redeclaration.
+    fn detect_duplicate_declarations(&mut self) {
+        #[derive(Default)]
+        struct Counts {
+            program_id: u32,
+            environment: u32,
+            data: u32,
+            procedure: u32,
+        }
+        let mut counts = Counts::default();
+        let mut errors: Vec<(String, Span)> = Vec::new();
+
+        let mut i = 0;
+        while i < self.tokens.len() {
+            let tok = &self.tokens[i].token;
+            let span = self.tokens[i].span;
+            let next = self.tokens.get(i + 1).map(|s| &s.token);
+            match tok {
+                // A new IDENTIFICATION/ID DIVISION begins a fresh program unit.
+                Token::Identification => {
+                    counts = Counts::default();
+                }
+                // END PROGRAM closes the current unit.
+                Token::End if next == Some(&Token::Program) => {
+                    counts = Counts::default();
+                }
+                Token::ProgramId => {
+                    counts.program_id += 1;
+                    if counts.program_id > 1 {
+                        errors.push((
+                            "PROGRAM-ID is declared more than once in the same \
+                             program unit; each program may have only one PROGRAM-ID"
+                                .to_string(),
+                            span,
+                        ));
+                    }
+                }
+                Token::Environment if next == Some(&Token::Division) => {
+                    counts.environment += 1;
+                    if counts.environment > 1 {
+                        errors.push((
+                            "ENVIRONMENT DIVISION is declared more than once in the \
+                             same program unit"
+                                .to_string(),
+                            span,
+                        ));
+                    }
+                }
+                Token::Data if next == Some(&Token::Division) => {
+                    counts.data += 1;
+                    if counts.data > 1 {
+                        errors.push((
+                            "DATA DIVISION is declared more than once in the same \
+                             program unit"
+                                .to_string(),
+                            span,
+                        ));
+                    }
+                }
+                Token::Procedure if next == Some(&Token::Division) => {
+                    counts.procedure += 1;
+                    if counts.procedure > 1 {
+                        errors.push((
+                            "PROCEDURE DIVISION is declared more than once in the \
+                             same program unit"
+                                .to_string(),
+                            span,
+                        ));
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        for (message, span) in errors {
+            self.diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                message,
+                span,
+            });
+        }
+    }
+
     // ── Top-level parse ───────────────────────────────────────────────────────
 
     pub fn parse_program(mut self) -> ParseResult {
+        // Before structural parsing, scan the raw token stream for redeclared
+        // unique elements (a second PROGRAM-ID, or a second ENVIRONMENT/DATA/
+        // PROCEDURE DIVISION header within the same program unit). The AST keeps
+        // only one of each, so these duplicates are invisible after parsing and
+        // must be detected here.
+        self.detect_duplicate_declarations();
+
         let mut program = parse_single_program(&mut self);
 
         // A source file may hold several program units written *in sequence* —

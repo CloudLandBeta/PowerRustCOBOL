@@ -223,6 +223,13 @@ fn run_pipeline(
         }
     };
 
+    // A recovered program that still carries hard parse errors (for example a
+    // redeclared PROGRAM-ID or division) must not run until it is corrected.
+    if parse_result.diagnostics.iter().any(|d| d.severity == cobolt_parser::Severity::Error) {
+        let _ = tx.send(RunMsg::Error("Aborting: parse errors found.".to_owned()));
+        return;
+    }
+
     // ── Semantic analysis ─────────────────────────────────────────────────────
     let sem = analyze(&program);
     for diag in &sem.diagnostics {
@@ -441,6 +448,12 @@ fn run_debug_pipeline(
             return;
         }
     };
+
+    // Block debugging a program that still carries hard parse errors.
+    if parse_result.diagnostics.iter().any(|d| d.severity == cobolt_parser::Severity::Error) {
+        let _ = run_tx.send(RunMsg::Error("Aborting: parse errors found.".to_owned()));
+        return;
+    }
 
     let sem = analyze(&program);
     for diag in &sem.diagnostics {

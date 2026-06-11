@@ -134,7 +134,9 @@ impl FormRuntime {
         let tokens = tokenize(&cobol_source, SourceFormat::Free);
         let parse_result = parse(tokens);
 
-        if parse_result.program.is_none() {
+        let parse_has_errors = parse_result.diagnostics.iter()
+            .any(|d| d.severity == cobolt_parser::Severity::Error);
+        if parse_result.program.is_none() || parse_has_errors {
             let msgs: Vec<_> = parse_result.diagnostics.iter()
                 .map(|d| format!("{}:{} {}", d.span.line, d.span.col, d.message))
                 .collect();

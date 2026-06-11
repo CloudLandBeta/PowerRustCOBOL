@@ -30,6 +30,7 @@
 //! }
 //! ```
 
+pub mod duplicates;
 pub mod exec_rust;
 pub mod resolver;
 pub mod symbol_table;
@@ -125,6 +126,9 @@ pub fn analyze(program: &Program) -> SemanticResult {
 
     // Pass 1: build the symbol table from DATA + PROCEDURE divisions.
     let symbols = symbol_table::SymbolTable::build(program);
+
+    // Pass 1b: reject redeclared unique procedure names (paragraphs/sections).
+    duplicates::check(program, &mut diagnostics);
 
     // Pass 2: name resolution.
     resolver::resolve(program, &symbols, &mut diagnostics);

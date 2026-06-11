@@ -102,9 +102,10 @@ fn cmd_run(args: &[String]) {
     let parse_result = parse(tokens);
 
     // Print parser diagnostics.
+    let mut parser_has_errors = false;
     for d in &parse_result.diagnostics {
         let sev = match d.severity {
-            cobolt_parser::Severity::Error   => "error",
+            cobolt_parser::Severity::Error   => { parser_has_errors = true; "error" }
             cobolt_parser::Severity::Warning => "warning",
         };
         eprintln!("{}:{}:{}: {sev}: {}", path.display(), d.span.line, d.span.col, d.message);
@@ -117,6 +118,14 @@ fn cmd_run(args: &[String]) {
             process::exit(1);
         }
     };
+
+    // A parser that still produced a program but reported hard errors (for
+    // example a redeclared PROGRAM-ID or division) must block execution until
+    // the source is corrected.
+    if parser_has_errors {
+        eprintln!("cobolt: aborting due to parse errors.");
+        process::exit(1);
+    }
 
     // Semantic analysis.
     let sem = analyze(&program);
