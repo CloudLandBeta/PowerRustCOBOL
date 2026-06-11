@@ -283,3 +283,44 @@ fn collect_rec<'a>(ctrl: &'a cobolt_forms::Control, out: &mut Vec<&'a cobolt_for
         collect_rec(child, out);
     }
 }
+
+// ── Generated-form pipeline regression test ─────────────────────────────────────
+#[cfg(test)]
+mod form_codegen_roundtrip_tests {
+    use cobolt_forms::{Control, ControlType, Form, EventBinding};
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::{parse, Severity as PSev};
+    use cobolt_semantic::analyze;
+
+    #[test]
+    fn generated_form_with_handler_parses_and_dispatches() {
+        let mut form = Form::new("MAIN-FORM", "Demo", 640, 480);
+        let mut btn = Control::new("Button-1", ControlType::Button, 10, 10);
+        let mut ev = EventBinding::for_control("Button-1", "onClick");
+        ev.code = "\
+       ENVIRONMENT DIVISION.\n\
+       DATA DIVISION.\n\
+       WORKING-STORAGE SECTION.\n\
+       LINKAGE SECTION.\n\n\
+       PROCEDURE DIVISION.\n\
+           MOVE 1 TO COBOL-QUIT.".into();
+        btn.events.push(ev);
+        form.controls.push(btn);
+
+        let src = cobolt_codegen::generate(&form);
+
+        assert!(src.contains("CALL \"BUTTON-1--ONCLICK\""), "missing dispatch:\n{src}");
+        assert!(src.contains("PROGRAM-ID. BUTTON-1--ONCLICK."), "missing handler program");
+        assert!(src.contains("MOVE 1 TO COBOL-QUIT"), "missing handler body");
+
+        let pr = parse(tokenize(&src, SourceFormat::Free));
+        let perrs: Vec<_> = pr.diagnostics.iter()
+            .filter(|d| d.severity == PSev::Error).collect();
+        assert!(perrs.is_empty(), "parse errors in generated form:\n{perrs:#?}\n--- src ---\n{src}");
+
+        let program = pr.program.expect("no program recovered");
+        let sem = analyze(&program);
+        let serrs: Vec<_> = sem.errors().collect();
+        assert!(serrs.is_empty(), "semantic errors in generated form:\n{serrs:#?}");
+    }
+}
