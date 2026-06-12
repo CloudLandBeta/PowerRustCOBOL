@@ -1088,10 +1088,16 @@ the toolbar **Debug** button (to the right of **Run**).
 
 ## 20. Appearance and internationalisation
 
-- **Themes.** ⚙ ▸ *Appearance* offers a colour theme (Dark Glass [default], Deep
-  Blue, Dark+, Light+, Monokai, Solarized, Nord, Dracula, and more), plus an
-  optional **background image** with an opacity control. Settings are saved
-  **per project** in `cobolt.toml`.
+- **Themes.** ⚙ ▸ *Settings* offers 28 colour themes — dark (Dark Glass
+  [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
+  more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
+  Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
+  Catppuccin Latte, Solarized Light), and **Classic**, a faithful Windows
+  95 look (silver chrome, navy selection) for the full retro-RAD experience.
+  There is also an optional **background image** with an opacity control.
+  Settings are saved **per project** in `cobolt.toml`. The project tree and
+  panel text automatically adapt their contrast to the theme — light text on
+  dark themes, dark text on light ones.
 - **IDE languages.** The IDE interface is available in **English, Spanish,
   Portuguese, Japanese, and Chinese** (toolbar language selector).
 
