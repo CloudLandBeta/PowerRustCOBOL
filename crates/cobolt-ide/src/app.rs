@@ -219,6 +219,9 @@ pub struct CoboltApp {
 
     // Appearance settings dialog (theme + background image, per project)
     show_settings:  bool,
+    /// One-shot: force the Settings window to 70 % of the app window on the
+    /// frame it opens (the user may resize it freely afterwards).
+    settings_resize_pending: bool,
     /// Cached background-image texture, keyed by the resolved absolute path.
     bg_texture:     Option<(PathBuf, egui::TextureHandle)>,
 
@@ -365,6 +368,7 @@ impl CoboltApp {
             project_path:   None,
 
             show_settings:  false,
+            settings_resize_pending: false,
             bg_texture:     None,
             llm:            crate::llm::LlmConfig::load(),
             llm_test_rx:     None,
@@ -1340,13 +1344,24 @@ impl CoboltApp {
         let mut llm_edit = self.llm.clone();
         let mut llm_changed = false;
 
-        egui::Window::new(format!("⚙ {}", tr.settings_title))
+        // Open at 70 % of the app window; the user may resize it afterwards
+        // (the size is forced only on the opening frame).
+        let target = ctx.screen_rect().size() * 0.7;
+        let mut win = egui::Window::new(format!("⚙ {}", tr.settings_title))
             .collapsible(false)
             .resizable(true)
-            .default_width(460.0)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .open(&mut open)
-            .show(ctx, |ui| {
+            .open(&mut open);
+        win = if self.settings_resize_pending {
+            win.fixed_size(target)
+        } else {
+            win.default_size(target)
+        };
+        self.settings_resize_pending = false;
+        win.show(ctx, |ui| {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
                 // ── AI assistant (global; works without an open project) ──────
                 ui.label(egui::RichText::new(tr.settings_ai_title).strong());
                 ui.label(egui::RichText::new(tr.settings_ai_hint)
@@ -1458,6 +1473,7 @@ impl CoboltApp {
                     }
                 });
             });
+        });
 
         // ── Persist global AI config when it changed ──────────────────────────
         if llm_changed {
@@ -2221,7 +2237,10 @@ impl eframe::App for CoboltApp {
             ToolbarAction::Check => self.do_check(),
             ToolbarAction::Open  => self.do_open(),
             ToolbarAction::Save  => self.do_save(),
-            ToolbarAction::Settings => self.show_settings = true,
+            ToolbarAction::Settings => {
+                self.show_settings = true;
+                self.settings_resize_pending = true;
+            }
             ToolbarAction::None  => {}
         }
 
@@ -4160,7 +4179,7 @@ mod run_interaction_tests {
             {
                 let o = out.clone();
                 let st = &state;
-                ctx.run(input, |ctx| {
+                let _ = ctx.run(input, |ctx| {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::none())
                         .show(ctx, |ui| {
@@ -4491,5 +4510,57 @@ mod inspect_refresh_tests {
         let _ = (path, t);
         // Re-save with a tiny delay already covers the > comparison; nothing else
         // to do here without an extra dependency.
+    }
+}
+
+#[cfg(test)]
+mod settings_window_size_tests {
+    /// Mirror of `show_settings_window`'s sizing: on the opening frame the
+    /// window is forced to 70 % of the screen; afterwards `default_size` lets
+    /// the stored (possibly user-resized) size win.
+    fn frame(ctx: &egui::Context, at: f64, force_70: bool, events: Vec<egui::Event>) -> egui::Rect {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0), egui::vec2(1200.0, 900.0))),
+            time: Some(at),
+            events,
+            ..Default::default()
+        };
+        let mut rect = egui::Rect::NOTHING;
+        let _ = ctx.run(input, |ctx| {
+            let target = ctx.screen_rect().size() * 0.7;
+            let mut win = egui::Window::new("⚙ Settings")
+                .collapsible(false)
+                .resizable(true)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+            win = if force_70 { win.fixed_size(target) } else { win.default_size(target) };
+            if let Some(r) = win.show(ctx, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    ui.label("content");
+                });
+            }) {
+                rect = r.response.rect;
+            }
+        });
+        rect
+    }
+
+    #[test]
+    fn settings_window_opens_at_70_percent_and_stays_resizable() {
+        let ctx = egui::Context::default();
+
+        // Opening frame: forced to 70 % of 1200×900 → content 840×630.
+        let opened = frame(&ctx, 0.0, true, vec![]);
+        assert!((opened.width() - 840.0).abs() < 40.0,
+            "open width must be ~70% (840), got {}", opened.width());
+        assert!((opened.height() - 630.0).abs() < 60.0,
+            "open height must be ~70% (630), got {}", opened.height());
+
+        // Subsequent frames (default_size path): the size must persist, not
+        // shrink back to the content.
+        let later = frame(&ctx, 0.1, false, vec![]);
+        assert!((later.width()  - opened.width()).abs()  < 2.0
+             && (later.height() - opened.height()).abs() < 2.0,
+            "size must persist after opening: {opened:?} vs {later:?}");
     }
 }
