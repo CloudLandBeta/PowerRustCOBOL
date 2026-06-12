@@ -624,6 +624,337 @@ pub const PALENIGHT: Theme = Theme {
     ed_generated: rgb(137, 221, 255),
 };
 
+/// GitHub Light.
+pub const GITHUB_LIGHT: Theme = Theme {
+    id: "github-light",
+    name: "GitHub Light",
+    dark: false,
+    bg_panel:    rgba(246, 248, 250, 246),
+    bg_widget:   rgba(255, 255, 255, 246),
+    bg_hover:    rgba(234, 238, 242, 248),
+    bg_active:   rgba(9, 105, 218, 235),
+    bg_extreme:  rgba(255, 255, 255, 250),
+    faint_bg:    rgba(240, 243, 246, 220),
+    code_bg:     rgba(255, 255, 255, 246),
+    accent:      rgb(9, 105, 218),
+    border_dim:  rgba(31, 35, 40, 40),
+    border_hi:   rgba(9, 105, 218, 200),
+    text_dim:    rgb(89, 99, 110),
+    text_bright: rgb(31, 35, 40),
+    selection:   rgba(84, 174, 255, 130),
+    hyperlink:   rgb(9, 105, 218),
+    warn:        rgb(154, 103, 0),
+    error:       rgb(207, 34, 46),
+    ed_plain:     rgb(31, 35, 40),
+    ed_keyword:   rgb(207, 34, 46),
+    ed_data:      rgb(5, 80, 174),
+    ed_paragraph: rgb(130, 80, 223),
+    ed_string:    rgb(10, 48, 105),
+    ed_comment:   rgb(110, 119, 129),
+    ed_generated: rgb(5, 80, 174),
+};
+
+/// Atom One Light.
+pub const ONE_LIGHT: Theme = Theme {
+    id: "one-light",
+    name: "One Light",
+    dark: false,
+    bg_panel:    rgba(240, 240, 240, 246),
+    bg_widget:   rgba(250, 250, 250, 246),
+    bg_hover:    rgba(229, 229, 230, 248),
+    bg_active:   rgba(64, 120, 242, 235),
+    bg_extreme:  rgba(255, 255, 255, 250),
+    faint_bg:    rgba(234, 234, 235, 220),
+    code_bg:     rgba(250, 250, 250, 246),
+    accent:      rgb(64, 120, 242),
+    border_dim:  rgba(56, 58, 66, 40),
+    border_hi:   rgba(64, 120, 242, 200),
+    text_dim:    rgb(105, 109, 119),
+    text_bright: rgb(56, 58, 66),
+    selection:   rgba(64, 120, 242, 90),
+    hyperlink:   rgb(64, 120, 242),
+    warn:        rgb(193, 132, 1),
+    error:       rgb(228, 86, 73),
+    ed_plain:     rgb(56, 58, 66),
+    ed_keyword:   rgb(166, 38, 164),
+    ed_data:      rgb(1, 132, 188),
+    ed_paragraph: rgb(64, 120, 242),
+    ed_string:    rgb(80, 161, 79),
+    ed_comment:   rgb(160, 161, 167),
+    ed_generated: rgb(1, 132, 188),
+};
+
+/// Gruvbox Light.
+pub const GRUVBOX_LIGHT: Theme = Theme {
+    id: "gruvbox-light",
+    name: "Gruvbox Light",
+    dark: false,
+    bg_panel:    rgba(251, 241, 199, 246),
+    bg_widget:   rgba(242, 229, 188, 246),
+    bg_hover:    rgba(235, 219, 178, 248),
+    bg_active:   rgba(175, 58, 3, 235),
+    bg_extreme:  rgba(249, 245, 215, 250),
+    faint_bg:    rgba(245, 233, 191, 220),
+    code_bg:     rgba(251, 241, 199, 246),
+    accent:      rgb(175, 58, 3),
+    border_dim:  rgba(60, 56, 54, 50),
+    border_hi:   rgba(175, 58, 3, 200),
+    text_dim:    rgb(102, 92, 84),
+    text_bright: rgb(60, 56, 54),
+    selection:   rgba(215, 153, 33, 120),
+    hyperlink:   rgb(7, 102, 120),
+    warn:        rgb(181, 118, 20),
+    error:       rgb(204, 36, 29),
+    ed_plain:     rgb(60, 56, 54),
+    ed_keyword:   rgb(157, 0, 6),
+    ed_data:      rgb(7, 102, 120),
+    ed_paragraph: rgb(143, 63, 113),
+    ed_string:    rgb(121, 116, 14),
+    ed_comment:   rgb(146, 131, 116),
+    ed_generated: rgb(7, 102, 120),
+};
+
+/// Ayu Light.
+pub const AYU_LIGHT: Theme = Theme {
+    id: "ayu-light",
+    name: "Ayu Light",
+    dark: false,
+    bg_panel:    rgba(247, 248, 249, 246),
+    bg_widget:   rgba(252, 252, 252, 246),
+    bg_hover:    rgba(238, 240, 242, 248),
+    bg_active:   rgba(57, 158, 230, 235),
+    bg_extreme:  rgba(255, 255, 255, 250),
+    faint_bg:    rgba(242, 244, 246, 220),
+    code_bg:     rgba(252, 252, 252, 246),
+    accent:      rgb(57, 158, 230),
+    border_dim:  rgba(92, 97, 102, 40),
+    border_hi:   rgba(57, 158, 230, 200),
+    text_dim:    rgb(120, 126, 132),
+    text_bright: rgb(60, 66, 72),
+    selection:   rgba(57, 158, 230, 90),
+    hyperlink:   rgb(57, 158, 230),
+    warn:        rgb(242, 151, 24),
+    error:       rgb(228, 86, 73),
+    ed_plain:     rgb(92, 97, 102),
+    ed_keyword:   rgb(250, 140, 53),
+    ed_data:      rgb(57, 158, 230),
+    ed_paragraph: rgb(242, 151, 24),
+    ed_string:    rgb(134, 179, 0),
+    ed_comment:   rgb(171, 178, 191),
+    ed_generated: rgb(57, 158, 230),
+};
+
+/// VSCode "Quiet Light".
+pub const QUIET_LIGHT: Theme = Theme {
+    id: "quiet-light",
+    name: "Quiet Light",
+    dark: false,
+    bg_panel:    rgba(245, 245, 245, 246),
+    bg_widget:   rgba(252, 252, 252, 246),
+    bg_hover:    rgba(237, 237, 237, 248),
+    bg_active:   rgba(112, 86, 151, 235),
+    bg_extreme:  rgba(255, 255, 255, 250),
+    faint_bg:    rgba(240, 240, 240, 220),
+    code_bg:     rgba(245, 245, 245, 246),
+    accent:      rgb(112, 86, 151),
+    border_dim:  rgba(51, 51, 51, 40),
+    border_hi:   rgba(112, 86, 151, 200),
+    text_dim:    rgb(110, 110, 110),
+    text_bright: rgb(51, 51, 51),
+    selection:   rgba(193, 176, 217, 170),
+    hyperlink:   rgb(72, 100, 170),
+    warn:        rgb(176, 137, 0),
+    error:       rgb(205, 49, 49),
+    ed_plain:     rgb(51, 51, 51),
+    ed_keyword:   rgb(112, 86, 151),
+    ed_data:      rgb(72, 100, 170),
+    ed_paragraph: rgb(170, 55, 49),
+    ed_string:    rgb(68, 140, 39),
+    ed_comment:   rgb(170, 170, 170),
+    ed_generated: rgb(72, 100, 170),
+};
+
+/// Tomorrow (light).
+pub const TOMORROW: Theme = Theme {
+    id: "tomorrow",
+    name: "Tomorrow",
+    dark: false,
+    bg_panel:    rgba(250, 250, 250, 246),
+    bg_widget:   rgba(255, 255, 255, 246),
+    bg_hover:    rgba(239, 239, 239, 248),
+    bg_active:   rgba(66, 113, 174, 235),
+    bg_extreme:  rgba(255, 255, 255, 250),
+    faint_bg:    rgba(244, 244, 244, 220),
+    code_bg:     rgba(255, 255, 255, 246),
+    accent:      rgb(66, 113, 174),
+    border_dim:  rgba(77, 77, 76, 40),
+    border_hi:   rgba(66, 113, 174, 200),
+    text_dim:    rgb(142, 144, 140),
+    text_bright: rgb(77, 77, 76),
+    selection:   rgba(214, 214, 214, 200),
+    hyperlink:   rgb(66, 113, 174),
+    warn:        rgb(234, 183, 0),
+    error:       rgb(200, 40, 41),
+    ed_plain:     rgb(77, 77, 76),
+    ed_keyword:   rgb(137, 89, 168),
+    ed_data:      rgb(66, 113, 174),
+    ed_paragraph: rgb(245, 135, 31),
+    ed_string:    rgb(113, 140, 0),
+    ed_comment:   rgb(142, 144, 140),
+    ed_generated: rgb(66, 113, 174),
+};
+
+/// Material Lighter.
+pub const MATERIAL_LIGHTER: Theme = Theme {
+    id: "material-lighter",
+    name: "Material Lighter",
+    dark: false,
+    bg_panel:    rgba(250, 250, 250, 246),
+    bg_widget:   rgba(255, 255, 255, 246),
+    bg_hover:    rgba(238, 242, 245, 248),
+    bg_active:   rgba(97, 130, 184, 235),
+    bg_extreme:  rgba(255, 255, 255, 250),
+    faint_bg:    rgba(243, 246, 248, 220),
+    code_bg:     rgba(250, 250, 250, 246),
+    accent:      rgb(97, 130, 184),
+    border_dim:  rgba(84, 110, 122, 40),
+    border_hi:   rgba(97, 130, 184, 200),
+    text_dim:    rgb(120, 144, 156),
+    text_bright: rgb(84, 110, 122),
+    selection:   rgba(128, 203, 196, 130),
+    hyperlink:   rgb(57, 173, 181),
+    warn:        rgb(255, 152, 0),
+    error:       rgb(229, 57, 53),
+    ed_plain:     rgb(84, 110, 122),
+    ed_keyword:   rgb(124, 77, 255),
+    ed_data:      rgb(57, 173, 181),
+    ed_paragraph: rgb(97, 130, 184),
+    ed_string:    rgb(145, 184, 89),
+    ed_comment:   rgb(176, 190, 197),
+    ed_generated: rgb(57, 173, 181),
+};
+
+/// Nord Light (the Snow Storm side of the Nord palette).
+pub const NORD_LIGHT: Theme = Theme {
+    id: "nord-light",
+    name: "Nord Light",
+    dark: false,
+    bg_panel:    rgba(236, 239, 244, 246),
+    bg_widget:   rgba(229, 233, 240, 246),
+    bg_hover:    rgba(216, 222, 233, 248),
+    bg_active:   rgba(94, 129, 172, 235),
+    bg_extreme:  rgba(242, 244, 248, 250),
+    faint_bg:    rgba(229, 233, 240, 220),
+    code_bg:     rgba(236, 239, 244, 246),
+    accent:      rgb(94, 129, 172),
+    border_dim:  rgba(46, 52, 64, 40),
+    border_hi:   rgba(94, 129, 172, 200),
+    text_dim:    rgb(76, 86, 106),
+    text_bright: rgb(46, 52, 64),
+    selection:   rgba(136, 192, 208, 130),
+    hyperlink:   rgb(94, 129, 172),
+    warn:        rgb(180, 142, 0),
+    error:       rgb(191, 97, 106),
+    ed_plain:     rgb(46, 52, 64),
+    ed_keyword:   rgb(94, 129, 172),
+    ed_data:      rgb(136, 192, 208),
+    ed_paragraph: rgb(180, 142, 173),
+    ed_string:    rgb(163, 190, 140),
+    ed_comment:   rgb(144, 153, 170),
+    ed_generated: rgb(129, 161, 193),
+};
+
+/// Rosé Pine Dawn.
+pub const ROSE_PINE_DAWN: Theme = Theme {
+    id: "rose-pine-dawn",
+    name: "Rosé Pine Dawn",
+    dark: false,
+    bg_panel:    rgba(250, 244, 237, 246),
+    bg_widget:   rgba(255, 250, 243, 246),
+    bg_hover:    rgba(242, 233, 222, 248),
+    bg_active:   rgba(86, 148, 159, 235),
+    bg_extreme:  rgba(255, 250, 243, 250),
+    faint_bg:    rgba(244, 237, 228, 220),
+    code_bg:     rgba(250, 244, 237, 246),
+    accent:      rgb(86, 148, 159),
+    border_dim:  rgba(87, 82, 121, 40),
+    border_hi:   rgba(86, 148, 159, 200),
+    text_dim:    rgb(121, 117, 147),
+    text_bright: rgb(87, 82, 121),
+    selection:   rgba(215, 130, 126, 110),
+    hyperlink:   rgb(40, 105, 131),
+    warn:        rgb(234, 157, 52),
+    error:       rgb(180, 99, 122),
+    ed_plain:     rgb(87, 82, 121),
+    ed_keyword:   rgb(40, 105, 131),
+    ed_data:      rgb(86, 148, 159),
+    ed_paragraph: rgb(180, 99, 122),
+    ed_string:    rgb(234, 157, 52),
+    ed_comment:   rgb(152, 147, 165),
+    ed_generated: rgb(40, 105, 131),
+};
+
+/// Catppuccin Latte.
+pub const CATPPUCCIN_LATTE: Theme = Theme {
+    id: "catppuccin-latte",
+    name: "Catppuccin Latte",
+    dark: false,
+    bg_panel:    rgba(239, 241, 245, 246),
+    bg_widget:   rgba(230, 233, 239, 246),
+    bg_hover:    rgba(220, 224, 232, 248),
+    bg_active:   rgba(30, 102, 245, 235),
+    bg_extreme:  rgba(245, 247, 250, 250),
+    faint_bg:    rgba(230, 233, 239, 220),
+    code_bg:     rgba(239, 241, 245, 246),
+    accent:      rgb(30, 102, 245),
+    border_dim:  rgba(76, 79, 105, 40),
+    border_hi:   rgba(30, 102, 245, 200),
+    text_dim:    rgb(108, 111, 133),
+    text_bright: rgb(76, 79, 105),
+    selection:   rgba(114, 135, 253, 110),
+    hyperlink:   rgb(30, 102, 245),
+    warn:        rgb(223, 142, 29),
+    error:       rgb(210, 15, 57),
+    ed_plain:     rgb(76, 79, 105),
+    ed_keyword:   rgb(136, 57, 239),
+    ed_data:      rgb(23, 146, 153),
+    ed_paragraph: rgb(230, 69, 83),
+    ed_string:    rgb(64, 160, 43),
+    ed_comment:   rgb(140, 143, 161),
+    ed_generated: rgb(30, 102, 245),
+};
+
+/// Classic — the Windows 95 look: silver chrome, navy selection, black text on
+/// white fields.
+pub const CLASSIC: Theme = Theme {
+    id: "classic",
+    name: "Classic",
+    dark: false,
+    bg_panel:    rgba(192, 192, 192, 252),
+    bg_widget:   rgba(212, 208, 200, 252),
+    bg_hover:    rgba(223, 219, 210, 252),
+    bg_active:   rgba(0, 0, 128, 245),
+    bg_extreme:  rgba(255, 255, 255, 252),
+    faint_bg:    rgba(200, 200, 200, 235),
+    code_bg:     rgba(255, 255, 255, 252),
+    accent:      rgb(0, 0, 128),
+    border_dim:  rgba(128, 128, 128, 200),
+    border_hi:   rgba(0, 0, 128, 220),
+    text_dim:    rgb(64, 64, 64),
+    text_bright: rgb(0, 0, 0),
+    selection:   rgba(0, 0, 128, 190),
+    hyperlink:   rgb(0, 0, 255),
+    warn:        rgb(128, 128, 0),
+    error:       rgb(255, 0, 0),
+    ed_plain:     rgb(0, 0, 0),
+    ed_keyword:   rgb(0, 0, 128),
+    ed_data:      rgb(0, 128, 128),
+    ed_paragraph: rgb(128, 0, 128),
+    ed_string:    rgb(128, 0, 0),
+    ed_comment:   rgb(0, 128, 0),
+    ed_generated: rgb(0, 0, 255),
+};
+
 /// All selectable themes, in display order. The first is the default.
 pub const THEMES: &[Theme] = &[
     DARK_GLASS,
@@ -643,6 +974,17 @@ pub const THEMES: &[Theme] = &[
     SOLARIZED_LIGHT,
     GITHUB_DARK,
     PALENIGHT,
+    GITHUB_LIGHT,
+    ONE_LIGHT,
+    GRUVBOX_LIGHT,
+    AYU_LIGHT,
+    QUIET_LIGHT,
+    TOMORROW,
+    MATERIAL_LIGHTER,
+    NORD_LIGHT,
+    ROSE_PINE_DAWN,
+    CATPPUCCIN_LATTE,
+    CLASSIC,
 ];
 
 /// The default theme (preserves the original look).
@@ -693,8 +1035,25 @@ mod tests {
     }
 
     #[test]
-    fn ships_seventeen_themes() {
-        assert_eq!(THEMES.len(), 17, "6 original + 10 + Deep Blue");
+    fn ships_twenty_eight_themes() {
+        assert_eq!(THEMES.len(), 28, "17 original + 10 light + Classic");
+    }
+
+    #[test]
+    fn new_light_themes_are_light_and_classic_is_win95() {
+        for id in [
+            "github-light", "one-light", "gruvbox-light", "ayu-light",
+            "quiet-light", "tomorrow", "material-lighter", "nord-light",
+            "rose-pine-dawn", "catppuccin-latte", "classic",
+        ] {
+            let t = theme_by_id(id);
+            assert_eq!(t.id, id, "theme '{id}' must be registered");
+            assert!(!t.dark, "'{id}' must be a light theme");
+        }
+        // Classic = Windows 95: silver chrome + navy selection accent.
+        let c = theme_by_id("classic");
+        assert_eq!(c.accent, rgb(0, 0, 128));
+        assert_eq!(c.text_bright, rgb(0, 0, 0));
     }
 
     #[test]
