@@ -137,6 +137,17 @@ pub enum Expr {
         path: Vec<PropSeg>,
         span: Span,
     },
+
+    /// Visual-object **method call** as an expression (PowerCOBOL OO style):
+    ///   `Label-1::GetText()`  ·  `CheckBox-1::IsChecked()`
+    /// Used where a value is needed (e.g. `MOVE obj::GetText() TO X`). The same
+    /// form is also a statement ([`crate::stmt::Stmt::Invoke`]).
+    MethodCall {
+        object: String,
+        method: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
 }
 
 /// One segment of a [`Expr::PropertyRef`] path: a property/collection name with
@@ -160,6 +171,7 @@ impl Expr {
             Expr::Arithmetic { span, .. } => *span,
             Expr::Unary { span, .. }     => *span,
             Expr::PropertyRef { span, .. } => *span,
+            Expr::MethodCall { span, .. } => *span,
         }
     }
 }

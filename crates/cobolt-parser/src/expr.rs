@@ -150,6 +150,19 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         return Some(Expr::FunctionCall { name, args, span: sp });
     }
 
+    // Inline OO method call as an expression (a value): `obj::method(args)`,
+    // e.g. `MOVE TextBox-1::GetText() TO WS-X`.
+    if matches!(p.peek(), Token::Identifier(_))
+        && *p.peek_at(1) == Token::Colon
+        && *p.peek_at(2) == Token::Colon
+    {
+        let (object, _) = p.eat_identifier().unwrap();
+        if let Some((method, args)) = crate::stmt::parse_method_tail(p) {
+            let sp = span.merge(p.peek_span());
+            return Some(Expr::MethodCall { object, method, args, span: sp });
+        }
+    }
+
     // PowerCOBOL-style property reference: a quoted property name followed by
     // `OF` — e.g. `"Caption" OF CmStatic1`. A plain string literal (no `OF`)
     // falls through to `parse_literal` below.
@@ -226,7 +239,7 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
 }
 
 /// Consume a string literal if the current token is one.
-fn take_string_literal(p: &mut Parser) -> Option<String> {
+pub(crate) fn take_string_literal(p: &mut Parser) -> Option<String> {
     if let Token::StringLiteral(s) = p.peek() {
         let s = s.clone();
         p.advance();

@@ -718,6 +718,18 @@ pub enum Stmt {
         span: Span,
     },
 
+    /// Visual-object **method invocation** (PowerCOBOL OO):
+    ///   `INVOKE Label-1 "SetCaption" USING "Hi"`
+    ///   `Label-1::SetCaption("Hi")`
+    /// `args` are the operands; `returning` receives a getter's result.
+    Invoke {
+        object: String,
+        method: String,
+        args: Vec<Expr>,
+        returning: Option<Expr>,
+        span: Span,
+    },
+
     /// `CANCEL program …` — drop the program(s) from memory so the next `CALL`
     /// re-initialises their storage.
     Cancel {
@@ -868,6 +880,7 @@ impl Stmt {
             Stmt::Release { span, .. }           => *span,
             Stmt::Return { span, .. }            => *span,
             Stmt::Call { span, .. }              => *span,
+            Stmt::Invoke { span, .. }            => *span,
             Stmt::Cancel { span, .. }            => *span,
             Stmt::Stop { span, .. }              => *span,
             Stmt::GoBack { span }                => *span,

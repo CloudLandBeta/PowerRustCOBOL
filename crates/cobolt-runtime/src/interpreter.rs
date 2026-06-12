@@ -494,6 +494,26 @@ impl Interpreter {
         interp
     }
 
+    /// Seed the visual-object registry with a form's controls and their
+    /// designed properties, so that property references (`"Caption" OF Ctrl`)
+    /// and method getters (`Ctrl::GetCaption()`) return the configured values
+    /// before any setter runs. Object and property names are matched
+    /// case-insensitively by the registry.
+    pub fn seed_objects<I, P>(&mut self, controls: I)
+    where
+        I: IntoIterator<Item = (String, String, P)>,
+        P: IntoIterator<Item = (String, String)>,
+    {
+        for (id, class, props) in controls {
+            if !self.objects.contains(&id) {
+                self.objects.register(&id, class);
+            }
+            for (k, v) in props {
+                self.objects.set_property(&id, &k, v);
+            }
+        }
+    }
+
     // ── Entry point ───────────────────────────────────────────────────────────
 
     /// Run the program to completion.
@@ -852,6 +872,24 @@ impl Interpreter {
             // ── Subprogram linkage ────────────────────────────────────────────
             Stmt::Call { program, using, returning, on_exception, not_on_exception, span } =>
                 self.exec_call(program, using, returning.as_ref(), on_exception, not_on_exception, *span),
+
+            Stmt::Invoke { object, method, args, returning, span } => {
+                let mut vals = Vec::with_capacity(args.len());
+                for a in args { vals.push(self.eval_expr(a, *span)?); }
+                let result = self.exec_method(object, method, &vals);
+                if let Some(dest) = returning {
+                    let s = result.as_display_string();
+                    let s = s.trim();
+                    if let Expr::PropertyRef { control, path, span: ps } = dest {
+                        let (ctrl, key) = self.property_ref_key(control, path, *ps);
+                        self.obj_set(&ctrl, &key, s.to_string());
+                    } else {
+                        let n = self.expr_to_name(dest);
+                        self.env.set_str(&n, s);
+                    }
+                }
+                Ok(())
+            }
 
             // ── Program termination ───────────────────────────────────────────
             Stmt::Stop { run: true, .. } => Err(RuntimeError::StopRun),
@@ -3167,6 +3205,159 @@ impl Interpreter {
         (control.trim().to_owned(), parts.join("."))
     }
 
+    // ── Visual-object method dispatch (INVOKE / obj::method) ────────────────────
+
+    /// Set a control property and notify the UI thread (auto-registers the
+    /// object so the change is never silently dropped).
+    fn obj_set(&mut self, obj: &str, prop: &str, val: String) {
+        if !self.objects.contains(obj) {
+            self.objects.register(obj, "Control");
+        }
+        self.objects.set_property(obj, prop, val.clone());
+        if let Some(tx) = &self.state_tx {
+            let _ = tx.send(StateUpdate::new(obj.to_string(), prop.to_string(), val));
+        }
+    }
+
+    /// Read a control property as a string (`""` when unset).
+    fn obj_get(&self, obj: &str, prop: &str) -> String {
+        self.objects.get_property(obj, prop).map(|v| v.to_string()).unwrap_or_default()
+    }
+
+    /// Execute a widget method (`obj::method(args)` / `INVOKE obj "method"`).
+    /// Most methods are thin sugar over property get/set — which the form
+    /// runtime mirrors to the live UI — and getters return a value (for the
+    /// expression form and `RETURNING`).
+    fn exec_method(&mut self, object: &str, method: &str, args: &[CobolValue]) -> CobolValue {
+        let obj = object.trim();
+        let m   = method.to_ascii_uppercase();
+        let arg = |i: usize| args.get(i)
+            .map(|v| v.as_display_string().trim().to_string()).unwrap_or_default();
+        let val = |s: String| { let n = s.len(); CobolValue::from_str(&s, n) };
+        let truthy = |s: &str| {
+            let t = s.trim();
+            t == "1" || t.eq_ignore_ascii_case("true") || t.eq_ignore_ascii_case("yes")
+                || t.eq_ignore_ascii_case("on")
+        };
+        let b01 = |s: &str| if truthy(s) { "1".to_string() } else { "0".to_string() };
+        let none = CobolValue::from_str("", 0);
+        let parse_i = |s: String| s.trim().parse::<i64>().unwrap_or(0);
+
+        match m.as_str() {
+            // ── Universal lifecycle / visibility ──
+            "SHOW"     => { self.obj_set(obj, "Visible", "1".into()); none }
+            "HIDE"     => { self.obj_set(obj, "Visible", "0".into()); none }
+            "ENABLE"   => { self.obj_set(obj, "Enabled", "1".into()); none }
+            "DISABLE"  => { self.obj_set(obj, "Enabled", "0".into()); none }
+            "SETFOCUS" | "FOCUS" => { self.obj_set(obj, "Focused", "1".into()); none }
+            "BRINGTOFRONT" => { self.obj_set(obj, "ZOrder", "10000".into()); none }
+            "SENDTOBACK"   => { self.obj_set(obj, "ZOrder", "-10000".into()); none }
+            "REFRESH" | "VALIDATE" => none,
+            // ── Geometry ──
+            "MOVETO" => { self.obj_set(obj, "X", arg(0)); self.obj_set(obj, "Y", arg(1)); none }
+            "RESIZE" => { self.obj_set(obj, "Width", arg(0)); self.obj_set(obj, "Height", arg(1)); none }
+            // ── Generic property access ──
+            "SETPROPERTY" => { let p = arg(0); self.obj_set(obj, &p, arg(1)); none }
+            "GETPROPERTY" => val(self.obj_get(obj, &arg(0))),
+            // ── Text / caption ──
+            "SETCAPTION" => { self.obj_set(obj, "Caption", arg(0)); none }
+            "SETTEXT"    => { self.obj_set(obj, "Text", arg(0)); none }
+            "GETCAPTION" => val(self.obj_get(obj, "Caption")),
+            "GETTEXT"    => val(self.obj_get(obj, "Text")),
+            "APPENDTEXT" => { let cur = self.obj_get(obj, "Text"); self.obj_set(obj, "Text", format!("{cur}{}", arg(0))); none }
+            "SETCOLOR"   => { self.obj_set(obj, "ForegroundColor", arg(0)); none }
+            "SELECTALL"  => none,
+            "CLEAR"      => { self.obj_set(obj, "Text", String::new()); self.obj_set(obj, "Items", String::new()); none }
+            // ── Checkbox / radio ──
+            "ISCHECKED"  => val(b01(&self.obj_get(obj, "Checked"))),
+            "SETCHECKED" => { let v = b01(&arg(0)); self.obj_set(obj, "Checked", v); none }
+            "SELECT"     => { self.obj_set(obj, "Checked", "1".into()); none }
+            "TOGGLE"     => { let c = self.obj_get(obj, "Checked"); let nv = if truthy(&c) { "0" } else { "1" }; self.obj_set(obj, "Checked", nv.into()); none }
+            // ── Numeric value (progress/slider/numeric/datetime) ──
+            "SETVALUE"  => { self.obj_set(obj, "Value", arg(0)); none }
+            "GETVALUE"  => val(self.obj_get(obj, "Value")),
+            "INCREMENT" => { let st = parse_i(self.obj_get(obj, "Step")); let st = if st == 0 { 1 } else { st }; let v = parse_i(self.obj_get(obj, "Value")); self.obj_set(obj, "Value", (v + st).to_string()); none }
+            "DECREMENT" => { let st = parse_i(self.obj_get(obj, "Step")); let st = if st == 0 { 1 } else { st }; let v = parse_i(self.obj_get(obj, "Value")); self.obj_set(obj, "Value", (v - st).to_string()); none }
+            "RESET"     => { let min = self.obj_get(obj, "Minimum"); let m2 = if min.trim().is_empty() { "0".to_string() } else { min }; self.obj_set(obj, "Value", m2); none }
+            // ── Items (list / combo) ──
+            "ADDITEM" => { let cur = self.obj_get(obj, "Items"); let nv = if cur.is_empty() { arg(0) } else { format!("{cur}\n{}", arg(0)) }; self.obj_set(obj, "Items", nv); none }
+            "REMOVEITEM" => { let idx = arg(0).trim().parse::<usize>().unwrap_or(usize::MAX); let cur = self.obj_get(obj, "Items"); let mut lines: Vec<String> = cur.lines().map(|l| l.to_string()).collect(); if idx < lines.len() { lines.remove(idx); } self.obj_set(obj, "Items", lines.join("\n")); none }
+            "GETSELECTED" => val(self.obj_get(obj, "Value")),
+            "GETSELECTEDINDEX" | "GETINDEX" => val(self.obj_get(obj, "SelectedIndex")),
+            "SETSELECTEDINDEX" | "SETINDEX" => { self.obj_set(obj, "SelectedIndex", arg(0)); none }
+            "GETCOUNT" => { let cur = self.obj_get(obj, "Items"); let n = if cur.trim().is_empty() { 0 } else { cur.lines().count() }; val(n.to_string()) }
+            // ── Timer ──
+            "START" => { self.obj_set(obj, "Enabled", "1".into()); none }
+            "STOP"  => { self.obj_set(obj, "Enabled", "0".into()); none }
+            "SETINTERVAL" => { self.obj_set(obj, "Interval", arg(0)); none }
+            "ISENABLED" => val(b01(&self.obj_get(obj, "Enabled"))),
+            // ── Animation ──
+            "PLAYANIMATION" | "PLAY" => { let a = if args.is_empty() { "1".to_string() } else { arg(0) }; self.obj_set(obj, "_PlayAnimation", a); none }
+            "STOPANIMATION" => { self.obj_set(obj, "_StopAnimation", "1".into()); none }
+            "PAUSE" => { self.obj_set(obj, "_PauseAnimation", "1".into()); none }
+            // ── ModalWindow / AgentObject extras ──
+            "CLOSE" => {
+                // SqlDatabase::Close closes the connection; otherwise hide a window.
+                let h = parse_i(self.obj_get(obj, "_Handle"));
+                if h > 0 { self.db.close(h as u32); }
+                else     { self.obj_set(obj, "Visible", "0".into()); }
+                none
+            }
+            "GETRESULT" => val(self.obj_get(obj, "Result")),
+            "SETTITLE"  => { self.obj_set(obj, "Title", arg(0)); none }
+            // AgentObject (LLM): prompt/model are stored; Ask records the prompt
+            // and returns the last reply property (filled by the host LLM bridge).
+            "SETPROMPT" => { self.obj_set(obj, "SystemPrompt", arg(0)); none }
+            "SETMODEL"  => { self.obj_set(obj, "Model", arg(0)); none }
+            "ASK"       => { self.obj_set(obj, "Prompt", arg(0)); val(self.obj_get(obj, "LastReply")) }
+            // ── REST / HTTP client ──
+            "GET" => { let (b, st) = self.http.get(&arg(0)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
+            "POST" => { let (b, st) = self.http.post(&arg(0), &arg(1)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
+            "PUT" => { let (b, st) = self.http.put(&arg(0), &arg(1)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
+            "DELETE" => { let (b, st) = self.http.delete(&arg(0)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
+            "CALL" => {
+                let verb = arg(0).to_ascii_uppercase();
+                let (b, st) = match verb.as_str() {
+                    "POST"   => self.http.post(&arg(1), &arg(2)),
+                    "PUT"    => self.http.put(&arg(1), &arg(2)),
+                    "DELETE" => self.http.delete(&arg(1)),
+                    _        => self.http.get(&arg(1)),
+                };
+                self.obj_set(obj, "ResponseBody", b.clone());
+                self.obj_set(obj, "StatusCode", st.to_string());
+                val(b)
+            }
+            "SETHEADER"    => { self.http.set_header(arg(0), arg(1)); none }
+            "CLEARHEADERS" => { self.http.clear_headers(); none }
+            "SETTIMEOUT"   => { self.obj_set(obj, "Timeout", arg(0)); none }
+            // ── SQL database ──
+            "OPEN" => {
+                match self.db.open(&arg(0)) {
+                    Ok(h)  => { self.obj_set(obj, "_Handle", h.to_string()); self.obj_set(obj, "StatusCode", "0".into()); val(h.to_string()) }
+                    Err(e) => { self.obj_set(obj, "LastError", e); self.obj_set(obj, "StatusCode", "1".into()); val("0".to_string()) }
+                }
+            }
+            "EXECUTE" | "EXEC" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                match self.db.exec(h, &arg(0)) {
+                    Ok(n)  => val(n.to_string()),
+                    Err(e) => { self.obj_set(obj, "LastError", e); val("0".to_string()) }
+                }
+            }
+            "QUERY" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                match self.db.exec(h, &arg(0)) {
+                    Ok(_)  => val(self.db.row_count(h).to_string()),
+                    Err(e) => { self.obj_set(obj, "LastError", e); val("0".to_string()) }
+                }
+            }
+            "FETCH"    => { let h = parse_i(self.obj_get(obj, "_Handle")) as u32; val(if self.db.next_row(h) { "1" } else { "0" }.to_string()) }
+            "FETCHALL" => { let h = parse_i(self.obj_get(obj, "_Handle")) as u32; val(self.db.row_count(h).to_string()) }
+            // ── Unknown method: no-op ──
+            _ => none,
+        }
+    }
+
     pub fn eval_expr(&mut self, expr: &Expr, span: Span) -> Result<CobolValue, RuntimeError> {
         match expr {
             Expr::Literal(lit, _) => Ok(literal_to_value(lit)),
@@ -3181,6 +3372,13 @@ impl Interpreter {
                     .unwrap_or_default();
                 let n = val_s.len();
                 Ok(CobolValue::from_str(&val_s, n))
+            }
+
+            // Visual-object method call as a value: `obj::GetText()`.
+            Expr::MethodCall { object, method, args, span: s } => {
+                let mut vals = Vec::with_capacity(args.len());
+                for a in args { vals.push(self.eval_expr(a, *s)?); }
+                Ok(self.exec_method(object, method, &vals))
             }
 
             Expr::Identifier(name, _) => {

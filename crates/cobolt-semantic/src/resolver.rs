@@ -191,6 +191,12 @@ impl<'a> ResolveCtx<'a> {
             Stmt::Throw { message, .. } => {
                 self.resolve_expr(message);
             }
+            // Visual-object method invocation: object is a control; resolve the
+            // argument expressions and the optional RETURNING receiver.
+            Stmt::Invoke { args, returning, .. } => {
+                for a in args { self.resolve_expr(a); }
+                if let Some(r) = returning { self.resolve_expr(r); }
+            }
             _ => {}
         }
     }
@@ -249,6 +255,11 @@ impl<'a> ResolveCtx<'a> {
                 for seg in path {
                     if let Some(idx) = &seg.index { self.resolve_expr(idx); }
                 }
+            }
+            // Visual-object method call (`obj::Method(args)`): the object is a
+            // form control, not a data item — only resolve the argument exprs.
+            Expr::MethodCall { args, .. } => {
+                for a in args { self.resolve_expr(a); }
             }
             // Literals and figurative constants need no resolution.
             Expr::Literal(..) => {}

@@ -1357,77 +1357,33 @@ impl EditorPanel {
                     ui.set_min_height(avail.y);
                     ui.horizontal_top(|ui| {
                         // ── Breakpoint + line-number gutter ──────────────────
+                        // We only RESERVE the gutter here; the numbers are painted
+                        // after the TextEdit using the galley's real row positions
+                        // so they line up exactly with the text (computing a row
+                        // height up front drifts because egui pixel-rounds each row).
+                        let mut gutter_state:
+                            Option<(egui::Rect, f32, std::collections::HashSet<u32>, Option<u32>)> = None;
                         if self.show_line_numbers {
                             let n_lines = self.tabs[self.active].content.lines().count().max(1);
-                            let line_h  = self.font_size * 1.45;
-                            // Gutter width: 8px bp zone + 4px gap + ~36px line numbers
+                            let line_h  = ui.fonts(|f| f.row_height(&font));
                             let gutter_w = 54.0_f32;
                             let (gutter_rect, gutter_resp) = ui.allocate_exact_size(
                                 egui::vec2(gutter_w, line_h * n_lines as f32),
                                 egui::Sense::click(),
                             );
-
-                            // Handle click → toggle breakpoint.
                             if gutter_resp.clicked() {
                                 if let Some(pos) = gutter_resp.interact_pointer_pos() {
-                                    let rel_y = pos.y - gutter_rect.min.y;
+                                    let rel_y = (pos.y - gutter_rect.min.y).max(0.0);
                                     let clicked_line = (rel_y / line_h).floor() as u32 + 1;
                                     self.toggle_breakpoint(clicked_line);
                                 }
                             }
-
-                            // Paint gutter.
-                            let painter = ui.painter_at(gutter_rect);
-                            let active_bp  = self.active_breakpoints();
+                            let bp_set: std::collections::HashSet<u32> =
+                                self.active_breakpoints().cloned().unwrap_or_default();
                             let debug_line = self.debug_line.as_ref().and_then(|(p, l)| {
                                 self.tabs.get(self.active).filter(|t| t.path == *p).map(|_| *l)
                             });
-
-                            for line_idx in 0..n_lines {
-                                let line_num = (line_idx + 1) as u32;
-                                let y = gutter_rect.min.y + line_idx as f32 * line_h;
-
-                                // Debug arrow (current paused line).
-                                if debug_line == Some(line_num) {
-                                    painter.rect_filled(
-                                        egui::Rect::from_min_size(
-                                            egui::pos2(gutter_rect.min.x, y),
-                                            egui::vec2(gutter_w, line_h),
-                                        ),
-                                        0.0,
-                                        Color32::from_rgba_unmultiplied(255, 220, 0, 40),
-                                    );
-                                    painter.text(
-                                        egui::pos2(gutter_rect.min.x + 4.0, y + line_h * 0.5),
-                                        egui::Align2::LEFT_CENTER,
-                                        "→",
-                                        FontId::monospace(self.font_size - 1.0),
-                                        Color32::from_rgb(255, 200, 0),
-                                    );
-                                }
-
-                                // Breakpoint dot.
-                                let has_bp = active_bp.map(|s| s.contains(&line_num)).unwrap_or(false);
-                                if has_bp {
-                                    let dot_cx = gutter_rect.min.x + 6.0;
-                                    let dot_cy = y + line_h * 0.5;
-                                    painter.circle_filled(
-                                        egui::pos2(dot_cx, dot_cy),
-                                        4.5,
-                                        Color32::from_rgb(220, 60, 60),
-                                    );
-                                }
-
-                                // Line number.
-                                painter.text(
-                                    egui::pos2(gutter_rect.max.x - 4.0, y + line_h * 0.5),
-                                    egui::Align2::RIGHT_CENTER,
-                                    format!("{line_num}"),
-                                    FontId::monospace(self.font_size - 1.0),
-                                    Color32::from_gray(if debug_line == Some(line_num) { 220 } else { 100 }),
-                                );
-                            }
-
+                            gutter_state = Some((gutter_rect, gutter_w, bp_set, debug_line));
                             ui.add(egui::Separator::default().vertical().spacing(2.0));
                         }
 
@@ -1465,12 +1421,47 @@ impl EditorPanel {
                             .id(editor_id)
                             .font(font.clone())
                             .desired_width(f32::INFINITY)
+                            .frame(false)            // no border/inset → gutter aligns
+                            .margin(egui::Margin::ZERO)
                             .lock_focus(true)
                             .interactive(!tab.read_only)
                             .layouter(&mut layouter)
                             .show(ui);
 
                         editor_rect_cell.set(te_out.response.rect);
+
+                        // Paint the line-number gutter using the galley's actual
+                        // per-row rectangles, so every number aligns with its row.
+                        if let Some((gutter_rect, gutter_w, bp_set, debug_line)) = &gutter_state {
+                            let painter  = ui.painter().with_clip_rect(ui.clip_rect());
+                            let num_font = FontId::monospace(self.font_size - 1.0);
+                            for (i, row) in te_out.galley.rows.iter().enumerate() {
+                                let line_num = (i + 1) as u32;
+                                let yc    = te_out.galley_pos.y + row.rect.center().y;
+                                let row_h = row.rect.height();
+                                if *debug_line == Some(line_num) {
+                                    painter.rect_filled(
+                                        egui::Rect::from_min_size(
+                                            egui::pos2(gutter_rect.min.x, yc - row_h * 0.5),
+                                            egui::vec2(*gutter_w, row_h)),
+                                        0.0, Color32::from_rgba_unmultiplied(255, 220, 0, 40));
+                                    painter.text(
+                                        egui::pos2(gutter_rect.min.x + 4.0, yc),
+                                        egui::Align2::LEFT_CENTER, "→",
+                                        num_font.clone(), Color32::from_rgb(255, 200, 0));
+                                }
+                                if bp_set.contains(&line_num) {
+                                    painter.circle_filled(
+                                        egui::pos2(gutter_rect.min.x + 6.0, yc), 4.5,
+                                        Color32::from_rgb(220, 60, 60));
+                                }
+                                painter.text(
+                                    egui::pos2(gutter_rect.max.x - 4.0, yc),
+                                    egui::Align2::RIGHT_CENTER, format!("{line_num}"),
+                                    num_font.clone(),
+                                    Color32::from_gray(if *debug_line == Some(line_num) { 220 } else { 100 }));
+                            }
+                        }
 
                         if te_out.response.changed() && !tab.read_only { tab.dirty = true; }
 
@@ -1485,7 +1476,7 @@ impl EditorPanel {
                                 // Scroll the viewport so the match is visible
                                 let content_before = &tab.content[..byte_off.min(tab.content.len())];
                                 let line_num = content_before.matches('\n').count();
-                                let line_h   = self.font_size * 1.45;
+                                let line_h   = ui.fonts(|f| f.row_height(&font));
                                 let match_y  = te_out.galley_pos.y + line_num as f32 * line_h;
                                 ui.scroll_to_rect(
                                     egui::Rect::from_min_size(

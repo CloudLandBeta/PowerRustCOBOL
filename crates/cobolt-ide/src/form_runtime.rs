@@ -175,6 +175,29 @@ impl FormRuntime {
             .collect();
         ctrl_order.sort_by_key(|m| m.z_order);
 
+        // Seed the interpreter's visual-object registry with every control's
+        // designed properties, so property references and method getters return
+        // the configured values before any setter runs.
+        let seed: Vec<(String, String, Vec<(String, String)>)> =
+            collect_controls(&form.controls)
+                .into_iter()
+                .map(|c| {
+                    let mut props: Vec<(String, String)> = c.properties.iter()
+                        .map(|(k, v)| (k.clone(), v.to_xml_string()))
+                        .collect();
+                    let b = |v: bool| if v { "1" } else { "0" }.to_string();
+                    props.push(("Name".into(),     c.id.clone()));
+                    props.push(("Visible".into(),  b(c.visible)));
+                    props.push(("Enabled".into(),  b(c.enabled)));
+                    props.push(("X".into(),        c.rect.x.to_string()));
+                    props.push(("Y".into(),        c.rect.y.to_string()));
+                    props.push(("Width".into(),    c.rect.w.to_string()));
+                    props.push(("Height".into(),   c.rect.h.to_string()));
+                    props.push(("TabOrder".into(), c.tab_order.to_string()));
+                    (c.id.clone(), c.control_type.as_str().to_string(), props)
+                })
+                .collect();
+
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_clone = Arc::clone(&stop_flag);
 
@@ -183,6 +206,7 @@ impl FormRuntime {
             let mut interp = Interpreter::new_with_channels(
                 program, event_rx, state_tx, display_tx,
             );
+            interp.seed_objects(seed);
             if stop_clone.load(Ordering::Relaxed) { return; }
             let _ = interp.run();
         });
@@ -219,9 +243,15 @@ impl FormRuntime {
         loop {
             match self.state_rx.try_recv() {
                 Ok(upd) => {
-                    let entry = self.ctrl_state
-                        .entry(upd.ctrl_id.clone())
-                        .or_default();
+                    // COBOL upper-cases unquoted control identifiers (`Label-1`
+                    // becomes `LABEL-1`), but `ctrl_state` is keyed by the
+                    // designer's original-case id. Resolve case-insensitively so
+                    // property/method updates land on the rendered control.
+                    let key = self.ctrl_state.keys()
+                        .find(|k| k.eq_ignore_ascii_case(&upd.ctrl_id))
+                        .cloned()
+                        .unwrap_or_else(|| upd.ctrl_id.clone());
+                    let entry = self.ctrl_state.entry(key).or_default();
                     entry.set(&upd.prop, upd.value);
                     changed = true;
                 }
