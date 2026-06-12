@@ -285,12 +285,12 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
         ui.painter().rect_filled(rect, rounding, bg);
         ui.painter().rect_stroke(rect, rounding, Stroke::new(1.0, border_color));
 
-        let icon_color = if pressed || dragging {
-            Color32::WHITE
-        } else if hovered {
-            Color32::from_rgb(200, 220, 255)
+        // Theme-aware icon strokes: dark on light themes, light on dark ones.
+        let theme = crate::theme::active();
+        let icon_color = if pressed || dragging || hovered {
+            theme.text_bright
         } else {
-            Color32::from_rgb(210, 210, 220)
+            theme.text_dim
         };
 
         paint_control_icon(ui.painter(), rect, entry.ct.clone(), icon_color);
