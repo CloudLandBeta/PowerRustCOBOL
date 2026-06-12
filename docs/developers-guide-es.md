@@ -6,88 +6,88 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# PowerRustCOBOL Developer's Guide
+# Guía del Developer de PowerRustCOBOL
 
-*A practical guide to building graphical COBOL applications with PowerRustCOBOL.*
+*Una guía práctica para construir aplicaciones COBOL gráficas con PowerRustCOBOL.*
 
-> **Who this guide is for.** You already write COBOL, and you have built screen
-> or window-based applications with a GUI COBOL toolset — for example Fujitsu
-> **PowerCOBOL for Windows** or **Veryant isCOBOL**. You know `IDENTIFICATION
-> DIVISION`, `PERFORM`, `OPEN`/`READ`/`WRITE`, indexed files, and the idea of a
-> *form* with *controls* that raise *events*. This guide maps those instincts
-> onto PowerRustCOBOL and shows you everything that is new. **No prior knowledge
-> of the host implementation language is assumed or required** — you will never
-> need to read or write anything other than COBOL to build an application.
+> **Para quién es esta guía.** Ya escribes COBOL y has construido aplicaciones de pantalla
+> o basadas en ventanas con un toolset GUI COBOL — por ejemplo Fujitsu
+> **PowerCOBOL for Windows** o **Veryant isCOBOL**. Conoces `IDENTIFICATION
+> DIVISION`, `PERFORM`, `OPEN`/`READ`/`WRITE`, indexed files, y la idea de un
+> *form* con *controls* que disparan *events*. Esta guía mapea esos instintos
+> hacia PowerRustCOBOL y te muestra todo lo que es nuevo. **No se asume ni se requiere
+> conocimiento previo del host implementation language** — nunca necesitarás leer
+> o escribir nada que no sea COBOL para construir una application.
 
 ---
 
-## Table of contents
+## Índice
 
-1. [What PowerRustCOBOL is, and why it exists](#1-what-powerrustcobol-is-and-why-it-exists)
-2. [The three pieces: RustCOBOL, PowerRustCOBOL, rcrun](#2-the-three-pieces)
-3. [Installing and launching](#3-installing-and-launching)
-4. [Your first application: Hello, Form](#4-your-first-application-hello-form)
-5. [The IDE at a glance](#5-the-ide-at-a-glance)
-6. [Projects and the project model](#6-projects-and-the-project-model)
-7. [The Form Designer (RAD)](#7-the-form-designer-rad)
-8. [The widget catalogue](#8-the-widget-catalogue)
+1. [Qué es PowerRustCOBOL y por qué existe](#1-qué-es-powerrustcobol-y-por-qué-existe)
+2. [Las tres piezas: RustCOBOL, PowerRustCOBOL, rcrun](#2-las-tres-piezas)
+3. [Instalación y lanzamiento](#3-instalación-y-lanzamiento)
+4. [Tu primera application: Hello, Form](#4-tu-primera-application-hello-form)
+5. [La IDE de un vistazo](#5-la-ide-de-un-vistazo)
+6. [Projects y el project model](#6-projects-y-el-project-model)
+7. [El Form Designer (RAD)](#7-el-form-designer-rad)
+8. [El widget catalogue](#8-el-widget-catalogue)
 9. [Properties](#9-properties)
 10. [Event-driven programming](#10-event-driven-programming)
-11. [Talking to the UI from COBOL](#11-talking-to-the-ui-from-cobol)
+11. [Hablar con la UI desde COBOL](#11-hablar-con-la-ui-desde-cobol)
 12. [Generated code](#12-generated-code)
-13. [The RustCOBOL language](#13-the-rustcobol-language)
-14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
+13. [El RustCOBOL language](#13-el-rustcobol-language)
+14. [Indexed files — un recurso first-class](#14-indexed-files--un-recurso-first-class)
 15. [SQL databases](#15-sql-databases)
-16. [HTTP / REST and AI agents](#16-http--rest-and-ai-agents)
-17. [The command line (rcrun)](#17-the-command-line-rcrun)
-18. [Building a distributable binary](#18-building-a-distributable-binary)
+16. [HTTP / REST y AI agents](#16-http--rest-y-ai-agents)
+17. [La command line (rcrun)](#17-la-command-line-rcrun)
+18. [Construir un distributable binary](#18-construir-un-distributable-binary)
 19. [Debugging](#19-debugging)
-20. [Appearance and internationalisation](#20-appearance-and-internationalisation)
-21. [Caveats and current limitations](#21-caveats-and-current-limitations)
+20. [Appearance e internationalisation](#20-appearance-e-internationalisation)
+21. [Caveats y limitaciones actuales](#21-caveats-y-limitaciones-actuales)
 22. [Appendix A — Coming from PowerCOBOL / isCOBOL](#appendix-a--coming-from-powercobol--iscobol)
 23. [Appendix B — Glossary](#appendix-b--glossary)
 
 ---
 
-## 1. What PowerRustCOBOL is, and why it exists
+## 1. Qué es PowerRustCOBOL y por qué existe
 
-For decades, the only way to write **windowed, event-driven COBOL** was to buy a
-proprietary toolchain tied to one operating system, one vendor, and one
-licensing model. Those tools were excellent in their day, but most are now
-Windows-bound, closed, and increasingly hard to deploy on modern machines. A
-generation of business logic — payroll, inventory, banking back-offices — is
-written in that style and has nowhere modern to go.
+Durante décadas, la única manera de escribir **windowed, event-driven COBOL** fue comprar un
+proprietary toolchain atado a un único operating system, un único vendor y un único
+licensing model. Esas herramientas fueron excelentes en su época, pero la mayoría hoy están
+atadas a Windows, son closed, y cada vez son más difíciles de desplegar en máquinas modernas. Una
+generación de business logic — payroll, inventory, banking back-offices — está escrita
+en ese estilo y no tiene un lugar moderno a donde ir.
 
-**PowerRustCOBOL exists to give that style of development a fresh, open home.**
-It is a Rapid Application Development (RAD) environment where you:
+**PowerRustCOBOL existe para dar a ese estilo de development un hogar nuevo y open.**
+Es un Rapid Application Development (RAD) environment donde tú:
 
-- design windows ("forms") by dragging controls onto a canvas,
-- attach **COBOL** event handlers to those controls,
-- and run, debug, and ship the result as a **single self-contained native
-  executable** — no runtime to install on the target machine.
+- diseñas windows ("forms") arrastrando controls sobre un canvas,
+- adjuntas **COBOL** event handlers a esos controls,
+- y ejecutas, depuras y distribuyes el resultado como un **single self-contained native
+  executable** — sin runtime que instalar en la target machine.
 
-Its design goals, in plain terms:
+Sus design goals, en términos simples:
 
-| Goal | What it means for you |
-|------|-----------------------|
-| **COBOL-first** | The application *is* COBOL. The designer generates COBOL; your handlers are COBOL paragraphs and nested programs. You never leave the language. |
-| **Cross-platform** | The IDE and the produced binaries are not tied to one OS. |
-| **Self-contained** | A built application embeds everything it needs; the end user does not install PowerRustCOBOL. |
-| **Modern data access** | Crash-safe indexed (ISAM) files, SQL (SQLite / PostgreSQL / MySQL), and HTTP/REST are reachable through ordinary `CALL` statements. |
-| **Open** | Apache-2.0 licensed. |
+| Goal | Qué significa para ti |
+|------|------------------------|
+| **COBOL-first** | La application *es* COBOL. El designer genera COBOL; tus handlers son COBOL paragraphs y nested programs. Nunca sales del language. |
+| **Cross-platform** | La IDE y los binaries producidos no están atados a un único OS. |
+| **Self-contained** | Una built application embebe todo lo que necesita; el end user no instala PowerRustCOBOL. |
+| **Modern data access** | Crash-safe indexed (ISAM) files, SQL (SQLite / PostgreSQL / MySQL) y HTTP/REST son accesibles mediante statements `CALL` ordinarios. |
+| **Open** | Licensed bajo Apache-2.0. |
 
-> **Note.** PowerRustCOBOL is *inspired by* the productivity of classic GUI COBOL
-> RADs, but it is an independent, original implementation. Concepts such as
-> "form", "control", and "event" are industry-standard; the syntax, file
-> formats, generated code, and built-in services described here are specific to
-> PowerRustCOBOL and are not compatible with any other vendor's tools.
+> **Note.** PowerRustCOBOL está *inspirado por* la productividad de los GUI COBOL
+> RADs clásicos, pero es una implementation independiente y original. Concepts como
+> "form", "control" y "event" son industry-standard; la syntax, file
+> formats, generated code y built-in services descritos aquí son específicos de
+> PowerRustCOBOL y no son compatibles con las herramientas de ningún otro vendor.
 
 ---
 
-## 2. The three pieces
+## 2. Las tres piezas
 
-PowerRustCOBOL ships as three cooperating tools. Knowing which is which removes a
-lot of confusion early on.
+PowerRustCOBOL se entrega como tres tools cooperantes. Saber cuál es cuál elimina mucha
+confusión al principio.
 
 ```mermaid
 flowchart LR
@@ -109,69 +109,68 @@ flowchart LR
     LANG -- "rcrun build" --> BIN
 ```
 
-| Name | Role | Think of it as… |
-|------|------|-----------------|
-| **RustCOBOL** | The COBOL-85 language dialect plus PowerRustCOBOL's extensions (GUI calls, indexed-file clauses, SQL/HTTP). | The compiler/runtime "language". |
-| **PowerRustCOBOL** | The desktop IDE: project explorer, code editor, **Form Designer**, debugger. | The "Workbench" / "Studio". |
-| **rcrun** | The command-line runtime, checker, packager, and binary compiler. | The "runtime + build tool" you can script in CI. |
+| Name | Role | Piensa en ello como… |
+|------|------|----------------------|
+| **RustCOBOL** | El COBOL-85 language dialect más las extensions de PowerRustCOBOL (GUI calls, indexed-file clauses, SQL/HTTP). | El compiler/runtime "language". |
+| **PowerRustCOBOL** | La desktop IDE: project explorer, code editor, **Form Designer**, debugger. | El "Workbench" / "Studio". |
+| **rcrun** | El command-line runtime, checker, packager y binary compiler. | El "runtime + build tool" que puedes scriptar en CI. |
 
-> ⚠️ **Naming caveat.** Internally some build artefacts and folders are named
-> `cobolt-*`. That is an implementation detail; the user-facing names are
-> **RustCOBOL**, **PowerRustCOBOL**, and **rcrun**.
-
----
-
-## 3. Installing and launching
-
-> 📷 **Screenshot needed — `install-launch.png`.** Please provide a capture of
-> the PowerRustCOBOL application icon in your OS launcher/dock **and** the empty
-> IDE window immediately after first launch (no project open). This will anchor
-> the "what you should see" expectation for newcomers.
-
-Launch the IDE; on first run you are greeted with an empty workspace and the
-prompt *"Open a COBOL file to get started."* You can either open a single `.cbl`
-file or create a full **project** (recommended — see §6).
-
-From a terminal you can also drive everything headlessly with `rcrun` (see §17),
-which is what continuous-integration pipelines use.
+> ⚠️ **Naming caveat.** Internamente, algunos build artefacts y folders se llaman
+> `cobolt-*`. Eso es un implementation detail; los user-facing names son
+> **RustCOBOL**, **PowerRustCOBOL** y **rcrun**.
 
 ---
 
-## 4. Your first application: Hello, Form
+## 3. Instalación y lanzamiento
 
-This walkthrough produces a one-button window that shows a message.
+> 📷 **Screenshot needed — `install-launch.png`.** Proporciona una captura del
+> icono de la application PowerRustCOBOL en el OS launcher/dock **y** de la ventana vacía
+> de la IDE inmediatamente después del primer launch (sin project abierto). Esto fijará
+> la expectativa de "lo que deberías ver" para newcomers.
 
-1. **Create a project.** `File ▸ New Project…`, give it a name (e.g.
-   `HelloPower`) and a main program. The IDE creates the standard folder layout
-   on disk **and a runnable starter `main` program** (a tiny `DISPLAY`/`GOBACK`
-   you can Run immediately), then opens it in the editor (see §6).
-2. **Create a form.** In the project tree, click the **➕** next to **Forms**.
-   This opens the *New Form* dialog — set a name (`main-form`), a title, and a
-   size, then create. The form is saved under `forms/` and opens in the **Form
+Lanza la IDE; en el primer run verás un workspace vacío y el
+prompt *"Open a COBOL file to get started."* Puedes abrir un único archivo `.cbl`
+o crear un **project** completo (recommended — ver §6).
+
+Desde un terminal también puedes manejar todo headlessly con `rcrun` (ver §17),
+que es lo que usan los continuous-integration pipelines.
+
+---
+
+## 4. Tu primera application: Hello, Form
+
+Este walkthrough produce una ventana con un botón que muestra un message.
+
+1. **Crea un project.** `File ▸ New Project…`, dale un name (por ejemplo
+   `HelloPower`) y un main program. La IDE crea el folder layout estándar
+   en disk **y un starter `main` program ejecutable** (un pequeño `DISPLAY`/`GOBACK`
+   que puedes Run inmediatamente), y luego lo abre en el editor (ver §6).
+2. **Crea un form.** En el project tree, haz clic en el **➕** junto a **Forms**.
+   Esto abre el *New Form* dialog — define un name (`main-form`), un title y un
+   size, y crea el form. El form se guarda bajo `forms/` y se abre en el **Form
    Designer**.
-3. **Drop a button.** Drag a **Button** from the toolbox onto the canvas. With
-   it selected, set its `Caption` to `Say hello` in the properties pane.
-4. **Attach a handler.** Still on the button, find its **`onClick`** event and
-   click it to open the COBOL event editor. Type, for example:
+3. **Coloca un button.** Arrastra un **Button** desde la toolbox hasta el canvas. Con
+   él seleccionado, define su `Caption` como `Say hello` en el properties pane.
+4. **Adjunta un handler.** Aún en el button, busca su event **`onClick`** y
+   haz clic para abrir el COBOL event editor. Escribe, por ejemplo:
 
    ```cobol
               DISPLAY "Hello from PowerRustCOBOL".
    ```
 
-5. **Run.** Press **Run** on the toolbar (or the ▶ in the designer). The form
-   appears; clicking the button executes your handler.
+5. **Run.** Presiona **Run** en la toolbar (o el ▶ en el designer). Aparece el form;
+   al hacer click en el button se ejecuta tu handler.
 
-> 📷 **Screenshot needed — `first-form-designer.png`.** Capture the Form Designer
-> with the single button selected and the `onClick` event highlighted in the
-> properties pane.
+> 📷 **Screenshot needed — `first-form-designer.png`.** Captura el Form Designer
+> con el button seleccionado y el event `onClick` destacado en el properties pane.
 
-> **Note.** When you save or run a form, PowerRustCOBOL **generates** a COBOL
-> source file for it (see §12). You never edit that file by hand — it is a build
+> **Note.** Cuando guardas o ejecutas un form, PowerRustCOBOL **genera** un COBOL
+> source file para él (ver §12). Nunca edites ese archivo manualmente — es un build
 > artefact.
 
 ---
 
-## 5. The IDE at a glance
+## 5. La IDE de un vistazo
 
 ```mermaid
 flowchart TB
@@ -186,81 +185,78 @@ flowchart TB
     MB --> TB --> Body --> OUT
 ```
 
-- **Project Explorer (left).** A tree rooted at your project. Five fixed
-  categories — **Forms**, **Common Code**, **Generated Code**, **Assets**,
-  **Documentation** — each with a **➕** button. To the left of each item is a
-  **status "knob"**: 🟢 green = checked/tested OK, 🟡 yellow = changed since last
-  check, 🔴 red = a problem was reported. Forms expand to show their controls,
-  grouped by toolbox category, and each control expands to its **Events**.
+- **Project Explorer (left).** Un tree con raíz en tu project. Cinco categorías
+  fijas — **Forms**, **Common Code**, **Generated Code**, **Assets**,
+  **Documentation** — cada una con un botón **➕**. A la izquierda de cada item hay un
+  status "knob": 🟢 green = checked/tested OK, 🟡 yellow = changed since last
+  check, 🔴 red = a problem was reported. Los forms se expanden para mostrar sus controls,
+  agrupados por toolbox category, y cada control se expande hasta sus **Events**.
 - **Toolbar (top).** `Open · Save · Check · Build · Run · Debug · Stop · ⚙`.
-  *Run* interprets the program; *Build* compiles a native binary; *Check* runs
-  parse + semantic analysis only; *Debug* is enabled when a Generated Code item
-  is selected. ⚙ opens **Settings** (the **AI assistant** plus per-project
-  **Appearance** — theme + background image).
-- **Main Pane (centre).** Shows the code editor, or the **property inspector**
-  when you click a form/control in the tree. The code editor carries a
-  **status bar** along the bottom — caret `Ln, Col`, the **Insert/Overwrite**
-  mode (toggle with the `Insert` key), a **Trim on save** toggle (strips trailing
-  whitespace when you save), and a **Beautify** command (a safe whitespace tidy
-  that never disturbs COBOL's significant columns).
-- **Output panel (bottom).** Program `DISPLAY` output, build logs, and status
+  *Run* interpreta el program; *Build* compila un native binary; *Check* ejecuta
+  solo parse + semantic analysis; *Debug* se habilita cuando un Generated Code item
+  está seleccionado. ⚙ abre **Settings** (el **AI assistant** más **Appearance**
+  por project — theme + background image).
+- **Main Pane (centre).** Muestra el code editor o el **property inspector** cuando
+  haces clic en un form/control en el tree. El code editor tiene una **status bar**
+  al pie — caret `Ln, Col`, modo **Insert/Overwrite** (toggle con la tecla
+  `Insert`), un toggle **Trim on save** (elimina trailing whitespace al guardar) y
+  un comando **Beautify** (un ajuste seguro de whitespace que nunca altera las
+  significant columns de COBOL).
+- **Output panel (bottom).** Program `DISPLAY` output, build logs y status
   messages.
 
-> 📷 **Screenshot needed — `ide-overview.png`.** A full-window capture with a
-> project open, a form selected (so the property inspector is visible), and some
-> text in the Output panel. Annotate the four regions if you can.
+> 📷 **Screenshot needed — `ide-overview.png`.** Una captura de pantalla completa con un
+> project abierto, un form seleccionado (para que se vea el property inspector) y algo
+> de texto en el Output panel. Anota las cuatro regions si puedes.
 
-### The AI assistant (optional)
+### El AI assistant (optional)
 
-PowerRustCOBOL can put a cloud language model — one you provide, ideally trained
-on this documentation — right above the code editor. The assistant is **entirely
-optional and off by default**: until you fill in the connection details, the
-prompt bar never appears.
+PowerRustCOBOL puede poner un cloud language model — uno que tú proveas, idealmente trained
+en esta documentación — justo encima del code editor. El assistant es **completamente
+optional y off by default**: hasta que completes los connection details, el prompt bar nunca aparece.
 
-**Configure it once (⚙ → AI assistant).** The settings are *global* to your
-machine, not stored in any project, so the API key never travels in a repository:
+**Configúralo una vez (⚙ → AI assistant).** Los settings son *globales* para tu
+máquina, no se guardan en ningún project, por lo que el API key nunca viaja en un repository:
 
 | Field | Meaning |
 |-------|---------|
-| **Endpoint URL** | The full chat-completions URL of your model (an OpenAI-compatible endpoint, e.g. `https://…/v1/chat/completions`). |
-| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. |
-| **Model** | The model identifier passed in each request. |
+| **Endpoint URL** | La full chat-completions URL de tu model (un OpenAI-compatible endpoint, e.g. `https://…/v1/chat/completions`). |
+| **API key** | Se envía como `Authorization: Bearer …`. Déjalo vacío para un key-less local endpoint. |
+| **Model** | El model identifier enviado en cada request. |
 | **Temperature** | Sampling randomness (0 = deterministic). |
-| **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
+| **Standard system prompt** | Las instructions enviadas en cada request. Se provee un sensible default; edítalo para tu model. |
 
-A **Test connection** button sends a tiny request to your endpoint and reports
-whether the model is reachable and the key/model are accepted — use it to
-confirm the setup before relying on it. The assistant becomes available as soon
-as **Endpoint URL** and **Model** are both set. Clear the endpoint to hide it
-again.
+Un botón **Test connection** envía una tiny request a tu endpoint y reporta si el
+model es reachable y si el key/model son aceptados — úsalo para confirmar la configuración
+antes de depender de ella. El assistant queda available tan pronto como **Endpoint URL** y
+**Model** estén definidos. Borra el endpoint para ocultarlo otra vez.
 
-**Using it.** Open a COBOL file, type a request in the prompt bar (for example
-*"add a paragraph that totals WS-LINES and DISPLAYs it"*), and press **Send**.
-The model receives, in this order:
+**Uso.** Abre un COBOL file, escribe una request en el prompt bar (por ejemplo
+*"add a paragraph that totals WS-LINES and DISPLAYs it"*) y presiona **Send**.
+El model recibe, en este orden:
 
-1. your **standard system prompt**;
-2. the **conversation history** for *this file* (it is remembered between
-   sessions, per source file);
-3. your **request** together with the **current source** of the file.
+1. tu **standard system prompt**;
+2. el **conversation history** de *este file* (se recuerda entre sessions, por source file);
+3. tu **request** junto con el **current source** del file.
 
-When the reply arrives, PowerRustCOBOL extracts the COBOL from it and **updates
-the editor buffer in place** — so you can immediately review, tweak, run, or
-undo (Ctrl/Cmd-Z) the result like any other edit. The running transcript is
-shown under the prompt bar (💬), and **Clear conversation** (🗑) forgets the
-history for that file. Read-only Generated Code is never modified.
+Cuando llega la reply, PowerRustCOBOL extrae el COBOL de ella y **actualiza
+el editor buffer in place** — así puedes revisar, ajustar, ejecutar o deshacer
+(Ctrl/Cmd-Z) el resultado como cualquier otra edit. El transcript en ejecución se
+muestra bajo el prompt bar (💬), y **Clear conversation** (🗑) olvida el
+history para ese file. Read-only Generated Code nunca se modifica.
 
-**Also in the inspector.** The same prompt bar appears above the inline
-form/control inspector, with the form's **generated COBOL** as its (read-only)
-context — handy for asking how to wire an event handler. Because generated code
-is never hand-edited, replies there are shown in the transcript for reference
-rather than applied.
+**También en el inspector.** El mismo prompt bar aparece arriba del inline
+form/control inspector, con el **generated COBOL** del form como contexto
+(read-only) — útil para preguntar cómo cablear un event handler. Como el generated code
+nunca se edita manualmente, las replies allí se muestran en el transcript como referencia
+en lugar de aplicarse.
 
-**Where the conversation lives.** History is *not* kept in a hidden cache — it is
-stored in the project's `data/` folder in PowerRustCOBOL's **own indexed (ISAM)
-file** (`data/conversations.dat`), the very `ORGANIZATION IS INDEXED` format your
-COBOL programs use, keyed by the source file's relative path. (We dog-food our
-own runtime.) Conversations therefore travel with the project and require an open
-project to persist; without one, the assistant still works but only for the
+**Dónde vive la conversation.** El history *no* se guarda en una hidden cache — se
+almacena en el folder `data/` del project en el **own indexed (ISAM) file** de
+PowerRustCOBOL (`data/conversations.dat`), el mismo formato `ORGANIZATION IS INDEXED`
+que usan tus COBOL programs, keyed por la relative path del source file. (Hacemos dog-food
+de nuestro propio runtime.) Las conversations por lo tanto viajan con el project y requieren
+un project abierto para persistir; sin uno, el assistant aún funciona pero solo para la
 current session.
 
 ```mermaid
@@ -275,24 +271,24 @@ sequenceDiagram
     Dev->>Ed: Review / adjust / run / undo
 ```
 
-> 📷 **Screenshot needed — `ide-ai-assistant.png`.** The code editor with the AI
-> prompt bar visible above it and an expanded conversation transcript.
+> 📷 **Screenshot needed — `ide-ai-assistant.png`.** El code editor con el AI
+> prompt bar visible encima y un conversation transcript expandido.
 
-> **Privacy note.** Your prompt, the conversation history, and the **full source
-> of the open file** are sent to whatever endpoint you configure. Point it only
-> at a model you trust.
+> **Privacy note.** Tu prompt, el conversation history y el **full source
+> del open file** se envían al endpoint que configures. Apúntalo solo a un model
+> en el que confíes.
 
 ---
 
-## 6. Projects and the project model
+## 6. Projects y el project model
 
-A **project** is a folder containing a manifest file, `cobolt.toml`, plus your
-sources, forms, and assets. The manifest records the project name, version, main
-program, and the files in each category.
+Un **project** es un folder que contiene un manifest file, `cobolt.toml`, además de tus
+sources, forms y assets. El manifest registra el project name, version, main
+program y los files en cada category.
 
 ### Folder layout
 
-When you create a project, PowerRustCOBOL scaffolds this structure on disk:
+Cuando creas un project, PowerRustCOBOL genera esta estructura en disk:
 
 ```text
 HelloPower/
@@ -309,52 +305,52 @@ HelloPower/
 └── data/               ← project data files (e.g. the AI conversation store)
 ```
 
-A new project also gets a **runnable starter `main` program** (by default
-`src/main.cbl`) — a minimal `IDENTIFICATION DIVISION` / `DISPLAY` / `GOBACK` that
-you can **Run** straight away and then grow.
+Un new project también recibe un **starter `main` program ejecutable** (por default
+`src/main.cbl`) — un mínimo `IDENTIFICATION DIVISION` / `DISPLAY` / `GOBACK` que
+puedes **Run** de inmediato y luego hacer crecer.
 
-> **Form-first projects.** If you delete the starter `main` and build a project
-> made of nothing but forms, **Build** and **Run** still work: when the
-> `[project].main` file is absent, PowerRustCOBOL uses the **first generated form
-> program** (`generated/*.cbl`) as the entry point. Set `[project].main` to a
-> specific program once you want explicit control over which one starts.
+> **Form-first projects.** Si borras el starter `main` y construyes un project
+> hecho solo de forms, **Build** y **Run** aún funcionan: cuando el
+> `[project].main` file está ausente, PowerRustCOBOL usa el **primer generated form
+> program** (`generated/*.cbl`) como entry point. Define `[project].main` para un
+> program específico cuando quieras control explícito sobre cuál inicia.
 
-> **Note.** Opening an older project that predates this layout **back-fills any
-> missing standard folders** automatically, so every project ends up with the
-> same structure.
+> **Note.** Abrir un older project anterior a este layout **back-fills cualquier
+> standard folder faltante** automáticamente, de modo que cada project termina con
+> la misma estructura.
 
-### The five tree categories
+### Las cinco tree categories
 
-| Category | Holds | Editable? |
-|----------|-------|-----------|
-| **Forms** | `.cfrm` form-designer files | via the Designer |
-| **Common Code** | hand-written COBOL you `CALL` from forms or run directly | yes |
-| **Generated Code** | the `.cbl` PowerRustCOBOL generates from each form | **read-only** (blue, lock icon) |
-| **Assets** | images, audio, fonts, data files bundled with the app | imported |
-| **Documentation** | Markdown / text / PDF notes | yes |
+| Category | Contiene | Editable? |
+|----------|----------|-----------|
+| **Forms** | `.cfrm` form-designer files | vía el Designer |
+| **Common Code** | hand-written COBOL que `CALL` desde forms o ejecutas directamente | sí |
+| **Generated Code** | los `.cbl` que PowerRustCOBOL genera desde cada form | **read-only** (blue, lock icon) |
+| **Assets** | images, audio, fonts, data files bundled con la app | imported |
+| **Documentation** | Markdown / text / PDF notes | sí |
 
 ### Creating vs. importing
 
-The **➕** on a category **creates a new item**:
+El **➕** en una category **crea un new item**:
 
 - **Forms ➕** → *New Form* dialog.
-- **Common Code ➕** → a new `.cbl` from a starter template, opened in the editor.
-- **Documentation ➕** → a new Markdown file.
-- **Assets ➕** → file picker (assets are authored externally, so "create" = import).
+- **Common Code ➕** → un nuevo `.cbl` desde un starter template, abierto en el editor.
+- **Documentation ➕** → un nuevo Markdown file.
+- **Assets ➕** → file picker (assets se author externally, así que "create" = import).
 
-To **import an existing file** into a category, **right-click the ➕** and choose
-*Import existing…*. (The `File` menu's *Import Form…* does the same for forms.)
+Para **importar un existing file** dentro de una category, **right-click el ➕** y elige
+*Import existing…*. (El `File` menu *Import Form…* hace lo mismo para forms.)
 
-> **Note.** Generated `.cbl` files live in `generated/`, are tracked
-> automatically, and open read-only. Editing belongs in the form (the Designer)
-> or in Common Code — never in generated output.
+> **Note.** Los generated `.cbl` files viven en `generated/`, se trackean
+> automáticamente y se abren read-only. La edición pertenece al form (el Designer)
+> o al Common Code — nunca al generated output.
 
 ---
 
-## 7. The Form Designer (RAD)
+## 7. El Form Designer (RAD)
 
-The Form Designer is where you lay out windows. Each open form is its **own OS
-window**, so you can have several designers and running forms side by side.
+El Form Designer es donde diseñas windows. Cada open form es su **propia OS
+window**, de modo que puedes tener varios designers y running forms lado a lado.
 
 ```mermaid
 flowchart LR
@@ -366,44 +362,44 @@ flowchart LR
     PROP -- "edit" --> CANVAS
 ```
 
-- **Toolbox (left).** Widgets grouped into **Non-Visual**, **Common**,
-  **Container**, **Data**, **Graphics**, **Menu**, **Charts**, and **Dialogs**.
-  Drag any widget onto the canvas.
-- **Canvas (centre).** Move, resize (drag the border grips), align, and
-  distribute controls. A snap-to-grid keeps things tidy. You can resize the
-  **form itself** by dragging its edges.
-- **Properties pane (right).** Edits the selected control — or, with nothing
-  selected, the **form** itself. The pane is organised into collapsible
-  **section cards** (Form Properties, Target Device, Appearance, Background
-  Image, Size, Events). Drag its edge to widen it.
+- **Toolbox (left).** Widgets agrupados en **Non-Visual**, **Common**,
+  **Container**, **Data**, **Graphics**, **Menu**, **Charts** y **Dialogs**.
+  Arrastra cualquier widget al canvas.
+- **Canvas (centre).** Mueve, redimensiona (arrastrando los border grips), alinea y
+  distribuye controls. Un snap-to-grid mantiene todo ordenado. Puedes redimensionar el
+  **form itself** arrastrando sus edges.
+- **Properties pane (right).** Edita el selected control — o, sin selección, el
+  **form** itself. El pane está organizado en **section cards** colapsables
+  (Form Properties, Target Device, Appearance, Background Image, Size, Events).
+  Arrastra su edge para hacerlo más ancho.
 
 Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
-(a non-interactive render), **Run Form** (live, interactive), grid toggle, glass
+(un render no interactivo), **Run Form** (live, interactive), grid toggle, glass
 toggle, alignment tools, undo/redo.
 
 ### Target devices
 
-The **Target Device** section lets you size the form for a real device profile
-(various iPhone, iPad, Apple Watch, Android phone/tablet/watch presets) or a
-custom size, with a portrait/landscape switch. This is a design aid — it sets the
-form's width/height to the chosen profile.
+La section **Target Device** permite dimensionar el form para un real device profile
+(varios presets de iPhone, iPad, Apple Watch, Android phone/tablet/watch) o un
+custom size, con switch portrait/landscape. Es una ayuda de design — define el
+width/height del form al profile elegido.
 
-> 📷 **Screenshot needed — `form-designer-full.png`.** The Designer with the
-> toolbox, a canvas containing several controls (a label, a text box, a button,
-> and a chart), and the properties pane showing the section cards. Ideally use
-> a project with a background image so the glass styling is visible.
+> 📷 **Screenshot needed — `form-designer-full.png`.** El Designer con la toolbox,
+> un canvas que contenga varios controls (un label, un text box, un button y un chart),
+> y el properties pane mostrando los section cards. Idealmente usa un project con
+> background image para que se vea el glass styling.
 
-> **Note (non-visual widgets).** Timer, AI Agent, REST Client, and SQL Database
-> are **non-visual**: they appear on the canvas as labelled glass "chips" at
-> design time but render nothing at run time. They exist to be configured and to
-> raise events / be `CALL`ed from your COBOL.
+> **Note (non-visual widgets).** Timer, AI Agent, REST Client y SQL Database
+> son **non-visual**: aparecen en el canvas como glass "chips" etiquetados en
+> design time pero no renderizan nada en run time. Existen para ser configurados y para
+> disparar events / ser `CALL`ed desde tu COBOL.
 
 ---
 
-## 8. The widget catalogue
+## 8. El widget catalogue
 
-PowerRustCOBOL ships the following controls. Visual controls render at run time;
-non-visual ones are services.
+PowerRustCOBOL incluye los siguientes controls. Visual controls renderizan en run time;
+los non-visual son services.
 
 **Common / input**
 : Label, Button, TextBox, CheckBox, RadioButton, ComboBox, ListBox,
@@ -427,57 +423,56 @@ non-visual ones are services.
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase.
 
-> **Note.** A `Custom` control type exists as an extension point for
-> bespoke/vendor controls; treat it as advanced.
+> **Note.** Existe un control type `Custom` como extension point para
+> bespoke/vendor controls; trátalo como advanced.
 
-> 📷 **Screenshot needed — `widget-gallery.png`.** A single form (or the preview
-> window) showing one of each major widget so newcomers can recognise them. The
-> charts especially benefit from a visual.
+> 📷 **Screenshot needed — `widget-gallery.png`.** Un single form (o la preview
+> window) mostrando uno de cada major widget para que los newcomers los reconozcan.
+> Los charts se benefician especialmente de un visual.
 
 ---
 
 ## 9. Properties
 
-Every control exposes **properties** — its appearance, behaviour, and data
-bindings — editable in the properties pane and stored in the `.cfrm` file.
+Cada control expone **properties** — su appearance, behaviour y data bindings —
+editables en el properties pane y almacenadas en el `.cfrm` file.
 
-PowerRustCOBOL uses **fully spelled-out property names** (no cryptic
-abbreviations). A few you will use constantly:
+PowerRustCOBOL usa **fully spelled-out property names** (sin abreviaciones crípticas).
+Algunas que usarás constantemente:
 
 | Property | Meaning |
 |----------|---------|
-| `Caption` / `Text` | The control's text (`Caption` for labels/buttons; `Text` for text boxes). |
+| `Caption` / `Text` | El texto del control (`Caption` para labels/buttons; `Text` para text boxes). |
 | `BackgroundColor` / `ForegroundColor` | Colours (hex, e.g. `#1E3A5F`). |
 | `FontName`, `FontSize`, `Bold`, `Italic` | Typography. |
 | `Visible`, `Enabled` | State. |
 | `TextAlignment` | Text justification. |
-| `DataItem` | The COBOL working-storage item this control reads/writes. |
+| `DataItem` | El COBOL working-storage item que este control lee/escribe. |
 
-> **Note.** Standard acronyms are kept (`CSV`, `URL`, `API`, `TLS`); everything
-> else is written in full — for example `BackgroundColor` (not `BackColor`),
-> `MaximumLength` (not `MaxLength`), `PasswordCharacter` (not `PasswordChar`),
-> and every `…Paragraph` reference (not `…Para`).
+> **Note.** Standard acronyms se mantienen (`CSV`, `URL`, `API`, `TLS`); todo lo
+> demás se escribe completo — por ejemplo `BackgroundColor` (no `BackColor`),
+> `MaximumLength` (no `MaxLength`), `PasswordCharacter` (no `PasswordChar`),
+> y cada referencia `…Paragraph` (no `…Para`).
 
-> **Caption rules.** Only Label, Button, CheckBox, RadioButton, and GroupBox use
-> `Caption`; TextBox uses `Text`; other controls use type-specific keys
+> **Caption rules.** Solo Label, Button, CheckBox, RadioButton y GroupBox usan
+> `Caption`; TextBox usa `Text`; otros controls usan keys específicos por type
 > (`Value`, `Items`, …).
 
-> **Control IDs.** When you drop a control, it gets a readable, per-type ID —
-> `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
-> data-name (`WS-BUTTON-1`) and the base of its handler paragraph
-> (`BUTTON-1--ONCLICK`). You can rename a control's ID to something meaningful
-> (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
-> digits, hyphens; no leading/trailing hyphen).
+> **Control IDs.** Cuando colocas un control, recibe un ID legible, por type —
+> `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — que se convierte en su COBOL
+> data-name (`WS-BUTTON-1`) y en la base de su handler paragraph
+> (`BUTTON-1--ONCLICK`). Puedes renombrar el ID de un control a algo significativo
+> (e.g. `BTN-SAVE`) en el properties pane; mantenlo como valid COBOL word (letters,
+> digits, hyphens; sin leading/trailing hyphen).
 
 ---
 
 ## 10. Event-driven programming
 
-This is the heart of GUI COBOL, and it works the way you expect: the form sits in
-an **event loop**, waiting; when the user does something, the matching **handler**
-runs.
+Este es el corazón de GUI COBOL, y funciona como esperas: el form queda en un
+**event loop**, esperando; cuando el user hace algo, se ejecuta el **handler** correspondiente.
 
-### The form event loop
+### El form event loop
 
 ```mermaid
 sequenceDiagram
@@ -499,56 +494,56 @@ sequenceDiagram
     Note over L: loop ends → onClose runs → program ends
 ```
 
-In words:
+En palabras:
 
-1. The generated program enters a loop and calls the built-in
-   **`COBOL-WAIT-EVENT`**, which blocks until the user interacts with the form.
-2. When an event occurs, the runtime hands back **which control** and **which
+1. El generated program entra en un loop y llama al built-in
+   **`COBOL-WAIT-EVENT`**, que bloquea hasta que el user interactúa con el form.
+2. Cuando ocurre un event, el runtime devuelve **qué control** y **qué
    event** (e.g. `BTN-OK` / `onClick`).
-3. The loop dispatches to the handler for that pair — a **nested COBOL-85
-   program** named after the control and event (`BTN-OK--ONCLICK`).
-4. The handler runs and `GOBACK`s; the loop waits again.
-5. Closing the window ends the loop; the form's `onClose` handler runs last.
+3. El loop despacha al handler de ese par — un **nested COBOL-85
+   program** nombrado por control y event (`BTN-OK--ONCLICK`).
+4. El handler se ejecuta y hace `GOBACK`; el loop espera de nuevo.
+5. Cerrar la window termina el loop; el handler `onClose` del form se ejecuta al final.
 
-### Events you can handle
+### Events que puedes manejar
 
-- **Widget events** follow the convention `on` + action: `onClick`, `onChange`,
-  `onDoubleClick`, `onMouseEnter`, `onGotFocus`, and so on. Each control exposes
-  the set that makes sense for it (a Button has `onClick`/`onDblClick`/mouse
-  events; a TextBox has `onChange`/`onKeyPress`/focus events; charts have
+- **Widget events** siguen la convención `on` + action: `onClick`, `onChange`,
+  `onDoubleClick`, `onMouseEnter`, `onGotFocus`, etc. Cada control expone
+  el set que tiene sentido para él (un Button tiene `onClick`/`onDblClick`/mouse
+  events; un TextBox tiene `onChange`/`onKeyPress`/focus events; charts tienen
   `onDataChanged`; etc.).
-- **Form events** — the window itself supports a rich set, grouped into
+- **Form events** — la window itself soporta un rich set, agrupado en
   **Lifecycle, Activation & Focus, Window State, Layout & Painting, Mouse,
   Touch & Pointer, Scrolling, Drag & Drop, Clipboard, System / OS, and Error
-  Handling**. The lifecycle pair `onLoad` (just before the window is shown) and
-  `onClose` (as it closes) are pre-created for every form; the rest you attach as
-  needed.
+  Handling**. El lifecycle pair `onLoad` (justo antes de mostrar la window) y
+  `onClose` (mientras cierra) se pre-crean para cada form; el resto lo adjuntas según
+  lo necesites.
 
-> ⚠️ **Caveat — designable vs. fired.** Every listed event is **designable**: you
-> can attach a COBOL handler to any of them today and it will be generated. The
-> **runtime currently fires** form `onLoad`/`onClose`, and for widgets:
-> `onClick`, `onChange`, the focus pair `onGotFocus`/`onLostFocus`, and the
+> ⚠️ **Caveat — designable vs. fired.** Todo listed event es **designable**: puedes
+> adjuntar un COBOL handler a cualquiera de ellos hoy y será generado. El
+> **runtime currently fires** form `onLoad`/`onClose`, y para widgets:
+> `onClick`, `onChange`, el focus pair `onGotFocus`/`onLostFocus`, y el
 > pointer set `onDblClick`, `onMouseDown`, `onMouseUp`, `onMouseEnter`,
-> `onMouseLeave`. More events (keyboard, scrolling, and the form-level
-> window-state events such as `onResize`/`onShow`) are being wired into the live
-> runtime over time. Attach handlers freely, but verify in a *Run Form* session
-> which ones fire before relying on, say, `onPaint` or `onPowerSuspend`.
+> `onMouseLeave`. Más events (keyboard, scrolling y los form-level
+> window-state events como `onResize`/`onShow`) se están cableando en el live
+> runtime con el tiempo. Adjunta handlers libremente, pero verifica en una *Run Form* session
+> cuáles se disparan antes de depender de, por ejemplo, `onPaint` o `onPowerSuspend`.
 
-### Adding a handler
+### Añadir un handler
 
-In the tree or the properties pane, click an event to open the COBOL editor for
-it. A handler is a self-contained **nested program**, and you edit its whole body
-in **one** editor — there is no separate box for working-storage.
+En el tree o el properties pane, haz clic en un event para abrir el COBOL editor para él.
+Un handler es un **nested program** self-contained, y editas todo su body en
+**un** editor — no hay una caja separada para working-storage.
 
-The event editor is the **same full editor as the main code editor**: as-you-type
-**IntelliSense** (keywords, verbs, and the form's control names; `Ctrl+Space` to
-trigger), **Find/Replace** (`Cmd/Ctrl+F`, with *Replace* and *Replace All*) in the
-top-right, and the **status bar** along the bottom (caret `Ln, Col`,
-**Insert/Overwrite** via the `Insert` key, **Trim on save**, and **Beautify**). It
-opens at 70 % of the window and is freely resizable.
+El event editor es el **mismo full editor que el main code editor**: **IntelliSense**
+as-you-type (keywords, verbs y los control names del form; `Ctrl+Space` para
+trigger), **Find/Replace** (`Cmd/Ctrl+F`, con *Replace* y *Replace All*) en la
+parte superior derecha, y la **status bar** al pie (caret `Ln, Col`,
+**Insert/Overwrite** vía la tecla `Insert`, **Trim on save** y **Beautify**). Se
+abre al 70 % de la window y es freely resizable.
 
-The **first time** you open an unwritten handler, the editor seeds it with the
-standard skeleton so you only fill in the blanks:
+La **primera vez** que abres un handler sin escribir, el editor lo inicializa con el
+standard skeleton para que solo completes los blanks:
 
 ```cobol
        ENVIRONMENT DIVISION.
@@ -560,18 +555,17 @@ standard skeleton so you only fill in the blanks:
            CONTINUE.
 ```
 
-Everything from `ENVIRONMENT DIVISION` down to your statements is yours to edit;
-PowerRustCOBOL supplies only the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header
-and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
+Todo desde `ENVIRONMENT DIVISION` hasta tus statements es tuyo para editar;
+PowerRustCOBOL solo provee el header `IDENTIFICATION DIVISION` / `PROGRAM-ID` y
+el cierre `GOBACK` / `END PROGRAM` (mostrados en gris alrededor del editor).
 
-- **Local scratch variables** go straight into this handler's own
-  `WORKING-STORAGE SECTION`.
-- **Shared state** lives in the form's global working-storage (visible to every
-  handler because it is declared `GLOBAL` in the outer program).
-- **Event data** — when an event delivers data to its handler, those items
-  appear in the `LINKAGE SECTION` and are bound by `PROCEDURE DIVISION USING …`.
-  For example, a handler that receives only the clicked node's index would be
-  seeded as:
+- **Local scratch variables** van directamente en el propio
+  `WORKING-STORAGE SECTION` de este handler.
+- **Shared state** vive en el global working-storage del form (visible para todos
+  los handlers porque se declara `GLOBAL` en el outer program).
+- **Event data** — cuando un event entrega data a su handler, esos items
+  aparecen en el `LINKAGE SECTION` y se enlazan mediante `PROCEDURE DIVISION USING …`.
+  Por ejemplo, un handler que recibe solo el clicked node's index se inicializaría así:
 
   ```cobol
        ENVIRONMENT DIVISION.
@@ -584,20 +578,20 @@ and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
        PROCEDURE DIVISION USING COBOL-ARRAY-INDEX.
   ```
 
-  Events that carry no data simply have an empty `LINKAGE SECTION` and a plain
-  `PROCEDURE DIVISION.` (no `USING`).
+  Events que no cargan data simplemente tienen un `LINKAGE SECTION` vacío y un
+  `PROCEDURE DIVISION.` simple (sin `USING`).
 
-> If you leave the seeded template untouched and close the editor, nothing is
-> saved — the handler stays "unwritten" until you actually add code.
+> Si dejas el seeded template sin cambios y cierras el editor, nada se guarda — el
+> handler permanece "unwritten" hasta que realmente agregas code.
 
 ---
 
-## 11. Talking to the UI from COBOL
+## 11. Hablar con la UI desde COBOL
 
 ### Property reference syntax (the concise way)
 
-You can read and write a control's properties **directly as COBOL operands**,
-the way PowerCOBOL does — a quoted property name `OF` the control:
+Puedes leer y escribir properties de un control **directamente como COBOL operands**,
+como hace PowerCOBOL — un quoted property name `OF` el control:
 
 ```cobol
       *> Write a property (literal → property)
@@ -611,16 +605,16 @@ the way PowerCOBOL does — a quoted property name `OF` the control:
            MOVE "Caption" OF CmStatic1 TO "Text" OF "ListItems" (4) OF Listview1.
 ```
 
-The editor's **IntelliSense guides you through this syntax**: type `"` and it
-lists every property alphabetically; keep typing to filter (`"Capt…"` → `Caption`)
-and accepting the suggestion closes the quote (`"Caption"`). Then it offers the
-`OF` qualifier, and after `OF` it lists the **widgets that actually expose that
-property** (`"Caption" OF Bu…` → `Button-1`, `Button-2`, …). For ordinary COBOL,
-accepting a reserved word simply inserts the word and a space and waits for what
-you type next — no auto-filled template.
+El **IntelliSense** del editor te guía por esta syntax: escribe `"` y lista cada
+property alfabéticamente; sigue escribiendo para filtrar (`"Capt…"` → `Caption`) y
+aceptar la suggestion cierra la quote (`"Caption"`). Luego ofrece el qualifier `OF`,
+y después de `OF` lista los **widgets que realmente exponen esa property**
+(`"Caption" OF Bu…` → `Button-1`, `Button-2`, …). Para COBOL ordinario, aceptar
+una reserved word simplemente inserta la word y un space, y espera lo que escribas después —
+sin auto-filled template.
 
-A property reference works as both a **sending** and a **receiving** operand with
-**any verb** — not just `MOVE`. For example:
+Un property reference funciona como **sending** y **receiving** operand con
+**cualquier verb** — no solo `MOVE`. Por ejemplo:
 
 ```cobol
            COMPUTE "Value" OF Slider1 = "Value" OF Slider1 + 1.
@@ -633,21 +627,21 @@ A property reference works as both a **sending** and a **receiving** operand wit
                DISPLAY "empty".
 ```
 
-The rightmost name is the control; the quoted names are its properties, read
-control-outward, and a name may carry a 1-based subscript
-(`"ListItems" (4)`). Property names are exactly the ones in the properties pane
-(e.g. `"Caption"`, `"Text"`, `"BackgroundColor"`, `"Value"`).
+El rightmost name es el control; los quoted names son sus properties, leídas
+control-outward, y un name puede llevar un 1-based subscript (`"ListItems" (4)`).
+Property names son exactamente los del properties pane (e.g. `"Caption"`, `"Text"`,
+`"BackgroundColor"`, `"Value"`).
 
-> **Type inference.** Because the runtime carries the property value directly,
-> `MOVE propertyA TO propertyB` needs **no intermediate `PIC` data item** — a
-> step that classic GUI COBOL forces on you.
+> **Type inference.** Como el runtime lleva el property value directamente,
+> `MOVE propertyA TO propertyB` no requiere **ningún intermediate `PIC` data item** —
+> un paso que el classic GUI COBOL te obliga a hacer.
 
 ### Calling widget methods
 
-Properties describe *what a widget is*; **methods** describe *what it can do* —
-showing it, moving it, ticking a value up, adding a list item, firing an HTTP
-request. Every widget understands a set of **universal** methods plus its own
-**type-specific** ones. You can call a method three ways, all equivalent:
+Properties describen *qué es un widget*; **methods** describen *qué puede hacer* —
+mostrarlo, moverlo, incrementar un value, agregar un list item, disparar un HTTP
+request. Cada widget entiende un set de **universal** methods más sus propios
+**type-specific** ones. Puedes llamar un method de tres maneras, todas equivalentes:
 
 ```cobol
       *> 1. Inline call — reads like a sentence, no result kept
@@ -666,24 +660,24 @@ request. Every widget understands a set of **universal** methods plus its own
                RETURNING WS-ROWS.
 ```
 
-Arguments go in parentheses (inline / expression form) or after `USING`
-(`INVOKE` form); a method that returns a value can be used directly in an
-expression or captured with `RETURNING`. The editor's IntelliSense lists a
-widget's methods after you type `::`, each with a one-line description.
+Arguments van entre parentheses (inline / expression form) o después de `USING`
+(`INVOKE` form); un method que devuelve value puede usarse directamente en una
+expression o capturarse con `RETURNING`. El IntelliSense del editor lista los methods
+de un widget después de que escribes `::`, cada uno con una one-line description.
 
-**Universal methods** (every visible widget):
+**Universal methods** (cada visible widget):
 
 | Method | Effect |
 |--------|--------|
-| `Show` / `Hide` | Set the `Visible` property on or off. |
-| `Enable` / `Disable` | Set the `Enabled` property on or off. |
-| `SetFocus` | Give the widget keyboard focus. |
-| `MoveTo(x, y)` | Reposition the widget (sets `X` / `Y`). |
-| `Resize(w, h)` | Change its size (sets `Width` / `Height`). |
-| `BringToFront` / `SendToBack` | Change stacking order. |
-| `SetProperty(name, value)` / `GetProperty(name)` | Generic access to any property by name. |
+| `Show` / `Hide` | Define la property `Visible` on u off. |
+| `Enable` / `Disable` | Define la property `Enabled` on u off. |
+| `SetFocus` | Da keyboard focus al widget. |
+| `MoveTo(x, y)` | Reposiciona el widget (define `X` / `Y`). |
+| `Resize(w, h)` | Cambia su size (define `Width` / `Height`). |
+| `BringToFront` / `SendToBack` | Cambia stacking order. |
+| `SetProperty(name, value)` / `GetProperty(name)` | Generic access a cualquier property por name. |
 
-**Type-specific highlights** (the full list is in IntelliSense):
+**Type-specific highlights** (la full list está en IntelliSense):
 
 | Widget | Methods |
 |--------|---------|
@@ -697,28 +691,27 @@ widget's methods after you type `::`, each with a one-line description.
 | SQL Database | `open`, `execute`, `query`, `fetch`, `fetchAll`, `close` |
 | AI Agent | `Ask`, `SetPrompt`, `SetModel`, `Stop` |
 
-A method that changes a property updates the **running form immediately** — the
-same channel the property syntax uses — so `Lbl-Out::SetCaption("Done")` repaints
-the label the moment it runs. Methods and the property syntax are fully
-interchangeable; pick whichever reads best for the line you are writing.
+Un method que cambia una property actualiza el **running form inmediatamente** — el
+mismo channel que usa la property syntax — así que `Lbl-Out::SetCaption("Done")`
+repaint el label en el momento en que corre. Methods y property syntax son completamente
+intercambiables; elige el que se lea mejor para la línea que estás escribiendo.
 
-> **Designed values are available before you set anything.** When a form starts,
-> every control is seeded with the values from its properties pane, so
-> `Txt-Name::GetText()` (or `"Text" OF Txt-Name`) returns the text you typed at
-> design time even before the first setter runs.
+> **Designed values are available before you set anything.** Cuando un form inicia,
+> cada control se seed con los values del properties pane, por lo que
+> `Txt-Name::GetText()` (o `"Text" OF Txt-Name`) devuelve el texto que escribiste
+> en design time incluso antes del primer setter.
 
 ### Property access via CALL (also supported)
 
-The explicit `CALL` form remains available and is interchangeable with the
-syntax above:
+La forma explícita `CALL` sigue disponible y es intercambiable con la syntax anterior:
 
 | `CALL` | Purpose |
 |--------|---------|
-| `"COBOL-WAIT-EVENT"` | Block until the next UI event (used by the generated loop). |
-| `"COBOL-GET-PROPERTY"` | Read a control property into a data item. |
-| `"COBOL-SET-PROPERTY"` | Write a control property from a data item. |
+| `"COBOL-WAIT-EVENT"` | Bloquea hasta el siguiente UI event (usado por el generated loop). |
+| `"COBOL-GET-PROPERTY"` | Lee una control property dentro de un data item. |
+| `"COBOL-SET-PROPERTY"` | Escribe una control property desde un data item. |
 
-A typical handler that reads a text box and updates a label:
+Un handler típico que lee un text box y actualiza un label:
 
 ```cobol
        BTN-GREET--ONCLICK.
@@ -732,7 +725,7 @@ A typical handler that reads a text box and updates a label:
            GOBACK.
 ```
 
-Other built-in services available via `CALL` (covered in their sections):
+Otros built-in services disponibles via `CALL` (cubiertos en sus secciones):
 
 - **Charts:** `COBOL-CHART-ADD-POINT`, `COBOL-CHART-SET-TABLE`,
   `COBOL-CHART-CLEAR`, `COBOL-CHART-REFRESH`.
@@ -742,23 +735,23 @@ Other built-in services available via `CALL` (covered in their sections):
   `COBOL-HTTP-CLEAR-HEADERS`.
 - **Lifecycle:** `COBOL-INIT-FORM`, `COBOL-QUIT`.
 
-> **Note.** Property names passed to `GET`/`SET` are exactly the names shown in
-> the properties pane (e.g. `"Text"`, `"Caption"`, `"BackgroundColor"`,
-> `"Value"`). Control IDs are the IDs shown in the tree (e.g. `"BTN-GREET"`).
+> **Note.** Property names pasados a `GET`/`SET` son exactamente los names mostrados en
+> el properties pane (e.g. `"Text"`, `"Caption"`, `"BackgroundColor"`,
+> `"Value"`). Control IDs son los IDs mostrados en el tree (e.g. `"BTN-GREET"`).
 
 ---
 
 ## 12. Generated code
 
-When you save/generate a form, PowerRustCOBOL writes a `.cbl` into `generated/`.
-Its shape is predictable:
+Cuando guardas/generas un form, PowerRustCOBOL escribe un `.cbl` en `generated/`.
+Su shape es predecible:
 
-- a **PROGRAM-ID** for the form;
-- working-storage for each control's state;
-- the **event loop** (the `PERFORM UNTIL` around `COBOL-WAIT-EVENT`);
-- one **nested COBOL-85 program** per event handler, named
-  `CONTROL-ID--EVENTNAME` (uppercased, e.g. `BTN-OK--ONCLICK`); the form's
-  `onLoad` runs at start-up and `onClose` at shutdown.
+- un **PROGRAM-ID** para el form;
+- working-storage para el state de cada control;
+- el **event loop** (el `PERFORM UNTIL` alrededor de `COBOL-WAIT-EVENT`);
+- un **nested COBOL-85 program** por event handler, nombrado
+  `CONTROL-ID--EVENTNAME` (uppercased, e.g. `BTN-OK--ONCLICK`); el `onLoad`
+  del form corre en start-up y `onClose` en shutdown.
 
 ```mermaid
 flowchart TB
@@ -769,57 +762,56 @@ flowchart TB
     OUTER --> P3["Nested: MAIN-FORM--ONLOAD"]
 ```
 
-> ⚠️ **Caveat.** Generated `.cbl` is a build artefact. It is regenerated whenever
-> the form changes, so **do not hand-edit it** — your edits would be overwritten.
-> Put reusable logic in **Common Code** and `CALL` it from handlers.
+> ⚠️ **Caveat.** Generated `.cbl` es un build artefact. Se regenera siempre que
+> el form cambia, por lo que **no lo edites manualmente** — tus cambios serían sobrescritos.
+> Pon reusable logic en **Common Code** y `CALL` it desde handlers.
 
 ---
 
-## 13. The RustCOBOL language
+## 13. El RustCOBOL language
 
-RustCOBOL implements a substantial subset of **COBOL-85**, plus PowerRustCOBOL
-extensions. Highlights a working COBOL programmer will rely on:
+RustCOBOL implementa un substantial subset de **COBOL-85**, más PowerRustCOBOL
+extensions. Highlights que un working COBOL programmer usará:
 
-- **Data & structure:** group items, `OCCURS` (with subscripts/indices),
-  `REDEFINES`, `RENAMES` (66 level), condition-names (88 level with `VALUE` /
+- **Data & structure:** group items, `OCCURS` (con subscripts/indices),
+  `REDEFINES`, `RENAMES` (66 level), condition-names (88 level con `VALUE` /
   `THRU`), `USAGE` incl. `POINTER`.
-- **Arithmetic:** `ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE` with multiple receivers
-  and per-receiver `ROUNDED`; numeric-edited `PICTURE` editing.
-- **Control flow:** `IF/ELSE`, `EVALUATE` (with `ALSO` and `WHEN NOT`), inline and
+- **Arithmetic:** `ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE` con múltiples receivers
+  y per-receiver `ROUNDED`; numeric-edited `PICTURE` editing.
+- **Control flow:** `IF/ELSE`, `EVALUATE` (con `ALSO` y `WHEN NOT`), inline and
   out-of-line `PERFORM` (incl. `VARYING`, `UNTIL`, `TIMES`), `GO TO`, `ALTER`,
   `EXIT PERFORM/PARAGRAPH/SECTION`, faithful `NEXT SENTENCE`.
-- **Strings:** `STRING`, `UNSTRING`, `INSPECT` (`TALLYING` + `REPLACING`, with
+- **Strings:** `STRING`, `UNSTRING`, `INSPECT` (`TALLYING` + `REPLACING`, con
   `BEFORE/AFTER INITIAL`), `INITIALIZE … REPLACING`.
-- **Tables:** `SORT` / `MERGE` (with `INPUT`/`OUTPUT PROCEDURE`, `USING`/`GIVING`,
+- **Tables:** `SORT` / `MERGE` (con `INPUT`/`OUTPUT PROCEDURE`, `USING`/`GIVING`,
   `RELEASE`/`RETURN`).
 - **Sub-programs:** `CALL … USING`, `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested
   programs.
-- **Intrinsics:** the standard library of `FUNCTION`s, including the date/time
-  and financial functions.
-- **Screen ACCEPT/DISPLAY** for character-mode interaction (when you are not
-  building a windowed form).
+- **Intrinsics:** la standard library de `FUNCTION`s, incluyendo date/time
+  y financial functions.
+- **Screen ACCEPT/DISPLAY** para character-mode interaction (cuando no construyes
+  un windowed form).
 
-> **Ground truth.** The authoritative, always-current list of supported syntax is
-> `docs/cobol85-supported-syntax.md`; the verb-by-verb test matrix is
-> `docs/cobol85-verb-test-matrix.md`. When in doubt, those files (and the test
-> suite) are definitive.
+> **Ground truth.** La authoritative, always-current list de supported syntax es
+> `docs/cobol85-supported-syntax.md`; la verb-by-verb test matrix es
+> `docs/cobol85-verb-test-matrix.md`. Ante la duda, esos files (y el test
+> suite) son definitivos.
 
 > ⚠️ **Out of scope (today):** RELATIVE file organisation, cross-process record
-> locking, and OO `CLASS`/`METHOD` definitions are not implemented.
+> locking y OO `CLASS`/`METHOD` definitions no están implemented.
 
 ### Unique declarations are enforced
 
-Every program unit must declare its mandatory structural elements **once and only
-once**. PowerRustCOBOL checks this while it reads your source and **refuses to
-run the program** until you fix it — exactly as a compiler would flag a redeclared
-symbol. The rule covers:
+Cada program unit debe declarar sus mandatory structural elements **una y solo una vez**.
+PowerRustCOBOL verifica esto mientras lee tu source y **rechaza ejecutar el program**
+hasta que lo corrijas — igual que un compiler marcaría un redeclared symbol. La regla cubre:
 
-- a single `PROGRAM-ID`;
-- at most one `ENVIRONMENT`, `DATA`, and `PROCEDURE` DIVISION header;
-- unique **section** names within the program, and unique **paragraph** names
-  within their section (or within the program when no sections are used).
+- un único `PROGRAM-ID`;
+- como máximo un header `ENVIRONMENT`, `DATA` y `PROCEDURE` DIVISION;
+- **section** names únicos dentro del program, y **paragraph** names únicos dentro de
+  su section (o dentro del program cuando no se usan sections).
 
-For example, this is rejected because the program names itself twice:
+Por ejemplo, esto se rechaza porque el program se nombra dos veces:
 
 ```cobol
        IDENTIFICATION DIVISION.
@@ -830,33 +822,33 @@ For example, this is rejected because the program names itself twice:
            STOP RUN.
 ```
 
-The IDE shows the error in the **Problems** panel (and the CLI prints it) with the
-offending line, and the Run/Build action is blocked until the duplicate is
-removed. Legitimate multi-unit sources — sequential sibling programs each closed
-by `END PROGRAM name.`, or true nested programs — are **not** affected: each unit
-gets its own `IDENTIFICATION DIVISION` and is validated independently.
+La IDE muestra el error en el **Problems** panel (y la CLI lo imprime) con la
+línea offending, y la action Run/Build se bloquea hasta remover el duplicate. Legitimate
+multi-unit sources — sibling programs secuenciales cada uno cerrado por `END PROGRAM name.`,
+o true nested programs — **no** se ven afectados: cada unit recibe su propio
+`IDENTIFICATION DIVISION` y se valida independientemente.
 
-> This is a structural check, not a style suggestion. There is no flag to
-> override it; redeclaring a unique element is always an error.
+> Esto es un structural check, no una style suggestion. No hay flag para
+> override; redeclarar un unique element siempre es un error.
 
 ### `STRING` with smart default delimiters
 
-Standard COBOL makes you write `DELIMITED BY` on **every** `STRING` operand, even
-when the obvious choice is the only sensible one. RustCOBOL keeps that explicit
-form working, but when you **omit** `DELIMITED BY` it picks the right default from
-the operand's category — so the common case reads like plain text:
+Standard COBOL te obliga a escribir `DELIMITED BY` en **cada** operand de `STRING`,
+incluso cuando la elección obvia es la única sensata. RustCOBOL mantiene funcionando
+esa forma explícita, pero cuando **omites** `DELIMITED BY` elige el default correcto
+a partir de la category del operand — así el common case se lee como plain text:
 
 | Operand | Default | Why |
 |---------|---------|-----|
-| String literal (`" earns "`) | `DELIMITED BY SIZE` | take it verbatim, spaces included |
-| Alphanumeric item (`PIC X`/`A`) | `DELIMITED BY SPACES` | drop the trailing space padding |
-| Numeric item (`PIC 9`/`S9`) | `DELIMITED BY SIZE` | move the field's characters |
-| Numeric-edited (`PIC ZZ9.99`) | `DELIMITED BY SIZE` | move the edited characters |
-| `FUNCTION …` / expression | `DELIMITED BY SIZE` | move the whole computed value |
+| String literal (`" earns "`) | `DELIMITED BY SIZE` | toma el literal tal cual, incluyendo spaces |
+| Alphanumeric item (`PIC X`/`A`) | `DELIMITED BY SPACES` | descarta el trailing space padding |
+| Numeric item (`PIC 9`/`S9`) | `DELIMITED BY SIZE` | mueve los caracteres del field |
+| Numeric-edited (`PIC ZZ9.99`) | `DELIMITED BY SIZE` | mueve los edited characters |
+| `FUNCTION …` / expression | `DELIMITED BY SIZE` | mueve el computed value completo |
 
-A data item is moved **in its field form** — exactly the characters it stores: a
-`PIC S9(9)` holding `100000` contributes `000100000` (full PIC width), a
-`PIC ZZZ,ZZ9.99` contributes its edited text. So this:
+Un data item se mueve **en su field form** — exactamente los characters que almacena: un
+`PIC S9(9)` con `100000` aporta `000100000` (full PIC width), un
+`PIC ZZZ,ZZ9.99` aporta su edited text. Entonces esto:
 
 ```cobol
        01 NAME-X        PIC X(40)        VALUE "Joe".
@@ -873,24 +865,24 @@ A data item is moved **in its field form** — exactly the characters it stores:
              INTO TEXT-OUT
 ```
 
-produces:
+produce:
 
 ```text
 Joe earns 000100000 or US$100,000.00
 ```
 
-`DELIMITED BY SPACES` here keeps any **internal** spaces (`"Joe Smith"` stays
-`"Joe Smith"`) and trims only the trailing pad. Writing an explicit
-`DELIMITED BY …` on any operand always overrides its default.
+`DELIMITED BY SPACES` aquí conserva cualquier **internal** spaces (`"Joe Smith"` queda
+`"Joe Smith"`) y recorta solo el trailing pad. Escribir un explicit
+`DELIMITED BY …` en cualquier operand siempre override su default.
 
 ---
 
-## 14. Indexed files — a first-class resource
+## 14. Indexed files — un recurso first-class
 
-Indexed (ISAM) files get unusually deep, **original** support in PowerRustCOBOL —
-this is one of its standout resources. You use them through standard COBOL verbs
-(`OPEN`, `READ`, `WRITE`, `REWRITE`, `DELETE`, `START`), dispatched automatically
-by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
+Indexed (ISAM) files reciben soporte inusualmente profundo y **original** en PowerRustCOBOL —
+este es uno de sus recursos destacados. Los usas mediante standard COBOL verbs
+(`OPEN`, `READ`, `WRITE`, `REWRITE`, `DELETE`, `START`), despachados automáticamente
+por el `ORGANIZATION` del file. Además, PowerRustCOBOL agrega:
 
 ### Two storage modes (a SELECT-clause extension)
 
@@ -903,19 +895,19 @@ by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
            STORAGE MODE IS DISK WITH DATA COMPRESSION.
 ```
 
-- **`STORAGE [MODE] IS MEMORY | DISK`** chooses an in-RAM table or a persistent
+- **`STORAGE [MODE] IS MEMORY | DISK`** elige una in-RAM table o un persistent
   on-disk store. **Default is DISK.**
-- **`WITH [DATA] COMPRESSION`** transparently compresses records (no external
+- **`WITH [DATA] COMPRESSION`** comprime records de forma transparente (sin external
   dependencies).
-- **Composite and alternate keys**, ascending key order, and `WITH DUPLICATES`
-  semantics are honoured.
+- **Composite and alternate keys**, ascending key order y `WITH DUPLICATES`
+  semantics son respetados.
 
 ### Crash-safe transactions
 
-The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed
-files*: a `COMMIT` makes pending `WRITE`/`REWRITE`/`DELETE` operations durable; a
-`ROLLBACK` discards them. (These are **file** transactions — for SQL transactions
-use `COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
+Los COBOL verbs **`COMMIT`** y **`ROLLBACK`** aplican a tus *open indexed
+files*: un `COMMIT` hace durable las operaciones pendientes `WRITE`/`REWRITE`/`DELETE`;
+un `ROLLBACK` las descarta. (Estas son **file** transactions — para SQL transactions
+usa `COBOL-EXEC-SQL` con `BEGIN`/`COMMIT`/`ROLLBACK`.)
 
 ```mermaid
 flowchart LR
@@ -929,22 +921,22 @@ flowchart LR
 
 ### Pluggable storage engines
 
-Choose the engine with `rcrun --indexed-engine <name>` (or the
-`COBOL_INDEXED_ENGINE` environment variable):
+Elige el engine con `rcrun --indexed-engine <name>` (o la environment variable
+`COBOL_INDEXED_ENGINE`):
 
 | Engine | Use it for |
-|--------|-----------|
-| `rust` (default) | The built-in B-tree store; in-memory and on-disk paged formats. |
-| `redb` | A **crash-safe, ACID** on-disk engine (copy-on-write B-tree, checksums, dual meta pages) — `COMMIT` survives power loss; instant `OPEN` on very large datasets. |
-| `rm` / `fujitsu` | Reserved engine names that currently behave identically to the built-in store (native formats are future work). |
+|--------|------------|
+| `rust` (default) | El built-in B-tree store; in-memory y on-disk paged formats. |
+| `redb` | Un **crash-safe, ACID** on-disk engine (copy-on-write B-tree, checksums, dual meta pages) — `COMMIT` sobrevive a power loss; instant `OPEN` en very large datasets. |
+| `rm` / `fujitsu` | Reserved engine names que actualmente se comportan igual que el built-in store (native formats son future work). |
 
 ### Operations log (observability)
 
-For diagnostics you can switch on a **per-file operations log**
+Para diagnostics puedes activar un **per-file operations log**
 (`rcrun --indexed-log basic|full`, format `--indexed-log-format text|json`).
-It records one line per `OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE` with timestamps,
-write/rewrite/delete counts, byte and throughput figures, and key-order quality —
-ready to feed into log tooling. The log rotates automatically under a size cap.
+Registra una línea por `OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE` con timestamps,
+write/rewrite/delete counts, byte and throughput figures, y key-order quality —
+listo para alimentar log tooling. El log rota automáticamente bajo un size cap.
 
 ### Recording the operator
 
@@ -952,25 +944,25 @@ ready to feed into log tooling. The log rotates automatically under a size cap.
            OPEN I-O CUSTOMER-FILE WITH REGISTERED USER WS-OPERATOR
 ```
 
-`OPEN … WITH REGISTERED [USER] {literal | data-item}` records *who* opened the
-file in the operations log. This is **observational only** — PowerRustCOBOL does
-not provide an authentication or authorisation engine; the field simply tags log
-entries with the operator you supply.
+`OPEN … WITH REGISTERED [USER] {literal | data-item}` registra *quién* abrió el
+file en el operations log. Esto es **solo observacional** — PowerRustCOBOL no provee
+un authentication o authorisation engine; el field simplemente etiqueta log entries con
+el operator que provees.
 
-> **Note.** The default disk format is self-describing and stores the full key
-> schema, so a file can be inspected and validated on `OPEN` (mismatches surface
-> as standard file-status codes). The format is **not** binary-compatible with
-> any third-party ISAM; do not assume interchange with other vendors' files.
+> **Note.** El default disk format es self-describing y almacena el full key
+> schema, por lo que un file puede inspeccionarse y validarse en `OPEN` (mismatches salen
+> como standard file-status codes). El format **no** es binary-compatible con ningún
+> third-party ISAM; no asumas interchange con files de otros vendors.
 
-> ⚠️ **Caveat.** Record locking is single-process (VSAM/RLS-style semantics
-> within one running program). Cross-*process* locking is not implemented.
+> ⚠️ **Caveat.** Record locking es single-process (VSAM/RLS-style semantics
+> dentro de un running program). Cross-*process* locking no está implemented.
 
 ---
 
 ## 15. SQL databases
 
-Relational access is exposed behind a single `CALL` surface, with the backend
-chosen from the connection string:
+Relational access se expone detrás de una única surface `CALL`, con el backend
+elegido a partir de la connection string:
 
 | Connection string starts with… | Backend |
 |---------------------------------|---------|
@@ -992,37 +984,37 @@ Typical flow:
            CALL "COBOL-CLOSE-DB".
 ```
 
-The drivers are pure and bundled (no `libpq`/OpenSSL to install). Use
-`COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK` for SQL transactions. Full
+Los drivers son pure y bundled (no necesitas instalar `libpq`/OpenSSL). Usa
+`COBOL-EXEC-SQL` con `BEGIN`/`COMMIT`/`ROLLBACK` para SQL transactions. Full
 reference: `docs/database-runtime.md`.
 
-> **Note.** You can model a database connection visually with the **SQL Database**
-> non-visual widget (its properties hold the connection string, driver, and the
-> data items its events populate), or drive it entirely from code with the
-> `CALL`s above.
+> **Note.** Puedes modelar una database connection visualmente con el **SQL Database**
+> non-visual widget (sus properties guardan la connection string, driver y los
+> data items que sus events pueblan), o manejarlo completamente desde code con los
+> `CALL`s anteriores.
 
 ---
 
-## 16. HTTP / REST and AI agents
+## 16. HTTP / REST y AI agents
 
-- **HTTP/REST.** `COBOL-HTTP-GET/POST/PUT/DELETE` issue requests;
-  `COBOL-HTTP-SET-HEADER` / `COBOL-HTTP-CLEAR-HEADERS` manage headers. The
-  **REST Client** non-visual widget gives you a designable endpoint with events
-  for responses, errors, timeouts, and progress.
-- **AI agents.** The **AI Agent** non-visual widget models a connection to a
-  language model (endpoint, model, system prompt, temperature, token limits) and
-  raises events such as `onResponse`, `onStreamChunk`, `onError`, and
-  `onThinking`, which your COBOL handlers consume.
+- **HTTP/REST.** `COBOL-HTTP-GET/POST/PUT/DELETE` emiten requests;
+  `COBOL-HTTP-SET-HEADER` / `COBOL-HTTP-CLEAR-HEADERS` gestionan headers. El
+  **REST Client** non-visual widget te da un designable endpoint con events para
+  responses, errors, timeouts y progress.
+- **AI agents.** El **AI Agent** non-visual widget modela una connection a un
+  language model (endpoint, model, system prompt, temperature, token limits) y
+  dispara events como `onResponse`, `onStreamChunk`, `onError` y
+  `onThinking`, que consumen tus COBOL handlers.
 
-> ⚠️ **Caveat.** Network features reach the outside world — handle errors and
-> timeouts in COBOL, and never embed secrets (API keys, tokens) in a form you
-> intend to ship. Treat those as runtime configuration.
+> ⚠️ **Caveat.** Network features acceden al outside world — maneja errors y
+> timeouts en COBOL, y nunca embebas secrets (API keys, tokens) en un form que
+> pretendas distribuir. Trátalos como runtime configuration.
 
 ---
 
-## 17. The command line (rcrun)
+## 17. La command line (rcrun)
 
-Everything the IDE does can be scripted with `rcrun`:
+Todo lo que hace la IDE puede scriptarse con `rcrun`:
 
 ```text
 rcrun run     <file.cbl>        # interpret a COBOL source file
@@ -1034,21 +1026,21 @@ rcrun version                   # print version
 ```
 
 Useful flags (indexed files): `--indexed-engine <rust|redb|…>`,
-`--indexed-log <basic|full>`, `--indexed-log-format <text|json>`. Each also has
-an environment-variable equivalent (`COBOL_INDEXED_ENGINE`, etc.), handy in CI.
+`--indexed-log <basic|full>`, `--indexed-log-format <text|json>`. Cada uno también tiene
+una environment-variable equivalent (`COBOL_INDEXED_ENGINE`, etc.), útil en CI.
 
-> 📷 **Screenshot needed — `rcrun-terminal.png`.** A terminal session showing
-> `rcrun check`, then `rcrun run`, on a small program, with the output. Helps
-> newcomers see the CLI is approachable.
+> 📷 **Screenshot needed — `rcrun-terminal.png`.** Una terminal session mostrando
+> `rcrun check`, luego `rcrun run`, sobre un small program, con el output. Ayuda a
+> newcomers a ver que la CLI es approachable.
 
 ---
 
-## 18. Building a distributable binary
+## 18. Construir un distributable binary
 
-`rcrun build` (or the IDE **Build** button) produces a **single self-contained
-native executable** in `bin/`. The application's parsed program and its forms are
-embedded inside the binary; no `.cbl` source is shipped, and the end user does
-**not** install PowerRustCOBOL.
+`rcrun build` (o el botón **Build** de la IDE) produce un **single self-contained
+native executable** en `bin/`. El parsed program de la application y sus forms se
+embeben dentro del binary; no se distribuye `.cbl` source, y el end user **no** instala
+PowerRustCOBOL.
 
 ```mermaid
 flowchart LR
@@ -1058,77 +1050,77 @@ flowchart LR
     ASSETS["assets/ + docs/"] -. "copied alongside" .-> EXE
 ```
 
-- Tracked **Assets** (and Documentation) are copied next to the binary so the
-  program finds them by relative path at run time.
-- Required licence/notice files are placed alongside the binary automatically.
-- **`dist/`** is reserved for a future "bundle everything needed to run on a
-  machine without PowerRustCOBOL" feature (binary + assets + any libraries +
-  launcher). For now, ship `bin/` and the copied assets.
+- Tracked **Assets** (y Documentation) se copian junto al binary para que el
+  program los encuentre por relative path en run time.
+- Required licence/notice files se colocan automáticamente junto al binary.
+- **`dist/`** queda reservado para una future feature de "bundle everything needed to run
+  on a machine without PowerRustCOBOL" (binary + assets + cualquier libraries +
+  launcher). Por ahora, distribuye `bin/` y los copied assets.
 
-> **Note.** Forms are loaded **lazily** inside the binary: a 20-form application
-> starts instantly even if the user only ever opens one form.
+> **Note.** Los forms se cargan **lazily** dentro del binary: una 20-form application
+> arranca instantáneamente incluso si el user solo llega a abrir un form.
 
 ---
 
 ## 19. Debugging
 
-Select a Generated Code item and press **Debug** to start a session. You get:
+Selecciona un Generated Code item y presiona **Debug** para iniciar una session. Obtienes:
 
-- **Breakpoints** in the editor gutter,
-- **step** controls and **continue** (F5 / F10 while debugging),
-- a **variable watch** panel.
+- **Breakpoints** en el editor gutter,
+- **step** controls y **continue** (F5 / F10 mientras debugging),
+- un **variable watch** panel.
 
-During a session a *Stop Debug* control appears; otherwise debugging starts from
-the toolbar **Debug** button (to the right of **Run**).
+Durante una session aparece un control *Stop Debug*; si no, debugging se inicia desde
+el botón **Debug** de la toolbar (a la derecha de **Run**).
 
-> 📷 **Screenshot needed — `debugger.png`.** A debug session paused on a
-> breakpoint, with the variable-watch panel populated.
+> 📷 **Screenshot needed — `debugger.png`.** Una debug session pausada en un
+> breakpoint, con el variable-watch panel poblado.
 
 ---
 
-## 20. Appearance and internationalisation
+## 20. Appearance e internationalisation
 
-- **Themes.** ⚙ ▸ *Settings* offers 28 colour themes — dark (Dark Glass
-  [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
-  more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
+- **Themes.** ⚙ ▸ *Settings* ofrece 28 colour themes — dark (Dark Glass
+  [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, y más),
+  light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
   Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
-  Catppuccin Latte, Solarized Light), and **Classic**, a faithful Windows
-  95 look (silver chrome, navy selection) for the full retro-RAD experience.
-  There is also an optional **background image** with an opacity control.
-  Settings are saved **per project** in `cobolt.toml`. The project tree and
-  panel text automatically adapt their contrast to the theme — light text on
+  Catppuccin Latte, Solarized Light), y **Classic**, un fiel Windows
+  95 look (silver chrome, navy selection) para la full retro-RAD experience.
+  También hay un optional **background image** con opacity control.
+  Los settings se guardan **per project** en `cobolt.toml`. El project tree y
+  panel text adaptan automáticamente su contrast al theme — light text on
   dark themes, dark text on light ones.
-- **IDE languages.** The IDE interface is available in **English, Spanish,
+- **IDE languages.** La IDE interface está disponible en **English, Spanish,
   Portuguese, Japanese, and Chinese** (toolbar language selector).
 
-> ⚠️ **Critical rule.** The IDE language translates the **interface only**. Your
-> **COBOL data names, paragraph names, and all generated COBOL source remain in
-> English** regardless of the selected UI language. This keeps code portable and
-> reviewable across teams.
+> ⚠️ **Critical rule.** El IDE language traduce **solo la interface**. Tus
+> **COBOL data names, paragraph names y todo generated COBOL source permanecen en
+> English** independientemente del selected UI language. Esto mantiene el code portable y
+> reviewable entre teams.
 
 ---
 
-## 21. Caveats and current limitations
+## 21. Caveats y limitaciones actuales
 
-A consolidated list so you are never surprised:
+Una consolidated list para que nada te sorprenda:
 
-- **Event firing.** All form/widget events are *designable*; only the core set is
-  *fired* by the runtime today (see §10). Verify in *Run Form*.
-- **File organisations.** SEQUENTIAL, LINE SEQUENTIAL, and INDEXED are
+- **Event firing.** Todos los form/widget events son *designable*; solo el core set es
+  *fired* por el runtime hoy (ver §10). Verifica en *Run Form*.
+- **File organisations.** SEQUENTIAL, LINE SEQUENTIAL e INDEXED son
   supported; **RELATIVE is planned**.
 - **Locking.** Single-process record locking only.
-- **OO COBOL.** `CLASS`/`METHOD` definitions are out of scope.
-- **ISAM interchange.** The on-disk format is original and **not**
-  binary-compatible with any third-party ISAM.
-- **Generated code is read-only.** Edit forms or Common Code, never `generated/`.
-- **`dist/` is reserved**, not yet populated by tooling.
-- **Secrets** must not be embedded in shipped forms.
+- **OO COBOL.** `CLASS`/`METHOD` definitions están fuera de scope.
+- **ISAM interchange.** El on-disk format es original y **no** es
+  binary-compatible con ningún third-party ISAM.
+- **Generated code is read-only.** Edita forms o Common Code, nunca `generated/`.
+- **`dist/` is reserved**, aún no poblado por tooling.
+- **Secrets** no deben embebirse en shipped forms.
 
 ---
 
 ## Appendix A — Coming from PowerCOBOL / isCOBOL
 
-A rough mental map to speed you up. These are *analogies*, not exact equivalents.
+Un rough mental map para acelerar tu adaptación. Son *analogies*, no equivalents exactos.
 
 | You knew (PowerCOBOL / isCOBOL) | In PowerRustCOBOL |
 |---------------------------------|-------------------|
@@ -1142,29 +1134,29 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | Building an `.exe` with a runtime DLL | `rcrun build` → **one self-contained binary**, no runtime to install |
 | Project/workspace file | `cobolt.toml` + the standard folder layout |
 
-> ⚠️ **Do not** expect source-level, file-format, or binary compatibility with
-> any prior vendor's product. The concepts transfer; the artefacts do not.
+> ⚠️ **Do not** expect source-level, file-format o binary compatibility con
+> ningún producto de vendor anterior. Los concepts se transfieren; los artefacts no.
 
 ---
 
 ## Appendix B — Glossary
 
-- **Form** — a window you design; stored as a `.cfrm` file.
-- **Control / widget** — an element on a form (button, text box, chart, …).
-- **Property** — a named attribute of a control or form.
-- **Event** — something the user (or system) does; named `onSomething`.
-- **Handler** — the COBOL that runs for an event; a nested program.
-- **Generated code** — the read-only `.cbl` PowerRustCOBOL produces from a form.
-- **Common Code** — your hand-written COBOL.
-- **Non-visual widget** — a service with no run-time appearance (Timer, SQL,
+- **Form** — una window que diseñas; almacenada como `.cfrm` file.
+- **Control / widget** — un element en un form (button, text box, chart, …).
+- **Property** — un named attribute de un control o form.
+- **Event** — algo que el user (o system) hace; named `onSomething`.
+- **Handler** — el COBOL que corre para un event; un nested program.
+- **Generated code** — el read-only `.cbl` que PowerRustCOBOL produce desde un form.
+- **Common Code** — tu hand-written COBOL.
+- **Non-visual widget** — un service sin run-time appearance (Timer, SQL,
   REST, AI Agent).
-- **rcrun** — the command-line runtime / checker / packager / compiler.
-- **Indexed file** — an ISAM file (`ORGANIZATION IS INDEXED`).
-- **Engine** — the storage backend for indexed files (`rust`, `redb`, …).
+- **rcrun** — el command-line runtime / checker / packager / compiler.
+- **Indexed file** — un ISAM file (`ORGANIZATION IS INDEXED`).
+- **Engine** — el storage backend para indexed files (`rust`, `redb`, …).
 
 ---
 
-*This guide is a living document. It is expanded whenever a feature is added or a
-behaviour changes — if something here disagrees with the running tool, the tool
-(and the `docs/` reference files and test suite) are authoritative; please report
-the discrepancy.*
+*Esta guía es un living document. Se expande cada vez que se agrega una feature o cambia un
+behaviour — si algo aquí discrepa con la running tool, la tool
+(y los `docs/` reference files y test suite) son authoritative; por favor reporta
+la discrepancy.*
