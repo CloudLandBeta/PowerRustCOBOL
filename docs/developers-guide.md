@@ -636,6 +636,71 @@ control-outward, and a name may carry a 1-based subscript
 > `MOVE propertyA TO propertyB` needs **no intermediate `PIC` data item** — a
 > step that classic GUI COBOL forces on you.
 
+### Calling widget methods
+
+Properties describe *what a widget is*; **methods** describe *what it can do* —
+showing it, moving it, ticking a value up, adding a list item, firing an HTTP
+request. Every widget understands a set of **universal** methods plus its own
+**type-specific** ones. You can call a method three ways, all equivalent:
+
+```cobol
+      *> 1. Inline call — reads like a sentence, no result kept
+           Lbl-Out::SetCaption("Saved.").
+
+      *> 2. As an expression — the return value flows into a MOVE / IF / COMPUTE
+           MOVE Txt-Name::GetText() TO WS-NAME.
+           IF Chk-Agree::IsChecked() = "1"
+               PERFORM SUBMIT-ORDER
+           END-IF.
+
+      *> 3. INVOKE verb — when you prefer the spelled-out keyword, with optional
+      *>    USING arguments and RETURNING receiver
+           INVOKE Db-1 "query"
+               USING "SELECT id, name FROM customer"
+               RETURNING WS-ROWS.
+```
+
+Arguments go in parentheses (inline / expression form) or after `USING`
+(`INVOKE` form); a method that returns a value can be used directly in an
+expression or captured with `RETURNING`. The editor's IntelliSense lists a
+widget's methods after you type `::`, each with a one-line description.
+
+**Universal methods** (every visible widget):
+
+| Method | Effect |
+|--------|--------|
+| `Show` / `Hide` | Set the `Visible` property on or off. |
+| `Enable` / `Disable` | Set the `Enabled` property on or off. |
+| `SetFocus` | Give the widget keyboard focus. |
+| `MoveTo(x, y)` | Reposition the widget (sets `X` / `Y`). |
+| `Resize(w, h)` | Change its size (sets `Width` / `Height`). |
+| `BringToFront` / `SendToBack` | Change stacking order. |
+| `SetProperty(name, value)` / `GetProperty(name)` | Generic access to any property by name. |
+
+**Type-specific highlights** (the full list is in IntelliSense):
+
+| Widget | Methods |
+|--------|---------|
+| Label / Button | `SetCaption`, `GetCaption` |
+| Text box | `SetText`, `GetText`, `AppendText`, `Clear` |
+| Check box / radio | `IsChecked`, `SetChecked`, `Toggle`, `Select` |
+| Progress / slider / numeric | `SetValue`, `GetValue`, `Increment`, `Decrement`, `Reset` |
+| List / combo | `AddItem`, `RemoveItem`, `GetCount`, `GetSelected`, `SetIndex` |
+| Timer | `Start`, `Stop`, `SetInterval`, `IsEnabled` |
+| REST Client | `get`, `post`, `put`, `delete`, `call`, `setHeader`, `clearHeaders` |
+| SQL Database | `open`, `execute`, `query`, `fetch`, `fetchAll`, `close` |
+| AI Agent | `Ask`, `SetPrompt`, `SetModel`, `Stop` |
+
+A method that changes a property updates the **running form immediately** — the
+same channel the property syntax uses — so `Lbl-Out::SetCaption("Done")` repaints
+the label the moment it runs. Methods and the property syntax are fully
+interchangeable; pick whichever reads best for the line you are writing.
+
+> **Designed values are available before you set anything.** When a form starts,
+> every control is seeded with the values from its properties pane, so
+> `Txt-Name::GetText()` (or `"Text" OF Txt-Name`) returns the text you typed at
+> design time even before the first setter runs.
+
 ### Property access via CALL (also supported)
 
 The explicit `CALL` form remains available and is interchangeable with the
@@ -1015,7 +1080,7 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | Property sheet | The **properties pane** (collapsible section cards) |
 | Event procedure attached to a control | A COBOL **event handler** (`CONTROL-ID--EVENTNAME` nested program) |
 | The event loop hidden by the runtime | The explicit **`COBOL-WAIT-EVENT`** loop in generated code |
-| `INVOKE`/method calls on controls | `CALL "COBOL-SET-PROPERTY"` / `"COBOL-GET-PROPERTY"` (and control methods) |
+| `INVOKE`/method calls on controls | The same — `Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL-GET/SET-PROPERTY` calls |
 | Vendor ISAM | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`) |
 | Embedded SQL / ODBC | `COBOL-OPEN-DB` + `COBOL-EXEC-SQL` (SQLite/PostgreSQL/MySQL) |
 | Building an `.exe` with a runtime DLL | `rcrun build` → **one self-contained binary**, no runtime to install |

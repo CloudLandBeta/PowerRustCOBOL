@@ -9,7 +9,7 @@
 //! Each `parse_*` function corresponds to one COBOL verb.  The top-level
 //! dispatcher [`parse_stmt`] looks at the current token and delegates.
 
-use cobolt_ast::expr::{CmpOp, Condition, Expr, Literal};
+use cobolt_ast::expr::{CmpOp, Expr, Literal};
 use cobolt_ast::stmt::{
     AcceptSource, AdvancingClause, CallArg, EvalSubject, ExecRustBinding, ExitKind, OpenMode,
     PerformTarget, ReadDirection, Stmt, UnstringTarget, VaryingAfter, WhenClause, WhenValue,
@@ -137,6 +137,13 @@ pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<
 /// Try to parse one statement at the current position.
 /// Returns `None` if the current token does not start a known statement.
 pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
+    // Inline OO method call as a statement: `object::method(args)`.
+    if matches!(p.peek(), Token::Identifier(_))
+        && *p.peek_at(1) == Token::Colon
+        && *p.peek_at(2) == Token::Colon
+    {
+        return Some(parse_inline_invoke(p));
+    }
     // Statements introduced by a non-keyword word (SEARCH, UNLOCK, ALTER).
     if let Token::Identifier(w) = p.peek() {
         match w.to_ascii_uppercase().as_str() {
@@ -1943,22 +1950,61 @@ fn eat_on_exception(p: &mut Parser) -> bool {
 // sentence boundary (period or start of a new statement verb) so that the rest
 // of the program can be compiled cleanly.
 
+// `INVOKE object "method" [USING [BY …] arg …] [RETURNING dest]`
 fn parse_invoke(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // INVOKE
 
-    // Consume everything until period, EOF, or a new statement verb.
-    loop {
-        let tok = p.peek().clone();
-        if matches!(tok, Token::Eof | Token::Period) { break; }
-        // Stop before the next statement verb (but NOT before clause keywords
-        // like USING, BY, VALUE, RETURNING which belong to INVOKE).
-        if is_stmt_start(&tok) { break; }
-        p.advance();
+    let object = p.eat_identifier().map(|(n, _)| n).unwrap_or_default();
+    // method name: a quoted string ('SetCaption') or a bare identifier.
+    let method = crate::expr::take_string_literal(p)
+        .or_else(|| p.eat_identifier().map(|(n, _)| n))
+        .unwrap_or_default();
+
+    let mut args = Vec::new();
+    if p.eat(&Token::Using) {
+        loop {
+            // BY {REFERENCE|CONTENT|VALUE} are accepted and ignored (methods take
+            // their operands the same way regardless).
+            p.eat(&Token::By);
+            let _ = p.eat(&Token::Reference) || p.eat(&Token::Value)
+                || (matches!(ident_upper(p).as_deref(), Some("CONTENT")) && { p.advance(); true });
+            if !is_expr_start(p) { break; }
+            args.push(parse_expr(p));
+        }
     }
+    let returning = if p.eat(&Token::Returning) { Some(parse_expr(p)) } else { None };
     p.eat(&Token::Period);
 
-    Stmt::Continue { span }
+    Stmt::Invoke { object, method, args, returning, span }
+}
+
+/// Inline OO call as a statement: `object::method(arg, …)`.
+/// (The expression form lives in the expression parser.)
+fn parse_inline_invoke(p: &mut Parser) -> Stmt {
+    let span = p.peek_span();
+    let object = p.eat_identifier().map(|(n, _)| n).unwrap_or_default();
+    let (method, args) = parse_method_tail(p).unwrap_or_default();
+    p.eat(&Token::Period);
+    Stmt::Invoke { object, method, args, returning: None, span }
+}
+
+/// Parse `:: method ( args )` with the cursor on the first `:`. Shared by the
+/// statement and expression forms of an inline method call.
+pub(crate) fn parse_method_tail(p: &mut Parser) -> Option<(String, Vec<Expr>)> {
+    if !(p.eat(&Token::Colon) && p.eat(&Token::Colon)) {
+        return None;
+    }
+    let method = p.eat_identifier().map(|(n, _)| n)?;
+    let mut args = Vec::new();
+    if p.eat(&Token::LParen) {
+        while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+            args.push(parse_expr(p));
+            if !p.eat(&Token::Comma) { break; }
+        }
+        p.expect(&Token::RParen);
+    }
+    Some((method, args))
 }
 
 // ── INITIALIZE ────────────────────────────────────────────────────────────────
