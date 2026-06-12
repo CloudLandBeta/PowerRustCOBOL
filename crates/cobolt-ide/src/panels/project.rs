@@ -33,6 +33,11 @@ use crate::panels::toolbox;
 /// Icon size in the tree — 80 % larger than the default body text (~12 px).
 const ICON_SIZE: f32 = 21.6;
 
+/// Fixed width of the expand/collapse arrow column on a control row. Reserved
+/// on *every* control (blank when there is nothing to expand) so the status dot
+/// and label always align in a single column regardless of the arrow.
+const ARROW_GUTTER: f32 = 14.0;
+
 // ── Events ────────────────────────────────────────────────────────────────────
 
 /// Actions emitted by the project panel for `CoboltApp` to handle.
@@ -528,59 +533,68 @@ fn control_node(
     let ckey = sel_ctrl(rel, &c.id);
     let csel = cur.as_deref() == Some(ckey.as_str());
     let hint = format!("{:?}", c.control_type);
+    let has_events = !c.events.is_empty();
 
-    if c.events.is_empty() {
-        let crow = ui.horizontal(|ui| {
-            ui.add_space(26.0);
-            status_dot(ui, status);
-            full_width_select(ui, csel, format!("• {}", c.id)).on_hover_text(hint)
-        }).inner;
-        if crow.clicked() {
-            events.push(ProjectPanelEvent::Select(ckey));
-            events.push(ProjectPanelEvent::InspectControl {
-                form: form_path.to_path_buf(),
-                ctrl_id: c.id.clone(),
-            });
-        }
-        return;
-    }
+    // Open-state for the (optional) Events subtree. Stored per control so the
+    // expansion survives across frames; collapsed by default.
+    let id = ui.make_persistent_id(("ctrl_open", rel, &c.id));
+    let mut open = has_events && ui.data(|d| d.get_temp::<bool>(id).unwrap_or(false));
 
-    // Has events → an expandable control node (collapsed) with an Events group.
-    let id = ui.make_persistent_id(("ctrl", rel, &c.id));
-    let (_t, header_inner, _b) =
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-        .show_header(ui, |ui| {
-            ui.add_space(20.0);
-            status_dot(ui, status);
-            full_width_select(ui, csel, format!("• {}", c.id)).on_hover_text(hint)
-        })
-        .body(|ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(36.0);
-                ui.label(RichText::new(format!("⚡ {}", tr.tree_events)).color(Color32::from_gray(120)));
-            });
-            for ev in &c.events {
-                let ekey = sel_event(rel, &c.id, &ev.event);
-                let esel = cur.as_deref() == Some(ekey.as_str());
-                let erow = ui.horizontal(|ui| {
-                    ui.add_space(48.0);
-                    full_width_select(ui, esel, ev.event.as_str()).on_hover_text(&ev.paragraph)
-                }).inner;
-                if erow.clicked() {
-                    events.push(ProjectPanelEvent::Select(ekey));
-                    events.push(ProjectPanelEvent::OpenEventCode {
-                        form: form_path.to_path_buf(),
-                        paragraph: ev.paragraph.clone(),
-                    });
-                }
+    // Every control row reserves the SAME leading layout — a fixed indent plus a
+    // fixed-width arrow gutter — so the status dot and label line up in one
+    // column whether or not the control has an expandable Events node.
+    let crow = ui.horizontal(|ui| {
+        ui.add_space(20.0);
+        let (arrow_rect, arrow_resp) =
+            ui.allocate_exact_size(egui::vec2(ARROW_GUTTER, 24.0), egui::Sense::click());
+        if has_events {
+            let sym = if open { "▾" } else { "▸" };
+            ui.painter().text(
+                arrow_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                sym,
+                egui::FontId::proportional(11.0),
+                ui.visuals().weak_text_color(),
+            );
+            if arrow_resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                open = !open;
             }
-        });
-    if header_inner.inner.clicked() {
+        }
+        status_dot(ui, status);
+        full_width_select(ui, csel, format!("• {}", c.id)).on_hover_text(hint)
+    }).inner;
+
+    if has_events {
+        ui.data_mut(|d| d.insert_temp(id, open));
+    }
+    if crow.clicked() {
         events.push(ProjectPanelEvent::Select(ckey));
         events.push(ProjectPanelEvent::InspectControl {
             form: form_path.to_path_buf(),
             ctrl_id: c.id.clone(),
         });
+    }
+
+    if open {
+        ui.horizontal(|ui| {
+            ui.add_space(20.0 + ARROW_GUTTER + 16.0);
+            ui.label(RichText::new(format!("⚡ {}", tr.tree_events)).color(Color32::from_gray(120)));
+        });
+        for ev in &c.events {
+            let ekey = sel_event(rel, &c.id, &ev.event);
+            let esel = cur.as_deref() == Some(ekey.as_str());
+            let erow = ui.horizontal(|ui| {
+                ui.add_space(20.0 + ARROW_GUTTER + 28.0);
+                full_width_select(ui, esel, ev.event.as_str()).on_hover_text(&ev.paragraph)
+            }).inner;
+            if erow.clicked() {
+                events.push(ProjectPanelEvent::Select(ekey));
+                events.push(ProjectPanelEvent::OpenEventCode {
+                    form: form_path.to_path_buf(),
+                    paragraph: ev.paragraph.clone(),
+                });
+            }
+        }
     }
 }
 

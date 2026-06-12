@@ -181,9 +181,14 @@ first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
   designer supersedes SCREEN I/O there). `ACCEPT id AT …` positions then reads.
 
 ### STRING
-- ✅ `STRING {src DELIMITED BY {SIZE | delim}} … INTO target [WITH POINTER p]
-  [[ON] OVERFLOW imp] [NOT [ON] OVERFLOW imp] [END-STRING]`. Overflow = the
-  assembled string is wider than the receiving field.
+- ✅ `STRING {src [DELIMITED BY {SIZE | SPACE[S] | delim}]} … INTO target
+  [WITH POINTER p] [[ON] OVERFLOW imp] [NOT [ON] OVERFLOW imp] [END-STRING]`.
+  Overflow = the assembled string is wider than the receiving field.
+- ✅ **Extension — smart default `DELIMITED BY`** (when the clause is omitted on
+  an operand): alphanumeric `PIC X`/`A` items default to `SPACES` (trailing pad
+  dropped); string literals, numeric, numeric-edited items, `FUNCTION` results
+  and expressions default to `SIZE`. Data items are moved in their field form
+  (numeric → full PIC-width digits; numeric-edited → edited characters).
 
 ### UNSTRING
 - ✅ `UNSTRING src [DELIMITED BY [ALL] d [OR [ALL] d …]] INTO {t [DELIMITER IN d]

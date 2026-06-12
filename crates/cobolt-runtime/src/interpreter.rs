@@ -1965,7 +1965,7 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         let mut result = String::new();
         for (src_expr, delim_expr) in operands {
-            let src = self.eval_expr(src_expr, span)?.as_display_string();
+            let (src, is_alpha_item) = self.string_operand(src_expr, span)?;
             if let Some(delim_e) = delim_expr {
                 let delim = self.eval_expr(delim_e, span)?.as_display_string();
                 let delim_upper = delim.trim().to_ascii_uppercase();
@@ -1978,7 +1978,14 @@ impl Interpreter {
                 } else {
                     result.push_str(&src);
                 }
+            } else if is_alpha_item {
+                // No DELIMITED BY: a plain alphanumeric data item defaults to
+                // DELIMITED BY SPACES (drop the trailing space padding).
+                result.push_str(src.trim_end());
             } else {
+                // No DELIMITED BY: literals, numeric / numeric-edited items,
+                // function results and computed values default to DELIMITED BY
+                // SIZE (the whole value is moved).
                 result.push_str(&src);
             }
         }
@@ -3943,6 +3950,33 @@ impl Interpreter {
             Expr::RefMod { base, .. }    => self.expr_to_name(base),
             _ => "__UNKNOWN__".to_owned(),
         }
+    }
+
+    /// Resolve one `STRING` sending operand to `(characters, is_plain_alphanumeric)`.
+    ///
+    /// A **data-item** reference is rendered in its *field* form, exactly as the
+    /// item's characters are stored: a USAGE-DISPLAY numeric item shows its full
+    /// PIC-width digit string (leading zeros, leading `-` when negative), a
+    /// numeric-edited item shows its edited characters, and an alphanumeric item
+    /// shows its bytes. Literals, function results and computed expressions use
+    /// their evaluated value.
+    ///
+    /// The returned flag is `true` only for a *plain alphanumeric* item, which
+    /// is what drives the default `DELIMITED BY SPACES` behaviour (trailing
+    /// space padding dropped) when no `DELIMITED BY` clause is written. Every
+    /// other operand defaults to `DELIMITED BY SIZE`.
+    fn string_operand(&mut self, e: &Expr, span: Span) -> Result<(String, bool), RuntimeError> {
+        if matches!(
+            e,
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }
+        ) {
+            let name = self.resolve_lvalue(e);
+            if let Some(chars) = self.env.display_string(&name) {
+                let is_alpha = self.env.is_alphanumeric_field(&name);
+                return Ok((chars, is_alpha));
+            }
+        }
+        Ok((self.eval_expr(e, span)?.as_display_string(), false))
     }
 
     /// Assign `val` into the reference-modified region of a target:
