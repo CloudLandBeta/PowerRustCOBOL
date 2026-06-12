@@ -408,10 +408,25 @@ impl CoboltApp {
     }
 
     /// The open project's main program as `(abs_path, source)`, if any.
+    ///
+    /// Prefers the declared `[project].main`; for a form-centric project whose
+    /// main was never hand-written, falls back to the first generated form
+    /// program (then any ordinary source) that exists on disk — so Run always
+    /// has something to execute.
     fn project_main_source(&self) -> Option<(PathBuf, String)> {
         let proj = self.cobolt_project.as_ref()?;
         let root = self.project_path.as_ref()?.parent()?;
-        let main_abs = root.join(&proj.project.main);
+        let exists = |rel: &str| !rel.is_empty() && root.join(rel).is_file();
+
+        let main_rel = if exists(&proj.project.main) {
+            proj.project.main.clone()
+        } else {
+            proj.files.generated.iter()
+                .chain(proj.files.sources.iter())
+                .find(|rel| exists(rel))
+                .cloned()?
+        };
+        let main_abs = root.join(&main_rel);
         let src = std::fs::read_to_string(&main_abs).ok()?;
         Some((main_abs, src))
     }

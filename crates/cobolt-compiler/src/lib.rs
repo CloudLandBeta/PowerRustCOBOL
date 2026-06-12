@@ -120,6 +120,10 @@ struct ProjectFiles {
     #[serde(default)] assets:  Vec<String>,
     /// Documentation files — also copied next to the binary.
     #[serde(default)] documentation: Vec<String>,
+    /// Generated COBOL produced from the project's forms. For a form-centric
+    /// project with no hand-written main, the first generated program is the
+    /// runnable entry point.
+    #[serde(default)] generated: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +131,27 @@ struct CoboltProject {
     project: ProjectMeta,
     #[serde(default)]
     files: ProjectFiles,
+}
+
+/// Resolve the project's entry program as a path relative to the project root.
+///
+/// Order of preference:
+/// 1. the declared `[project].main`, when that file exists on disk;
+/// 2. the first **generated** form program that exists (form-centric projects
+///    with no hand-written main);
+/// 3. the first ordinary **source** that exists.
+///
+/// Returns `None` only when nothing compilable can be found — the caller maps
+/// that to [`CompilerError::NoMain`].
+fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
+    let exists = |rel: &String| !rel.is_empty() && dir.join(rel).exists();
+    if exists(&proj.project.main) {
+        return Some(proj.project.main.clone());
+    }
+    proj.files.generated.iter()
+        .chain(proj.files.sources.iter())
+        .find(|rel| exists(rel))
+        .cloned()
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -226,19 +251,19 @@ fn build_core(
     log("📂 Collecting source files …");
     let mut sources: Vec<(String, String)> = Vec::new(); // (rel_path, source_text)
 
-    // Always include the main file first.
-    let main_path = project_dir.join(&proj.project.main);
-    if !main_path.exists() {
-        return Err(CompilerError::NoMain);
-    }
+    // Resolve the entry program. Prefer the declared `main`; for a form-centric
+    // project whose `main` was never hand-written, fall back to the first
+    // generated form program so the project still builds and runs.
+    let main_rel = resolve_main(&proj, &project_dir).ok_or(CompilerError::NoMain)?;
+    let main_path = project_dir.join(&main_rel);
     sources.push((
-        proj.project.main.clone(),
+        main_rel.clone(),
         std::fs::read_to_string(&main_path)?,
     ));
 
     // Then the rest of the declared sources (skip main if listed again).
     for rel in &proj.files.sources {
-        if rel == &proj.project.main { continue; }
+        if rel == &main_rel { continue; }
         let abs = project_dir.join(rel);
         if abs.exists() {
             sources.push((rel.clone(), std::fs::read_to_string(&abs)?));
@@ -1023,5 +1048,61 @@ fn find_workspace_root(start: &Path) -> Option<PathBuf> {
             }
         }
         dir = dir.parent()?;
+    }
+}
+
+#[cfg(test)]
+mod resolve_main_tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("prc-resolve-{tag}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
+        CoboltProject {
+            project: ProjectMeta {
+                name: "Demo".into(), version: "1.0.0".into(), main: main.into(),
+            },
+            files: ProjectFiles {
+                sources: sources.into_iter().map(String::from).collect(),
+                generated: generated.into_iter().map(String::from).collect(),
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn prefers_declared_main_when_it_exists() {
+        let dir = temp_dir("main");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/main.cbl"), "x").unwrap();
+        let p = proj("src/main.cbl", vec![], vec!["generated/form.cbl"]);
+        assert_eq!(resolve_main(&p, &dir).as_deref(), Some("src/main.cbl"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn falls_back_to_generated_form_when_main_missing() {
+        // Reproduces the form-only project: declared main was never written.
+        let dir = temp_dir("form");
+        fs::create_dir_all(dir.join("generated")).unwrap();
+        fs::write(dir.join("generated/power-demo-1.cbl"), "x").unwrap();
+        let p = proj("src/main.cbl", vec![], vec!["generated/power-demo-1.cbl"]);
+        assert_eq!(resolve_main(&p, &dir).as_deref(), Some("generated/power-demo-1.cbl"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn none_when_nothing_exists() {
+        let dir = temp_dir("empty");
+        let p = proj("src/main.cbl", vec!["a.cbl"], vec!["b.cbl"]);
+        assert_eq!(resolve_main(&p, &dir), None);
+        fs::remove_dir_all(&dir).ok();
     }
 }

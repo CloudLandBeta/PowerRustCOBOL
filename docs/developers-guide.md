@@ -313,6 +313,12 @@ A new project also gets a **runnable starter `main` program** (by default
 `src/main.cbl`) — a minimal `IDENTIFICATION DIVISION` / `DISPLAY` / `GOBACK` that
 you can **Run** straight away and then grow.
 
+> **Form-first projects.** If you delete the starter `main` and build a project
+> made of nothing but forms, **Build** and **Run** still work: when the
+> `[project].main` file is absent, PowerRustCOBOL uses the **first generated form
+> program** (`generated/*.cbl`) as the entry point. Set `[project].main` to a
+> specific program once you want explicit control over which one starts.
+
 > **Note.** Opening an older project that predates this layout **back-fills any
 > missing standard folders** automatically, so every project ends up with the
 > same structure.
@@ -832,6 +838,50 @@ gets its own `IDENTIFICATION DIVISION` and is validated independently.
 
 > This is a structural check, not a style suggestion. There is no flag to
 > override it; redeclaring a unique element is always an error.
+
+### `STRING` with smart default delimiters
+
+Standard COBOL makes you write `DELIMITED BY` on **every** `STRING` operand, even
+when the obvious choice is the only sensible one. RustCOBOL keeps that explicit
+form working, but when you **omit** `DELIMITED BY` it picks the right default from
+the operand's category — so the common case reads like plain text:
+
+| Operand | Default | Why |
+|---------|---------|-----|
+| String literal (`" earns "`) | `DELIMITED BY SIZE` | take it verbatim, spaces included |
+| Alphanumeric item (`PIC X`/`A`) | `DELIMITED BY SPACES` | drop the trailing space padding |
+| Numeric item (`PIC 9`/`S9`) | `DELIMITED BY SIZE` | move the field's characters |
+| Numeric-edited (`PIC ZZ9.99`) | `DELIMITED BY SIZE` | move the edited characters |
+| `FUNCTION …` / expression | `DELIMITED BY SIZE` | move the whole computed value |
+
+A data item is moved **in its field form** — exactly the characters it stores: a
+`PIC S9(9)` holding `100000` contributes `000100000` (full PIC width), a
+`PIC ZZZ,ZZ9.99` contributes its edited text. So this:
+
+```cobol
+       01 NAME-X        PIC X(40)        VALUE "Joe".
+       01 SALARY        PIC S9(09)       VALUE 100000.
+       01 SALARY-EDITED PIC ZZZ,ZZZ,ZZ9.99.
+       01 TEXT-OUT      PIC X(100).
+       ...
+           MOVE SALARY TO SALARY-EDITED
+           STRING NAME-X
+                  " earns "
+                  SALARY
+                  " or US$"
+                  FUNCTION TRIM(SALARY-EDITED)
+             INTO TEXT-OUT
+```
+
+produces:
+
+```text
+Joe earns 000100000 or US$100,000.00
+```
+
+`DELIMITED BY SPACES` here keeps any **internal** spaces (`"Joe Smith"` stays
+`"Joe Smith"`) and trims only the trailing pad. Writing an explicit
+`DELIMITED BY …` on any operand always overrides its default.
 
 ---
 
