@@ -1976,7 +1976,11 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     v.widgets.noninteractive = make_widget(bg_widget, border_dim, text_dim);
     v.widgets.inactive       = make_widget(bg_widget, border_dim, text_dim);
     v.widgets.hovered        = make_widget(bg_hover,  border_hi,  text_bright);
-    v.widgets.active         = make_widget(bg_active, accent,     Color32::WHITE);
+    // NOTE: egui derives `strong_text_color()` from the ACTIVE widget text, so
+    // this must be the theme's bright text (dark on light themes, light on
+    // dark ones) — a hardcoded white washes out every `.strong()` label on
+    // light themes.
+    v.widgets.active         = make_widget(bg_active, accent,     text_bright);
     v.widgets.open           = make_widget(bg_hover,  border_hi,  text_bright);
 
     // Keep separators / dividers very faint (the prominent light-grey lines were
@@ -4562,5 +4566,38 @@ mod settings_window_size_tests {
         assert!((later.width()  - opened.width()).abs()  < 2.0
              && (later.height() - opened.height()).abs() < 2.0,
             "size must persist after opening: {opened:?} vs {later:?}");
+    }
+}
+
+#[cfg(test)]
+mod theme_text_contrast_tests {
+    use super::*;
+
+    fn luma(c: egui::Color32) -> u32 {
+        c.r() as u32 + c.g() as u32 + c.b() as u32
+    }
+
+    /// `.strong()` labels resolve through `Visuals::strong_text_color()`
+    /// (= the ACTIVE widget text). It must follow the theme: dark text on
+    /// light themes, light text on dark ones — never hardcoded white.
+    #[test]
+    fn strong_text_follows_theme_contrast() {
+        let ctx = egui::Context::default();
+        for t in crate::theme::THEMES {
+            apply_glass_visuals(&ctx, t);
+            let strong = ctx.style().visuals.strong_text_color();
+            let plain  = ctx.style().visuals.text_color();
+            if t.dark {
+                assert!(luma(strong) > 380,
+                    "dark theme '{}' needs light strong text, got {strong:?}", t.id);
+                assert!(luma(plain) > 330,
+                    "dark theme '{}' needs light text, got {plain:?}", t.id);
+            } else {
+                assert!(luma(strong) < 380,
+                    "light theme '{}' needs dark strong text, got {strong:?}", t.id);
+                assert!(luma(plain) < 400,
+                    "light theme '{}' needs dark text, got {plain:?}", t.id);
+            }
+        }
     }
 }

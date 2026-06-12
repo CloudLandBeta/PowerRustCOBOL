@@ -128,8 +128,14 @@ fn full_width_select(
     }
 
     // Left-aligned, vertically-centred label. RichText colours (e.g. generated
-    // blue) are preserved; plain text uses the fallback colour.
-    let fallback = if selected { egui::Color32::WHITE } else { ui.visuals().text_color() };
+    // blue) are preserved; plain text uses the fallback colour. Selected rows
+    // keep theme-appropriate contrast: white on dark themes (dark selection
+    // pill), the theme's dark bright-text on light ones (light selection pill).
+    let fallback = if selected {
+        if theme.dark { egui::Color32::WHITE } else { theme.text_bright }
+    } else {
+        ui.visuals().text_color()
+    };
     let text_pos = egui::pos2(rect.left() + 7.0, rect.center().y - galley.size().y / 2.0);
     ui.painter().galley(text_pos, galley, fallback);
     resp
