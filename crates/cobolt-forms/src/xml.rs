@@ -850,6 +850,8 @@ mod tests {
     fn sample_form() -> Form {
         let mut form = Form::new("MAIN-FORM", "Test App", 800, 600);
         form.background_color = "#F0F0F0".into();
+        form.background_image = "/tmp/wallpaper.png".into();
+        form.bg_image_mode    = BgImageMode::Fit;
         // Set OnLoad code
         if let Some(ev) = form.form_events.iter_mut().find(|e| e.event == "onLoad") {
             ev.code = "    MOVE 0 TO WS-COUNTER".into();
@@ -884,6 +886,10 @@ mod tests {
         assert_eq!(loaded.width,            form.width);
         assert_eq!(loaded.height,           form.height);
         assert_eq!(loaded.background_color, form.background_color);
+        // Background image path + mode must survive the save/reload the inline
+        // inspector performs immediately after a pick.
+        assert_eq!(loaded.background_image, "/tmp/wallpaper.png");
+        assert_eq!(loaded.bg_image_mode,    BgImageMode::Fit);
 
         // User WS preserved
         assert!(loaded.user_ws_source.contains("WS-COUNTER"));

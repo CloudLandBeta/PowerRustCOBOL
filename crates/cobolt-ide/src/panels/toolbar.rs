@@ -87,15 +87,8 @@ pub fn show(
                 action = ToolbarAction::Stop;
             }
 
-            ui.separator();
-
-            // ── Settings (theme + background) ─────────────────────────────────
-            if ui.button(RichText::new("⚙").size(18.0))
-                .on_hover_text(tr.tb_settings)
-                .clicked()
-            {
-                action = ToolbarAction::Settings;
-            }
+            // Settings now live in the Main Pane (click the project node); the
+            // toolbar no longer has a gear button.
 
             // ── Right side: spinner + language selector ────────────────────────
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -134,5 +127,4 @@ pub enum ToolbarAction {
     Check,
     Open,
     Save,
-    Settings,
 }

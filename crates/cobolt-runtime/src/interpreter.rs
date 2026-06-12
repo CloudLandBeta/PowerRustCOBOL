@@ -3377,6 +3377,15 @@ impl Interpreter {
                 let val_s = self.objects.get_property(&ctrl, &key)
                     .map(|pv| pv.to_string())
                     .unwrap_or_default();
+                // A purely numeric property (X, Width, Value, …) evaluates as a
+                // NUMBER, so comparisons and arithmetic are algebraic —
+                // otherwise `IF "X" OF A > "X" OF B` would compare the digit
+                // strings character by character ("232" < "64").
+                if let Some(num) = crate::value::parse_decimal(val_s.trim()) {
+                    if !val_s.trim().is_empty() {
+                        return Ok(CobolValue::Numeric(num));
+                    }
+                }
                 let n = val_s.len();
                 Ok(CobolValue::from_str(&val_s, n))
             }

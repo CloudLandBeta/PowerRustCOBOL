@@ -345,7 +345,11 @@ impl AnimationDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EventBinding {
     pub event:     String,
-    pub paragraph: String,  // auto-derived; kept for compat
+    /// The handler's nested-program name (`CONTROL-ID--EVENTNAME`), auto-derived.
+    /// One nested COBOL program per event (PowerCOBOL 3 paradigm). The field —
+    /// and its `.cfrm` XML attribute — keep the historical name "paragraph"
+    /// for file-format compatibility only.
+    pub paragraph: String,
     /// CDATA body — the full handler source (`ENVIRONMENT DIVISION` …
     /// `PROCEDURE DIVISION` + statements). Empty means "no handler yet".
     pub code:      String,
@@ -1418,18 +1422,6 @@ impl Form {
         }
     }
 
-    pub fn all_event_paragraphs(&self) -> Vec<String> {
-        let mut paras = Vec::new();
-        // form-level events (OnLoad, OnClose nested programs)
-        for ev in &self.form_events { paras.push(ev.paragraph.clone()); }
-        // per-control events
-        for ctrl in &self.controls {
-            collect_paragraphs(ctrl, &mut paras);
-        }
-        paras.dedup();
-        paras
-    }
-
     /// Return controls sorted by z_order ascending (for rendering back-to-front).
     pub fn controls_by_z(&self) -> Vec<&Control> {
         let mut v: Vec<&Control> = self.controls.iter().collect();
@@ -1448,11 +1440,6 @@ fn find_in<'a>(ctrl: &'a Control, id: &str) -> Option<&'a Control> {
 fn find_in_mut<'a>(ctrl: &'a mut Control, id: &str) -> Option<&'a mut Control> {
     if ctrl.id.to_ascii_uppercase() == id { return Some(ctrl); }
     ctrl.children.iter_mut().find_map(|c| find_in_mut(c, id))
-}
-
-fn collect_paragraphs(ctrl: &Control, out: &mut Vec<String>) {
-    for ev in &ctrl.events { out.push(ev.paragraph.clone()); }
-    for child in &ctrl.children { collect_paragraphs(child, out); }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

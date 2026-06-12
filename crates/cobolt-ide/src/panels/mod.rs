@@ -13,5 +13,6 @@ pub mod forms_list;
 pub mod output;
 pub mod project;
 pub mod properties;
+pub mod settings_form;
 pub mod toolbar;
 pub mod toolbox;

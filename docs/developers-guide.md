@@ -381,6 +381,12 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 (a non-interactive render), **Run Form** (live, interactive), grid toggle, glass
 toggle, alignment tools, undo/redo.
 
+> **WYSIWYG.** Preview and Run Form draw each widget with the **same renderer
+> the designer canvas uses**, driven by the widget's designed properties —
+> background and foreground colours, fonts, corner radius, shadows, checked
+> state, progress value. What you style on the canvas is exactly what runs;
+> the runtime only adds the live behaviour (press feedback, focus, input).
+
 ### Target devices
 
 The **Target Device** section lets you size the form for a real device profile
@@ -524,15 +530,29 @@ In words:
   `onClose` (as it closes) are pre-created for every form; the rest you attach as
   needed.
 
-> ⚠️ **Caveat — designable vs. fired.** Every listed event is **designable**: you
-> can attach a COBOL handler to any of them today and it will be generated. The
-> **runtime currently fires** form `onLoad`/`onClose`, and for widgets:
-> `onClick`, `onChange`, the focus pair `onGotFocus`/`onLostFocus`, and the
-> pointer set `onDblClick`, `onMouseDown`, `onMouseUp`, `onMouseEnter`,
-> `onMouseLeave`. More events (keyboard, scrolling, and the form-level
-> window-state events such as `onResize`/`onShow`) are being wired into the live
-> runtime over time. Attach handlers freely, but verify in a *Run Form* session
-> which ones fire before relying on, say, `onPaint` or `onPowerSuspend`.
+> **Events fire at run time.** Every event a widget lists in its catalogue can
+> be handled *and* actually fires in a *Run Form* session — the runtime no
+> longer supports only a subset. Coverage:
+>
+> - **Every visual widget** gets the universal pointer set — `onClick`,
+>   `onDblClick`, `onMouseDown`, `onMouseUp`, `onMouseEnter`, `onMouseLeave` —
+>   whenever the gesture happens (only the ones the widget actually declares).
+> - **Value widgets** fire `onChange` plus their semantic aliases:
+>   `onCheckedChanged` (check box / radio), `onSelectedIndexChanged`
+>   (list / combo), and the combo's `onDropDown` on open.
+> - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
+>   `onKeyDown`/`onKeyUp`/`onKeyPress` while focused.
+> - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
+> - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
+>   `onShow`/`onActivate` (when the run window first appears) and `onResize`
+>   (when its size changes).
+>
+> A handful of events are tied to conditions the lightweight *Run Form* preview
+> doesn't fully model yet — back-end completions (`onResponseReceived`,
+> `onQueryComplete`, the AI agent's `onResponse`/`onError`) and a few
+> widget-internal ones (`onNodeExpand`, `onCellChange`). They are still
+> designable and generate correctly; a compiled binary wires them to their real
+> sources. When in doubt, confirm in a *Run Form* session.
 
 ### Adding a handler
 

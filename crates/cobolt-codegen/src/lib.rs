@@ -447,36 +447,11 @@ fn write_timer_stubs(out: &mut String, all_controls: &[&Control]) {
     out.push_str("           CONTINUE.\n");
     out.push('\n');
 
-    // COBOL-TIMER-TICK: dispatches to each timer's paragraph
-    out.push_str("       COBOL-TIMER-TICK.\n");
-    out.push_str("      *>    The runtime calls this paragraph every time any timer fires.\n");
-    out.push_str("      *>    COBOL-CONTROL-ID contains the timer's ID.\n");
-    out.push_str("           EVALUATE COBOL-CONTROL-ID\n");
-    for ctrl in &timers {
-        let para = ctrl.get_prop("Paragraph")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| format!("{}-TICK", ctrl.id));
-        out.push_str(&format!(
-            "               WHEN \"{id}\"\n                   PERFORM {para}\n",
-            id = ctrl.id
-        ));
-    }
-    out.push_str("           END-EVALUATE.\n");
-    out.push('\n');
-
-    // Individual tick handler stubs
-    for ctrl in &timers {
-        let para = ctrl.get_prop("Paragraph")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| format!("{}-TICK", ctrl.id));
-        write_stub_paragraph(
-            out, &para,
-            &format!("Timer {} fires every {} ms — add your logic here",
-                ctrl.id,
-                ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000)
-            ),
-        );
-    }
+    // Timer ticks are EVENTS in the nested-program model: the runtime fires
+    // an `onTick` form event per interval, and the standard COBOL-EVENT-LOOP
+    // dispatches it via CALL to the timer's `TIMER-ID--ONTICK` nested program
+    // (bind the handler in the designer's Events list). No paragraph-based
+    // tick dispatcher is generated.
 }
 
 // ── DataGrid CSV export paragraph generator ───────────────────────────────────
@@ -1159,12 +1134,31 @@ fn write_event_loop(out: &mut String, form: &Form) {
         .filter(|c| !c.events.is_empty())
         .collect();
 
-    if controls_with_events.is_empty() {
+    // Form-level events dispatched through the loop. `onLoad` / `onClose` are
+    // CALLed directly from COBOL-MAIN (not via the loop), so they're excluded
+    // here; every other bound form event (onShow, onActivate, onResize, …) is
+    // dispatched under a WHEN that matches the form's own id.
+    let form_loop_events: Vec<_> = form.form_events
+        .iter()
+        .filter(|e| e.event != "onLoad" && e.event != "onClose")
+        .collect();
+
+    if controls_with_events.is_empty() && form_loop_events.is_empty() {
         // No events — nothing to dispatch.
         out.push_str("               *> No event handlers defined yet.\n");
         out.push_str("               CONTINUE\n");
     } else {
         out.push_str("               EVALUATE COBOL-CONTROL-ID\n");
+        // Form-level events first (COBOL-CONTROL-ID = the form name).
+        if !form_loop_events.is_empty() {
+            out.push_str(&format!("                   WHEN \"{}\"\n", form.name));
+            out.push_str("                       EVALUATE COBOL-EVENT-ID\n");
+            for ev in &form_loop_events {
+                out.push_str(&format!("                           WHEN \"{}\"\n", ev.event));
+                out.push_str(&format!("                               CALL \"{}\"\n", ev.paragraph));
+            }
+            out.push_str("                       END-EVALUATE\n");
+        }
         for ctrl in &controls_with_events {
             out.push_str(&format!("                   WHEN \"{}\"\n", ctrl.id));
             out.push_str("                       EVALUATE COBOL-EVENT-ID\n");
@@ -1275,6 +1269,20 @@ mod tests {
         assert!(src.contains("END PROGRAM BTN-OK--ONCLICK."), "missing END PROGRAM for handler");
         assert!(src.contains("GOBACK."), "missing GOBACK in nested program");
         assert!(src.contains("END PROGRAM MAIN-FORM."), "missing outer END PROGRAM");
+    }
+
+    #[test]
+    fn form_level_events_dispatch_through_the_loop() {
+        // A bound form-level event (onResize) must be dispatched under a WHEN
+        // matching the form's own id — not just generated as a nested program.
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        form.form_events.push(EventBinding::for_control("MAIN-FORM", "onResize"));
+        let src = generate(&form);
+        assert!(src.contains("WHEN \"MAIN-FORM\""),
+            "event loop missing a WHEN for the form id");
+        assert!(src.contains("WHEN \"onResize\""), "missing onResize event WHEN");
+        assert!(src.contains("CALL \"MAIN-FORM--ONRESIZE\""),
+            "onResize not dispatched to its nested program");
     }
 
     #[test]

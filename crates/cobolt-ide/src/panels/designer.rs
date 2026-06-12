@@ -2248,7 +2248,16 @@ pub(crate) fn draw_glass(
             a as u8,
         )
     };
-    painter.add(egui::Shape::mesh(rounded_vertical_mesh(rect, radius, 220, &glass_color)));
+    // The gradient meshes are NOT anti-aliased by egui, so their hard rounded
+    // contour pokes a few bright pixels past the (feathered) frame stroke at
+    // the four corners. Inset the fill far enough that its whole edge sits
+    // under the stroke, and curve its corners in a touch MORE than the stroke's
+    // radius so the corner is decisively inside it. The frame stroke (drawn
+    // last, over the outer rect) seals the resulting hairline on straight edges.
+    let inset       = 1.4_f32.min(radius.max(2.0));
+    let fill_rect   = rect.shrink(inset);
+    let fill_radius = (radius - inset + 1.0).max(0.0);
+    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_radius, 220, &glass_color)));
 
     // ── 3. Very gentle depth tint ─────────────────────────────────────────────
     let depth_color = |t: f32| -> Color32 {
@@ -2257,7 +2266,7 @@ pub(crate) fn draw_glass(
         let a = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) as u8;
         pm(28, 44, 56, a)
     };
-    painter.add(egui::Shape::mesh(rounded_vertical_mesh(rect, radius, 220, &depth_color)));
+    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_radius, 220, &depth_color)));
 
     // ── 4. Single rounded frame ───────────────────────────────────────────────
     let (border_w, border_c) = if selected {
@@ -2268,9 +2277,14 @@ pub(crate) fn draw_glass(
             (255.0 * am) as u8,
         ))
     } else {
-        (1.15, white(164))
+        (1.4, white(170))
     };
-    painter.rect_stroke(rect, radius, Stroke::new(border_w, border_c));
+    // Inset the stroke by half its width so it is fully inside `rect` (egui
+    // centres strokes on the path; a centred stroke spills half-a-pixel past
+    // the rect, and that overhang is exactly the bright corner fringe).
+    let half = border_w * 0.5;
+    painter.rect_stroke(rect.shrink(half), (radius - half).max(0.0),
+        Stroke::new(border_w, border_c));
 }
 
 /// Scale `base` uniformly about its centre by `scale` (1.0 = unchanged).
@@ -2420,7 +2434,41 @@ fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     painter.add(egui::Shape::line(front, st));
 }
 
-fn draw_control(
+/// Snapshot a control's live runtime state into a `Control` so [`draw_control`]
+/// renders the exact designed look (colours, fonts, corner radius, shadows) at
+/// run/preview time. The rect is zero-based at `size`; pass the on-screen
+/// rect's `min` as `draw_control`'s `origin`.
+pub(crate) fn live_control<'a>(
+    id:    &str,
+    ct:    cobolt_forms::ControlType,
+    size:  egui::Vec2,
+    props: impl IntoIterator<Item = (&'a String, &'a String)>,
+) -> Control {
+    let mut c = Control::new(id, ct, 0, 0);
+    c.rect = cobolt_forms::model::Rect::new(
+        0, 0, size.x.round() as i32, size.y.round() as i32);
+    for (k, v) in props {
+        c.properties.insert(
+            k.clone(), cobolt_forms::model::PropValue::String(v.clone()));
+    }
+    c
+}
+
+/// Map a Label's `TextAlignment` property to an egui horizontal alignment.
+/// Accepts the simple `Left`/`Center`/`Right` values (default `Left`) and is
+/// lenient about the leading word of compound values like `MiddleRight`.
+pub(crate) fn text_halign(value: &str) -> egui::Align {
+    let v = value.trim();
+    if v.eq_ignore_ascii_case("Center") || v.ends_with("Center") {
+        egui::Align::Center
+    } else if v.eq_ignore_ascii_case("Right") || v.ends_with("Right") {
+        egui::Align::RIGHT
+    } else {
+        egui::Align::LEFT // "Left" + default/unknown
+    }
+}
+
+pub(crate) fn draw_control(
     painter:   &egui::Painter,
     origin:    Pos2,
     ctrl:      &Control,
@@ -2906,6 +2954,24 @@ fn draw_control(
         }
     } else if glass {
         draw_glass(painter, rect, fill, corner, selected, alpha_mul);
+        // Buttons get a subtle top specular — a soft vertical light reflection
+        // that visually separates a clickable Button from flat fields like a
+        // TextBox. Two stacked translucent bands fading downward.
+        if matches!(ctrl.control_type, CT::Button) && rect.height() > 10.0 {
+            let inset = (corner + 3.0).min(rect.width() * 0.25);
+            let spec_h = (rect.height() * 0.30).clamp(3.0, 9.0);
+            let band = |h: f32, alpha: u8| {
+                let sa = (alpha as f32 * alpha_mul) as u8;
+                painter.rect_filled(
+                    egui::Rect::from_min_size(
+                        rect.min + Vec2::new(inset, 2.0),
+                        Vec2::new((rect.width() - 2.0 * inset).max(0.0), h)),
+                    (corner - 1.0).max(2.0),
+                    Color32::from_rgba_premultiplied(sa, sa, sa, sa));
+            };
+            band(spec_h, 16);          // wide soft glow
+            band(spec_h * 0.45, 22);   // narrower brighter core
+        }
     } else {
         painter.rect_filled(rect, corner, alpha_color(fill));
         let bc = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { alpha_color(stroke_color) };
@@ -3016,8 +3082,13 @@ fn draw_control(
             // Egui doesn't have a separate bold typeface registered by default.
             // Simulate bold by painting the galley twice with a tiny x-offset.
             let font_id = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
+
+            // Honour the Label's TextAlignment (Left / Center / Right).
+            let halign = text_halign(
+                ctrl.get_prop("TextAlignment").map(|v| v.as_str()).unwrap_or(""));
+
             let mut job = LayoutJob::default();
-            job.halign = egui::Align::Center;
+            job.halign = halign;
             job.wrap.max_width = rect.width();
             job.wrap.break_anywhere = false;
             job.append(&label, 0.0, TextFormat {
@@ -3038,10 +3109,18 @@ fn draw_control(
             });
 
             let galley = painter.layout_job(job);
-            // halign=Center means the draw origin is the top-centre of the galley block.
-            // So anchor x at rect.centre; y centres the wrapped block vertically.
+            // The galley's draw origin follows `halign`: top-left for LEFT,
+            // top-centre for CENTER, top-right for RIGHT. Anchor x to the
+            // matching edge of the rect (with a small inset off the border);
+            // y centres the wrapped block vertically.
+            let pad = 3.0_f32.min(rect.width() * 0.25);
+            let anchor_x = match halign {
+                egui::Align::Center => rect.center().x,
+                egui::Align::RIGHT  => rect.right() - pad,
+                _                   => rect.left() + pad,
+            };
             let text_pos = egui::pos2(
-                rect.center().x,
+                anchor_x,
                 rect.center().y - galley.size().y / 2.0,
             );
             painter.galley(text_pos, galley.clone(), txt_color);
@@ -4775,5 +4854,51 @@ mod sticky_font_tests {
         d.add_control(ControlType::Label, 10, 10);
         let first = d.form.controls[0].id.clone();
         assert_eq!(font_of(&d, &first), ("Arial".to_string(), 10));
+    }
+}
+
+#[cfg(test)]
+mod live_control_tests {
+    use super::*;
+
+    /// `live_control` must carry the designed/live properties into the
+    /// snapshot `draw_control` renders, so preview/run faces match the
+    /// designer exactly (WYSIWYG).
+    #[test]
+    fn live_control_carries_designed_props_and_size() {
+        let props: Vec<(String, String)> = vec![
+            ("BackgroundColor".into(), "#112233FF".into()),
+            ("Caption".into(),         "Hi".into()),
+            ("CornerRadius".into(),    "9".into()),
+        ];
+        let c = live_control(
+            "Button-1",
+            cobolt_forms::ControlType::Button,
+            egui::vec2(120.0, 36.0),
+            props.iter().map(|(k, v)| (k, v)),
+        );
+        assert_eq!(c.get_prop("BackgroundColor").unwrap().as_str(), "#112233FF");
+        assert_eq!(c.get_prop("Caption").unwrap().as_str(), "Hi");
+        assert_eq!(c.get_prop("CornerRadius").unwrap().as_i64(), 9);
+        assert_eq!((c.rect.w, c.rect.h), (120, 36));
+        assert_eq!(c.id, "Button-1");
+    }
+}
+
+#[cfg(test)]
+mod text_align_tests {
+    use super::*;
+
+    #[test]
+    fn label_text_alignment_maps_to_egui_align() {
+        assert_eq!(text_halign("Left"),   egui::Align::LEFT);
+        assert_eq!(text_halign("Center"), egui::Align::Center);
+        assert_eq!(text_halign("Right"),  egui::Align::RIGHT);
+        // Default / unknown → left.
+        assert_eq!(text_halign(""),       egui::Align::LEFT);
+        assert_eq!(text_halign("???"),    egui::Align::LEFT);
+        // Lenient about compound 9-position values.
+        assert_eq!(text_halign("MiddleRight"),  egui::Align::RIGHT);
+        assert_eq!(text_halign("TopCenter"),    egui::Align::Center);
     }
 }

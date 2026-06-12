@@ -71,11 +71,16 @@ pub fn is_open(key: &str) -> bool {
 /// Begin a native dialog under `key`. Safe to call from inside the egui frame —
 /// it never nests the OS event loop. Poll [`take`] on later frames for the
 /// result. A no-op if a dialog under `key` is already open.
-pub fn begin(key: &str, spec: DialogSpec) {
+///
+/// `ctx` is the egui context to wake when the user finishes: the worker thread
+/// calls `request_repaint` so the polling UI actually runs a frame and collects
+/// the result, even on an idle window or a background (designer) viewport.
+pub fn begin(ctx: &egui::Context, key: &str, spec: DialogSpec) {
     if is_open(key) {
         return;
     }
     let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = ctx.clone();
     std::thread::spawn(move || {
         let mut dlg = rfd::AsyncFileDialog::new();
         for (name, exts) in &spec.filters {
@@ -94,13 +99,16 @@ pub fn begin(key: &str, spec: DialogSpec) {
             pollster::block_on(dlg.pick_file())
         };
         let _ = tx.send(handle.map(|h| h.path().to_path_buf()));
+        // Wake every viewport so whichever frame owns the poll site runs.
+        ctx.request_repaint();
+        ctx.request_repaint_of(egui::ViewportId::ROOT);
     });
     pending().lock().unwrap().insert(key.to_owned(), rx);
 }
 
 /// Convenience: begin an "open file" dialog with a single filter.
-pub fn open_file(key: &str, filter: &str, exts: &[&str]) {
-    begin(key, DialogSpec::open().filter(filter, exts));
+pub fn open_file(ctx: &egui::Context, key: &str, filter: &str, exts: &[&str]) {
+    begin(ctx, key, DialogSpec::open().filter(filter, exts));
 }
 
 /// Poll a dialog started under `key`:

@@ -103,3 +103,44 @@ fn sql_widget_methods_run_against_db_engine() {
     // query() returns the SELECT row count via the live SQLite engine.
     assert!(joined.contains("ROWS=[2"), "SqlDatabase methods failed: {out:?}");
 }
+
+const PROP_NUM_SRC: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. T2.
+       PROCEDURE DIVISION.
+      *> Numeric property comparison must be algebraic, not lexicographic
+      *> ("232" > "64" as STRINGS is false; as NUMBERS it is true).
+           IF "X" OF Button-1 > "X" OF Label-1
+               MOVE "X" OF Label-1 TO "X" OF Button-1
+               DISPLAY "MOVED"
+           END-IF.
+           STOP RUN.
+"#;
+
+#[test]
+fn numeric_properties_compare_algebraically() {
+    let result = parse(tokenize(PROP_NUM_SRC, SourceFormat::Free));
+    assert!(result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}", result.diagnostics);
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, state_rx)  = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    // Designed geometry: Button-1 right of Label-1 (the user's exact layout).
+    interp.seed_objects(vec![
+        ("Button-1".to_string(), "Button".to_string(),
+         vec![("X".to_string(), "232".to_string())]),
+        ("Label-1".to_string(), "Label".to_string(),
+         vec![("X".to_string(), "64".to_string())]),
+    ]);
+    interp.run().expect("run failed");
+    let out: Vec<String> = display_rx.try_iter().collect();
+    assert!(out.iter().any(|l| l.contains("MOVED")),
+        "IF \"X\" OF Button-1 > \"X\" OF Label-1 must be true (232 > 64): {out:?}");
+    let updates: Vec<StateUpdate> = state_rx.try_iter().collect();
+    assert!(updates.iter().any(|u|
+        u.ctrl_id.eq_ignore_ascii_case("Button-1") && u.prop == "X"
+        && u.value.trim() == "64"),
+        "Button-1.X must be moved to 64: {updates:?}");
+}

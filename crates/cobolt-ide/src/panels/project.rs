@@ -51,7 +51,9 @@ pub enum ProjectPanelEvent {
     InspectForm(PathBuf),
     /// Show a control's properties in the Main Pane (click a control in a form).
     InspectControl { form: PathBuf, ctrl_id: String },
-    /// Open a widget event's generated COBOL paragraph (click an Events entry).
+    /// Open a widget event's handler — its nested COBOL program — in the
+    /// editor (click an Events entry). `paragraph` is the nested PROGRAM-ID
+    /// (the name is historical; see `EventBinding::paragraph`).
     OpenEventCode { form: PathBuf, paragraph: String },
     /// Internal: a tree element was selected (consumed by the panel, not the app).
     Select(String),

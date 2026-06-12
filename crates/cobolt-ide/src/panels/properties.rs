@@ -1495,7 +1495,7 @@ impl PropertiesPanel {
                     let pick_key = format!("modalform:{id}");
                     ui.horizontal(|ui| {
                         if ui.button("📂").clicked() {
-                            crate::file_dialog::open_file(&pick_key, "Form", &["cfrm"]);
+                            crate::file_dialog::open_file(ui.ctx(), &pick_key, "Form", &["cfrm"]);
                         }
                         if crate::file_dialog::is_open(&pick_key) { ui.ctx().request_repaint(); }
                         if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
@@ -2068,7 +2068,7 @@ impl PropertiesPanel {
                     const PICK_K: &str = "form-BgImage-pick";
                     if ui.button("📂").on_hover_text("Browse for image…").clicked() {
                         crate::file_dialog::open_file(
-                            PICK_K, "Images",
+                            ui.ctx(), PICK_K, "Images",
                             &["png","jpg","jpeg","bmp","gif","ico","webp","svg"]);
                     }
                     if crate::file_dialog::is_open(PICK_K) { ui.ctx().request_repaint(); }
@@ -2397,6 +2397,7 @@ fn image_browse_row(
         // OS event loop and aborts winit 0.30.
         if ui.button("📂").on_hover_text("Browse for image…").clicked() {
             crate::file_dialog::open_file(
+                ui.ctx(),
                 &pick_key,
                 "Images",
                 &["png","jpg","jpeg","bmp","gif","ico","webp","svg"],

@@ -43,6 +43,9 @@ use cobolt_semantic::analyze;
 pub struct FormRuntime {
     /// Path to the `.cfrm` file (used to identify which form is running).
     pub form_path: PathBuf,
+    /// The form's id/name — the `COBOL-CONTROL-ID` for form-level events
+    /// (onShow, onActivate, onResize, …) dispatched by the generated loop.
+    pub form_name: String,
     /// Title shown in the running-form viewport.
     pub form_title: String,
     /// Current width/height of the form canvas.
@@ -213,6 +216,7 @@ impl FormRuntime {
 
         Ok(Self {
             form_path,
+            form_name:        form.name.clone(),
             form_title:       form.title.clone(),
             form_width:       form.width,
             form_height:      form.height,

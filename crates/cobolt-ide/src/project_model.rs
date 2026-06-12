@@ -76,9 +76,32 @@ impl Default for IdeSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMeta {
     pub name:    String,
+    /// Semantic version `major.minor.fix` (the three parts are edited
+    /// separately in the Settings form and recomposed here).
     pub version: String,
     /// Relative path (from project root) to the main COBOL source file.
     pub main:    String,
+    /// Custom copyright line embedded in generated headers / distributions.
+    #[serde(default)]
+    pub copyright: String,
+    /// Short license identifier (e.g. "MIT", "Apache-2.0", "Proprietary").
+    #[serde(default)]
+    pub license_model: String,
+    /// Full license text (editable).
+    #[serde(default)]
+    pub license_text: String,
+}
+
+impl ProjectMeta {
+    /// Parse `version` into `(major, minor, fix)`, tolerating missing parts.
+    pub fn version_parts(&self) -> (u32, u32, u32) {
+        let mut it = self.version.split('.').map(|s| s.trim().parse::<u32>().unwrap_or(0));
+        (it.next().unwrap_or(1), it.next().unwrap_or(0), it.next().unwrap_or(0))
+    }
+    /// Recompose `version` from its three parts.
+    pub fn set_version_parts(&mut self, major: u32, minor: u32, fix: u32) {
+        self.version = format!("{major}.{minor}.{fix}");
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -116,6 +139,9 @@ impl CoboltProject {
                 name:    name.into(),
                 version: "1.0.0".into(),
                 main:    main.into(),
+                copyright:     String::new(),
+                license_model: String::new(),
+                license_text:  String::new(),
             },
             files:   ProjectFiles::default(),
             runtime: RuntimeConfig::default(),

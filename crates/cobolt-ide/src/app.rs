@@ -217,11 +217,14 @@ pub struct CoboltApp {
     cobolt_project: Option<CoboltProject>,
     project_path:   Option<PathBuf>,
 
-    // Appearance settings dialog (theme + background image, per project)
-    show_settings:  bool,
-    /// One-shot: force the Settings window to 70 % of the app window on the
-    /// frame it opens (the user may resize it freely afterwards).
-    settings_resize_pending: bool,
+    /// The in-pane project Settings form (built when a project loads). Shown in
+    /// the Main Pane on start-up and whenever the project (top tree node) is
+    /// clicked.
+    settings_form: Option<crate::panels::settings_form::SettingsForm>,
+    /// Whether the Main Pane is currently showing the Settings form.
+    show_project_settings: bool,
+    /// Set while a "save unsaved settings before closing?" dialog is shown.
+    settings_close_confirm: bool,
     /// Cached background-image texture, keyed by the resolved absolute path.
     bg_texture:     Option<(PathBuf, egui::TextureHandle)>,
 
@@ -266,6 +269,10 @@ pub struct CoboltApp {
     /// Which app-level file dialog (if any) is currently open; its result is
     /// applied by `apply_file_result` once the async picker returns.
     pending_file: Option<FileRequest>,
+
+    /// Clone of the root egui context, so async file dialogs can wake the UI
+    /// from their worker thread when the user finishes picking.
+    egui_ctx: egui::Context,
 }
 
 /// An app-level file dialog awaiting the user, identifying what to do with the
@@ -367,8 +374,9 @@ impl CoboltApp {
             cobolt_project: None,
             project_path:   None,
 
-            show_settings:  false,
-            settings_resize_pending: false,
+            settings_form: None,
+            show_project_settings: false,
+            settings_close_confirm: false,
             bg_texture:     None,
             llm:            crate::llm::LlmConfig::load(),
             llm_test_rx:     None,
@@ -386,6 +394,7 @@ impl CoboltApp {
             save_alert_designer: None,
             pending_build_rx: None,
             pending_file:     None,
+            egui_ctx:         cc.egui_ctx.clone(),
         }
     }
 
@@ -1305,20 +1314,10 @@ impl CoboltApp {
             .image(tex.id(), dest, uv, egui::Color32::from_white_alpha(img_a));
     }
 
-    /// The IDE appearance settings dialog: colour theme + background image with
-    /// an opacity (transparency) control. All values are per project.
-    fn show_settings_window(&mut self, ctx: &Context, tr: &Tr) {
-        if !self.show_settings {
-            return;
-        }
-        let mut open = true;
-        let has_project = self.cobolt_project.is_some();
-        let mut pick_bg = false;
-        let mut clear_bg = false;
-        let mut new_theme: Option<String> = None;
-        let mut new_opacity: Option<u8> = None;
 
-        // Poll an in-flight "Test connection" request.
+    /// Poll an in-flight "Test connection" request started from the Settings
+    /// form, updating the status line shown next to the Test button.
+    fn poll_llm_test(&mut self, tr: &Tr) {
         if let Some(rx) = &self.llm_test_rx {
             match rx.try_recv() {
                 Ok(crate::llm::LlmResponse::Ok(_)) => {
@@ -1329,191 +1328,113 @@ impl CoboltApp {
                     self.llm_test_status = Some(e);
                     self.llm_test_rx = None;
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => { ctx.request_repaint(); }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.llm_test_status = Some("The test worker stopped unexpectedly.".into());
                     self.llm_test_rx = None;
                 }
             }
         }
+    }
+
+    /// Persist the Settings form: write the draft into the project + global AI
+    /// config, save both to disk, and apply the (possibly new) theme/background.
+    fn save_settings_form(&mut self) {
+        let Some(form) = &mut self.settings_form else { return; };
+        let Some(proj) = &mut self.cobolt_project else { return; };
+        form.draft.apply(proj, &mut self.llm);
+        form.mark_saved();
+        if let Err(e) = self.llm.save() {
+            tracing::warn!("could not save AI settings: {e}");
+        }
+        self.do_save_project();
+        self.bg_texture = None; // force the background image to reload
+    }
+
+    /// Render the project Settings form in the Main Pane. Returns the pending
+    /// "Test connection" / "Browse background" actions for the caller to run.
+    fn show_settings_pane(&mut self, ctx: &Context, tr: &Tr) {
+        self.poll_llm_test(tr);
+        if self.llm_test_rx.is_some() { ctx.request_repaint(); }
         let test_busy = self.llm_test_rx.is_some();
         let test_status = self.llm_test_status.clone();
-        let mut do_test = false;
 
-        // Global AI config is edited on a clone, then persisted if it changed.
-        let mut llm_edit = self.llm.clone();
-        let mut llm_changed = false;
+        let themes: Vec<(&'static str, &'static str)> =
+            crate::theme::THEMES.iter().map(|t| (t.id, t.name)).collect();
 
-        // Open at 70 % of the app window; the user may resize it afterwards
-        // (the size is forced only on the opening frame).
-        let target = ctx.screen_rect().size() * 0.7;
-        let mut win = egui::Window::new(format!("⚙ {}", tr.settings_title))
-            .collapsible(false)
-            .resizable(true)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .open(&mut open);
-        win = if self.settings_resize_pending {
-            win.fixed_size(target)
-        } else {
-            win.default_size(target)
-        };
-        self.settings_resize_pending = false;
-        win.show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                // ── AI assistant (global; works without an open project) ──────
-                ui.label(egui::RichText::new(tr.settings_ai_title).strong());
-                ui.label(egui::RichText::new(tr.settings_ai_hint)
-                    .small().color(egui::Color32::from_gray(160)));
-                ui.add_space(4.0);
-                egui::Grid::new("ai_settings_grid")
-                    .num_columns(2)
-                    .spacing([8.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label(tr.settings_ai_endpoint);
-                        llm_changed |= ui.add(
-                            egui::TextEdit::singleline(&mut llm_edit.endpoint)
-                                .hint_text("https://…/v1/chat/completions")
-                                .desired_width(280.0),
-                        ).changed();
-                        ui.end_row();
-
-                        ui.label(tr.settings_ai_api_key);
-                        llm_changed |= ui.add(
-                            egui::TextEdit::singleline(&mut llm_edit.api_key)
-                                .password(true)
-                                .desired_width(280.0),
-                        ).changed();
-                        ui.end_row();
-
-                        ui.label(tr.settings_ai_model);
-                        llm_changed |= ui.add(
-                            egui::TextEdit::singleline(&mut llm_edit.model)
-                                .hint_text("model-id")
-                                .desired_width(280.0),
-                        ).changed();
-                        ui.end_row();
-
-                        ui.label(tr.settings_ai_temperature);
-                        llm_changed |= ui.add(
-                            egui::Slider::new(&mut llm_edit.temperature, 0.0..=2.0)
-                        ).changed();
-                        ui.end_row();
-                    });
-                ui.add_space(4.0);
-                ui.label(tr.settings_ai_system_prompt);
-                llm_changed |= ui.add(
-                    egui::TextEdit::multiline(&mut llm_edit.system_prompt)
-                        .desired_rows(5)
-                        .desired_width(f32::INFINITY),
-                ).changed();
-
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    let can_test = llm_edit.is_configured() && !test_busy;
-                    if ui.add_enabled(can_test, egui::Button::new(tr.settings_ai_test)).clicked() {
-                        do_test = true;
-                    }
-                    if test_busy {
-                        ui.add(egui::Spinner::new());
-                        ui.label(egui::RichText::new(tr.ai_testing)
-                            .small().color(egui::Color32::from_gray(170)));
-                    } else if let Some(s) = &test_status {
-                        ui.label(egui::RichText::new(s)
-                            .small().color(egui::Color32::from_gray(170)));
-                    }
-                });
-
-                ui.add_space(8.0);
-                ui.separator();
-
-                // ── Appearance (per project) ──────────────────────────────────
-                if !has_project {
-                    ui.label(tr.settings_no_project);
-                    return;
-                }
-                let proj = self.cobolt_project.as_ref().unwrap();
-                let cur_theme = crate::theme::theme_by_id(&proj.ide.theme);
-
-                // ── Colour theme ──────────────────────────────────────────────
-                ui.horizontal(|ui| {
-                    ui.label(tr.settings_theme);
-                    egui::ComboBox::from_id_salt("ide_theme_combo")
-                        .selected_text(cur_theme.name)
-                        .width(210.0)
-                        .show_ui(ui, |ui| {
-                            for t in crate::theme::THEMES {
-                                if ui.selectable_label(t.id == cur_theme.id, t.name).clicked() {
-                                    new_theme = Some(t.id.to_string());
-                                }
-                            }
-                        });
-                });
-                ui.add_space(8.0);
-                ui.separator();
-
-                // ── Background image ──────────────────────────────────────────
-                ui.label(egui::RichText::new(tr.settings_background).strong());
-                let cur_bg = proj.ide.background_image.clone();
-                let shown = if cur_bg.is_empty() { tr.settings_bg_none.to_string() } else { cur_bg.clone() };
-                ui.label(egui::RichText::new(shown).monospace().small());
-                ui.horizontal(|ui| {
-                    if ui.button(tr.settings_bg_browse).clicked() { pick_bg = true; }
-                    if !cur_bg.is_empty() && ui.button(tr.settings_bg_clear).clicked() {
-                        clear_bg = true;
-                    }
-                });
-                ui.add_space(4.0);
-                let mut op = proj.ide.background_opacity as i32;
-                ui.horizontal(|ui| {
-                    ui.label(tr.settings_bg_opacity);
-                    if ui.add(egui::Slider::new(&mut op, 0..=100).suffix("%")).changed() {
-                        new_opacity = Some(op.clamp(0, 100) as u8);
-                    }
-                });
-            });
+        let card = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, self.current_theme());
+        let mut action = crate::panels::settings_form::SettingsFormAction::default();
+        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
+            if let Some(form) = &mut self.settings_form {
+                action = form.show(ui, tr, &themes, test_busy, test_status.as_deref());
+            }
         });
 
-        // ── Persist global AI config when it changed ──────────────────────────
-        if llm_changed {
-            self.llm = llm_edit.clone();
-            if let Err(e) = self.llm.save() {
-                tracing::warn!("could not save AI settings: {e}");
+        if action.save { self.save_settings_form(); }
+        if action.test_connection {
+            if let Some(form) = &self.settings_form {
+                let mut cfg = self.llm.clone();
+                cfg.endpoint = form.draft.llm_endpoint.clone();
+                cfg.api_key  = form.draft.llm_api_key.clone();
+                cfg.model    = form.draft.llm_model.clone();
+                self.llm_test_status = Some(tr.ai_testing.to_string());
+                self.llm_test_rx = Some(crate::llm::spawn_test(&cfg));
             }
         }
-        // ── Test connection (uses the values currently in the form) ───────────
-        if do_test {
-            self.llm_test_status = Some(tr.ai_testing.to_string());
-            self.llm_test_rx = Some(crate::llm::spawn_test(&llm_edit));
-        }
-
-        // ── Apply (in-memory; persisted once the dialog closes) ───────────────
-        let mut dirty = false;
-        if let Some(id) = new_theme {
-            if let Some(p) = &mut self.cobolt_project { p.ide.theme = id; dirty = true; }
-        }
-        if let Some(o) = new_opacity {
-            if let Some(p) = &mut self.cobolt_project { p.ide.background_opacity = o; dirty = true; }
-        }
-        if clear_bg {
-            if let Some(p) = &mut self.cobolt_project { p.ide.background_image.clear(); dirty = true; }
-            self.bg_texture = None;
-        }
-        if dirty {
-            self.do_save_project();
-        }
-        if pick_bg {
+        if action.browse_bg {
             self.begin_file_dialog(
                 FileRequest::PickBackgroundImage,
                 crate::file_dialog::DialogSpec::open()
-                    .filter("Images", &["png", "jpg", "jpeg", "bmp", "gif"]),
+                    .filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp"]),
             );
         }
-        if !open {
-            self.show_settings = false;
-        }
     }
+
+    /// The PowerRustCOBOL mascot shown in the Main Pane when no project is open.
+    fn show_mascot_pane(&mut self, ctx: &Context, tr: &Tr) {
+        let card = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, self.current_theme());
+        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(ui.available_height() * 0.18);
+                let tex = self.mascot_texture(ctx);
+                if let Some(tex) = tex {
+                    let max = (ui.available_width() * 0.6).min(420.0);
+                    let size = tex.size_vec2();
+                    let scale = (max / size.x).min(1.0);
+                    ui.image((tex.id(), size * scale));
+                }
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new(tr.no_project_open)
+                    .size(15.0).color(self.current_theme().text_dim));
+            });
+        });
+    }
+
+    /// Lazily decode + upload the embedded mascot PNG as a texture.
+    fn mascot_texture(&mut self, ctx: &Context) -> Option<egui::TextureHandle> {
+        if let Some((_, t)) = &self.bg_texture {
+            // reuse a separate cache slot? keep mascot in its own ctx-memory cache.
+        }
+        let id = egui::Id::new("mascot-tex");
+        if let Some(t) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
+            return Some(t);
+        }
+        const BYTES: &[u8] = include_bytes!("../../../docs/assets/powerrustcobol-mascot.png");
+        let img = image::load_from_memory(BYTES).ok()?.to_rgba8();
+        let (w, h) = img.dimensions();
+        let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &img);
+        let tex = ctx.load_texture("mascot", color, egui::TextureOptions::LINEAR);
+        ctx.memory_mut(|m| m.data.insert_temp(id, tex.clone()));
+        Some(tex)
+    }
+
+    /// True if the project Settings form has unsaved edits.
+    fn settings_dirty(&self) -> bool {
+        self.settings_form.as_ref().map(|f| f.is_dirty()).unwrap_or(false)
+    }
+
 
     /// Open a file in the editor, marking RAD-generated COBOL read-only (blue).
     fn open_in_editor(&mut self, path: PathBuf) {
@@ -1860,7 +1781,7 @@ impl CoboltApp {
     /// what to do with the result (applied by `apply_file_result`).
     fn begin_file_dialog(&mut self, request: FileRequest, spec: crate::file_dialog::DialogSpec) {
         self.pending_file = Some(request);
-        crate::file_dialog::begin(APP_FILE_KEY, spec);
+        crate::file_dialog::begin(&self.egui_ctx, APP_FILE_KEY, spec);
     }
 
     /// Drain a finished app-level file dialog (call once per frame). Returns
@@ -2693,76 +2614,36 @@ impl CoboltApp {
                     let painter = ui.painter_at(screen_rect);
                     let enabled = ctrl.enabled;
 
+                    // WYSIWYG helper: snapshot this control at the on-screen
+                    // rect so the designer's own renderer draws the face.
+                    let live_at = |rect: egui::Rect| {
+                        let mut live = (*ctrl).clone();
+                        live.rect = cobolt_forms::model::Rect::new(
+                            0, 0, rect.width().round() as i32, rect.height().round() as i32);
+                        live
+                    };
                     match ctrl.control_type {
                         CT::Button => {
-                            let label = ctrl.get_prop("Caption").map(|v| v.as_str().to_owned())
-                                .unwrap_or_else(|| ctrl.id.clone());
                             // Interact first so we know the pressed state before drawing.
                             let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
                             let pressed = resp.is_pointer_button_down_on();
                             let hovered = resp.hovered();
-
-                            // Pressed  → darker, inset feel (shrink rect 1px, richer colour)
-                            // Hovered  → slightly lighter
-                            // Normal   → standard glass blue
-                            // iPhone Liquid Glass pressed effect (same as Run Form)
-                            let (btn_color, border_a) = if pressed {
-                                (Color32::from_rgb(15, 35, 95), 220u8)
-                            } else if hovered {
-                                (Color32::from_rgb(60, 90, 160), 160u8)
-                            } else {
-                                (Color32::from_rgb(40, 60, 120), 100u8)
-                            };
                             let draw_rect = if pressed { screen_rect.shrink(1.5) } else { screen_rect };
-                            draw_glass(&painter, draw_rect, btn_color, 10.0, false, alpha_mul);
-
-                            // Top-edge specular (brighter when pressed)
-                            let spec_alpha = if pressed { 80u8 } else { 40u8 };
-                            let spec = egui::Rect::from_min_size(
-                                draw_rect.min + Vec2::new(4.0, 2.0),
-                                Vec2::new(draw_rect.width() - 8.0, 4.0),
-                            );
-                            painter.rect_filled(spec, 3.0,
-                                Color32::from_rgba_premultiplied(200, 220, 255, spec_alpha));
-
-                            // Border
-                            painter.rect_stroke(draw_rect, 10.0, egui::Stroke::new(
-                                1.0, Color32::from_rgba_premultiplied(130, 170, 255, border_a)));
-
-                            // Label — drop 1px when pressed
-                            let label_pos = if pressed {
-                                draw_rect.center() + Vec2::new(0.0, 1.0)
-                            } else {
-                                screen_rect.center()
-                            };
-                            painter.text(label_pos, egui::Align2::CENTER_CENTER, &label,
-                                egui::FontId::proportional(12.0),
-                                Color32::from_rgb(230, 235, 255));
+                            crate::panels::designer::draw_control(
+                                &painter, draw_rect.min, &live_at(draw_rect),
+                                false, true, alpha_mul, 1.0, None);
+                            let corner = ctrl.get_prop("CornerRadius")
+                                .map(|v| v.as_i64() as f32).unwrap_or(4.0);
+                            if pressed {
+                                painter.rect_filled(draw_rect, corner, Color32::from_black_alpha(70));
+                            } else if hovered {
+                                painter.rect_filled(draw_rect, corner, Color32::from_white_alpha(10));
+                            }
                         }
-                        CT::Label => {
-                            let text = ctrl.get_prop("Caption").map(|v| v.as_str().to_owned())
-                                .unwrap_or_else(|| ctrl.id.clone());
-                            let font_size = ctrl.get_prop("FontSize").map(|v| v.as_i64() as f32).unwrap_or(12.0);
-                            let font_name = ctrl.get_prop("FontName").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                            // Resolve ForeColor; default to near-white so labels are always readable.
-                            let fore = ctrl.get_prop("ForegroundColor").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                            let hex = if fore.starts_with('#') { &fore[1..] } else { &fore };
-                            let (fr, fg, fb) = if hex.len() >= 6 {
-                                let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(230);
-                                let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(235);
-                                let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(255);
-                                // If pure black, treat as default text colour (designer default is #000000)
-                                if r == 0 && g == 0 && b == 0 { (230u8, 235u8, 255u8) } else { (r, g, b) }
-                            } else { (230, 235, 255) };
-                            let a = (alpha_mul * 255.0) as u8;
-                            let text_color = Color32::from_rgba_premultiplied(
-                                (fr as f32 * alpha_mul) as u8,
-                                (fg as f32 * alpha_mul) as u8,
-                                (fb as f32 * alpha_mul) as u8,
-                                a,
-                            );
-                            painter.text(screen_rect.min, egui::Align2::LEFT_TOP,
-                                &text, crate::fonts::font_id(ui.ctx(), &font_name, font_size), text_color);
+                        CT::Label | CT::GroupBox | CT::Line | CT::Shape => {
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live_at(screen_rect),
+                                false, true, alpha_mul, 1.0, None);
                         }
                         CT::TextBox => {
                             draw_glass(&painter, screen_rect, Color32::from_rgb(30, 40, 80), 8.0, false, alpha_mul);
@@ -2773,12 +2654,23 @@ impl CoboltApp {
                                     .text_color(Color32::from_rgb(230, 235, 255)));
                             let _ = resp;
                         }
-                        CT::CheckBox => {
-                            let mut checked = cur_val == "true" || cur_val == "1";
-                            let label = ctrl.get_prop("Caption").map(|v| v.as_str().to_owned())
-                                .unwrap_or_else(|| ctrl.id.clone());
-                            if ui.put(screen_rect, egui::Checkbox::new(&mut checked, &label)).changed() {
-                                *cur_val = if checked { "true".into() } else { "false".into() };
+                        CT::CheckBox | CT::RadioButton => {
+                            let checked = *cur_val == "true" || *cur_val == "1";
+                            let mut live = live_at(screen_rect);
+                            live.properties.insert("Checked".to_owned(),
+                                cobolt_forms::model::PropValue::Bool(checked));
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live,
+                                false, true, alpha_mul, 1.0, None);
+                            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
+                            if resp.clicked() {
+                                *cur_val = if matches!(ctrl.control_type, CT::RadioButton) {
+                                    "1".into()
+                                } else if checked {
+                                    "0".into()
+                                } else {
+                                    "1".into()
+                                };
                             }
                         }
                         CT::ComboBox => {
@@ -2808,15 +2700,12 @@ impl CoboltApp {
                             }
                         }
                         CT::ProgressBar => {
-                            let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
-                            let max_v = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100).max(1) as f32;
-                            let fval: f32 = cur_val.parse().unwrap_or(min_v);
-                            let pct = ((fval - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
-                            // Glass track
-                            draw_glass(&painter, screen_rect, Color32::from_rgb(30, 80, 60), 6.0, false, alpha_mul * 0.6);
-                            let fill_w = screen_rect.width() * pct;
-                            let fill_rect = Rect::from_min_size(screen_rect.min, Vec2::new(fill_w, screen_rect.height()));
-                            draw_glass(&painter, fill_rect, Color32::from_rgb(40, 180, 120), 6.0, false, alpha_mul);
+                            let mut live = live_at(screen_rect);
+                            live.properties.insert("Value".to_owned(),
+                                cobolt_forms::model::PropValue::String(cur_val.clone()));
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live,
+                                false, true, alpha_mul, 1.0, None);
                         }
                         CT::PictureBox => {
                             let image_path = ctrl.get_prop("ImagePath").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -2835,62 +2724,6 @@ impl CoboltApp {
                                 &painter, screen_rect, &key, source.trim(), auto, looping, &size_mode, alpha_mul, false,
                             );
                         }
-                        CT::Line => {
-                            let p1 = screen_rect.left_top();
-                            let p2 = screen_rect.right_bottom();
-                            let a = (alpha_mul * 200.0) as u8;
-                            painter.line_segment([p1, p2], Stroke::new(2.0,
-                                Color32::from_rgba_premultiplied(a, a, a, a)));
-                        }
-                        CT::Shape => {
-                            let shape_type = ctrl.get_prop("ShapeType").map(|v| v.as_str().to_owned())
-                                .unwrap_or_else(|| "Rectangle".into());
-                            let fill_color = ctrl.get_prop("FillColor").map(|v| {
-                                let hex = v.as_str();
-                                if hex.len() >= 6 {
-                                    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(128);
-                                    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(128);
-                                    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(128);
-                                    Color32::from_rgb(r, g, b)
-                                } else { Color32::GRAY }
-                            }).unwrap_or(Color32::GRAY);
-                            match shape_type.as_str() {
-                                "Circle" | "Ellipse" => {
-                                    let radius = screen_rect.width().min(screen_rect.height()) / 2.0;
-                                    draw_glass_circle(&painter, screen_rect.center(), radius, fill_color, false, alpha_mul);
-                                }
-                                "Triangle" => {
-                                    let pts = vec![
-                                        Pos2::new(screen_rect.center().x, screen_rect.min.y),
-                                        Pos2::new(screen_rect.max.x, screen_rect.max.y),
-                                        Pos2::new(screen_rect.min.x, screen_rect.max.y),
-                                    ];
-                                    let a = (alpha_mul * 255.0) as u8;
-                                    let fc = Color32::from_rgba_premultiplied(
-                                        (fill_color.r() as f32 * alpha_mul) as u8,
-                                        (fill_color.g() as f32 * alpha_mul) as u8,
-                                        (fill_color.b() as f32 * alpha_mul) as u8,
-                                        a,
-                                    );
-                                    painter.add(egui::Shape::convex_polygon(pts, fc, Stroke::NONE));
-                                }
-                                "RoundRect" => { draw_glass(&painter, screen_rect, fill_color, 10.0, false, alpha_mul); }
-                                _           => { draw_glass(&painter, screen_rect, fill_color, 0.0,  false, alpha_mul); }
-                            }
-                        }
-                        CT::GroupBox => {
-                            let title = ctrl.get_prop("Caption").map(|v| v.as_str().to_owned())
-                                .unwrap_or_default();
-                            // Glass tinted group box border
-                            draw_glass(&painter, screen_rect, Color32::from_rgb(40, 45, 80), 6.0, false, alpha_mul * 0.4);
-                            painter.rect_stroke(screen_rect, 6.0,
-                                Stroke::new(1.0, Color32::from_rgba_premultiplied(160,165,220,100)));
-                            painter.text(
-                                Pos2::new(screen_rect.min.x + 8.0, screen_rect.min.y),
-                                egui::Align2::LEFT_CENTER,
-                                &title, egui::FontId::proportional(11.0),
-                                Color32::from_rgba_premultiplied(210, 215, 255, 220));
-                        }
                         // ── Chart controls — reuse the designer's chart renderer ──
                         CT::BarChart | CT::LineChart | CT::PieChart
                         | CT::AreaChart | CT::ScatterChart | CT::DonutChart => {
@@ -2902,17 +2735,13 @@ impl CoboltApp {
                             // Non-visual in preview — skip
                         }
                         _ => {
-                            // Generic fallback: glass box with ID label
-                            let base = if enabled {
-                                Color32::from_rgb(50, 55, 100)
-                            } else {
-                                Color32::from_rgb(35, 35, 55)
-                            };
-                            draw_glass(&painter, screen_rect, base, 6.0, false,
-                                alpha_mul * if enabled { 1.0 } else { 0.5 });
-                            painter.text(screen_rect.center(), egui::Align2::CENTER_CENTER,
-                                &ctrl.id, egui::FontId::proportional(10.0),
-                                Color32::from_rgba_premultiplied(200, 205, 240, 200));
+                            // Generic fallback: the designer's own face for this
+                            // control type, at the designed properties.
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live_at(screen_rect),
+                                false, true,
+                                alpha_mul * if enabled { 1.0 } else { 0.5 },
+                                1.0, None);
                         }
                     }
                 }
@@ -2968,6 +2797,32 @@ impl CoboltApp {
         use crate::panels::designer::{draw_glass, draw_glass_circle, glass_combo_header, glass_combo_popup, GlassComboAction};
 
         if idx >= self.form_runtimes.len() { return; }
+
+        // ── Form-level lifecycle events ───────────────────────────────────────
+        // onShow / onActivate fire once when the running form first appears;
+        // onResize fires whenever its canvas size changes. All addressed to the
+        // form's own id so the generated loop dispatches them.
+        {
+            let rt = &self.form_runtimes[idx];
+            let fname = rt.form_name.clone();
+            let cur_size = (rt.form_width, rt.form_height);
+            let shown_id = egui::Id::new(("form-shown", idx));
+            let already = ctx.memory(|m| m.data.get_temp::<bool>(shown_id).unwrap_or(false));
+            if !already {
+                self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onShow"));
+                self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onActivate"));
+                ctx.memory_mut(|m| m.data.insert_temp(shown_id, true));
+                ctx.memory_mut(|m| m.data.insert_temp(
+                    egui::Id::new(("form-size", idx)), cur_size));
+            } else {
+                let size_id = egui::Id::new(("form-size", idx));
+                let prev = ctx.memory(|m| m.data.get_temp::<(u32, u32)>(size_id));
+                if prev.is_some() && prev != Some(cur_size) {
+                    self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onResize"));
+                }
+                ctx.memory_mut(|m| m.data.insert_temp(size_id, cur_size));
+            }
+        }
 
         // Apply glass visuals identical to the preview window.
         {
@@ -3066,15 +2921,45 @@ impl CoboltApp {
 
                     if !state.visible { continue; }
 
+                    // Geometry: the designed rect, overridden by any live
+                    // X/Y/Width/Height property updates (MOVE "X" OF ctrl …,
+                    // ctrl::MoveTo/Resize) so widgets actually move at runtime.
                     let r = &meta.rect;
+                    let live_i32 = |key: &str, def: i32| state.props.get(key)
+                        .and_then(|v| v.trim().parse::<f32>().ok())
+                        .map(|f| f.round() as i32)
+                        .unwrap_or(def);
+                    let (lx, ly) = (live_i32("X", r.x), live_i32("Y", r.y));
+                    let (lw, lh) = (live_i32("Width", r.w), live_i32("Height", r.h));
                     let screen_rect = Rect::from_min_size(
-                        Pos2::new(origin.x + r.x as f32, origin.y + r.y as f32),
-                        Vec2::new(r.w as f32, r.h as f32),
+                        Pos2::new(origin.x + lx as f32, origin.y + ly as f32),
+                        Vec2::new(lw as f32, lh as f32),
                     );
                     let painter  = ui.painter_at(screen_rect);
                     let ctrl_id  = egui::Id::new(("run_ctrl", meta.id.as_str()));
                     let enabled  = state.enabled;
                     let alpha    = if enabled { 1.0f32 } else { 0.45f32 };
+
+                    // Widgets rendered through `render_run_control` get their
+                    // universal pointer/gesture events from inside it. The ones
+                    // handled inline below (Label, ComboBox, ListBox, PictureBox,
+                    // …) get them here, so onClick / onDblClick / onMouse* fire
+                    // for *every* visual control. Non-visual controls are skipped.
+                    let via_rrc = matches!(meta.control_type,
+                        CT::Button | CT::CheckBox | CT::TextBox | CT::Slider
+                        | CT::DateTimePicker | CT::DataGrid | CT::RadioButton
+                        | CT::NumericUpDown | CT::TabControl | CT::TreeView | CT::Splitter
+                        | CT::MenuBar | CT::ToolBar | CT::StatusBar
+                        | CT::BarChart | CT::LineChart | CT::PieChart
+                        | CT::AreaChart | CT::ScatterChart | CT::DonutChart);
+                    let non_visual = matches!(meta.control_type,
+                        CT::Timer | CT::AgentObject | CT::SqlDatabase
+                        | CT::RestClient | CT::ModalWindow);
+                    if !via_rrc && !non_visual {
+                        let evs = widget_pointer_events(
+                            ui, screen_rect, ctrl_id, &meta.id, &meta.control_type, enabled);
+                        for e in evs { rt.send_event(e); }
+                    }
 
                     match meta.control_type {
                         // Widgets sharing the one runtime renderer (also used by tests).
@@ -3097,30 +2982,17 @@ impl CoboltApp {
                             }
                         }
 
-                        CT::Label => {
-                            let text      = state.get("Caption").to_owned();
-                            let font_size = state.get("FontSize").parse::<f32>().unwrap_or(12.0);
-                            let font_name = state.get("FontName").to_owned();
-                            // Resolve ForeColor; fall back to near-white.
-                            let hex = state.get("ForegroundColor");
-                            let (fr, fg, fb) = if hex.len() >= 7 && hex.starts_with('#') {
-                                (
-                                    u8::from_str_radix(&hex[1..3], 16).unwrap_or(230),
-                                    u8::from_str_radix(&hex[3..5], 16).unwrap_or(235),
-                                    u8::from_str_radix(&hex[5..7], 16).unwrap_or(255),
-                                )
-                            } else { (230, 235, 255) };
-                            let a = (alpha * 255.0) as u8;
-                            painter.text(
-                                screen_rect.min, egui::Align2::LEFT_TOP,
-                                &text, crate::fonts::font_id(ui.ctx(), &font_name, font_size),
-                                Color32::from_rgba_premultiplied(
-                                    (fr as f32 * alpha) as u8,
-                                    (fg as f32 * alpha) as u8,
-                                    (fb as f32 * alpha) as u8,
-                                    a,
-                                ),
-                            );
+                        // WYSIWYG: faces whose designer rendering IS the real
+                        // face are drawn by the designer's own renderer, driven
+                        // by the live property state.
+                        CT::Label | CT::GroupBox | CT::ProgressBar
+                        | CT::Shape | CT::Line => {
+                            let live = crate::panels::designer::live_control(
+                                &meta.id, meta.control_type.clone(),
+                                screen_rect.size(), state.props.iter());
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live,
+                                false, true, alpha, 1.0, None);
                         }
 
                         CT::ComboBox => {
@@ -3135,6 +3007,7 @@ impl CoboltApp {
                                                   &sel, is_open, enabled, alpha) {
                                 let e = rt.combo_open.entry(meta.id.clone()).or_insert(false);
                                 *e = !*e;
+                                if *e { rt.send_event(FormEvent::new(&meta.id, "onDropDown")); }
                             }
                         }
 
@@ -3157,75 +3030,11 @@ impl CoboltApp {
                                                     s.props.insert("Value".to_owned(), item.clone());
                                                 }
                                                 rt.send_event(FormEvent::change(&meta_id, item.as_str()));
+                                                rt.send_event(FormEvent::new(&meta_id, "onSelectedIndexChanged"));
                                             }
                                         }
                                     });
                             });
-                        }
-
-                        CT::ProgressBar => {
-                            let min_v = state.get("Minimum").parse::<f32>().unwrap_or(0.0);
-                            let max_v = state.get("Maximum").parse::<f32>().unwrap_or(100.0).max(min_v + 1.0);
-                            let val   = state.get("Value").parse::<f32>().unwrap_or(min_v);
-                            let pct   = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
-                            draw_glass(&painter, screen_rect, Color32::from_rgb(30,80,60), 6.0, false, alpha * 0.6);
-                            let fw = screen_rect.width() * pct;
-                            let fr = Rect::from_min_size(screen_rect.min, Vec2::new(fw, screen_rect.height()));
-                            draw_glass(&painter, fr, Color32::from_rgb(40,180,120), 6.0, false, alpha);
-                        }
-
-                        CT::GroupBox => {
-                            let title = state.get("Caption").to_owned();
-                            draw_glass(&painter, screen_rect, Color32::from_rgb(40,45,80), 6.0, false, alpha * 0.4);
-                            painter.rect_stroke(screen_rect, 6.0,
-                                Stroke::new(1.0, Color32::from_rgba_premultiplied(160,165,220,100)));
-                            painter.text(
-                                Pos2::new(screen_rect.min.x + 8.0, screen_rect.min.y),
-                                egui::Align2::LEFT_CENTER, &title,
-                                egui::FontId::proportional(11.0),
-                                Color32::from_rgba_premultiplied(210,215,255,220),
-                            );
-                        }
-
-                        CT::Shape => {
-                            let shape_type = state.get("ShapeType").to_owned();
-                            let hex = state.get("FillColor");
-                            let fill = if hex.len() >= 6 {
-                                let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(128);
-                                let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(128);
-                                let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(128);
-                                Color32::from_rgb(r,g,b)
-                            } else { Color32::GRAY };
-                            match shape_type.as_str() {
-                                "Circle" | "Ellipse" => {
-                                    let radius = screen_rect.width().min(screen_rect.height()) / 2.0;
-                                    draw_glass_circle(&painter, screen_rect.center(), radius, fill, false, alpha);
-                                }
-                                "Triangle" => {
-                                    let pts = vec![
-                                        Pos2::new(screen_rect.center().x, screen_rect.min.y),
-                                        Pos2::new(screen_rect.max.x, screen_rect.max.y),
-                                        Pos2::new(screen_rect.min.x, screen_rect.max.y),
-                                    ];
-                                    let a = (alpha * 255.0) as u8;
-                                    painter.add(egui::Shape::convex_polygon(pts,
-                                        Color32::from_rgba_premultiplied(
-                                            (fill.r() as f32 * alpha) as u8,
-                                            (fill.g() as f32 * alpha) as u8,
-                                            (fill.b() as f32 * alpha) as u8, a),
-                                        Stroke::NONE));
-                                }
-                                "RoundRect" => draw_glass(&painter, screen_rect, fill, 10.0, false, alpha),
-                                _           => draw_glass(&painter, screen_rect, fill, 0.0,  false, alpha),
-                            }
-                        }
-
-                        CT::Line => {
-                            let a = (alpha * 200.0) as u8;
-                            painter.line_segment(
-                                [screen_rect.left_top(), screen_rect.right_bottom()],
-                                Stroke::new(2.0, Color32::from_rgba_premultiplied(a,a,a,a)),
-                            );
                         }
 
                         CT::PictureBox => {
@@ -3249,7 +3058,40 @@ impl CoboltApp {
                             );
                         }
 
-                        CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
+                        CT::Timer => {
+                            // Non-visual, but it TICKS: while enabled (Start /
+                            // Stop toggle the Enabled property), fire an
+                            // `onTick` form event every Interval ms. The
+                            // standard event loop dispatches it to the timer's
+                            // `TIMER-ID--ONTICK` nested program.
+                            if enabled {
+                                let interval_s = state.get("Interval")
+                                    .trim().parse::<f64>().unwrap_or(1000.0)
+                                    .max(10.0) / 1000.0;
+                                let mem = ctrl_id.with("last_tick");
+                                let now = ui.input(|i| i.time);
+                                match ui.ctx().memory(|m| m.data.get_temp::<f64>(mem)) {
+                                    None => {
+                                        // First frame while enabled: arm the timer.
+                                        ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
+                                    }
+                                    Some(last) if now - last >= interval_s => {
+                                        rt.send_event(FormEvent::new(&meta.id, "onTick"));
+                                        ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
+                                    }
+                                    _ => {}
+                                }
+                                // Keep frames coming so ticks fire without input.
+                                ui.ctx().request_repaint_after(
+                                    std::time::Duration::from_millis(
+                                        (interval_s * 250.0) as u64 + 10));
+                            } else {
+                                // Disarm so re-enabling restarts the interval.
+                                let mem = ctrl_id.with("last_tick");
+                                ui.ctx().memory_mut(|m| m.data.remove::<f64>(mem));
+                            }
+                        }
+                        CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
                             // Non-visual — skip rendering.
                         }
 
@@ -3297,6 +3139,7 @@ impl CoboltApp {
                                 s.props.insert("Value".to_owned(), val.clone());
                             }
                             rt.send_event(FormEvent::change(&cid, &val));
+                            rt.send_event(FormEvent::new(&cid, "onSelectedIndexChanged"));
                             rt.combo_open.insert(cid, false);
                         }
                         Some(GlassComboAction::Close) => {
@@ -3573,6 +3416,59 @@ pub(crate) struct RunOutcome {
     pub prop_updates: Vec<(String, String)>,
 }
 
+/// Universal pointer/gesture events for one control, derived purely from
+/// pointer geometry (no extra interactable, so it never steals the widget's own
+/// interaction). Emits only the events the control actually declares in
+/// `supported_events()`; the data-driven event loop ignores any without a bound
+/// handler. Covers `onClick`, `onDblClick`, `onMouseDown/Up`, `onMouseEnter/Leave`.
+/// Applied to **every** visual control so any of these handlers can fire.
+pub(crate) fn widget_pointer_events(
+    ui: &egui::Ui,
+    screen_rect: egui::Rect,
+    ctrl_id: egui::Id,
+    id: &str,
+    ct: &cobolt_forms::ControlType,
+    enabled: bool,
+) -> Vec<cobolt_runtime::FormEvent> {
+    use cobolt_runtime::FormEvent;
+    let mut evs = Vec::new();
+    if !enabled { return evs; }
+    let supported = ct.supported_events();
+    let want = |e: &str| supported.contains(&e);
+
+    let over = ui.rect_contains_pointer(screen_rect);
+    let (pressed, released, dbl, clicked) = ui.input(|i| (
+        i.pointer.primary_pressed(),
+        i.pointer.primary_released(),
+        i.pointer.button_double_clicked(egui::PointerButton::Primary),
+        i.pointer.primary_clicked(),
+    ));
+    // Remember whether the press began over this control, so a click that
+    // started elsewhere and released here doesn't spuriously fire onClick.
+    let press_mem = ctrl_id.with("press-began-over");
+    if pressed {
+        ui.ctx().memory_mut(|m| m.data.insert_temp(press_mem, over));
+    }
+    if over {
+        if pressed  && want("onMouseDown") { evs.push(FormEvent::new(id, "onMouseDown")); }
+        if released && want("onMouseUp")   { evs.push(FormEvent::new(id, "onMouseUp")); }
+        if dbl      && want("onDblClick")  { evs.push(FormEvent::new(id, "onDblClick")); }
+        if clicked && want("onClick")
+            && ui.ctx().memory(|m| m.data.get_temp::<bool>(press_mem).unwrap_or(false))
+        {
+            evs.push(FormEvent::click(id));
+        }
+    }
+    let mem_id = ctrl_id.with("ptr-over");
+    let was = ui.ctx().memory(|m| m.data.get_temp::<bool>(mem_id).unwrap_or(false));
+    if over != was {
+        let e = if over { "onMouseEnter" } else { "onMouseLeave" };
+        if want(e) { evs.push(FormEvent::new(id, e)); }
+        ui.ctx().memory_mut(|m| m.data.insert_temp(mem_id, over));
+    }
+    evs
+}
+
 pub(crate) fn render_run_control(
     ui: &mut egui::Ui,
     screen_rect: egui::Rect,
@@ -3591,78 +3487,50 @@ pub(crate) fn render_run_control(
     let mut out = RunOutcome { events: Vec::new(), prop_updates: Vec::new() };
     let painter = ui.painter_at(screen_rect);
 
-    // ── Generic pointer events for every control ──────────────────────────────
-    // Detected from pointer geometry (no extra interactable, so the type-specific
-    // interaction below is unaffected). Fired for all controls; the data-driven
-    // event loop only dispatches the ones with a bound handler, so unbound events
-    // are harmless no-ops. Names match each control's `supported_events`.
-    if enabled {
-        let over = ui.rect_contains_pointer(screen_rect);
-        let (pressed, released, dbl) = ui.input(|i| (
-            i.pointer.primary_pressed(),
-            i.pointer.primary_released(),
-            i.pointer.button_double_clicked(egui::PointerButton::Primary),
-        ));
-        if over {
-            if pressed  { out.events.push(FormEvent::new(id, "onMouseDown")); }
-            if released { out.events.push(FormEvent::new(id, "onMouseUp")); }
-            if dbl      { out.events.push(FormEvent::new(id, "onDblClick")); }
-        }
-        // Enter / leave, remembered per control in egui memory.
-        let mem_id = ctrl_id.with("ptr-over");
-        let was = ui.ctx().memory(|m| m.data.get_temp::<bool>(mem_id).unwrap_or(false));
-        if over != was {
-            out.events.push(FormEvent::new(id, if over { "onMouseEnter" } else { "onMouseLeave" }));
-            ui.ctx().memory_mut(|m| m.data.insert_temp(mem_id, over));
-        }
-    }
+    // Universal pointer/gesture events (onClick, onDblClick, onMouseDown/Up,
+    // onMouseEnter/Leave) for this control, gated by its supported_events.
+    out.events.extend(widget_pointer_events(ui, screen_rect, ctrl_id, id, &ct, enabled));
 
     match &ct {
         CT::Button => {
-            let label = {
-                let l = state.get("Caption").to_owned();
-                if l.is_empty() { id.to_owned() } else { l }
-            };
+            // WYSIWYG: the face is the designer's own renderer, driven by the
+            // designed properties; only the press/hover feedback is added here.
             let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
             let pressed = resp.is_pointer_button_down_on() && enabled;
             let hovered = resp.hovered() && enabled;
-            let (btn_color, border_a) = if pressed {
-                (Color32::from_rgb(15, 35, 95), 220u8)
-            } else if hovered {
-                (Color32::from_rgb(60, 90, 160), 160u8)
-            } else {
-                (Color32::from_rgb(40, 60, 120), 100u8)
-            };
             let draw_rect = if pressed { screen_rect.shrink(1.5) } else { screen_rect };
-            draw_glass(&painter, draw_rect, btn_color, 10.0, false, alpha);
-            let spec_alpha = if pressed { 80u8 } else { 40u8 };
-            let spec = egui::Rect::from_min_size(
-                draw_rect.min + Vec2::new(4.0, 2.0),
-                Vec2::new(draw_rect.width() - 8.0, 4.0),
-            );
-            painter.rect_filled(spec, 3.0, Color32::from_rgba_premultiplied(200, 220, 255, spec_alpha));
-            painter.rect_stroke(draw_rect, 10.0,
-                egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(130, 170, 255, border_a)));
-            let label_pos = if pressed {
-                draw_rect.center() + Vec2::new(0.0, 1.0)
-            } else {
-                screen_rect.center()
-            };
-            painter.text(label_pos, egui::Align2::CENTER_CENTER, &label,
-                egui::FontId::proportional(12.0), Color32::from_rgb(230, 235, 255));
-            if resp.clicked() && enabled {
-                out.events.push(FormEvent::click(id));
+            let live = crate::panels::designer::live_control(
+                id, CT::Button, draw_rect.size(), state.props.iter());
+            crate::panels::designer::draw_control(
+                &painter, draw_rect.min, &live, false, true, alpha, 1.0, None);
+            let corner = state.get("CornerRadius").parse::<f32>().unwrap_or(4.0);
+            if pressed {
+                painter.rect_filled(draw_rect, corner, Color32::from_black_alpha(70));
+            } else if hovered {
+                painter.rect_filled(draw_rect, corner, Color32::from_white_alpha(10));
             }
+            // onClick is fired generically by widget_pointer_events above.
+            let _ = resp;
         }
         CT::CheckBox => {
-            let label = state.get("Caption").to_owned();
             let cur = state.get("Value");
-            let mut checked = cur == "true" || cur == "1";
-            let resp = ui.put(screen_rect, egui::Checkbox::new(&mut checked, &label));
-            if resp.changed() && enabled {
-                let v = if checked { "1" } else { "0" };
+            let checked = if cur.is_empty() {
+                matches!(state.get("Checked"), "1" | "true")
+            } else {
+                cur == "true" || cur == "1"
+            };
+            let mut live = crate::panels::designer::live_control(
+                id, CT::CheckBox, screen_rect.size(), state.props.iter());
+            live.properties.insert("Checked".to_owned(),
+                cobolt_forms::model::PropValue::Bool(checked));
+            crate::panels::designer::draw_control(
+                &painter, screen_rect.min, &live, false, true, alpha, 1.0, None);
+            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
+            if resp.clicked() && enabled {
+                let v = if checked { "0" } else { "1" };
                 out.prop_updates.push(("Value".to_owned(), v.to_owned()));
                 out.events.push(FormEvent::change(id, v));
+                out.events.push(FormEvent::new(id, "onCheckedChanged"));
             }
         }
         CT::TextBox => {
@@ -3681,9 +3549,31 @@ pub(crate) fn render_run_control(
             }
             if resp.gained_focus() {
                 out.events.push(FormEvent::new(id, "onGotFocus"));
+                out.events.push(FormEvent::new(id, "onEnter"));
             }
             if resp.lost_focus() {
                 out.events.push(FormEvent::new(id, "onLostFocus"));
+                out.events.push(FormEvent::new(id, "onLeave"));
+            }
+            // Keyboard events while the field has focus.
+            if resp.has_focus() {
+                let (key_down, key_up, typed) = ui.input(|i| {
+                    let mut down = false; let mut up = false; let mut typed = false;
+                    for e in &i.events {
+                        match e {
+                            egui::Event::Key { pressed: true, .. }  => down = true,
+                            egui::Event::Key { pressed: false, .. } => up = true,
+                            egui::Event::Text(_)                     => typed = true,
+                            _ => {}
+                        }
+                    }
+                    (down, up, typed)
+                });
+                if key_down { out.events.push(FormEvent::new(id, "onKeyDown")); }
+                if key_up   { out.events.push(FormEvent::new(id, "onKeyUp")); }
+                // onKeyPress = a character was produced (closest to the classic
+                // "key press" semantics), falling back to any key-down.
+                if typed || key_down { out.events.push(FormEvent::new(id, "onKeyPress")); }
             }
         }
         CT::Slider => {
@@ -3885,12 +3775,20 @@ pub(crate) fn render_run_control(
                 Stroke::new(1.0, grid_c));
         }
         CT::RadioButton => {
-            let label = state.get("Caption").to_owned();
-            let selected = matches!(state.get("Value"), "1" | "true");
-            let resp = ui.put(screen_rect, egui::RadioButton::new(selected, label));
+            let selected = matches!(state.get("Value"), "1" | "true")
+                || (state.get("Value").is_empty()
+                    && matches!(state.get("Checked"), "1" | "true"));
+            let mut live = crate::panels::designer::live_control(
+                id, CT::RadioButton, screen_rect.size(), state.props.iter());
+            live.properties.insert("Checked".to_owned(),
+                cobolt_forms::model::PropValue::Bool(selected));
+            crate::panels::designer::draw_control(
+                &painter, screen_rect.min, &live, false, true, alpha, 1.0, None);
+            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
             if resp.clicked() && enabled {
                 out.prop_updates.push(("Value".to_owned(), "1".to_owned()));
                 out.events.push(FormEvent::change(id, "1"));
+                out.events.push(FormEvent::new(id, "onCheckedChanged"));
             }
         }
         CT::NumericUpDown => {
@@ -4204,6 +4102,32 @@ mod run_interaction_tests {
         (all, state)
     }
 
+    /// Run input frames against `widget_pointer_events` (the universal gesture
+    /// layer applied to every visual control), returning the events produced.
+    fn drive_pointer(ct: CT, rect: Rect, frames: Vec<Vec<Event>>) -> Vec<FormEvent> {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let mut all = Vec::new();
+        for evs in frames {
+            let mut input = RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1000.0, 800.0)));
+            input.focused = true;
+            input.events = evs;
+            let out = Rc::new(RefCell::new(Vec::<FormEvent>::new()));
+            let o = out.clone();
+            let ctf = ct.clone();
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
+                    let id = egui::Id::new(("t", "W1"));
+                    let e = widget_pointer_events(ui, rect, id, "W1", &ctf, true);
+                    o.borrow_mut().extend(e);
+                });
+            });
+            all.extend(out.borrow().clone());
+        }
+        all
+    }
+
     #[test]
     fn button_click_fires_click_event() {
         let rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(80.0, 30.0));
@@ -4260,6 +4184,48 @@ mod run_interaction_tests {
         ]);
         assert!(evs.iter().any(|e| e.event_id == "onGotFocus"), "TextBox click produced no GotFocus");
         assert!(evs.iter().any(|e| e.event_id == "onChange"), "TextBox typing produced no Change");
+        // onEnter accompanies focus; typing a character raises onKeyPress.
+        assert!(evs.iter().any(|e| e.event_id == "onEnter"),    "TextBox focus produced no onEnter");
+        assert!(evs.iter().any(|e| e.event_id == "onKeyPress"), "TextBox typing produced no onKeyPress");
+    }
+
+    #[test]
+    fn label_click_and_dblclick_fire() {
+        // A Label is rendered inline (not via render_run_control), but the run
+        // loop applies widget_pointer_events to it. Exercise the helper directly.
+        let rect = Rect::from_min_size(pos2(40.0, 40.0), vec2(120.0, 24.0));
+        let c = rect.center();
+        let evs = drive_pointer(CT::Label, rect, vec![
+            vec![Event::PointerMoved(c), press(c)],
+            vec![Event::PointerMoved(c), release(c)],
+        ]);
+        let names: Vec<&str> = evs.iter().map(|e| e.event_id.as_str()).collect();
+        assert!(names.contains(&"onClick"), "Label produced no onClick; got {names:?}");
+        // Label supports onMouseEnter; a Timer (non-pointer) must NOT get these.
+        assert!(names.contains(&"onMouseEnter") || names.contains(&"onMouseDown"),
+            "Label produced no pointer events; got {names:?}");
+    }
+
+    #[test]
+    fn pointer_events_respect_supported_events() {
+        // A Timer declares only onTick — widget_pointer_events must emit nothing.
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(40.0, 40.0));
+        let c = rect.center();
+        let evs = drive_pointer(CT::Timer, rect, vec![
+            vec![Event::PointerMoved(c), press(c)],
+            vec![Event::PointerMoved(c), release(c)],
+        ]);
+        assert!(evs.is_empty(), "Timer must not emit pointer events; got {evs:?}");
+    }
+
+    #[test]
+    fn checkbox_toggle_also_fires_checkedchanged() {
+        let rect = Rect::from_min_size(pos2(50.0, 50.0), vec2(140.0, 24.0));
+        let c = rect.center();
+        let (evs, _st) = drive(CT::CheckBox, cs(&[("Caption", "On"), ("Value", "0")]), rect,
+            vec![vec![], vec![Event::PointerMoved(c), press(c)], vec![Event::PointerMoved(c), release(c)]]);
+        assert!(evs.iter().any(|e| e.event_id == "onCheckedChanged"),
+            "CheckBox toggle produced no onCheckedChanged");
     }
 
     #[test]
