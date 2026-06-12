@@ -118,7 +118,7 @@ impl FormsListPanel {
                         .color(if is_open {
                             Color32::from_rgb(100, 200, 100)
                         } else {
-                            Color32::from_rgb(220, 220, 220)
+                            crate::theme::active().text_bright
                         });
 
                     let resp = ui.selectable_label(is_selected, label);

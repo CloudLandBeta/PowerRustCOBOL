@@ -206,16 +206,17 @@ impl DebuggerPanel {
                             .striped(true)
                             .min_col_width(60.0)
                             .show(ui, |ui| {
+                                let theme = crate::theme::active();
                                 for v in &filtered {
                                     ui.label(
                                         RichText::new(&v.name)
                                             .monospace()
-                                            .color(Color32::from_rgb(180, 220, 255)),
+                                            .color(theme.ed_data),
                                     );
                                     ui.label(
                                         RichText::new(&v.value)
                                             .monospace()
-                                            .color(Color32::from_rgb(212, 212, 212)),
+                                            .color(theme.ed_plain),
                                     );
                                     ui.end_row();
                                 }

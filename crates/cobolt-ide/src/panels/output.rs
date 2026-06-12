@@ -118,7 +118,7 @@ impl OutputPanel {
                                 ui.label(
                                     RichText::new(s)
                                         .monospace()
-                                        .color(Color32::from_rgb(212, 212, 212)),
+                                        .color(crate::theme::active().ed_plain),
                                 );
                             }
                             OutputLine::Diagnostic(d) => {

@@ -1253,17 +1253,21 @@ impl DesignerPanel {
                     bg_raw.r(), bg_raw.g(), bg_raw.b(),
                     ((bg_raw.a() as f32) * form_alpha_mul) as u8,
                 );
+                // WYSIWYG: a fully transparent form renders over the runtime's
+                // dark glass base, NOT over the IDE theme — paint that same
+                // dark base here so light IDE themes don't hide light-coloured
+                // captions that will be perfectly visible at run time.
+                let runtime_glass = Color32::from_rgba_unmultiplied(20, 24, 44, 200);
+                let canvas_bg = if bg.a() > 0 { bg } else { runtime_glass };
                 if self.glass_mode {
                     let corner = egui::Rounding::same(6.0);
-                    if bg.a() > 0 {
-                        painter.rect_filled(resp.rect, corner, bg);
-                    }
+                    painter.rect_filled(resp.rect, corner, canvas_bg);
                     // Thin border so the form boundary is always visible
                     painter.rect_stroke(resp.rect, corner,
                         egui::Stroke::new(1.0,
                             Color32::from_rgba_unmultiplied(255, 255, 255, 60)));
                 } else {
-                    painter.rect_filled(resp.rect, 0.0, bg);
+                    painter.rect_filled(resp.rect, 0.0, canvas_bg);
                 }
 
                 // ── Background image ───────────────────────────────────────────
@@ -3268,7 +3272,9 @@ pub(crate) fn draw_chart_preview(
             Pos2::new(rect.center().x, rect.min.y + margin_t * 0.5),
             egui::Align2::CENTER_CENTER, &title,
             egui::FontId::proportional(10.0),
-            Color32::from_rgb(235, 240, 255));
+            // The design-time grid face is white — the title must be dark to
+            // be readable (it was near-white and invisible on the face).
+            Color32::DARK_GRAY);
     }
 
     // ── Grid lines ────────────────────────────────────────────────────────────

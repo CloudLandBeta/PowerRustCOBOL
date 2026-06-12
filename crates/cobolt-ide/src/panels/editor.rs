@@ -1820,12 +1820,12 @@ impl EditorPanel {
                                     // Match counter
                                     let total = self.search.matches.len();
                                     let (count_txt, count_col) = if self.search.query.is_empty() {
-                                        ("".to_owned(), Color32::from_gray(140))
+                                        ("".to_owned(), crate::theme::active().text_dim)
                                     } else if total == 0 {
                                         ("No matches".to_owned(), Color32::from_rgb(255, 100, 100))
                                     } else {
                                         let cur = self.search.current + 1;
-                                        (format!("{cur}/{total}"), Color32::from_gray(200))
+                                        (format!("{cur}/{total}"), crate::theme::active().text_bright)
                                     };
                                     ui.label(
                                         egui::RichText::new(count_txt)
