@@ -43,6 +43,7 @@ use crate::panels::debugger::DebuggerPanel;
 use cobolt_runtime::DebugCmd;
 use crate::version::VERSION;
 use crate::i18n::{Language, Tr};
+use rand::Rng;
 
 // ── Dialog state ──────────────────────────────────────────────────────────────
 
@@ -255,6 +256,10 @@ pub struct CoboltApp {
     /// Currently selected UI language.
     lang: Language,
 
+    // State for the cycling welcome quotes on the initial screen (no project)
+    welcome_quote_index: usize,
+    welcome_quote_start_time: f64,
+
     /// Report Bug dialog (shown from both IDE toolbar and designer toolbar).
     report_bug: ReportBugDialog,
     /// Non-empty while the "Form saved" alert should be displayed.
@@ -389,6 +394,8 @@ impl CoboltApp {
             pending_goto_paragraph: None,
             glass_visuals_applied:  false,
             lang: Language::English,
+            welcome_quote_index: 0,
+            welcome_quote_start_time: 0.0,
             report_bug:      ReportBugDialog::new(),
             save_alert_msg:  None,
             save_alert_designer: None,
@@ -690,7 +697,14 @@ impl CoboltApp {
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
                     self.do_save_project();      // persist the tracked main
-                    if main_path.exists() { self.open_in_editor(main_path); }
+
+                    // Initialize the project Settings form and show it immediately
+                    // (fills the main work area right of the tree; no editor controls on top).
+                    if let Some(p) = &self.cobolt_project {
+                        self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(p, &self.llm));
+                        self.show_project_settings = true;
+                        self.inspect = None;
+                    }
                 }
                 let name = self.cobolt_project.as_ref().unwrap().project.name.clone();
                 self.output.push_status(format!("Created project '{name}'"));
@@ -729,9 +743,18 @@ impl CoboltApp {
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
                 }
+                // Initialize (or reset) the in-pane project Settings form and show it
+                // by default (fills the main area to the right of the tree, no editor chrome).
+                if let Some(p) = &self.cobolt_project {
+                    self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(p, &self.llm));
+                    self.show_project_settings = true;
+                    self.inspect = None;
+                }
             }
             Err(e) => {
-                self.output.push_status(format!("Failed to open project: {e}"));
+                self.output.push_status(format!(
+                    "Failed to open project: {e}. Make sure you selected a valid `cobolt.toml` (it must have a [project] table)."
+                ));
             }
         }
     }
@@ -1362,12 +1385,37 @@ impl CoboltApp {
         let themes: Vec<(&'static str, &'static str)> =
             crate::theme::THEMES.iter().map(|t| (t.id, t.name)).collect();
 
-        let card = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill, self.current_theme());
         let mut action = crate::panels::settings_form::SettingsFormAction::default();
+
+        // Mirror the exact right-pane implementation used for the widget
+        // properties inspector: create the glass card, then CentralPanel with
+        // .frame(card). This guarantees identical width/positioning of the
+        // glass strokes (right border fixed) and that the pane area conforms to
+        // 100% of the available central height above the output (grows/shrinks
+        // naturally on window or output splitter resize).
+        let mut card = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, self.current_theme());
+        // Moderate bottom outer margin on the frame raises the stroked glass
+        // card (rounded bottom border) clearly above the output.
+        // Inside the framed ui we allocate the form (scroll + buttons) in a
+        // shorter rect + reserve space so the Save/Cancel sit fully visible
+        // above the console (the 80px inner reservation directly lifts the
+        // buttons within the glass). This fixes the clipping while keeping the
+        // overall "right pane" full 100% height conforming.
+        card = card.outer_margin(egui::Margin { left: 6.0, right: 6.0, top: 6.0, bottom: 50.0 });
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             if let Some(form) = &mut self.settings_form {
-                action = form.show(ui, tr, &themes, test_busy, test_status.as_deref());
+                let avail = ui.available_rect_before_wrap();
+                let bottom_res = 80.0; // dedicated inner lift for full button visibility
+                let content_h = (avail.height() - bottom_res).max(180.0);
+                let content_rect = egui::Rect::from_min_size(
+                    avail.min,
+                    egui::vec2(avail.width(), content_h)
+                );
+                ui.allocate_ui_at_rect(content_rect, |ui| {
+                    action = form.show(ui, tr, &themes, test_busy, test_status.as_deref());
+                });
+                ui.add_space(bottom_res);
             }
         });
 
@@ -1417,18 +1465,160 @@ impl CoboltApp {
         if let Some((_, t)) = &self.bg_texture {
             // reuse a separate cache slot? keep mascot in its own ctx-memory cache.
         }
-        let id = egui::Id::new("mascot-tex");
-        if let Some(t) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
-            return Some(t);
-        }
-        const BYTES: &[u8] = include_bytes!("../../../docs/assets/powerrustcobol-mascot.png");
-        let img = image::load_from_memory(BYTES).ok()?.to_rgba8();
-        let (w, h) = img.dimensions();
-        let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &img);
-        let tex = ctx.load_texture("mascot", color, egui::TextureOptions::LINEAR);
-        ctx.memory_mut(|m| m.data.insert_temp(id, tex.clone()));
-        Some(tex)
+        // Mascot texture is no longer used (welcome pane with the dev guide
+        // replaces the old no-project mascot view). Stub to avoid include
+        // path issues in the current tree while keeping the fn for any
+        // other call sites.
+        let _ = ctx;
+        None
     }
+
+    const QUOTES: &[(&str, &str)] = &[
+        ("Alan Kay", "The best way to predict the future is to invent it."),
+        ("Bill Gates", "We’re changing the world with technology."),
+        ("Steve Jobs", "Technology alone is not enough."),
+        ("Steve Jobs", "The best way to create value in the 21st century is to connect Creativity with Technology."),
+        ("Steve Jobs", "Everybody in this country should learn how to program a computer, because it teaches you how to think."),
+        ("Steve Jobs", "Innovation is the only way to win."),
+        ("Steve Jobs", "Every once in a while a revolutionary product comes along that changes everything."),
+        ("Linus Torvalds", "Most good programmers do programming not because they expect to get paid or get adulation by the public, but because it is fun to program."),
+        ("Bill Gates", "We are not even close to finishing the basic dream of what the PC can be."),
+        ("Mark Zuckerberg", "Move fast and break things. Unless you are breaking stuff, you are not moving fast enough."),
+        ("Elon Musk", "Any product that needs a manual to work is broken."),
+        ("Alan Kay", "Technology is anything invented after you were born."),
+        ("Grace Hopper", "A ship in port is safe, but that’s not what ships are built for. Sail out to sea and do new things."),
+        ("Grace Hopper", "It’s easier to ask forgiveness than it is to get permission."),
+        ("Alan Kay", "Simple things should be simple; complex things should be possible."),
+        ("Steve Jobs", "Design is not just what it looks like and feels like. Design is how it works."),
+        ("Bill Gates", "Your most unhappy customers are your greatest source of learning."),
+        ("Elon Musk", "When something is important enough, you do it even if the odds are not in your favor."),
+        ("Alan Kay", "People who are really serious about software should make their own hardware."),
+        ("Edsger Dijkstra", "Computer science is no more about computers than astronomy is about telescopes."),
+        ("Grace Hopper", "Humans are allergic to change. They love to say, ‘We’ve always done it this way.’"),
+        ("Jean Sammet", "I do not consider an assembly language (even a sophisticated one) to be a programming language."),
+        ("Sister Mary Kenneth Keller", "We’re having an information explosion, and it’s certainly obvious that information is of no use unless it’s available."),
+        ("Tim Berners-Lee", "The Web is more a social creation than a technical one."),
+        ("Vint Cerf", "The internet is a reflection of our society and that mirror is going to be reflecting what we see."),
+        ("Jeff Bezos", "What we need to do is always lean into the future."),
+        ("Satya Nadella", "The true opportunity is to build products that people love and that solve real problems."),
+        ("Donald Knuth", "The most important property of a program is whether it accomplishes the intention of its user."),
+        ("Linus Torvalds", "If you think your users are idiots, only idiots will use it."),
+        ("Elon Musk", "Failure is an option here. If things are not failing, you are not innovating enough."),
+        ("Proverbs 1:7", "The fear of the Lord is the beginning of knowledge, but fools despise wisdom and instruction."),
+        ("Proverbs 3:5-6", "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight."),
+        ("Proverbs 2:6", "For the Lord gives wisdom; from his mouth come knowledge and understanding."),
+        ("Proverbs 4:7", "The beginning of wisdom is this: Get wisdom. Though it cost all you have, get understanding."),
+        ("Proverbs 16:16", "How much better to get wisdom than gold, to get insight rather than silver!"),
+        ("Proverbs 20:18", "Plans are established by seeking advice; so if you wage war, obtain guidance."),
+        ("Proverbs 21:5", "The plans of the diligent lead to profit as surely as haste leads to poverty."),
+        ("Proverbs 16:3", "Commit to the Lord whatever you do, and he will establish your plans."),
+        ("Proverbs 12:14", "Wise words bring many benefits, and hard work brings rewards."),
+        ("Proverbs 10:14", "The wise store up knowledge, but the mouth of a fool invites ruin."),
+        ("Proverbs 16:18", "Pride goes before destruction, a haughty spirit before a fall."),
+        ("Proverbs 15:1", "A gentle answer turns away wrath, but a harsh word stirs up anger."),
+        ("Proverbs 27:17", "As iron sharpens iron, so one person sharpens another."),
+        ("Proverbs 4:23", "Above all else, guard your heart, for everything you do flows from it."),
+        ("Proverbs 18:21", "The tongue has the power of life and death, and those who love it will eat its fruit."),
+        ("Proverbs 15:14", "A wise person is hungry for knowledge, while the fool feeds on foolishness."),
+        ("Proverbs 13:4", "Lazy people want much but get little, but those who work hard will prosper."),
+        ("Proverbs 9:10", "The fear of the Lord is the beginning of wisdom, and knowledge of the Holy One is understanding."),
+        ("Proverbs 3:15", "She is more precious than rubies; nothing you desire can compare with her."),
+        ("Proverbs 3:13", "Blessed are those who find wisdom, those who gain understanding."),
+        ("Proverbs 3:17", "Her ways are pleasant ways, and all her paths are peace."),
+        ("Proverbs 3:18", "She is a tree of life to those who take hold of her; those who hold her fast will be blessed."),
+        ("Proverbs 4:5", "Get wisdom, get understanding; do not forget my words or turn away from them."),
+        ("Proverbs 4:7", "Wisdom is supreme; therefore get wisdom. Though it cost all you have, get understanding."),
+        ("Proverbs 4:18", "The path of the righteous is like the morning sun, shining ever brighter till the full light of day."),
+        ("Proverbs 23:12", "Apply your heart to instruction and your ears to words of knowledge."),
+        ("Proverbs 3:27", "Do not withhold good from those to whom it is due, when it is in your power to act."),
+        ("Proverbs 17:22", "A cheerful heart is good medicine, but a crushed spirit dries up the bones."),
+        ("Proverbs 15:13", "A happy heart makes the face cheerful, but heartache crushes the spirit."),
+        ("Proverbs 16:24", "Pleasant words are a honeycomb, sweet to the soul and healing to the bones."),
+        ("Proverbs 11:8", "The righteous person is rescued from trouble, and it falls on the wicked instead."),
+        ("Proverbs 29:11", "A fool gives full vent to his anger, but a wise man keeps himself under control."),
+    ];
+
+    /// Shown on startup (or when no project is open) as a single full-width
+    /// pane below the menubar/toolbar. Centered text with cycling quotes
+    /// using the exact requested format and timings.
+    fn show_welcome_pane(&mut self, ctx: &Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ctx.request_repaint(); // ensure continuous animation for quote rotation
+
+            ui.vertical_centered(|ui| {
+                // Center the entire single block (title + license + blank + quote + author)
+                // by adding space above so the block's center lands at the pane's vertical center.
+                // Approximate block height ~160-180px for typical quote length.
+                let top_space = (ui.available_height() - 170.0) * 0.5;
+                ui.add_space(top_space);
+
+                // Title and license in white
+                ui.horizontal_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Welcome to PowerRustCOBOL {}", crate::version::VERSION))
+                            .size(28.0)
+                            .strong()
+                            .color(egui::Color32::WHITE)
+                    );
+                });
+                ui.horizontal_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new("License: Apache 2.0")
+                            .size(16.0)
+                            .color(egui::Color32::WHITE)
+                    );
+                });
+
+                ui.add_space(20.0); // one blank line
+
+                let (author, quote) = Self::QUOTES[self.welcome_quote_index];
+
+                let green = egui::Color32::from_rgb(100, 220, 100);
+                let light_blue = egui::Color32::from_rgb(130, 190, 255);
+
+                let now = ctx.input(|i| i.time);
+                if self.welcome_quote_start_time == 0.0 {
+                    self.welcome_quote_start_time = now;
+                }
+                const CYCLE: f64 = 7.5;
+                if now - self.welcome_quote_start_time > CYCLE {
+                    self.welcome_quote_index = rand::thread_rng().gen_range(0..Self::QUOTES.len());
+                    self.welcome_quote_start_time = now;
+                }
+                let elapsed = now - self.welcome_quote_start_time;
+                let alpha = if elapsed < 1.0 {
+                    (elapsed / 1.0) as f32
+                } else if elapsed < 7.0 {
+                    1.0
+                } else if elapsed < 7.5 {
+                    ((7.5 - elapsed) / 0.5) as f32
+                } else {
+                    0.0
+                };
+
+                // Quote in green, author in light blue, with fade alpha
+                // Use horizontal_centered so the text (even if wrapped) is centered horizontally
+                ui.horizontal_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new(quote)
+                            .size(18.0)
+                            .color(green.gamma_multiply(alpha))
+                    );
+                });
+                ui.add_space(10.0);
+                ui.horizontal_centered(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("— {}", author))
+                            .size(15.0)
+                            .italics()
+                            .color(light_blue.gamma_multiply(alpha))
+                    );
+                });
+            });
+        });
+    }
+
+
 
     /// True if the project Settings form has unsaved edits.
     fn settings_dirty(&self) -> bool {
@@ -1955,6 +2145,14 @@ impl eframe::App for CoboltApp {
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
 
+        // Intercept main window close if the project Settings form has unsaved changes.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.settings_dirty() && !self.settings_close_confirm {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.settings_close_confirm = true;
+            }
+        }
+
         // ── Apply Liquid Glass visuals every frame on the root context ─────────
         // (preview window calls ctx.set_visuals() on its viewport which in egui
         //  0.29 is global — re-applying here ensures the IDE shell always looks
@@ -2077,7 +2275,6 @@ impl eframe::App for CoboltApp {
         }
         // "Building…" progress modal (closes right before the result is shown).
         self.show_building_modal(ctx);
-        self.show_settings_window(ctx, &tr);
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
@@ -2162,10 +2359,6 @@ impl eframe::App for CoboltApp {
             ToolbarAction::Check => self.do_check(),
             ToolbarAction::Open  => self.do_open(),
             ToolbarAction::Save  => self.do_save(),
-            ToolbarAction::Settings => {
-                self.show_settings = true;
-                self.settings_resize_pending = true;
-            }
             ToolbarAction::None  => {}
         }
 
@@ -2200,40 +2393,102 @@ impl eframe::App for CoboltApp {
         }
 
         // ── Code workspace panels ─────────────────────────────────────────────
-        self.output.show(ctx, &tr);
+        // Until a project is open we show a single full welcome pane (the
+        // localized developer's guide) with no left tree, no editor, no output,
+        // no editor controls. The top menu/toolbar remain so the user can
+        // New/Open a project.
+        let has_project = self.cobolt_project.is_some();
+        if has_project {
+            self.output.show(ctx, &tr);
 
-        let proj_events = self.project.show(ctx, self.cobolt_project.as_ref(), &tr);
-        for ev in proj_events {
-            match ev {
-                ProjectPanelEvent::Open(path) => {
-                    self.inspect = None; // a file takes over the Main Pane
-                    self.open_in_editor(path);
+            let proj_events = self.project.show(ctx, self.cobolt_project.as_ref(), &tr);
+            for ev in proj_events {
+                match ev {
+                    ProjectPanelEvent::Open(path) => {
+                        self.show_project_settings = false;
+                        self.inspect = None; // a file takes over the Main Pane
+                        self.open_in_editor(path);
+                    }
+                    ProjectPanelEvent::OpenDesigner(path) => {
+                        self.show_project_settings = false;
+                        self.load_form_from_path(path);
+                    }
+                    ProjectPanelEvent::InspectForm(path)  => {
+                        self.show_project_settings = false;
+                        self.open_inspect(path, None);
+                    }
+                    ProjectPanelEvent::InspectControl { form, ctrl_id } => {
+                        self.show_project_settings = false;
+                        self.open_inspect(form, Some(ctrl_id));
+                    }
+                    ProjectPanelEvent::OpenEventCode { form, paragraph } => {
+                        self.show_project_settings = false;
+                        self.inspect = None;
+                        // Open the form's read-only generated COBOL at the event's paragraph.
+                        self.pending_open_in_editor = Some(form.with_extension("cbl"));
+                        self.pending_goto_paragraph  = Some(paragraph);
+                    }
+                    ProjectPanelEvent::Select(_) => {} // applied inside the panel
+                    ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
+                    ProjectPanelEvent::Add(kind)  => self.do_add_file_to_project(kind),
+                    ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
+                    ProjectPanelEvent::ShowProjectSettings => {
+                        self.show_project_settings = true;
+                        self.inspect = None;
+                        // Any pending editor open should yield to the settings form.
+                        self.pending_open_in_editor = None;
+                    }
                 }
-                ProjectPanelEvent::OpenDesigner(path) => self.load_form_from_path(path),
-                ProjectPanelEvent::InspectForm(path)  => self.open_inspect(path, None),
-                ProjectPanelEvent::InspectControl { form, ctrl_id } =>
-                    self.open_inspect(form, Some(ctrl_id)),
-                ProjectPanelEvent::OpenEventCode { form, paragraph } => {
-                    self.inspect = None;
-                    // Open the form's read-only generated COBOL at the event's paragraph.
-                    self.pending_open_in_editor = Some(form.with_extension("cbl"));
-                    self.pending_goto_paragraph  = Some(paragraph);
-                }
-                ProjectPanelEvent::Select(_) => {} // applied inside the panel
-                ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
-                ProjectPanelEvent::Add(kind)  => self.do_add_file_to_project(kind),
-                ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
             }
         }
 
-        // Main Pane: the inline form/control inspector, else the code editor.
-        if self.inspect.is_some() {
+        // Main Pane priority: when no project show the localized welcome
+        // (developer's guide); otherwise the previous logic (settings / inspector / editor).
+        if !has_project {
+            self.show_welcome_pane(ctx);
+        } else if self.show_project_settings && self.settings_form.is_some() {
+            self.show_settings_pane(ctx, &tr);
+        } else if self.inspect.is_some() {
             self.show_inspector(ctx, &tr);
         } else {
             let root = self.project_path.as_ref()
                 .and_then(|p| p.parent())
                 .map(|p| p.to_path_buf());
             self.editor.show(ctx, Some(&self.llm), &tr, root.as_deref());
+        }
+
+        // ── Unsaved project settings close-confirmation dialog (main window) ────
+        if self.settings_close_confirm {
+            let mut open = true;
+            egui::Window::new(tr.settings_close_title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.label(tr.settings_close_msg);
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.close_save).clicked() {
+                            self.save_settings_form();
+                            self.settings_close_confirm = false;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button(tr.close_discard).clicked() {
+                            if let Some(f) = &mut self.settings_form {
+                                f.cancel();
+                            }
+                            self.settings_close_confirm = false;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button(tr.close_cancel).clicked() {
+                            self.settings_close_confirm = false;
+                        }
+                    });
+                });
+            if !open {
+                self.settings_close_confirm = false;
+            }
         }
 
         // Tree semaphore: the active file, if edited since its last check, goes

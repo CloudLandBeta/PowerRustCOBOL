@@ -2216,9 +2216,10 @@ fn section_header(ui: &mut Ui, title: &str) {
         .stroke(egui::Stroke::new(1.0, theme.panel_border()))
         .rounding(egui::Rounding::same(8.0))
         .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-        .outer_margin(egui::Margin { left: 0.0, right: 0.0, top: 0.0, bottom: 4.0 })
+        .outer_margin(egui::Margin { left: 4.0, right: 0.0, top: 0.0, bottom: 4.0 })
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
+            ui.set_max_width(ui.available_width());
             ui.horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(3.5, 17.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, egui::Rounding::same(2.0), theme.accent);
@@ -2252,9 +2253,10 @@ fn section_card(
         .stroke(egui::Stroke::new(1.0, theme.panel_border()))
         .rounding(egui::Rounding::same(8.0))
         .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-        .outer_margin(egui::Margin { left: 0.0, right: 0.0, top: 0.0, bottom: 8.0 })
+        .outer_margin(egui::Margin { left: 4.0, right: 0.0, top: 0.0, bottom: 8.0 })
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
+            ui.set_max_width(ui.available_width());
             let id = ui.make_persistent_id(id_salt);
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open)
                 .show_header(ui, |ui| {

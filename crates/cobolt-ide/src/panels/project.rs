@@ -63,6 +63,9 @@ pub enum ProjectPanelEvent {
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
     Remove(String),
+    /// User clicked the top/root project node in the tree (📁 ProjectName).
+    /// Shows the project Settings form (parameters) in the main work area.
+    ShowProjectSettings,
 }
 
 // ── ProjectPanel ──────────────────────────────────────────────────────────────
@@ -243,10 +246,17 @@ impl ProjectPanel {
             .show(ui, |ui| {
                 // L1 — the project itself is the root node; categories live under it.
                 let root_id = ui.make_persistent_id("project_root");
+                let mut root_clicked = false;
                 egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), root_id, true)
                     .show_header(ui, |ui| {
                         ui.label(RichText::new("📁").size(ICON_SIZE));
-                        ui.label(RichText::new(&proj.project.name).strong());
+                        let name_label = egui::Label::new(RichText::new(&proj.project.name).strong())
+                            .sense(egui::Sense::click());
+                        let name_resp = ui.add(name_label)
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        if name_resp.clicked() {
+                            root_clicked = true;
+                        }
                         ui.label(RichText::new(format!("v{}", proj.project.version))
                             .color(crate::theme::active().text_dim).small());
                     })
@@ -256,6 +266,11 @@ impl ProjectPanel {
                             self.show_category(ui, cat, proj, &cur, events, tr);
                         }
                     });
+                if root_clicked {
+                    events.push(ProjectPanelEvent::ShowProjectSettings);
+                    // Highlight the root as selected (the Select will be consumed after show()).
+                    events.push(ProjectPanelEvent::Select("project:root".to_owned()));
+                }
             });
     }
 

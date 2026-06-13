@@ -192,17 +192,50 @@ flowchart TB
   **status "knob"**: 🟢 green = checked/tested OK, 🟡 yellow = changed since last
   check, 🔴 red = a problem was reported. Forms expand to show their controls,
   grouped by toolbox category, and each control expands to its **Events**.
-- **Toolbar (top).** `Open · Save · Check · Build · Run · Debug · Stop · ⚙`.
-  *Run* interprets the program; *Build* compiles a native binary; *Check* runs
-  parse + semantic analysis only; *Debug* is enabled when a Generated Code item
-  is selected. ⚙ opens **Settings** (the **AI assistant** plus per-project
-  **Appearance** — theme + background image).
-- **Main Pane (centre).** Shows the code editor, or the **property inspector**
-  when you click a form/control in the tree. The code editor carries a
-  **status bar** along the bottom — caret `Ln, Col`, the **Insert/Overwrite**
-  mode (toggle with the `Insert` key), a **Trim on save** toggle (strips trailing
-  whitespace when you save), and a **Beautify** command (a safe whitespace tidy
-  that never disturbs COBOL's significant columns).
+  **Click the root node at the very top** (📁 YourProjectName) at any time to
+  bring up the full project settings form in the main work area.
+- **Toolbar (top).** `Open · Save · Check · Build · Run · Debug · Stop`, plus
+  language selector on the far right. *Run* interprets the program; *Build*
+  compiles a native binary; *Check* runs parse + semantic analysis only;
+  *Debug* is enabled when a Generated Code item is selected.
+- **Main Pane (centre / right of the tree).** Shows the code editor, the
+  **property inspector** (when you click a form or control in the tree), **or
+  the project settings form** (when you click the project root at the top of
+  the tree, or automatically when the IDE first opens a project — with no
+  editor visible). It uses the exact same glass pane construction
+  (CentralPanel + glass frame) as the widget properties inspector for
+  consistent width (no shortfall at the right border) and full 100% height
+  behaviour (the pane grows/shrinks with the available area above the Output
+  panel on window or splitter resize). The card's rounded bottom border/stroke
+  is kept clearly above the output/console with a visible gap via the frame's
+  bottom outer margin; the Save/Cancel buttons sit at the bottom of the card.
+  Click the top of the project tree (the 📁 ProjectName line) at any time to
+  open it. It has a single continuous vertical resizer line running
+  top-to-bottom through the content. Labels on the left never word-wrap; they
+  are truncated with `…` (e.g. `Standard system p…`) and the developer can
+  drag the resizer freely (the split moves independently of any label length,
+  up to 80 % of the pane width). Controls on the right are elastic and all
+  start at the same x position after a 10 px gap, giving perfect vertical
+  alignment of every property value. Sections: Project, License, Appearance,
+  AI assistant, Runtime. Explicit **Save** and **Cancel** buttons at the bottom
+  of the card (Cancel enabled only after changes; reverts to last saved). The
+  resizer line follows the current theme (brighter when hovered or dragged).
+  The code editor (when visible) carries a **status bar** along the bottom —
+  caret `Ln, Col`, the **Insert/Overwrite** mode (toggle with the `Insert`
+  key), a **Trim on save** toggle (strips trailing whitespace when you save),
+  and a **Beautify** command (a safe whitespace tidy that never disturbs
+  COBOL's significant columns).
+
+> 📷 **Screenshot needed — `project-settings-form.png`**. Show the left tree
+> with the root node highlighted (hand cursor), and the main area with the
+> two-column settings form inside its glass card (single continuous vertical
+> resizer line, labels truncated with … before the line, all value controls
+> aligned on the right, Save/Cancel at the bottom of the card). The card's
+> rounded bottom border must be clearly visible above the Output panel with a
+> gap (no border going under the console). Note the theme colours on the
+> resizer and that it can be dragged well past the longest label ("Standard
+> system prompt:").
+
 - **Output panel (bottom).** Program `DISPLAY` output, build logs, and status
   messages.
 
@@ -217,8 +250,11 @@ on this documentation — right above the code editor. The assistant is **entire
 optional and off by default**: until you fill in the connection details, the
 prompt bar never appears.
 
-**Configure it once (⚙ → AI assistant).** The settings are *global* to your
-machine, not stored in any project, so the API key never travels in a repository:
+**Configure it via the project root settings form.** Click the top node of the
+project tree (the 📁 line with your project name). In the **AI assistant** section
+of the form you can enter the connection details. The settings (except the
+per-project Appearance options) are global to your machine, not stored in any
+project, so the API key never travels in a repository:
 
 | Field | Meaning |
 |-------|---------|

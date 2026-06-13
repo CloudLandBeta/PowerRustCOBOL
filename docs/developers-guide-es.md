@@ -191,23 +191,58 @@ flowchart TB
   status "knob": 🟢 green = checked/tested OK, 🟡 yellow = changed since last
   check, 🔴 red = a problem was reported. Los forms se expanden para mostrar sus controls,
   agrupados por toolbox category, y cada control se expande hasta sus **Events**.
+  **Haz clic en el nodo raíz superior** (📁 NombreDelProyecto) en cualquier momento
+  para abrir el formulario completo de ajustes del proyecto en el área principal.
 - **Toolbar (top).** `Open · Save · Check · Build · Run · Debug · Stop · ⚙`.
   *Run* interpreta el program; *Build* compila un native binary; *Check* ejecuta
   solo parse + semantic analysis; *Debug* se habilita cuando un Generated Code item
-  está seleccionado. ⚙ abre **Settings** (el **AI assistant** más **Appearance**
-  por project — theme + background image).
-- **Main Pane (centre).** Muestra el code editor o el **property inspector** cuando
-  haces clic en un form/control en el tree. El code editor tiene una **status bar**
-  al pie — caret `Ln, Col`, modo **Insert/Overwrite** (toggle con la tecla
-  `Insert`), un toggle **Trim on save** (elimina trailing whitespace al guardar) y
-  un comando **Beautify** (un ajuste seguro de whitespace que nunca altera las
-  significant columns de COBOL).
+  está seleccionado.
+- **Main Pane (centre / right of the tree).** Muestra el code editor, el
+  **property inspector** (al hacer clic en un form o control del tree), **o el
+  formulario de ajustes del proyecto** (al hacer clic en la raíz del proyecto en
+  la parte superior del tree, o automáticamente al abrir un proyecto por primera
+  vez — sin editor visible). Usa exactamente la misma construcción de glass
+  pane (CentralPanel + frame de glass) que el inspector de propiedades de
+  widgets para ancho consistente (sin falta de ~9px en el borde derecho) y
+  altura 100% plena (el pane crece/encoge con el área disponible por encima del
+  Output panel al redimensionar ventana o splitter). El borde inferior
+  redondeado de la card se mantiene claramente por encima del output/console
+  con un hueco visible (vía el outer margin inferior del frame); los botones
+  Save/Cancel están al pie de la card. Haz clic en la parte superior del árbol
+  del proyecto (la línea 📁 NombreDelProyecto) en cualquier momento para
+  abrirlo. Tiene una única línea vertical continua de resizer que recorre todo
+  el contenido de arriba a abajo. Las etiquetas a la izquierda **nunca** hacen
+  word-wrap; se truncan con `…` (p. ej. `Standard system p…`) y puedes
+  arrastrar el resizer libremente (el divisor se mueve con independencia de la
+  longitud de cualquier etiqueta, hasta el 80 % del ancho del panel). Los
+  controles a la derecha son elásticos y todos comienzan en la misma posición
+  x tras un hueco de 10 px, logrando una alineación vertical perfecta de todos
+  los valores de propiedades. Secciones: Project, License, Appearance, AI
+  assistant, Runtime. Botones explícitos **Save** y **Cancel** al pie de la
+  card (Cancel sólo activo tras cambios; revierte al último guardado). La
+  línea del resizer sigue el theme actual (más brillante al pasar el ratón o
+  arrastrar). El code editor (cuando está visible) tiene una **status bar** al
+  pie — caret `Ln, Col`, modo **Insert/Overwrite** (toggle con la tecla
+  `Insert`), un toggle **Trim on save** (elimina trailing whitespace al
+  guardar) y un comando **Beautify** (un ajuste seguro de whitespace que nunca
+  altera las significant columns de COBOL).
 - **Output panel (bottom).** Program `DISPLAY` output, build logs y status
   messages.
 
 > 📷 **Screenshot needed — `ide-overview.png`.** Una captura de pantalla completa con un
 > project abierto, un form seleccionado (para que se vea el property inspector) y algo
 > de texto en el Output panel. Anota las cuatro regions si puedes.
+>
+> 📷 **Screenshot needed — `project-settings-form.png`.** Muestra el tree izquierdo
+> con el nodo raíz resaltado (cursor de mano), y el área principal con el
+> formulario de dos columnas dentro de su glass card (el ancho de la card
+> coincide con la del inspector de propiedades; línea continua de resizer
+> vertical, etiquetas truncadas con … antes de la línea, todos los controles de
+> valores alineados a la derecha, Save/Cancel al pie de la card). El borde
+> inferior redondeado de la card debe verse claramente por encima del Output
+> panel con un hueco (sin que el borde pase por debajo de la consola). Observa
+> los colores del theme en el resizer y que se puede arrastrar más allá de la
+> etiqueta más larga ("Standard system prompt:").
 
 ### El AI assistant (optional)
 
@@ -215,8 +250,12 @@ PowerRustCOBOL puede poner un cloud language model — uno que tú proveas, idea
 en esta documentación — justo encima del code editor. El assistant es **completamente
 optional y off by default**: hasta que completes los connection details, el prompt bar nunca aparece.
 
-**Configúralo una vez (⚙ → AI assistant).** Los settings son *globales* para tu
-máquina, no se guardan en ningún project, por lo que el API key nunca viaja en un repository:
+**Configúralo a través del formulario de ajustes del proyecto.** Haz clic en el
+nodo raíz del árbol del proyecto (la línea 📁 con el nombre del proyecto). En la
+sección **AI assistant** del formulario puedes introducir los detalles de conexión.
+Los ajustes (excepto las opciones de Appearance por proyecto) son *globales* para tu
+máquina, no se guardan en ningún project, por lo que el API key nunca viaja en un
+repository:
 
 | Field | Meaning |
 |-------|---------|
