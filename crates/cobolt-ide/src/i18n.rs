@@ -135,6 +135,10 @@ pub struct Tr {
     pub settings_close_msg:   &'static str,
     pub settings_unsaved:    &'static str,
 
+    // ── Welcome pane ──────────────────────────────────────────────────────────
+    pub welcome_title:       &'static str,  // format string, {} = "PowerRustCOBOL <ver>"
+    pub welcome_license:     &'static str,
+
     // ── AI assistant (settings dialog + editor prompt bar) ────────────────────
     pub settings_ai_title:         &'static str,
     pub settings_ai_hint:          &'static str,
@@ -453,6 +457,8 @@ const EN: Tr = Tr {
     settings_close_title: "Save changes to project settings?",
     settings_close_msg:   "You have unsaved changes to the project settings (theme, background, project info, AI assistant, etc.). Save or discard before closing?",
     settings_unsaved:    "You have unsaved settings changes.",
+    welcome_title:       "Welcome to {}",
+    welcome_license:     "License: Apache 2.0",
 
     settings_ai_title:         "AI assistant",
     settings_ai_hint:          "Connect a cloud LLM trained for PowerRustCOBOL. Leave the endpoint empty to hide the assistant in the editor.",
@@ -735,6 +741,8 @@ const ES: Tr = Tr {
     settings_close_title: "¿Guardar cambios en la configuración del proyecto?",
     settings_close_msg:   "Tienes cambios sin guardar en la configuración del proyecto (tema, fondo, información del proyecto, asistente IA, etc.). ¿Guardar o descartar antes de cerrar?",
     settings_unsaved:    "Tiene cambios de configuración sin guardar.",
+    welcome_title:       "Bienvenido a {}",
+    welcome_license:     "Licencia: Apache 2.0",
 
     settings_ai_title:         "Asistente de IA",
     settings_ai_hint:          "Conecte un LLM en la nube entrenado para PowerRustCOBOL. Deje la URL vacía para ocultar el asistente en el editor.",
@@ -1017,6 +1025,8 @@ const PT: Tr = Tr {
     settings_close_title: "Salvar alterações nas configurações do projeto?",
     settings_close_msg:   "Você tem alterações não salvas nas configurações do projeto (tema, plano de fundo, informações do projeto, assistente de IA etc.). Salvar ou descartar antes de fechar?",
     settings_unsaved:    "Há alterações de configuração não salvas.",
+    welcome_title:       "Bem-vindo ao {}",
+    welcome_license:     "Licença: Apache 2.0",
 
     settings_ai_title:         "Assistente de IA",
     settings_ai_hint:          "Conecte um LLM na nuvem treinado para o PowerRustCOBOL. Deixe a URL vazia para ocultar o assistente no editor.",
@@ -1299,6 +1309,8 @@ const JA: Tr = Tr {
     settings_close_title: "プロジェクト設定の変更を保存しますか?",
     settings_close_msg:   "プロジェクト設定（テーマ、背景、プロジェクト情報、AIアシスタントなど）に未保存の変更があります。閉じる前に保存するか破棄しますか?",
     settings_unsaved:    "保存されていない設定の変更があります。",
+    welcome_title:       "{} へようこそ",
+    welcome_license:     "ライセンス: Apache 2.0",
 
     settings_ai_title:         "AI アシスタント",
     settings_ai_hint:          "PowerRustCOBOL 用に学習させたクラウド LLM を接続します。エンドポイントを空にするとエディターのアシスタントを非表示にします。",
@@ -1581,6 +1593,8 @@ const ZH: Tr = Tr {
     settings_close_title: "保存项目设置更改？",
     settings_close_msg:   "项目设置（主题、背景、项目信息、AI 助手等）有未保存的更改。关闭前要保存还是丢弃？",
     settings_unsaved:    "您有未保存的设置更改。",
+    welcome_title:       "欢迎使用 {}",
+    welcome_license:     "许可证: Apache 2.0",
 
     settings_ai_title:         "AI 助手",
     settings_ai_hint:          "连接一个为 PowerRustCOBOL 训练的云端 LLM。将端点留空可在编辑器中隐藏助手。",

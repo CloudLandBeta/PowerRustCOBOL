@@ -25,6 +25,7 @@ mod project_model;
 mod runner;
 pub mod theme;
 pub mod version;
+pub mod welcome;
 
 use app::CoboltApp;
 use version::VERSION;

@@ -637,11 +637,14 @@ impl CoboltApp {
     fn do_new_project(&mut self) { self.new_project.open = true; }
 
     fn create_new_project(&mut self) {
+        // The manifest is named after the project (e.g. "Inventory System.toml")
+        // rather than a fixed "cobolt.toml", so the file is self-describing.
+        let file_name = format!("{}.toml", sanitize_file_stem(&self.new_project.name));
         self.begin_file_dialog(
             FileRequest::CreateProject,
             crate::file_dialog::DialogSpec::save()
                 .filter("RustCOBOL Project", &["toml"])
-                .file_name("cobolt.toml"),
+                .file_name(&file_name),
         );
     }
 
@@ -753,7 +756,7 @@ impl CoboltApp {
             }
             Err(e) => {
                 self.output.push_status(format!(
-                    "Failed to open project: {e}. Make sure you selected a valid `cobolt.toml` (it must have a [project] table)."
+                    "Failed to open project: {e}. Make sure you selected a valid project file (.toml with a [project] table)."
                 ));
             }
         }
@@ -1270,9 +1273,14 @@ impl CoboltApp {
         cfrm.with_extension("cbl")
     }
 
-    /// The active IDE colour theme (from the open project, or the default).
+    /// The active IDE colour theme. While the Settings form is open its **draft**
+    /// theme wins, so picking a theme previews live (and reverts on Cancel);
+    /// otherwise the saved project theme (or the default) is used.
     fn current_theme(&self) -> &'static crate::theme::Theme {
-        let id = self.cobolt_project.as_ref().map(|p| p.ide.theme.as_str()).unwrap_or("");
+        let id = self.settings_form.as_ref()
+            .map(|f| f.draft.theme_id.as_str())
+            .or_else(|| self.cobolt_project.as_ref().map(|p| p.ide.theme.as_str()))
+            .unwrap_or("");
         crate::theme::theme_by_id(id)
     }
 
@@ -1473,147 +1481,89 @@ impl CoboltApp {
         None
     }
 
-    const QUOTES: &[(&str, &str)] = &[
-        ("Alan Kay", "The best way to predict the future is to invent it."),
-        ("Bill Gates", "We’re changing the world with technology."),
-        ("Steve Jobs", "Technology alone is not enough."),
-        ("Steve Jobs", "The best way to create value in the 21st century is to connect Creativity with Technology."),
-        ("Steve Jobs", "Everybody in this country should learn how to program a computer, because it teaches you how to think."),
-        ("Steve Jobs", "Innovation is the only way to win."),
-        ("Steve Jobs", "Every once in a while a revolutionary product comes along that changes everything."),
-        ("Linus Torvalds", "Most good programmers do programming not because they expect to get paid or get adulation by the public, but because it is fun to program."),
-        ("Bill Gates", "We are not even close to finishing the basic dream of what the PC can be."),
-        ("Mark Zuckerberg", "Move fast and break things. Unless you are breaking stuff, you are not moving fast enough."),
-        ("Elon Musk", "Any product that needs a manual to work is broken."),
-        ("Alan Kay", "Technology is anything invented after you were born."),
-        ("Grace Hopper", "A ship in port is safe, but that’s not what ships are built for. Sail out to sea and do new things."),
-        ("Grace Hopper", "It’s easier to ask forgiveness than it is to get permission."),
-        ("Alan Kay", "Simple things should be simple; complex things should be possible."),
-        ("Steve Jobs", "Design is not just what it looks like and feels like. Design is how it works."),
-        ("Bill Gates", "Your most unhappy customers are your greatest source of learning."),
-        ("Elon Musk", "When something is important enough, you do it even if the odds are not in your favor."),
-        ("Alan Kay", "People who are really serious about software should make their own hardware."),
-        ("Edsger Dijkstra", "Computer science is no more about computers than astronomy is about telescopes."),
-        ("Grace Hopper", "Humans are allergic to change. They love to say, ‘We’ve always done it this way.’"),
-        ("Jean Sammet", "I do not consider an assembly language (even a sophisticated one) to be a programming language."),
-        ("Sister Mary Kenneth Keller", "We’re having an information explosion, and it’s certainly obvious that information is of no use unless it’s available."),
-        ("Tim Berners-Lee", "The Web is more a social creation than a technical one."),
-        ("Vint Cerf", "The internet is a reflection of our society and that mirror is going to be reflecting what we see."),
-        ("Jeff Bezos", "What we need to do is always lean into the future."),
-        ("Satya Nadella", "The true opportunity is to build products that people love and that solve real problems."),
-        ("Donald Knuth", "The most important property of a program is whether it accomplishes the intention of its user."),
-        ("Linus Torvalds", "If you think your users are idiots, only idiots will use it."),
-        ("Elon Musk", "Failure is an option here. If things are not failing, you are not innovating enough."),
-        ("Proverbs 1:7", "The fear of the Lord is the beginning of knowledge, but fools despise wisdom and instruction."),
-        ("Proverbs 3:5-6", "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight."),
-        ("Proverbs 2:6", "For the Lord gives wisdom; from his mouth come knowledge and understanding."),
-        ("Proverbs 4:7", "The beginning of wisdom is this: Get wisdom. Though it cost all you have, get understanding."),
-        ("Proverbs 16:16", "How much better to get wisdom than gold, to get insight rather than silver!"),
-        ("Proverbs 20:18", "Plans are established by seeking advice; so if you wage war, obtain guidance."),
-        ("Proverbs 21:5", "The plans of the diligent lead to profit as surely as haste leads to poverty."),
-        ("Proverbs 16:3", "Commit to the Lord whatever you do, and he will establish your plans."),
-        ("Proverbs 12:14", "Wise words bring many benefits, and hard work brings rewards."),
-        ("Proverbs 10:14", "The wise store up knowledge, but the mouth of a fool invites ruin."),
-        ("Proverbs 16:18", "Pride goes before destruction, a haughty spirit before a fall."),
-        ("Proverbs 15:1", "A gentle answer turns away wrath, but a harsh word stirs up anger."),
-        ("Proverbs 27:17", "As iron sharpens iron, so one person sharpens another."),
-        ("Proverbs 4:23", "Above all else, guard your heart, for everything you do flows from it."),
-        ("Proverbs 18:21", "The tongue has the power of life and death, and those who love it will eat its fruit."),
-        ("Proverbs 15:14", "A wise person is hungry for knowledge, while the fool feeds on foolishness."),
-        ("Proverbs 13:4", "Lazy people want much but get little, but those who work hard will prosper."),
-        ("Proverbs 9:10", "The fear of the Lord is the beginning of wisdom, and knowledge of the Holy One is understanding."),
-        ("Proverbs 3:15", "She is more precious than rubies; nothing you desire can compare with her."),
-        ("Proverbs 3:13", "Blessed are those who find wisdom, those who gain understanding."),
-        ("Proverbs 3:17", "Her ways are pleasant ways, and all her paths are peace."),
-        ("Proverbs 3:18", "She is a tree of life to those who take hold of her; those who hold her fast will be blessed."),
-        ("Proverbs 4:5", "Get wisdom, get understanding; do not forget my words or turn away from them."),
-        ("Proverbs 4:7", "Wisdom is supreme; therefore get wisdom. Though it cost all you have, get understanding."),
-        ("Proverbs 4:18", "The path of the righteous is like the morning sun, shining ever brighter till the full light of day."),
-        ("Proverbs 23:12", "Apply your heart to instruction and your ears to words of knowledge."),
-        ("Proverbs 3:27", "Do not withhold good from those to whom it is due, when it is in your power to act."),
-        ("Proverbs 17:22", "A cheerful heart is good medicine, but a crushed spirit dries up the bones."),
-        ("Proverbs 15:13", "A happy heart makes the face cheerful, but heartache crushes the spirit."),
-        ("Proverbs 16:24", "Pleasant words are a honeycomb, sweet to the soul and healing to the bones."),
-        ("Proverbs 11:8", "The righteous person is rescued from trouble, and it falls on the wicked instead."),
-        ("Proverbs 29:11", "A fool gives full vent to his anger, but a wise man keeps himself under control."),
-    ];
 
     /// Shown on startup (or when no project is open) as a single full-width
     /// pane below the menubar/toolbar. Centered text with cycling quotes
     /// using the exact requested format and timings.
-    fn show_welcome_pane(&mut self, ctx: &Context) {
+    fn show_welcome_pane(&mut self, ctx: &Context, tr: &Tr) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ctx.request_repaint(); // ensure continuous animation for quote rotation
 
+            // ── Daily background image (assets/images/bg<day>.jpg) ────────────
+            // One image per day of the month; bg1.jpg is the fallback when the
+            // day's image is absent. Stretched to fill the whole pane.
+            if let Some(tex) = welcome_bg_texture(ctx) {
+                let rect = ui.max_rect();
+                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                ui.painter().image(tex.id(), rect, uv, egui::Color32::WHITE);
+                // A gentle dark scrim keeps the white/coloured text legible over
+                // any photo.
+                ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(90));
+            }
+
+            // ── Pick the current quote (from the active language's pool) ──────
+            let pool = crate::welcome::quotes(self.lang);
+            let idx = self.welcome_quote_index % pool.len();
+            let (author, quote) = pool[idx];
+            let now = ctx.input(|i| i.time);
+            if self.welcome_quote_start_time == 0.0 {
+                self.welcome_quote_start_time = now;
+            }
+            const CYCLE: f64 = 7.5;
+            if now - self.welcome_quote_start_time > CYCLE {
+                self.welcome_quote_index = rand::thread_rng().gen_range(0..pool.len());
+                self.welcome_quote_start_time = now;
+            }
+            let elapsed = now - self.welcome_quote_start_time;
+            let alpha = if elapsed < 1.0 { (elapsed / 1.0) as f32 }
+                        else if elapsed < 7.0 { 1.0 }
+                        else if elapsed < 7.5 { ((7.5 - elapsed) / 0.5) as f32 }
+                        else { 0.0 };
+
+            let title  = tr.welcome_title
+                .replace("{}", &format!("PowerRustCOBOL {}", crate::version::VERSION));
+            let license = tr.welcome_license;
+            let author_line = format!("— {}", author);
+
+            // ── Measure the whole block so it can be centred precisely ────────
+            // (the old fixed 170 px estimate drifted, especially when the quote
+            // wrapped). Item spacing is zeroed and the gaps inserted explicitly,
+            // so the measured height matches what is drawn exactly.
+            const TITLE_SIZE:  f32 = 42.0;  // 50 % larger than the previous 28
+            const GAP_LICENSE: f32 = 4.0;   // title → license
+            const GAP_QUOTE:   f32 = 40.0;  // license → quote (two blank lines)
+            const GAP_AUTHOR:  f32 = 10.0;  // quote → author
+            let avail_w = ui.available_width();
+            let line_h = |text: &str, size: f32| ui.fonts(|f|
+                f.layout_no_wrap(text.to_owned(), egui::FontId::proportional(size),
+                    egui::Color32::WHITE).size().y);
+            let quote_h = ui.fonts(|f|
+                f.layout(quote.to_owned(), egui::FontId::proportional(18.0),
+                    egui::Color32::WHITE, avail_w).size().y);
+            let block_h = line_h(&title, TITLE_SIZE) + GAP_LICENSE
+                + line_h(license, 16.0) + GAP_QUOTE
+                + quote_h + GAP_AUTHOR
+                + line_h(&author_line, 15.0);
+
+            let green      = egui::Color32::from_rgb(100, 220, 100);
+            let light_blue = egui::Color32::from_rgb(130, 190, 255);
+
             ui.vertical_centered(|ui| {
-                // Center the entire single block (title + license + blank + quote + author)
-                // by adding space above so the block's center lands at the pane's vertical center.
-                // Approximate block height ~160-180px for typical quote length.
-                let top_space = (ui.available_height() - 170.0) * 0.5;
-                ui.add_space(top_space);
+                ui.spacing_mut().item_spacing.y = 0.0; // gaps are inserted explicitly
+                let top = ((ui.available_height() - block_h) * 0.5).max(0.0);
+                ui.add_space(top);
 
-                // Title and license in white
-                ui.horizontal_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!("Welcome to PowerRustCOBOL {}", crate::version::VERSION))
-                            .size(28.0)
-                            .strong()
-                            .color(egui::Color32::WHITE)
-                    );
-                });
-                ui.horizontal_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new("License: Apache 2.0")
-                            .size(16.0)
-                            .color(egui::Color32::WHITE)
-                    );
-                });
-
-                ui.add_space(20.0); // one blank line
-
-                let (author, quote) = Self::QUOTES[self.welcome_quote_index];
-
-                let green = egui::Color32::from_rgb(100, 220, 100);
-                let light_blue = egui::Color32::from_rgb(130, 190, 255);
-
-                let now = ctx.input(|i| i.time);
-                if self.welcome_quote_start_time == 0.0 {
-                    self.welcome_quote_start_time = now;
-                }
-                const CYCLE: f64 = 7.5;
-                if now - self.welcome_quote_start_time > CYCLE {
-                    self.welcome_quote_index = rand::thread_rng().gen_range(0..Self::QUOTES.len());
-                    self.welcome_quote_start_time = now;
-                }
-                let elapsed = now - self.welcome_quote_start_time;
-                let alpha = if elapsed < 1.0 {
-                    (elapsed / 1.0) as f32
-                } else if elapsed < 7.0 {
-                    1.0
-                } else if elapsed < 7.5 {
-                    ((7.5 - elapsed) / 0.5) as f32
-                } else {
-                    0.0
-                };
-
-                // Quote in green, author in light blue, with fade alpha
-                // Use horizontal_centered so the text (even if wrapped) is centered horizontally
-                ui.horizontal_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new(quote)
-                            .size(18.0)
-                            .color(green.gamma_multiply(alpha))
-                    );
-                });
-                ui.add_space(10.0);
-                ui.horizontal_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!("— {}", author))
-                            .size(15.0)
-                            .italics()
-                            .color(light_blue.gamma_multiply(alpha))
-                    );
-                });
+                ui.label(egui::RichText::new(&title).size(TITLE_SIZE).strong()
+                    .color(egui::Color32::WHITE));
+                ui.add_space(GAP_LICENSE);
+                ui.label(egui::RichText::new(license).size(16.0)
+                    .color(egui::Color32::WHITE));
+                ui.add_space(GAP_QUOTE);
+                ui.label(egui::RichText::new(quote).size(18.0)
+                    .color(green.gamma_multiply(alpha)));
+                ui.add_space(GAP_AUTHOR);
+                ui.label(egui::RichText::new(&author_line).size(15.0).italics()
+                    .color(light_blue.gamma_multiply(alpha)));
             });
         });
     }
@@ -2278,6 +2228,9 @@ impl eframe::App for CoboltApp {
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
+        // "Active" = a project is open or a file is being edited; gates the
+        // Run / View menus (and the Save/Check toolbar buttons below).
+        let menu_has_active = has_project || self.editor.active_source().is_some();
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button(tr.menu_file, |ui| {
@@ -2309,21 +2262,23 @@ impl eframe::App for CoboltApp {
                     }
                 });
 
-                ui.menu_button(tr.menu_run, |ui| {
-                    if ui.add_enabled(!self.runner.is_running(),
-                                     egui::Button::new(tr.menu_run_btn)).clicked() {
-                        self.do_run(); ui.close_menu();
-                    }
-                    if ui.add_enabled(self.runner.is_running(),
-                                     egui::Button::new(tr.menu_stop)).clicked() {
-                        self.do_stop(); ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close_menu(); }
-                });
+                ui.add_enabled_ui(menu_has_active, |ui| {
+                    ui.menu_button(tr.menu_run, |ui| {
+                        if ui.add_enabled(!self.runner.is_running(),
+                                         egui::Button::new(tr.menu_run_btn)).clicked() {
+                            self.do_run(); ui.close_menu();
+                        }
+                        if ui.add_enabled(self.runner.is_running(),
+                                         egui::Button::new(tr.menu_stop)).clicked() {
+                            self.do_stop(); ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close_menu(); }
+                    });
 
-                ui.menu_button(tr.menu_view, |ui| {
-                    ui.checkbox(&mut self.editor.show_line_numbers, tr.menu_line_numbers);
+                    ui.menu_button(tr.menu_view, |ui| {
+                        ui.checkbox(&mut self.editor.show_line_numbers, tr.menu_line_numbers);
+                    });
                 });
 
                 // ── Help / Bug report ────────────────────────────────────────
@@ -2351,13 +2306,21 @@ impl eframe::App for CoboltApp {
             (Some(p), Some(rel)) => p.is_generated(rel),
             _ => false,
         };
-        match toolbar::show(ctx, &self.runner, &tr, &mut self.lang, compilable, debuggable) {
+        // "Active" = a project is open or a file is being edited. Gates Save /
+        // Check (toolbar) and the Run / View menus.
+        let has_active = self.cobolt_project.is_some() || self.editor.active_source().is_some();
+        match toolbar::show(ctx, &self.runner, &tr, &mut self.lang, compilable, debuggable, has_active) {
             ToolbarAction::Run   => self.do_run(),
             ToolbarAction::Stop  => self.do_stop(),
             ToolbarAction::Debug => self.do_debug(),
             ToolbarAction::Build => self.do_build_binary(),
             ToolbarAction::Check => self.do_check(),
-            ToolbarAction::Open  => self.do_open(),
+            // With no project open, Open opens an existing *project*; once a
+            // project is loaded it opens an individual COBOL file.
+            ToolbarAction::Open  => {
+                if self.cobolt_project.is_some() { self.do_open(); }
+                else { self.do_open_project(); }
+            }
             ToolbarAction::Save  => self.do_save(),
             ToolbarAction::None  => {}
         }
@@ -2445,7 +2408,7 @@ impl eframe::App for CoboltApp {
         // Main Pane priority: when no project show the localized welcome
         // (developer's guide); otherwise the previous logic (settings / inspector / editor).
         if !has_project {
-            self.show_welcome_pane(ctx);
+            self.show_welcome_pane(ctx, &tr);
         } else if self.show_project_settings && self.settings_form.is_some() {
             self.show_settings_pane(ctx, &tr);
         } else if self.inspect.is_some() {
@@ -4163,6 +4126,61 @@ fn format_cell(raw: &str, ty: &str) -> (String, bool) {
 
 /// Load an image file into an egui texture (for DataGrid image cells).
 /// Caching of the returned handle is the caller's responsibility.
+/// Current day of the month (1–31) in UTC — used to pick the welcome-pane
+/// background. UTC is fine for a decorative daily rotation. Civil-from-days
+/// (Howard Hinnant's algorithm).
+fn day_of_month() -> u32 {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let days = secs.div_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    (doy - (153 * mp + 2) / 5 + 1) as u32
+}
+
+/// The welcome-pane background for today, cached in egui memory. Loads
+/// `assets/images/bg<day>.jpg`, falling back to `bg1.jpg`.
+fn welcome_bg_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/images");
+    let day = day_of_month();
+    let primary = format!("{DIR}/bg{day}.jpg");
+    let path = if std::path::Path::new(&primary).exists() {
+        primary
+    } else {
+        format!("{DIR}/bg1.jpg")
+    };
+    let id = egui::Id::new(("welcome-bg", &path));
+    if let Some(t) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
+        return Some(t);
+    }
+    let tex = load_image_texture(ctx, &path);
+    if let Some(t) = &tex {
+        ctx.memory_mut(|m| m.data.insert_temp(id, t.clone()));
+    }
+    tex
+}
+
+/// Turn a project name into a safe file stem for its `<name>.toml` manifest.
+/// Spaces are kept (so "Financial Asset Management System.toml" is valid);
+/// filesystem-illegal characters become `-`; leading/trailing dots and spaces
+/// are trimmed. An empty/blank name falls back to `project`.
+fn sanitize_file_stem(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            || c.is_control() { '-' } else { c })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
+    if cleaned.is_empty() { "project".to_string() } else { cleaned }
+}
+
 fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
     let bytes = std::fs::read(path).ok()?;
     let img = image::load_from_memory(&bytes).ok()?.into_rgba8();
@@ -4294,6 +4312,21 @@ fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
 // Drive the REAL `render_run_control` with simulated pointer/text input and
 // assert the produced events + state updates (Button click, CheckBox toggle,
 // TextBox typing/focus, Slider change).
+#[cfg(test)]
+mod manifest_name_tests {
+    use super::*;
+
+    #[test]
+    fn project_name_becomes_manifest_stem() {
+        assert_eq!(sanitize_file_stem("Financial Asset Management System"),
+            "Financial Asset Management System");
+        // Illegal path chars → '-'; surrounding dots/spaces trimmed.
+        assert_eq!(sanitize_file_stem("  My/Project:v2  "), "My-Project-v2");
+        assert_eq!(sanitize_file_stem("...."), "project");
+        assert_eq!(sanitize_file_stem(""), "project");
+    }
+}
+
 #[cfg(test)]
 mod run_interaction_tests {
     use super::*;
@@ -4787,6 +4820,25 @@ mod settings_window_size_tests {
         assert!((later.width()  - opened.width()).abs()  < 2.0
              && (later.height() - opened.height()).abs() < 2.0,
             "size must persist after opening: {opened:?} vs {later:?}");
+    }
+}
+
+#[cfg(test)]
+mod welcome_bg_tests {
+    use super::*;
+
+    #[test]
+    fn day_of_month_is_in_range() {
+        let d = day_of_month();
+        assert!((1..=31).contains(&d), "day-of-month out of range: {d}");
+    }
+
+    #[test]
+    fn assets_dir_has_bg1_fallback() {
+        // The fallback image must exist in the repo so the welcome pane always
+        // has a background.
+        let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/images/bg1.jpg");
+        assert!(std::path::Path::new(p).exists(), "missing fallback {p}");
     }
 }
 
