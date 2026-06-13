@@ -2387,8 +2387,21 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::OpenEventCode { form, paragraph } => {
                         self.show_project_settings = false;
                         self.inspect = None;
-                        // Open the form's read-only generated COBOL at the event's paragraph.
-                        self.pending_open_in_editor = Some(form.with_extension("cbl"));
+                        // Open the form's read-only generated COBOL at the event's
+                        // paragraph. The generated file lives in `generated/`, not
+                        // next to the `.cfrm` in `forms/` — using the form path with
+                        // a swapped extension opened a non-existent file (empty
+                        // editor). Generate it first if it isn't on disk yet.
+                        let cbl = self.generated_cbl_path(&form);
+                        if !cbl.exists() {
+                            if let Some(i) = self.designers.iter().position(|(p, _)| *p == form) {
+                                self.do_generate_cobol(i);
+                            } else if let Ok(f) = load_form(&form) {
+                                if let Some(parent) = cbl.parent() { let _ = std::fs::create_dir_all(parent); }
+                                let _ = std::fs::write(&cbl, generate(&f));
+                            }
+                        }
+                        self.pending_open_in_editor = Some(cbl);
                         self.pending_goto_paragraph  = Some(paragraph);
                     }
                     ProjectPanelEvent::Select(_) => {} // applied inside the panel
