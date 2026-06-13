@@ -23,6 +23,8 @@ pub fn show(
     lang: &mut Language,
     compilable: bool,
     debuggable: bool,
+    // `has_active`: true when there is an active project or open file — gates Save/Check.
+    has_active: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::None;
     let busy = runner.is_running();
@@ -39,14 +41,14 @@ pub fn show(
             }
 
             // ── Save ──────────────────────────────────────────────────────────
-            if ui.button(tr.tb_save).clicked() {
+            if ui.add_enabled(has_active, Button::new(tr.tb_save)).clicked() {
                 action = ToolbarAction::Save;
             }
 
             ui.separator();
 
             // ── Check (parse/analyse only) ────────────────────────────────────
-            if ui.button(tr.tb_check).clicked() {
+            if ui.add_enabled(has_active, Button::new(tr.tb_check)).clicked() {
                 action = ToolbarAction::Check;
             }
 
