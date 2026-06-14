@@ -8,6 +8,62 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.18.0] — 2026-06-13
+
+COBOL-85 language features: binary table search and file-error declaratives.
+
+### New
+
+- **`SEARCH ALL` (binary search).** `SEARCH ALL` now parses and executes as a
+  true binary search over an `OCCURS` table declared with an
+  `ASCENDING`/`DESCENDING KEY`. The `OCCURS … KEY IS …` phrase is captured
+  (previously skipped) and drives the bisection; the `ALL` keyword is recognised
+  after `SEARCH` regardless of token form. Serial `SEARCH` is unchanged.
+- **`DECLARATIVES` / `USE AFTER STANDARD ERROR PROCEDURE`.** A
+  `DECLARATIVES … END DECLARATIVES` block at the head of the `PROCEDURE DIVISION`
+  registers file-error handlers. When a file verb (`OPEN`/`READ`/`WRITE`/
+  `REWRITE`/`DELETE`/`START`/`CLOSE`) ends with an error `FILE STATUS` that the
+  statement did not handle with its own `AT END` / `INVALID KEY` phrase, the
+  matching `USE` procedure runs. Targets may be file names, an open mode
+  (`INPUT`/`OUTPUT`/`I-O`/`EXTEND`), or a catch-all. New lexer tokens
+  (`DECLARATIVES`, `USE`), AST (`ProcedureDivision.declaratives`,
+  `UseProcedure`), parser, and runtime dispatch with a re-entrancy guard.
+
+### Fixed
+
+- **`NOT =` (and other negated relations) after `AND`/`OR`.** A negated relational
+  condition on the right of a combined condition — e.g. `IF A NOT = X AND B NOT =
+  Y` — now parses; previously the bare identifier before `NOT` was mis-read as an
+  88-level condition-name, orphaning the `NOT`.
+- **Arithmetic statement before a `NOT …` phrase.** An `ADD`/`SUBTRACT`/
+  `MULTIPLY`/`DIVIDE`/`COMPUTE` used as the imperative of an `INVALID KEY` /
+  `AT END` / `ON EXCEPTION` / `ON OVERFLOW` branch no longer swallows the
+  following `NOT` (it previously mis-read `NOT INVALID KEY` etc. as the start of
+  `NOT ON SIZE ERROR`). The `NOT` is now consumed only when it actually
+  introduces `NOT [ON] SIZE ERROR`.
+- **`CALL … USING` parameter passing (nested programs).** Arguments are now bound
+  to the called program's `PROCEDURE DIVISION USING` LINKAGE items: values are
+  copied in before the call and `BY REFERENCE` arguments receive the updated
+  values on return (`BY CONTENT` / `BY VALUE` are not written back). Previously
+  the arguments were ignored, so LINKAGE items stayed at their defaults.
+- **`STRING … WITH POINTER`.** The pointer is now honoured: text is placed
+  starting at the 1-based pointer position (preserving earlier bytes) and the
+  pointer is advanced past the last byte moved, with overflow detected from that
+  position. Previously the pointer was ignored.
+- **Inline `PERFORM WITH TEST BEFORE/AFTER UNTIL`.** The inline (no-paragraph)
+  form now accepts the optional `WITH` before `TEST` — e.g.
+  `PERFORM WITH TEST AFTER UNTIL … END-PERFORM` — matching the out-of-line form.
+  `TEST AFTER` runs the body once before evaluating the condition.
+- **`EVALUATE` stacked `WHEN`.** Several consecutive `WHEN` phrases that share a
+  single following imperative (e.g. `WHEN 1 WHEN 3 WHEN 5 MOVE …`) now all select
+  that imperative, as COBOL-85 requires (previously the value-only `WHEN`s ran an
+  empty branch).
+
+### Docs
+
+- Developer's Guide §13: new "Searching tables" and "Centralised file-error
+  handling" subsections.
+
 ## [PowerRustCOBOL 1.17.0] — 2026-06-10
 
 IDE visual redesign — "dark glass" look.

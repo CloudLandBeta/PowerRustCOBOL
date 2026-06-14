@@ -10,7 +10,9 @@
 //! either a flat sequence of paragraphs or a set of named sections each
 //! containing paragraphs.
 
-use cobolt_ast::program::{Paragraph, ProcedureBody, ProcedureDivision, Section};
+use cobolt_ast::program::{
+    Paragraph, ProcedureBody, ProcedureDivision, Section, UseMode, UseProcedure,
+};
 use cobolt_lexer::{Span, Token};
 
 use crate::parser::Parser;
@@ -52,18 +54,147 @@ pub(crate) fn parse_procedure_division(p: &mut Parser) -> ProcedureDivision {
 
     p.expect_period();
 
+    // Optional `DECLARATIVES … END DECLARATIVES.` block at the head of the body.
+    let declaratives = parse_declaratives(p);
+
     let body = parse_procedure_body(p);
 
-    ProcedureDivision { using, returning, body, span }
+    ProcedureDivision { using, returning, declaratives, body, span }
 }
 
 fn empty_procedure(span: Span) -> ProcedureDivision {
     ProcedureDivision {
         using: Vec::new(),
         returning: None,
+        declaratives: Vec::new(),
         body: ProcedureBody::Paragraphs(Vec::new()),
         span,
     }
+}
+
+// ── DECLARATIVES parser ─────────────────────────────────────────────────────────
+
+/// Parse an optional `DECLARATIVES. … END DECLARATIVES.` block. Each declarative
+/// is a SECTION whose first statement is `USE AFTER STANDARD ERROR PROCEDURE ON
+/// …`, followed by the handler paragraphs. Returns an empty vec when there is no
+/// DECLARATIVES block.
+fn parse_declaratives(p: &mut Parser) -> Vec<UseProcedure> {
+    if !p.at(&Token::Declaratives) {
+        return Vec::new();
+    }
+    p.advance(); // DECLARATIVES
+    p.expect_period();
+
+    let mut procs = Vec::new();
+    loop {
+        while p.eat(&Token::Period) {}
+        if p.at(&Token::Eof) {
+            break;
+        }
+        // END DECLARATIVES.
+        if p.at(&Token::End) && matches!(p.peek_at(1), Token::Declaratives) {
+            p.advance(); // END
+            p.advance(); // DECLARATIVES
+            p.expect_period();
+            break;
+        }
+        // Expect `section-name SECTION .`
+        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Section) {
+            let span = p.peek_span();
+            let _ = p.eat_identifier(); // section name (not retained)
+            p.advance(); // SECTION
+            p.expect_period();
+
+            let (files, modes, catch_all) = parse_use_clause(p);
+            let stmts = parse_declarative_body(p);
+            procs.push(UseProcedure { files, modes, catch_all, stmts, span });
+        } else {
+            // Unexpected token — recover to the next period to avoid looping.
+            p.emit_error(format!(
+                "expected a declarative SECTION header, found {:?}",
+                p.peek()
+            ));
+            p.sync_to_period();
+        }
+    }
+    procs
+}
+
+/// Parse `USE [GLOBAL] AFTER STANDARD {ERROR | EXCEPTION} PROCEDURE ON
+/// {file… | INPUT | OUTPUT | I-O | EXTEND} .` Returns the covered files,
+/// open-modes, and whether it is a catch-all (no target named).
+fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool) {
+    let mut files = Vec::new();
+    let mut modes = Vec::new();
+
+    if !p.eat(&Token::Use) {
+        // Not a USE statement — nothing to associate; treat as catch-all.
+        return (files, modes, true);
+    }
+    // Skip the descriptive words (GLOBAL / AFTER / STANDARD / ERROR /
+    // EXCEPTION / PROCEDURE) up to `ON` or the terminating period.
+    while !p.at(&Token::On) && !p.at(&Token::Period) && !p.at(&Token::Eof) {
+        p.advance();
+    }
+    p.eat(&Token::On);
+
+    // Targets: file names and/or open-modes, until the period.
+    while !p.at(&Token::Period) && !p.at(&Token::Eof) {
+        match p.peek() {
+            Token::Input  => { p.advance(); modes.push(UseMode::Input); }
+            Token::Output => { p.advance(); modes.push(UseMode::Output); }
+            Token::IoMode => { p.advance(); modes.push(UseMode::Io); }
+            Token::Extend => { p.advance(); modes.push(UseMode::Extend); }
+            Token::Identifier(_) => {
+                let (name, _) = p.eat_identifier().unwrap();
+                files.push(name.to_ascii_uppercase());
+            }
+            _ => { p.advance(); } // skip noise words (e.g. commas already eaten)
+        }
+        p.eat(&Token::Comma);
+    }
+    p.expect_period();
+
+    let catch_all = files.is_empty() && modes.is_empty();
+    (files, modes, catch_all)
+}
+
+/// Collect the handler statements of a declarative section (all of its
+/// paragraphs, flattened), stopping at the next section header or
+/// `END DECLARATIVES`.
+fn parse_declarative_body(p: &mut Parser) -> Vec<cobolt_ast::stmt::Stmt> {
+    let mut stmts = Vec::new();
+    loop {
+        while p.eat(&Token::Period) {}
+        if p.at(&Token::Eof) {
+            break;
+        }
+        if p.at(&Token::End) && matches!(p.peek_at(1), Token::Declaratives) {
+            break;
+        }
+        // Next declarative section header → stop.
+        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Section) {
+            break;
+        }
+        // Named paragraph header → take its statements; otherwise collect
+        // orphan statements (parse_stmts stops at the next header on its own).
+        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Period) {
+            let para = parse_paragraph(p);
+            stmts.extend(para.stmts);
+        } else {
+            let s = parse_stmts(p, &|tok| {
+                matches!(
+                    tok,
+                    Token::End | Token::Eof | Token::Identification | Token::Environment | Token::Data
+                )
+            });
+            if s.is_empty() {
+                break;
+            }
+            stmts.extend(s);
+        }
+    }
+    stmts
 }
 
 // ── Body parser ───────────────────────────────────────────────────────────────

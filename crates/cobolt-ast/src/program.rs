@@ -160,9 +160,36 @@ pub struct ProcedureDivision {
     pub using: Vec<String>,
     /// Optional RETURNING data item.
     pub returning: Option<String>,
+    /// `DECLARATIVES … END DECLARATIVES` error-handling procedures, parsed from
+    /// the head of the division. Empty when the program has no declaratives.
+    pub declaratives: Vec<UseProcedure>,
     /// Sections, or bare paragraphs when there are no sections.
     pub body: ProcedureBody,
     pub span: Span,
+}
+
+/// A single `USE AFTER STANDARD ERROR PROCEDURE` declarative and its handler
+/// statements (the body of its declarative SECTION, flattened).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UseProcedure {
+    /// `ON file-1 [file-2 …]` — specific files this handler covers (uppercased).
+    pub files: Vec<String>,
+    /// `ON INPUT/OUTPUT/I-O/EXTEND` — open-modes this handler covers.
+    pub modes: Vec<UseMode>,
+    /// True when neither files nor modes were named (applies to every file).
+    pub catch_all: bool,
+    /// The handler statements (all paragraphs of the declarative section).
+    pub stmts: Vec<Stmt>,
+    pub span: Span,
+}
+
+/// The open-mode a `USE` declarative applies to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UseMode {
+    Input,
+    Output,
+    Io,
+    Extend,
 }
 
 /// The body of a PROCEDURE DIVISION.

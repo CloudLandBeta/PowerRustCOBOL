@@ -58,6 +58,8 @@ pub fn lookup(word: &str) -> Option<Token> {
         "DATE-COMPILED"             => Token::DateCompiled,
         "PROGRAM"                   => Token::Program,
         "END"                       => Token::End,
+        "DECLARATIVES"              => Token::Declaratives,
+        "USE"                       => Token::Use,
 
         // ── Data definition ───────────────────────────────────────────────
         "PIC" | "PICTURE"           => Token::Pic,

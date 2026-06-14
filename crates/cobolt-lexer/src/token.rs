@@ -245,8 +245,10 @@ pub enum Token {
     Stop,
     Run,
     Exit,
-    End,                // END (bare — used in END PROGRAM)
+    End,                // END (bare — used in END PROGRAM / END DECLARATIVES)
     Program,
+    Declaratives,       // DECLARATIVES (procedure-division declaratives block)
+    Use,                // USE (USE AFTER STANDARD ERROR PROCEDURE …)
     Continue,
     Not,
     And,
