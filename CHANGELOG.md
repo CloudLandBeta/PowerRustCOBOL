@@ -8,6 +8,19 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.21.0] — 2026-06-14
+
+French interface language.
+
+### New
+
+- **French (Français) UI language.** A sixth interface language joins
+  EN/ES/PT/JA/ZH; pick 🇫🇷 Français from the language selector. The full IDE UI
+  is translated (menus, toolbar, settings, the form designer and property
+  inspector, the debugger, the AI assistant, and the documentation viewer).
+  - The Documentation viewer shows the English Developer's Guide for French
+    until a French translation of the guide is provided.
+
 ## [PowerRustCOBOL 1.20.0] — 2026-06-14
 
 Documentation viewer with Markdown + Mermaid rendering.
