@@ -254,11 +254,19 @@ unhandled error `FILE STATUS`.
   `WITH NO LOCK` releases the record lock the INDEXED engine takes under I‑O.
 - ✅ `UNLOCK f [RECORD[S]]` releases the file's record locks.
 - ✅ **`COMMIT` / `ROLLBACK`** — program-controlled transactions over **every**
-  open INDEXED file. `OPEN` starts a transaction; `COMMIT` makes changes durable
-  and starts a new one; `ROLLBACK` undoes every `WRITE`/`REWRITE`/`DELETE` since
-  the last `COMMIT`/`OPEN`; `CLOSE` persists (implicit commit). Works on both the
-  memory and disk engines. (Crash-recovery via a durable write-ahead log is
+  open INDEXED file. `OPEN` starts a transaction; `COMMIT` confirms the pending
+  `WRITE`/`REWRITE`/`DELETE`s (a later `ROLLBACK` can no longer undo them) and
+  starts a new one; `ROLLBACK` undoes every change since the last `COMMIT`/`OPEN`.
+  **DISK** storage makes `COMMIT`/`CLOSE` durable on disk. **MEMORY** storage
+  keeps `COMMIT`/`ROLLBACK` purely in RAM (never writes to disk); a plain
+  `STORAGE IS MEMORY` file is ephemeral, and `STORAGE IS MEMORY WITH PERSISTENCE`
+  saves to disk on `CLOSE` only. (Crash-recovery via a durable write-ahead log is
   future work — this is in-run, program-level rollback.)
+- ✅ **`SELECT … STORAGE [MODE] IS MEMORY | DISK [WITH COMPRESSION] [WITH
+  PERSISTENCE]`** (INDEXED files; PowerRustCOBOL extension). Default storage is
+  `DISK`. `WITH COMPRESSION` compresses the stored record (keys evaluated on the
+  uncompressed record); `WITH PERSISTENCE` (MEMORY only) saves the in-RAM file on
+  `CLOSE`. `OPEN OUTPUT` always (re)creates the on-disk container.
 - ✅ `WRITE rec [FROM id] [{BEFORE|AFTER} ADVANCING n [LINE[S]]]
   [INVALID KEY …][NOT …][END-WRITE]`.
 - ✅ `REWRITE rec [FROM id] [INVALID KEY …][END-REWRITE]`;

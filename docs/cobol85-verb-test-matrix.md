@@ -18,7 +18,8 @@ observe current behavior, and decide what to fix / adjust / create / remove.
 > (ADD/SUB/MUL/DIV/COMPUTE result values, ROUNDED, ON SIZE ERROR), numeric‑edited
 > PICTUREs + `DECIMAL-POINT IS COMMA`, COPY/REPLACE, all file I/O
 > (SEQUENTIAL/LINE SEQUENTIAL/INDEXED, keys, START/REWRITE/DELETE/INVALID KEY,
-> STORAGE MODE, compression), nested programs/basic CALL, alphanumeric compare,
+> STORAGE MODE MEMORY/DISK, compression, MEMORY persistence), nested
+> programs/basic CALL, alphanumeric compare,
 > lexer fixed/free. (Arithmetic *syntax* permutations below are still in scope —
 > only the value math is "done".)
 

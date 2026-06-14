@@ -188,12 +188,14 @@ for it (it always loads leniently).
 ## Storage modes (`STORAGE IS MEMORY | DISK`)
 
 The `STORAGE MODE` clause selects which engine — and therefore which on-disk
-container — backs an INDEXED file. `WITH COMPRESSION` applies to either.
+container — backs an INDEXED file. **The default storage mode is `DISK`** (when
+no `STORAGE` clause is present). `WITH COMPRESSION` applies to either mode;
+`WITH PERSISTENCE` applies to `MEMORY` only.
 
 | Mode | Engine | Container | Notes |
 |------|--------|-----------|-------|
-| `MEMORY` (default) | in-RAM `BTreeMap` (`indexed.rs`) | `PRCIDX1` (this document) | whole file in memory, persisted on `CLOSE` |
-| `DISK` | persistent paged B+tree (`indexed_disk.rs`) | `PRCIDXD1` | records + indexes read on demand; bounded RAM |
+| `MEMORY` | in-RAM `BTreeMap` (`indexed.rs`) | `PRCIDX1` (this document) | whole file in memory; **ephemeral by default** — `COMMIT` never writes to disk. With `WITH PERSISTENCE`, saved to `PRCIDX1` on `CLOSE` only. `OPEN OUTPUT` always (re)creates the container. |
+| `DISK` (default) | persistent paged B+tree (`indexed_disk.rs`) | `PRCIDXD1` | records + indexes read on demand; bounded RAM; always persistent (per-op writes, `fsync` on `COMMIT`/`CLOSE`) |
 
 The **`PRCIDXD1`** disk container is a single paged file (4 KiB pages):
 
