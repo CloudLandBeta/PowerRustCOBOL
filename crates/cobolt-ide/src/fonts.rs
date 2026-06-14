@@ -85,6 +85,25 @@ fn load_font_bytes(family: &str) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+/// TTF bytes for a common sans-serif system font, for embedding into a PDF
+/// (used by the Documentation viewer's Print → PDF). Tries a few widely-present
+/// families and returns the first that parses.
+pub fn pdf_font_bytes() -> Option<Vec<u8>> {
+    for fam in [
+        "DejaVu Sans",
+        "Liberation Sans",
+        "Arial",
+        "Helvetica Neue",
+        "Verdana",
+        "Tahoma",
+    ] {
+        if let Some(b) = load_font_bytes(fam) {
+            return Some(b);
+        }
+    }
+    None
+}
+
 /// Whether `family` should use egui's built-in proportional font (our Arial-ish
 /// fallback) rather than a loaded system font.
 fn is_builtin(fam: &str) -> bool {

@@ -332,6 +332,22 @@ sequenceDiagram
 > of the open file** are sent to whatever endpoint you configure. Point it only
 > at a model you trust.
 
+### Reading the docs in the IDE (Help → Documentation)
+
+**Help → Documentation** opens a dedicated window that renders this guide and the
+other PowerRustCOBOL manuals — including their **Mermaid diagrams**, drawn inline
+(rendered in pure Rust, no browser required). The docs are bundled with the IDE,
+so it works offline; `Cmd+O` opens any local Markdown file too.
+
+The window has a searchable **document list** on the left and the rendered
+document on the right, with **File** (Print, Close), **View** (Zoom In/Out, Full
+Screen, Outline) and **Help** (Shortcuts) menus. You get in-document search
+(`Cmd+F`, then `.`/`,` for next/previous match), a clickable **outline**, zoom,
+full screen, keep-on-top (`Cmd+T`), and a view-source modal (`⌥⌘U`). **Print**
+exports the document — diagrams included — to a PDF and opens it in your OS
+viewer, where the system print dialog is one click away. The viewer follows the
+IDE's theme and language.
+
 ---
 
 ## 6. Projects and the project model

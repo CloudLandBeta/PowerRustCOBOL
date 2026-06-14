@@ -15,7 +15,9 @@
 //! ```
 
 mod app;
+pub mod docs_embed;
 pub mod file_dialog;
+pub mod pdf_export;
 pub mod fonts;
 pub mod form_runtime;
 pub mod i18n;

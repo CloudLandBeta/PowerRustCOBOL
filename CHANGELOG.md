@@ -8,6 +8,36 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.20.0] — 2026-06-14
+
+Documentation viewer with Markdown + Mermaid rendering.
+
+### New
+
+- **Help → Documentation.** A new window renders the embedded PowerRustCOBOL
+  documentation (Markdown) with its **Mermaid** diagrams drawn inline — rendered
+  in pure Rust (`mermaid-rs-renderer` → SVG → `resvg`), no Node/Chromium.
+  - Two-pane layout: a searchable document list and a rendered viewer; the docs
+    are embedded at build time (offline), and `Cmd+O` opens any local `.md`.
+  - **File** (Print → PDF, Close), **View** (Zoom In/Out, Full Screen, Outline)
+    and **Help** (Shortcuts) menus.
+  - In-document **search** with **blue-on-yellow** match highlighting, a `Go`
+    button and `Enter` to jump to the first match, `◀ / ▶` (and `,` / `.`) to
+    step between matches with a live `n/total` counter; the focused match shows
+    in orange and is scrolled into view.
+  - A clickable **outline** (table of contents) **and** clickable in-document
+    `[…](#…)` links that jump to their section.
+  - An **icon toolbar** (vector icons) mirroring the shortcuts: open a file
+    (Cmd+O), view source (Opt+Cmd+U), keep on top (Cmd+T), print (Cmd+P), close
+    (Cmd+W).
+  - Adjustable **font size** (`A+ / A−`, Cmd+`+` / Cmd+`-`) that is **remembered
+    across sessions**; plus zoom, full-screen, and a view-source modal.
+  - A translucent **frosted-glass** window (uneven procedural fog).
+  - **Print** renders the document to a PDF (with the diagrams embedded) and
+    opens it in the OS viewer. The PDF font is a system sans-serif extracted at
+    runtime — nothing is bundled.
+  - Theme-aware (adopts the IDE style) and I18N-aware (EN/ES/PT/JA/ZH).
+
 ## [PowerRustCOBOL 1.19.0] — 2026-06-14
 
 Optional persistence for in-memory indexed files (`STORAGE IS MEMORY`).
