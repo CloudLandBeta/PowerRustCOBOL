@@ -1053,6 +1053,33 @@ by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
 - **Composite and alternate keys**, ascending key order, and `WITH DUPLICATES`
   semantics are honoured.
 
+### When data reaches disk (persistence timing)
+
+The two storage modes differ in *when* a record actually lands on disk — this
+matters for performance and for what survives a crash:
+
+- **`STORAGE IS MEMORY`** keeps the whole file in RAM while it is open.
+  `WRITE`/`REWRITE`/`DELETE` mutate only the in-memory image — **nothing is
+  written to disk per operation.** The entire container is flushed to its disk
+  file **on `COMMIT` and on `CLOSE`** (and loaded back into RAM on `OPEN`). This
+  is the fast option: in-memory mutation, bulk persistence at well-defined points.
+- **`STORAGE IS DISK`** (the default) writes each record and its index pages to
+  the file **as the operation happens**, and flushes the record directory plus a
+  durability sync (`fsync`) **on `COMMIT` and on `CLOSE`**. It is continuously
+  written and made fully consistent/durable at those points.
+- **`WITH [DATA] COMPRESSION`** is orthogonal to both: records are stored
+  compressed in the container, but keys are always evaluated on the
+  **uncompressed logical record**, so search order and key comparisons are
+  unaffected.
+
+> ⚠️ **Durability caveat.** Changes become durable only at a `COMMIT` or a clean
+> `CLOSE`. If a program ends *without* one — a crash, or `STOP RUN` mid-transaction
+> — the uncommitted changes are lost. For `STORAGE IS MEMORY` that means
+> **everything written since the last `COMMIT`/`OPEN`** (it never left RAM).
+> `ROLLBACK` likewise undoes all changes since the last `COMMIT`/`OPEN`. So a
+> long-running `MEMORY` program should `COMMIT` periodically if it must not lose
+> work on an abnormal exit.
+
 ### Crash-safe transactions
 
 The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed
