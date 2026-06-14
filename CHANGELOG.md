@@ -8,6 +8,35 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.19.0] — 2026-06-14
+
+Optional persistence for in-memory indexed files (`STORAGE IS MEMORY`).
+
+### New
+
+- **`STORAGE IS MEMORY WITH PERSISTENCE`** (SELECT-clause extension). An in-RAM
+  indexed file can now opt into being written to its disk container **on `CLOSE`
+  only** — never on `COMMIT`, so the in-memory performance profile is preserved.
+  The phrase combines with compression (`STORAGE IS MEMORY WITH COMPRESSION WITH
+  PERSISTENCE`).
+
+### Changed
+
+- **`STORAGE IS MEMORY` is now ephemeral by default.** Without `WITH
+  PERSISTENCE`, a MEMORY file's contents are discarded at `CLOSE` (an existing
+  disk file is still *loaded* on `OPEN`). `COMMIT`/`ROLLBACK` on a MEMORY file
+  are pure in-RAM transaction boundaries and never touch disk.
+- **`OPEN OUTPUT` always (re)creates the on-disk container** for a MEMORY file,
+  regardless of the persistence setting, so the file exists on disk.
+- The two published `STORAGE IS MEMORY` file-I/O tests were updated to declare
+  `WITH PERSISTENCE` (they verify cross-`CLOSE` persistence). New self-checking
+  test `tests/cobol/fileio/idx_mem_persist.cbl` covers both modes.
+
+### Docs
+
+- Developer's Guide §14: "Two storage modes" and "When data reaches disk"
+  updated for the ephemeral default and `WITH PERSISTENCE`.
+
 ## [PowerRustCOBOL 1.18.0] — 2026-06-13
 
 COBOL-85 language features: binary table search and file-error declaratives.

@@ -85,6 +85,8 @@ struct FileSpec {
     storage_mode: cobolt_ast::program::StorageMode,
     /// WITH COMPRESSION — compress stored record data.
     data_compressing: bool,
+    /// WITH PERSISTENCE — for STORAGE IS MEMORY, save to disk on CLOSE.
+    persist: bool,
     /// Byte layout of the primary FD record (subfield offsets/widths).
     layout: crate::files::RecordLayout,
 }
@@ -199,6 +201,7 @@ fn build_file_specs(
                     alternate_keys: fc.alternate_keys.clone(),
                     storage_mode: fc.storage_mode,
                     data_compressing: fc.data_compressing,
+                    persist: fc.persist,
                     layout: fd_layout.get(&key).cloned().unwrap_or_default(),
                 });
             }
@@ -266,6 +269,7 @@ fn make_indexed_engine(
             let mut e = IndexedFile::new(path, reclen, primary, alts);
             e.set_key_names(names);
             e.set_compressing(compressing);
+            e.set_persist(spec.persist);
             Box::new(e)
         }
         StorageMode::Disk => {

@@ -94,6 +94,8 @@ fn commit_rollback_disk_engine() {
 fn commit_rollback_memory_engine() {
     let path = std::env::temp_dir().join("prc_tx_mem.idx");
     let _ = std::fs::remove_file(&path);
-    let out = run_capture(&tx_program(&path, "MEMORY"));
+    // WITH PERSISTENCE: the program closes and reopens the file, so the MEMORY
+    // variant must persist on CLOSE (a plain MEMORY file is now ephemeral).
+    let out = run_capture(&tx_program(&path, "MEMORY WITH PERSISTENCE"));
     assert_eq!(out, vec!["0001 ALPHA", "0002 BETA", "0003 GAMMA"]);
 }

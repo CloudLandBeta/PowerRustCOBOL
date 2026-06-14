@@ -478,6 +478,10 @@ fn is_compression(tok: &cobolt_lexer::Token) -> bool {
     matches!(tok, cobolt_lexer::Token::Identifier(w) if w.eq_ignore_ascii_case("COMPRESSION"))
 }
 
+fn is_persistence(tok: &cobolt_lexer::Token) -> bool {
+    matches!(tok, cobolt_lexer::Token::Identifier(w) if w.eq_ignore_ascii_case("PERSISTENCE"))
+}
+
 /// Parse a single `SELECT … ASSIGN …` entry in FILE-CONTROL.
 fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let span = p.peek_span();
@@ -499,6 +503,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     // No STORAGE clause ⇒ default to DISK.
     let mut storage_mode = StorageMode::Disk;
     let mut data_compressing = false;
+    let mut persist = false;
 
     while !p.at(&Token::Period) && !p.at(&Token::Eof) {
         // Clauses introduced by a non-keyword word (STORAGE, ALTERNATE).
@@ -516,11 +521,15 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                             StorageMode::Disk
                         };
                     }
-                    // optional WITH COMPRESSION
-                    if p.at(&Token::With) && is_compression(p.peek_at(1)) {
+                    // optional `WITH {COMPRESSION | PERSISTENCE}` phrases, in
+                    // any order and repeatable.
+                    while p.at(&Token::With)
+                        && (is_compression(p.peek_at(1)) || is_persistence(p.peek_at(1)))
+                    {
                         p.advance(); // WITH
-                        p.advance(); // COMPRESSION
-                        data_compressing = true;
+                        if is_compression(p.peek()) { data_compressing = true; }
+                        else { persist = true; }
+                        p.advance(); // COMPRESSION | PERSISTENCE
                     }
                     continue;
                 }
@@ -546,12 +555,13 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                 _ => {}
             }
         }
-        // A standalone "WITH COMPRESSION" clause (no STORAGE clause); the file
-        // uses the default storage backend with compression on.
-        if p.at(&Token::With) && is_compression(p.peek_at(1)) {
+        // A standalone "WITH COMPRESSION" / "WITH PERSISTENCE" clause (no STORAGE
+        // clause); the file uses the default storage backend with that option on.
+        if p.at(&Token::With) && (is_compression(p.peek_at(1)) || is_persistence(p.peek_at(1))) {
             p.advance(); // WITH
-            p.advance(); // COMPRESSION
-            data_compressing = true;
+            if is_compression(p.peek()) { data_compressing = true; }
+            else { persist = true; }
+            p.advance(); // COMPRESSION | PERSISTENCE
             continue;
         }
         match p.peek() {
@@ -631,6 +641,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         file_status,
         storage_mode,
         data_compressing,
+        persist,
         span,
     })
 }

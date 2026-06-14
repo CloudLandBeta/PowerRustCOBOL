@@ -91,6 +91,10 @@ pub struct FileControl {
     pub storage_mode: StorageMode,
     /// WITH COMPRESSION — compress stored record data (memory + disk).
     pub data_compressing: bool,
+    /// WITH PERSISTENCE — for `STORAGE IS MEMORY`, write the in-RAM file to its
+    /// disk container on `CLOSE` (never on `COMMIT`). Ignored for DISK storage
+    /// (always persistent). Default `false`: a MEMORY file is ephemeral.
+    pub persist: bool,
     pub span: Span,
 }
 
