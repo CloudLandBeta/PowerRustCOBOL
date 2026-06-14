@@ -220,6 +220,7 @@ fn data_decl_table() {
             max: 100,
             depending_on: Some("WS-ITEM-COUNT".into()),
             indexed_by: vec!["WS-IDX".into()],
+            keys: vec![],
             span: dummy_span(),
         }),
         redefines: None,
@@ -417,6 +418,7 @@ fn program_construction() {
         procedure: ProcedureDivision {
             using: vec![],
             returning: None,
+            declaratives: vec![],
             body: ProcedureBody::Paragraphs(vec![Paragraph {
                 name: "MAIN-PROC".into(),
                 stmts: vec![

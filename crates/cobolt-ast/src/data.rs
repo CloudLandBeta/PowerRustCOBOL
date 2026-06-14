@@ -85,6 +85,10 @@ pub struct OccursClause {
     pub depending_on: Option<String>,
     /// Names of index items (INDEXED BY).
     pub indexed_by: Vec<String>,
+    /// `ASCENDING/DESCENDING KEY IS` fields, in major-to-minor order. Each entry
+    /// is `(field-name, ascending)` — `true` for ASCENDING, `false` for
+    /// DESCENDING. Drives the `SEARCH ALL` binary search.
+    pub keys: Vec<(String, bool)>,
     pub span: Span,
 }
 

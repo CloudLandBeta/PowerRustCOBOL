@@ -31,7 +31,7 @@ use std::sync::mpsc;
 use cobolt_ast::{
     expr::{ArithOp, Condition, CmpOp, DataClass, Expr, FigurativeConstant, Literal,
            SignCond, UnaryOp},
-    program::{AccessMode, AlternateKey, FileOrganization, ProcedureBody, Program},
+    program::{AccessMode, AlternateKey, FileOrganization, ProcedureBody, Program, UseMode},
     stmt::{
         AcceptSource, CallArg, EvalSubject, ExitKind, InspectRegion, InspectSpec, OpenMode,
         PerformTarget, ReplaceWhat, Stmt, TallyFor, UnstringTarget, VaryingAfter, WhenClause,
@@ -369,6 +369,22 @@ pub struct Interpreter {
     /// Variable name set by `DISPLAY "VAR" UPON ENVIRONMENT-NAME`, read back by
     /// `ACCEPT … FROM ENVIRONMENT-VALUE`.
     env_name_register: String,
+    /// `USE AFTER STANDARD ERROR` declarative handlers (top-level program).
+    declaratives: Vec<DeclHandler>,
+    /// Re-entrancy guard so a declarative's own I/O cannot re-trigger it.
+    in_declarative: bool,
+    /// Logical file name → the mode it was last OPENed with (for mode-based USE).
+    open_modes: HashMap<String, OpenMode>,
+}
+
+/// A runtime-ready `USE AFTER STANDARD ERROR` handler: which files / open-modes
+/// it covers and the statements to run when a matching I/O error occurs.
+#[derive(Clone)]
+struct DeclHandler {
+    files: Vec<String>,
+    modes: Vec<UseMode>,
+    catch_all: bool,
+    stmts: Vec<Stmt>,
 }
 
 const MAX_PERFORM_DEPTH: usize = 512;
@@ -395,6 +411,16 @@ impl Interpreter {
         }
 
         let (file_specs, record_to_file) = build_file_specs(&program);
+
+        // Flatten the parsed DECLARATIVES into runtime-ready handlers.
+        let declaratives: Vec<DeclHandler> = program.procedure.declaratives.iter()
+            .map(|u| DeclHandler {
+                files: u.files.clone(),
+                modes: u.modes.clone(),
+                catch_all: u.catch_all,
+                stmts: u.stmts.clone(),
+            })
+            .collect();
 
         Self {
             program,
@@ -429,6 +455,9 @@ impl Interpreter {
             program_args: std::env::args().skip(1).collect(),
             argument_pointer: 1,
             env_name_register: String::new(),
+            declaratives,
+            in_declarative: false,
+            open_modes: HashMap::new(),
         }
     }
 
@@ -1186,6 +1215,54 @@ impl Interpreter {
         if index_name.is_empty() || size == 0 {
             return self.exec_stmts(at_end);
         }
+
+        // ── SEARCH ALL: binary search over a table ordered on its declared
+        // ASCENDING/DESCENDING KEY(s). Requires exactly one WHEN whose condition
+        // is a conjunction of equality tests on the key item(s), major to minor.
+        let keys = sym.as_ref().map(|s| s.keys.clone()).unwrap_or_default();
+        if all && !keys.is_empty() && whens.len() == 1 {
+            let (cond, body) = &whens[0];
+            // Equality comparisons of the WHEN, in major-to-minor order.
+            let mut comps: Vec<(&Expr, &Expr, Span)> = Vec::new();
+            flatten_eq_comparisons(cond, &mut comps);
+
+            let mut lo: i64 = 1;
+            let mut hi: i64 = size as i64;
+            while lo <= hi {
+                let mid = lo + (hi - lo) / 2;
+                self.env.set_i64(&index_name, mid);
+                if self.eval_condition(cond)? {
+                    return self.exec_stmts(body);
+                }
+                // Direction: the first key whose value at `mid` differs from its
+                // target decides which half to keep (adjusted for DESCENDING).
+                let mut dir = std::cmp::Ordering::Equal;
+                for (lhs, rhs, span) in &comps {
+                    let lv = self.eval_expr(lhs, *span)?;
+                    let rv = self.eval_expr(rhs, *span)?;
+                    let ord = cob_ordering(&lv, &rv);
+                    if ord != std::cmp::Ordering::Equal {
+                        let field = self.expr_to_name(lhs).to_ascii_uppercase();
+                        let ascending = keys.iter()
+                            .find(|(k, _)| *k == field)
+                            .map(|(_, a)| *a)
+                            .unwrap_or(true);
+                        dir = if ascending { ord } else { ord.reverse() };
+                        break;
+                    }
+                }
+                match dir {
+                    std::cmp::Ordering::Less => lo = mid + 1,
+                    std::cmp::Ordering::Greater => hi = mid - 1,
+                    // Keys equal but WHEN false (or no usable key comparison) →
+                    // the target is not present.
+                    std::cmp::Ordering::Equal => break,
+                }
+            }
+            return self.exec_stmts(at_end);
+        }
+
+        // ── Serial SEARCH (and SEARCH ALL fallback when no keys are declared):
         // SEARCH ALL scans from the start; serial SEARCH from the current index.
         let start = if all { 1 } else { self.env.get_i64(&index_name).unwrap_or(1).max(1) };
         let mut i = start;
@@ -1201,6 +1278,7 @@ impl Interpreter {
         // No WHEN matched within the table → run AT END.
         self.exec_stmts(at_end)
     }
+
 
     // ── INITIALIZE (category-aware) ─────────────────────────────────────────────
 
@@ -2264,6 +2342,54 @@ impl Interpreter {
         }
     }
 
+    /// Invoke the matching `USE AFTER STANDARD ERROR` declarative when a file
+    /// operation produced an error status that the statement did not handle with
+    /// its own AT END / INVALID KEY phrase.
+    ///
+    /// `phrase_present` is true when the I/O statement carried the applicable
+    /// AT END / INVALID KEY phrase (which takes precedence over the declarative).
+    fn fire_declarative(
+        &mut self,
+        file: &str,
+        code: &str,
+        phrase_present: bool,
+    ) -> Result<(), RuntimeError> {
+        // FILE STATUS class 0 (`0x`) is success/informational — no error.
+        if code.starts_with('0') || phrase_present {
+            return Ok(());
+        }
+        if self.in_declarative || self.declaratives.is_empty() {
+            return Ok(());
+        }
+        let file_uc = file.to_ascii_uppercase();
+        let mode = self.open_modes.get(&file_uc).copied();
+        let idx = self.declaratives.iter().position(|h| {
+            if h.files.iter().any(|f| f == &file_uc) {
+                return true;
+            }
+            if let Some(m) = mode {
+                let um = match m {
+                    OpenMode::Input       => UseMode::Input,
+                    OpenMode::Output      => UseMode::Output,
+                    OpenMode::InputOutput => UseMode::Io,
+                    OpenMode::Extend      => UseMode::Extend,
+                };
+                if h.modes.contains(&um) {
+                    return true;
+                }
+            }
+            h.catch_all
+        });
+        if let Some(i) = idx {
+            let stmts = self.declaratives[i].stmts.clone();
+            self.in_declarative = true;
+            let r = self.exec_stmts(&stmts);
+            self.in_declarative = false;
+            r?;
+        }
+        Ok(())
+    }
+
     /// `OPEN`. `_lock` is `WITH LOCK` (exclusive); advisory in the single-run-unit
     /// model — recorded for fidelity but does not change single-process behaviour.
     /// `SHARING` is likewise advisory.
@@ -2290,6 +2416,8 @@ impl Interpreter {
 
         for raw in files {
             let file = raw.to_ascii_uppercase();
+            // Remember the open-mode for mode-qualified USE declaratives.
+            self.open_modes.insert(file.clone(), mode);
             let Some(spec) = self.file_specs.get(&file).cloned() else {
                 tracing::warn!("OPEN: unknown file '{}'", raw);
                 continue;
@@ -2310,6 +2438,7 @@ impl Interpreter {
                 let code = engine.open(map_open_mode(mode));
                 self.open_files.insert(file.clone(), OpenFile::Indexed(engine));
                 self.set_file_status(&file, code);
+                self.fire_declarative(&file, code, false)?;
                 continue;
             }
 
@@ -2339,6 +2468,7 @@ impl Interpreter {
                     let code = if matches!(mode, OpenMode::Input)
                         && e.kind() == std::io::ErrorKind::NotFound { "35" } else { "30" };
                     self.set_file_status(&file, code);
+                    self.fire_declarative(&file, code, false)?;
                 }
             }
         }
@@ -2356,8 +2486,10 @@ impl Interpreter {
                     OpenFile::Indexed(engine) => engine.close(),
                 };
                 self.set_file_status(&file, code);
+                self.fire_declarative(&file, code, false)?;
             } else {
                 self.set_file_status(&file, "42"); // CLOSE of a file not open
+                self.fire_declarative(&file, "42", false)?;
             }
         }
         Ok(())
@@ -2618,6 +2750,7 @@ impl Interpreter {
         };
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
+        self.fire_declarative(&file, code, !invalid_key.is_empty())?;
         Ok(())
     }
 
@@ -2745,6 +2878,10 @@ impl Interpreter {
         } else {
             self.exec_stmts(fail_branch)?;
         }
+        // On an unhandled error status, run the file's USE declarative. The
+        // statement "handled" the condition only if it supplied the matching
+        // AT END / INVALID KEY phrase (a non-empty failure branch).
+        self.fire_declarative(&file, code, !fail_branch.is_empty())?;
         Ok(())
     }
 
@@ -2782,6 +2919,7 @@ impl Interpreter {
         };
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
+        self.fire_declarative(&file, code, !invalid_key.is_empty())?;
         Ok(())
     }
 
@@ -2811,6 +2949,7 @@ impl Interpreter {
         };
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
+        self.fire_declarative(&file, code, !invalid_key.is_empty())?;
         Ok(())
     }
 
@@ -4202,6 +4341,23 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
             FigurativeConstant::Null     => CobolValue::from_i64(0),
             FigurativeConstant::All(inner) => literal_to_value(inner),
         },
+    }
+}
+
+/// Flatten an `AND`-chain of equality comparisons into `(lhs, rhs, span)`
+/// tuples in major-to-minor (textual) order. Used by the `SEARCH ALL` binary
+/// search to find the discriminating key when a WHEN does not match at `mid`.
+fn flatten_eq_comparisons<'a>(
+    cond: &'a Condition,
+    out: &mut Vec<(&'a Expr, &'a Expr, Span)>,
+) {
+    match cond {
+        Condition::And(a, b, _) => {
+            flatten_eq_comparisons(a, out);
+            flatten_eq_comparisons(b, out);
+        }
+        Condition::Comparison { lhs, rhs, span, .. } => out.push((lhs, rhs, *span)),
+        _ => {}
     }
 }
 

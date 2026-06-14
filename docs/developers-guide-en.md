@@ -861,9 +861,12 @@ extensions. Highlights a working COBOL programmer will rely on:
 - **Strings:** `STRING`, `UNSTRING`, `INSPECT` (`TALLYING` + `REPLACING`, with
   `BEFORE/AFTER INITIAL`), `INITIALIZE … REPLACING`.
 - **Tables:** `SORT` / `MERGE` (with `INPUT`/`OUTPUT PROCEDURE`, `USING`/`GIVING`,
-  `RELEASE`/`RETURN`).
-- **Sub-programs:** `CALL … USING`, `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested
-  programs.
+  `RELEASE`/`RETURN`); `SEARCH` (serial) and `SEARCH ALL` (binary search over an
+  `ASCENDING`/`DESCENDING KEY` table).
+- **Sub-programs:** `CALL … USING` (with `ON EXCEPTION` / `NOT ON EXCEPTION`),
+  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs.
+- **Error handling:** `DECLARATIVES` with `USE AFTER STANDARD ERROR PROCEDURE`
+  for centralised file-error handling.
 - **Intrinsics:** the standard library of `FUNCTION`s, including the date/time
   and financial functions.
 - **Screen ACCEPT/DISPLAY** for character-mode interaction (when you are not
@@ -952,6 +955,76 @@ Joe earns 000100000 or US$100,000.00
 `DELIMITED BY SPACES` here keeps any **internal** spaces (`"Joe Smith"` stays
 `"Joe Smith"`) and trims only the trailing pad. Writing an explicit
 `DELIMITED BY …` on any operand always overrides its default.
+
+### Searching tables: `SEARCH` and `SEARCH ALL`
+
+Both forms of the COBOL table search work over an `OCCURS` table that declares an
+`INDEXED BY` index.
+
+- **`SEARCH`** is a **serial** scan: it walks the table from the *current* index
+  value upward, running the first `WHEN` whose condition is true, or the
+  `AT END` phrase if it runs off the end. Set the index (`SET idx TO 1`) before
+  searching to control where the scan starts.
+
+- **`SEARCH ALL`** is a **binary** search and is dramatically faster on large
+  tables. It requires the table to be **sorted** on the key named in its
+  `ASCENDING KEY` (or `DESCENDING KEY`) clause, and each `WHEN` must test that key
+  for equality. RustCOBOL performs a true bisection: on average it probes
+  `log₂(n)` entries instead of `n`.
+
+```cobol
+       01  CITY-TABLE.
+           05  CITY-ENTRY OCCURS 5 TIMES
+               ASCENDING KEY IS CITY-CODE
+               INDEXED BY CITY-IX.
+               10 CITY-CODE PIC 9(2).
+               10 CITY-NAME PIC X(12).
+       ...
+           SEARCH ALL CITY-ENTRY
+               AT END   DISPLAY "not found"
+               WHEN CITY-CODE (CITY-IX) = WS-WANTED
+                   DISPLAY "found: " CITY-NAME (CITY-IX)
+           END-SEARCH
+```
+
+> ⚠️ `SEARCH ALL` assumes the table really is ordered on its key. As in standard
+> COBOL, searching an unsorted table with `SEARCH ALL` gives an undefined result —
+> use the serial `SEARCH` if the data is not in key order.
+
+### Centralised file-error handling: `DECLARATIVES`
+
+A `DECLARATIVES … END DECLARATIVES` block at the head of the `PROCEDURE DIVISION`
+lets you handle file errors in one place instead of writing an `INVALID KEY` /
+`AT END` phrase on every statement. Each declarative is a `SECTION` whose first
+statement is `USE AFTER STANDARD ERROR PROCEDURE ON …`:
+
+```cobol
+       PROCEDURE DIVISION.
+       DECLARATIVES.
+       CUST-ERROR SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE ON CUSTOMER-FILE.
+       REPORT-IT.
+           DISPLAY "I/O error on customer file, status " CUST-STATUS.
+       END DECLARATIVES.
+       MAIN SECTION.
+       MAIN-PARA.
+           OPEN INPUT CUSTOMER-FILE.   *> if this fails, REPORT-IT runs
+           ...
+```
+
+The `USE` target can be one or more **file names** (`ON file-1 file-2`), an
+**open mode** (`ON INPUT`, `ON OUTPUT`, `ON I-O`, `ON EXTEND`), or nothing (a
+catch-all that covers every file). When a file operation (`OPEN`, `READ`,
+`WRITE`, `REWRITE`, `DELETE`, `START`, `CLOSE`) finishes with an **error**
+`FILE STATUS` (any class other than `0x`), the matching declarative runs — unless
+that same statement carried its own `AT END` / `INVALID KEY` phrase, which always
+takes precedence. After the declarative returns, control continues with the
+statement after the failed operation. (A declarative's own I/O does not
+re-trigger itself.)
+
+> **Note.** A declarative handler is straight-line: its statements run top to
+> bottom. `GO TO` *out of* a declarative section is not supported; keep the
+> handler self-contained (typically a `DISPLAY` plus flag setting).
 
 ---
 

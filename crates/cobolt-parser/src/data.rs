@@ -643,27 +643,36 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
         None
     };
 
-    // INDEXED BY index-name…
+    // `ASCENDING/DESCENDING KEY IS field…` and `INDEXED BY index-name…` may
+    // appear in either order (COBOL-85 allows the KEY phrase before or after
+    // INDEXED BY); loop over both until neither is present.
     let mut indexed_by = Vec::new();
-    if p.at(&Token::Indexed) {
-        p.advance();
-        p.eat(&Token::By);
-        while p.at_identifier() {
-            let (name, _) = p.eat_identifier().unwrap();
-            indexed_by.push(name);
-            p.eat(&Token::Comma);
+    let mut keys: Vec<(String, bool)> = Vec::new();
+    loop {
+        if p.at(&Token::Indexed) {
+            p.advance();
+            p.eat(&Token::By);
+            while p.at_identifier() {
+                let (name, _) = p.eat_identifier().unwrap();
+                indexed_by.push(name);
+                p.eat(&Token::Comma);
+            }
+        } else if p.at(&Token::Ascending) || p.at(&Token::Descending) {
+            let ascending = p.at(&Token::Ascending);
+            p.advance();
+            p.eat(&Token::Key);
+            p.eat(&Token::Is);
+            while p.at_identifier() {
+                let (name, _) = p.eat_identifier().unwrap();
+                keys.push((name, ascending));
+                p.eat(&Token::Comma);
+            }
+        } else {
+            break;
         }
     }
 
-    // ASCENDING/DESCENDING KEY IS field… (skip for MVP)
-    while p.at(&Token::Ascending) || p.at(&Token::Descending) {
-        p.advance();
-        p.eat(&Token::Key);
-        p.eat(&Token::Is);
-        while p.at_identifier() { p.advance(); p.eat(&Token::Comma); }
-    }
-
-    OccursClause { min, max, depending_on, indexed_by, span }
+    OccursClause { min, max, depending_on, indexed_by, keys, span }
 }
 
 // ── 88-level condition values ─────────────────────────────────────────────────

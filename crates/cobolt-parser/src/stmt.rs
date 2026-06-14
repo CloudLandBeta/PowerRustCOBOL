@@ -871,7 +871,10 @@ fn parse_unlock(p: &mut Parser) -> Stmt {
 fn parse_search(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // SEARCH (an identifier)
-    let all = is_word(p.peek(), "ALL") && { p.advance(); true };
+    // `ALL` is the reserved figurative-constant token (`Token::All`) as well as
+    // a plain word in some contexts — accept either before the table name.
+    let all = (matches!(p.peek(), Token::All) || is_word(p.peek(), "ALL"))
+        && { p.advance(); true };
     let table = parse_expr(p);
 
     let varying = if p.at(&Token::Varying) {

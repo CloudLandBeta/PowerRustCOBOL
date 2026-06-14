@@ -50,6 +50,10 @@ pub struct ItemSym {
     pub index_names: Vec<String>,
     /// This table's own OCCURS count (its last dimension), 0 if not a table.
     pub occurs: usize,
+    /// `ASCENDING/DESCENDING KEY` fields (uppercased, major-to-minor), each with
+    /// its ascending flag. Empty unless the OCCURS declared sort keys; drives the
+    /// `SEARCH ALL` binary search.
+    pub keys: Vec<(String, bool)>,
 }
 
 /// The data store for a running COBOL program.
@@ -338,6 +342,11 @@ impl CobolEnvironment {
             let index_names: Vec<String> = decl.occurs.as_ref()
                 .map(|o| o.indexed_by.iter().map(|n| n.to_ascii_uppercase()).collect())
                 .unwrap_or_default();
+            let keys: Vec<(String, bool)> = decl.occurs.as_ref()
+                .map(|o| o.keys.iter()
+                    .map(|(n, asc)| (n.to_ascii_uppercase(), *asc))
+                    .collect())
+                .unwrap_or_default();
             self.symbols.insert(key.clone(), ItemSym {
                 dims: dims.clone(),
                 children,
@@ -346,6 +355,7 @@ impl CobolEnvironment {
                 is_group: !decl.children.is_empty(),
                 index_names: index_names.clone(),
                 occurs: occ.unwrap_or(0),
+                keys,
             });
             self.by_leaf.entry(leaf.clone()).or_default().push(key.clone());
             // Record elementary (leaf) items in declaration order for 66 RENAMES.

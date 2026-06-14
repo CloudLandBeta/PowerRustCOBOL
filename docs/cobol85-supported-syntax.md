@@ -89,10 +89,13 @@ File verbs) · `CANCEL` (re‑initialises the program's storage) ·
 ⚠️ `INVOKE` (parsed as no‑op)
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 
-✅ `SEARCH` / `SEARCH ALL` (functional — drives the table index and runs the
-first matching `WHEN`, else `AT END`). ✅ `SORT` / `MERGE` with `RELEASE` /
-`RETURN` (functional — see below).
-❌ **Not recognized — do not use:** `ENTRY`, `USE`,
+✅ `SEARCH` (serial) / `SEARCH ALL` (binary search over an `ASCENDING`/
+`DESCENDING KEY` table — runs the first matching `WHEN`, else `AT END`).
+✅ `SORT` / `MERGE` with `RELEASE` / `RETURN` (functional — see below).
+✅ `DECLARATIVES … END DECLARATIVES` with `USE AFTER STANDARD ERROR PROCEDURE ON
+{file… | INPUT | OUTPUT | I-O | EXTEND}` — file-error handlers fired on an
+unhandled error `FILE STATUS`.
+❌ **Not recognized — do not use:** `ENTRY`,
 `GENERATE`/`INITIATE`/`TERMINATE`, `SEND`/`RECEIVE`, `ENABLE`/`DISABLE`.
 
 ---
