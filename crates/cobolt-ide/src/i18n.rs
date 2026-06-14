@@ -376,6 +376,28 @@ pub struct Tr {
     pub hint_click_to_add:  &'static str,
     pub hint_click_control: &'static str,
     pub hint_lines:         &'static str,   // "({n} lines)"  — keep as template caller formats
+
+    // ── Documentation viewer ──────────────────────────────────────────────────
+    pub doc_menu_label:  &'static str,   // Help-menu item
+    pub doc_win_title:   &'static str,
+    pub doc_menu_file:   &'static str,
+    pub doc_menu_view:   &'static str,
+    pub doc_menu_help:   &'static str,
+    pub doc_print:       &'static str,
+    pub doc_close:       &'static str,
+    pub doc_zoom_in:     &'static str,
+    pub doc_zoom_out:    &'static str,
+    pub doc_fullscreen:  &'static str,
+    pub doc_miniatures:  &'static str,
+    pub doc_shortcuts:   &'static str,
+    pub doc_search:      &'static str,
+    pub doc_find_go:     &'static str,
+    pub doc_open_file:   &'static str,
+    pub doc_view_source: &'static str,
+    pub doc_on_top:      &'static str,
+    pub doc_font_size:   &'static str,
+    pub doc_placeholder: &'static str,
+    pub doc_mermaid_error: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -679,6 +701,27 @@ const EN: Tr = Tr {
     hint_click_to_add:  "(click to add code)",
     hint_click_control: "Click a control on the canvas to inspect it.",
     hint_lines:         "lines",
+
+    doc_menu_label:  "📖 Documentation",
+    doc_win_title:   "Documentation",
+    doc_menu_file:   "File",
+    doc_menu_view:   "View",
+    doc_menu_help:   "Help",
+    doc_print:       "Print…",
+    doc_close:       "Close",
+    doc_zoom_in:     "Zoom In",
+    doc_zoom_out:    "Zoom Out",
+    doc_fullscreen:  "Full Screen",
+    doc_miniatures:  "Outline",
+    doc_shortcuts:   "Shortcuts",
+    doc_search:      "Search:",
+    doc_find_go:     "Go",
+    doc_open_file:   "Open a Markdown file",
+    doc_view_source: "View Markdown source",
+    doc_on_top:      "Keep window on top",
+    doc_font_size:   "Font size",
+    doc_placeholder: "Select a manual from the list of documents on the left to view it.",
+    doc_mermaid_error: "Could not render diagram",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -963,6 +1006,27 @@ const ES: Tr = Tr {
     hint_click_to_add:  "(clic para agregar código)",
     hint_click_control: "Haz clic en un control en el canvas para inspeccionarlo.",
     hint_lines:         "líneas",
+
+    doc_menu_label:  "📖 Documentación",
+    doc_win_title:   "Documentación",
+    doc_menu_file:   "Archivo",
+    doc_menu_view:   "Ver",
+    doc_menu_help:   "Ayuda",
+    doc_print:       "Imprimir…",
+    doc_close:       "Cerrar",
+    doc_zoom_in:     "Acercar",
+    doc_zoom_out:    "Alejar",
+    doc_fullscreen:  "Pantalla completa",
+    doc_miniatures:  "Esquema",
+    doc_shortcuts:   "Atajos",
+    doc_search:      "Buscar:",
+    doc_find_go:     "Ir",
+    doc_open_file:   "Abrir un archivo Markdown",
+    doc_view_source: "Ver código Markdown",
+    doc_on_top:      "Mantener ventana al frente",
+    doc_font_size:   "Tamaño de fuente",
+    doc_placeholder: "Seleccione un manual de la lista de documentos a la izquierda para verlo.",
+    doc_mermaid_error: "No se pudo renderizar el diagrama",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -1247,6 +1311,27 @@ const PT: Tr = Tr {
     hint_click_to_add:  "(clique para adicionar código)",
     hint_click_control: "Clique em um controle no canvas para inspecioná-lo.",
     hint_lines:         "linhas",
+
+    doc_menu_label:  "📖 Documentação",
+    doc_win_title:   "Documentação",
+    doc_menu_file:   "Arquivo",
+    doc_menu_view:   "Exibir",
+    doc_menu_help:   "Ajuda",
+    doc_print:       "Imprimir…",
+    doc_close:       "Fechar",
+    doc_zoom_in:     "Ampliar",
+    doc_zoom_out:    "Reduzir",
+    doc_fullscreen:  "Tela cheia",
+    doc_miniatures:  "Estrutura",
+    doc_shortcuts:   "Atalhos",
+    doc_search:      "Buscar:",
+    doc_find_go:     "Ir",
+    doc_open_file:   "Abrir um arquivo Markdown",
+    doc_view_source: "Ver código Markdown",
+    doc_on_top:      "Manter janela no topo",
+    doc_font_size:   "Tamanho da fonte",
+    doc_placeholder: "Selecione um manual na lista de documentos à esquerda para visualizá-lo.",
+    doc_mermaid_error: "Não foi possível renderizar o diagrama",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -1531,6 +1616,27 @@ const JA: Tr = Tr {
     hint_click_to_add:  "（クリックしてコードを追加）",
     hint_click_control: "キャンバス上のコントロールをクリックして検査します。",
     hint_lines:         "行",
+
+    doc_menu_label:  "📖 ドキュメント",
+    doc_win_title:   "ドキュメント",
+    doc_menu_file:   "ファイル",
+    doc_menu_view:   "表示",
+    doc_menu_help:   "ヘルプ",
+    doc_print:       "印刷…",
+    doc_close:       "閉じる",
+    doc_zoom_in:     "拡大",
+    doc_zoom_out:    "縮小",
+    doc_fullscreen:  "全画面",
+    doc_miniatures:  "アウトライン",
+    doc_shortcuts:   "ショートカット",
+    doc_search:      "検索:",
+    doc_find_go:     "実行",
+    doc_open_file:   "Markdownファイルを開く",
+    doc_view_source: "Markdownソースを表示",
+    doc_on_top:      "ウィンドウを最前面に",
+    doc_font_size:   "フォントサイズ",
+    doc_placeholder: "左側のドキュメント一覧からマニュアルを選択して表示します。",
+    doc_mermaid_error: "図を描画できませんでした",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -1815,6 +1921,27 @@ const ZH: Tr = Tr {
     hint_click_to_add:  "（点击添加代码）",
     hint_click_control: "点击画布上的控件以进行检查。",
     hint_lines:         "行",
+
+    doc_menu_label:  "📖 文档",
+    doc_win_title:   "文档",
+    doc_menu_file:   "文件",
+    doc_menu_view:   "视图",
+    doc_menu_help:   "帮助",
+    doc_print:       "打印…",
+    doc_close:       "关闭",
+    doc_zoom_in:     "放大",
+    doc_zoom_out:    "缩小",
+    doc_fullscreen:  "全屏",
+    doc_miniatures:  "大纲",
+    doc_shortcuts:   "快捷键",
+    doc_search:      "搜索：",
+    doc_find_go:     "查找",
+    doc_open_file:   "打开 Markdown 文件",
+    doc_view_source: "查看 Markdown 源码",
+    doc_on_top:      "窗口置顶",
+    doc_font_size:   "字体大小",
+    doc_placeholder: "从左侧的文档列表中选择一个手册以查看。",
+    doc_mermaid_error: "无法渲染图表",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

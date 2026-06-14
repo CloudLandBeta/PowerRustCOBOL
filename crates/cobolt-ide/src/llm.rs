@@ -434,7 +434,7 @@ fn fenced_blocks(text: &str) -> Vec<(String, String)> {
 // ── Paths ───────────────────────────────────────────────────────────────────
 
 /// Base configuration directory for PowerRustCOBOL (created on demand).
-fn base_dir() -> PathBuf {
+pub(crate) fn base_dir() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
         if !xdg.is_empty() {
             return PathBuf::from(xdg).join("powerrustcobol");

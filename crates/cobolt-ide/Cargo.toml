@@ -77,6 +77,12 @@ tracing-subscriber   = { workspace = true }
 
 # For random quote selection on the welcome screen
 rand = "0.8"
+egui_commonmark = "0.18"
+pulldown-cmark = { version = "0.12", default-features = false }
+include_dir = "0.7"
+mermaid-rs-renderer = "0.2"
+resvg = "0.46"
+genpdf = { version = "0.2", features = ["images"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Syntax highlighting (optional — can be feature-gated later)

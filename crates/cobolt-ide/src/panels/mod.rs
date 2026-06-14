@@ -8,7 +8,9 @@
 
 pub mod debugger;
 pub mod designer;
+pub mod doc_viewer;
 pub mod editor;
+pub mod md_render;
 pub mod forms_list;
 pub mod output;
 pub mod project;

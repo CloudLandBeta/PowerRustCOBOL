@@ -262,6 +262,8 @@ pub struct CoboltApp {
 
     /// Report Bug dialog (shown from both IDE toolbar and designer toolbar).
     report_bug: ReportBugDialog,
+    /// Documentation viewer window (Help → Documentation).
+    doc_viewer: crate::panels::doc_viewer::DocViewer,
     /// Non-empty while the "Form saved" alert should be displayed.
     save_alert_msg: Option<String>,
     /// Which surface owns the save alert: `Some(idx)` = the designer viewport at
@@ -361,6 +363,9 @@ impl CoboltApp {
         style.visuals = egui::Visuals::dark();
         cc.egui_ctx.set_style(style);
         cc.egui_ctx.set_fonts(egui::FontDefinitions::default());
+        // Image loaders (PNG/etc.) — needed by the Documentation viewer's
+        // Markdown image rendering.
+        egui_extras::install_image_loaders(&cc.egui_ctx);
 
         Self {
             project:    ProjectPanel::new(),
@@ -397,6 +402,7 @@ impl CoboltApp {
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
             report_bug:      ReportBugDialog::new(),
+            doc_viewer:      Default::default(),
             save_alert_msg:  None,
             save_alert_designer: None,
             pending_build_rx: None,
@@ -2283,6 +2289,11 @@ impl eframe::App for CoboltApp {
 
                 // ── Help / Bug report ────────────────────────────────────────
                 ui.menu_button("Help", |ui| {
+                    if ui.button(tr.doc_menu_label).clicked() {
+                        self.doc_viewer.open(self.lang);
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button("🐛 Report a Problem…")
                         .on_hover_text("Report a bug or issue — saved to BUGS.md and picked up by the next scan")
                         .clicked()
@@ -2509,6 +2520,9 @@ impl eframe::App for CoboltApp {
                 },
             );
         }
+
+        // ── Documentation viewer window (Help → Documentation) ───────────────────
+        self.doc_viewer.show(ctx, self.lang, &tr);
 
         // ── Preview viewports (one per open form that has preview enabled) ───────
         for idx in 0..self.designers.len() {
