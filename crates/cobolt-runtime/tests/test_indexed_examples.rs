@@ -114,7 +114,9 @@ fn idx_tx_commit_rollback_disk() {
 
 #[test]
 fn idx_tx_commit_rollback_memory() {
-    let mem = IDX_TX.replace("STORAGE IS DISK", "STORAGE IS MEMORY");
+    // WITH PERSISTENCE so the MEMORY file survives CLOSE/reopen like the DISK
+    // variant (a plain MEMORY file is now ephemeral by default).
+    let mem = IDX_TX.replace("STORAGE IS DISK", "STORAGE IS MEMORY WITH PERSISTENCE");
     let out = run_fixture("tx-mem", &mem);
     assert_eq!(out, vec!["TX 0001 ALPHA", "TX 0002 BETA", "TX 0003 GAMMA"]);
 }

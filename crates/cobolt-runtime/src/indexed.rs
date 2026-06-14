@@ -339,6 +339,11 @@ pub struct IndexedFile {
     strict_metadata: bool,
     /// `WITH COMPRESSION`: compress each record in the persisted container.
     compressing: bool,
+    /// `WITH PERSISTENCE`: when `true`, `CLOSE` writes the in-RAM file to its
+    /// disk container. `COMMIT` never persists (it is an in-RAM transaction
+    /// boundary). When `false` (default) the file is ephemeral: nothing is
+    /// written back, though `OPEN OUTPUT` always (re)creates the disk file.
+    persist: bool,
     /// Creation timestamp (ms), preserved across load/save.
     created_ms: u64,
 }
@@ -362,6 +367,7 @@ impl IndexedFile {
             key_names: Vec::new(),
             strict_metadata: true,
             compressing: false,
+            persist: false,
             created_ms: 0,
         }
     }
@@ -380,6 +386,12 @@ impl IndexedFile {
     /// Enable/disable `WITH COMPRESSION` for the persisted container.
     pub fn set_compressing(&mut self, on: bool) {
         self.compressing = on;
+    }
+
+    /// Enable `WITH PERSISTENCE`: `CLOSE` writes the file to its disk container.
+    /// Default off — the MEMORY file is ephemeral.
+    pub fn set_persist(&mut self, on: bool) {
+        self.persist = on;
     }
 
     fn key_name(&self, idx: usize) -> Option<String> {
@@ -440,6 +452,10 @@ impl IndexedFile {
             OpenMode::Output => {
                 self.records.clear();
                 self.rebuild_alt_index();
+                // OPEN OUTPUT always (re)creates the on-disk container, even for
+                // an ephemeral (non-persistent) MEMORY file — so the file exists
+                // on disk regardless of the WITH PERSISTENCE setting.
+                let _ = self.save();
             }
             OpenMode::Input | OpenMode::Io | OpenMode::Extend => {
                 if self.path.exists() {
@@ -485,7 +501,10 @@ impl IndexedFile {
         self.journal.clear();
         self.cursor = None;
         self.current = None;
-        if writable && self.save().is_err() {
+        // Persist on CLOSE only when WITH PERSISTENCE was declared. A plain
+        // MEMORY file is ephemeral: its in-RAM contents are discarded here
+        // (the disk container, if any, keeps whatever OPEN OUTPUT created).
+        if writable && self.persist && self.save().is_err() {
             return status::IO_ERROR;
         }
         status::OK
@@ -694,9 +713,13 @@ impl IndexedFile {
     /// Make all changes since the last COMMIT/ROLLBACK permanent and release
     /// transaction-scoped locks.
     pub fn commit(&mut self) {
+        // The in-RAM engine treats COMMIT as a pure transaction boundary: it
+        // confirms pending changes (clears the undo journal) and releases
+        // locks, but never touches disk — writing on every COMMIT would defeat
+        // the whole point of an in-memory file. Durability, when requested via
+        // WITH PERSISTENCE, happens on CLOSE.
         self.journal.clear();
         self.locks.clear();
-        let _ = self.save();
     }
 
     /// Undo all changes since the last COMMIT/ROLLBACK and release locks.
@@ -1137,11 +1160,15 @@ mod tests {
         r
     }
     fn newfile(p: PathBuf, dup: bool) -> IndexedFile {
-        IndexedFile::new(
+        let mut f = IndexedFile::new(
             p, 15,
             KeySpec { offset: 0, len: 5, duplicates: false },
             vec![KeySpec { offset: 5, len: 10, duplicates: dup }],
-        )
+        );
+        // These round-trip tests verify write → CLOSE → reopen persistence, so
+        // they opt into WITH PERSISTENCE (the engine default is now ephemeral).
+        f.set_persist(true);
+        f
     }
 
     #[test]

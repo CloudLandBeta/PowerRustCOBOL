@@ -55,7 +55,7 @@
            SELECT IDX-MAIN-FILE
                ASSIGN TO "/tmp/idx-main.dat"
                ORGANIZATION IS INDEXED
-               STORAGE IS MEMORY WITH COMPRESSION
+               STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS IDX-PRIMARY-KEY
                ALTERNATE RECORD KEY IS IDX-ALT-UPPER
@@ -68,7 +68,7 @@
            SELECT IDX-NUM-FILE
                ASSIGN TO "/tmp/idx-numeric.dat"
                ORGANIZATION IS INDEXED
-               STORAGE IS MEMORY WITH COMPRESSION
+               STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS NUM-KEY
                FILE STATUS IS NUM-STATUS.
@@ -76,7 +76,7 @@
            SELECT IDX-ALPHA-FILE
                ASSIGN TO "/tmp/idx-alpha.dat"
                ORGANIZATION IS INDEXED
-               STORAGE IS MEMORY WITH COMPRESSION
+               STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS ALPHA-KEY
                FILE STATUS IS ALPHA-STATUS.
@@ -84,7 +84,7 @@
            SELECT IDX-PERF-FILE
                ASSIGN TO "/tmp/idx-perf-uuid-1m.dat"
                ORGANIZATION IS INDEXED
-               STORAGE IS MEMORY WITH COMPRESSION
+               STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS PERF-KEY
                FILE STATUS IS PERF-STATUS.

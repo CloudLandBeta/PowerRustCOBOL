@@ -1050,42 +1050,58 @@ by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
   on-disk store. **Default is DISK.**
 - **`WITH [DATA] COMPRESSION`** transparently compresses records (no external
   dependencies).
+- **`WITH PERSISTENCE`** (MEMORY only) makes an in-RAM file save itself to disk
+  on `CLOSE`. Without it, a `STORAGE IS MEMORY` file is **ephemeral** (see the
+  next section). The phrases combine: `STORAGE IS MEMORY WITH COMPRESSION WITH
+  PERSISTENCE`.
 - **Composite and alternate keys**, ascending key order, and `WITH DUPLICATES`
   semantics are honoured.
 
 ### When data reaches disk (persistence timing)
 
 The two storage modes differ in *when* a record actually lands on disk — this
-matters for performance and for what survives a crash:
+matters for performance and for what survives across runs:
 
 - **`STORAGE IS MEMORY`** keeps the whole file in RAM while it is open.
-  `WRITE`/`REWRITE`/`DELETE` mutate only the in-memory image — **nothing is
-  written to disk per operation.** The entire container is flushed to its disk
-  file **on `COMMIT` and on `CLOSE`** (and loaded back into RAM on `OPEN`). This
-  is the fast option: in-memory mutation, bulk persistence at well-defined points.
-- **`STORAGE IS DISK`** (the default) writes each record and its index pages to
-  the file **as the operation happens**, and flushes the record directory plus a
-  durability sync (`fsync`) **on `COMMIT` and on `CLOSE`**. It is continuously
-  written and made fully consistent/durable at those points.
+  `WRITE`/`REWRITE`/`DELETE` mutate only the in-memory image, and `COMMIT`/
+  `ROLLBACK` are pure **in-RAM transaction boundaries** — **`COMMIT` never
+  writes to disk** (that would defeat the point of an in-memory file). By
+  default a MEMORY file is **ephemeral**: nothing is written back, so its
+  contents are gone after `CLOSE`. `OPEN` still *loads* an existing disk file
+  into RAM if one is present.
+  - Add **`WITH PERSISTENCE`** to have the file written to its disk container
+    **on `CLOSE` only** (never on `COMMIT`). That is how you keep an in-RAM file
+    between runs while paying the disk cost just once, at close.
+  - **`OPEN OUTPUT` always (re)creates the disk file**, in either mode — so the
+    file exists on disk even for an ephemeral file (it will simply be empty
+    unless `WITH PERSISTENCE` saved data at `CLOSE`).
+- **`STORAGE IS DISK`** (the default storage mode) writes each record and its
+  index pages to the file **as the operation happens**, and flushes the record
+  directory plus a durability sync (`fsync`) **on `COMMIT` and on `CLOSE`**. It
+  is continuously written and made fully consistent/durable at those points.
 - **`WITH [DATA] COMPRESSION`** is orthogonal to both: records are stored
   compressed in the container, but keys are always evaluated on the
   **uncompressed logical record**, so search order and key comparisons are
   unaffected.
 
-> ⚠️ **Durability caveat.** Changes become durable only at a `COMMIT` or a clean
-> `CLOSE`. If a program ends *without* one — a crash, or `STOP RUN` mid-transaction
-> — the uncommitted changes are lost. For `STORAGE IS MEMORY` that means
-> **everything written since the last `COMMIT`/`OPEN`** (it never left RAM).
-> `ROLLBACK` likewise undoes all changes since the last `COMMIT`/`OPEN`. So a
-> long-running `MEMORY` program should `COMMIT` periodically if it must not lose
-> work on an abnormal exit.
+> ⚠️ **Durability caveat.** A plain `STORAGE IS MEMORY` file keeps *nothing*: at
+> `CLOSE` its in-RAM contents are discarded. Use `WITH PERSISTENCE` when the data
+> must survive, remembering it is saved only at `CLOSE` — if the program crashes
+> or `STOP RUN`s before a clean `CLOSE`, the in-RAM changes are lost. (For
+> `STORAGE IS DISK`, durability lands at each `COMMIT`/`CLOSE` instead.)
+> `ROLLBACK` always undoes changes since the last `COMMIT`/`OPEN`, in RAM, for
+> both modes.
 
 ### Crash-safe transactions
 
 The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed
-files*: a `COMMIT` makes pending `WRITE`/`REWRITE`/`DELETE` operations durable; a
-`ROLLBACK` discards them. (These are **file** transactions — for SQL transactions
-use `COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
+files*: a `COMMIT` confirms the pending `WRITE`/`REWRITE`/`DELETE` operations
+(so a later `ROLLBACK` can no longer undo them); a `ROLLBACK` discards changes
+made since the last `COMMIT`/`OPEN`. For **`STORAGE IS DISK`** a `COMMIT` also
+makes those changes *durable on disk*; for **`STORAGE IS MEMORY`** it is purely
+an in-RAM boundary (durability, if wanted, comes from `WITH PERSISTENCE` at
+`CLOSE` — see above). (These are **file** transactions — for SQL transactions use
+`COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
 
 ```mermaid
 flowchart LR
