@@ -37,6 +37,8 @@ fn guide_suffix(lang: Language) -> &'static str {
         Language::Portuguese => "pt",
         Language::Japanese => "jp",
         Language::Chinese => "cn",
+        // No French guide translation yet — fall back to the English guide.
+        Language::French => "en",
     }
 }
 

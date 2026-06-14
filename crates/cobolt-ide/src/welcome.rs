@@ -22,6 +22,8 @@ pub fn quotes(lang: Language) -> &'static [Quote] {
         Language::Japanese   => JA,
         Language::Chinese    => ZH,
         Language::English    => EN,
+        // French shares the English quote pool until a French set is provided.
+        Language::French     => EN,
     }
 }
 
