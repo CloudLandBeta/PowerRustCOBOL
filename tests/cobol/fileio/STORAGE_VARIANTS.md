@@ -6,8 +6,8 @@ This package now contains six COBOL test programs for indexed-file storage and c
 |---:|---|---|---|
 | 1 | `tests/cobol/fileio/fileiot_storage_disk.cbl` | `STORAGE IS DISK` | `tests/cobol/fileio/INDEXED/STORAGE-DISK/` |
 | 2 | `tests/cobol/fileio/fileiot_storage_disk_compression.cbl` | `STORAGE IS DISK WITH COMPRESSION` | `tests/cobol/fileio/INDEXED/STORAGE-DISK-COMPRESSION/` |
-| 3 | `tests/cobol/fileio/fileiot_storage_memory.cbl` | `STORAGE IS MEMORY` | `tests/cobol/fileio/INDEXED/STORAGE-MEMORY/` |
-| 4 | `tests/cobol/fileio/fileiot_storage_memory_compression.cbl` | `STORAGE IS MEMORY WITH COMPRESSION` | `tests/cobol/fileio/INDEXED/STORAGE-MEMORY-COMPRESSION/` |
+| 3 | `tests/cobol/fileio/fileiot_storage_memory.cbl` | `STORAGE IS MEMORY WITH PERSISTENCE` | `tests/cobol/fileio/INDEXED/STORAGE-MEMORY/` |
+| 4 | `tests/cobol/fileio/fileiot_storage_memory_compression.cbl` | `STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE` | `tests/cobol/fileio/INDEXED/STORAGE-MEMORY-COMPRESSION/` |
 | 5 | `tests/cobol/fileio/fileiot_default_disk.cbl` | no `STORAGE` clause; default is disk, no compression | `tests/cobol/fileio/INDEXED/DEFAULT-DISK/` |
 | 6 | `tests/cobol/fileio/fileiot_default_compression.cbl` | no `STORAGE` clause; `WITH COMPRESSION` shorthand, default storage is disk | `tests/cobol/fileio/INDEXED/DEFAULT-DISK-COMPRESSION/` |
 
@@ -21,7 +21,7 @@ The six sets assume the `SELECT` grammar accepts this form for indexed files:
 SELECT file-name
     ASSIGN TO external-file-name
     ORGANIZATION IS INDEXED
-    [STORAGE IS { MEMORY | DISK }] [WITH COMPRESSION]
+    [STORAGE IS { MEMORY | DISK }] [WITH COMPRESSION] [WITH PERSISTENCE]
     ACCESS MODE IS { SEQUENTIAL | RANDOM | DYNAMIC }
     RECORD KEY IS data-name
     [ALTERNATE RECORD KEY IS data-name [WITH DUPLICATES]]
@@ -33,8 +33,14 @@ Semantic expectations:
 - If the `STORAGE` clause is omitted, storage defaults to `DISK`.
 - If `WITH COMPRESSION` appears without a `STORAGE` clause, the file uses the default storage backend, therefore disk with compression.
 - Compression is transparent to COBOL logic. Keys are evaluated from the logical uncompressed record.
-- `STORAGE IS MEMORY` keeps records and indexes in memory and flushes to disk at `COMMIT` or `CLOSE`.
-- `STORAGE IS DISK` persists changes at `WRITE`, `REWRITE`, and `DELETE` time.
+- `STORAGE IS MEMORY` keeps records and indexes in memory. It is **ephemeral by
+  default**: `COMMIT`/`ROLLBACK` are in-RAM only (never write to disk) and the
+  contents are discarded at `CLOSE`. Add `WITH PERSISTENCE` to save the file to
+  disk on `CLOSE` (only). `OPEN OUTPUT` always (re)creates the disk container.
+  (These memory variants declare `WITH PERSISTENCE` because they verify data
+  across a `CLOSE`/reopen.)
+- `STORAGE IS DISK` persists changes at `WRITE`, `REWRITE`, and `DELETE` time,
+  with an `fsync` at `COMMIT`/`CLOSE`.
 
 ## Run examples
 
