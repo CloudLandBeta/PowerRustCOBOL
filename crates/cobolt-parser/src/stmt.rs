@@ -329,8 +329,16 @@ fn parse_size_error(p: &mut Parser, end: &Token) -> (Vec<Stmt>, Vec<Stmt>) {
         let e = end.clone();
         on_se = parse_stmts(p, &move |tok| *tok == Token::Not || *tok == e);
     }
-    // `NOT [ON] SIZE ERROR imperative …`
-    if p.at(&Token::Not) {
+    // `NOT [ON] SIZE ERROR imperative …` — only consume the `NOT` when it
+    // actually introduces a SIZE ERROR phrase. Otherwise the `NOT` belongs to a
+    // following phrase of an enclosing statement (e.g. an arithmetic statement
+    // used as the imperative of `INVALID KEY` / `AT END` / `ON EXCEPTION`, where
+    // the next words are `NOT INVALID KEY` / `NOT AT END` / `NOT ON EXCEPTION`).
+    let not_is_size_error = p.at(&Token::Not)
+        && (matches!(p.peek_at(1), Token::SizeError)
+            || (matches!(p.peek_at(1), Token::On)
+                && matches!(p.peek_at(2), Token::SizeError)));
+    if not_is_size_error {
         p.eat(&Token::Not);
         try_eat_size_error_phrase(p);
         let e = end.clone();
@@ -608,11 +616,11 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         return Stmt::Perform { target, span };
     }
 
-    // PERFORM TEST BEFORE/AFTER UNTIL …
-    if p.at(&Token::Test) {
-        p.advance();
-        let test_before = !p.eat(&Token::After);
-        p.eat(&Token::Before);
+    // PERFORM [WITH] TEST BEFORE/AFTER UNTIL … (inline)
+    if p.at(&Token::With) || p.at(&Token::Test) {
+        p.eat(&Token::With);
+        p.eat(&Token::Test);
+        let test_before = if p.eat(&Token::After) { false } else { p.eat(&Token::Before); true };
         p.expect(&Token::Until);
         let condition = parse_condition(p);
         let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
