@@ -163,6 +163,9 @@ fn build_store(data_dir: &Path) -> IndexedFile {
     let mut f = IndexedFile::new(path, RECORD_LEN, primary, Vec::new());
     f.set_strict_metadata(false);
     f.set_compressing(true);
+    // The conversation store must survive CLOSE / reopen (the in-memory engine
+    // is ephemeral by default since the WITH PERSISTENCE change).
+    f.set_persist(true);
     f.set_key_names(vec![Some("SOURCE-PATH".to_string())]);
     f
 }
