@@ -119,6 +119,9 @@ struct NestedProgram {
     /// Local WORKING-STORAGE items declared inside this nested program.
     /// Format: `(uppercase_name, initial_value)`.
     local_items: Vec<(String, CobolValue)>,
+    /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
+    /// order — bound to the caller's `CALL … USING` arguments.
+    using: Vec<String>,
 }
 
 /// Recursively register a `Program` and all of its `nested_programs` into
@@ -138,7 +141,8 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
     };
 
     let key = prog.identification.program_id.to_ascii_uppercase();
-    registry.insert(key, NestedProgram { para_map, para_order, local_items });
+    let using = prog.procedure.using.clone();
+    registry.insert(key, NestedProgram { para_map, para_order, local_items, using });
 
     // Recurse into any nested-programs declared inside this one.
     for child in &prog.nested_programs {
@@ -1555,31 +1559,46 @@ impl Interpreter {
         whens: &[WhenClause],
         other_stmts: &[Stmt],
     ) -> Result<(), RuntimeError> {
-        for when in whens {
+        for (idx, when) in whens.iter().enumerate() {
             // A WHEN whose every column is OTHER is the catch-all.
-            if !when.values.is_empty()
-                && when.values.iter().all(|v| matches!(v, WhenValue::Other))
-            {
-                return self.exec_stmts(&when.stmts);
-            }
-            if when.values.is_empty() {
-                continue;
-            }
-            // Each column is matched against the corresponding subject; the
-            // WHEN matches when every column matches (ALSO = AND).
-            let mut all = true;
-            for (i, val) in when.values.iter().enumerate() {
-                let subj = match subjects.get(i) {
-                    Some(s) => s,
-                    None => { all = false; break; }
-                };
-                if !self.when_value_matches(subj, val)? {
-                    all = false;
-                    break;
+            let is_other = !when.values.is_empty()
+                && when.values.iter().all(|v| matches!(v, WhenValue::Other));
+            let matched = if is_other {
+                true
+            } else if when.values.is_empty() {
+                // An empty selector only arises from a stacked WHEN; it cannot
+                // match on its own — its alternatives precede it.
+                false
+            } else {
+                // Each column is matched against the corresponding subject; the
+                // WHEN matches when every column matches (ALSO = AND).
+                let mut all = true;
+                for (i, val) in when.values.iter().enumerate() {
+                    let subj = match subjects.get(i) {
+                        Some(s) => s,
+                        None => { all = false; break; }
+                    };
+                    if !self.when_value_matches(subj, val)? {
+                        all = false;
+                        break;
+                    }
                 }
-            }
-            if all {
-                return self.exec_stmts(&when.stmts);
+                all
+            };
+            if matched {
+                // Stacked WHEN: two or more consecutive WHEN phrases share the
+                // single imperative that follows them. The matched selector may
+                // itself be empty — borrow the next clause that carries
+                // statements (or fall through to WHEN OTHER if none does).
+                let mut j = idx;
+                while j < whens.len() && whens[j].stmts.is_empty() {
+                    j += 1;
+                }
+                return if j < whens.len() {
+                    self.exec_stmts(&whens[j].stmts)
+                } else {
+                    self.exec_stmts(other_stmts)
+                };
             }
         }
         // WHEN OTHER / no match
@@ -1958,7 +1977,7 @@ impl Interpreter {
         &mut self,
         operands: &[(Expr, Option<Expr>)],
         into: &Expr,
-        _pointer: Option<&Expr>,
+        pointer: Option<&Expr>,
         on_overflow: &[Stmt],
         not_on_overflow: &[Stmt],
         span: Span,
@@ -1990,10 +2009,50 @@ impl Interpreter {
             }
         }
         let name = self.resolve_lvalue(into);
-        // Overflow: the assembled string is wider than the receiving field.
         let capacity = self.env.display_string(&name).map(|s| s.len()).unwrap_or(usize::MAX);
-        let overflowed = result.len() > capacity;
-        self.env.set_str(&name, &result);
+
+        let overflowed = match pointer {
+            // ── WITH POINTER: place from the 1-based pointer position, preserve
+            // the bytes before it, and advance the pointer past the last byte
+            // moved. Overflow when the assembled text does not fit from there.
+            Some(ptr_e) => {
+                let ptr_name = self.resolve_lvalue(ptr_e);
+                let start = self.env.get_i64(&ptr_name).unwrap_or(1).max(1) as usize;
+                let mut dest: Vec<char> = {
+                    let cur = self.env.display_string(&name).unwrap_or_default();
+                    let mut v: Vec<char> = cur.chars().collect();
+                    if capacity != usize::MAX {
+                        v.resize(capacity, ' ');
+                    }
+                    v
+                };
+                let mut idx = start - 1;
+                let mut placed = 0usize;
+                let mut overflow = start - 1 >= capacity && !result.is_empty();
+                for ch in result.chars() {
+                    if capacity != usize::MAX && idx >= capacity {
+                        overflow = true;
+                        break;
+                    }
+                    if idx < dest.len() {
+                        dest[idx] = ch;
+                    }
+                    idx += 1;
+                    placed += 1;
+                }
+                let new_val: String = dest.into_iter().collect();
+                self.env.set_str(&name, &new_val);
+                self.env.set_i64(&ptr_name, (start + placed) as i64);
+                overflow
+            }
+            // ── No POINTER: replace the receiving field (left-justified,
+            // space-padded by set_str). Overflow when the text is too wide.
+            None => {
+                let overflow = result.len() > capacity;
+                self.env.set_str(&name, &result);
+                overflow
+            }
+        };
         if overflowed {
             self.exec_stmts(on_overflow)?;
         } else {
@@ -3134,20 +3193,51 @@ impl Interpreter {
 
             // ── COBOL-85 nested program CALL ──────────────────────────────────
             _ if self.nested_registry.contains_key(&prog_name) => {
-                // Clone the para_map, para_order, and local_items out of the
-                // registry before taking any mutable borrows on self.
-                let (para_map, para_order, local_items) = {
+                // Clone the para_map, para_order, local_items, and USING
+                // parameter names out of the registry before any mutable borrow.
+                let (para_map, para_order, local_items, params) = {
                     let np = &self.nested_registry[&prog_name];
-                    (np.para_map.clone(), np.para_order.clone(), np.local_items.clone())
+                    (np.para_map.clone(), np.para_order.clone(),
+                     np.local_items.clone(), np.using.clone())
                 };
 
-                // Push the nested program's local WS items into the shared env.
-                // GLOBAL items from the outer program are already there and are
-                // NOT overwritten, so nested programs see them naturally.
+                // Pair each LINKAGE parameter with the caller's argument:
+                // (param-key, arg-key, by_reference).
+                let bindings: Vec<(String, String, bool)> = params.iter()
+                    .zip(using.iter())
+                    .map(|(p, a)| {
+                        let pk = p.to_ascii_uppercase();
+                        let ak = self.expr_to_name(call_arg_expr(a)).to_ascii_uppercase();
+                        let by_ref = matches!(a, CallArg::ByReference(_));
+                        (pk, ak, by_ref)
+                    })
+                    .collect();
+
+                // Push the nested program's local WS + LINKAGE items into the
+                // shared env. GLOBAL items from the outer program are already
+                // there and are NOT overwritten.
                 let inserted_keys = self.env.push_local_scope(&local_items);
+
+                // Copy-in: bind each parameter to the caller argument's value
+                // (after the local scope so it overrides the LINKAGE default).
+                for (pk, ak, _) in &bindings {
+                    if let Some(v) = self.env.get(ak).cloned() {
+                        self.env.set(pk, v);
+                    }
+                }
 
                 // Run the nested program's paragraphs in declaration order.
                 let result = self.run_para_sequence(&para_map, &para_order);
+
+                // Copy-out: BY REFERENCE arguments receive the parameter's final
+                // value (BY CONTENT / BY VALUE are not written back).
+                for (pk, ak, by_ref) in &bindings {
+                    if *by_ref {
+                        if let Some(v) = self.env.get(pk).cloned() {
+                            self.env.set(ak, v);
+                        }
+                    }
+                }
 
                 // Remove the nested program's local items regardless of outcome.
                 self.env.pop_local_scope(&inserted_keys);

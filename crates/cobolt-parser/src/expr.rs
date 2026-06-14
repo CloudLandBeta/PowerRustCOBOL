@@ -650,7 +650,7 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
             next,
             Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
                 | Token::Greater | Token::Less | Token::Equal | Token::Is
-                | Token::Of | Token::In | Token::LParen
+                | Token::Of | Token::In | Token::LParen | Token::Not
         );
         if bare {
             if let Some((subject, op)) = rightmost_comparison(prev) {
