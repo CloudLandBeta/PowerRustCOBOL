@@ -171,7 +171,7 @@ impl SettingsForm {
 
         ui.horizontal_top(|ui| {
             ui.allocate_ui(egui::vec2(content_w, 0.0), |ui| {
-                ui.heading("Project Settings");
+                ui.heading(tr.settings_pane_title);
             });
             ui.add_space(right_padding);
         });

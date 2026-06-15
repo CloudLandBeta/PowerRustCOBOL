@@ -35,11 +35,11 @@ impl Language {
     /// All variants in display order.
     pub const ALL: &'static [Language] = &[
         Language::English,
-        Language::Spanish,
         Language::Portuguese,
+        Language::Spanish,
+        Language::French,
         Language::Japanese,
         Language::Chinese,
-        Language::French,
     ];
 
     /// Name shown in the language selector — written in the language itself.
