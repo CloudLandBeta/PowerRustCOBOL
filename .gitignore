@@ -4,8 +4,10 @@ target/
 # macOS
 .DS_Store
 
-# Local agent / editor settings
-.claude/
+# Local agent / editor settings — ignore everything under .claude/ EXCEPT the
+# project's shared spec-kit skills.
+.claude/*
+!.claude/skills/
 
 # Agent project-context file — kept local only (lives in
 # ~/Documents/PowerRustCOBOL-local-settings/CLAUDE.md), never committed.
