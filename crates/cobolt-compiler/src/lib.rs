@@ -159,6 +159,15 @@ fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/// A build progress update, for driving a UI progress bar.
+#[derive(Clone, Debug)]
+pub struct BuildProgress {
+    /// Completion in `0.0..=1.0`.
+    pub fraction: f32,
+    /// Short, human-readable description of the current phase.
+    pub message: String,
+}
+
 /// Options controlling the build.
 pub struct BuildOptions {
     /// Print progress to stderr.
@@ -166,11 +175,14 @@ pub struct BuildOptions {
     /// Override the workspace root (where the cobolt-* crates live).
     /// Defaults to the directory containing the compiler's own executable.
     pub workspace_root: Option<PathBuf>,
+    /// Optional channel that receives [`BuildProgress`] updates as the build
+    /// moves through its phases (for a UI progress bar).
+    pub progress: Option<std::sync::mpsc::Sender<BuildProgress>>,
 }
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        Self { verbose: true, workspace_root: None }
+        Self { verbose: true, workspace_root: None, progress: None }
     }
 }
 
@@ -245,13 +257,21 @@ fn build_core(
     let log = |msg: &str| {
         if opts.verbose { eprintln!("{msg}"); }
     };
+    // Emit a phase milestone: log it (verbose) and stream it to any UI progress bar.
+    let report = |fraction: f32, msg: &str| {
+        if opts.verbose { eprintln!("{msg}"); }
+        if let Some(tx) = &opts.progress {
+            let _ = tx.send(BuildProgress { fraction, message: msg.to_string() });
+        }
+    };
 
+    report(0.05, "Reading project…");
     let bin_name = proj.project.name
         .to_ascii_lowercase()
         .replace(' ', "_");
 
     // ── 2. Collect all source files ───────────────────────────────────────────
-    log("📂 Collecting source files …");
+    report(0.10, "Collecting source files…");
     let mut sources: Vec<(String, String)> = Vec::new(); // (rel_path, source_text)
 
     // Resolve the entry program. Prefer the declared `main`; for a form-centric
@@ -276,7 +296,7 @@ fn build_core(
     log(&format!("   {} source file(s)", sources.len()));
 
     // ── 3. Parse + semantic-check every source ────────────────────────────────
-    log("🔍 Parsing and analysing …");
+    report(0.25, "Parsing & analysing…");
     use cobolt_lexer::{SourceFormat, tokenize};
     use cobolt_parser::parse;
     use cobolt_semantic::{Severity, analyze};
@@ -314,7 +334,7 @@ fn build_core(
     }
 
     // ── 4. Serialize + compress the AST ──────────────────────────────────────
-    log("📦 Serializing AST …");
+    report(0.35, "Serialising the program…");
     let ast_bytes = bincode::serialize(&program)
         .map_err(|e| CompilerError::Serialize(e.to_string()))?;
 
@@ -325,7 +345,7 @@ fn build_core(
     log(&format!("   AST: {} bytes → {} bytes compressed", ast_bytes.len(), ast_compressed_len));
 
     // ── 5. Collect form files ─────────────────────────────────────────────────
-    log("🗔 Collecting form files …");
+    report(0.42, "Collecting forms…");
     let mut forms: Vec<(String, Vec<u8>)> = Vec::new(); // (id, raw_xml_bytes)
 
     for rel in &proj.files.forms {
@@ -376,7 +396,7 @@ fn build_core(
     log(&format!("🏠 Workspace root: {}", workspace_root.display()));
 
     // ── 7. Create build staging directory ────────────────────────────────────
-    log("🏗️  Generating build project …");
+    report(0.50, "Preparing build project…");
     let build_dir = std::env::temp_dir()
         .join(format!("cobolt-build-{}", &bin_name));
     let assets_dir  = build_dir.join("assets");
@@ -417,21 +437,43 @@ fn build_core(
     std::fs::write(src_dir.join("main.rs"), main_rs)?;
 
     // ── 10. Run cargo build --release ─────────────────────────────────────────
-    log("🔨 Compiling (cargo build --release) — this may take a minute …");
-    let output = std::process::Command::new("cargo")
+    // Stream cargo's stderr so the progress bar advances per crate compiled and
+    // shows the crate currently building.
+    report(0.60, "Compiling…");
+    use std::io::{BufRead as _, BufReader};
+    let mut child = std::process::Command::new("cargo")
         .args(["build", "--release"])
         .current_dir(&build_dir)
-        .output()?;
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let mut captured = String::new();
+    let mut compiled = 0usize;
+    if let Some(err) = child.stderr.take() {
+        for line in BufReader::new(err).lines() {
+            let line = line.unwrap_or_default();
+            if let Some(rest) = line.trim_start().strip_prefix("Compiling ") {
+                compiled += 1;
+                let name = rest.split_whitespace().next().unwrap_or("");
+                // Asymptotically approach 0.95 as more crates finish.
+                let frac = 0.60 + 0.35 * (1.0 - 1.0 / (1.0 + compiled as f32 / 12.0));
+                report(frac.min(0.95), &format!("Compiling {name}…"));
+            }
+            captured.push_str(&line);
+            captured.push('\n');
+        }
+    }
+    let status = child.wait()?;
+    if !status.success() {
         return Err(CompilerError::CargoBuild {
-            code:   output.status.code().unwrap_or(-1),
-            stderr,
+            code:   status.code().unwrap_or(-1),
+            stderr: captured,
         });
     }
 
     // ── 11. Copy binary to bin/ ───────────────────────────────────────────────
+    report(0.97, "Copying binary…");
     let bin_dir = project_dir.join("bin");
     std::fs::create_dir_all(&bin_dir)?;
 
@@ -488,6 +530,7 @@ fn build_core(
         log(&format!("⚠️  Could not write license notices to bin/: {e}"));
     }
 
+    report(1.0, "Done");
     Ok(BuildResult {
         binary_path:  dst_bin,
         source_count: sources.len(),

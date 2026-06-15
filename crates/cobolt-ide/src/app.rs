@@ -274,6 +274,10 @@ pub struct CoboltApp {
 
     /// Pending binary build result channel (Phase 11).
     pending_build_rx: Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, String>>>,
+    /// Streamed build-phase progress (fraction + message) for the Building modal.
+    pending_build_progress: Option<std::sync::mpsc::Receiver<cobolt_compiler::BuildProgress>>,
+    /// Latest build phase: (fraction 0..1, message).
+    build_phase: (f32, String),
 
     /// Which app-level file dialog (if any) is currently open; its result is
     /// applied by `apply_file_result` once the async picker returns.
@@ -409,6 +413,8 @@ impl CoboltApp {
             save_alert_msg:  None,
             save_alert_designer: None,
             pending_build_rx: None,
+            pending_build_progress: None,
+            build_phase: (0.0, String::new()),
             pending_file:     None,
             egui_ctx:         cc.egui_ctx.clone(),
         }
@@ -858,17 +864,25 @@ impl CoboltApp {
         self.output.clear();
         self.output.push_status("── Building binary …  (this may take a minute) ──");
 
-        // Run the build on a background thread; collect result via a one-shot channel.
+        // Run the build on a background thread; collect result via a one-shot
+        // channel, and stream phase progress via a second channel.
         let (tx, rx) = std::sync::mpsc::channel::<Result<cobolt_compiler::BuildResult, String>>();
+        let (ptx, prx) = std::sync::mpsc::channel::<cobolt_compiler::BuildProgress>();
         std::thread::spawn(move || {
-            let opts = BuildOptions { verbose: false, workspace_root: None };
+            let opts = BuildOptions {
+                verbose: false,
+                workspace_root: None,
+                progress: Some(ptx),
+            };
             let result = build_project(&manifest, &opts)
                 .map_err(|e| e.to_string());
             let _ = tx.send(result);
         });
 
-        // Poll the channel each frame; store the receiver so update() can drain it.
+        // Poll both channels each frame; store the receivers so update() can drain them.
         self.pending_build_rx = Some(rx);
+        self.pending_build_progress = Some(prx);
+        self.build_phase = (0.0, "Starting…".to_string());
     }
 
     /// The project's root directory (where `cobolt.toml` lives), if a project is open.
@@ -1828,10 +1842,18 @@ impl CoboltApp {
                 egui::Order::Middle, egui::Id::new("building_dim")))
             .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
 
-        // Loop the bar (indeterminate) and keep animating.
-        let t = ctx.input(|i| i.time);
-        let frac = (t * 0.5).rem_euclid(1.0) as f32;
-        ctx.request_repaint();
+        // Drain any phase updates that arrived since the last frame.
+        let mut latest = None;
+        if let Some(prx) = &self.pending_build_progress {
+            while let Ok(p) = prx.try_recv() {
+                latest = Some(p);
+            }
+        }
+        if let Some(p) = latest {
+            self.build_phase = (p.fraction, p.message);
+        }
+        let (frac, msg) = (self.build_phase.0, self.build_phase.1.clone());
+        ctx.request_repaint(); // keep polling while the build runs
 
         egui::Window::new("Building…")
             .id(egui::Id::new("building_modal"))
@@ -1841,11 +1863,17 @@ impl CoboltApp {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.add_space(8.0);
-                ui.add(egui::ProgressBar::new(frac).desired_width(280.0).animate(true));
+                // Determinate bar driven by the real build fraction.
+                ui.add(
+                    egui::ProgressBar::new(frac.clamp(0.0, 1.0))
+                        .desired_width(280.0)
+                        .show_percentage(),
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new());
-                    ui.label(egui::RichText::new("Compiling the project…").size(13.0));
+                    let label = if msg.is_empty() { "Starting…" } else { msg.as_str() };
+                    ui.label(egui::RichText::new(label).size(13.0));
                 });
                 ui.add_space(4.0);
             });
@@ -2312,10 +2340,12 @@ impl eframe::App for CoboltApp {
                         result.ast_bytes,
                     ));
                     self.pending_build_rx = None;
+                    self.pending_build_progress = None;
                 }
                 Ok(Err(e)) => {
                     self.output.push_status(format!("❌ Build failed: {e}"));
                     self.pending_build_rx = None;
+                    self.pending_build_progress = None;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     ctx.request_repaint(); // keep polling
@@ -2323,6 +2353,7 @@ impl eframe::App for CoboltApp {
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.output.push_status("❌ Build thread disconnected unexpectedly.");
                     self.pending_build_rx = None;
+                    self.pending_build_progress = None;
                 }
             }
         }
