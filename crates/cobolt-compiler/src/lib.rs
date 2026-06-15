@@ -100,6 +100,9 @@ pub enum CompilerError {
 
     #[error("No main COBOL source specified in cobolt.toml")]
     NoMain,
+
+    #[error("could not locate the PowerRustCOBOL workspace crates: {0}")]
+    Workspace(String),
 }
 
 // ── Project manifest (subset we need) ────────────────────────────────────────
@@ -341,14 +344,34 @@ fn build_core(
     log(&format!("   {} form(s)", forms.len()));
 
     // ── 6. Locate workspace root (where the cobolt-* crates live) ────────────
+    let has_crates = |root: &Path| root.join("crates").join("cobolt-ast").is_dir();
     let workspace_root = opts.workspace_root.clone()
-        .unwrap_or_else(|| {
-            // Walk up from the current exe to find Cargo.toml with [workspace]
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| find_workspace_root(p.as_path()))
-                .unwrap_or_else(|| project_dir.clone())
+        // Walk up from the running exe — works when launched from the source tree.
+        .or_else(|| std::env::current_exe().ok().and_then(|p| find_workspace_root(&p)))
+        .filter(|p| has_crates(p))
+        // Compile-time fallback: the PowerRustCOBOL workspace this compiler was
+        // built in. Works when the IDE runs from an installed location (e.g. a
+        // macOS .app) whose path is outside the source tree.
+        .or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .ancestors()
+                .nth(2) // crates/cobolt-compiler → crates → workspace
+                .map(Path::to_path_buf)
+                .filter(|p| has_crates(p))
         });
+
+    let workspace_root = match workspace_root {
+        Some(root) => root,
+        None => {
+            return Err(CompilerError::Workspace(format!(
+                "looked via the running executable and the build-time path, but \
+                 found no 'crates/cobolt-ast'. Pass BuildOptions.workspace_root, \
+                 or run the IDE from within the PowerRustCOBOL source tree. \
+                 (project dir: {})",
+                project_dir.display()
+            )));
+        }
+    };
 
     log(&format!("🏠 Workspace root: {}", workspace_root.display()));
 
