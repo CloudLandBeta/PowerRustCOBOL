@@ -62,7 +62,9 @@ fn inner() -> &'static Mutex<Inner> {
     static I: OnceLock<Mutex<Inner>> = OnceLock::new();
     I.get_or_init(|| {
         Mutex::new(Inner {
-            defs: egui::FontDefinitions::default(),
+            // Start from the base set (with the Latin + CJK fallbacks) so the
+            // on-demand `set_fonts` in `font_id` never drops them.
+            defs: base_font_definitions(),
             state: HashMap::new(),
         })
     })
@@ -102,6 +104,78 @@ pub fn pdf_font_bytes() -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+/// Load a CJK-capable system font (bytes + face index within a collection),
+/// validated against egui's rasteriser. Tries families that ship with macOS,
+/// Windows and common Linux distros so Japanese (日本語) / Chinese (中文) glyphs
+/// render instead of showing as tofu boxes.
+fn cjk_font() -> Option<(Vec<u8>, u32)> {
+    for fam in [
+        "Arial Unicode MS",
+        "Hiragino Sans",
+        "Hiragino Kaku Gothic ProN",
+        "Hiragino Kaku Gothic Pro",
+        "PingFang SC",
+        "Hiragino Sans GB",
+        "Heiti SC",
+        "YuGothic",
+        "Yu Gothic",
+        "Meiryo",
+        "MS Gothic",
+        "Microsoft YaHei",
+        "SimSun",
+        "Noto Sans CJK JP",
+        "Noto Sans CJK SC",
+        "Noto Sans JP",
+        "Noto Sans SC",
+    ] {
+        let q = fontdb::Query {
+            families: &[fontdb::Family::Name(fam)],
+            weight: fontdb::Weight::NORMAL,
+            stretch: fontdb::Stretch::Normal,
+            style: fontdb::Style::Normal,
+        };
+        let Some(id) = db().query(&q) else { continue };
+        let Some((bytes, idx)) =
+            db().with_face_data(id, |data, face_index| (data.to_vec(), face_index))
+        else {
+            continue;
+        };
+        // Must parse with egui's rasteriser (collections need the right index).
+        if ab_glyph::FontRef::try_from_slice_and_index(&bytes, idx).is_ok() {
+            return Some((bytes, idx));
+        }
+    }
+    None
+}
+
+/// The IDE's base font set: egui's defaults plus broad-Latin and CJK system
+/// fonts appended as fallbacks (so the language selector's 日本語 / 中文 and
+/// punctuation like the U+2011 non-breaking hyphen render everywhere).
+pub fn base_font_definitions() -> egui::FontDefinitions {
+    let mut defs = egui::FontDefinitions::default();
+    let mut fallbacks: Vec<String> = Vec::new();
+
+    if let Some(bytes) = pdf_font_bytes() {
+        defs.font_data
+            .insert("latin_fallback".to_owned(), egui::FontData::from_owned(bytes));
+        fallbacks.push("latin_fallback".to_owned());
+    }
+    if let Some((bytes, idx)) = cjk_font() {
+        let mut fd = egui::FontData::from_owned(bytes);
+        fd.index = idx;
+        defs.font_data.insert("cjk_fallback".to_owned(), fd);
+        fallbacks.push("cjk_fallback".to_owned());
+    }
+
+    for fam in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        let chain = defs.families.entry(fam).or_default();
+        for fb in &fallbacks {
+            chain.push(fb.clone());
+        }
+    }
+    defs
 }
 
 /// Whether `family` should use egui's built-in proportional font (our Arial-ish

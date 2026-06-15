@@ -193,16 +193,7 @@ impl DocViewer {
     /// glyphs egui's default font lacks (e.g. the U+2011 non-breaking hyphen in
     /// "RustCOBOL‑85") render properly instead of as tofu boxes. Runs once.
     fn install_doc_fonts(ctx: &Context) {
-        let Some(bytes) = crate::fonts::pdf_font_bytes() else {
-            return;
-        };
-        let mut defs = egui::FontDefinitions::default();
-        defs.font_data
-            .insert("doc_fallback".to_owned(), egui::FontData::from_owned(bytes));
-        for fam in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-            defs.families.entry(fam).or_default().push("doc_fallback".to_owned());
-        }
-        ctx.set_fonts(defs);
+        ctx.set_fonts(crate::fonts::base_font_definitions());
     }
 
     /// Paint the "uneven frosted glass" overlay across the whole window on the

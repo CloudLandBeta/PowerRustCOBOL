@@ -364,7 +364,7 @@ impl CoboltApp {
         let mut style = (*cc.egui_ctx.style()).clone();
         style.visuals = egui::Visuals::dark();
         cc.egui_ctx.set_style(style);
-        cc.egui_ctx.set_fonts(egui::FontDefinitions::default());
+        cc.egui_ctx.set_fonts(crate::fonts::base_font_definitions());
         // Image loaders (PNG/etc.) — needed by the Documentation viewer's
         // Markdown image rendering.
         egui_extras::install_image_loaders(&cc.egui_ctx);
