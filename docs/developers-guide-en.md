@@ -344,13 +344,17 @@ other PowerRustCOBOL manuals — including their **Mermaid diagrams**, drawn inl
 so it works offline; `Cmd+O` opens any local Markdown file too.
 
 The window has a searchable **document list** on the left and the rendered
-document on the right, with **File** (Print, Close), **View** (Zoom In/Out, Full
-Screen, Outline) and **Help** (Shortcuts) menus. You get in-document search
-(`Cmd+F`, then `.`/`,` for next/previous match), a clickable **outline**, zoom,
-full screen, keep-on-top (`Cmd+T`), and a view-source modal (`⌥⌘U`). **Print**
-exports the document — diagrams included — to a PDF and opens it in your OS
-viewer, where the system print dialog is one click away. The viewer follows the
-IDE's theme and language.
+document on the right, plus an **icon toolbar** and **File / View / Help** menus.
+In-document **search** highlights matches (blue on yellow); press **Go** or
+**Enter** to jump to the first match and **◀ / ▶** (or `,` / `.`) to step through
+them with a live `n/total` counter. The **table of contents** is clickable — both
+the side **outline** and the in-document `[…](#…)` links jump to their section.
+You also get an adjustable **font size** that is *remembered between sessions*,
+zoom, full screen, keep-on-top (`⌘T`), open a local Markdown file (`⌘O`), and a
+view-source modal (`⌥⌘U`). **Print** (`⌘P`) exports the document — Mermaid
+diagrams included — to a PDF and opens it in your OS viewer, where the system
+print dialog is one click away. The window is a translucent **frosted-glass**
+panel and follows the IDE's theme and language.
 
 ---
 
@@ -1328,8 +1332,13 @@ the toolbar **Debug** button (to the right of **Run**).
   Settings are saved **per project** in `cobolt.toml`. The project tree and
   panel text automatically adapt their contrast to the theme — light text on
   dark themes, dark text on light ones.
-- **IDE languages.** The IDE interface is available in **English, Spanish,
-  Portuguese, Japanese, and Chinese** (toolbar language selector).
+- **IDE languages.** The IDE interface is available in **six** languages —
+  **English, Português, Español, Français, Japanese (日本語), and Chinese (中文)**
+  — chosen from the toolbar language selector. CJK glyphs render via bundled font
+  fallbacks, so 日本語 / 中文 display correctly on any system.
+- **Branding.** The IDE uses the PowerRustCOBOL icon for its window/taskbar
+  (override it with an `app-icon.png` in the config directory). **Help → About**
+  shows the mascot, the version, and the Apache-2.0 licence.
 
 > ⚠️ **Critical rule.** The IDE language translates the **interface only**. Your
 > **COBOL data names, paragraph names, and all generated COBOL source remain in
