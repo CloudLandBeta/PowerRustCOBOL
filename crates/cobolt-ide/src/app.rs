@@ -262,6 +262,8 @@ pub struct CoboltApp {
 
     /// Report Bug dialog (shown from both IDE toolbar and designer toolbar).
     report_bug: ReportBugDialog,
+    /// Whether the Help → About window is open.
+    about_open: bool,
     /// Documentation viewer window (Help → Documentation).
     doc_viewer: crate::panels::doc_viewer::DocViewer,
     /// Non-empty while the "Form saved" alert should be displayed.
@@ -402,6 +404,7 @@ impl CoboltApp {
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
             report_bug:      ReportBugDialog::new(),
+            about_open:      false,
             doc_viewer:      Default::default(),
             save_alert_msg:  None,
             save_alert_designer: None,
@@ -414,6 +417,7 @@ impl CoboltApp {
     // ── Code workspace actions ────────────────────────────────────────────────
 
     fn do_run(&mut self) {
+        self.regenerate_all_forms();
         // Prefer the file in the editor; otherwise fall back to the open
         // project's main program, so Run always does something visible.
         let target = self.editor.active_source()
@@ -469,6 +473,7 @@ impl CoboltApp {
     /// Syncs breakpoints from the editor gutter, resets the debugger panel,
     /// and starts `DebugRunner` with `new_with_debug_channels()`.
     fn do_debug(&mut self) {
+        self.regenerate_all_forms();
         let Some((path, src)) = self.editor.active_source() else { return; };
         let path   = path.clone();
         let source = src.to_owned();
@@ -550,6 +555,7 @@ impl CoboltApp {
     }
 
     fn do_check(&mut self) {
+        self.regenerate_all_forms();
         let Some((path, src)) = self.editor.active_source() else { return; };
         let path   = path.clone();
         let source = src.to_owned();
@@ -842,6 +848,7 @@ impl CoboltApp {
     /// Runs entirely on a background thread so the IDE stays responsive.
     /// Progress lines are forwarded to the Output panel.
     fn do_build_binary(&mut self) {
+        self.regenerate_all_forms();
         let Some(proj_path) = &self.project_path else {
             self.output.push_status("Open or create a project first (File → New/Open Project).");
             return;
@@ -1267,6 +1274,81 @@ impl CoboltApp {
         }
         self.editor.reload_file(&cbl);
         self.output.push_status(format!("Regenerated {}", cbl.display()));
+    }
+
+    /// Regenerate one form's `.cbl` from `form`, keep it tracked as generated,
+    /// and refresh any open editor tab showing it. Returns whether it was written.
+    fn write_generated_for(&mut self, cfrm: &std::path::Path, form: &Form) -> bool {
+        let cbl = self.generated_cbl_path(cfrm);
+        if let Some(parent) = cbl.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(&cbl, generate(form)).is_err() {
+            return false;
+        }
+        if let Some(rel) = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .and_then(|dir| relative_to(&cbl, dir))
+        {
+            if let Some(proj) = &mut self.cobolt_project {
+                proj.add_generated(&rel);
+            }
+        }
+        self.editor.reload_file(&cbl);
+        true
+    }
+
+    /// GOLDEN RULE: regenerate every form's COBOL before Build / Run / Debug /
+    /// Check, so the compiled and executed code always reflects the current
+    /// forms. Open designers use their live (possibly unsaved) state; other
+    /// tracked forms are reloaded from their `.cfrm` on disk.
+    fn regenerate_all_forms(&mut self) {
+        // Open designers first — live state wins over what's on disk.
+        let open: Vec<(PathBuf, Form)> = self
+            .designers
+            .iter()
+            .map(|(p, d)| (p.clone(), d.form.clone()))
+            .collect();
+        let open_paths: std::collections::HashSet<PathBuf> =
+            open.iter().map(|(p, _)| p.clone()).collect();
+        let mut n = 0usize;
+        for (cfrm, form) in &open {
+            if self.write_generated_for(cfrm, form) {
+                n += 1;
+            }
+        }
+        // Other tracked forms — load from disk and regenerate.
+        if let Some(root) = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_owned())
+        {
+            let closed: Vec<PathBuf> = self
+                .cobolt_project
+                .as_ref()
+                .map(|p| {
+                    p.files
+                        .forms
+                        .iter()
+                        .map(|rel| root.join(rel))
+                        .filter(|p| !open_paths.contains(p))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for cfrm in closed {
+                if let Ok(form) = load_form(&cfrm) {
+                    if self.write_generated_for(&cfrm, &form) {
+                        n += 1;
+                    }
+                }
+            }
+        }
+        if n > 0 {
+            self.do_save_project();
+        }
     }
 
     /// Path for a form's generated `.cbl`: under the project's `generated/`
@@ -1696,6 +1778,46 @@ impl CoboltApp {
     /// while a binary build is in flight. It disappears on the frame the build
     /// finishes (its receiver is drained earlier in `update`), i.e. right before
     /// the result reaches the Output panel.
+    fn show_about(&mut self, ctx: &Context) {
+        if !self.about_open {
+            return;
+        }
+        let mut open = self.about_open;
+        egui::Window::new("About PowerRustCOBOL")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(6.0);
+                    ui.add(
+                        egui::Image::new(egui::include_image!(concat!(
+                            env!("CARGO_MANIFEST_DIR"),
+                            "/../../assets/images/powerrustcobol-mascot.png"
+                        )))
+                        .max_height(180.0),
+                    );
+                    ui.add_space(8.0);
+                    ui.heading("PowerRustCOBOL");
+                    ui.label(format!("Version {VERSION}"));
+                    ui.add_space(4.0);
+                    ui.label("A modern, Rust-powered RAD environment for COBOL.");
+                    ui.add_space(6.0);
+                    ui.label("© 2026 Emerson Lopes and PowerRustCOBOL contributors");
+                    ui.label("Distributed under the Apache 2.0 License.");
+                    ui.add_space(12.0);
+                    if ui.button("Close").clicked() {
+                        self.about_open = false;
+                    }
+                    ui.add_space(4.0);
+                });
+            });
+        if !open {
+            self.about_open = false;
+        }
+    }
+
     fn show_building_modal(&mut self, ctx: &Context) {
         if self.pending_build_rx.is_none() {
             return;
@@ -2224,6 +2346,7 @@ impl eframe::App for CoboltApp {
         self.show_new_project_dialog(ctx);
         self.show_new_form_dialog(ctx);
         self.show_report_bug_dialog(ctx);
+        self.show_about(ctx);
         // Save alert: render it in the MAIN window only when it doesn't belong
         // to a designer viewport (those render it themselves, on top).
         if self.save_alert_designer.is_none() {
@@ -2299,6 +2422,11 @@ impl eframe::App for CoboltApp {
                         .clicked()
                     {
                         self.report_bug.open_for("IDE Editor");
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("ℹ About PowerRustCOBOL").clicked() {
+                        self.about_open = true;
                         ui.close_menu();
                     }
                 });

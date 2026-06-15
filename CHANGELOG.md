@@ -8,6 +8,28 @@ See the LICENSE file in the project root for full license information.
 
 # Cobolt IDE — Changelog
 
+## [PowerRustCOBOL 1.22.0] — 2026-06-14
+
+Branding, About box, and generated-code lifecycle.
+
+### New
+
+- **Application icon.** The IDE ships with the PowerRustCOBOL samurai icon
+  (`assets/images/powerrustcobol-icon.png`), used as the window/taskbar icon and
+  overridable via an `app-icon.png` in the config directory.
+- **Help → About.** A new About window shows the mascot, version, copyright and
+  the Apache-2.0 license.
+- **"Powered by PowerRustCOBOL" badge.** A badge (`made-with-powerrustcobol.png`,
+  plus a high-resolution `.webp` master) with README + Developer's Guide
+  instructions for developers to add it to their own apps' About box.
+- **Developer banner in generated COBOL.** Every RAD-generated `.cbl` now opens
+  with a `*>` comment block telling the developer it is generated, must not be
+  edited directly, and may change structure between versions.
+- **Automatic regeneration.** Form COBOL is regenerated from the current forms
+  on every **Build / Run / Debug / Check**, so what compiles and runs always
+  matches the forms.
+- The mascot now appears in the README and the Developer's Guide cover.
+
 ## [PowerRustCOBOL 1.21.0] — 2026-06-14
 
 French interface language.
