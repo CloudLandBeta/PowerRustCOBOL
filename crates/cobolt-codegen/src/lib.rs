@@ -73,6 +73,7 @@ use cobolt_forms::model::PropValue;
 pub fn generate(form: &Form) -> String {
     let mut out = String::with_capacity(4096);
 
+    write_header(&mut out);
     write_identification(&mut out, form);
     write_environment(&mut out);
     write_data_division(&mut out, form);
@@ -97,6 +98,29 @@ pub fn regenerate(form: &Form, _existing_source: &str) -> String {
 }
 
 // ── Section writers ───────────────────────────────────────────────────────────
+
+/// Banner comment addressed to the developer, emitted at the very top of every
+/// generated source file (GOLDEN RULE). Uses `*>` floating comments so it is
+/// ignored by the compiler.
+fn write_header(out: &mut String) {
+    out.push_str("      *> ───────────────────────────────────────────────────────────\n");
+    out.push_str("      *>  This code was generated automatically by PowerRustCOBOL RAD.\n");
+    out.push_str("      *>\n");
+    out.push_str("      *>  DO NOT MODIFY IT DIRECTLY: it is regenerated the next time\n");
+    out.push_str("      *>  you interact with the Form Designer, so manual edits are lost.\n");
+    out.push_str("      *>  Edit the form and its event handlers in the Form Designer\n");
+    out.push_str("      *>  instead.\n");
+    out.push_str("      *>\n");
+    out.push_str("      *>  PowerRustCOBOL may change the structure of this generated code\n");
+    out.push_str("      *>  at any time — without breaking your code's functionality — for\n");
+    out.push_str("      *>  reasons such as performance improvements, new observability\n");
+    out.push_str("      *>  features, and bug fixes.\n");
+    out.push_str("      *>\n");
+    out.push_str("      *>  PowerRustCOBOL and its components are distributed under the\n");
+    out.push_str("      *>  Apache 2.0 License.\n");
+    out.push_str("      *> ───────────────────────────────────────────────────────────\n");
+    out.push('\n');
+}
 
 fn write_identification(out: &mut String, form: &Form) {
     out.push_str("       IDENTIFICATION DIVISION.\n");
@@ -1243,6 +1267,23 @@ mod tests {
     fn generate_contains_program_id() {
         let src = generate(&make_form());
         assert!(src.contains("PROGRAM-ID. MAIN-FORM."), "missing PROGRAM-ID");
+    }
+
+    #[test]
+    fn generate_starts_with_developer_header() {
+        let src = generate(&make_form());
+        // GOLDEN RULE: a developer banner precedes IDENTIFICATION DIVISION.
+        assert!(src.starts_with("      *>"), "header must be first");
+        assert!(
+            src.contains("generated automatically by PowerRustCOBOL RAD"),
+            "missing generated-by line"
+        );
+        assert!(src.contains("DO NOT MODIFY IT DIRECTLY"), "missing do-not-modify warning");
+        assert!(src.contains("Apache 2.0 License"), "missing license line");
+        // The banner sits above the program proper.
+        let hdr = src.find("*>").unwrap();
+        let id = src.find("IDENTIFICATION DIVISION.").unwrap();
+        assert!(hdr < id, "header must come before IDENTIFICATION DIVISION");
     }
 
     #[test]

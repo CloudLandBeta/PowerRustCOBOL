@@ -8,6 +8,10 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL Developer's Guide
 
+<p align="center">
+  <img src="../assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL mascot" width="300">
+</p>
+
 *A practical guide to building graphical COBOL applications with PowerRustCOBOL.*
 
 > **Who this guide is for.** You already write COBOL, and you have built screen
@@ -855,9 +859,17 @@ flowchart TB
     OUTER --> P3["Nested: MAIN-FORM--ONLOAD"]
 ```
 
-> ⚠️ **Caveat.** Generated `.cbl` is a build artefact. It is regenerated whenever
-> the form changes, so **do not hand-edit it** — your edits would be overwritten.
-> Put reusable logic in **Common Code** and `CALL` it from handlers.
+Every generated file opens with a `*>` comment banner addressed to you: it states
+the file was produced by PowerRustCOBOL RAD, that you must not edit it directly,
+and that its structure may change between versions (for performance, observability
+or bug fixes) without breaking your code.
+
+> ⚠️ **Caveat.** Generated `.cbl` is a build artefact, so **do not hand-edit it** —
+> your edits would be overwritten. PowerRustCOBOL **regenerates every form's COBOL
+> automatically each time you Build, Run, Debug, or Check** the project (open
+> designers use their live, even unsaved, state; other forms reload from their
+> `.cfrm`), so what compiles and runs always matches your forms. Put reusable
+> logic in **Common Code** and `CALL` it from handlers.
 
 ---
 
@@ -1269,6 +1281,22 @@ flowchart LR
 
 > **Note.** Forms are loaded **lazily** inside the binary: a 20-form application
 > starts instantly even if the user only ever opens one form.
+
+### The "Powered by PowerRustCOBOL" badge
+
+If you ship an application built with PowerRustCOBOL, please add the **"Powered by
+PowerRustCOBOL"** badge to your app's **About box** (and, optionally, your README):
+
+<p align="center">
+  <img src="../assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL" width="320">
+</p>
+
+- Standard badge: `assets/images/made-with-powerrustcobol.png` (800×268, transparent).
+- High-resolution master (for print or large displays): `assets/images/made-with-powerrustcobol.webp`
+  (6785×2270) — scale it down to whatever size you need.
+
+The IDE's own **Help → About** box shows the same badge, so you can see exactly how
+it looks in an application.
 
 ---
 

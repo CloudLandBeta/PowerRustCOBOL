@@ -318,6 +318,35 @@ required `LICENSE` / `NOTICE` / runtime-notice files.
 > Prefer a short command? Build once with `cargo build --release` and use the produced
 > `target/release/rcrun` binary directly: `rcrun run main.cbl`, `rcrun build cobolt.toml`, …
 
+## Powered by PowerRustCOBOL
+
+<p align="center">
+  <img src="assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL" width="320">
+</p>
+
+Built something with PowerRustCOBOL? Show it off — add the **"Powered by
+PowerRustCOBOL"** badge to your application's **About box** (and, if you like, your
+own README).
+
+- Badge image: [`assets/images/made-with-powerrustcobol.png`](assets/images/made-with-powerrustcobol.png) (800×268, transparent PNG).
+- Need it larger / for print? A high-resolution master is provided at
+  [`assets/images/made-with-powerrustcobol.webp`](assets/images/made-with-powerrustcobol.webp)
+  (6785×2270) — scale it down to whatever size you need.
+
+Markdown:
+
+```markdown
+[![Powered by PowerRustCOBOL](assets/images/made-with-powerrustcobol.png)](https://github.com/CloudLandBeta/PowerRustCOBOL)
+```
+
+HTML:
+
+```html
+<a href="https://github.com/CloudLandBeta/PowerRustCOBOL">
+  <img src="made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL" width="320">
+</a>
+```
+
 ## COBOL-85 standard support
 
 PowerRustCOBOL targets a **practical, application-oriented subset** of COBOL-85 plus
