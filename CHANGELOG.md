@@ -6,11 +6,11 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# Cobolt IDE — Changelog
+# PowerRustCOBOL — Changelog
 
 ## [PowerRustCOBOL 1.22.0] — 2026-06-14
 
-Branding, About box, and generated-code lifecycle.
+Branding, About box, generated-code lifecycle, and spec-driven development infrastructure.
 
 ### New
 
@@ -29,6 +29,12 @@ Branding, About box, and generated-code lifecycle.
   on every **Build / Run / Debug / Check**, so what compiles and runs always
   matches the forms.
 - The mascot now appears in the README and the Developer's Guide cover.
+
+### Infrastructure
+
+- **Spec-driven development.** Gated workflow (`/specify` → `/plan` → `/tasks` →
+  `/implement` → `/docsync`) with steering docs, templates, and committed skills
+  under `specs/` and `.claude/skills/`. See `specs/README.md`.
 
 ## [PowerRustCOBOL 1.21.0] — 2026-06-14
 

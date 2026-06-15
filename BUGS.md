@@ -15,7 +15,8 @@ See the LICENSE file in the project root for full license information.
 >   error code, and a one-line summary.
 > - When a bug is fixed, it is moved to the **Resolved** table and the fix is summarised in
 >   `CHANGELOG.md` under the next version entry.
-> - If the scheduled scan finds open bugs it posts a chat notification automatically.
+> - Run `./tools/check_bugs.sh` manually or from a scheduled job; it exits `1` when
+>   open bugs remain (suitable for CI or an external notifier you wire up).
 
 ---
 

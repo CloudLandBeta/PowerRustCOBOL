@@ -6,21 +6,30 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# Cobolt IDE — Full Architecture Plan
+# PowerRustCOBOL — Architecture Plan (historical)
+
 ### A Rust-based reimplementation of modern COBOL loosely inspired by Fujitsu PowerCOBOL 3.0
 
-> **Project name:** Cobolt (COBOL + Bolt — fast, modern, cross-platform)  
-> **License:** MIT / Apache-2.0 dual  
+> **Status (June 2026):** This document is a **May 2026 planning draft**. Much of it
+> has been built (lexer → runtime → IDE → forms → compiler → `rcrun`). For **current**
+> product context, repo layout, and hard constraints, read `specs/steering/` and
+> `README.md`. For release history, see `CHANGELOG.md`.
+
+> **Project name:** **PowerRustCOBOL** (product) · **RustCOBOL** (language) · internal
+> crates use the `cobolt-*` prefix (build-only; never shown in the UI).  
+> **License:** Apache-2.0  
 > **Targets:** Windows x64, macOS (x64 + ARM), Linux x64  
 > **Runtime model:** 64-bit interpreted (tree-walking)  
-> **IDE toolkit:** egui (pure Rust, immediate-mode)  
-> **Repository layout:** Cargo workspace (monorepo)
+> **IDE toolkit:** egui 0.29 / eframe (pure Rust, immediate-mode)  
+> **Repository layout:** Cargo workspace (monorepo) + `specs/` (spec-driven development)
 
 ---
 
 ## 1. Vision & Goals
 
-Cobolt is a spiritual successor to the best COBOL compiler of all times, the Fujitsu PowerCOBOL 3.0. It gives COBOL developers a modern RAD (Rapid Application Development) environment that:
+PowerRustCOBOL is a spiritual successor to the best COBOL compiler of all times, the
+Fujitsu PowerCOBOL 3.0. It gives COBOL developers a modern RAD (Rapid Application
+Development) environment that:
 
 - Accepts standard COBOL 85 and some extensions of COBOL 2002 source code
 - Provides a drag-and-drop visual form designer that generates COBOL code
@@ -32,54 +41,53 @@ Cobolt is a spiritual successor to the best COBOL compiler of all times, the Fuj
 
 ## 2. Repository Structure
 
+**Current layout** (as implemented; plugin crates are not in the workspace yet):
+
 ```
-cobolt/
+PowerRustCOBOL/
 ├── Cargo.toml                  ← workspace manifest
-├── LICENSE-MIT
-├── LICENSE-APACHE
-├── README.md
+├── LICENSE · NOTICE · CHANGELOG.md · README.md
+├── specs/                      ← spec-driven development (steering, templates, skills)
+├── .claude/skills/             ← slash-command workflow skills (committed)
+├── docs/                       ← developer guide + language/internals docs
+├── assets/images/              ← mascot, icon, badges, backgrounds
 │
 ├── crates/
 │   ├── cobolt-lexer/           ← COBOL tokenizer
 │   ├── cobolt-ast/             ← AST node types (shared crate)
 │   ├── cobolt-parser/          ← Parser: token stream → AST
 │   ├── cobolt-semantic/        ← Semantic analysis & symbol table
-│   ├── cobolt-runtime/         ← 64-bit tree-walking interpreter
-│   ├── cobolt-stdlib/          ← Built-in COBOL functions & I/O
-│   ├── cobolt-forms/           ← Form/control data model
+│   ├── cobolt-runtime/         ← Tree-walking interpreter + file/SQL/HTTP engines
+│   ├── cobolt-stdlib/          ← Built-in COBOL functions & I/O helpers
+│   ├── cobolt-forms/           ← `.cfrm` form/control data model
 │   ├── cobolt-codegen/         ← Form model → COBOL source generator
-│   ├── cobolt-plugin-api/      ← Stable C-ABI plugin interface
-│   ├── cobolt-plugin-loader/   ← Dynamic library loader
-│   └── cobolt-ide/             ← egui IDE application (main binary)
-│
-├── plugins/
-│   └── example-plugin/         ← Reference plugin (Rust)
+│   ├── cobolt-media/           ← Animator widget (GIF/WebP/APNG)
+│   ├── cobolt-compiler/        ← Embed+bundle single-binary compiler
+│   ├── cobolt-cli/             ← `rcrun` command-line tool
+│   └── cobolt-ide/             ← PowerRustCOBOL desktop IDE (egui/eframe)
 │
 ├── tests/
-│   ├── cobol-suite/            ← .cbl test programs
-│   └── ui-tests/               ← egui snapshot tests
+│   ├── cobol/                  ← COBOL integration programs (by topic)
+│   └── widgets/                ← per-widget integration harness
 │
-└── .github/
-    └── workflows/
-        └── ci.yml              ← matrix build: Windows / macOS / Linux
+└── tools/                      ← e.g. `check_bugs.sh` → `BUGS.md`
 ```
 
 ### Crate dependency graph
 
 ```
 cobolt-ide
-  ├── cobolt-forms
-  │     └── cobolt-codegen
-  ├── cobolt-runtime
-  │     ├── cobolt-semantic
-  │     │     ├── cobolt-parser
-  │     │     │     ├── cobolt-lexer
-  │     │     │     └── cobolt-ast
-  │     │     └── cobolt-ast
-  │     └── cobolt-stdlib
-  ├── cobolt-plugin-loader
-  │     └── cobolt-plugin-api
-  └── cobolt-plugin-api
+  ├── cobolt-forms ── cobolt-codegen
+  ├── cobolt-compiler
+  ├── cobolt-media
+  ├── cobolt-runtime ── cobolt-semantic ── cobolt-parser ── cobolt-lexer + cobolt-ast
+  │                    └── cobolt-stdlib
+  └── (full pipeline for run/debug/check in-process)
+
+cobolt-cli ── cobolt-compiler + cobolt-runtime (+ lexer/parser/semantic chain)
+
+# Planned, not active in workspace:
+# cobolt-plugin-api · cobolt-plugin-loader
 ```
 
 ---
@@ -762,22 +770,23 @@ If you or contributors want to begin coding immediately, here are natural starti
 
 | Crate | Purpose |
 |---|---|
-| `egui` + `eframe` | IDE UI framework |
-| `egui_tiles` | Dockable panel layout |
-| `egui_extras` | Grid/table widgets |
-| `logos` | Lexer generator |
-| `syntect` | Syntax highlighting |
-| `serde` + `quick-xml` | Form XML serialization |
-| `toml` | Project config + plugin manifests |
-| `libloading` | Plugin dynamic loading |
-| `rfd` | Native file dialogs |
-| `rusqlite` | Indexed file I/O backend |
-| `indexmap` | Ordered symbol tables |
+| `egui` + `eframe` 0.29 | IDE UI framework |
+| `egui_extras` | Image widgets in the designer |
+| `logos` | COBOL lexer generator |
+| `syntect` | Editor syntax highlighting |
+| `serde` + `quick-xml` | `.cfrm` form XML serialization |
+| `toml` | `cobolt.toml` project manifest |
+| `rfd` + `pollster` | Non-blocking native file dialogs |
+| `rusqlite` / `postgres` / `mysql` | SQL widget backends (pure Rust) |
+| `redb` | Optional crash-safe indexed-file engine |
+| `bincode` + `flate2` | Binary compiler AST embed |
+| `ureq` | IDE AI assistant HTTP client |
+| `mermaid-rs-renderer` + `resvg` | Documentation viewer diagrams |
+| `indexmap` | Ordered symbol tables / form props |
 | `thiserror` | Error types |
 | `tracing` | Logging / diagnostics |
-| `rayon` | Parallel background analysis |
-| `tempfile` | Test infrastructure |
 
 ---
 
-*Document version 1.0 — generated by Cobolt Architecture Planning session, May 2026.*
+*Document version 1.0 — planning draft, May 2026. Sections 2 and 11 updated June 2026
+to match the implemented workspace; phases 4–5 and plugin crates remain aspirational.*

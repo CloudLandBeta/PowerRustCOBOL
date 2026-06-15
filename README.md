@@ -55,7 +55,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 ### The IDE (PowerRustCOBOL)
 - **Visual form designer** with a glass/"liquid" theme, grid snapping, drag-resize of
   controls *and* the form canvas, multi-select, alignment tools, and z-ordering.
-- **34 widgets** across Common, Container, Data, Graphics, Menu, Non-visual, Charts and
+- **35 widgets** across Common, Container, Data, Graphics, Menu, Non-visual, Charts and
   Dialog categories — including a new **Animator** widget that plays **GIF / WebP / APNG**
   animations natively.
 - **Properties inspector**, **toolbox** with vector icons, **forms list**, **project tree**,
@@ -64,7 +64,8 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
   live in the canvas, preview and run windows, with an Arial fallback.
 - **Interactive debugger**: breakpoints, step controls, and a variable watch.
 - **Multi-window** preview/run via per-form OS windows (egui multi-viewport).
-- **Internationalised UI** in 5 languages (English, Spanish, Portuguese, Japanese, Chinese).
+- **Internationalised UI** in 6 languages (English, Spanish, Portuguese, Japanese, Chinese,
+  French).
 - **Non-blocking native file dialogs** (open/save/browse) that never stall the event loop.
 
 ### The RustCOBOL language & runtime
@@ -217,7 +218,7 @@ rustc --version && cargo --version
 ### 2. Download the code
 
 ```sh
-git clone https://github.com/emerson-github/PowerRustCOBOL.git
+git clone https://github.com/CloudLandBeta/PowerRustCOBOL.git
 cd PowerRustCOBOL
 ```
 
@@ -442,6 +443,13 @@ honest map of where things stand.
 PowerRustCOBOL is a Rust workspace. The internal build crates use a `cobolt-*` prefix
 (build-only identifiers; the product is **PowerRustCOBOL**, the language **RustCOBOL**,
 the CLI **rcrun**):
+
+| Path | Responsibility |
+|------|----------------|
+| `specs/` | Spec-driven development — steering docs, templates, and per-feature `NNN-<slug>/` specs (`specs/README.md`). |
+| `.claude/skills/` | Slash-command skills for the workflow (`/specify`, `/plan`, `/implement`, `/docsync`, …). |
+| `docs/` | Developer guide (English canonical), language reference, and internals docs. |
+| `tests/cobol/` | COBOL integration programs exercised against the runtime. |
 
 | Crate | Responsibility |
 |-------|----------------|
