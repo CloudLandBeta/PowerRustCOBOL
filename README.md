@@ -7,7 +7,7 @@ See the LICENSE file in the project root for full license information.
 -->
 
 <p align="center">
-  <img src="docs/assets/powerrustcobol-mascot.png" alt="PowerRustCOBOL — a chibi samurai robot mascot" width="360">
+  <img src="assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL — a chibi samurai robot mascot" width="360">
 </p>
 
 <p align="center">
