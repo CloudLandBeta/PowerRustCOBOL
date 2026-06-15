@@ -42,11 +42,14 @@ fn main() -> eframe::Result<()> {
         .with_target(false)
         .init();
 
-    let ide_title = format!("PowerRustCOBOL  v{VERSION}");
+    let ide_title = format!("PowerRustCOBOL v{VERSION}");
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(&ide_title)
+            // OS taskbar/app label + hover tooltip (X11 WM_CLASS / Wayland app_id /
+            // Windows). Without this it falls back to the binary name ("cobolt-ide").
+            .with_app_id(&ide_title)
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([800.0, 500.0])
             .with_transparent(true)          // let desktop wallpaper bleed through
