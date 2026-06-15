@@ -246,6 +246,7 @@ fn cmd_build(args: &[String]) {
     let opts = cobolt_compiler::BuildOptions {
         verbose: !quiet,
         workspace_root: None,
+        progress: None,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));
