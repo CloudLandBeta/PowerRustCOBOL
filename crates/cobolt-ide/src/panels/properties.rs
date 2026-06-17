@@ -23,9 +23,10 @@ use cobolt_forms::{Control, ControlType, Form};
 use cobolt_forms::model::{PropValue, AnimTrigger, AnimKind, EasingKind, AnimRepeat, BgImageMode};
 use crate::i18n::Tr;
 
-/// A colour-swatch button that opens egui's colour picker — but, unlike the stock
-/// `ui.color_edit_button_srgba`, the popup closes as soon as the user clicks **and
-/// releases** the mouse on a colour inside the picker (no need to click outside).
+/// A colour-swatch button that opens egui's colour picker in a pinned popup with a
+/// fixed-size header (live swatch + editable `RRGGBBAA` hex) and fixed-width R/G/B/A
+/// fields. The popup stays open while the user picks and closes only on a click
+/// **outside** its area (or Escape).
 fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
     use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
     use egui::color_picker::{color_picker_color32, show_color_at, Alpha};
@@ -58,26 +59,84 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
             .fixed_pos(anchor)
             .constrain(true)
             .show(ui.ctx(), |ui| {
-                ui.spacing_mut().slider_width = 275.0;
-                let inner = Frame::popup(ui.style())
-                    .show(ui, |ui| color_picker_color32(ui, color, Alpha::BlendOrAdditive));
+                // 25 % smaller than the previous 275 px picker (square + sliders all
+                // size off `slider_width`).
+                let slider_w = 206.0_f32;
+                ui.spacing_mut().slider_width = slider_w;
+                let inner = Frame::popup(ui.style()).show(ui, |ui| {
+                    // Fix the width of every numeric field (R/G/B/A) so the row can't
+                    // reflow as values change. egui sizes a DragValue from
+                    // `interact_size.x`; the default (40) is just under the width of
+                    // "R 255", so 3-digit values overflowed it and 1-digit values
+                    // didn't — that digit-dependent jitter was the swaying. A value
+                    // comfortably wider than "A 255" pins all four fields.
+                    ui.spacing_mut().interact_size.x = 54.0;
+
+                    let mut changed = false;
+
+                    // ── Fixed header: live swatch + editable HTML hex (RRGGBBAA) ──
+                    // Fixed-size widgets, so this readout never moves as the colour
+                    // changes. The last two hex digits are the alpha channel.
+                    ui.horizontal(|ui| {
+                        let (sw_rect, _) =
+                            ui.allocate_exact_size(Vec2::new(46.0, 20.0), Sense::hover());
+                        show_color_at(ui.painter(), *color, sw_rect);
+                        ui.painter().rect_stroke(
+                            sw_rect, 2.0, Stroke::new(1.0, Color32::from_gray(120)));
+
+                        ui.label("#");
+
+                        // Editable hex buffer kept in memory so partial typing works;
+                        // re-synced from `color` whenever the 2-D picker changes it.
+                        let buf_id  = popup_id.with("__hexbuf");
+                        let last_id = popup_id.with("__hexlast");
+                        let canonical = color32_to_hex(*color)[1..].to_string(); // drop '#'
+                        let mut buf = ui
+                            .memory(|m| m.data.get_temp::<String>(buf_id))
+                            .unwrap_or_default();
+                        let last = ui.memory(|m| m.data.get_temp::<Color32>(last_id));
+                        if buf.is_empty() || last != Some(*color) {
+                            buf = canonical;
+                        }
+
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut buf)
+                                .font(egui::TextStyle::Monospace)
+                                .char_limit(8)
+                                .desired_width(78.0)
+                                .hint_text("RRGGBBAA"),
+                        );
+                        buf.retain(|c| c.is_ascii_hexdigit());
+                        buf.make_ascii_uppercase();
+                        if resp.changed() && (buf.len() == 8 || buf.len() == 6) {
+                            let new_c = hex_to_color32(&buf);
+                            if new_c != *color {
+                                *color = new_c;
+                                changed = true;
+                            }
+                        }
+                        ui.memory_mut(|m| {
+                            m.data.insert_temp(buf_id, buf);
+                            m.data.insert_temp(last_id, *color);
+                        });
+                    });
+                    ui.separator();
+
+                    changed |= color_picker_color32(ui, color, Alpha::BlendOrAdditive);
+                    changed
+                });
                 (inner.inner, inner.response.rect)
             });
-        let (changed, popup_rect) = area.inner;
+        let (changed, _popup_rect) = area.inner;
         if changed {
             resp.mark_changed();
         }
 
-        // Close as soon as the pointer is released inside the picker (a colour was
-        // picked), or via Escape / a click outside. The `!resp.clicked()` guard
-        // prevents the opening click from immediately closing it.
-        let released_inside = ui.input(|i| {
-            i.pointer.any_released()
-                && i.pointer.interact_pos().map_or(false, |p| popup_rect.contains(p))
-        });
+        // Stay open while the user picks; close only on a click **outside** the
+        // popup (or Escape). The `!resp.clicked()` guard stops the opening click
+        // from immediately closing it.
         if !resp.clicked()
-            && (released_inside
-                || ui.input(|i| i.key_pressed(Key::Escape))
+            && (ui.input(|i| i.key_pressed(Key::Escape))
                 || area.response.clicked_elsewhere())
         {
             ui.memory_mut(|m| m.close_popup());

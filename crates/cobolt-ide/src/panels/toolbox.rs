@@ -316,14 +316,12 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
     let drag_started = resp.drag_started() && pointer_in_btn;
 
     if drag_started && pointer_in_btn {
-        // Signal a direct drag from toolbox. The designer canvas will handle
-        // live preview at mouse position and drop (instead of center placement).
-        ui.ctx().memory_mut(|mem| {
-            mem.data.insert_temp(
-                egui::Id::new("toolbox_new_control"),
-                Some(entry.ct.clone()),
-            );
-        });
+        // Begin a cross-panel drag: stash the control type as an egui drag-and-drop
+        // payload. The designer canvas (a different panel, so a normal per-widget
+        // drag can't reach it) reads this payload to show a live ghost preview and
+        // places the control wherever the user drops it — see
+        // `DesignerPanel::handle_toolbox_dnd`.
+        egui::DragAndDrop::set_payload(ui.ctx(), entry.ct.clone());
     }
 
     if pointer_in_btn {

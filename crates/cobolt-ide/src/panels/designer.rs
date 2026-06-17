@@ -1375,6 +1375,10 @@ impl DesignerPanel {
                 // Handle drag input
                 self.handle_drag(&resp, &painter, origin, ptr_canvas, &mut selection_changed);
 
+                // A control dragged out of the toolbox: show a ghost at the cursor
+                // and drop it where released (see `handle_toolbox_dnd`).
+                self.handle_toolbox_dnd(ui, resp.rect, origin, ptr_canvas);
+
                 // Draw controls sorted by z_order
                 let selected_ids = self.selected_ids.clone();
                 let form_w = self.form.width  as f32;
@@ -1972,6 +1976,82 @@ impl DesignerPanel {
     /// Called by app.rs toolbox result to start a new control placement drag.
     pub fn start_place(&mut self, ct: ControlType, x: i32, y: i32) {
         self.drag = DragState::PlacingNew { ctrl_type: ct, start_x: x, start_y: y, cur_x: x, cur_y: y };
+    }
+
+    /// Handle a control dragged out of the toolbox onto the canvas.
+    ///
+    /// The toolbox lives in a side panel, so a normal per-widget drag never reaches
+    /// the canvas. Instead the toolbox stashes the control type as an egui
+    /// `DragAndDrop` payload on drag-start; here we read it, draw a ghost preview at
+    /// the (snapped) drop point while the pointer is over the canvas, and on mouse
+    /// release add the control there. This is the drag counterpart to the
+    /// click-to-centre path in `app.rs`.
+    fn handle_toolbox_dnd(
+        &mut self,
+        ui: &Ui,
+        canvas_rect: Rect,
+        origin: Pos2,
+        ptr_canvas: Option<(i32, i32)>,
+    ) {
+        let ctx = ui.ctx();
+        let Some(ct) = egui::DragAndDrop::payload::<ControlType>(ctx).map(|p| (*p).clone())
+        else {
+            return;
+        };
+        // Repaint each frame so the ghost tracks the cursor smoothly.
+        ctx.request_repaint();
+
+        let over_canvas = ctx
+            .pointer_interact_pos()
+            .map(|p| canvas_rect.contains(p))
+            .unwrap_or(false);
+        let released = ctx.input(|i| i.pointer.any_released());
+
+        // If the pointer is off the canvas, do nothing: when the button is released
+        // off-canvas egui discards the payload on its own (no stray placement).
+        let Some((px, py)) = ptr_canvas else { return; };
+        if !over_canvas {
+            return;
+        }
+
+        ctx.set_cursor_icon(CursorIcon::Grabbing);
+
+        let (dw, dh) = ct.default_size();
+        let gp = self.form.grid_size as i32;
+        let sn = self.form.snap_to_grid;
+        // Centre the control under the cursor, clamp into the form, then snap.
+        let x = snap((px - dw / 2).max(0), gp, sn);
+        let y = snap((py - dh / 2).max(0), gp, sn);
+
+        if released {
+            let _ = egui::DragAndDrop::take_payload::<ControlType>(ctx);
+            self.add_control(ct, x, y);
+            self.dirty = true;
+            return;
+        }
+
+        // Ghost preview on a foreground layer so it sits above canvas + controls.
+        let ghost = Rect::from_min_size(
+            origin + Vec2::new(x as f32, y as f32),
+            Vec2::new(dw as f32, dh as f32),
+        );
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("toolbox_drop_ghost"),
+        ));
+        painter.rect_filled(ghost, 2.0, Color32::from_rgba_premultiplied(80, 120, 220, 70));
+        painter.rect_stroke(
+            ghost,
+            2.0,
+            Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 160, 255, 220)),
+        );
+        painter.text(
+            ghost.center(),
+            egui::Align2::CENTER_CENTER,
+            ct.as_str(),
+            egui::FontId::proportional(11.0),
+            Color32::WHITE,
+        );
     }
 }
 
