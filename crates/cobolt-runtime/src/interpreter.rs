@@ -3535,7 +3535,7 @@ impl Interpreter {
             "PLAYANIMATION" | "PLAY" => { let a = if args.is_empty() { "1".to_string() } else { arg(0) }; self.obj_set(obj, "_PlayAnimation", a); none }
             "STOPANIMATION" => { self.obj_set(obj, "_StopAnimation", "1".into()); none }
             "PAUSE" => { self.obj_set(obj, "_PauseAnimation", "1".into()); none }
-            // ── ModalWindow / AgentObject extras ──
+            // ── AgentObject extras ──
             "CLOSE" => {
                 // SqlDatabase::Close closes the connection; otherwise hide a window.
                 let h = parse_i(self.obj_get(obj, "_Handle"));

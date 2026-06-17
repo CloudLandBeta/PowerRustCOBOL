@@ -55,8 +55,8 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 ### The IDE (PowerRustCOBOL)
 - **Visual form designer** with a glass/"liquid" theme, grid snapping, drag-resize of
   controls *and* the form canvas, multi-select, alignment tools, and z-ordering.
-- **35 widgets** across Common, Container, Data, Graphics, Menu, Non-visual, Charts and
-  Dialog categories — including a new **Animator** widget that plays **GIF / WebP / APNG**
+- **34 widgets** across Common, Container, Data, Graphics, Menu, Non-visual and
+  Charts categories — including a new **Animator** widget that plays **GIF / WebP / APNG**
   animations natively.
 - **Properties inspector**, **toolbox** with vector icons, **forms list**, **project tree**,
   and an **output panel**.

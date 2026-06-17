@@ -528,9 +528,6 @@ non-visual ones are services.
 **Charts**
 : BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart.
 
-**Dialogs / windows**
-: ModalWindow.
-
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase.
 

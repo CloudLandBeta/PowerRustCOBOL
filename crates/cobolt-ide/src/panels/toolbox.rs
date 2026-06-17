@@ -62,8 +62,6 @@ const TOOLS: &[ToolEntry] = &[
     ToolEntry { label: "AreaChart",      ct: ControlType::AreaChart,      category: "Charts" },
     ToolEntry { label: "ScatterChart",   ct: ControlType::ScatterChart,   category: "Charts" },
     ToolEntry { label: "DonutChart",     ct: ControlType::DonutChart,     category: "Charts" },
-    // ── Dialogs ────────────────────────────────────────────────────────────────
-    ToolEntry { label: "ModalWindow",    ct: ControlType::ModalWindow,    category: "Dialogs" },
 ];
 
 /// The toolbox category a control type belongs to (internal key). Used by the
@@ -655,25 +653,6 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             painter.line_segment([Pos2::new(c.x-lw,c.y+r*0.85), Pos2::new(c.x-lw*0.3,c.y+r*1.0)], th);
             painter.line_segment([Pos2::new(c.x+lw,c.y-r*0.85), Pos2::new(c.x+lw*0.3,c.y-r*1.0)], th);
             painter.line_segment([Pos2::new(c.x+lw,c.y+r*0.85), Pos2::new(c.x+lw*0.3,c.y+r*1.0)], th);
-        }
-
-        // ── Dialogs ────────────────────────────────────────────────────────────
-        ControlType::ModalWindow => {
-            let win = egui::Rect::from_center_size(c+Vec2::new(0.0,r*0.14), Vec2::new(r*2.6,r*2.2));
-            painter.rect_stroke(win, 2.0, s);
-            let tbh = (win.height()*0.30).max(6.0);
-            let tb  = egui::Rect::from_min_size(win.min, Vec2::new(win.width(), tbh));
-            painter.rect_filled(tb, 2.0, dim);
-            let bc  = Pos2::new(tb.max.x-tbh*0.52, tb.center().y);
-            painter.circle_stroke(bc, tbh*0.30, th);
-            let dx  = tbh*0.16;
-            painter.line_segment([Pos2::new(bc.x-dx,bc.y-dx), Pos2::new(bc.x+dx,bc.y+dx)], th);
-            painter.line_segment([Pos2::new(bc.x+dx,bc.y-dx), Pos2::new(bc.x-dx,bc.y+dx)], th);
-            let by0 = tb.max.y + 1.5;
-            for i in 0..2 {
-                let ly = by0 + (win.max.y-by0)*(0.3+i as f32*0.38);
-                painter.line_segment([Pos2::new(win.min.x+2.5,ly), Pos2::new(win.max.x-2.5,ly)], th);
-            }
         }
 
         // ── Charts ─────────────────────────────────────────────────────────────

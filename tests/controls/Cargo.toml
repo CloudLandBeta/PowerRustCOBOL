@@ -96,10 +96,6 @@ name = "menubar"
 path = "menubar.rs"
 
 [[test]]
-name = "modalwindow"
-path = "modalwindow.rs"
-
-[[test]]
 name = "numericupdown"
 path = "numericupdown.rs"
 

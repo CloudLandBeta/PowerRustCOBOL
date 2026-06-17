@@ -269,7 +269,7 @@ pub fn draw_control(
         // For initial working version we rely on the glass body + rim for the critical Slider case.
     }
 
-    // Line, Shape, Non-visual, ModalWindow, Progress, Picture, Animator early paths...
+    // Line, Shape, Non-visual, Progress, Picture, Animator early paths...
     // (For the critical user-reported case we prioritize Slider + the generic glass path.)
 
     // ── Slider (exact glass custom look from designer) ────────────────────────

@@ -223,12 +223,6 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
             ("Clear", "Remove all data"),
             ("ExportImage", "Save the chart as an image"),
         ]),
-        "ModalWindow" => (UNIVERSAL_NONVISUAL, &[
-            ("Show", "Open the modal window"),
-            ("Close", "Close the modal window"),
-            ("GetResult", "Return the modal result"),
-            ("SetTitle", "Change the window title"),
-        ]),
         "Timer"       => (UNIVERSAL_NONVISUAL, &[
             ("Start", "Start / resume the timer"),
             ("Stop", "Pause the timer"),
@@ -391,12 +385,6 @@ fn properties_for_type(ctrl_type: &str) -> &'static [(&'static str, &'static str
             ("BaseURL",       "Base URL for all requests"),
             ("DefaultMethod", "Default HTTP method (GET/POST…)"),
             ("Timeout",       "Request timeout in ms"),
-        ],
-        "ModalWindow" => &[
-            ("Title",          "Window title bar text"),
-            ("ProgramName",    "COBOL program to CALL"),
-            ("SharedDataItems","Comma-separated shared items"),
-            ("Visible",        "1 = visible"),
         ],
         _ => &[
             ("Caption",  "Display text"),

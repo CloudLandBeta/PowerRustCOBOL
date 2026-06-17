@@ -4248,7 +4248,7 @@ impl CoboltApp {
                         | CT::AreaChart | CT::ScatterChart | CT::DonutChart);
                     let non_visual = matches!(meta.control_type,
                         CT::Timer | CT::AgentObject | CT::SqlDatabase
-                        | CT::RestClient | CT::ModalWindow);
+                        | CT::RestClient);
                     if !via_rrc && !non_visual {
                         let evs = control_pointer_events(
                             ui, screen_rect, ctrl_id, &meta.id, &meta.control_type, enabled);

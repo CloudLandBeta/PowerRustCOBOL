@@ -14,7 +14,7 @@
 //! - Auto-arrange: labels left, textboxes right, perfectly aligned in rows
 //! - Liquid-glass rendering mode (frosted glass aesthetic with reflections + shadows)
 //! - Animation preview: play animations in the designer so you see them before runtime
-//! - AgentObject, ModalWindow, RestClient control rendering
+//! - AgentObject, RestClient control rendering
 //! - Undo / Redo command stack
 
 use std::collections::HashMap;
@@ -2395,8 +2395,8 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::DateTimePicker => "DateTimePicker", CT::NumericUpDown => "NumericUpDown",
         CT::TreeView => "TreeView",        CT::Splitter => "Splitter",
         CT::Timer => "Timer",              CT::Shape => "Shape",
-        CT::AgentObject => "AgentObject",  CT::ModalWindow => "ModalWindow",
-        CT::RestClient => "RestClient",    CT::Slider => "Slider",
+        CT::AgentObject => "AgentObject",  CT::RestClient => "RestClient",
+        CT::Slider => "Slider",
         CT::SqlDatabase => "SqlDatabase",  CT::BarChart => "BarChart",
         CT::LineChart => "LineChart",      CT::PieChart => "PieChart",
         CT::AreaChart => "AreaChart",      CT::ScatterChart => "ScatterChart",
@@ -2741,31 +2741,6 @@ pub(crate) fn draw_control(
             }
         };
         nv_label(painter, rect, &label, a);
-        return;
-    }
-
-    // ── Modal Window ──────────────────────────────────────────────────────────
-    if matches!(ctrl.control_type, CT::ModalWindow) {
-        let title = ctrl.get_prop("Title").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Dialog".into());
-        if glass {
-            draw_glass(painter, rect, Color32::from_rgb(40,40,80), 8.0, selected, alpha_mul);
-        } else {
-            let fill = Color32::from_rgba_premultiplied(40,40,80,a);
-            let border = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { Color32::from_rgba_premultiplied(100,100,160,a) };
-            painter.rect_filled(rect, 4.0, fill);
-            painter.rect_stroke(rect, 4.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border));
-        }
-        // Draw mini title bar
-        let tb_h = (rect.height() * 0.2).max(16.0);
-        let tb_rect = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width(), tb_h));
-        painter.rect_filled(tb_rect, 4.0, Color32::from_rgba_premultiplied(80,80,160,a));
-        painter.text(tb_rect.center(), egui::Align2::CENTER_CENTER,
-            &title, egui::FontId::proportional(ctrl_font_size(ctrl).min(10.0)), Color32::from_rgba_premultiplied(220,220,255,a));
-        // Mini window body outline
-        let body_rect = egui::Rect::from_min_max(tb_rect.left_bottom(), rect.right_bottom());
-        painter.rect_filled(body_rect, 0.0, Color32::from_rgba_premultiplied(60,60,100,a));
-        painter.text(body_rect.center(), egui::Align2::CENTER_CENTER,
-            "⊞ Modal", egui::FontId::proportional(9.0), Color32::from_rgba_premultiplied(160,160,200,a));
         return;
     }
 

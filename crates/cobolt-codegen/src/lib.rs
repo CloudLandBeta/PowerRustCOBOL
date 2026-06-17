@@ -298,28 +298,6 @@ fn write_data_division(out: &mut String, form: &Form) {
         out.push('\n');
     }
 
-    // ── Modal window data items ───────────────────────────────────────────
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::ModalWindow) {
-        let shared = ctrl.get_prop("SharedDataItems")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_default();
-        let prog = ctrl.get_prop("ProgramName")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| ctrl.id.clone());
-        let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
-        out.push_str(&format!("      *>── Modal window: {} (program: {}) ───────────────────\n", ctrl.id, prog));
-        out.push_str(&format!("       01 {}-RESULT      PIC X(16) VALUE SPACES.\n", pfx));
-        if !shared.is_empty() {
-            out.push_str("      *>   Shared data items (passed to modal by reference):\n");
-            for item in shared.split(',').map(|s| s.trim()) {
-                if !item.is_empty() {
-                    out.push_str(&format!("      *>     {}\n", item));
-                }
-            }
-        }
-        out.push('\n');
-    }
-
     // ── User Working Storage (raw COBOL from .cfrm) ──────────────────────
     if !form.user_ws_source.trim().is_empty() {
         out.push_str("      *>── User Working Storage ────────────────────────────────────────\n");
@@ -442,7 +420,6 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     write_sql_stubs(out, &all_controls);
     write_agent_stubs(out, &all_controls);
     write_animation_stubs(out, form, &all_controls);
-    write_modal_stubs(out, &all_controls);
     write_chart_stubs(out, &all_controls);
 
     // ── Nested COBOL-85 programs — one per event handler ─────────────────
@@ -914,87 +891,6 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
             out.push_str("           CONTINUE.\n");
             out.push('\n');
         }
-    }
-}
-
-// ── ModalWindow open / close stub generator ───────────────────────────────────
-
-fn write_modal_stubs(out: &mut String, all_controls: &[&Control]) {
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::ModalWindow) {
-        let pfx       = format!("WS-{}", ctrl.id.replace('-', "-"));
-        let open_para = ctrl.get_prop("OpenParagraph")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| format!("{}-OPEN", ctrl.id));
-        let closed_para = ctrl.get_prop("ClosedParagraph")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| format!("{}-CLOSED", ctrl.id));
-        let confirmed_para = ctrl.get_prop("ConfirmedParagraph")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| format!("{}-CONFIRMED", ctrl.id));
-        let cancelled_para = ctrl.get_prop("CancelledParagraph")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| format!("{}-CANCELLED", ctrl.id));
-        let prog = ctrl.get_prop("ProgramName")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| ctrl.id.clone());
-        let shared = ctrl.get_prop("SharedDataItems")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_default();
-
-        // Open paragraph
-        out.push_str(&format!("       {}.\n", open_para));
-        out.push_str(&format!(
-            "      *>    Open modal window {} (COBOL program: {}).\n",
-            ctrl.id, prog
-        ));
-        if !shared.is_empty() {
-            out.push_str("      *>    Shared data items passed BY REFERENCE:\n");
-            for item in shared.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                out.push_str(&format!("      *>        {}\n", item));
-            }
-            // Build CALL USING clause
-            let using_clause: String = shared
-                .split(',')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .map(|s| format!("\n                     BY REFERENCE {}", s))
-                .collect::<Vec<_>>()
-                .join("");
-            out.push_str(&format!(
-                "           CALL \"{prog}\" USING BY VALUE FORM-NAME{using}\n",
-                prog = prog, using = using_clause
-            ));
-        } else {
-            out.push_str(&format!(
-                "           CALL \"{prog}\" USING BY VALUE FORM-NAME\n",
-                prog = prog
-            ));
-        }
-        out.push_str(&format!(
-            "           MOVE COBOL-MODAL-RESULT TO {pfx}-RESULT\n"
-        ));
-        out.push_str("           EVALUATE TRUE\n");
-        out.push_str(&format!("               WHEN {pfx}-RESULT = \"Confirmed\"\n"));
-        out.push_str(&format!("                   PERFORM {}\n", confirmed_para));
-        out.push_str(&format!("               WHEN {pfx}-RESULT = \"Cancelled\"\n"));
-        out.push_str(&format!("                   PERFORM {}\n", cancelled_para));
-        out.push_str("               WHEN OTHER\n");
-        out.push_str(&format!("                   PERFORM {}\n", closed_para));
-        out.push_str("           END-EVALUATE.\n");
-        out.push('\n');
-
-        write_stub_paragraph(
-            out, &closed_para,
-            &format!("{} closed — {}-RESULT contains the outcome", ctrl.id, pfx),
-        );
-        write_stub_paragraph(
-            out, &confirmed_para,
-            &format!("{} confirmed by user", ctrl.id),
-        );
-        write_stub_paragraph(
-            out, &cancelled_para,
-            &format!("{} cancelled by user", ctrl.id),
-        );
     }
 }
 

@@ -511,7 +511,6 @@ pub enum ControlType {
     // New controls
     Animator,      // Plays animated images (GIF / WebP / APNG)
     AgentObject,   // AI Agent (non-visual) — connects to local LLM
-    ModalWindow,   // Modal dialog window — runs its own COBOL program
     RestClient,    // REST API client (non-visual) — INVOKE-based HTTP calls
     SqlDatabase,   // SQL database client (non-visual) — SQLx-backed open/query/fetch
     Slider,        // Horizontal or vertical slider with min/max/step/tick marks
@@ -554,7 +553,6 @@ impl ControlType {
             ControlType::Timer            => "Timer",
             ControlType::Shape            => "Shape",
             ControlType::AgentObject      => "AgentObject",
-            ControlType::ModalWindow      => "ModalWindow",
             ControlType::RestClient       => "RestClient",
             ControlType::SqlDatabase      => "SqlDatabase",
             ControlType::Slider           => "Slider",
@@ -596,7 +594,6 @@ impl ControlType {
             "Timer"         => ControlType::Timer,
             "Shape"         => ControlType::Shape,
             "AgentObject"   => ControlType::AgentObject,
-            "ModalWindow"   => ControlType::ModalWindow,
             "RestClient"    => ControlType::RestClient,
             "SqlDatabase"   => ControlType::SqlDatabase,
             "Slider"        => ControlType::Slider,
@@ -643,7 +640,6 @@ impl ControlType {
             ControlType::Timer          => (48,  48),
             ControlType::Shape          => (120, 80),
             ControlType::AgentObject    => (56,  56),
-            ControlType::ModalWindow    => (300, 220),
             ControlType::RestClient     => (56,  56),
             ControlType::SqlDatabase    => (64,  64),
             ControlType::Slider         => (200, 36),
@@ -670,7 +666,6 @@ impl ControlType {
             ControlType::TreeView       => "onNodeClick",
             ControlType::Timer          => "onTick",
             ControlType::AgentObject    => "onResponse",
-            ControlType::ModalWindow    => "onClosed",
             ControlType::RestClient     => "onResponseReceived",
             ControlType::SqlDatabase    => "onQueryComplete",
             ControlType::Slider         => "onChange",
@@ -701,7 +696,6 @@ impl ControlType {
             ControlType::Animator    => &["onClick", "onDblClick", "onStarted", "onEnded"],
             ControlType::DataGrid    => &["onCellClick", "onCellChange", "onRowSelect", "onColumnClick", "onExportCSV"],
             ControlType::AgentObject => &["onResponse", "onError", "onStreamChunk", "onThinking"],
-            ControlType::ModalWindow => &["onClosed", "onLoaded", "onConfirmed", "onCancelled"],
             ControlType::RestClient   => &["onResponseReceived", "onError", "onTimeout", "onProgress"],
             ControlType::SqlDatabase  => &["onQueryComplete", "onConnectOk", "onConnectError", "onQueryError", "onRowFetched"],
             ControlType::Slider       => &["onChange", "onMouseUp", "onGotFocus", "onLostFocus"],
@@ -1044,23 +1038,6 @@ impl Control {
                 props.insert("StreamChunkParagraph".into(),   PropValue::String("".into()));
                 // Data item to put the response into
                 props.insert("ResponseDataItem".into(),  PropValue::String("".into()));
-            }
-            ControlType::ModalWindow => {
-                props.insert("FormFile".into(),          PropValue::String("".into())); // .cfrm path
-                props.insert("ProgramName".into(),       PropValue::String("".into())); // COBOL PROGRAM-ID
-                props.insert("Title".into(),             PropValue::String("Dialog".into()));
-                props.insert("Width".into(),             PropValue::Int(400));
-                props.insert("Height".into(),            PropValue::Int(300));
-                props.insert("Resizable".into(),         PropValue::Bool(false));
-                props.insert("StartPosition".into(),     PropValue::String("CenterParent".into())); // CenterParent | CenterScreen | Manual
-                // Shared COBOL data items (comma-separated) passed to/from the modal
-                props.insert("SharedDataItems".into(),   PropValue::String("".into()));
-                // COBOL paragraphs
-                props.insert("OpenParagraph".into(),          PropValue::String("".into()));
-                props.insert("ClosedParagraph".into(),        PropValue::String("".into()));
-                props.insert("ConfirmedParagraph".into(),     PropValue::String("".into()));
-                props.insert("CancelledParagraph".into(),     PropValue::String("".into()));
-                props.insert("ModalResult".into(),       PropValue::String("None".into())); // None | OK | Cancel | Yes | No
             }
             ControlType::Slider => {
                 props.insert("Minimum".into(),       PropValue::Int(0));
