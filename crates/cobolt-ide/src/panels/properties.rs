@@ -132,14 +132,30 @@ impl PropertiesPanel {
         tr:   &Tr,
     ) -> InspectorAction {
         let mut action = InspectorAction::default();
-        // Prevent any single property section from blowing out the panel width.
-        // This is especially important for SqlDatabase which has many long fields.
-        ui.set_max_width(ui.available_width());
-        ScrollArea::vertical()
+        // Pin the inspector to the panel's *current* width (both min and max). egui's
+        // SidePanel records the content's resulting rect width as the panel width every
+        // frame, so otherwise the pane would shrink to fit a control with few/short
+        // properties and grow for one with long values — i.e. resize itself on every
+        // selection. Forcing the content to fill exactly the available width keeps the
+        // recorded width constant; resizing stays the developer's job (drag the edge).
+        let panel_w = ui.available_width();
+        ui.set_width(panel_w);
+        // `both()` (not just vertical): the pane stays bounded to its own width, but
+        // if a single control's properties are genuinely wider than the pane (e.g. a
+        // long label beside a fixed-width combo at a narrow pane), the overflow becomes
+        // horizontally scrollable instead of bleeding past the window border or being
+        // clipped out of reach. Normal content still fits and never shows an h-bar.
+        ScrollArea::both()
             .id_salt("properties_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.set_max_width(ui.available_width());
+                // Clamp the scroll content to the (finite) panel width. A vertical
+                // ScrollArea can report an unbounded content width, which lets
+                // `desired_width(f32::INFINITY)` fields inside Grids (Advanced,
+                // Events, Animations, …) expand past the panel and drag the SidePanel
+                // wider. `.min(panel_w)` keeps every section within the border while
+                // still tracking the pane as the developer resizes it.
+                ui.set_max_width(ui.available_width().min(panel_w));
                 if let Some(ctrl) = ctrl {
                     self.show_control(ui, ctrl, &mut action, tr);
                 } else {
@@ -617,7 +633,7 @@ impl PropertiesPanel {
             let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
             let lines    = binding.map(|e| e.code_line_count()).unwrap_or(0);
 
-            let row_resp = ui.horizontal(|ui| {
+            let row_resp = ui.horizontal_wrapped(|ui| {
                 let dot_color = if has_code {
                     Color32::from_rgb(100, 220, 100)
                 } else {

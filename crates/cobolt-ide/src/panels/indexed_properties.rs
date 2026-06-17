@@ -28,6 +28,11 @@ fn label_row(ui: &mut egui::Ui, text: &str) {
         egui::vec2(ui.available_width(), h),
         egui::Layout::left_to_right(egui::Align::TOP),
         |ui| {
+            // Force the row to occupy exactly PROP_ROW_H. `allocate_ui_with_layout`
+            // otherwise advances by *content* height, so the label column (~18px rows)
+            // and the value column (taller textboxes/combos) drift apart row-by-row.
+            // Pinning every row to the same height keeps the two columns aligned.
+            ui.set_min_height(h);
             ui.label(label_with_colon(text));
         },
     );
@@ -291,7 +296,13 @@ fn value_row(ui: &mut egui::Ui, h: f32, add: impl FnOnce(&mut egui::Ui)) {
     ui.allocate_ui_with_layout(
         egui::vec2(ui.available_width(), h),
         egui::Layout::left_to_right(egui::Align::TOP),
-        add,
+        |ui| {
+            // Pin the row to exactly `h` so it lines up with the matching label row
+            // (see `label_row`). Without this the column advances by content height
+            // and the label/value pairs drift out of alignment.
+            ui.set_min_height(h);
+            add(ui);
+        },
     );
 }
 

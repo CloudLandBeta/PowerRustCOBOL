@@ -4702,11 +4702,18 @@ impl CoboltApp {
         // Allow the properties panel to be resized up to half the window width so
         // long values (paths, titles) aren't clipped by the window border.
         let half_win = (ctx.screen_rect().width() * 0.5).max(320.0);
+        // Zero the panel's right inner margin so the category section boxes (whose own
+        // right outer-margin is 0) extend all the way to the window border instead of
+        // stopping at the default panel inset. They already grow/shrink with the pane
+        // via `available_width`, so this is the only gap between them and the edge.
+        let props_frame = egui::Frame::side_top_panel(&ctx.style())
+            .inner_margin(egui::Margin { left: 6.0, right: 0.0, top: 6.0, bottom: 6.0 });
         let inspector_action = egui::SidePanel::right(format!("props_{idx}"))
             .resizable(true)
             .default_width(300.0)
             .min_width(220.0)
             .max_width(half_win)
+            .frame(props_frame)
             .show(ctx, |ui| {
                 // Split-borrow: form (immutable) and properties (mutable) from DesignerPanel.
                 let d = &mut self.designers[idx].1;
