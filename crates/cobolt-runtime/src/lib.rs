@@ -42,6 +42,8 @@ pub mod exec_rust;
 pub mod http_runtime;
 pub mod files;
 pub mod indexed;
+pub mod indexed_ide;
+pub mod indexed_import;
 pub mod indexed_disk;
 pub mod indexed_log;
 pub mod indexed_redb;
@@ -59,6 +61,10 @@ pub use indexed::{
     IndexedEngine, IndexedFileInfo, KeyDescriptor, KeyEncoding, KeyList, KeyOrdering, KeyPart,
     RecordFormat,
 };
+pub use indexed_ide::{
+    compare_schema, create_empty_from_definition, key_specs_from_def, GridSession, SchemaDrift,
+};
+pub use indexed_import::{definition_from_inspect, inspect_any_path};
 pub use interpreter::Interpreter;
 pub use environment::CobolEnvironment;
 pub use objects::ObjectRegistry;

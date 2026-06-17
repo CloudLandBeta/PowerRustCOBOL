@@ -97,7 +97,7 @@ fn methods_set_get_and_notify_ui() {
 }
 
 #[test]
-fn sql_widget_methods_run_against_db_engine() {
+fn sql_control_methods_run_against_db_engine() {
     let (out, _updates) = run(SQL_SRC);
     let joined = out.join("\n");
     // query() returns the SELECT row count via the live SQLite engine.

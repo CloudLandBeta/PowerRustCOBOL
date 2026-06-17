@@ -8,6 +8,23 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.23.0] — 2026-06-15
+
+Indexed File Editor, Grid Browser, and `.cidx` codegen in the IDE.
+
+### New
+
+- **Indexed Files** project-tree category (after Forms) listing `.cidx` definitions.
+- **Indexed File Editor** — separate viewport to define or inspect record layout,
+  keys, storage flags, and per-field grid controls; structural lock after finalize.
+- **Import existing…** — register an on-disk indexed data file; schema inferred via
+  `inspect_any_path` when available.
+- **Indexed File Grid Browser** — virtualized table with add/edit/delete,
+  Commit/Rollback, and schema-drift protection.
+- **Codegen** — `generated/<stem>-indexed.cbl` regenerated on Build / Run / Debug /
+  Check (same contract as forms).
+- **`cobolt-indexed` crate** — `.cidx` XML model shared by IDE, codegen, and runtime.
+
 ## [PowerRustCOBOL 1.22.0] — 2026-06-14
 
 Branding, About box, generated-code lifecycle, and spec-driven development infrastructure.
@@ -179,21 +196,21 @@ IDE visual redesign — "dark glass" look.
   gaps). The "Transparent background" option was **removed**.
 - **Collapsible property section cards** in the form inspector (Form Properties /
   Target Device / Appearance / Background Image / Size / Events) with blue ▸/▾
-  headers (`section_card`); the widget inspector shares the same blue card-style
+  headers (`section_card`); the control inspector shares the same blue card-style
   section headers for consistency.
 - **New "Deep Blue" theme** (17 total) — near-black glass panes with blue accents.
 - **Full-width selection pill** + hover highlight in the tree; **left-aligned**,
   snug rows (fixes centred/jittery labels); grey indent/divider lines removed.
 - **Solid semaphore knobs** — the green/yellow/red item-status dots are now crisp
   filled circles.
-- **Standardised non-visual widget icons** — Timer/AI-Agent/REST/SQL share one
+- **Standardised non-visual control icons** — Timer/AI-Agent/REST/SQL share one
   glass card and consistent stroke-drawn icons (no more mismatched colours, emoji
   tofu boxes or the one-off orange SQL cylinder).
 - **Toolbar** reordered to **Open · Save · Check · Build · Run · Debug · Stop · ⚙**;
   the separate Debug row now only appears during an active debug session.
 - **RAD properties panel** resizes up to half the window width (was capped at
   320px, clipping long values); **project tree** defaults to 410px wide.
-- Roomier spacing, 8px widget corners, larger fonts retained.
+- Roomier spacing, 8px control corners, larger fonts retained.
 
 ## [PowerRustCOBOL 1.16.0] — 2026-06-10
 
@@ -217,7 +234,7 @@ IDE: transparent-background option, calmer background, roomier UI.
   image is set).
 - **Roomier, softer UI.** More spacing between rows and around sections (larger
   item spacing, button padding, row height, window/menu margins) and softer
-  widget corners (8 px radius) for a less cramped, more polished feel.
+  control corners (8 px radius) for a less cramped, more polished feel.
 
 ## [PowerRustCOBOL 1.15.2] — 2026-06-10
 
@@ -980,11 +997,11 @@ The IDE interface is unchanged; all generated COBOL source stays in English.
 
 ### Form Designer & rendering
 
-- **New widget: Animator.** Plays animated images — **GIF, WebP and APNG** (and
+- **New control: Animator.** Plays animated images — **GIF, WebP and APNG** (and
   any still image) — decoded natively via the `image` crate (no external/FFmpeg
   dependency). Properties: `Source`, `AutoPlay`, `Loop`, `SizeMode`
   (Fit/Fill/Stretch/Center), back/border. Decoding + frame-timed egui playback
-  live in the new shared `cobolt-media` crate, so the widget animates in the
+  live in the new shared `cobolt-media` crate, so the control animates in the
   designer canvas, the preview, the run-form **and** the compiled standalone
   binary. (MP4 support is planned via a native decoder behind the same API.)
 
@@ -1009,7 +1026,7 @@ The IDE interface is unchanged; all generated COBOL source stays in English.
   (`properties.rs`, `app.rs`, `editor.rs`; i18n key `hint_dblclick_event`)
 
 - **#129 — Preview animations now apply `scale`.** Zoom/spin/flip animations
-  resize widgets in the preview window, via the shared
+  resize controls in the preview window, via the shared
   `designer::scale_rect_about_center()` (also used by the canvas). (`app.rs`)
 
 ### Runtime / language
@@ -2002,7 +2019,7 @@ It is catalogued here as the baseline feature set.
 #### IDE Shell (`cobolt-ide`)
 
 - **eframe/egui shell** — main application window with liquid-glass translucent
-  visuals, dark-navy palette, rounded widgets, and frosted-glass panel fills
+  visuals, dark-navy palette, rounded controls, and frosted-glass panel fills
 - **macOS dock icon** — programmatically generated 256×256 navy rounded-square
   with a blue "C" arc and terminal serifs
 - **Code editor panel** — scrolling source editor, syntax-aware font (12 pt
@@ -2064,7 +2081,7 @@ It is catalogued here as the baseline feature set.
   `OnFormLoad` animations auto-started on open; glass visuals applied to preview
   viewport; main designer visuals restored every frame to prevent bleed-through
 - **Delete key guard** — Delete/Backspace only removes selected controls when no
-  text-input widget has keyboard focus (`ctx.memory focused().is_none()`)
+  text-input control has keyboard focus (`ctx.memory focused().is_none()`)
 - **Target device presets** — "Target" dropdown in Form Properties with 24 device
   presets (iPhone, iPad, Apple Watch, Android phone/tablet/watch, custom);
   selecting a preset auto-sets form width × height

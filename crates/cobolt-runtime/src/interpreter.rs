@@ -3464,7 +3464,7 @@ impl Interpreter {
         self.objects.get_property(obj, prop).map(|v| v.to_string()).unwrap_or_default()
     }
 
-    /// Execute a widget method (`obj::method(args)` / `INVOKE obj "method"`).
+    /// Execute a control method (`obj::method(args)` / `INVOKE obj "method"`).
     /// Most methods are thin sugar over property get/set — which the form
     /// runtime mirrors to the live UI — and getters return a value (for the
     /// expression form and `RETURNING`).

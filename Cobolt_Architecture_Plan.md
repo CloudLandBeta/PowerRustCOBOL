@@ -61,14 +61,14 @@ PowerRustCOBOL/
 │   ├── cobolt-stdlib/          ← Built-in COBOL functions & I/O helpers
 │   ├── cobolt-forms/           ← `.cfrm` form/control data model
 │   ├── cobolt-codegen/         ← Form model → COBOL source generator
-│   ├── cobolt-media/           ← Animator widget (GIF/WebP/APNG)
+│   ├── cobolt-media/           ← Animator control (GIF/WebP/APNG)
 │   ├── cobolt-compiler/        ← Embed+bundle single-binary compiler
 │   ├── cobolt-cli/             ← `rcrun` command-line tool
 │   └── cobolt-ide/             ← PowerRustCOBOL desktop IDE (egui/eframe)
 │
 ├── tests/
 │   ├── cobol/                  ← COBOL integration programs (by topic)
-│   └── widgets/                ← per-widget integration harness
+│   └── controls/                ← per-control integration harness
 │
 └── tools/                      ← e.g. `check_bugs.sh` → `BUGS.md`
 ```
@@ -442,7 +442,7 @@ The generator preserves any existing user code paragraphs when regenerating (mer
 |---|---|
 | Core UI framework | `egui` + `eframe` |
 | Dockable panels | `egui_tiles` |
-| Table/grid widgets | `egui_extras` |
+| Table/grid controls | `egui_extras` |
 | Syntax highlighting | `syntect` (COBOL `.sublime-syntax` definition) |
 | File dialogs | `rfd` (native dialogs, cross-platform) |
 | Image loading | `image` crate |
@@ -452,7 +452,7 @@ The generator preserves any existing user code paragraphs when regenerating (mer
 
 ### 5.3 Form Designer Canvas
 
-The form designer is a custom `egui` widget rendered inside a scrollable canvas.
+The form designer is a custom `egui` control rendered inside a scrollable canvas.
 
 **Interaction model:**
 - **Drag from toolbox → canvas** — spawns a new control at drop position.
@@ -465,11 +465,11 @@ The form designer is a custom `egui` widget rendered inside a scrollable canvas.
 - **Tab key** — cycles selection by tab order.
 
 **Rendering approach:**  
-Each control type has a `fn render_in_designer(ui: &mut egui::Ui, ctrl: &Control, selected: bool)` implementation. These are simple egui widget approximations — not the actual runtime rendering — sufficient for layout purposes.
+Each control type has a `fn render_in_designer(ui: &mut egui::Ui, ctrl: &Control, selected: bool)` implementation. These are simple egui control approximations — not the actual runtime rendering — sufficient for layout purposes.
 
 ### 5.4 Code Editor
 
-- A custom `egui` text editor widget with:
+- A custom `egui` text editor control with:
   - **COBOL syntax highlighting** via a bundled `syntect` scope (keywords, identifiers, literals, comments, picture clauses).
   - **Line numbers** rendered in a fixed-width gutter.
   - **Diagnostics underlines** (red for errors, yellow for warnings) sourced from the semantic analyzer, rerun on save.
@@ -672,7 +672,7 @@ steps:
 - Intrinsic functions: LENGTH, NUMVAL, UPPER-CASE, LOWER-CASE, MAX, MIN, SQRT, MOD, REM, RANDOM, CURRENT-DATE.
 - Sequential and relative file I/O (using Rust `std::fs`).
 - STRING, UNSTRING, INSPECT verbs.
-- SCREEN SECTION (text-mode rendering via terminal or emulated screen widget).
+- SCREEN SECTION (text-mode rendering via terminal or emulated screen control).
 - Event model: `CALL 'COBOLT-WAIT-EVENT'`, `CALL 'COBOLT-SET-PROPERTY'`, `CALL 'COBOLT-GET-PROPERTY'`.
 
 ### 8.2 Indexed file I/O
@@ -771,13 +771,13 @@ If you or contributors want to begin coding immediately, here are natural starti
 | Crate | Purpose |
 |---|---|
 | `egui` + `eframe` 0.29 | IDE UI framework |
-| `egui_extras` | Image widgets in the designer |
+| `egui_extras` | Image controls in the designer |
 | `logos` | COBOL lexer generator |
 | `syntect` | Editor syntax highlighting |
 | `serde` + `quick-xml` | `.cfrm` form XML serialization |
 | `toml` | `cobolt.toml` project manifest |
 | `rfd` + `pollster` | Non-blocking native file dialogs |
-| `rusqlite` / `postgres` / `mysql` | SQL widget backends (pure Rust) |
+| `rusqlite` / `postgres` / `mysql` | SQL control backends (pure Rust) |
 | `redb` | Optional crash-safe indexed-file engine |
 | `bincode` + `flate2` | Binary compiler AST embed |
 | `ureq` | IDE AI assistant HTTP client |

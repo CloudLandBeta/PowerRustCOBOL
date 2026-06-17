@@ -4,7 +4,9 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Toolbox panel — MacPaint-style icon grid, two columns, vector-drawn icons.
+//! Toolbox panel — MacPaint-style icon grid with dynamic columns (1..N based on pane width),
+//! vector-drawn icons. Icons per row adjust on resize, always using consistent GAP padding
+//! between icons.
 
 use egui::{Color32, Pos2, RichText, Sense, Stroke, Ui, Vec2};
 use cobolt_forms::ControlType;
@@ -202,13 +204,26 @@ impl ToolboxPanel {
 // ── Grid renderer ──────────────────────────────────────────────────────────────
 
 fn render_icon_grid(ui: &mut Ui, entries: &[&ToolEntry], action: &mut ToolboxAction) {
-    // Two square buttons per row, each padded BTN_PAD_TOP on top and BTN_PAD_RIGHT
-    // on the right.  The allocated cell size is (BTN + BTN_PAD_RIGHT) × (BTN + BTN_PAD_TOP).
-    // Layout per row:  [left_pad]  [cell]  [GAP]  [cell]
-    // left_pad centres the pair in the available width.
-    let cell_w  = BTN + BTN_PAD_RIGHT;
-    let row_w   = cell_w * 2.0 + GAP;
-    let avail   = ui.available_width();
+    // Dynamic columns: compute how many BTN-sized icons (each allocated BTN+BTN_PAD_RIGHT wide)
+    // fit in the available pane width, using fixed GAP between them.
+    // The group of N icons is centered (same as the previous 2-col behavior).
+    // Supports N=1 .. as many as fit. Recomputes every frame on pane resize.
+    let icon_cell_w = BTN + BTN_PAD_RIGHT;
+    let gap = GAP;
+    let avail = ui.available_width().max(0.0);
+
+    let mut num_cols = 1usize;
+    let mut row_w = icon_cell_w;
+    for n in 2..=entries.len() {
+        let rw = n as f32 * icon_cell_w + (n as f32 - 1.0) * gap;
+        if rw <= avail {
+            num_cols = n;
+            row_w = rw;
+        } else {
+            break;
+        }
+    }
+
     let padding = ((avail - row_w) / 2.0).max(0.0);
 
     // Vertical gap between rows (the top-pad is baked into each cell allocation).
@@ -216,24 +231,21 @@ fn render_icon_grid(ui: &mut Ui, entries: &[&ToolEntry], action: &mut ToolboxAct
 
     let mut i = 0;
     while i < entries.len() {
-        let left  = entries[i];
-        let right = entries.get(i + 1).copied();
+        let end = (i + num_cols).min(entries.len());
+        let row_entries = &entries[i..end];
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = GAP;
             ui.add_space(padding);
 
-            if let Some(ct) = icon_btn(ui, left) {
-                action.dragged_type = Some(ct);
-            }
-            if let Some(right) = right {
-                if let Some(ct) = icon_btn(ui, right) {
+            for e in row_entries {
+                if let Some(ct) = icon_btn(ui, e) {
                     action.dragged_type = Some(ct);
                 }
             }
         });
 
-        i += 2;
+        i += num_cols;
     }
 }
 
@@ -302,6 +314,18 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
 
     let clicked      = resp.clicked()      && pointer_in_btn;
     let drag_started = resp.drag_started() && pointer_in_btn;
+
+    if drag_started && pointer_in_btn {
+        // Signal a direct drag from toolbox. The designer canvas will handle
+        // live preview at mouse position and drop (instead of center placement).
+        ui.ctx().memory_mut(|mem| {
+            mem.data.insert_temp(
+                egui::Id::new("toolbox_new_control"),
+                Some(entry.ct.clone()),
+            );
+        });
+    }
+
     if pointer_in_btn {
         let tooltip = match entry.ct {
             ControlType::Animator => "PlayGIF/WebP/APNG files",
@@ -310,7 +334,8 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
         resp.on_hover_text(tooltip);
     }
 
-    if clicked || drag_started {
+    // Click still places at center (legacy). Drag uses the memory path above for direct drop.
+    if clicked {
         Some(entry.ct.clone())
     } else {
         None

@@ -13,5 +13,6 @@ rust-version.workspace = true
 license.workspace     = true
 
 [dependencies]
-cobolt-forms = { path = "../cobolt-forms" }
-indexmap     = { workspace = true }
+cobolt-forms   = { path = "../cobolt-forms" }
+cobolt-indexed = { path = "../cobolt-indexed" }
+indexmap       = { workspace = true }

@@ -377,7 +377,7 @@ pub struct DesignerPanel {
     /// `None` means the path was tried but failed to load.
     pub(crate) image_cache: HashMap<String, Option<egui::TextureHandle>>,
 
-    /// The font the user most recently set on a widget in this form. New widgets
+    /// The font the user most recently set on a control in this form. New controls
     /// inherit it so a form keeps a consistent typeface.
     last_font_name: Option<String>,
     last_font_size: Option<i64>,
@@ -638,7 +638,7 @@ impl DesignerPanel {
         // Assign z_order = highest existing + 1
         let max_z = self.form.controls.iter().map(|c| c.z_order).max().unwrap_or(-1);
         ctrl.z_order = max_z + 1;
-        // Controls whose widget intrinsically shows a text label get a Caption.
+        // Controls whose control intrinsically shows a text label get a Caption.
         let has_caption = matches!(
             ct,
             ControlType::Label
@@ -652,7 +652,7 @@ impl DesignerPanel {
         }
 
         // Inherit the font the user last set this session, or — if none yet —
-        // the font of the most recently added control, so new widgets match the
+        // the font of the most recently added control, so new controls match the
         // rest of the form instead of resetting to the default typeface.
         let inherit_name = self.last_font_name.clone().or_else(|| {
             self.form.controls.last()
@@ -1046,7 +1046,7 @@ impl DesignerPanel {
             return;
         }
 
-        // Remember the last font the user chose, so newly-added widgets inherit
+        // Remember the last font the user chose, so newly-added controls inherit
         // it (see `add_control`).
         match key {
             "FontName" => self.last_font_name = Some(value.as_str().to_owned()),
@@ -1555,7 +1555,7 @@ impl DesignerPanel {
         }
         // Delete key: on macOS the physical Delete key sends Backspace; forward-delete sends Delete.
         // Accept both so that the delete action works on all platforms.
-        // Guard: only fire when no text-input widget has keyboard focus (i.e. the user is
+        // Guard: only fire when no text-input control has keyboard focus (i.e. the user is
         // not editing a property field, animation name, etc. in the properties panel).
         let no_text_focus = ctx.memory(|m| m.focused().is_none());
         let want_delete = no_text_focus && !self.selected_ids.is_empty() && ctx.input(|i| {
@@ -1763,7 +1763,7 @@ impl DesignerPanel {
         // Capture which handle (if any) was under the pointer at the exact moment
         // the mouse button went down.  We must store this NOW because by the time
         // `drag_started()` fires the pointer has already moved away from the handle.
-        // Guard with `resp.contains_pointer()` so clicks outside the canvas widget
+        // Guard with `resp.contains_pointer()` so clicks outside the canvas control
         // don't overwrite the stored value.
         if resp.contains_pointer() {
             let primary_just_pressed = resp.ctx.input(|i| i.pointer.primary_pressed());
@@ -2289,7 +2289,7 @@ pub(crate) fn draw_glass(
 
 /// Scale `base` uniformly about its centre by `scale` (1.0 = unchanged).
 /// Shared by the designer canvas, the preview window and the run form so that
-/// zoom/spin/flip animations resize widgets identically everywhere.
+/// zoom/spin/flip animations resize controls identically everywhere.
 pub(crate) fn scale_rect_about_center(base: egui::Rect, scale: f32) -> egui::Rect {
     if (scale - 1.0).abs() < 0.001 {
         base
@@ -2324,13 +2324,13 @@ fn control_type_name(ct: &ControlType) -> &'static str {
     }
 }
 
-// ── Non-visual widget rendering (standardised "liquid glass" icons) ─────────────
+// ── Non-visual control rendering (standardised "liquid glass" icons) ─────────────
 //
 // All non-visual controls (Timer / AgentObject / RestClient / SqlDatabase) share
 // one dark glass card + a consistent light, stroke-drawn ("hand-drawn") icon and
 // a larger label, so they look uniform on the canvas.
 
-/// Shared glass-card colour for every non-visual widget.
+/// Shared glass-card colour for every non-visual control.
 const NV_CARD: Color32 = Color32::from_rgb(40, 54, 84);
 
 /// Light "glass" colour for the stroke icons + labels.
@@ -2637,7 +2637,7 @@ pub(crate) fn draw_control(
         return;
     }
 
-    // ── Non-visual widgets — standardised glass card + stroke icon + label ─────
+    // ── Non-visual controls — standardised glass card + stroke icon + label ─────
     if matches!(ctrl.control_type, CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase) {
         nv_card(painter, rect, selected, glass, alpha_mul, a);
         let (cen, s, st) = nv_icon_geom(rect, a);
@@ -3692,7 +3692,7 @@ pub(crate) fn draw_icon_toolbar(
     let strip_rect = ui.clip_rect();
     ui.painter().rect_filled(strip_rect, 0.0, ui.visuals().panel_fill);
 
-    // Suppress egui widget backgrounds so icons paint cleanly over glass
+    // Suppress egui control backgrounds so icons paint cleanly over glass
     {
         let v = &mut ui.style_mut().visuals;
         v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
@@ -4257,7 +4257,7 @@ pub(crate) fn glass_combo_header(
     painter:     &egui::Painter,
     ui:          &mut egui::Ui,
     rect:        egui::Rect,
-    widget_id:   egui::Id,
+    control_id:   egui::Id,
     selected:    &str,
     is_open:     bool,
     enabled:     bool,
@@ -4292,7 +4292,7 @@ pub(crate) fn glass_combo_header(
     );
 
     // Click detection
-    enabled && ui.interact(rect, widget_id, egui::Sense::click()).clicked()
+    enabled && ui.interact(rect, control_id, egui::Sense::click()).clicked()
 }
 
 /// Draw the ComboBox dropdown popup (call after all normal controls).
@@ -4545,7 +4545,7 @@ mod render_behavior_tests {
         r
     }
 
-    /// All visual widgets the design-time canvas paints.
+    /// All visual controls the design-time canvas paints.
     fn visual_widgets() -> Vec<(ControlType, &'static str)> {
         use ControlType::*;
         vec![
@@ -4823,10 +4823,10 @@ mod sticky_font_tests {
         let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
         d.add_control(ControlType::Label, 10, 10);
         let first = d.form.controls[0].id.clone();
-        // User manually picks a font on the first widget.
+        // User manually picks a font on the first control.
         d.set_property(&first, "FontName", PropValue::String("Courier New".into()));
         d.set_property(&first, "FontSize", PropValue::Int(14));
-        // A newly-added widget inherits that exact font.
+        // A newly-added control inherits that exact font.
         d.add_control(ControlType::Button, 50, 50);
         let second = d.form.controls[1].id.clone();
         assert_eq!(font_of(&d, &second), ("Courier New".to_string(), 14));
@@ -4839,7 +4839,7 @@ mod sticky_font_tests {
         let first = d.form.controls[0].id.clone();
         d.set_property(&first, "FontName", PropValue::String("Verdana".into()));
         d.set_property(&first, "FontSize", PropValue::Int(18));
-        // Simulate a fresh session (no remembered font): a new widget should
+        // Simulate a fresh session (no remembered font): a new control should
         // still match the existing control's font, not reset to the default.
         d.last_font_name = None;
         d.last_font_size = None;

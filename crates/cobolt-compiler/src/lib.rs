@@ -567,7 +567,7 @@ tracing         = "0.1"
 "#);
 
     if has_forms {
-        s.push_str(&format!(r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms" }}
+        s.push_str(&format!(r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
 eframe          = {{ version = "0.29", features = ["default_fonts"] }}
 egui            = "0.29"

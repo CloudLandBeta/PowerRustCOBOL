@@ -119,6 +119,9 @@ pub struct ProjectFiles {
     /// RAD-generated COBOL (output of the form designer) — **read-only**.
     #[serde(default)]
     pub generated: Vec<String>,
+    /// Indexed-file definitions (`.cidx`) — edited in the Indexed File Editor.
+    #[serde(default)]
+    pub indexed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +187,7 @@ impl CoboltProject {
             Category::Assets        => &mut self.files.assets,
             Category::Documentation => &mut self.files.documentation,
             Category::Generated     => &mut self.files.generated,
+            Category::IndexedFiles => &mut self.files.indexed,
         }
     }
 
@@ -195,6 +199,7 @@ impl CoboltProject {
         self.files.assets.retain(|f| f != &rel);
         self.files.documentation.retain(|f| f != &rel);
         self.files.generated.retain(|f| f != &rel);
+        self.files.indexed.retain(|f| f != &rel);
     }
 
     /// True if `rel` is tracked by the project.
@@ -213,11 +218,24 @@ impl CoboltProject {
         }
         let stem = Path::new(&rel).file_stem().and_then(|s| s.to_str());
         let is_cobol = FileKind::from_path(&rel) == FileKind::Source;
-        is_cobol
-            && stem.is_some()
-            && self.files.forms.iter().any(|form| {
-                Path::new(form).file_stem().and_then(|s| s.to_str()) == stem
-            })
+        if is_cobol && stem.is_some() {
+            let stem = stem.unwrap();
+            if self.files.forms.iter().any(|form| {
+                Path::new(form).file_stem().and_then(|s| s.to_str()) == Some(stem)
+            }) {
+                return true;
+            }
+            // `generated/<stem>-indexed.cbl` from a `.cidx` definition.
+            if stem.ends_with("-indexed") {
+                let base = stem.strip_suffix("-indexed").unwrap_or(stem);
+                if self.files.indexed.iter().any(|cidx| {
+                    Path::new(cidx).file_stem().and_then(|s| s.to_str()) == Some(base)
+                }) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Files in a given UI category (Generated is overlaid on Common Code in the
@@ -229,6 +247,7 @@ impl CoboltProject {
             Category::Assets        => &self.files.assets,
             Category::Documentation => &self.files.documentation,
             Category::Generated     => &self.files.generated,
+            Category::IndexedFiles => &self.files.indexed,
         }
     }
 
@@ -236,6 +255,7 @@ impl CoboltProject {
     pub fn all_files(&self) -> impl Iterator<Item = &str> {
         self.files.sources.iter()
             .chain(self.files.forms.iter())
+            .chain(self.files.indexed.iter())
             .chain(self.files.assets.iter())
             .chain(self.files.documentation.iter())
             .chain(self.files.generated.iter())
@@ -291,6 +311,8 @@ impl ElementStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
     Forms,
+    /// Indexed-file definitions (`.cidx`).
+    IndexedFiles,
     CommonCode,
     /// RAD output — its own read-only top category (one file per form).
     Generated,
@@ -301,8 +323,9 @@ pub enum Category {
 impl Category {
     /// The fixed top categories, in display order. `Generated` is IDE-owned and
     /// read-only (developers cannot add to it — forms populate it).
-    pub const TOP: [Category; 5] = [
+    pub const TOP: [Category; 6] = [
         Category::Forms,
+        Category::IndexedFiles,
         Category::CommonCode,
         Category::Generated,
         Category::Assets,
@@ -319,22 +342,16 @@ impl Category {
     pub fn of_path(path: &str) -> Category {
         match FileKind::from_path(path) {
             FileKind::Form          => Category::Forms,
+            FileKind::Indexed       => Category::IndexedFiles,
             FileKind::Source        => Category::CommonCode,
             FileKind::Documentation => Category::Documentation,
             FileKind::Asset         => Category::Assets,
         }
     }
 
-    /// A professional Unicode icon for the category header.
-    pub fn icon(self) -> &'static str {
-        match self {
-            Category::Forms         => "🖼",
-            Category::CommonCode    => "🧩",
-            Category::Generated     => "⚙",
-            Category::Assets        => "🎴",
-            Category::Documentation => "📚",
-        }
-    }
+    // NOTE: Visual icons for the project tree are hand-written vector shapes
+    // (see panels/project.rs: tree_icon + draw_*_icon). These emoji strings
+    // are intentionally removed for cross-OS / font-independent rendering.
 }
 
 // ── FileKind ──────────────────────────────────────────────────────────────────
@@ -343,6 +360,7 @@ impl Category {
 pub enum FileKind {
     Source,
     Form,
+    Indexed,
     Asset,
     Documentation,
 }
@@ -357,6 +375,7 @@ impl FileKind {
         match ext.as_str() {
             "cbl" | "cob" | "cpy"                          => FileKind::Source,
             "cfrm"                                          => FileKind::Form,
+            "cidx"                                          => FileKind::Indexed,
             "md" | "markdown" | "txt" | "rst" | "adoc"
             | "pdf" | "html" | "htm"                       => FileKind::Documentation,
             _                                              => FileKind::Asset,
@@ -367,20 +386,14 @@ impl FileKind {
         match self {
             FileKind::Source        => "Common Code",
             FileKind::Form          => "Forms",
+            FileKind::Indexed       => "Indexed Files",
             FileKind::Asset         => "Assets",
             FileKind::Documentation => "Documentation",
         }
     }
 
-    /// A professional Unicode icon for a file of this kind.
-    pub fn icon(self) -> &'static str {
-        match self {
-            FileKind::Source        => "🧾",
-            FileKind::Form          => "🖼",
-            FileKind::Asset         => "🎴",
-            FileKind::Documentation => "📄",
-        }
-    }
+    // Visual icons are drawn with vectors in the project tree (see panels/project.rs).
+    // Emoji versions removed for portability across OSes and font configurations.
 }
 
 // ── Load / Save ───────────────────────────────────────────────────────────────
@@ -581,6 +594,17 @@ pub fn relative_to(path: &Path, base: &Path) -> Option<String> {
         .map(|rel| rel.to_string_lossy().replace('\\', "/"))
 }
 
+/// True when an indexed file's `assign_path` lies under `project_dir` and can be
+/// bundled into a project zip (R24).
+pub fn assign_path_is_packaged(assign: &str, project_dir: &Path) -> bool {
+    let p = Path::new(assign);
+    if p.is_absolute() {
+        return false;
+    }
+    let abs = project_dir.join(p);
+    abs.exists() && relative_to(&abs, project_dir).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -602,8 +626,44 @@ mod tests {
         assert_eq!(p.files.documentation, vec!["docs/manual.md"]);
         assert_eq!(Category::of_path("a.cbl"), Category::CommonCode);
         assert_eq!(Category::of_path("a.cfrm"), Category::Forms);
+        assert_eq!(Category::of_path("a.cidx"), Category::IndexedFiles);
         assert_eq!(Category::of_path("a.md"), Category::Documentation);
         assert_eq!(Category::of_path("a.png"), Category::Assets);
+    }
+
+    #[test]
+    fn indexed_category_tree_order() {
+        let top: Vec<_> = Category::TOP.iter().copied().collect();
+        assert_eq!(
+            top,
+            vec![
+                Category::Forms,
+                Category::IndexedFiles,
+                Category::CommonCode,
+                Category::Generated,
+                Category::Assets,
+                Category::Documentation,
+            ]
+        );
+    }
+
+    #[test]
+    fn indexed_generated_cbl_detected() {
+        let mut p = proj();
+        p.add_file("indexed/customers.cidx");
+        p.add_generated("generated/customers-indexed.cbl");
+        assert!(p.is_generated("generated/customers-indexed.cbl"));
+    }
+
+    #[test]
+    fn external_assign_path_not_packaged() {
+        let dir = std::env::temp_dir().join("prcidx_pkg_test");
+        let _ = std::fs::create_dir_all(&dir);
+        assert!(!assign_path_is_packaged("/tmp/outside.idx", &dir));
+        let rel = dir.join("data").join("in.idx");
+        let _ = std::fs::create_dir_all(rel.parent().unwrap());
+        let _ = std::fs::write(&rel, b"");
+        assert!(assign_path_is_packaged("data/in.idx", &dir));
     }
 
     #[test]

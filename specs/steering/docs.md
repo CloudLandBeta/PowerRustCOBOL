@@ -29,8 +29,9 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | Document / section | Code areas (globs) | Topic |
 |--------------------|--------------------|-------|
 | `developers-guide-en.md#5-the-ide-at-a-glance` | `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/panels/**` | ide-ui |
+| `…#indexed-file-editor--grid-browser` | `crates/cobolt-indexed/**`, `crates/cobolt-ide/src/panels/indexed_*.rs`, `crates/cobolt-codegen/src/indexed.rs` | indexed-editor |
 | `…#7-the-form-designer-rad` | `crates/cobolt-ide/src/panels/designer.rs`, `crates/cobolt-forms/**` | designer |
-| `…#8-the-widget-catalogue` | `crates/cobolt-forms/**` | widgets |
+| `…#8-the-control-catalogue` | `crates/cobolt-forms/**` | controls |
 | `…#11-talking-to-the-ui-from-cobol` | `crates/cobolt-runtime/**` (dispatch), `crates/cobolt-codegen/**` | ui-calls |
 | `…#12-generated-code` | `crates/cobolt-codegen/**` | codegen |
 | `…#13-the-rustcobol-language` | `crates/cobolt-{lexer,parser,semantic,runtime,stdlib}/**` | language |

@@ -2006,7 +2006,14 @@ pub(crate) fn parse_method_tail(p: &mut Parser) -> Option<(String, Vec<Expr>)> {
     if !(p.eat(&Token::Colon) && p.eat(&Token::Colon)) {
         return None;
     }
-    let method = p.eat_identifier().map(|(n, _)| n)?;
+    // Accept bare identifier (preferred for :: syntax) or a string literal
+    // (for symmetry with classic INVOKE and to tolerate old completion output
+    // that inserted 'Method' or "Method").
+    let method = p.eat_identifier()
+        .map(|(n, _)| n)
+        .or_else(|| crate::expr::take_string_literal(p))
+        .unwrap_or_default();
+    if method.is_empty() { return None; }
     let mut args = Vec::new();
     if p.eat(&Token::LParen) {
         while !p.at(&Token::RParen) && !p.at(&Token::Eof) {

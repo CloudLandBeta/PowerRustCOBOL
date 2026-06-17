@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Animated-image decoding and egui playback for the **Animator** widget.
+//! Animated-image decoding and egui playback for the **Animator** control.
 //!
 //! Supports animated **GIF**, **WebP** and **APNG**, plus any still image as a
 //! single-frame "animation". Decoding is delegated to the `image` crate (no
@@ -35,7 +35,7 @@ const MIN_DELAY_MS: u32 = 20;
 
 /// Largest frame dimension we keep. Frames larger than this are downscaled so an
 /// uploaded texture can never exceed the GPU's maximum texture side (which would
-/// abort the renderer). 2048 is safe on every target and ample for a UI widget.
+/// abort the renderer). 2048 is safe on every target and ample for a UI control.
 const MAX_DIM: u32 = 2048;
 
 /// Target `(w, h)` that fits within `MAX_DIM` while preserving aspect ratio.
@@ -150,7 +150,7 @@ struct AnimCache {
 ///
 /// The result is cached in egui memory keyed by `key`, so callers should pass a
 /// stable key (e.g. the control id + source path). A repaint is requested while
-/// animating so the widget keeps advancing.
+/// animating so the control keeps advancing.
 pub fn play(
     ctx: &egui::Context,
     key: &str,

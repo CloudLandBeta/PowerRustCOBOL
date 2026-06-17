@@ -152,6 +152,18 @@ use cobolt_runtime::indexed::{status, IndexedFile, KeySpec, OpenMode};
 /// Indexed-file name inside the project's `data/` directory.
 pub const CONVERSATIONS_FILE: &str = "conversations.dat";
 
+/// Dedicated IDE-managed indexed file (in the project's `data/`) for general
+/// per-project persistence of small state that must survive restarts.
+/// Examples: which .cidx files have had their descriptor edited via the
+/// embedded raw COBOL editor (once used, the property pane form is locked
+/// and the editor remains the visible surface for that file's record layout,
+/// exactly as agent conversation history uses the conversations store).
+///
+/// This follows the project rule that "persistence of any kind should always
+/// go in indexed files managed by the IDE (just like the history of agent
+/// conversations)" — dog-fooding the same `IndexedFile` runtime engine.
+pub const IDE_STATE_FILE: &str = "ide_state.dat";
+
 const KEY_LEN: usize = 200;
 const PAYLOAD_LEN: usize = 128 * 1024;
 const RECORD_LEN: usize = KEY_LEN + PAYLOAD_LEN;
@@ -262,6 +274,91 @@ pub fn save_history(data_dir: &Path, key: &str, turns: &[ChatTurn]) {
     } else {
         let json = fit_json(turns);
         let rec = make_record(key, &json);
+        let (existing, _) = f.read_key(&kb);
+        if existing.is_some() {
+            f.rewrite(&rec, Some(&kb));
+        } else {
+            f.write(&rec);
+        }
+    }
+
+    f.commit();
+    f.close();
+}
+
+// ── General IDE-managed state persistence (dog-foods indexed runtime) ────────
+
+fn build_ide_state_store(data_dir: &Path) -> IndexedFile {
+    let path = data_dir.join(IDE_STATE_FILE);
+    let primary = KeySpec { offset: 0, len: KEY_LEN, duplicates: false };
+    let mut f = IndexedFile::new(path, RECORD_LEN, primary, Vec::new());
+    f.set_strict_metadata(false);
+    f.set_compressing(true);
+    f.set_persist(true);
+    f.set_key_names(vec![Some("IDE-STATE-KEY".to_string())]);
+    f
+}
+
+fn open_ide_state_create(data_dir: &Path) -> Option<IndexedFile> {
+    let _ = std::fs::create_dir_all(data_dir);
+    let mut f = build_ide_state_store(data_dir);
+    match f.open(OpenMode::Io) {
+        status::OK => Some(f),
+        status::FILE_NOT_FOUND => {
+            let mut creator = build_ide_state_store(data_dir);
+            if creator.open(OpenMode::Output) != status::OK {
+                return None;
+            }
+            creator.close();
+            let mut reopened = build_ide_state_store(data_dir);
+            (reopened.open(OpenMode::Io) == status::OK).then_some(reopened)
+        }
+        _ => None,
+    }
+}
+
+/// Load the set of *relative* paths (to project root) of indexed files whose
+/// record descriptor (file descriptor / data items layout) was edited via the
+/// embedded raw COBOL editor. Once any such edit happens, the properties pane
+/// form is no longer offered for that file's descriptor; the editor must
+/// remain the visible/primary surface.
+pub fn load_raw_preferred_indexed(data_dir: &Path) -> std::collections::HashSet<String> {
+    let mut f = build_ide_state_store(data_dir);
+    if f.open(OpenMode::Input) != status::OK {
+        return std::collections::HashSet::new();
+    }
+    let kb = key_bytes("__RAW_PREFERRED_INDEXED");
+    let (rec, st) = f.read_key(&kb);
+    f.close();
+    if st != status::OK || rec.is_none() {
+        return std::collections::HashSet::new();
+    }
+    let rec = rec.unwrap();
+    if rec.len() <= KEY_LEN {
+        return std::collections::HashSet::new();
+    }
+    let payload = &rec[KEY_LEN..];
+    let end = payload.iter()
+        .rposition(|&b| b != b' ' && b != 0)
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let text = String::from_utf8_lossy(&payload[..end]);
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+/// Persist the set (as relative paths). Pass empty set to clear the record.
+pub fn save_raw_preferred_indexed(data_dir: &Path, prefs: &std::collections::HashSet<String>) {
+    let Some(mut f) = open_ide_state_create(data_dir) else { return; };
+    let kb = key_bytes("__RAW_PREFERRED_INDEXED");
+
+    if prefs.is_empty() {
+        let (existing, _) = f.read_key(&kb);
+        if existing.is_some() {
+            f.delete(Some(&kb));
+        }
+    } else {
+        let json = serde_json::to_string(&prefs.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
+        let rec = make_record("__RAW_PREFERRED_INDEXED", &json);
         let (existing, _) = f.read_key(&kb);
         if existing.is_some() {
             f.rewrite(&rec, Some(&kb));

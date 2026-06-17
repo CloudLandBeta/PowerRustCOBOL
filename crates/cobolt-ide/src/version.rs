@@ -13,10 +13,10 @@
 ///   deployment backend).  Reset y and z to 0.
 ///
 /// **y** — Increment when new functionality is delivered within existing
-///   components: new Form Designer widgets, new control properties, new IDE
+///   components: new Form Designer controls, new control properties, new IDE
 ///   panels or toolbar actions, new RustCOBOL language features, new rcrun
 ///   built-in CALLs, etc.  Reset z to 0.
 ///
 /// **z** — Increment for bug fixes, visual polish, performance improvements,
 ///   and any change that does not add new user-visible functionality.
-pub const VERSION: &str = "1.22.0";
+pub const VERSION: &str = "1.23.0";

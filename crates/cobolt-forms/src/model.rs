@@ -804,7 +804,7 @@ impl Control {
         let mut props = IndexMap::new();
 
         let id_str = id.into();
-        // Controls whose widget intrinsically shows a text label.
+        // Controls whose control intrinsically shows a text label.
         let has_caption = matches!(
             control_type,
             ControlType::Label

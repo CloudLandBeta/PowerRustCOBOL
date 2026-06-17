@@ -30,7 +30,7 @@ See the LICENSE file in the project root for full license information.
 5. [La IDE de un vistazo](#5-la-ide-de-un-vistazo)
 6. [Projects y el project model](#6-projects-y-el-project-model)
 7. [El Form Designer (RAD)](#7-el-form-designer-rad)
-8. [El widget catalogue](#8-el-widget-catalogue)
+8. [El control catalogue](#8-el-control-catalogue)
 9. [Properties](#9-properties)
 10. [Event-driven programming](#10-event-driven-programming)
 11. [Hablar con la UI desde COBOL](#11-hablar-con-la-ui-desde-cobol)
@@ -203,7 +203,7 @@ flowchart TB
   la parte superior del tree, o automáticamente al abrir un proyecto por primera
   vez — sin editor visible). Usa exactamente la misma construcción de glass
   pane (CentralPanel + frame de glass) que el inspector de propiedades de
-  widgets para ancho consistente (sin falta de ~9px en el borde derecho) y
+  controls para ancho consistente (sin falta de ~9px en el borde derecho) y
   altura 100% plena (el pane crece/encoge con el área disponible por encima del
   Output panel al redimensionar ventana o splitter). El borde inferior
   redondeado de la card se mantiene claramente por encima del output/console
@@ -393,7 +393,7 @@ window**, de modo que puedes tener varios designers y running forms lado a lado.
 
 ```mermaid
 flowchart LR
-    TBX["Toolbox<br/>(widgets, grouped)"]
+    TBX["Toolbox<br/>(controls, grouped)"]
     CANVAS["Design canvas<br/>(drag · drop · resize · align)"]
     PROP["Properties pane<br/>(per selection)"]
     TBX -- "drag onto" --> CANVAS
@@ -403,7 +403,7 @@ flowchart LR
 
 - **Toolbox (left).** Widgets agrupados en **Non-Visual**, **Common**,
   **Container**, **Data**, **Graphics**, **Menu**, **Charts** y **Dialogs**.
-  Arrastra cualquier widget al canvas.
+  Arrastra cualquier control al canvas.
 - **Canvas (centre).** Mueve, redimensiona (arrastrando los border grips), alinea y
   distribuye controls. Un snap-to-grid mantiene todo ordenado. Puedes redimensionar el
   **form itself** arrastrando sus edges.
@@ -428,14 +428,14 @@ width/height del form al profile elegido.
 > y el properties pane mostrando los section cards. Idealmente usa un project con
 > background image para que se vea el glass styling.
 
-> **Note (non-visual widgets).** Timer, AI Agent, REST Client y SQL Database
+> **Note (non-visual controls).** Timer, AI Agent, REST Client y SQL Database
 > son **non-visual**: aparecen en el canvas como glass "chips" etiquetados en
 > design time pero no renderizan nada en run time. Existen para ser configurados y para
 > disparar events / ser `CALL`ed desde tu COBOL.
 
 ---
 
-## 8. El widget catalogue
+## 8. El control catalogue
 
 PowerRustCOBOL incluye los siguientes controls. Visual controls renderizan en run time;
 los non-visual son services.
@@ -465,8 +465,8 @@ los non-visual son services.
 > **Note.** Existe un control type `Custom` como extension point para
 > bespoke/vendor controls; trátalo como advanced.
 
-> 📷 **Screenshot needed — `widget-gallery.png`.** Un single form (o la preview
-> window) mostrando uno de cada major widget para que los newcomers los reconozcan.
+> 📷 **Screenshot needed — `control-gallery.png`.** Un single form (o la preview
+> window) mostrando uno de cada major control para que los newcomers los reconozcan.
 > Los charts se benefician especialmente de un visual.
 
 ---
@@ -560,7 +560,7 @@ En palabras:
 
 > ⚠️ **Caveat — designable vs. fired.** Todo listed event es **designable**: puedes
 > adjuntar un COBOL handler a cualquiera de ellos hoy y será generado. El
-> **runtime currently fires** form `onLoad`/`onClose`, y para widgets:
+> **runtime currently fires** form `onLoad`/`onClose`, y para controls:
 > `onClick`, `onChange`, el focus pair `onGotFocus`/`onLostFocus`, y el
 > pointer set `onDblClick`, `onMouseDown`, `onMouseUp`, `onMouseEnter`,
 > `onMouseLeave`. Más events (keyboard, scrolling y los form-level
@@ -647,7 +647,7 @@ como hace PowerCOBOL — un quoted property name `OF` el control:
 El **IntelliSense** del editor te guía por esta syntax: escribe `"` y lista cada
 property alfabéticamente; sigue escribiendo para filtrar (`"Capt…"` → `Caption`) y
 aceptar la suggestion cierra la quote (`"Caption"`). Luego ofrece el qualifier `OF`,
-y después de `OF` lista los **widgets que realmente exponen esa property**
+y después de `OF` lista los **controls que realmente exponen esa property**
 (`"Caption" OF Bu…` → `Button-1`, `Button-2`, …). Para COBOL ordinario, aceptar
 una reserved word simplemente inserta la word y un space, y espera lo que escribas después —
 sin auto-filled template.
@@ -675,11 +675,11 @@ Property names son exactamente los del properties pane (e.g. `"Caption"`, `"Text
 > `MOVE propertyA TO propertyB` no requiere **ningún intermediate `PIC` data item** —
 > un paso que el classic GUI COBOL te obliga a hacer.
 
-### Calling widget methods
+### Calling control methods
 
-Properties describen *qué es un widget*; **methods** describen *qué puede hacer* —
+Properties describen *qué es un control*; **methods** describen *qué puede hacer* —
 mostrarlo, moverlo, incrementar un value, agregar un list item, disparar un HTTP
-request. Cada widget entiende un set de **universal** methods más sus propios
+request. Cada control entiende un set de **universal** methods más sus propios
 **type-specific** ones. Puedes llamar un method de tres maneras, todas equivalentes:
 
 ```cobol
@@ -702,16 +702,16 @@ request. Cada widget entiende un set de **universal** methods más sus propios
 Arguments van entre parentheses (inline / expression form) o después de `USING`
 (`INVOKE` form); un method que devuelve value puede usarse directamente en una
 expression o capturarse con `RETURNING`. El IntelliSense del editor lista los methods
-de un widget después de que escribes `::`, cada uno con una one-line description.
+de un control después de que escribes `::`, cada uno con una one-line description.
 
-**Universal methods** (cada visible widget):
+**Universal methods** (cada visible control):
 
 | Method | Effect |
 |--------|--------|
 | `Show` / `Hide` | Define la property `Visible` on u off. |
 | `Enable` / `Disable` | Define la property `Enabled` on u off. |
-| `SetFocus` | Da keyboard focus al widget. |
-| `MoveTo(x, y)` | Reposiciona el widget (define `X` / `Y`). |
+| `SetFocus` | Da keyboard focus al control. |
+| `MoveTo(x, y)` | Reposiciona el control (define `X` / `Y`). |
 | `Resize(w, h)` | Cambia su size (define `Width` / `Height`). |
 | `BringToFront` / `SendToBack` | Cambia stacking order. |
 | `SetProperty(name, value)` / `GetProperty(name)` | Generic access a cualquier property por name. |
@@ -1028,7 +1028,7 @@ Los drivers son pure y bundled (no necesitas instalar `libpq`/OpenSSL). Usa
 reference: `docs/database-runtime.md`.
 
 > **Note.** Puedes modelar una database connection visualmente con el **SQL Database**
-> non-visual widget (sus properties guardan la connection string, driver y los
+> non-visual control (sus properties guardan la connection string, driver y los
 > data items que sus events pueblan), o manejarlo completamente desde code con los
 > `CALL`s anteriores.
 
@@ -1038,9 +1038,9 @@ reference: `docs/database-runtime.md`.
 
 - **HTTP/REST.** `COBOL-HTTP-GET/POST/PUT/DELETE` emiten requests;
   `COBOL-HTTP-SET-HEADER` / `COBOL-HTTP-CLEAR-HEADERS` gestionan headers. El
-  **REST Client** non-visual widget te da un designable endpoint con events para
+  **REST Client** non-visual control te da un designable endpoint con events para
   responses, errors, timeouts y progress.
-- **AI agents.** El **AI Agent** non-visual widget modela una connection a un
+- **AI agents.** El **AI Agent** non-visual control modela una connection a un
   language model (endpoint, model, system prompt, temperature, token limits) y
   dispara events como `onResponse`, `onStreamChunk`, `onError` y
   `onThinking`, que consumen tus COBOL handlers.
@@ -1143,7 +1143,7 @@ el botón **Debug** de la toolbar (a la derecha de **Run**).
 
 Una consolidated list para que nada te sorprenda:
 
-- **Event firing.** Todos los form/widget events son *designable*; solo el core set es
+- **Event firing.** Todos los form/control events son *designable*; solo el core set es
   *fired* por el runtime hoy (ver §10). Verifica en *Run Form*.
 - **File organisations.** SEQUENTIAL, LINE SEQUENTIAL e INDEXED son
   supported; **RELATIVE is planned**.
@@ -1181,13 +1181,13 @@ Un rough mental map para acelerar tu adaptación. Son *analogies*, no equivalent
 ## Appendix B — Glossary
 
 - **Form** — una window que diseñas; almacenada como `.cfrm` file.
-- **Control / widget** — un element en un form (button, text box, chart, …).
+- **Control / control** — un element en un form (button, text box, chart, …).
 - **Property** — un named attribute de un control o form.
 - **Event** — algo que el user (o system) hace; named `onSomething`.
 - **Handler** — el COBOL que corre para un event; un nested program.
 - **Generated code** — el read-only `.cbl` que PowerRustCOBOL produce desde un form.
 - **Common Code** — tu hand-written COBOL.
-- **Non-visual widget** — un service sin run-time appearance (Timer, SQL,
+- **Non-visual control** — un service sin run-time appearance (Timer, SQL,
   REST, AI Agent).
 - **rcrun** — el command-line runtime / checker / packager / compiler.
 - **Indexed file** — un ISAM file (`ORGANIZATION IS INDEXED`).

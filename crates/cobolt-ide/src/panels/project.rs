@@ -25,6 +25,7 @@ use std::time::SystemTime;
 use egui::{Color32, Context, RichText, ScrollArea, SidePanel, Ui};
 
 use cobolt_forms::model::Form;
+use cobolt_indexed::{IndexedDefinition, IndexedField};
 
 use crate::project_model::{CoboltProject, Category, ElementStatus, FileKind};
 use crate::i18n::Tr;
@@ -51,6 +52,12 @@ pub enum ProjectPanelEvent {
     InspectForm(PathBuf),
     /// Show a control's properties in the Main Pane (click a control in a form).
     InspectControl { form: PathBuf, ctrl_id: String },
+    /// Open an indexed-file editor viewport (double-click a `.cidx` node).
+    OpenIndexedEditor(PathBuf),
+    /// Show indexed-file properties in the Main Pane (single click).
+    InspectIndexedFile(PathBuf),
+    /// Show a field's properties (click a field under an indexed file).
+    InspectIndexedField { cidx: PathBuf, field_id: String },
     /// Open a widget event's handler — its nested COBOL program — in the
     /// editor (click an Events entry). `paragraph` is the nested PROGRAM-ID
     /// (the name is historical; see `EventBinding::paragraph`).
@@ -77,6 +84,8 @@ pub struct ProjectPanel {
     expanded: HashSet<PathBuf>,
     /// mtime-keyed cache of loaded forms (for the controls sub-tree).
     forms: HashMap<PathBuf, (SystemTime, Form)>,
+    /// mtime-keyed cache of loaded `.cidx` definitions (field sub-tree).
+    indexed: HashMap<PathBuf, (SystemTime, IndexedDefinition)>,
     /// Per-element "semaphore" status, keyed by relative path.
     status: HashMap<String, ElementStatus>,
     /// The currently selected tree element (a unique key — see `sel_*` helpers).
@@ -89,6 +98,7 @@ impl Default for ProjectPanel {
             root: None,
             expanded: HashSet::new(),
             forms: HashMap::new(),
+            indexed: HashMap::new(),
             status: HashMap::new(),
             selected: None,
         }
@@ -99,6 +109,7 @@ impl Default for ProjectPanel {
 fn sel_file(rel: &str) -> String { format!("file:{rel}") }
 fn sel_ctrl(rel: &str, id: &str) -> String { format!("ctrl:{rel}#{id}") }
 fn sel_event(rel: &str, id: &str, ev: &str) -> String { format!("event:{rel}#{id}@{ev}") }
+fn sel_idx_field(rel: &str, id: &str) -> String { format!("idxfld:{rel}#{id}") }
 
 /// A selectable tree row that fills the remaining width: a full-width rounded
 /// **pill** (selection / hover) painted behind a **left-aligned** label. (Using
@@ -159,6 +170,11 @@ impl ProjectPanel {
     /// an inline-inspector edit / designer save).
     pub fn refresh_form(&mut self, path: &Path) {
         self.forms.remove(path);
+    }
+
+    /// Drop cached `.cidx` so the field sub-tree reloads after a save.
+    pub fn refresh_indexed(&mut self, path: &Path) {
+        self.indexed.remove(path);
     }
 
     /// Set the semaphore status for a tracked element (relative path).
@@ -249,7 +265,7 @@ impl ProjectPanel {
                 let mut root_clicked = false;
                 egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), root_id, true)
                     .show_header(ui, |ui| {
-                        ui.label(RichText::new("📁").size(ICON_SIZE));
+                        tree_icon(ui, draw_folder_icon);
                         let name_label = egui::Label::new(RichText::new(&proj.project.name).strong())
                             .sense(egui::Sense::click());
                         let name_resp = ui.add(name_label)
@@ -323,14 +339,11 @@ impl ProjectPanel {
 
             if path.is_dir() {
                 let expanded = self.expanded.contains(path);
-                let label = if expanded {
-                    format!("▾ 📁 {name}")
-                } else {
-                    format!("▸ 📁 {name}")
-                };
+                let arrow = if expanded { "▾" } else { "▸" };
                 ui.horizontal(|ui| {
                     ui.add_space(indent);
-                    if ui.selectable_label(false, label).clicked() {
+                    tree_icon(ui, draw_folder_icon);
+                    if ui.selectable_label(false, format!("{arrow} {name}")).clicked() {
                         if expanded {
                             self.expanded.remove(path);
                         } else {
@@ -351,15 +364,10 @@ impl ProjectPanel {
                     "cbl" | "cob" | "cpy" | "cfrm" | "toml" | "txt") {
                     continue;
                 }
-                let icon = match ext.to_ascii_lowercase().as_str() {
-                    "cbl" | "cob" => "📄",
-                    "cpy"         => "📋",
-                    "cfrm"        => "🗔",
-                    _             => "📃",
-                };
                 ui.horizontal(|ui| {
                     ui.add_space(indent + 14.0);
-                    if ui.selectable_label(false, format!("{icon} {name}"))
+                    tree_icon(ui, draw_document_icon);
+                    if ui.selectable_label(false, name)
                         .double_clicked()
                     {
                         opened = Some(path.clone());
@@ -389,9 +397,126 @@ fn status_dot(ui: &mut Ui, status: ElementStatus) {
     resp.on_hover_text(status.tooltip());
 }
 
+/// Allocate a fixed square for a  tree icon and invoke the draw closure with
+/// (painter, rect, color). Keeps icons crisp vector strokes (no emoji/glyphs)
+/// so they render identically on every OS.
+pub(crate) fn tree_icon(ui: &mut Ui, draw: impl FnOnce(&egui::Painter, egui::Rect, Color32)) {
+    let size = egui::vec2(ICON_SIZE, ICON_SIZE);
+    let (rect, _resp) = ui.allocate_exact_size(size, egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let color = ui.visuals().text_color();
+        draw(painter, rect.shrink(1.8), color);
+    }
+}
+
+/// Classic folder icon (used for project root and generic categories).
+fn draw_folder_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
+    let s = egui::Stroke::new(1.5, c);
+    let tab_h = r.height() * 0.28;
+    let tab_w = r.width() * 0.42;
+    // Tab (filled)
+    let tab = egui::Rect::from_min_size(r.min, egui::vec2(tab_w, tab_h));
+    p.rect_filled(tab, 1.5, c);
+    // Body (stroke only for "open" feel)
+    let body = egui::Rect::from_min_size(
+        r.min + egui::vec2(0.0, tab_h * 0.45),
+        egui::vec2(r.width(), r.height() - tab_h * 0.45),
+    );
+    p.rect_stroke(body, 1.8, s);
+}
+
+/// Indexed file / data cabinet (replacement for 🗂️). Two record lines + index accent tab.
+/// Used both for the "Indexed Files" category header and for each .cidx entry (e.g. CUSTOMER-FILE).
+pub(crate) fn draw_indexed_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
+    let s = egui::Stroke::new(1.55, c);
+    let body = r.shrink(1.5);
+    p.rect_stroke(body, 1.4, s);
+    // Record / row lines inside the "file"
+    for i in 0..3 {
+        let y = body.min.y + body.height() * (0.30 + i as f32 * 0.18);
+        p.line_segment(
+            [egui::pos2(body.min.x + 3.0, y), egui::pos2(body.max.x - 3.0, y)],
+            egui::Stroke::new(1.0, c),
+        );
+    }
+    // Small "index key" or tab accent (right side, near top)
+    let ax = body.max.x - 4.5;
+    let ay = body.min.y + body.height() * 0.20;
+    p.rect_filled(
+        egui::Rect::from_center_size(egui::pos2(ax, ay), egui::vec2(4.2, 2.8)),
+        0.8,
+        c,
+    );
+}
+
+/// Simple document / file icon for forms, sources, assets, docs etc.
+fn draw_document_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
+    let s = egui::Stroke::new(1.5, c);
+    let body = r.shrink(2.0);
+    p.rect_stroke(body, 1.5, s);
+    // Folded corner suggestion (small diagonal)
+    let fold = egui::pos2(body.max.x - 5.0, body.min.y + 2.0);
+    p.line_segment(
+        [egui::pos2(body.max.x - 2.0, body.min.y + 5.0), fold],
+        egui::Stroke::new(1.0, c),
+    );
+    // Three text lines
+    for i in 0..3 {
+        let y = body.min.y + body.height() * (0.35 + i as f32 * 0.16);
+        p.line_segment(
+            [egui::pos2(body.min.x + 3.0, y), egui::pos2(body.max.x - 4.0, y)],
+            egui::Stroke::new(0.9, c),
+        );
+    }
+}
+
+/// Tiny padlock for generated / locked items (replaces 🔒).
+fn draw_lock_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
+    let s = egui::Stroke::new(1.4, c);
+    let cx = r.center().x;
+    let cy = r.center().y;
+    // Shackle as three line segments (avoids PathShape differences)
+    let sw = 1.3;
+    // left vertical
+    p.line_segment(
+        [egui::pos2(cx - 3.2, cy + 0.5), egui::pos2(cx - 3.2, cy - 2.8)],
+        egui::Stroke::new(sw, c),
+    );
+    // top arc (approx with short horiz)
+    p.line_segment(
+        [egui::pos2(cx - 3.2, cy - 2.8), egui::pos2(cx + 3.2, cy - 2.8)],
+        egui::Stroke::new(sw, c),
+    );
+    // right vertical
+    p.line_segment(
+        [egui::pos2(cx + 3.2, cy - 2.8), egui::pos2(cx + 3.2, cy + 0.5)],
+        egui::Stroke::new(sw, c),
+    );
+    // Body
+    let body = egui::Rect::from_center_size(
+        egui::pos2(cx, cy + 3.2),
+        egui::vec2(r.width() * 0.70, r.height() * 0.40),
+    );
+    p.rect_stroke(body, 1.2, s);
+}
+
 // ── Category tree node (L2) ─────────────────────────────────────────────────────
 
 impl ProjectPanel {
+    /// mtime-cached load of a `.cidx` for the field sub-tree.
+    fn indexed_for(&mut self, abs: &Path) -> Option<IndexedDefinition> {
+        let mtime = std::fs::metadata(abs).and_then(|m| m.modified()).ok()?;
+        if let Some((t, d)) = self.indexed.get(abs) {
+            if *t == mtime {
+                return Some(d.clone());
+            }
+        }
+        let def = cobolt_indexed::load_indexed(abs).ok()?;
+        self.indexed.insert(abs.to_path_buf(), (mtime, def.clone()));
+        Some(def)
+    }
+
     /// mtime-cached load of a form for the controls sub-tree (returns a clone).
     fn form_for(&mut self, abs: &Path) -> Option<Form> {
         let mtime = std::fs::metadata(abs).and_then(|m| m.modified()).ok()?;
@@ -417,6 +542,7 @@ impl ProjectPanel {
     ) {
         let (label, kind): (&str, Option<FileKind>) = match cat {
             Category::Forms         => (tr.panel_forms, Some(FileKind::Form)),
+            Category::IndexedFiles  => (tr.cat_indexed_files, Some(FileKind::Indexed)),
             Category::CommonCode    => (tr.cat_common_code, Some(FileKind::Source)),
             Category::Generated     => (tr.cat_generated_code, None),
             Category::Assets        => (tr.panel_assets, Some(FileKind::Asset)),
@@ -424,17 +550,21 @@ impl ProjectPanel {
         };
         let is_generated = cat == Category::Generated;
         let is_forms = cat == Category::Forms;
+        let is_indexed = cat == Category::IndexedFiles;
         let root = self.root.clone();
 
         let id = ui.make_persistent_id(("project_cat", label));
         egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
             .show_header(ui, |ui| {
-                ui.label(RichText::new(cat.icon()).size(ICON_SIZE));
+                match cat {
+                    Category::IndexedFiles => tree_icon(ui, draw_indexed_icon),
+                    _ => tree_icon(ui, draw_folder_icon),
+                }
                 ui.label(RichText::new(label).strong());
                 // Generated Code is IDE-owned (forms populate it) — no [+].
                 if let Some(kind) = kind {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let plus = ui.small_button("➕")
+                        let plus = ui.small_button("+")
                             .on_hover_text(format!("{}: {label}", tr.tree_create_hover));
                         if plus.clicked() {
                             events.push(ProjectPanelEvent::Create(kind));
@@ -461,11 +591,14 @@ impl ProjectPanel {
                     let st = self.status_for(rel);
                     if is_forms {
                         self.show_form_item(ui, rel, &root, cur, events, tr);
+                    } else if is_indexed {
+                        self.show_indexed_item(ui, rel, &root, cur, events, tr);
                     } else if is_generated {
                         file_row(ui, rel, "🔒", Some(crate::theme::active().ed_generated), false, st, cur, &root, events);
                     } else {
-                        let icon = kind.map(|k| k.icon()).unwrap_or("📄");
-                        file_row(ui, rel, icon, None, true, st, cur, &root, events);
+                        // The icon string is only used as a selector for vector draw
+                        // (see file_row); real drawing no longer depends on FileKind::icon().
+                        file_row(ui, rel, "doc", None, true, st, cur, &root, events);
                     }
                 }
             });
@@ -497,7 +630,7 @@ impl ProjectPanel {
             .show_header(ui, |ui| {
                 ui.add_space(8.0);
                 status_dot(ui, form_status);
-                ui.label(RichText::new(FileKind::Form.icon()).size(ICON_SIZE));
+                tree_icon(ui, draw_document_icon);
                 full_width_select(ui, form_selected, RichText::new(name)).on_hover_text(rel)
             })
             .body(|ui| {
@@ -544,6 +677,89 @@ impl ProjectPanel {
             }
         }
         ui.add_space(1.0);
+    }
+
+    /// An indexed-file item (L3) expanding to its record fields.
+    fn show_indexed_item(
+        &mut self,
+        ui:     &mut Ui,
+        rel:    &str,
+        root:   &Option<PathBuf>,
+        cur:    &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+        tr:     &Tr,
+    ) {
+        let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
+        let abs = root.as_ref().map(|d| d.join(rel));
+        let def = abs.as_ref().and_then(|p| self.indexed_for(p));
+        let status = self.status_for(rel);
+        let file_key = sel_file(rel);
+        let file_selected = cur.as_deref() == Some(file_key.as_str());
+
+        let id = ui.make_persistent_id(("indexed_item", rel));
+        let (_toggle, header_inner, _body) =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+            .show_header(ui, |ui| {
+                ui.add_space(8.0);
+                status_dot(ui, status);
+                tree_icon(ui, draw_indexed_icon);
+                full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel)
+            })
+            .body(|ui| {
+                let Some(def) = &def else {
+                    ui.label(RichText::new("  (could not read .cidx)")
+                        .color(crate::theme::active().text_dim).small());
+                    return;
+                };
+                let Some(cidx_path) = &abs else { return; };
+                for field in &def.fields {
+                    indexed_field_node(ui, rel, field, 0, status, cur, events, cidx_path);
+                }
+            });
+        let resp = header_inner.inner;
+        if let Some(p) = &abs {
+            if resp.double_clicked() {
+                events.push(ProjectPanelEvent::OpenIndexedEditor(p.clone()));
+            } else if resp.clicked() {
+                events.push(ProjectPanelEvent::Select(file_key));
+                events.push(ProjectPanelEvent::InspectIndexedFile(p.clone()));
+            }
+        }
+        ui.add_space(1.0);
+    }
+}
+
+fn indexed_field_node(
+    ui:     &mut Ui,
+    rel:    &str,
+    field:  &IndexedField,
+    depth:  usize,
+    status: ElementStatus,
+    cur:    &Option<String>,
+    events: &mut Vec<ProjectPanelEvent>,
+    cidx_abs: &Path,
+) {
+    let indent = 20.0 + depth as f32 * 14.0;
+    let key = sel_idx_field(rel, &field.name);
+    let selected = cur.as_deref() == Some(key.as_str());
+    let row_resp = ui.horizontal(|ui| {
+        ui.add_space(indent);
+        status_dot(ui, status);
+        full_width_select(
+            ui,
+            selected,
+            RichText::new(format!("{:02} {}", field.level, field.name)).monospace(),
+        )
+    }).inner;
+    if row_resp.clicked() {
+        events.push(ProjectPanelEvent::Select(key));
+        events.push(ProjectPanelEvent::InspectIndexedField {
+            cidx: cidx_abs.to_path_buf(),
+            field_id: field.name.clone(),
+        });
+    }
+    for child in &field.children {
+        indexed_field_node(ui, rel, child, depth + 1, status, cur, events, cidx_abs);
     }
 }
 
@@ -686,7 +902,11 @@ fn file_row(
     let resp = ui.horizontal(|ui| {
         ui.add_space(8.0);
         status_dot(ui, status);
-        ui.label(RichText::new(icon).size(ICON_SIZE));
+        if icon == "🔒" {
+            tree_icon(ui, draw_lock_icon);
+        } else {
+            tree_icon(ui, draw_document_icon);
+        }
         full_width_select(ui, is_sel, text).on_hover_text(rel)
     }).inner;
 

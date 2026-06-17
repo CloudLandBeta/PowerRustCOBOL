@@ -83,7 +83,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - `> 📷 **Screenshot needed — \`name.png\`** …` — image placeholder for `/doc-shots`.
 
 ## Tables
-- Use for **reference matrices and comparisons** (widgets, themes, mappings).
+- Use for **reference matrices and comparisons** (controls, themes, mappings).
   Keep cells short (a few words); push detail into prose. Don't hard-wrap inside
   cells.
 

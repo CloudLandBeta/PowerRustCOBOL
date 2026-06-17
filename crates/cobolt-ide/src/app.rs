@@ -22,13 +22,22 @@ use std::path::{Path, PathBuf};
 use egui::{Context, Key, KeyboardShortcut, Modifiers, Vec2, ViewportBuilder, ViewportId};
 
 use cobolt_forms::{Form, load_form, save_form};
-use cobolt_codegen::generate;
+use cobolt_codegen::{generate, generate_indexed};
+use cobolt_indexed::{load_indexed, record_to_text, resolve_path, save_indexed, text_to_record, IndexedDefinition};
+use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
+use cobolt_runtime::indexed_ide::{compare_schema, SchemaDrift};
 use cobolt_compiler::{BuildOptions, build_project};
 
 use crate::panels::{
     designer::DesignerPanel,
     editor::EditorPanel,
     forms_list::FormsListPanel,
+    indexed_editor::{
+        IndexedEditorPanel, IndexedSelection, RawDialogResult, StructureAction,
+    },
+    indexed_grid::{GridAction, IndexedGridPanel},
+    indexed_new_dialog::{NewIndexedAction, NewIndexedDialog},
+    indexed_properties::PropertyEdit,
     output::OutputPanel,
     project::{ProjectPanel, ProjectPanelEvent},
     toolbar::{self, ToolbarAction},
@@ -199,8 +208,19 @@ pub struct CoboltApp {
     // Open form designers (each lives in its own viewport window)
     designers: Vec<(PathBuf, DesignerPanel)>,
 
+    // Grid browser viewports keyed by `.cidx` path
+    indexed_grids: Vec<(PathBuf, IndexedGridState)>,
+
     // Inline form/control inspector shown in the Main Pane (from the project tree)
     inspect: Option<InspectState>,
+
+    // Inline indexed-file inspector in the Main Pane
+    indexed_inspect: Option<IndexedInspectState>,
+
+    /// Indexed files that were created or last edited via the raw COBOL text
+    /// editor. For these files we keep the editor visible / preferred and
+    /// do not offer (or lock down) the properties pane for structural changes.
+    raw_preferred_indexed: std::collections::HashSet<PathBuf>,
 
     // Content hash of each file at its last successful/failed check (for the tree
     // "semaphore": a file edited since its last check shows yellow again).
@@ -239,6 +259,7 @@ pub struct CoboltApp {
 
     // Dialog state
     new_form:    NewFormDialog,
+    new_indexed: NewIndexedDialog,
     new_project: NewProjectDialog,
 
     // Cross-window pending actions
@@ -311,7 +332,26 @@ const APP_FILE_KEY: &str = "app-file-dialog";
 /// Standard project sub-folders — one per category plus working/build folders.
 /// Created when a project is made, and back-filled (if missing) when one is opened.
 const PROJECT_FOLDERS: &[&str] =
-    &["src", "forms", "generated", "assets", "docs", "bin", "debug", "temp", "dist", "data"];
+    &["src", "forms", "indexed", "generated", "assets", "docs", "bin", "debug", "temp", "dist", "data", "copybooks"];
+
+/// Inline indexed-file inspector in the Main Pane.
+struct IndexedInspectState {
+    path: PathBuf,
+    def: IndexedDefinition,
+    panel: IndexedEditorPanel,
+    dirty: bool,
+    /// If true, this file was defined (or last significantly edited) via the
+    /// raw COBOL-85 text editor. Structural edits via the properties/tree pane
+    /// are discouraged/locked; the editor remains the primary/visible surface.
+    prefer_raw_editor: bool,
+}
+
+/// Grid browser state for one `.cidx`.
+struct IndexedGridState {
+    panel: IndexedGridPanel,
+    def: IndexedDefinition,
+    close_requested: bool,
+}
 
 /// Inline form/control inspector shown in the Main Pane (from the project tree).
 /// Holds a transient `DesignerPanel` so it reuses the designer's property-edit
@@ -380,7 +420,10 @@ impl CoboltApp {
             runner:     Runner::new(),
             forms_list: FormsListPanel::new(),
             designers:     Vec::new(),
-            inspect:       None,
+            indexed_grids:   Vec::new(),
+            inspect:         None,
+            indexed_inspect: None,
+            raw_preferred_indexed: std::collections::HashSet::new(),
             checked:       std::collections::HashMap::new(),
             form_runtimes: Vec::new(),
             debug_runner:  DebugRunner::new(),
@@ -399,6 +442,7 @@ impl CoboltApp {
             llm_test_status: None,
 
             new_form:    NewFormDialog::new(),
+            new_indexed: NewIndexedDialog::new(),
             new_project: NewProjectDialog::new(),
 
             pending_open_in_editor: None,
@@ -424,6 +468,7 @@ impl CoboltApp {
 
     fn do_run(&mut self) {
         self.regenerate_all_forms();
+        self.regenerate_all_indexed_files();
         // Prefer the file in the editor; otherwise fall back to the open
         // project's main program, so Run always does something visible.
         let target = self.editor.active_source()
@@ -480,6 +525,7 @@ impl CoboltApp {
     /// and starts `DebugRunner` with `new_with_debug_channels()`.
     fn do_debug(&mut self) {
         self.regenerate_all_forms();
+        self.regenerate_all_indexed_files();
         let Some((path, src)) = self.editor.active_source() else { return; };
         let path   = path.clone();
         let source = src.to_owned();
@@ -562,6 +608,7 @@ impl CoboltApp {
 
     fn do_check(&mut self) {
         self.regenerate_all_forms();
+        self.regenerate_all_indexed_files();
         let Some((path, src)) = self.editor.active_source() else { return; };
         let path   = path.clone();
         let source = src.to_owned();
@@ -751,6 +798,18 @@ impl CoboltApp {
                 self.output.push_status(format!("Opened project '{}'", proj.project.name));
                 self.cobolt_project = Some(proj);
                 self.project_path   = Some(path);
+
+                // Load persisted "raw editor preferred" for indexed files from the
+                // IDE-managed indexed state file in the project's data/ (dog-fooding
+                // the same mechanism used for agent conversation history).
+                if let Some(root) = dir.as_ref() {
+                    let data_dir = root.join("data");
+                    let rels = crate::llm::load_raw_preferred_indexed(&data_dir);
+                    self.raw_preferred_indexed = rels
+                        .into_iter()
+                        .map(|rel| root.join(rel))
+                        .collect();
+                }
                 if let Some(dir) = dir {
                     // Back-fill any standard sub-folders missing from older projects.
                     let mut created = 0;
@@ -835,6 +894,19 @@ impl CoboltApp {
             return;
         };
         let proj_dir = proj_path.parent().unwrap_or(proj_path.as_path()).to_owned();
+        let tr = self.lang.tr();
+        for rel in &proj.files.indexed {
+            let cidx_path = proj_dir.join(rel);
+            if let Ok(def) = load_indexed(&cidx_path) {
+                if !crate::project_model::assign_path_is_packaged(&def.assign_path, &proj_dir) {
+                    self.output.push_status(format!(
+                        "{} ({})",
+                        tr.pkg_warn_external_path,
+                        def.assign_path
+                    ));
+                }
+            }
+        }
         let proj_snap = proj.clone();
         match package_project(&proj_snap, &proj_dir, &out_zip) {
             Ok(count) => {
@@ -855,6 +927,7 @@ impl CoboltApp {
     /// Progress lines are forwarded to the Output panel.
     fn do_build_binary(&mut self) {
         self.regenerate_all_forms();
+        self.regenerate_all_indexed_files();
         let Some(proj_path) = &self.project_path else {
             self.output.push_status("Open or create a project first (File → New/Open Project).");
             return;
@@ -910,6 +983,7 @@ impl CoboltApp {
         match kind {
             // A form has a real "create" dialog.
             FileKind::Form          => self.new_form.open = true,
+            FileKind::Indexed       => self.new_indexed_file_dialog(),
             FileKind::Source        => self.create_new_text_file(FileKind::Source),
             FileKind::Documentation => self.create_new_text_file(FileKind::Documentation),
             // Assets can't be authored in the IDE — creating one means importing.
@@ -978,6 +1052,8 @@ impl CoboltApp {
                 spec.filter("COBOL Source", &["cbl", "cob", "cpy"]),
             FileKind::Form =>
                 spec.filter("RustCOBOL Form", &["cfrm"]),
+            FileKind::Indexed =>
+                spec.filter("Indexed data file", &["idx", "dat"]),
             FileKind::Documentation =>
                 spec.filter("Documentation",
                     &["md", "markdown", "txt", "rst", "adoc", "pdf", "html", "htm"]),
@@ -992,6 +1068,10 @@ impl CoboltApp {
     /// (`src/`, `forms/`, `assets/`, `docs/`) so it becomes part of the project
     /// (and ships with the build); a file already inside is tracked in place.
     fn add_file_to_project_path(&mut self, kind: FileKind, path: PathBuf) {
+        if kind == FileKind::Indexed {
+            self.import_indexed_data_file(path);
+            return;
+        }
         use crate::project_model::Category;
         let proj_dir = match &self.project_path {
             Some(p) => p.parent().unwrap_or(p.as_path()).to_owned(),
@@ -1005,6 +1085,7 @@ impl CoboltApp {
                 let subdir = match kind {
                     FileKind::Source        => "src",
                     FileKind::Form          => "forms",
+                    FileKind::Indexed       => "data",
                     FileKind::Asset         => "assets",
                     FileKind::Documentation => "docs",
                 };
@@ -1034,6 +1115,7 @@ impl CoboltApp {
         let category = match kind {
             FileKind::Source        => Category::CommonCode,
             FileKind::Form          => Category::Forms,
+            FileKind::Indexed       => Category::IndexedFiles,
             FileKind::Asset         => Category::Assets,
             FileKind::Documentation => Category::Documentation,
         };
@@ -1041,6 +1123,10 @@ impl CoboltApp {
             proj.add_file_to(&rel, category);
         }
         self.do_save_project();
+    }
+
+    fn new_indexed_file_dialog(&mut self) {
+        self.new_indexed.open = true;
     }
 
     fn do_remove_file_from_project(&mut self, rel: String) {
@@ -1160,6 +1246,69 @@ impl CoboltApp {
                 });
             }
             Err(e) => self.output.push_status(format!("Failed to read form: {e}")),
+        }
+    }
+
+    fn open_indexed_inspect(&mut self, path: PathBuf, field_id: Option<String>) {
+        self.indexed_inspect = None;
+        match load_indexed(&path) {
+            Ok(def) => {
+                let mut panel = IndexedEditorPanel::new();
+                if let Some(id) = field_id {
+                    panel.select_field(id);
+                }
+                let prefer = self.raw_preferred_indexed.contains(&path);
+                let mut inspect = IndexedInspectState {
+                    path,
+                    def,
+                    panel,
+                    dirty: false,
+                    prefer_raw_editor: prefer,
+                };
+                inspect.panel.sync_from_def(&inspect.def);
+                // Seed raw_text from the project's copybooks/<NAME>.fd.cpy when present
+                // (the canonical source for the COBOL editor text). This ensures the
+                // editor opens with any previously saved changes. Fall back to a
+                // generated representation derived from the .cidx model.
+                let raw_seed = if let Some(cpy) = self.indexed_fd_copybook_path(&inspect.def.name) {
+                    std::fs::read_to_string(&cpy).unwrap_or_else(|_| record_to_text(&inspect.def))
+                } else {
+                    record_to_text(&inspect.def)
+                };
+                inspect.panel.raw_text = raw_seed;
+                self.indexed_inspect = Some(inspect);
+            }
+            Err(e) => self.output.push_status(format!("Failed to read .cidx: {e}")),
+        }
+    }
+
+    fn save_and_refresh_indexed(&mut self) {
+        if let Some(st) = &mut self.indexed_inspect {
+            st.dirty = true;
+            if save_indexed(&st.path, &st.def).is_ok() {
+                st.dirty = false;
+                st.panel.sync_from_def(&st.def);
+                let path = st.path.clone();
+                let def = st.def.clone();
+                // Compute cpy name + descriptor text *while* the &mut borrow of indexed_inspect
+                // is active; perform all self.* calls *after* so NLL can end the borrow early
+                // (avoids E0499/E0502 when calling &mut self methods).
+                let name_for_cpy = def.name.clone();
+                if !st.prefer_raw_editor {
+                    st.panel.raw_text = record_to_text(&st.def);
+                }
+                let text = if !st.panel.raw_text.trim().is_empty() {
+                    st.panel.raw_text.clone()
+                } else {
+                    let gen = record_to_text(&st.def);
+                    st.panel.raw_text = gen.clone();
+                    gen
+                };
+                self.project.refresh_indexed(&path);
+                self.write_generated_indexed_for(&path, &def);
+                let _ = self.write_indexed_fd_copybook(&name_for_cpy, &text);
+                self.set_element_status(&path, ElementStatus::Changed);
+            }
         }
     }
 
@@ -1375,6 +1524,594 @@ impl CoboltApp {
         cfrm.with_extension("cbl")
     }
 
+    fn generated_indexed_cbl_path(&self, cidx: &std::path::Path) -> PathBuf {
+        let stem = cidx.file_stem().and_then(|s| s.to_str()).unwrap_or("indexed");
+        if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
+            return dir.join("generated").join(format!("{stem}-indexed.cbl"));
+        }
+        cidx.with_extension("cbl")
+    }
+
+    /// Path under the project `copybooks/` for the canonical COBOL-85 record
+    /// descriptor source for an indexed file (keyed by its logical name e.g.
+    /// CUSTOMER-FILE.fd.cpy). This is the file the raw COBOL editor reads/writes.
+    fn indexed_fd_copybook_path(&self, indexed_name: &str) -> Option<PathBuf> {
+        let dir = self.project_dir()?;
+        Some(dir.join("copybooks").join(format!("{}.fd.cpy", indexed_name)))
+    }
+
+    /// Ensure copybooks/ exists and write (or overwrite) the given text as the
+    /// editable COBOL descriptor for the named indexed file.
+    fn write_indexed_fd_copybook(&self, indexed_name: &str, text: &str) -> bool {
+        let Some(path) = self.indexed_fd_copybook_path(indexed_name) else { return false; };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(&path, text).is_ok()
+    }
+
+    fn resolve_assign_path(&self, def: &IndexedDefinition) -> Option<PathBuf> {
+        let root = self.project_dir()?;
+        Some(resolve_path(&root, &def.assign_path))
+    }
+
+    fn check_schema_drift(&self, def: &IndexedDefinition) -> (bool, Option<String>) {
+        let Some(data) = self.resolve_assign_path(def) else {
+            return (false, None);
+        };
+        if !data.exists() {
+            return (false, None);
+        }
+        let Ok(info) = inspect_any_path(&data) else {
+            return (false, None);
+        };
+        let Some(info) = info else {
+            return (true, Some("no on-disk schema".into()));
+        };
+        match compare_schema(def, &info) {
+            SchemaDrift::Ok => (false, None),
+            SchemaDrift::Mismatch { detail } => (true, Some(detail)),
+            SchemaDrift::NoSchemaOnDisk => (true, Some("no schema on disk".into())),
+        }
+    }
+
+
+
+    fn open_grid_for_indexed(&mut self, cidx_path: &Path, def: &IndexedDefinition) {
+        let (drift, _) = self.check_schema_drift(def);
+        let data_path = match self.resolve_assign_path(def) {
+            Some(p) => p,
+            None => return,
+        };
+        if let Some((_, st)) = self.indexed_grids.iter_mut().find(|(p, _)| p == cidx_path) {
+            st.panel.open(def, &data_path, drift);
+            st.def = def.clone();
+            st.close_requested = false;
+            return;
+        }
+        let mut panel = IndexedGridPanel::new();
+        panel.open(def, &data_path, drift);
+        self.indexed_grids.push((
+            cidx_path.to_path_buf(),
+            IndexedGridState {
+                panel,
+                def: def.clone(),
+                close_requested: false,
+            },
+        ));
+    }
+
+    fn write_generated_indexed_for(&mut self, cidx: &std::path::Path, def: &IndexedDefinition) -> bool {
+        let cbl = self.generated_indexed_cbl_path(cidx);
+        if let Some(parent) = cbl.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(&cbl, generate_indexed(def)).is_err() {
+            return false;
+        }
+        if let Some(rel) = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .and_then(|dir| relative_to(&cbl, dir))
+        {
+            if let Some(proj) = &mut self.cobolt_project {
+                proj.add_generated(&rel);
+            }
+        }
+        self.editor.reload_file(&cbl);
+        true
+    }
+
+    fn regenerate_all_indexed_files(&mut self) {
+        // Pop-up editors removed. If the inline inspector is open, use its in-memory def.
+        let open: Vec<(PathBuf, IndexedDefinition)> = if let Some(st) = &self.indexed_inspect {
+            vec![(st.path.clone(), st.def.clone())]
+        } else {
+            vec![]
+        };
+        let open_paths: std::collections::HashSet<PathBuf> =
+            open.iter().map(|(p, _)| p.clone()).collect();
+        let mut n = 0usize;
+        for (cidx, def) in &open {
+            if self.write_generated_indexed_for(cidx, def) {
+                n += 1;
+            }
+        }
+        if let Some(root) = self.project_dir() {
+            let closed: Vec<PathBuf> = self
+                .cobolt_project
+                .as_ref()
+                .map(|p| {
+                    p.files
+                        .indexed
+                        .iter()
+                        .map(|rel| root.join(rel))
+                        .filter(|p| !open_paths.contains(p))
+                        .collect()
+                })
+                .unwrap_or_default();
+            for cidx in closed {
+                if let Ok(def) = load_indexed(&cidx) {
+                    if self.write_generated_indexed_for(&cidx, &def) {
+                        n += 1;
+                    }
+                }
+            }
+        }
+        if n > 0 {
+            self.do_save_project();
+        }
+    }
+
+    fn create_new_indexed_file(&mut self) {
+        // Supports both the properties form and the raw COBOL-85 text editor.
+        // The dialog already enforced !exists + full validity (group + RECORD KEY).
+        let Some(mut def) = self.new_indexed.get_definition() else {
+            self.output.push_status("Invalid indexed file parameters (incomplete or not COBOL-85 compliant)");
+            return;
+        };
+        let Some(dir) = self.project_dir() else {
+            self.output.push_status("Save the project first.");
+            return;
+        };
+        let sub_dir = dir.join("indexed");
+        if let Err(e) = std::fs::create_dir_all(&sub_dir) {
+            self.output.push_status(format!("Could not create indexed/: {e}"));
+            return;
+        };
+        let stem = def.name.to_ascii_lowercase().replace('-', "_");
+        let fname = Self::unique_file_name(&sub_dir, &stem, "cidx");
+        let path = sub_dir.join(&fname);
+
+        // The dialog checks the assign_path; we also avoid overwriting a .cidx.
+        if path.exists() {
+            self.output.push_status("Indexed definition already exists. Pick a different name.");
+            return;
+        }
+
+        // When adding a new indexed file to the project, load copybooks/<name>.fd.cpy
+        // if it already exists. Its content becomes the record structure source
+        // (and we create the file if it did not exist, later below).
+        let mut using_cpy_text: Option<String> = None;
+        if let Some(cpy_path) = self.indexed_fd_copybook_path(&def.name) {
+            if cpy_path.exists() {
+                if let Ok(text) = std::fs::read_to_string(&cpy_path) {
+                    if text_to_record(&mut def, &text).is_ok() {
+                        using_cpy_text = Some(text);
+                    }
+                }
+            }
+        }
+
+        if save_indexed(&path, &def).is_err() {
+            self.output.push_status("Could not write .cidx");
+            return;
+        }
+        let rel = format!("indexed/{fname}");
+        if let Some(proj) = &mut self.cobolt_project {
+            use crate::project_model::Category;
+            proj.add_file_to(&rel, Category::IndexedFiles);
+        }
+        self.do_save_project();
+        self.new_indexed.open = false;
+
+        let via_raw = self.new_indexed.raw_mode || using_cpy_text.is_some();
+        self.open_indexed_inspect(path.clone(), None);
+
+        // Ensure the .fd.cpy is created (or overwritten with current source text).
+        // Use the loaded text if we took it from an existing cpy, else the dialog's
+        // raw buffer (when user created via editor) or a generated text from the def.
+        let text_for_cpy = if let Some(t) = using_cpy_text {
+            t
+        } else if self.new_indexed.raw_mode && !self.new_indexed.raw_text.trim().is_empty() {
+            self.new_indexed.raw_text.clone()
+        } else {
+            record_to_text(&def)
+        };
+        let _ = self.write_indexed_fd_copybook(&def.name, &text_for_cpy);
+
+        // Lock this file to the COBOL text editor (no going back to properties
+        // pane for structural edits). Surface the editor immediately.
+        if via_raw {
+            if let Some(st) = &mut self.indexed_inspect {
+                st.prefer_raw_editor = true;
+            }
+            self.raw_preferred_indexed.insert(path.clone());
+            if self.new_indexed.raw_mode {
+                if let Some(st) = &mut self.indexed_inspect {
+                    st.panel.request_raw_dialog = true;
+                }
+            }
+            // Persist using IDE-managed indexed file in data/ (same as agent convos).
+            if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()) {
+                let data_dir = root.join("data");
+                let rels: std::collections::HashSet<String> = self.raw_preferred_indexed
+                    .iter()
+                    .filter_map(|abs| {
+                        abs.strip_prefix(root)
+                            .ok()
+                            .map(|r| r.to_string_lossy().replace('\\', "/"))
+                    })
+                    .collect();
+                crate::llm::save_raw_preferred_indexed(&data_dir, &rels);
+            }
+        }
+    }
+
+    fn import_indexed_data_file(&mut self, data_path: PathBuf) {
+        let Some(proj_dir) = self.project_dir() else {
+            self.output.push_status("Save the project first.");
+            return;
+        };
+        let info = match inspect_any_path(&data_path) {
+            Ok(Some(i)) => i,
+            Ok(None) => {
+                let tr = self.lang.tr();
+                self.output.push_status(tr.warn_import_no_schema.to_string());
+                return;
+            }
+            Err(e) => {
+                let tr = self.lang.tr();
+                self.output.push_status(format!("{}: {e}", tr.warn_import_failed));
+                return;
+            }
+        };
+        let stem = data_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("imported")
+            .to_ascii_uppercase()
+            .replace('_', "-");
+        let mut def = definition_from_inspect(&stem, &proj_dir, &data_path, &info);
+        // When adding/importing, load copybooks/<name>.fd.cpy if present for the
+        // logical name and use it for the record structure (created below if absent).
+        let mut using_cpy_text: Option<String> = None;
+        if let Some(cpy_path) = self.indexed_fd_copybook_path(&def.name) {
+            if cpy_path.exists() {
+                if let Ok(text) = std::fs::read_to_string(&cpy_path) {
+                    if text_to_record(&mut def, &text).is_ok() {
+                        using_cpy_text = Some(text);
+                    }
+                }
+            }
+        }
+        let sub_dir = proj_dir.join("indexed");
+        if let Err(e) = std::fs::create_dir_all(&sub_dir) {
+            self.output.push_status(format!("Could not create indexed/: {e}"));
+            return;
+        }
+        let base = stem.to_ascii_lowercase().replace('-', "_");
+        let fname = Self::unique_file_name(&sub_dir, &base, "cidx");
+        let cidx_path = sub_dir.join(&fname);
+        if save_indexed(&cidx_path, &def).is_err() {
+            self.output.push_status("Could not write .cidx");
+            return;
+        }
+        let rel = format!("indexed/{fname}");
+        if let Some(proj) = &mut self.cobolt_project {
+            use crate::project_model::Category;
+            proj.add_file_to(&rel, Category::IndexedFiles);
+        }
+        self.do_save_project();
+        // Create (or refresh) the .fd.cpy for the imported/added file so that the
+        // COBOL editor has a place for its source and loads it on future opens.
+        let text_for_cpy = if let Some(t) = using_cpy_text {
+            t
+        } else {
+            record_to_text(&def)
+        };
+        let _ = self.write_indexed_fd_copybook(&def.name, &text_for_cpy);
+        self.output.push_status(format!("Imported indexed file → {rel}"));
+        self.open_indexed_inspect(cidx_path, None);
+    }
+
+    fn show_indexed_inspector(&mut self, ctx: &egui::Context, tr: &Tr) {
+        let mut close = false;
+        let mut open_grid = false;
+        let mut property_edit = PropertyEdit::None;
+        let mut structure_action = StructureAction::None;
+        let mut did_add_remove = false;
+
+        let card = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill, self.current_theme());
+
+        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
+            let Some(st) = &mut self.indexed_inspect else { return; };
+
+            if st.prefer_raw_editor {
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 160, 60),
+                    "This file uses the COBOL text editor as the primary definition surface (properties pane is secondary/read-only for structure to avoid desync with COBOL-85 source).",
+                );
+                ui.add_space(4.0);
+            }
+
+            // Shared helper for hand-written vector icon buttons (style consistent with
+            // designer toolbar and doc viewer). Any missing icon gets a simple procedural
+            // vector here (no external assets, theme-aware strokes).
+            let icon_btn = |ui: &mut egui::Ui, size: egui::Vec2, tip: &str, draw: &dyn Fn(&egui::Painter, egui::Rect, egui::Color32)| -> bool {
+                let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+
+                // Always draw a subtle rounded rect border so the + / X (and other small
+                // icon buttons in the inspector) look like proper buttons with rounded rects.
+                // Uses theme-adaptive color (text_color dimmed or hovered stroke) so it
+                // stays visible and consistent on both light and dark themes.
+                let border_color = if resp.hovered() {
+                    ui.visuals().widgets.hovered.bg_stroke.color
+                } else {
+                    ui.visuals().text_color().linear_multiply(0.35)
+                };
+                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0, border_color));
+
+                if resp.hovered() {
+                    ui.painter().rect_filled(rect, 3.0, ui.visuals().widgets.hovered.bg_fill);
+                }
+                let c = if resp.hovered() {
+                    ui.visuals().widgets.hovered.fg_stroke.color
+                } else {
+                    ui.visuals().text_color()
+                };
+                draw(ui.painter(), rect.shrink(3.5), c);
+                resp.on_hover_text(tip).clicked()
+            };
+
+            ui.horizontal(|ui| {
+                // Hand-written vector cabinet icon (replaces 🗂️). Same symbol used in
+                // the project tree for Indexed Files + CUSTOMER-FILE etc. Ensures it
+                // always renders the same regardless of system emoji/font support.
+                let icon_sz = egui::vec2(16.0, 16.0);
+                let (ir, _) = ui.allocate_exact_size(icon_sz, egui::Sense::hover());
+                if ui.is_rect_visible(ir) {
+                    crate::panels::project::draw_indexed_icon(
+                        ui.painter(),
+                        ir.shrink(1.0),
+                        ui.visuals().text_color(),
+                    );
+                }
+                ui.heading(&st.def.name);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Close (X) - hand-written vector icon
+                    if icon_btn(ui, egui::vec2(22.0, 18.0), "Close inspector", &|p, r, c| {
+                        let s = egui::Stroke::new(1.8, c);
+                        let q = r.shrink(r.width() * 0.22);
+                        p.line_segment([q.left_top(), q.right_bottom()], s);
+                        p.line_segment([q.right_top(), q.left_bottom()], s);
+                    }) {
+                        close = true;
+                    }
+
+                    // Open Grid Browser - hand-written grid/table icon
+                    let grid_tip = if st.def.finalized { "Open Grid Browser" } else { tr.grid_requires_finalize };
+                    if icon_btn(ui, egui::vec2(22.0, 18.0), grid_tip, &|p, r, c| {
+                        let col = if st.def.finalized { c } else {
+                            egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 85)
+                        };
+                        let s = egui::Stroke::new(1.25, col);
+                        let sr = r.shrink(2.5);
+                        for i in 0..=2 {
+                            let t = i as f32 / 2.0;
+                            let x = sr.min.x + sr.width() * t;
+                            let y = sr.min.y + sr.height() * t;
+                            p.line_segment([egui::Pos2::new(x, sr.min.y), egui::Pos2::new(x, sr.max.y)], s);
+                            p.line_segment([egui::Pos2::new(sr.min.x, y), egui::Pos2::new(sr.max.x, y)], s);
+                        }
+                    }) && st.def.finalized {
+                        open_grid = true;
+                    }
+
+                    // Edit record as text (raw) - hand-written document-with-lines icon
+                    if icon_btn(ui, egui::vec2(22.0, 18.0), "Edit record as text (raw COBOL)", &|p, r, c| {
+                        let s = egui::Stroke::new(1.5, c);
+                        let body = egui::Rect::from_center_size(r.center(), egui::Vec2::new(r.width() * 0.60, r.height() * 0.68));
+                        p.rect_stroke(body, 1.4, s);
+                        for i in 0..3 {
+                            let y = body.min.y + body.height() * (0.26 + i as f32 * 0.22);
+                            p.line_segment([egui::Pos2::new(body.min.x + 2.5, y), egui::Pos2::new(body.max.x - 2.5, y)], egui::Stroke::new(1.0, c));
+                        }
+                    }) {
+                        st.panel.open_raw_dialog(&st.def);
+                    }
+                });
+            });
+            ui.separator();
+
+            // Capture the full remaining height of the inspector panel *after the header*.
+            // Using available_rect_before_wrap().height() here is more reliable in egui's
+            // immediate-mode nested layouts than repeated available_height() calls (which
+            // can return small/zero values during size computation passes).
+            // This makes the left "record structure" (tree) column expand to the full red-rect
+            // height instead of collapsing to the green (content height of the short properties).
+            let remaining_rect = ui.available_rect_before_wrap();
+
+            ui.allocate_ui_at_rect(remaining_rect, |ui| {
+                if st.prefer_raw_editor {
+                    // The embedded COBOL editor (raw record descriptor) is now the primary/visible
+                    // form for this file's file descriptor. The tree + property pane form is
+                    // replaced (per the requirement: once the user has made changes via the
+                    // raw editor, they can no longer edit the descriptor information via the
+                    // properties form; the editor remains the surface).
+                    let applied = st.panel.show_raw_editor_inline(ui, &mut st.def, tr);
+                    if applied {
+                        did_add_remove = true;
+                    }
+                } else {
+                    ui.horizontal_top(|ui| {
+                        // Left: record structure tree - tall and wide (the main area for the data-items list).
+                        // We explicitly set full height here so the ScrollArea inside show_structure
+                        // gets the large red-rect size.
+                        ui.vertical(|ui| {
+                            ui.set_min_width(320.0);
+                            ui.set_height(remaining_rect.height());
+                            ui.spacing_mut().item_spacing.y = 0.0;
+
+                            // When the data file does not exist yet (!finalized), allow adding/removing
+                            // data-items in the FD (record structure). Once the file exists (finalized),
+                            // structural changes are forbidden to avoid data loss/truncation/breaking code.
+                            if !st.def.finalized {
+                                ui.horizontal(|ui| {
+                                    // Hand-written vector icon for Add (plus sign). Matches the project's
+                                    // style for all toolbar/action icons (procedural strokes, no assets).
+                                    // When the file prefers the raw COBOL editor, structural edits via the
+                                    // pane are disabled (editor is the source of truth).
+                                    let can_struct_edit = !st.prefer_raw_editor;
+                                    if can_struct_edit && icon_btn(ui, egui::vec2(22.0, 18.0), "Add data-item", &|p, r, c| {
+                                        let s = egui::Stroke::new(1.8, c);
+                                        let cx = r.center().x; let cy = r.center().y;
+                                        p.line_segment([egui::Pos2::new(cx - 5.0, cy), egui::Pos2::new(cx + 5.0, cy)], s);
+                                        p.line_segment([egui::Pos2::new(cx, cy - 5.0), egui::Pos2::new(cx, cy + 5.0)], s);
+                                    }) {
+                                        st.panel.add_field(&mut st.def);
+                                        did_add_remove = true;
+                                    }
+
+                                    let has_field = matches!(st.panel.selection, IndexedSelection::Field(_));
+                                    // Hand-written vector icon for Remove (X). Consistent with delete icons elsewhere.
+                                    if can_struct_edit && icon_btn(ui, egui::vec2(22.0, 18.0), "Remove selected data-item", &|p, r, c| {
+                                        let s = egui::Stroke::new(1.8, c);
+                                        let q = r.shrink(r.width() * 0.22);
+                                        p.line_segment([q.left_top(), q.right_bottom()], s);
+                                        p.line_segment([q.right_top(), q.left_bottom()], s);
+                                    }) && has_field {
+                                        if st.panel.remove_selected_field(&mut st.def) {
+                                            did_add_remove = true;
+                                        }
+                                    }
+                                });
+                            }
+
+                            st.panel.sync_from_def(&st.def);
+                            structure_action = st.panel.show_structure(ui, &st.def, tr);
+                        });
+
+                        ui.separator();
+
+                        // Right: properties area - we make this column tall too (to match the structure
+                        // height), but put the actual labels+values content at the very top using
+                        // horizontal_top + the row allocations already use Align::TOP.
+                        // This ensures all property value controls (and labels) are top-aligned
+                        // within their tall column instead of appearing vertically centered in the middle
+                        // of the available area.
+                        ui.vertical(|ui| {
+                            ui.set_min_width(300.0);  // total width for the labels+values block
+                            ui.set_height(remaining_rect.height());
+                            ui.horizontal_top(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.set_min_width(140.0);
+                                    ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
+                                    st.panel.show_property_labels(ui, &st.def, tr);
+                                });
+
+                                ui.separator();
+
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
+                                    property_edit = st.panel.show_property_values(ui, &mut st.def, tr);
+                                });
+                            });
+                        });
+                    });
+                }
+            });
+        });  // close the CentralPanel |ui| and .show(...)
+
+        // Only open the raw modal if explicitly requested (e.g. the header icon
+        // was clicked, or initial request after raw creation).
+        // We no longer force the modal just because prefer_raw_editor is true,
+        // because when that flag is set the *in-place* raw editor (see the
+        // allocate_ui_at_rect branch above) *is* the visible form that replaced
+        // the property pane. The modal is optional (can be opened via the raw
+        // icon in the header). This ensures that "Apply" and the window X both
+        // actually close the modal and it stays closed.
+        if let Some(st) = &mut self.indexed_inspect {
+            if st.panel.request_raw_dialog {
+                st.panel.show_raw_dialog = true;
+                st.panel.request_raw_dialog = false;
+            }
+        }
+
+        // Raw text editor modal result (the "text editor" button opens the modal via open_raw_dialog above)
+        // We promote prefer_raw *before* save so the .fd.cpy write receives the exact
+        // user-provided COBOL text from the editor (not a canonical re-emit).
+        let raw_dialog_applied = if let Some(st) = &mut self.indexed_inspect {
+            st.panel.show_raw_dialog(ctx, &mut st.def, tr) == RawDialogResult::Applied
+        } else {
+            false
+        };
+        if raw_dialog_applied {
+            // Lock to raw editor surface and persist the preference (like create path).
+            if let Some(st) = &mut self.indexed_inspect {
+                st.prefer_raw_editor = true;
+                if st.panel.raw_text.trim().is_empty() {
+                    st.panel.raw_text = record_to_text(&st.def);
+                }
+                self.raw_preferred_indexed.insert(st.path.clone());
+            }
+            // Persist using IDE-managed indexed file (like agent conversations).
+            if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()) {
+                let data_dir = root.join("data");
+                let rels: std::collections::HashSet<String> = self.raw_preferred_indexed
+                    .iter()
+                    .filter_map(|abs| {
+                        abs.strip_prefix(root)
+                            .ok()
+                            .map(|r| r.to_string_lossy().replace('\\', "/"))
+                    })
+                    .collect();
+                crate::llm::save_raw_preferred_indexed(&data_dir, &rels);
+            }
+            self.save_and_refresh_indexed();
+        }
+
+        if matches!(
+            property_edit,
+            PropertyEdit::Changed | PropertyEdit::Renamed { .. }
+        ) {
+            self.save_and_refresh_indexed();
+        }
+
+        if structure_action == StructureAction::StructureChanged {
+            self.save_and_refresh_indexed();
+        }
+
+        if did_add_remove {
+            self.save_and_refresh_indexed();
+        }
+
+        if open_grid {
+            if let Some(st) = &self.indexed_inspect {
+                let path = st.path.clone();
+                let def = st.def.clone();
+                self.open_grid_for_indexed(&path, &def);
+            }
+        }
+
+        if close {
+            self.indexed_inspect = None;
+            self.show_project_settings = false;
+        }
+    }
+
     /// The active IDE colour theme. While the Settings form is open its **draft**
     /// theme wins, so picking a theme previews live (and reverts on Cancel);
     /// otherwise the saved project theme (or the default) is used.
@@ -1497,7 +2234,7 @@ impl CoboltApp {
 
         let mut action = crate::panels::settings_form::SettingsFormAction::default();
 
-        // Mirror the exact right-pane implementation used for the widget
+        // Mirror the exact right-pane implementation used for the control
         // properties inspector: create the glass card, then CentralPanel with
         // .frame(card). This guarantees identical width/positioning of the
         // glass strokes (right border fixed) and that the pane area conforms to
@@ -1640,7 +2377,7 @@ impl CoboltApp {
                 f.layout_no_wrap(text.to_owned(), egui::FontId::proportional(size),
                     egui::Color32::WHITE).size().y);
             let quote_h = ui.fonts(|f|
-                f.layout(quote.to_owned(), egui::FontId::proportional(18.0),
+                f.layout(quote.to_owned(), egui::FontId::proportional(16.0),
                     egui::Color32::WHITE, avail_w).size().y);
             let block_h = line_h(&title, TITLE_SIZE) + GAP_LICENSE
                 + line_h(license, 16.0) + GAP_QUOTE
@@ -1658,10 +2395,10 @@ impl CoboltApp {
                 ui.label(egui::RichText::new(&title).size(TITLE_SIZE).strong()
                     .color(egui::Color32::WHITE));
                 ui.add_space(GAP_LICENSE);
-                ui.label(egui::RichText::new(license).size(16.0)
+                ui.label(egui::RichText::new(license).size(14.0)
                     .color(egui::Color32::WHITE));
                 ui.add_space(GAP_QUOTE);
-                ui.label(egui::RichText::new(quote).size(18.0)
+                ui.label(egui::RichText::new(quote).size(16.0)
                     .color(green.gamma_multiply(alpha)));
                 ui.add_space(GAP_AUTHOR);
                 ui.label(egui::RichText::new(&author_line).size(15.0).italics()
@@ -2025,6 +2762,28 @@ impl CoboltApp {
         if !open { self.new_form.open = false; }
     }
 
+    fn show_new_indexed_dialog(&mut self, ctx: &Context) {
+        if !self.new_indexed.open {
+            return;
+        }
+        let tr = self.lang.tr();
+        let mut open = true;
+        egui::Window::new(tr.dlg_new_indexed)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                match self.new_indexed.show(ui, &tr) {
+                    NewIndexedAction::Create => self.create_new_indexed_file(),
+                    NewIndexedAction::Cancel => self.new_indexed.open = false,
+                    NewIndexedAction::None => {}
+                }
+            });
+        if !open {
+            self.new_indexed.open = false;
+        }
+    }
+
     fn create_new_form(&mut self) {
         let w: u32 = self.new_form.width.parse().unwrap_or(640);
         let h: u32 = self.new_form.height.parse().unwrap_or(480);
@@ -2152,7 +2911,7 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     // matching base so the area *outside* the panes looks the same as the panes).
     // ── Theme palette ─────────────────────────────────────────────────────
     let bg_panel    = theme.bg_panel;
-    let bg_widget   = theme.bg_widget;
+    let bg_control   = theme.bg_control;
     let bg_hover    = theme.bg_hover;
     let bg_active   = theme.bg_active;
     let bg_extreme  = theme.bg_extreme;
@@ -2180,7 +2939,7 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     v.window_rounding = Rounding::same(12.0);
     v.window_highlight_topmost = false;
 
-    // ── Widget states ─────────────────────────────────────────────────────
+    // ── Control states ─────────────────────────────────────────────────────
     let make_widget = |bg: Color32, stroke_c: Color32, text: Color32| WidgetVisuals {
         weak_bg_fill: bg,
         bg_fill:      bg,
@@ -2190,10 +2949,10 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
         expansion:    0.0,
     };
 
-    v.widgets.noninteractive = make_widget(bg_widget, border_dim, text_dim);
-    v.widgets.inactive       = make_widget(bg_widget, border_dim, text_dim);
+    v.widgets.noninteractive = make_widget(bg_control, border_dim, text_dim);
+    v.widgets.inactive       = make_widget(bg_control, border_dim, text_dim);
     v.widgets.hovered        = make_widget(bg_hover,  border_hi,  text_bright);
-    // NOTE: egui derives `strong_text_color()` from the ACTIVE widget text, so
+    // NOTE: egui derives `strong_text_color()` from the ACTIVE control text, so
     // this must be the theme's bright text (dark on light themes, light on
     // dark ones) — a hardcoded white washes out every `.strong()` label on
     // light themes.
@@ -2229,13 +2988,35 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     // No vertical indent guide lines in the tree (the grey lines looked noisy).
     style.visuals.indent_has_left_vline = false;
     style.text_styles = [
-        (TextStyle::Small,     FontId::new(13.5, FontFamily::Proportional)),
-        (TextStyle::Body,      FontId::new(18.75, FontFamily::Proportional)),
-        (TextStyle::Button,    FontId::new(18.75, FontFamily::Proportional)),
-        (TextStyle::Heading,   FontId::new(27.0, FontFamily::Proportional)),
-        (TextStyle::Monospace, FontId::new(18.0, FontFamily::Monospace)),
+        (TextStyle::Small,     FontId::new(11.5, FontFamily::Proportional)),
+        (TextStyle::Body,      FontId::new(16.75, FontFamily::Proportional)),
+        (TextStyle::Button,    FontId::new(16.75, FontFamily::Proportional)),
+        (TextStyle::Heading,   FontId::new(25.0, FontFamily::Proportional)),
+        (TextStyle::Monospace, FontId::new(16.0, FontFamily::Monospace)),
     ].into();
     ctx.set_style(style);
+}
+
+/// Apply the IDE theme to an **opaque** child viewport (designer, indexed editor,
+/// grid browser). Semi-transparent glass colours are composited over white so
+/// gaps between panels never show the OS clear colour.
+fn apply_opaque_viewport_theme(ctx: &Context, theme: &crate::theme::Theme) {
+    apply_glass_visuals(ctx, theme);
+
+    let solid_panel = {
+        let pf = ctx.style().visuals.panel_fill;
+        let a = pf.a() as f32 / 255.0;
+        let blend = |c: u8| (c as f32 * a + 255.0 * (1.0 - a)).round() as u8;
+        egui::Color32::from_rgb(blend(pf.r()), blend(pf.g()), blend(pf.b()))
+    };
+    {
+        let mut v = ctx.style().visuals.clone();
+        v.panel_fill = solid_panel;
+        v.window_fill = solid_panel;
+        ctx.set_visuals(v);
+    }
+    ctx.layer_painter(egui::LayerId::background())
+        .rect_filled(ctx.screen_rect(), 0.0, solid_panel);
 }
 
 // ── eframe::App ───────────────────────────────────────────────────────────────
@@ -2258,6 +3039,11 @@ impl eframe::App for CoboltApp {
                 self.settings_close_confirm = true;
             }
         }
+
+        // ── Indexed editor / grid viewports (before main-shell theme) ─────────
+        // egui 0.29 shares `set_visuals` globally; paint opaque child windows first
+        // so `apply_glass_visuals` below can restore the translucent main shell.
+        self.show_indexed_grid_viewports(ctx, &tr);
 
         // ── Apply Liquid Glass visuals every frame on the root context ─────────
         // (preview window calls ctx.set_visuals() on its viewport which in egui
@@ -2376,6 +3162,7 @@ impl eframe::App for CoboltApp {
         // ── Dialogs ───────────────────────────────────────────────────────────
         self.show_new_project_dialog(ctx);
         self.show_new_form_dialog(ctx);
+        self.show_new_indexed_dialog(ctx);
         self.show_report_bug_dialog(ctx);
         self.show_about(ctx);
         // Save alert: render it in the MAIN window only when it doesn't belong
@@ -2539,15 +3326,31 @@ impl eframe::App for CoboltApp {
                 match ev {
                     ProjectPanelEvent::Open(path) => {
                         self.show_project_settings = false;
-                        self.inspect = None; // a file takes over the Main Pane
+                        self.inspect = None;
+                        self.indexed_inspect = None;
                         self.open_in_editor(path);
                     }
                     ProjectPanelEvent::OpenDesigner(path) => {
                         self.show_project_settings = false;
                         self.load_form_from_path(path);
                     }
+                    ProjectPanelEvent::OpenIndexedEditor(path) => {
+                        self.show_project_settings = false;
+                        self.open_indexed_inspect(path, None);
+                    }
+                    ProjectPanelEvent::InspectIndexedFile(path) => {
+                        self.show_project_settings = false;
+                        self.inspect = None;
+                        self.open_indexed_inspect(path, None);
+                    }
+                    ProjectPanelEvent::InspectIndexedField { cidx, field_id } => {
+                        self.show_project_settings = false;
+                        self.inspect = None;
+                        self.open_indexed_inspect(cidx, Some(field_id));
+                    }
                     ProjectPanelEvent::InspectForm(path)  => {
                         self.show_project_settings = false;
+                        self.indexed_inspect = None;
                         self.open_inspect(path, None);
                     }
                     ProjectPanelEvent::InspectControl { form, ctrl_id } => {
@@ -2581,6 +3384,7 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::ShowProjectSettings => {
                         self.show_project_settings = true;
                         self.inspect = None;
+                        self.indexed_inspect = None;
                         // Any pending editor open should yield to the settings form.
                         self.pending_open_in_editor = None;
                     }
@@ -2594,6 +3398,8 @@ impl eframe::App for CoboltApp {
             self.show_welcome_pane(ctx, &tr);
         } else if self.show_project_settings && self.settings_form.is_some() {
             self.show_settings_pane(ctx, &tr);
+        } else if self.indexed_inspect.is_some() {
+            self.show_indexed_inspector(ctx, &tr);
         } else if self.inspect.is_some() {
             self.show_inspector(ctx, &tr);
         } else {
@@ -2680,6 +3486,17 @@ impl eframe::App for CoboltApp {
             );
         }
 
+        // If the user closed a designer window this frame, force its live
+        // preview flag off. The preview state (and show_preview) lives in the
+        // DesignerState entry; leaving the flag on would cause the subsequent
+        // preview viewport loop to access a soon-to-be-reaped idx or leave a
+        // dangling "Preview — xxx" window with no backing designer.
+        for (_, d) in &mut self.designers {
+            if d.close_requested {
+                d.show_preview = false;
+            }
+        }
+
         // ── Documentation viewer window (Help → Documentation) ───────────────────
         self.doc_viewer.show(ctx, self.lang, &tr);
 
@@ -2758,6 +3575,7 @@ impl eframe::App for CoboltApp {
 
         // Remove any designer windows the user has closed.
         self.designers.retain(|(_, d)| !d.close_requested);
+        self.indexed_grids.retain(|(_, g)| !g.close_requested);
 
         if self.runner.is_running() || !self.form_runtimes.is_empty() {
             ctx.request_repaint();
@@ -2834,7 +3652,7 @@ impl CoboltApp {
             // Start from the current IDE glass visuals so we inherit the base
             // colour scheme, then layer in the preview-specific transparency.
             let mut visuals = ctx.style().visuals.clone();
-            // Widget backgrounds — translucent frosted glass
+            // Control backgrounds — translucent frosted glass
             let glass_fill   = Color32::from_rgba_premultiplied(50, 55, 90, 55);
             let glass_stroke = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180,180,230,80));
             visuals.widgets.noninteractive.bg_fill   = glass_fill;
@@ -2983,7 +3801,7 @@ impl CoboltApp {
                         Vec2::new(r.w as f32, r.h as f32),
                     );
                     // Scale the rect about its centre (matches `draw_control`), so
-                    // zoom/spin/flip animations actually resize the widget in preview.
+                    // zoom/spin/flip animations actually resize the control in preview.
                     let screen_rect = crate::panels::designer::scale_rect_about_center(base_rect, scale);
 
                     let ctrl_id = egui::Id::new(("preview_ctrl", ctrl.id.as_str()));
@@ -3093,13 +3911,80 @@ impl CoboltApp {
                             }
                         }
                         CT::Slider => {
-                            let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
-                            let max_v = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100).max(1) as f32;
+                            // Use designer paint code (source of truth) for exact glass look + ticks etc.
+                            // live snapshot so Value from preview state drives the pct/thumb.
+                            let min_v: f32 = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
+                            let max_v: f32 = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100).max(1) as f32;
+                            let step: f32  = ctrl.get_prop("Step").map(|v| v.as_i64()).unwrap_or(1) as f32;
                             let mut fval: f32 = cur_val.parse().unwrap_or(min_v);
-                            if ui.put(screen_rect,
-                                egui::Slider::new(&mut fval, min_v..=max_v).show_value(false))
-                                .changed()
-                            {
+
+                            let orient = ctrl.get_prop("Orientation").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                            let is_vertical = orient.starts_with('V') || orient.eq_ignore_ascii_case("Vertical");
+
+                            // Thumb rect from current value for "started drag over knob" test
+                            let thumb_rect = cobolt_forms::paint::slider_thumb_rect(screen_rect, min_v, max_v, fval, is_vertical);
+
+                            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::drag());
+
+                            let mut display_val = fval;
+
+                            if resp.drag_started() && enabled {
+                                if let Some(press_pos) = ui.input(|i| i.pointer.press_origin()) {
+                                    if thumb_rect.contains(press_pos) {
+                                        let start_axis = if is_vertical { press_pos.y } else { press_pos.x };
+                                        ui.data_mut(|d| {
+                                            d.insert_temp(ctrl_id, (fval, start_axis));
+                                        });
+                                    }
+                                }
+                            }
+
+                            if let Some((start_val, start_axis)) = ui.data(|d| d.get_temp::<(f32, f32)>(ctrl_id)) {
+                                if resp.dragged() {
+                                    if let Some(ptr) = ui.ctx().pointer_latest_pos() {
+                                        let current_axis = if is_vertical { ptr.y } else { ptr.x };
+
+                                        let pad = 10.0_f32;
+                                        let (track_start, track_len) = if is_vertical {
+                                            let t = screen_rect.top() + pad;
+                                            let b = screen_rect.bottom() - pad;
+                                            (t, (b - t).max(1.0))
+                                        } else {
+                                            let l = screen_rect.left() + pad;
+                                            let r = screen_rect.right() - pad;
+                                            (l, (r - l).max(1.0))
+                                        };
+
+                                        let delta_axis = current_axis - start_axis;
+                                        let delta_val = (delta_axis / track_len) * (max_v - min_v);
+                                        let raw = start_val + delta_val;
+                                        display_val = (raw / step.max(0.0001)).round() * step;
+                                        display_val = display_val.clamp(min_v, max_v);
+                                    }
+                                }
+
+                                if resp.drag_released() {
+                                    ui.data_mut(|d| { d.remove::<(f32, f32)>(ctrl_id); });
+                                }
+                            }
+
+                            // Paint with (possibly tentative) display value
+                            let mut live = live_at(screen_rect);
+                            live.properties.insert("Value".to_owned(),
+                                cobolt_forms::model::PropValue::String(display_val.to_string()));
+                            live.properties.insert("Minimum".to_owned(),
+                                cobolt_forms::model::PropValue::String(min_v.to_string()));
+                            live.properties.insert("Maximum".to_owned(),
+                                cobolt_forms::model::PropValue::String(max_v.to_string()));
+                            live.properties.insert("Step".to_owned(),
+                                cobolt_forms::model::PropValue::String(step.to_string()));
+
+                            cobolt_forms::paint::draw_control(
+                                &painter, screen_rect.min, &live,
+                                false, true, alpha_mul, 1.0, None);
+
+                            if (display_val - fval).abs() > 1e-5 {
+                                fval = display_val;
                                 *cur_val = fval.to_string();
                             }
                         }
@@ -3182,6 +4067,11 @@ impl CoboltApp {
                     }
                 }
             });
+
+        // Ensure the separate live preview viewport keeps receiving frames for
+        // its animation ticker and interactive simulation even if the main
+        // IDE window is idle (e.g. viewing the indexed inspector).
+        ctx.request_repaint();
     }
 }
 
@@ -3327,7 +4217,7 @@ impl CoboltApp {
 
                     // Geometry: the designed rect, overridden by any live
                     // X/Y/Width/Height property updates (MOVE "X" OF ctrl …,
-                    // ctrl::MoveTo/Resize) so widgets actually move at runtime.
+                    // ctrl::MoveTo/Resize) so controls actually move at runtime.
                     let r = &meta.rect;
                     let live_i32 = |key: &str, def: i32| state.props.get(key)
                         .and_then(|v| v.trim().parse::<f32>().ok())
@@ -3344,7 +4234,7 @@ impl CoboltApp {
                     let enabled  = state.enabled;
                     let alpha    = if enabled { 1.0f32 } else { 0.45f32 };
 
-                    // Widgets rendered through `render_run_control` get their
+                    // Controls rendered through `render_run_control` get their
                     // universal pointer/gesture events from inside it. The ones
                     // handled inline below (Label, ComboBox, ListBox, PictureBox,
                     // …) get them here, so onClick / onDblClick / onMouse* fire
@@ -3360,13 +4250,13 @@ impl CoboltApp {
                         CT::Timer | CT::AgentObject | CT::SqlDatabase
                         | CT::RestClient | CT::ModalWindow);
                     if !via_rrc && !non_visual {
-                        let evs = widget_pointer_events(
+                        let evs = control_pointer_events(
                             ui, screen_rect, ctrl_id, &meta.id, &meta.control_type, enabled);
                         for e in evs { rt.send_event(e); }
                     }
 
                     match meta.control_type {
-                        // Widgets sharing the one runtime renderer (also used by tests).
+                        // Controls sharing the one runtime renderer (also used by tests).
                         CT::Button | CT::CheckBox | CT::TextBox | CT::Slider
                         | CT::DateTimePicker | CT::DataGrid | CT::RadioButton
                         | CT::NumericUpDown | CT::TabControl | CT::TreeView | CT::Splitter
@@ -3553,6 +4443,83 @@ impl CoboltApp {
                     }
                 }
             });
+
+        // Keep the live interpreter window (and the root-side drain of its
+        // channels) ticking at a good rate even when the primary window is
+        // showing a "static" inspector (e.g. the new indexed file properties)
+        // or has no other animation. The root only requests when it sees
+        // runtimes; a self-request here makes the RAD "Run Form (live
+        // interpreter)" reliably smooth and responsive.
+        ctx.request_repaint();
+    }
+}
+
+// ── Indexed grid window contents (structure editing is now only in the inline inspector) ───────────────────────────────────
+
+impl CoboltApp {
+    /// Show any open indexed *grid browser* viewports (for the live data of finalized .cidx files).
+    /// The dedicated pop-up "Indexed File Editor" (structure tree + properties in separate OS window)
+    /// has been removed; all structure editing now happens in the inline inspector ("regular treeview properties").
+    fn show_indexed_grid_viewports(&mut self, ctx: &Context, tr: &Tr) {
+        for gi in 0..self.indexed_grids.len() {
+            let vp_id = ViewportId::from_hash_of(("indexed_grid", &self.indexed_grids[gi].0));
+            let title = {
+                let (path, _) = &self.indexed_grids[gi];
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("grid");
+                format!("{} — {stem}", tr.grid_browser_title)
+            };
+            ctx.show_viewport_immediate(
+                vp_id,
+                ViewportBuilder::default()
+                    .with_title(&title)
+                    .with_inner_size([1000.0, 600.0]),
+                |vp_ctx, _class| {
+                    if vp_ctx.input(|i| i.viewport().close_requested()) {
+                        self.indexed_grids[gi].1.close_requested = true;
+                    }
+                    self.show_indexed_grid_window(vp_ctx, gi, tr);
+                },
+            );
+        }
+
+        if !self.indexed_grids.is_empty() || self.settings_form.is_some() {
+            ctx.request_repaint();
+        }
+    }
+
+
+
+
+
+
+
+
+
+    fn show_indexed_grid_window(&mut self, ctx: &Context, gi: usize, tr: &Tr) {
+        if gi >= self.indexed_grids.len() {
+            return;
+        }
+        let theme = self.current_theme();
+        apply_opaque_viewport_theme(ctx, theme);
+        let panel_frame =
+            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, theme);
+        let mut toolbar_action = GridAction::None;
+        let mut status_msg: Option<String> = None;
+        egui::CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
+            let st = &mut self.indexed_grids[gi].1;
+            let (act, msg) = st.panel.show(ui, &st.def, tr);
+            toolbar_action = act;
+            status_msg = msg;
+        });
+        if let Some(msg) = status_msg {
+            self.output.push_status(msg);
+        }
+        if toolbar_action != GridAction::None {
+            if let Some(msg) = self.indexed_grids[gi].1.panel.apply_action(toolbar_action, tr) {
+                self.output.push_status(msg);
+            }
+        }
+        ctx.request_repaint();
     }
 }
 
@@ -3565,27 +4532,7 @@ impl CoboltApp {
         // Re-apply glass visuals to this designer viewport every frame.
         // The preview viewport calls ctx.set_visuals() which is globally shared
         // in egui 0.29, so we must restore them here each frame.
-        apply_glass_visuals(ctx, self.current_theme());
-
-        // The designer viewport is OPAQUE (unlike the transparent preview/run
-        // windows), so any area not covered by a panel shows a white clear — the
-        // "white band" below the toolbar. Composite the semi-transparent glass
-        // panel colour over white into an opaque grey, use it for the panels, and
-        // paint it as a full-viewport backdrop so nothing ever shows white.
-        let solid_panel = {
-            let pf = ctx.style().visuals.panel_fill;
-            let a  = pf.a() as f32 / 255.0;
-            let blend = |c: u8| (c as f32 * a + 255.0 * (1.0 - a)).round() as u8;
-            egui::Color32::from_rgb(blend(pf.r()), blend(pf.g()), blend(pf.b()))
-        };
-        {
-            let mut v = ctx.style().visuals.clone();
-            v.panel_fill  = solid_panel;
-            v.window_fill = solid_panel;
-            ctx.set_visuals(v);
-        }
-        ctx.layer_painter(egui::LayerId::background())
-            .rect_filled(ctx.screen_rect(), 0.0, solid_panel);
+        apply_opaque_viewport_theme(ctx, self.current_theme());
 
         // ── Unsaved-changes confirmation dialog ───────────────────────────────
         if self.designers[idx].1.close_confirm {
@@ -3812,7 +4759,7 @@ impl CoboltApp {
 
 // ── Runtime control renderer (single source of truth) ──────────────────────────
 //
-// Renders one running-form control as a LIVE interactive egui widget and reports
+// Renders one running-form control as a LIVE interactive egui control and reports
 // the resulting events + control-state updates. Used by `show_running_form_window`
 // and by behavioral interaction tests, so the tests exercise the real code path.
 pub(crate) struct RunOutcome {
@@ -3821,12 +4768,12 @@ pub(crate) struct RunOutcome {
 }
 
 /// Universal pointer/gesture events for one control, derived purely from
-/// pointer geometry (no extra interactable, so it never steals the widget's own
+/// pointer geometry (no extra interactable, so it never steals the control's own
 /// interaction). Emits only the events the control actually declares in
 /// `supported_events()`; the data-driven event loop ignores any without a bound
 /// handler. Covers `onClick`, `onDblClick`, `onMouseDown/Up`, `onMouseEnter/Leave`.
 /// Applied to **every** visual control so any of these handlers can fire.
-pub(crate) fn widget_pointer_events(
+pub(crate) fn control_pointer_events(
     ui: &egui::Ui,
     screen_rect: egui::Rect,
     ctrl_id: egui::Id,
@@ -3884,6 +4831,7 @@ pub(crate) fn render_run_control(
     alpha: f32,
 ) -> RunOutcome {
     use crate::panels::designer::draw_glass;
+    use cobolt_forms::paint;
     use cobolt_forms::ControlType as CT;
     use cobolt_runtime::FormEvent;
     use egui::{Color32, Vec2};
@@ -3893,7 +4841,7 @@ pub(crate) fn render_run_control(
 
     // Universal pointer/gesture events (onClick, onDblClick, onMouseDown/Up,
     // onMouseEnter/Leave) for this control, gated by its supported_events.
-    out.events.extend(widget_pointer_events(ui, screen_rect, ctrl_id, id, &ct, enabled));
+    out.events.extend(control_pointer_events(ui, screen_rect, ctrl_id, id, &ct, enabled));
 
     match &ct {
         CT::Button => {
@@ -3913,7 +4861,7 @@ pub(crate) fn render_run_control(
             } else if hovered {
                 painter.rect_filled(draw_rect, corner, Color32::from_white_alpha(10));
             }
-            // onClick is fired generically by widget_pointer_events above.
+            // onClick is fired generically by control_pointer_events above.
             let _ = resp;
         }
         CT::CheckBox => {
@@ -3981,14 +4929,73 @@ pub(crate) fn render_run_control(
             }
         }
         CT::Slider => {
-            let min_v = state.get("Minimum").parse::<f32>().unwrap_or(0.0);
-            let max_v = state.get("Maximum").parse::<f32>().unwrap_or(100.0).max(min_v + 1.0);
-            let cur = state.get("Value").parse::<f32>().unwrap_or(min_v);
-            let mut val = cur;
-            let resp = ui.put(screen_rect, egui::Slider::new(&mut val, min_v..=max_v).show_value(true));
-            if resp.changed() && enabled {
-                out.prop_updates.push(("Value".to_owned(), val.to_string()));
-                out.events.push(FormEvent::change(id, val.to_string()));
+            let min_v: f32 = state.get("Minimum").parse::<f32>().unwrap_or(0.0);
+            let max_v: f32 = state.get("Maximum").parse::<f32>().unwrap_or(100.0).max(min_v + 1.0);
+            let step: f32  = state.get("Step").parse::<f32>().unwrap_or(1.0).max(0.0001);
+            let cur: f32   = state.get("Value").parse::<f32>().unwrap_or(min_v);
+            let orient_str = state.get("Orientation");
+            let is_vertical = orient_str == "Vertical" || orient_str == "V" || orient_str == "vertical";
+
+            // Compute thumb rect from *current* value to test if drag started over the knob
+            let thumb_rect = paint::slider_thumb_rect(screen_rect, min_v, max_v, cur, is_vertical);
+
+            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::drag());
+
+            let mut display_val = cur;
+
+            // Only initiate dragging if the press was over the knob
+            if resp.drag_started() && enabled {
+                if let Some(press_pos) = ui.input(|i| i.pointer.press_origin()) {
+                    if thumb_rect.contains(press_pos) {
+                        let start_axis = if is_vertical { press_pos.y } else { press_pos.x };
+                        ui.data_mut(|d| {
+                            d.insert_temp(ctrl_id, (cur, start_axis));
+                        });
+                    }
+                }
+            }
+
+            // While we have a stored grab, follow the mouse (relative delta from grab point).
+            // This works even when the pointer has moved far from the knob.
+            if let Some((start_val, start_axis)) = ui.data(|d| d.get_temp::<(f32, f32)>(ctrl_id)) {
+                if resp.dragged() {
+                    if let Some(ptr) = ui.ctx().pointer_latest_pos() {
+                        let current_axis = if is_vertical { ptr.y } else { ptr.x };
+
+                        let pad = 10.0_f32;
+                        let (track_start, track_len) = if is_vertical {
+                            let t = screen_rect.top() + pad;
+                            let b = screen_rect.bottom() - pad;
+                            (t, (b - t).max(1.0))
+                        } else {
+                            let l = screen_rect.left() + pad;
+                            let r = screen_rect.right() - pad;
+                            (l, (r - l).max(1.0))
+                        };
+
+                        let delta_axis = current_axis - start_axis;
+                        let delta_val = (delta_axis / track_len) * (max_v - min_v);
+                        let raw = start_val + delta_val;
+                        display_val = (raw / step).round() * step;
+                        display_val = display_val.clamp(min_v, max_v);
+                    }
+                }
+
+                if resp.drag_released() {
+                    ui.data_mut(|d| { d.remove::<(f32, f32)>(ctrl_id); });
+                }
+            }
+
+            // Paint (with tentative display_val if grabbing)
+            let mut live_props = state.props.clone();
+            live_props.insert("Value".to_owned(), display_val.to_string());
+            let live = paint::live_control(id, ct.clone(), screen_rect.size(), live_props.iter().map(|(k, v)| (k, v)));
+            let painter = ui.painter_at(screen_rect);
+            paint::draw_control(&painter, screen_rect.min, &live, false, true, alpha, 1.0, None);
+
+            if (display_val - cur).abs() > 1e-5 {
+                out.prop_updates.push(("Value".to_owned(), display_val.to_string()));
+                out.events.push(FormEvent::change(id, display_val.to_string()));
             }
         }
         CT::DateTimePicker => {
@@ -4576,7 +5583,7 @@ mod run_interaction_tests {
         (all, state)
     }
 
-    /// Run input frames against `widget_pointer_events` (the universal gesture
+    /// Run input frames against `control_pointer_events` (the universal gesture
     /// layer applied to every visual control), returning the events produced.
     fn drive_pointer(ct: CT, rect: Rect, frames: Vec<Vec<Event>>) -> Vec<FormEvent> {
         let ctx = egui::Context::default();
@@ -4593,7 +5600,7 @@ mod run_interaction_tests {
             let _ = ctx.run(input, |ctx| {
                 egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
                     let id = egui::Id::new(("t", "W1"));
-                    let e = widget_pointer_events(ui, rect, id, "W1", &ctf, true);
+                    let e = control_pointer_events(ui, rect, id, "W1", &ctf, true);
                     o.borrow_mut().extend(e);
                 });
             });
@@ -4666,7 +5673,7 @@ mod run_interaction_tests {
     #[test]
     fn label_click_and_dblclick_fire() {
         // A Label is rendered inline (not via render_run_control), but the run
-        // loop applies widget_pointer_events to it. Exercise the helper directly.
+        // loop applies control_pointer_events to it. Exercise the helper directly.
         let rect = Rect::from_min_size(pos2(40.0, 40.0), vec2(120.0, 24.0));
         let c = rect.center();
         let evs = drive_pointer(CT::Label, rect, vec![
@@ -4682,7 +5689,7 @@ mod run_interaction_tests {
 
     #[test]
     fn pointer_events_respect_supported_events() {
-        // A Timer declares only onTick — widget_pointer_events must emit nothing.
+        // A Timer declares only onTick — control_pointer_events must emit nothing.
         let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(40.0, 40.0));
         let c = rect.center();
         let evs = drive_pointer(CT::Timer, rect, vec![
@@ -4741,7 +5748,7 @@ mod run_interaction_tests {
         );
     }
 
-    /// Render a control once and capture the painted shapes (for display widgets).
+    /// Render a control once and capture the painted shapes (for display controls).
     fn render_run_shapes(ct: CT, state: &CtrlState, rect: Rect) -> Vec<egui::Shape> {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
@@ -4838,7 +5845,7 @@ mod run_interaction_tests {
         let _ = std::fs::remove_file(&png);
     }
 
-    // ── #142: previously-unrendered runtime widgets ───────────────────────────
+    // ── #142: previously-unrendered runtime controls ───────────────────────────
     fn run_all_texts(ct: CT, state: &CtrlState, rect: Rect) -> Vec<String> {
         run_texts(&render_run_shapes(ct, state, rect))
             .iter().map(|t| t.galley.text().trim().to_owned()).collect()
@@ -5037,7 +6044,7 @@ mod theme_text_contrast_tests {
     }
 
     /// `.strong()` labels resolve through `Visuals::strong_text_color()`
-    /// (= the ACTIVE widget text). It must follow the theme: dark text on
+    /// (= the ACTIVE control text). It must follow the theme: dark text on
     /// light themes, light text on dark ones — never hardcoded white.
     #[test]
     fn strong_text_follows_theme_contrast() {

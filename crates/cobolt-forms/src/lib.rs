@@ -26,3 +26,6 @@ pub mod xml;
 
 pub use model::{Control, ControlType, EventBinding, Form, PropValue, Rect};
 pub use xml::{load_form, load_form_from_str, save_form, FormError};
+
+#[cfg(feature = "render")]
+pub mod paint;

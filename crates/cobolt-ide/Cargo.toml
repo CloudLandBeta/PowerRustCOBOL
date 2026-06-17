@@ -27,8 +27,9 @@ cobolt-runtime  = { path = "../cobolt-runtime" }
 cobolt-stdlib   = { path = "../cobolt-stdlib" }
 
 # Form designer
-cobolt-forms    = { path = "../cobolt-forms" }
+cobolt-forms    = { path = "../cobolt-forms", features = ["render"] }
 cobolt-codegen  = { path = "../cobolt-codegen" }
+cobolt-indexed  = { path = "../cobolt-indexed" }
 
 # Animator widget — animated-image decoding + playback
 cobolt-media    = { path = "../cobolt-media" }

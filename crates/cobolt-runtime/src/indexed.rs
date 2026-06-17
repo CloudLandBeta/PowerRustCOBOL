@@ -442,6 +442,11 @@ impl IndexedFile {
         self.kor = kor.min(self.alternates.len());
     }
 
+    /// Reset sequential-read position to before the first record.
+    pub fn reset_cursor(&mut self) {
+        self.cursor = None;
+    }
+
     // ── OPEN / CLOSE ────────────────────────────────────────────────────────
 
     pub fn open(&mut self, mode: OpenMode) -> &'static str {

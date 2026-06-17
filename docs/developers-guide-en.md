@@ -34,7 +34,7 @@ See the LICENSE file in the project root for full license information.
 5. [The IDE at a glance](#5-the-ide-at-a-glance)
 6. [Projects and the project model](#6-projects-and-the-project-model)
 7. [The Form Designer (RAD)](#7-the-form-designer-rad)
-8. [The widget catalogue](#8-the-widget-catalogue)
+8. [The control catalogue](#8-the-control-catalogue)
 9. [Properties](#9-properties)
 10. [Event-driven programming](#10-event-driven-programming)
 11. [Talking to the UI from COBOL](#11-talking-to-the-ui-from-cobol)
@@ -190,12 +190,13 @@ flowchart TB
     MB --> TB --> Body --> OUT
 ```
 
-- **Project Explorer (left).** A tree rooted at your project. Five fixed
-  categories — **Forms**, **Common Code**, **Generated Code**, **Assets**,
-  **Documentation** — each with a **➕** button. To the left of each item is a
-  **status "knob"**: 🟢 green = checked/tested OK, 🟡 yellow = changed since last
-  check, 🔴 red = a problem was reported. Forms expand to show their controls,
-  grouped by toolbox category, and each control expands to its **Events**.
+- **Project Explorer (left).** A tree rooted at your project. Six fixed
+  categories — **Forms**, **Indexed Files**, **Common Code**, **Generated Code**,
+  **Assets**, **Documentation** — each with a **➕** button. To the left of each
+  item is a **status "knob"**: 🟢 green = checked/tested OK, 🟡 yellow = changed
+  since last check, 🔴 red = a problem was reported. Forms expand to show their
+  controls, grouped by toolbox category, and each control expands to its
+  **Events**. Indexed Files expand to show record fields (like form controls).
   **Click the root node at the very top** (📁 YourProjectName) at any time to
   bring up the full project settings form in the main work area.
 
@@ -221,7 +222,7 @@ The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fad
   the project settings form** (when you click the project root at the top of
   the tree, or automatically when the IDE first opens a project — with no
   editor visible). It uses the exact same glass pane construction
-  (CentralPanel + glass frame) as the widget properties inspector for
+  (CentralPanel + glass frame) as the control properties inspector for
   consistent width (no shortfall at the right border) and full 100% height
   behaviour (the pane grows/shrinks with the available area above the Output
   panel on window or splitter resize). The card's rounded bottom border/stroke
@@ -373,6 +374,7 @@ HelloPower/
 ├── cobolt.toml         ← project manifest
 ├── src/                ← Common Code  (hand-written COBOL programs/copybooks)
 ├── forms/              ← Forms        (.cfrm designer files)
+├── indexed/            ← Indexed Files (.cidx definitions)
 ├── generated/          ← Generated Code (RAD-produced .cbl — read-only)
 ├── assets/             ← Assets       (images, audio, fonts, data files)
 ├── docs/               ← Documentation
@@ -397,13 +399,14 @@ you can **Run** straight away and then grow.
 > missing standard folders** automatically, so every project ends up with the
 > same structure.
 
-### The five tree categories
+### The six tree categories
 
 | Category | Holds | Editable? |
 |----------|-------|-----------|
 | **Forms** | `.cfrm` form-designer files | via the Designer |
+| **Indexed Files** | `.cidx` indexed-file definitions | via the Indexed File Editor |
 | **Common Code** | hand-written COBOL you `CALL` from forms or run directly | yes |
-| **Generated Code** | the `.cbl` PowerRustCOBOL generates from each form | **read-only** (blue, lock icon) |
+| **Generated Code** | the `.cbl` PowerRustCOBOL generates from each form or `.cidx` | **read-only** (blue, lock icon) |
 | **Assets** | images, audio, fonts, data files bundled with the app | imported |
 | **Documentation** | Markdown / text / PDF notes | yes |
 
@@ -412,16 +415,38 @@ you can **Run** straight away and then grow.
 The **➕** on a category **creates a new item**:
 
 - **Forms ➕** → *New Form* dialog.
+- **Indexed Files ➕** → *New Indexed File* wizard (name, assign path, record layout, keys, storage).
 - **Common Code ➕** → a new `.cbl` from a starter template, opened in the editor.
 - **Documentation ➕** → a new Markdown file.
 - **Assets ➕** → file picker (assets are authored externally, so "create" = import).
 
 To **import an existing file** into a category, **right-click the ➕** and choose
-*Import existing…*. (The `File` menu's *Import Form…* does the same for forms.)
+*Import existing…*. For **Indexed Files**, this picks an on-disk `.idx` (or similar)
+data file and builds a matching `.cidx` when the file carries a self-describing
+schema.
 
 > **Note.** Generated `.cbl` files live in `generated/`, are tracked
-> automatically, and open read-only. Editing belongs in the form (the Designer)
-> or in Common Code — never in generated output.
+> automatically, and open read-only. Editing belongs in the form (the Designer),
+> the `.cidx` (Indexed File Editor), or in Common Code — never in generated output.
+
+### Indexed File Editor & Grid Browser
+
+> 📷 **Screenshot needed — `indexed-file-editor.png`** — Indexed File Editor
+> viewport with field list, properties pane, and toolbar (Save / Save & Generate /
+> Finalize / Open Grid Browser).
+
+Double-click an **Indexed Files** entry to open the **Indexed File Editor** in its
+own window (same multi-window pattern as the Form Designer). The centre pane lists
+record fields; the lower pane shows file- or field-level properties. **Finalize**
+creates the on-disk data file and locks structural fields (PIC, offsets, keys,
+storage). Comments and per-field **grid controls** stay editable afterward.
+
+**Open Grid Browser** (after finalize) opens a second viewport: a virtualized table
+over the live indexed data file with add / edit / delete, **Commit** / **Rollback**,
+and schema-drift protection when the on-disk file no longer matches the `.cidx`.
+
+Each `.cidx` produces `generated/<stem>-indexed.cbl` (`SELECT` / `FD` fragment),
+regenerated on **Build / Run / Debug / Check** like form output.
 
 ---
 
@@ -432,7 +457,7 @@ window**, so you can have several designers and running forms side by side.
 
 ```mermaid
 flowchart LR
-    TBX["Toolbox<br/>(widgets, grouped)"]
+    TBX["Toolbox<br/>(controls, grouped)"]
     CANVAS["Design canvas<br/>(drag · drop · resize · align)"]
     PROP["Properties pane<br/>(per selection)"]
     TBX -- "drag onto" --> CANVAS
@@ -442,7 +467,7 @@ flowchart LR
 
 - **Toolbox (left).** Widgets grouped into **Non-Visual**, **Common**,
   **Container**, **Data**, **Graphics**, **Menu**, **Charts**, and **Dialogs**.
-  Drag any widget onto the canvas.
+  Drag any control onto the canvas.
 - **Canvas (centre).** Move, resize (drag the border grips), align, and
   distribute controls. A snap-to-grid keeps things tidy. You can resize the
   **form itself** by dragging its edges.
@@ -455,8 +480,10 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 (a non-interactive render), **Run Form** (live, interactive), grid toggle, glass
 toggle, alignment tools, undo/redo.
 
-> **WYSIWYG.** Preview and Run Form draw each widget with the **same renderer
-> the designer canvas uses**, driven by the widget's designed properties —
+> **WYSIWYG.** Preview, Run Form, and compiled binaries draw each control's
+> graphical face with the **exact same renderer** (now in `cobolt-forms` paint
+> module, originally the designer canvas `draw_control` + glass helpers) driven
+> by the control's designed properties —
 > background and foreground colours, fonts, corner radius, shadows, checked
 > state, progress value. What you style on the canvas is exactly what runs;
 > the runtime only adds the live behaviour (press feedback, focus, input).
@@ -473,14 +500,14 @@ form's width/height to the chosen profile.
 > and a chart), and the properties pane showing the section cards. Ideally use
 > a project with a background image so the glass styling is visible.
 
-> **Note (non-visual widgets).** Timer, AI Agent, REST Client, and SQL Database
+> **Note (non-visual controls).** Timer, AI Agent, REST Client, and SQL Database
 > are **non-visual**: they appear on the canvas as labelled glass "chips" at
 > design time but render nothing at run time. They exist to be configured and to
 > raise events / be `CALL`ed from your COBOL.
 
 ---
 
-## 8. The widget catalogue
+## 8. The control catalogue
 
 PowerRustCOBOL ships the following controls. Visual controls render at run time;
 non-visual ones are services.
@@ -510,8 +537,8 @@ non-visual ones are services.
 > **Note.** A `Custom` control type exists as an extension point for
 > bespoke/vendor controls; treat it as advanced.
 
-> 📷 **Screenshot needed — `widget-gallery.png`.** A single form (or the preview
-> window) showing one of each major widget so newcomers can recognise them. The
+> 📷 **Screenshot needed — `control-gallery.png`.** A single form (or the preview
+> window) showing one of each major control so newcomers can recognise them. The
 > charts especially benefit from a visual.
 
 ---
@@ -604,14 +631,14 @@ In words:
   `onClose` (as it closes) are pre-created for every form; the rest you attach as
   needed.
 
-> **Events fire at run time.** Every event a widget lists in its catalogue can
+> **Events fire at run time.** Every event a control lists in its catalogue can
 > be handled *and* actually fires in a *Run Form* session — the runtime no
 > longer supports only a subset. Coverage:
 >
-> - **Every visual widget** gets the universal pointer set — `onClick`,
+> - **Every visual control** gets the universal pointer set — `onClick`,
 >   `onDblClick`, `onMouseDown`, `onMouseUp`, `onMouseEnter`, `onMouseLeave` —
->   whenever the gesture happens (only the ones the widget actually declares).
-> - **Value widgets** fire `onChange` plus their semantic aliases:
+>   whenever the gesture happens (only the ones the control actually declares).
+> - **Value controls** fire `onChange` plus their semantic aliases:
 >   `onCheckedChanged` (check box / radio), `onSelectedIndexChanged`
 >   (list / combo), and the combo's `onDropDown` on open.
 > - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
@@ -624,7 +651,7 @@ In words:
 > A handful of events are tied to conditions the lightweight *Run Form* preview
 > doesn't fully model yet — back-end completions (`onResponseReceived`,
 > `onQueryComplete`, the AI agent's `onResponse`/`onError`) and a few
-> widget-internal ones (`onNodeExpand`, `onCellChange`). They are still
+> control-internal ones (`onNodeExpand`, `onCellChange`). They are still
 > designable and generate correctly; a compiled binary wires them to their real
 > sources. When in doubt, confirm in a *Run Form* session.
 
@@ -708,7 +735,7 @@ the way PowerCOBOL does — a quoted property name `OF` the control:
 The editor's **IntelliSense guides you through this syntax**: type `"` and it
 lists every property alphabetically; keep typing to filter (`"Capt…"` → `Caption`)
 and accepting the suggestion closes the quote (`"Caption"`). Then it offers the
-`OF` qualifier, and after `OF` it lists the **widgets that actually expose that
+`OF` qualifier, and after `OF` it lists the **controls that actually expose that
 property** (`"Caption" OF Bu…` → `Button-1`, `Button-2`, …). For ordinary COBOL,
 accepting a reserved word simply inserts the word and a space and waits for what
 you type next — no auto-filled template.
@@ -736,11 +763,11 @@ control-outward, and a name may carry a 1-based subscript
 > `MOVE propertyA TO propertyB` needs **no intermediate `PIC` data item** — a
 > step that classic GUI COBOL forces on you.
 
-### Calling widget methods
+### Calling control methods
 
-Properties describe *what a widget is*; **methods** describe *what it can do* —
+Properties describe *what a control is*; **methods** describe *what it can do* —
 showing it, moving it, ticking a value up, adding a list item, firing an HTTP
-request. Every widget understands a set of **universal** methods plus its own
+request. Every control understands a set of **universal** methods plus its own
 **type-specific** ones. You can call a method three ways, all equivalent:
 
 ```cobol
@@ -763,16 +790,16 @@ request. Every widget understands a set of **universal** methods plus its own
 Arguments go in parentheses (inline / expression form) or after `USING`
 (`INVOKE` form); a method that returns a value can be used directly in an
 expression or captured with `RETURNING`. The editor's IntelliSense lists a
-widget's methods after you type `::`, each with a one-line description.
+control's methods after you type `::`, each with a one-line description.
 
-**Universal methods** (every visible widget):
+**Universal methods** (every visible control):
 
 | Method | Effect |
 |--------|--------|
 | `Show` / `Hide` | Set the `Visible` property on or off. |
 | `Enable` / `Disable` | Set the `Enabled` property on or off. |
-| `SetFocus` | Give the widget keyboard focus. |
-| `MoveTo(x, y)` | Reposition the widget (sets `X` / `Y`). |
+| `SetFocus` | Give the control keyboard focus. |
+| `MoveTo(x, y)` | Reposition the control (sets `X` / `Y`). |
 | `Resize(w, h)` | Change its size (sets `Width` / `Height`). |
 | `BringToFront` / `SendToBack` | Change stacking order. |
 | `SetProperty(name, value)` / `GetProperty(name)` | Generic access to any property by name. |
@@ -1215,7 +1242,7 @@ The drivers are pure and bundled (no `libpq`/OpenSSL to install). Use
 reference: `docs/database-runtime.md`.
 
 > **Note.** You can model a database connection visually with the **SQL Database**
-> non-visual widget (its properties hold the connection string, driver, and the
+> non-visual control (its properties hold the connection string, driver, and the
 > data items its events populate), or drive it entirely from code with the
 > `CALL`s above.
 
@@ -1225,9 +1252,9 @@ reference: `docs/database-runtime.md`.
 
 - **HTTP/REST.** `COBOL-HTTP-GET/POST/PUT/DELETE` issue requests;
   `COBOL-HTTP-SET-HEADER` / `COBOL-HTTP-CLEAR-HEADERS` manage headers. The
-  **REST Client** non-visual widget gives you a designable endpoint with events
+  **REST Client** non-visual control gives you a designable endpoint with events
   for responses, errors, timeouts, and progress.
-- **AI agents.** The **AI Agent** non-visual widget models a connection to a
+- **AI agents.** The **AI Agent** non-visual control models a connection to a
   language model (endpoint, model, system prompt, temperature, token limits) and
   raises events such as `onResponse`, `onStreamChunk`, `onError`, and
   `onThinking`, which your COBOL handlers consume.
@@ -1351,7 +1378,7 @@ the toolbar **Debug** button (to the right of **Run**).
 
 A consolidated list so you are never surprised:
 
-- **Event firing.** All form/widget events are *designable*; only the core set is
+- **Event firing.** All form/control events are *designable*; only the core set is
   *fired* by the runtime today (see §10). Verify in *Run Form*.
 - **File organisations.** SEQUENTIAL, LINE SEQUENTIAL, and INDEXED are
   supported; **RELATIVE is planned**.
@@ -1389,13 +1416,13 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 ## Appendix B — Glossary
 
 - **Form** — a window you design; stored as a `.cfrm` file.
-- **Control / widget** — an element on a form (button, text box, chart, …).
+- **Control / control** — an element on a form (button, text box, chart, …).
 - **Property** — a named attribute of a control or form.
 - **Event** — something the user (or system) does; named `onSomething`.
 - **Handler** — the COBOL that runs for an event; a nested program.
 - **Generated code** — the read-only `.cbl` PowerRustCOBOL produces from a form.
 - **Common Code** — your hand-written COBOL.
-- **Non-visual widget** — a service with no run-time appearance (Timer, SQL,
+- **Non-visual control** — a service with no run-time appearance (Timer, SQL,
   REST, AI Agent).
 - **rcrun** — the command-line runtime / checker / packager / compiler.
 - **Indexed file** — an ISAM file (`ORGANIZATION IS INDEXED`).

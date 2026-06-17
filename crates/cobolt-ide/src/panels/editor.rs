@@ -25,7 +25,7 @@ use crate::runner::DiagMsg;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-pub const EDITOR_FONT_SIZE: f32 = 18.0;
+pub const EDITOR_FONT_SIZE: f32 = 16.0;
 
 // ── COBOL keyword tables ──────────────────────────────────────────────────────
 
@@ -76,7 +76,10 @@ const DATA_KEYWORDS: &[&str] = &[
 
 // ── Control member tables ─────────────────────────────────────────────────────
 
-/// Methods exposed by each control type (shown after `INVOKE ctrl-id '`).
+/// Methods exposed by each control type (shown after `CTRL::` or after
+/// `INVOKE ctrl-id ` in the classic form). Completion inserts the bare
+/// method name (the inline `::Method(arg)` and INVOKE forms both accept
+/// bare identifiers for the method).
 type Method = (&'static str, &'static str);
 
 /// Methods every *visual* widget supports (lifecycle, geometry, animation,
@@ -441,7 +444,12 @@ impl AcItem {
         Self { label: name.into(), insert: name.into(), detail: detail.into(), kind: AcKind::Property }
     }
     fn method(name: &str, detail: &str) -> Self {
-        Self { label: name.into(), insert: format!("'{name}'"), detail: detail.into(), kind: AcKind::Method }
+        // Bare identifier form. Suitable for the modern inline syntax
+        // `CTRL::SetCaption(arg)` (parse_method_tail eats identifier after ::).
+        // The classic `INVOKE ctrl "Method"` path also accepts a bare identifier
+        // (or string) for the method name, so this produces parseable code for
+        // the live interpreter re-parse as well.
+        Self { label: name.into(), insert: name.into(), detail: detail.into(), kind: AcKind::Method }
     }
     fn ctrl(id: &str, ctrl_type: &str) -> Self {
         Self { label: id.into(), insert: id.into(), detail: format!("{ctrl_type} control"), kind: AcKind::Control }
@@ -1550,8 +1558,8 @@ impl EditorPanel {
                                             property_name_items(&self.known_controls, &prefix),
                                         PropRefCtx::OfKeyword =>
                                             of_qualifier_items(&prefix),
-                                        PropRefCtx::WidgetForProp { property } =>
-                                            widgets_with_property(&self.known_controls, property, &prefix),
+                                        PropRefCtx::ControlForProp { property } =>
+                                            controls_with_property(&self.known_controls, property, &prefix),
                                     };
                                     (v, true)
                                 } else if let Some((ctrl_id, ctrl_type, method_pfx)) = &invoke {
@@ -2259,7 +2267,7 @@ enum PropRefCtx {
     /// Just after `"Prop"` — offer / accept the `OF` qualifier.
     OfKeyword,
     /// After `"Prop" OF ` — offer widgets that expose `property`.
-    WidgetForProp { property: String },
+    ControlForProp { property: String },
 }
 
 /// Detect a property-reference context from the current line up to the cursor.
@@ -2283,7 +2291,7 @@ fn detect_property_ref(line: &str) -> Option<PropRefCtx> {
         [w] => {
             let wu = w.to_ascii_uppercase();
             if wu == "OF" && ends_ws {
-                Some(PropRefCtx::WidgetForProp { property: prop.to_string() })
+                Some(PropRefCtx::ControlForProp { property: prop.to_string() })
             } else if "OF".starts_with(&wu) && !ends_ws {
                 Some(PropRefCtx::OfKeyword)
             } else {
@@ -2291,7 +2299,7 @@ fn detect_property_ref(line: &str) -> Option<PropRefCtx> {
             }
         }
         [w1, _] if w1.eq_ignore_ascii_case("OF") && !ends_ws => {
-            Some(PropRefCtx::WidgetForProp { property: prop.to_string() })
+            Some(PropRefCtx::ControlForProp { property: prop.to_string() })
         }
         _ => None,
     }
@@ -2322,7 +2330,7 @@ fn of_qualifier_items(prefix: &str) -> Vec<AcItem> {
 }
 
 /// Widgets that expose `property`, filtered by id prefix.
-fn widgets_with_property(controls: &[KnownControl], property: &str, prefix: &str) -> Vec<AcItem> {
+fn controls_with_property(controls: &[KnownControl], property: &str, prefix: &str) -> Vec<AcItem> {
     let up = prefix.to_ascii_uppercase();
     controls.iter()
         .filter(|c| c.properties.iter().any(|p| p.eq_ignore_ascii_case(property)))
@@ -2781,11 +2789,11 @@ END-EVALUATE
         assert_eq!(detect_property_ref("           MOVE \"Caption\" O"), Some(OfKeyword));
         assert_eq!(
             detect_property_ref("           MOVE \"Caption\" OF "),
-            Some(WidgetForProp { property: "Caption".into() })
+            Some(ControlForProp { property: "Caption".into() })
         );
         assert_eq!(
             detect_property_ref("           MOVE \"Caption\" OF Bu"),
-            Some(WidgetForProp { property: "Caption".into() })
+            Some(ControlForProp { property: "Caption".into() })
         );
         // a normal display string with a space is not a property context
         assert_eq!(detect_property_ref("           DISPLAY \"hello world"), None);
@@ -2811,7 +2819,7 @@ END-EVALUATE
             .into_iter().map(|i| i.label).collect();
         assert_eq!(cap, vec!["Caption"]);
         // widgets exposing Caption, filtered by "Bu"
-        let w: Vec<String> = widgets_with_property(&controls, "Caption", "Bu")
+        let w: Vec<String> = controls_with_property(&controls, "Caption", "Bu")
             .into_iter().map(|i| i.label).collect();
         assert_eq!(w, vec!["Button-1", "Button-2"]);
         // OF qualifier appears only while its prefix matches

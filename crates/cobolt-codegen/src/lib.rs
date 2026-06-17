@@ -65,6 +65,9 @@
 use cobolt_forms::{Control, ControlType, Form};
 use cobolt_forms::model::PropValue;
 
+pub mod indexed;
+pub use indexed::generate_indexed;
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Generate a complete COBOL source skeleton from `form`.

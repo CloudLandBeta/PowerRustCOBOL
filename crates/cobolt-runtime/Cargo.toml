@@ -17,6 +17,7 @@ repository.workspace   = true
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
 cobolt-semantic = { path = "../cobolt-semantic" }
+cobolt-indexed  = { path = "../cobolt-indexed" }
 thiserror       = { workspace = true }
 indexmap        = { workspace = true }
 tracing         = { workspace = true }
@@ -36,3 +37,4 @@ ureq            = { version = "2", features = ["json"] }
 cobolt-lexer      = { path = "../cobolt-lexer" }
 cobolt-parser     = { path = "../cobolt-parser" }
 pretty_assertions = { workspace = true }
+tempfile          = "3"
