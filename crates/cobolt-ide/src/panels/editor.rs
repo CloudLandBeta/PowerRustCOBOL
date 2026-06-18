@@ -74,6 +74,32 @@ const DATA_KEYWORDS: &[&str] = &[
     "QUOTE", "QUOTES", "NULL", "NULLS",
 ];
 
+/// COBOL-2002 reserved words (object orientation, the new data types, dynamic
+/// storage, conditional-expression and program attributes). PowerRustCOBOL
+/// supports the COBOL-2002 subset used by the Rust-FFI bridge and form modules;
+/// these are offered for completion and treated as reserved by the beautifier.
+const COBOL2002_KEYWORDS: &[&str] = &[
+    // Object orientation
+    "CLASS", "CLASS-ID", "METHOD", "METHOD-ID", "FACTORY", "OBJECT",
+    "INHERITS", "IMPLEMENTS", "INTERFACE", "INTERFACE-ID", "OVERRIDE",
+    "SELF", "SUPER", "UNIVERSAL", "ACTIVE-CLASS", "PROPERTY",
+    "REPOSITORY", "FUNCTION", "FUNCTION-ID", "END-INVOKE",
+    // Types and data description
+    "TYPEDEF", "STRONG", "BASED", "CONSTANT", "BIT", "BOOLEAN",
+    "BINARY-CHAR", "BINARY-SHORT", "BINARY-LONG", "BINARY-DOUBLE",
+    "FLOAT-SHORT", "FLOAT-LONG", "FLOAT-EXTENDED",
+    "NATIONAL", "NATIONAL-EDITED", "GROUP-USAGE", "ALIGNED", "ANY", "ANYCASE",
+    // Dynamic storage
+    "ALLOCATE", "FREE", "INITIALIZED",
+    // Conditional expressions / program attributes
+    "RAISING", "EC", "PRESENT", "OMITTED", "VALIDATE", "VALIDATING",
+    "DEFAULT", "FORMAT", "RECURSIVE", "COMMON", "INITIAL",
+    // Scope terminators new in COBOL-2002 (or commonly omitted earlier)
+    "END-ACCEPT", "END-DISPLAY", "END-ADD", "END-SUBTRACT", "END-MULTIPLY",
+    "END-DIVIDE", "END-COMPUTE", "END-STRING", "END-UNSTRING", "END-SEARCH",
+    "END-READ", "END-WRITE", "END-REWRITE", "END-DELETE", "END-START",
+];
+
 // ── Control member tables ─────────────────────────────────────────────────────
 
 /// Methods exposed by each control type (shown after `CTRL::` or after
@@ -1326,6 +1352,7 @@ impl EditorPanel {
             let kw_set: std::collections::HashSet<&'static str> = VERBS.iter()
                 .chain(DIVISION_KEYWORDS.iter())
                 .chain(DATA_KEYWORDS.iter())
+                .chain(COBOL2002_KEYWORDS.iter())
                 .copied()
                 .collect();
             let font_hl = font.clone();
@@ -1972,6 +1999,7 @@ fn beautify_cobol(text: &str) -> String {
     let reserved: std::collections::HashSet<&'static str> = VERBS.iter()
         .chain(DIVISION_KEYWORDS.iter())
         .chain(DATA_KEYWORDS.iter())
+        .chain(COBOL2002_KEYWORDS.iter())
         .copied()
         .collect();
 
@@ -2248,6 +2276,9 @@ fn detect_invoke_context(
 }
 
 /// PowerCOBOL-style property reference context: `"Property" OF Widget`.
+/// Deprecated in favour of `obj::prop` (spec 005); kept only so the (now inert)
+/// completion arms still compile.
+#[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 enum PropRefCtx {
     /// A property name is being typed inside an open double quote.
@@ -2259,38 +2290,12 @@ enum PropRefCtx {
 }
 
 /// Detect a property-reference context from the current line up to the cursor.
-fn detect_property_ref(line: &str) -> Option<PropRefCtx> {
-    // Inside an open double quote → typing a property name.
-    if line.matches('"').count() % 2 == 1 {
-        let open  = line.rfind('"').unwrap();
-        let typed = &line[open + 1..];
-        return if typed.contains(char::is_whitespace) { None } else { Some(PropRefCtx::PropertyName) };
-    }
-    // Otherwise, look at the last closed "…" pair and what follows it.
-    let close = line.rfind('"')?;
-    let open  = line[..close].rfind('"')?;
-    let prop  = &line[open + 1..close];
-    if prop.is_empty() || prop.contains(char::is_whitespace) { return None; }
-    let rest = &line[close + 1..];
-    let ends_ws = rest.ends_with(char::is_whitespace);
-    let toks: Vec<&str> = rest.split_whitespace().collect();
-    match toks.as_slice() {
-        [] => Some(PropRefCtx::OfKeyword),
-        [w] => {
-            let wu = w.to_ascii_uppercase();
-            if wu == "OF" && ends_ws {
-                Some(PropRefCtx::ControlForProp { property: prop.to_string() })
-            } else if "OF".starts_with(&wu) && !ends_ws {
-                Some(PropRefCtx::OfKeyword)
-            } else {
-                None
-            }
-        }
-        [w1, _] if w1.eq_ignore_ascii_case("OF") && !ends_ws => {
-            Some(PropRefCtx::ControlForProp { property: prop.to_string() })
-        }
-        _ => None,
-    }
+fn detect_property_ref(_line: &str) -> Option<PropRefCtx> {
+    // Deprecated (spec 005): a double quote is a plain string literal now, not the
+    // start of a PowerCOBOL `"Prop" OF Ctrl` reference. Property and method access
+    // use `obj::prop` / `obj::method()` instead, handled by control-member
+    // completion — so typing `"` never opens a property/method popup.
+    None
 }
 
 /// All property names across the known controls (union), sorted + prefix-filtered.
@@ -2338,7 +2343,7 @@ fn build_completions(
     let mut items: Vec<AcItem> = Vec::new();
 
     // ── 1. COBOL keywords (insert the bare word + space, then await input) ──
-    for &kw in VERBS.iter().chain(DIVISION_KEYWORDS).chain(DATA_KEYWORDS) {
+    for &kw in VERBS.iter().chain(DIVISION_KEYWORDS).chain(DATA_KEYWORDS).chain(COBOL2002_KEYWORDS) {
         if kw.starts_with(&up) && seen.insert(kw.into()) {
             items.push(AcItem::kw(kw));
         }
@@ -2477,6 +2482,7 @@ pub fn highlight_cobol(text: &str) -> egui::text::LayoutJob {
     let kw: std::collections::HashSet<&'static str> = VERBS.iter()
         .chain(DIVISION_KEYWORDS.iter())
         .chain(DATA_KEYWORDS.iter())
+        .chain(COBOL2002_KEYWORDS.iter())
         .copied().collect();
     cobol_layout_job(text, FontId::monospace(EDITOR_FONT_SIZE), &kw)
 }
@@ -2769,24 +2775,13 @@ END-EVALUATE
     }
 
     #[test]
-    fn detect_property_ref_contexts() {
-        use PropRefCtx::*;
-        assert_eq!(detect_property_ref("           MOVE \""),          Some(PropertyName));
-        assert_eq!(detect_property_ref("           MOVE \"Captio"),    Some(PropertyName));
-        assert_eq!(detect_property_ref("           MOVE \"Caption\""), Some(OfKeyword));
-        assert_eq!(detect_property_ref("           MOVE \"Caption\" O"), Some(OfKeyword));
-        assert_eq!(
-            detect_property_ref("           MOVE \"Caption\" OF "),
-            Some(ControlForProp { property: "Caption".into() })
-        );
-        assert_eq!(
-            detect_property_ref("           MOVE \"Caption\" OF Bu"),
-            Some(ControlForProp { property: "Caption".into() })
-        );
-        // a normal display string with a space is not a property context
+    fn double_quote_is_a_literal_not_a_property_ref() {
+        // Spec 005: a double quote starts a string literal, never a PowerCOBOL
+        // `"Prop" OF Ctrl` property reference — so no property/method popup.
+        assert_eq!(detect_property_ref("           MOVE \""), None);
+        assert_eq!(detect_property_ref("           MOVE \"Captio"), None);
+        assert_eq!(detect_property_ref("           MOVE \"Caption\" OF "), None);
         assert_eq!(detect_property_ref("           DISPLAY \"hello world"), None);
-        // fully-typed reference (trailing space after the widget) → done
-        assert_eq!(detect_property_ref("           MOVE \"Caption\" OF Button-1 "), None);
     }
 
     #[test]
