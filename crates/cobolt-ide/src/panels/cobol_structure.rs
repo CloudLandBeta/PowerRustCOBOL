@@ -4,18 +4,17 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! COBOL Structure editor (spec 005).
+//! COBOL Structure model helpers (spec 005).
 //!
 //! The form's property inspector lists the shared COBOL sections —
 //! `SPECIAL-NAMES`, `REPOSITORY`, `FILE-CONTROL`, `FILE SECTION`,
-//! `WORKING-STORAGE` — plus the user procedures (nested programs the event
-//! handlers can `CALL`). Selecting one opens this popup, which edits that single
-//! block's code. Each block is woven verbatim into the generated program
-//! ([`cobolt_codegen`]); the developer writes any `GLOBAL` / `EXTERNAL` clauses.
+//! `WORKING-STORAGE` — plus the user procedures. Selecting one opens a popup
+//! that hosts the **same** COBOL [`EditorPanel`](super::editor::EditorPanel) used
+//! everywhere else (IntelliSense, syntax colouring, find/replace) — see
+//! `DesignerPanel::show_cobol_structure_window`. This module just describes which
+//! block is being edited and reads/writes its text on the form.
 
 use cobolt_forms::Form;
-
-use crate::i18n::Tr;
 
 /// Which COBOL Structure block the popup editor is editing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +50,18 @@ impl CsTarget {
             CsTarget::Procedure(_) => return None,
         })
     }
+
+    /// A stable key for the synthetic editor buffer path of this block.
+    pub fn buffer_key(self) -> String {
+        match self {
+            CsTarget::SpecialNames => "special-names".into(),
+            CsTarget::Repository => "repository".into(),
+            CsTarget::FileControl => "file-control".into(),
+            CsTarget::FileSection => "file-section".into(),
+            CsTarget::WorkingStorage => "working-storage".into(),
+            CsTarget::Procedure(i) => format!("procedure-{i}"),
+        }
+    }
 }
 
 /// Current text of a fixed section block (not valid for a user procedure).
@@ -65,56 +76,31 @@ pub fn section_text(form: &Form, t: CsTarget) -> Option<&str> {
     })
 }
 
-/// The multiline code editor, sized to the full remaining space so it fills the
-/// popup all the way down (and scrolls internally past the caller's height cap).
-fn code_edit(ui: &mut egui::Ui, code: &mut String) -> bool {
-    ui.add_sized(
-        ui.available_size(),
-        egui::TextEdit::multiline(code)
-            .code_editor()
-            .desired_width(f32::INFINITY),
-    )
-    .changed()
+/// The editable code of a block (section text, or a procedure's body).
+pub fn block_text(form: &Form, t: CsTarget) -> String {
+    match t {
+        CsTarget::Procedure(i) => form.user_procedures.get(i).map(|p| p.code.clone()).unwrap_or_default(),
+        other => section_text(form, other).unwrap_or_default().to_owned(),
+    }
 }
 
-/// Edit one section / user-procedure block in the popup. Returns `true` on edit.
-/// The header + hint sit on top; the code editor fills the rest and scrolls.
-pub fn show_editor(ui: &mut egui::Ui, form: &mut Form, target: CsTarget, tr: &Tr) -> bool {
-    let mut changed = false;
-    match target {
-        CsTarget::Procedure(i) => {
-            if i >= form.user_procedures.len() {
-                return false;
-            }
-            let up = &mut form.user_procedures[i];
-            ui.horizontal(|ui| {
-                ui.label(tr.cs_proc_name);
-                changed |= ui
-                    .add(egui::TextEdit::singleline(&mut up.name).desired_width(260.0))
-                    .changed();
-            });
-            ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
-            ui.add_space(4.0);
-            changed |= code_edit(ui, &mut up.code);
-        }
-        section => {
-            ui.label(
-                egui::RichText::new(section.section_keyword().unwrap_or(""))
-                    .monospace()
-                    .strong(),
-            );
-            ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
-            ui.add_space(4.0);
-            let field = match section {
-                CsTarget::SpecialNames => &mut form.cobol_structure.special_names,
-                CsTarget::Repository => &mut form.cobol_structure.repository,
-                CsTarget::FileControl => &mut form.cobol_structure.file_control,
-                CsTarget::FileSection => &mut form.cobol_structure.file_section,
-                CsTarget::WorkingStorage => &mut form.user_ws_source,
-                CsTarget::Procedure(_) => unreachable!(),
-            };
-            changed |= code_edit(ui, field);
-        }
+/// Write a block's edited code back to the form. Returns whether it changed.
+pub fn set_block_text(form: &mut Form, t: CsTarget, text: String) -> bool {
+    let slot: &mut String = match t {
+        CsTarget::SpecialNames => &mut form.cobol_structure.special_names,
+        CsTarget::Repository => &mut form.cobol_structure.repository,
+        CsTarget::FileControl => &mut form.cobol_structure.file_control,
+        CsTarget::FileSection => &mut form.cobol_structure.file_section,
+        CsTarget::WorkingStorage => &mut form.user_ws_source,
+        CsTarget::Procedure(i) => match form.user_procedures.get_mut(i) {
+            Some(up) => &mut up.code,
+            None => return false,
+        },
+    };
+    if *slot != text {
+        *slot = text;
+        true
+    } else {
+        false
     }
-    changed
 }

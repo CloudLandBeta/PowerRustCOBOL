@@ -397,6 +397,11 @@ pub struct DesignerPanel {
     /// The full-featured COBOL editor hosted inside the event modal (IntelliSense,
     /// find/replace, status bar) — the same engine as the main code editor.
     event_editor: super::editor::EditorPanel,
+    /// The same hosted COBOL editor for the COBOL Structure popup (spec 005), so
+    /// section / procedure code gets IntelliSense too. `cs_loaded` is the block
+    /// currently in its buffer (reloaded only when the selection changes).
+    cs_editor: super::editor::EditorPanel,
+    cs_loaded: Option<super::cobol_structure::CsTarget>,
 
     // ── Form preview ──────────────────────────────────────────────────────────
     /// Whether the live preview viewport is open.
@@ -438,6 +443,8 @@ impl DesignerPanel {
             press_form_edge:       None,
             event_modal:           None,
             event_editor:          super::editor::EditorPanel::new(),
+            cs_editor:             super::editor::EditorPanel::new(),
+            cs_loaded:             None,
             show_preview:          false,
             cobol_structure_edit:  None,
             preview_state:         HashMap::new(),
@@ -1691,6 +1698,114 @@ impl DesignerPanel {
             self.event_modal = None;
         } else if cancel_clicked {
             self.event_modal = None;
+        }
+    }
+
+    /// COBOL Structure popup (spec 005): hosts the **same** `EditorPanel` used by
+    /// the event modal and the main code editor, so the section / procedure code
+    /// gets IntelliSense, syntax colouring and find/replace too. Edits live-sync
+    /// back to the form block.
+    pub fn show_cobol_structure_window(&mut self, ctx: &egui::Context, tr: &crate::i18n::Tr) {
+        use super::cobol_structure as cs;
+        let Some(target) = self.cobol_structure_edit else { return };
+
+        // (Re)load the selected block into the hosted editor when it changes.
+        if self.cs_loaded != Some(target) {
+            let text = cs::block_text(&self.form, target);
+            self.cs_editor.open_buffer(
+                std::path::PathBuf::from(format!("cobol-structure/{}", target.buffer_key())),
+                text,
+            );
+            self.cs_editor.known_controls = self.form.controls.iter()
+                .map(|c| {
+                    let type_name = format!("{:?}", c.control_type);
+                    super::editor::KnownControl {
+                        properties: cobolt_forms::model::property_names_for(&type_name),
+                        ctrl_type:  type_name,
+                        id:         c.id.clone(),
+                    }
+                })
+                .collect();
+            self.cs_loaded = Some(target);
+        }
+
+        let title = match target {
+            cs::CsTarget::Procedure(i) => self.form.user_procedures.get(i)
+                .map(|p| p.name.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| tr.cs_user_procedures.to_owned()),
+            other => other.section_keyword().unwrap_or("").to_owned(),
+        };
+
+        let screen = ctx.screen_rect();
+        let default_w = (screen.width() * 0.6).max(420.0);
+        let default_h = (screen.height() * 0.7).max(360.0);
+        let mut close = false;
+
+        egui::Window::new(format!("{} — {title}", tr.cs_open))
+            .id(egui::Id::new("cobol_structure_window"))
+            .collapsible(false)
+            .resizable(true)
+            .default_width(default_w)
+            .default_height(default_h)
+            .max_height(screen.height() * 0.7)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .frame(egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::same(14.0)))
+            .show(ctx, |ui| {
+                // Editable procedure name, or the fixed section keyword.
+                if let cs::CsTarget::Procedure(i) = target {
+                    if let Some(up) = self.form.user_procedures.get_mut(i) {
+                        ui.horizontal(|ui| {
+                            ui.label(tr.cs_proc_name);
+                            if ui.add(egui::TextEdit::singleline(&mut up.name).desired_width(260.0))
+                                .changed()
+                            {
+                                self.dirty = true;
+                            }
+                        });
+                    }
+                } else {
+                    ui.label(egui::RichText::new(target.section_keyword().unwrap_or(""))
+                        .monospace().strong());
+                }
+                ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
+                ui.add_space(4.0);
+
+                self.cs_editor.status_row(ui);
+                ui.add_space(4.0);
+
+                // Fixed-size container the editor fills and scrolls inside (a
+                // height from `available_height` would creep on every repaint).
+                let editor_h = (default_h - 170.0).max(200.0);
+                let editor_w = ui.available_width();
+                let ectx = ui.ctx().clone();
+                let theme = crate::theme::active();
+                let frame = egui::Frame::none()
+                    .fill(theme.bg_extreme)
+                    .stroke(egui::Stroke::new(1.0, theme.panel_border()))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(2.0));
+                ui.allocate_ui(egui::vec2(editor_w, editor_h), |ui| {
+                    frame.show(ui, |ui| {
+                        self.cs_editor.render_code_area(&ectx, ui);
+                    });
+                });
+
+                ui.add_space(6.0);
+                if ui.button(tr.cs_close).clicked() {
+                    close = true;
+                }
+            });
+
+        // Live-sync the edited buffer back to the form block.
+        if let Some(content) = self.cs_editor.buffer_for_save() {
+            if cs::set_block_text(&mut self.form, target, content) {
+                self.dirty = true;
+            }
+        }
+        if close {
+            self.cobol_structure_edit = None;
+            self.cs_loaded = None;
         }
     }
 
