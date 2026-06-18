@@ -68,7 +68,7 @@
            CLASS RUST-DURATION IS "Rust.Duration"
            CLASS RUST-INSTANT IS "Rust.Instant"
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
-           CLASS RUST-RANGE IS "Rust.Range"
+           CLASS RUST-RANGE IS "Rust.Range".
 
        DATA DIVISION.
        WORKING-STORAGE SECTION.

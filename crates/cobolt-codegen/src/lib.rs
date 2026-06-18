@@ -134,12 +134,19 @@ fn write_identification(out: &mut String, form: &Form) {
 /// Append a fixed section/paragraph header and the developer's verbatim block
 /// body, only when the body is non-empty (spec 005 COBOL Structure).
 fn weave_block(out: &mut String, header: &str, body: &str) {
+    let body = body.trim_end();
     if body.trim().is_empty() {
         return;
     }
     out.push_str(header);
     out.push('\n');
-    out.push_str(body.trim_end());
+    out.push_str(body);
+    // A COBOL paragraph must terminate with a period. If the author didn't write
+    // one (e.g. a REPOSITORY whose last `CLASS … IS "…"` entry has no period),
+    // supply one right after the last character so the generated code is valid.
+    if !body.ends_with('.') {
+        out.push('.');
+    }
     out.push('\n');
 }
 
