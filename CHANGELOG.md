@@ -8,6 +8,16 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.24.1] — 2026-06-18
+
+### Fixed
+
+- **`EXTERNAL` data is now shared run-unit-wide.** `01`/`77`-level items (and
+  `FD`s) declared `EXTERNAL` were silently ignored at run time. They are now
+  registered in a single run-unit store and shared by their real name across
+  program activations, so one program's update is seen by another in the same
+  run unit. `GLOBAL`-only items stay private to each form, as before. (spec 005)
+
 ## [PowerRustCOBOL 1.24.0] — 2026-06-17
 
 Per-control test example projects, plus form-rendering fixes surfaced by them.

@@ -66,6 +66,6 @@ pub use indexed_ide::{
 };
 pub use indexed_import::{definition_from_inspect, inspect_any_path};
 pub use interpreter::Interpreter;
-pub use environment::CobolEnvironment;
+pub use environment::{CobolEnvironment, ExternalStore, new_external_store};
 pub use objects::ObjectRegistry;
 pub use value::CobolValue;

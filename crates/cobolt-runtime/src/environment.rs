@@ -97,6 +97,26 @@ pub struct CobolEnvironment {
     elem_order: Vec<String>,
     /// 66-level RENAMES items → the covered elementary keys (in order).
     renames: IndexMap<String, Vec<String>>,
+    /// Canonical storage keys of `EXTERNAL` items (01/77-level and EXTERNAL FD
+    /// records), including all of their subordinate keys. These are shared
+    /// run-unit-wide via the [`ExternalStore`] (spec 005); GLOBAL items are not
+    /// listed here — they are shared only within a program's nested units.
+    external_names: std::collections::HashSet<String>,
+}
+
+/// Run-unit-wide `EXTERNAL` data store.
+///
+/// COBOL `EXTERNAL` items are shared *by name* across every program in a run
+/// unit (the process): there is exactly one physical copy. This map is that
+/// copy. It lives behind `Arc<Mutex<…>>` so a run unit spanning several
+/// interpreter instances — e.g. multiple form modules, possibly on different
+/// threads — can share it. Create one per run unit and clone the `Arc` to hand
+/// the same store to another interpreter.
+pub type ExternalStore = std::sync::Arc<std::sync::Mutex<IndexMap<String, CobolValue>>>;
+
+/// Create a fresh, empty run-unit `EXTERNAL` store.
+pub fn new_external_store() -> ExternalStore {
+    std::sync::Arc::new(std::sync::Mutex::new(IndexMap::new()))
 }
 
 /// An 88-level condition-name: the parent data item it qualifies and the set of
@@ -194,20 +214,23 @@ impl CobolEnvironment {
             .filter(|(_, c)| *c > 1)
             .map(|(n, _)| n)
             .collect();
-        // Pass 2: initialise values + hierarchy under canonical keys.
+        // Pass 2: initialise values + hierarchy under canonical keys, recording
+        // EXTERNAL items (01/77 and EXTERNAL FD records) for run-unit sharing.
         for section in &data.sections {
             match section {
                 DataSection::WorkingStorage(items)
                 | DataSection::LocalStorage(items)
                 | DataSection::Linkage(items) => {
                     for decl in items {
-                        env.init_decl(decl);
+                        let external =
+                            decl.is_external && (decl.level == 1 || decl.level == 77);
+                        env.init_decl_tracking_external(decl, external);
                     }
                 }
                 DataSection::FileSection(fds) => {
                     for fd in fds {
                         for rec in &fd.records {
-                            env.init_decl(rec);
+                            env.init_decl_tracking_external(rec, rec.is_external);
                         }
                     }
                 }
@@ -215,6 +238,40 @@ impl CobolEnvironment {
             }
         }
         env
+    }
+
+    /// Initialise `decl`; when `external` is set, record every storage key it
+    /// creates (the item and all its subordinates) as a run-unit EXTERNAL key.
+    fn init_decl_tracking_external(&mut self, decl: &DataDecl, external: bool) {
+        if !external {
+            self.init_decl(decl);
+            return;
+        }
+        let before: std::collections::HashSet<String> = self.store.keys().cloned().collect();
+        self.init_decl(decl);
+        for k in self.store.keys() {
+            if !before.contains(k) {
+                self.external_names.insert(k.clone());
+            }
+        }
+    }
+
+    /// Canonical storage keys that are `EXTERNAL` (shared run-unit-wide).
+    pub fn external_names(&self) -> &std::collections::HashSet<String> {
+        &self.external_names
+    }
+
+    /// Direct read of a canonical storage key — no name resolution, no group
+    /// cascade. Used by the run-unit EXTERNAL sync, which already holds
+    /// canonical keys (from [`external_names`](Self::external_names)).
+    pub fn raw_get(&self, key: &str) -> Option<&CobolValue> {
+        self.store.get(key)
+    }
+
+    /// Direct write of a canonical storage key — no name resolution, no group
+    /// cascade. Counterpart to [`raw_get`](Self::raw_get).
+    pub fn raw_set(&mut self, key: &str, value: CobolValue) {
+        self.store.insert(key.to_string(), value);
     }
 
     /// Canonical storage key for a leaf with the given ancestor path
