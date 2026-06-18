@@ -3282,12 +3282,10 @@ impl eframe::App for CoboltApp {
             ToolbarAction::Debug => self.do_debug(),
             ToolbarAction::Build => self.do_build_binary(),
             ToolbarAction::Check => self.do_check(),
-            // With no project open, Open opens an existing *project*; once a
-            // project is loaded it opens an individual COBOL file.
-            ToolbarAction::Open  => {
-                if self.cobolt_project.is_some() { self.do_open(); }
-                else { self.do_open_project(); }
-            }
+            // The toolbar Open button always opens (or switches to) a project, so
+            // you can change projects at any time. Opening an individual COBOL
+            // file lives in File → Open COBOL (and the project tree).
+            ToolbarAction::Open  => self.do_open_project(),
             ToolbarAction::Save  => self.do_save(),
             ToolbarAction::None  => {}
         }
