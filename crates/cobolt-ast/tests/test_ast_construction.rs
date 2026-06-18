@@ -142,6 +142,7 @@ fn data_decl_elementary() {
         }),
         value: Some(Literal::Figurative(FigurativeConstant::Zero)),
         usage: Usage::Display,
+        object_class: None,
         occurs: None,
         redefines: None,
         renames: None,
@@ -171,6 +172,7 @@ fn data_decl_group() {
         }),
         value: None,
         usage: Usage::Display,
+        object_class: None,
         occurs: None,
         redefines: None,
         renames: None,
@@ -187,6 +189,7 @@ fn data_decl_group() {
         picture: None,
         value: None,
         usage: Usage::Display,
+        object_class: None,
         occurs: None,
         redefines: None,
         renames: None,
@@ -215,6 +218,7 @@ fn data_decl_table() {
         }),
         value: None,
         usage: Usage::Display,
+        object_class: None,
         occurs: Some(OccursClause {
             min: 0,
             max: 100,
@@ -403,6 +407,7 @@ fn program_construction() {
                 }),
                 value: Some(Literal::String("Hello, World!".into())),
                 usage: Usage::Display,
+        object_class: None,
                 occurs: None,
                 redefines: None,
                 renames: None,
@@ -438,6 +443,7 @@ fn program_construction() {
         nested_programs: vec![],
         end_program_name: None,
         decimal_comma: false,
+        repository: vec![],
         span: dummy_span(),
     };
 

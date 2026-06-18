@@ -121,6 +121,10 @@ pub struct DataDecl {
     pub value: Option<Literal>,
     /// USAGE clause (defaults to `Display`).
     pub usage: Usage,
+    /// For `USAGE OBJECT REFERENCE <class>` items: the REPOSITORY class name
+    /// (e.g. `RUST-STRING`), resolved to a Rust type via the program's
+    /// `repository` bindings. `None` for ordinary items.
+    pub object_class: Option<String>,
     /// OCCURS clause for table items.
     pub occurs: Option<OccursClause>,
     /// REDEFINES clause — name of the item being redefined.

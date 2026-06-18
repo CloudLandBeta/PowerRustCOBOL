@@ -26,6 +26,12 @@ pub struct Parser {
     /// Set by `SPECIAL-NAMES. DECIMAL-POINT IS COMMA`. When true, numeric literals
     /// use `,` as the decimal separator and edited PICs swap `.`/`,` roles.
     pub(crate) decimal_comma: bool,
+    /// `REPOSITORY. CLASS name IS "external"` bindings captured during the
+    /// CONFIGURATION SECTION (spec 005 Rust-FFI bridge); moved into the program.
+    pub(crate) repository: Vec<(String, String)>,
+    /// Scratch: the class name from the most recently parsed
+    /// `USAGE OBJECT REFERENCE <class>`, consumed by the data item being built.
+    pub(crate) pending_object_class: Option<String>,
 }
 
 impl Parser {
@@ -35,7 +41,14 @@ impl Parser {
             .into_iter()
             .filter(|st| !matches!(st.token, Token::Comment(_)))
             .collect();
-        Self { tokens, pos: 0, diagnostics: Vec::new(), decimal_comma: false }
+        Self {
+            tokens,
+            pos: 0,
+            diagnostics: Vec::new(),
+            decimal_comma: false,
+            repository: Vec::new(),
+            pending_object_class: None,
+        }
     }
 
     // ── Token inspection ─────────────────────────────────────────────────────
@@ -402,6 +415,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         nested_programs,
         end_program_name,
         decimal_comma: p.decimal_comma,
+        repository: std::mem::take(&mut p.repository),
     }
 }
 
@@ -432,8 +446,13 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                     Token::InputOutput | Token::Data | Token::Procedure
                         | Token::Identification | Token::Eof
                 ) {
-                    if let Token::Identifier(s) = p.peek() {
-                        if s.eq_ignore_ascii_case("DECIMAL-POINT") {
+                    let ident = if let Token::Identifier(s) = p.peek() {
+                        Some(s.clone())
+                    } else {
+                        None
+                    };
+                    match ident.as_deref() {
+                        Some(s) if s.eq_ignore_ascii_case("DECIMAL-POINT") => {
                             // … IS COMMA  (IS optional) within the next few tokens
                             for k in 1..=3 {
                                 if let Token::Identifier(s2) = p.peek_at(k) {
@@ -443,9 +462,32 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                                     }
                                 }
                             }
+                            p.advance();
                         }
+                        // REPOSITORY: CLASS <name> [IS|AS] "<external>"  (spec 005).
+                        Some(s) if s.eq_ignore_ascii_case("CLASS") => {
+                            p.advance(); // CLASS
+                            let name = if let Token::Identifier(n) = p.peek() {
+                                let n = n.clone();
+                                p.advance();
+                                n
+                            } else {
+                                String::new()
+                            };
+                            p.eat(&Token::Is); // optional IS
+                            if matches!(p.peek(), Token::Identifier(a) if a.eq_ignore_ascii_case("AS")) {
+                                p.advance(); // optional AS
+                            }
+                            if let Token::StringLiteral(ext) = p.peek() {
+                                let ext = ext.clone();
+                                if !name.is_empty() {
+                                    p.repository.push((name.to_ascii_uppercase(), ext));
+                                }
+                                p.advance();
+                            }
+                        }
+                        _ => { p.advance(); }
                     }
-                    p.advance();
                 }
             }
             Token::InputOutput => {
