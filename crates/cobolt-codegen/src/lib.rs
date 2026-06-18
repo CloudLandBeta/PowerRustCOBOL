@@ -325,9 +325,17 @@ fn write_data_division(out: &mut String, form: &Form) {
     }
 
     // ── User Working Storage (raw COBOL from .cfrm) ──────────────────────
+    // Preserve each line's own COBOL indentation: only drop leading/trailing
+    // blank lines (a blanket `.trim()` would strip the first item's area-A/B
+    // columns and break a fixed-format build).
     if !form.user_ws_source.trim().is_empty() {
         out.push_str("      *>── User Working Storage ────────────────────────────────────────\n");
-        for line in form.user_ws_source.trim().lines() {
+        let mut started = false;
+        for line in form.user_ws_source.trim_end().lines() {
+            if !started && line.trim().is_empty() {
+                continue;
+            }
+            started = true;
             out.push_str(line);
             out.push('\n');
         }
