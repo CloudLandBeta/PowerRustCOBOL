@@ -43,7 +43,7 @@ use cobolt_lexer::Span;
 use crate::{
     channels::{FormEvent, StateUpdate},
     db_runtime::DbRegistry,
-    environment::CobolEnvironment,
+    environment::{CobolEnvironment, ExternalStore, new_external_store},
     error::RuntimeError,
     exec_rust,
     objects::ObjectRegistry,
@@ -149,6 +149,25 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
     // Recurse into any nested-programs declared inside this one.
     for child in &prog.nested_programs {
         register_nested(child, registry);
+    }
+}
+
+/// Reconcile a freshly built environment's `EXTERNAL` items with the run-unit
+/// store: adopt any value already published by an earlier program activation,
+/// otherwise publish this program's initial value as the run-unit copy. Keys are
+/// the environment's canonical storage keys (already EXTERNAL-filtered).
+fn seed_external_store(env: &mut CobolEnvironment, store: &ExternalStore) {
+    let names: Vec<String> = env.external_names().iter().cloned().collect();
+    if names.is_empty() {
+        return;
+    }
+    let mut guard = store.lock().unwrap_or_else(|e| e.into_inner());
+    for name in names {
+        if let Some(shared) = guard.get(&name).cloned() {
+            env.raw_set(&name, shared); // adopt the existing run-unit value
+        } else if let Some(v) = env.raw_get(&name).cloned() {
+            guard.insert(name, v); // publish our initial value
+        }
     }
 }
 
@@ -304,6 +323,11 @@ pub struct Interpreter {
     pub program: Program,
     /// Runtime data store — all DATA DIVISION items live here.
     pub env: CobolEnvironment,
+    /// Run-unit-wide EXTERNAL store (spec 005). EXTERNAL items are seeded into
+    /// it at construction and synced at run boundaries; clone the `Arc` (via
+    /// [`external_store`](Self::external_store)) to share it with another
+    /// interpreter so a multi-module run unit sees one physical copy.
+    external_store: ExternalStore,
     /// PowerRustCOBOL form/control object registry.
     pub objects: ObjectRegistry,
     /// Property "shadows": a receiving property reference used by any verb is
@@ -399,13 +423,25 @@ impl Interpreter {
     /// Create a new interpreter from a parsed program.
     ///
     /// The DATA DIVISION is walked to initialise all data items to their
-    /// default / VALUE clause values.
+    /// default / VALUE clause values. A private run-unit EXTERNAL store is
+    /// created; use [`with_external_store`](Self::with_external_store) to share
+    /// one across several interpreters (a multi-module run unit).
     pub fn new(program: Program) -> Self {
-        let env = if let Some(data) = &program.data {
+        Self::with_external_store(program, new_external_store())
+    }
+
+    /// Like [`new`](Self::new), but joins an existing run-unit EXTERNAL store so
+    /// that `EXTERNAL` data is the same physical copy across every interpreter
+    /// built with the same store.
+    pub fn with_external_store(program: Program, external_store: ExternalStore) -> Self {
+        let mut env = if let Some(data) = &program.data {
             CobolEnvironment::from_data_division_with(data, program.decimal_comma)
         } else {
             CobolEnvironment::new()
         };
+        // Reconcile this program's EXTERNAL items with the run unit: adopt any
+        // value already published by an earlier activation, else publish ours.
+        seed_external_store(&mut env, &external_store);
         let (para_map, para_order) = build_para_map(&program.procedure.body);
 
         // Register all COBOL-85 nested programs (recursively).
@@ -429,6 +465,7 @@ impl Interpreter {
         Self {
             program,
             env,
+            external_store,
             objects: ObjectRegistry::new(),
             property_shadows: std::collections::HashMap::new(),
             para_map,
@@ -560,6 +597,51 @@ impl Interpreter {
     /// handled as control-flow signals; all other errors bubble up to the
     /// caller.
     pub fn run(&mut self) -> Result<(), RuntimeError> {
+        // Pull the run unit's current EXTERNAL values in, run, then publish
+        // ours back so a later activation in the same run unit sees them.
+        self.load_external();
+        let result = self.run_inner();
+        self.flush_external();
+        result
+    }
+
+    /// A clone of this interpreter's run-unit EXTERNAL store. Pass it to
+    /// [`with_external_store`](Self::with_external_store) on another interpreter
+    /// (e.g. a second form module) so both share one physical copy of every
+    /// EXTERNAL item.
+    pub fn external_store(&self) -> ExternalStore {
+        self.external_store.clone()
+    }
+
+    /// Copy the run unit's current EXTERNAL values into the local environment.
+    fn load_external(&mut self) {
+        let names: Vec<String> = self.env.external_names().iter().cloned().collect();
+        if names.is_empty() {
+            return;
+        }
+        let guard = self.external_store.lock().unwrap_or_else(|e| e.into_inner());
+        for name in names {
+            if let Some(v) = guard.get(&name).cloned() {
+                self.env.raw_set(&name, v);
+            }
+        }
+    }
+
+    /// Publish the local EXTERNAL values back to the run-unit store.
+    fn flush_external(&mut self) {
+        let names: Vec<String> = self.env.external_names().iter().cloned().collect();
+        if names.is_empty() {
+            return;
+        }
+        let mut guard = self.external_store.lock().unwrap_or_else(|e| e.into_inner());
+        for name in names {
+            if let Some(v) = self.env.raw_get(&name).cloned() {
+                guard.insert(name, v);
+            }
+        }
+    }
+
+    fn run_inner(&mut self) -> Result<(), RuntimeError> {
         let mut idx = 0usize;
         while idx < self.para_order.len() {
             let name = self.para_order[idx].clone();

@@ -49,7 +49,17 @@ before moving on. **Do not commit/push until the operator asks.**
   - Verify: `cargo test -p cobolt-semantic` green; tests assert the diagnostic
     fires on a `05 … EXTERNAL` and the warning on a description mismatch.
 
-- [ ] **T5 — Runtime EXTERNAL store** (R6, R7, R8, R9)
+- [x] **T5 — Runtime EXTERNAL store** (R6, R7, R8, R9)
+  - Done: `ExternalStore = Arc<Mutex<IndexMap<String, CobolValue>>>` in
+    `environment.rs`; EXTERNAL 01/77/FD keys registered at env build;
+    `Interpreter::with_external_store` joins a shared store, `external_store()`
+    hands it to another interpreter. Sync is at run boundaries (seed on
+    construct, load on run-start, flush on run-end) — correct for the
+    one-Interpreter-per-run model and free of the borrow-based `get()` problem;
+    routing every access through the mutex was unnecessary. GLOBAL-only items are
+    never registered (stay per-form). The `form_runtime`/compiler "thread the
+    store" hook is in place (the accessor) but inert until a run unit spans more
+    than one interpreter. Tests: `tests/test_external.rs` (3).
   - Files: `crates/cobolt-runtime/src/{environment.rs,interpreter.rs}`,
     `crates/cobolt-ide/src/form_runtime.rs`, `crates/cobolt-compiler/**` (thread
     the store into the compiled binary's run unit).
