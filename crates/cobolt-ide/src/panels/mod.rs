@@ -6,6 +6,7 @@
 
 //! IDE panel modules.
 
+pub mod cobol_structure;
 pub mod debugger;
 pub mod designer;
 pub mod doc_viewer;

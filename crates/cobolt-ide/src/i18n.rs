@@ -511,6 +511,15 @@ pub struct Tr {
     pub doc_font_size:   &'static str,
     pub doc_placeholder: &'static str,
     pub doc_mermaid_error: &'static str,
+
+    // ── COBOL Structure editor (spec 005) ─────────────────────────────────────
+    pub cs_open:            &'static str,
+    pub cs_user_procedures: &'static str,
+    pub cs_add_procedure:   &'static str,
+    pub cs_proc_name:       &'static str,
+    pub cs_delete:          &'static str,
+    pub cs_hint:            &'static str,
+    pub cs_close:           &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -943,6 +952,14 @@ const EN: Tr = Tr {
     doc_font_size:   "Font size",
     doc_placeholder: "Select a manual from the list of documents on the left to view it.",
     doc_mermaid_error: "Could not render diagram",
+
+    cs_open:            "COBOL Structure",
+    cs_user_procedures: "User procedures",
+    cs_add_procedure:   "Add procedure",
+    cs_proc_name:       "Procedure name",
+    cs_delete:          "Delete",
+    cs_hint:            "Declare GLOBAL / EXTERNAL on the items yourself; each block is woven verbatim into the generated program.",
+    cs_close:           "Close",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -1356,6 +1373,14 @@ const ES: Tr = Tr {
     doc_font_size:   "Tamaño de fuente",
     doc_placeholder: "Seleccione un manual de la lista de documentos a la izquierda para verlo.",
     doc_mermaid_error: "No se pudo renderizar el diagrama",
+
+    cs_open:            "Estructura COBOL",
+    cs_user_procedures: "Procedimientos de usuario",
+    cs_add_procedure:   "Añadir procedimiento",
+    cs_proc_name:       "Nombre del procedimiento",
+    cs_delete:          "Eliminar",
+    cs_hint:            "Declara tú mismo GLOBAL / EXTERNAL en los elementos; cada bloque se inserta literalmente en el programa generado.",
+    cs_close:           "Cerrar",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -1769,6 +1794,14 @@ const PT: Tr = Tr {
     doc_font_size:   "Tamanho da fonte",
     doc_placeholder: "Selecione um manual na lista de documentos à esquerda para visualizá-lo.",
     doc_mermaid_error: "Não foi possível renderizar o diagrama",
+
+    cs_open:            "Estrutura COBOL",
+    cs_user_procedures: "Procedimentos do usuário",
+    cs_add_procedure:   "Adicionar procedimento",
+    cs_proc_name:       "Nome do procedimento",
+    cs_delete:          "Excluir",
+    cs_hint:            "Declare você mesmo GLOBAL / EXTERNAL nos itens; cada bloco é inserido literalmente no programa gerado.",
+    cs_close:           "Fechar",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -2182,6 +2215,14 @@ const JA: Tr = Tr {
     doc_font_size:   "フォントサイズ",
     doc_placeholder: "左側のドキュメント一覧からマニュアルを選択して表示します。",
     doc_mermaid_error: "図を描画できませんでした",
+
+    cs_open:            "COBOL構造",
+    cs_user_procedures: "ユーザー手続き",
+    cs_add_procedure:   "手続きを追加",
+    cs_proc_name:       "手続き名",
+    cs_delete:          "削除",
+    cs_hint:            "GLOBAL / EXTERNAL は項目にご自身で記述してください。各ブロックは生成プログラムにそのまま挿入されます。",
+    cs_close:           "閉じる",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -2595,6 +2636,14 @@ const ZH: Tr = Tr {
     doc_font_size:   "字体大小",
     doc_placeholder: "从左侧的文档列表中选择一个手册以查看。",
     doc_mermaid_error: "无法渲染图表",
+
+    cs_open:            "COBOL 结构",
+    cs_user_procedures: "用户过程",
+    cs_add_procedure:   "添加过程",
+    cs_proc_name:       "过程名称",
+    cs_delete:          "删除",
+    cs_hint:            "请自行在数据项上声明 GLOBAL / EXTERNAL；每个代码块都会原样写入生成的程序。",
+    cs_close:           "关闭",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -3008,6 +3057,14 @@ const FR: Tr = Tr {
     doc_font_size:   "Taille de police",
     doc_placeholder: "Sélectionnez un manuel dans la liste des documents à gauche pour le consulter.",
     doc_mermaid_error: "Impossible de générer le diagramme",
+
+    cs_open:            "Structure COBOL",
+    cs_user_procedures: "Procédures utilisateur",
+    cs_add_procedure:   "Ajouter une procédure",
+    cs_proc_name:       "Nom de la procédure",
+    cs_delete:          "Supprimer",
+    cs_hint:            "Déclarez vous-même GLOBAL / EXTERNAL sur les éléments ; chaque bloc est inséré tel quel dans le programme généré.",
+    cs_close:           "Fermer",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

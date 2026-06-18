@@ -401,6 +401,8 @@ pub struct DesignerPanel {
     // ── Form preview ──────────────────────────────────────────────────────────
     /// Whether the live preview viewport is open.
     pub show_preview: bool,
+    /// Which COBOL Structure block the popup editor is editing (None = closed; spec 005).
+    pub cobol_structure_edit: Option<super::cobol_structure::CsTarget>,
     /// Runtime state for preview: maps ctrl_id → current value (for interactive controls).
     pub preview_state: HashMap<String, String>,
     /// Animation states for the live preview (separate from designer preview).
@@ -437,6 +439,7 @@ impl DesignerPanel {
             event_modal:           None,
             event_editor:          super::editor::EditorPanel::new(),
             show_preview:          false,
+            cobol_structure_edit:  None,
             preview_state:         HashMap::new(),
             preview_anim_states:   HashMap::new(),
             preview_last_frame:    None,

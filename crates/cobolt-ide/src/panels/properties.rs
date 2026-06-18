@@ -160,6 +160,13 @@ pub struct InspectorAction {
     /// jump to that event's paragraph in the generated COBOL code editor.
     /// `ctrl_id` is empty for form-level events.
     pub open_event_in_code: Option<(String, String)>,
+    /// Set when a COBOL Structure section / procedure row is clicked — the caller
+    /// opens the popup editor for that single block (spec 005).
+    pub cs_open: Option<super::cobol_structure::CsTarget>,
+    /// Set when the "Add procedure" button is clicked.
+    pub cs_add_proc: bool,
+    /// Set with the index when a user-procedure's delete button is clicked.
+    pub cs_del_proc: Option<usize>,
 }
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
@@ -1885,6 +1892,48 @@ impl PropertiesPanel {
             ui.label(tr.lbl_name);  ui.label(&form.name);  ui.end_row();
             ui.label(tr.lbl_size);  ui.label(format!("{} × {}", form.width, form.height)); ui.end_row();
         });
+        });
+
+        // ── COBOL Structure (spec 005) ────────────────────────────────────────
+        // List of sections + user procedures; clicking a row opens the popup
+        // editor for that single block.
+        section_card(ui, "form-sec-cobol", tr.cs_open, true, |ui| {
+            use super::cobol_structure::{section_text, CsTarget, SECTIONS};
+            for t in SECTIONS {
+                let kw = t.section_keyword().unwrap_or("");
+                let filled = section_text(form, t).map(|s| !s.trim().is_empty()).unwrap_or(false);
+                let dot = if filled { "● " } else { "○ " };
+                if ui
+                    .selectable_label(false, egui::RichText::new(format!("{dot}{kw}")).monospace())
+                    .clicked()
+                {
+                    action.cs_open = Some(t);
+                }
+            }
+            ui.add_space(6.0);
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(tr.cs_user_procedures).strong());
+                if ui.small_button(format!("➕ {}", tr.cs_add_procedure)).clicked() {
+                    action.cs_add_proc = true;
+                }
+            });
+            for (i, up) in form.user_procedures.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if ui.small_button("🗑").on_hover_text(tr.cs_delete).clicked() {
+                        action.cs_del_proc = Some(i);
+                    }
+                    let name = if up.name.trim().is_empty() { "(…)" } else { up.name.trim() };
+                    if ui
+                        .selectable_label(false, egui::RichText::new(format!("▸ {name}")).monospace())
+                        .clicked()
+                    {
+                        action.cs_open = Some(CsTarget::Procedure(i));
+                    }
+                });
+            }
+            ui.add_space(2.0);
+            ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
         });
 
         // ── Target device ─────────────────────────────────────────────────────

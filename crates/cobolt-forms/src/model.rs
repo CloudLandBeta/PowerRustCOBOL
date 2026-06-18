@@ -1270,6 +1270,75 @@ pub struct CobolStructure {
     pub file_section: String,
 }
 
+/// The curated "first-cut" Rust-FFI bridge: basic Rust types declared as COBOL
+/// classes in `REPOSITORY` form. The literal is the type's path in the Rust
+/// hierarchy (analogous to `System.String` in .NET), so a data item can be
+/// `USAGE OBJECT REFERENCE RUST-STRING`. New forms start with these.
+pub fn default_repository() -> String {
+    const TYPES: &[(&str, &str)] = &[
+        // ── Primitive (scalar) types ──────────────────────────────────────────
+        ("RUST-BOOL", "Rust.bool"),
+        ("RUST-CHAR", "Rust.char"),
+        ("RUST-I8", "Rust.i8"),
+        ("RUST-I16", "Rust.i16"),
+        ("RUST-I32", "Rust.i32"),
+        ("RUST-I64", "Rust.i64"),
+        ("RUST-I128", "Rust.i128"),
+        ("RUST-ISIZE", "Rust.isize"),
+        ("RUST-U8", "Rust.u8"),
+        ("RUST-U16", "Rust.u16"),
+        ("RUST-U32", "Rust.u32"),
+        ("RUST-U64", "Rust.u64"),
+        ("RUST-U128", "Rust.u128"),
+        ("RUST-USIZE", "Rust.usize"),
+        ("RUST-F32", "Rust.f32"),
+        ("RUST-F64", "Rust.f64"),
+        ("RUST-STR", "Rust.str"),
+        ("RUST-UNIT", "Rust.unit"),
+        // ── Strings, text and paths ───────────────────────────────────────────
+        ("RUST-STRING", "Rust.String"),
+        ("RUST-OSSTRING", "Rust.OsString"),
+        ("RUST-OSSTR", "Rust.OsStr"),
+        ("RUST-CSTRING", "Rust.CString"),
+        ("RUST-CSTR", "Rust.CStr"),
+        ("RUST-PATH", "Rust.Path"),
+        ("RUST-PATHBUF", "Rust.PathBuf"),
+        // ── Collections ───────────────────────────────────────────────────────
+        ("RUST-VEC", "Rust.Vec"),
+        ("RUST-VECDEQUE", "Rust.VecDeque"),
+        ("RUST-LINKEDLIST", "Rust.LinkedList"),
+        ("RUST-HASHMAP", "Rust.HashMap"),
+        ("RUST-BTREEMAP", "Rust.BTreeMap"),
+        ("RUST-HASHSET", "Rust.HashSet"),
+        ("RUST-BTREESET", "Rust.BTreeSet"),
+        ("RUST-BINARYHEAP", "Rust.BinaryHeap"),
+        // ── Core enums ────────────────────────────────────────────────────────
+        ("RUST-OPTION", "Rust.Option"),
+        ("RUST-RESULT", "Rust.Result"),
+        // ── Smart pointers, cells and synchronisation ─────────────────────────
+        ("RUST-BOX", "Rust.Box"),
+        ("RUST-RC", "Rust.Rc"),
+        ("RUST-ARC", "Rust.Arc"),
+        ("RUST-WEAK", "Rust.Weak"),
+        ("RUST-CELL", "Rust.Cell"),
+        ("RUST-REFCELL", "Rust.RefCell"),
+        ("RUST-MUTEX", "Rust.Mutex"),
+        ("RUST-RWLOCK", "Rust.RwLock"),
+        ("RUST-COW", "Rust.Cow"),
+        // ── Time ──────────────────────────────────────────────────────────────
+        ("RUST-DURATION", "Rust.Duration"),
+        ("RUST-INSTANT", "Rust.Instant"),
+        ("RUST-SYSTEMTIME", "Rust.SystemTime"),
+        // ── Ranges ────────────────────────────────────────────────────────────
+        ("RUST-RANGE", "Rust.Range"),
+    ];
+    TYPES
+        .iter()
+        .map(|(name, path)| format!("           CLASS {name} IS \"{path}\""))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A developer-written named procedure on a form. Woven as a nested program in
 /// the form's outer program, callable by name from event handlers and from other
 /// user procedures, and able to see the form's `GLOBAL` data.
@@ -1348,7 +1417,7 @@ impl Form {
                 code:      String::new(),
             },
         ];
-        Self {
+        let mut form = Self {
             name:             form_name,
             title:            title.into(),
             width,
@@ -1367,6 +1436,18 @@ impl Form {
             user_procedures:  Vec::new(),
             form_events,
             deleted_code:     Vec::new(),
+        };
+        form.seed_repository_if_empty();
+        form
+    }
+
+    /// Fill the `REPOSITORY` block with the curated Rust-FFI type bridge
+    /// ([`default_repository`]) **only when it is empty**. A developer who has
+    /// written their own entries — even after removing the Rust types — is never
+    /// overwritten. Called on form creation and on load.
+    pub fn seed_repository_if_empty(&mut self) {
+        if self.cobol_structure.repository.trim().is_empty() {
+            self.cobol_structure.repository = default_repository();
         }
     }
 

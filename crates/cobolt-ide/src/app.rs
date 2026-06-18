@@ -1376,8 +1376,18 @@ impl CoboltApp {
                 st.designer.set_form_prop(&key, value);
                 changed = true;
             }
-            // Event editing needs the full designer.
-            if action.open_event_editor.is_some() || action.open_event_in_code.is_some() {
+            if let Some(i) = action.cs_del_proc {
+                if i < st.designer.form.user_procedures.len() {
+                    st.designer.form.user_procedures.remove(i);
+                    changed = true;
+                }
+            }
+            // Event editing and the COBOL Structure editor need the full designer.
+            if action.open_event_editor.is_some()
+                || action.open_event_in_code.is_some()
+                || action.cs_open.is_some()
+                || action.cs_add_proc
+            {
                 open_designer = true;
             }
         });
@@ -4709,12 +4719,10 @@ impl CoboltApp {
         // Allow the properties panel to be resized up to half the window width so
         // long values (paths, titles) aren't clipped by the window border.
         let half_win = (ctx.screen_rect().width() * 0.5).max(320.0);
-        // Zero the panel's right inner margin so the category section boxes (whose own
-        // right outer-margin is 0) extend all the way to the window border instead of
-        // stopping at the default panel inset. They already grow/shrink with the pane
-        // via `available_width`, so this is the only gap between them and the edge.
+        // 10px right inner margin so the pane's content keeps a small gap from the
+        // window border instead of butting against it.
         let props_frame = egui::Frame::side_top_panel(&ctx.style())
-            .inner_margin(egui::Margin { left: 6.0, right: 0.0, top: 6.0, bottom: 6.0 });
+            .inner_margin(egui::Margin { left: 6.0, right: 10.0, top: 6.0, bottom: 6.0 });
         let inspector_action = egui::SidePanel::right(format!("props_{idx}"))
             .resizable(true)
             .default_width(300.0)
@@ -4750,6 +4758,36 @@ impl CoboltApp {
         for (key, value) in inspector_action.form_props {
             self.designers[idx].1.set_form_prop(&key, value);
         }
+        // COBOL Structure (spec 005): open a block, add or delete a procedure.
+        if let Some(t) = inspector_action.cs_open {
+            self.designers[idx].1.cobol_structure_edit = Some(t);
+        }
+        if inspector_action.cs_add_proc {
+            let d = &mut self.designers[idx].1;
+            let n = d.form.user_procedures.len() + 1;
+            d.form.user_procedures.push(cobolt_forms::model::UserProcedure {
+                name: format!("USER-PROC-{n}"),
+                code: String::new(),
+            });
+            d.dirty = true;
+            let new_idx = d.form.user_procedures.len() - 1;
+            d.cobol_structure_edit =
+                Some(crate::panels::cobol_structure::CsTarget::Procedure(new_idx));
+        }
+        if let Some(i) = inspector_action.cs_del_proc {
+            let d = &mut self.designers[idx].1;
+            if i < d.form.user_procedures.len() {
+                d.form.user_procedures.remove(i);
+                d.dirty = true;
+                // The popup may have been editing a procedure whose index shifted.
+                if matches!(
+                    d.cobol_structure_edit,
+                    Some(crate::panels::cobol_structure::CsTarget::Procedure(_))
+                ) {
+                    d.cobol_structure_edit = None;
+                }
+            }
+        }
 
         // ── Apply toolbox drop (add control at canvas centre) ─────────────────
         if let Some(ct) = toolbox_action.dragged_type {
@@ -4762,6 +4800,36 @@ impl CoboltApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.designers[idx].1.show(ui);
         });
+
+        // ── COBOL Structure editor window (spec 005) — edits one block ────────
+        if let Some(target) = self.designers[idx].1.cobol_structure_edit {
+            use crate::panels::cobol_structure::CsTarget;
+            let title = match target {
+                CsTarget::Procedure(i) => self.designers[idx].1.form.user_procedures
+                    .get(i)
+                    .map(|p| p.name.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| tr.cs_user_procedures.to_string()),
+                other => other.section_keyword().unwrap_or("").to_string(),
+            };
+            let mut open = true;
+            let mut changed = false;
+            egui::Window::new(format!("{} — {title}", tr.cs_open))
+                .id(egui::Id::new(("cobol_structure", idx)))
+                .open(&mut open)
+                .default_size([620.0, 460.0])
+                .resizable(true)
+                .show(ctx, |ui| {
+                    changed = crate::panels::cobol_structure::show_editor(
+                        ui, &mut self.designers[idx].1.form, target, tr);
+                    ui.add_space(6.0);
+                    if ui.button(tr.cs_close).clicked() {
+                        self.designers[idx].1.cobol_structure_edit = None;
+                    }
+                });
+            if changed { self.designers[idx].1.dirty = true; }
+            if !open { self.designers[idx].1.cobol_structure_edit = None; }
+        }
 
         // The "Form saved" alert belongs to THIS viewport (so it appears on top
         // of the designer, not hidden behind it in the main window).

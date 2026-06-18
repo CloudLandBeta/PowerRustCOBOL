@@ -86,7 +86,16 @@ before moving on. **Do not commit/push until the operator asks.**
   - Verify: `cargo test -p cobolt-runtime` green; a test: handler CALLs a user
     procedure that updates a GLOBAL item; the handler then reads the new value.
 
-- [ ] **T7 — IDE COBOL Structure editor + i18n** (R1, R3a, R11, R12)
+- [x] **T7 — IDE COBOL Structure editor + i18n** (R1, R3a, R11, R12)
+  - Done: new `panels/cobol_structure.rs` — a `show(ui, form, tr) -> changed`
+    editor with one collapsing code-editor block per section (SPECIAL-NAMES,
+    REPOSITORY, FILE-CONTROL, FILE SECTION, WORKING-STORAGE) + a user-procedures
+    list (add / rename / edit / delete). Opened from a "📋 COBOL Structure" button
+    by the designer's language selector; rendered as a window over the canvas,
+    edits mark the designer dirty so Build/Run/Debug regenerate (existing path
+    already weaves the blocks — T2). i18n: 7 new `Tr` fields × 6 languages
+    (section names stay as COBOL keywords per the glossary). `cargo test -p
+    cobolt-ide i18n` green (no empty translations); workspace builds clean.
   - Files: `crates/cobolt-ide/src/panels/cobol_structure.rs` (new),
     `crates/cobolt-ide/src/app.rs` (open/route, dirty + regenerate),
     `crates/cobolt-ide/src/i18n.rs` (new `Tr` fields ×6 languages).
