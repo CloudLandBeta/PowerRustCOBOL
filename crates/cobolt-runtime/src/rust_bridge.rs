@@ -208,7 +208,12 @@ fn string_new(args: &[BridgeValue]) -> Result<String, BridgeError> {
 fn int_new(args: &[BridgeValue]) -> Result<i64, BridgeError> {
     Ok(match args.first() {
         None | Some(BridgeValue::Null) => 0,
-        Some(_) => arg_int(args, 0, "new")?,
+        Some(BridgeValue::Int(n)) => *n,
+        Some(BridgeValue::Float(x)) => *x as i64,
+        Some(BridgeValue::Bool(b)) => *b as i64,
+        // A COBOL `VALUE "10"` arrives as a string literal — parse it.
+        Some(BridgeValue::Str(s)) => s.trim().parse().unwrap_or(0),
+        Some(BridgeValue::Handle(_)) => 0,
     })
 }
 
@@ -381,6 +386,18 @@ mod tests {
         assert!(matches!(r, Err(BridgeError::Panicked(_))), "got {r:?}");
         // The handle is still live and usable after a caught panic.
         assert_eq!(b.invoke(id, "value", &[]).unwrap(), BridgeValue::Int(10));
+    }
+
+    #[test]
+    fn int_constructed_from_string_value() {
+        // A COBOL `VALUE "10"` reaches the bridge as a string; the integer
+        // constructor must parse it (regression: it used to fail to construct).
+        let mut b = RustBridge::new();
+        let BridgeValue::Handle(id) = b.create("Rust.i64", &[BridgeValue::Str("10".into())]).unwrap()
+        else {
+            panic!("expected handle")
+        };
+        assert_eq!(b.invoke(id, "add", &[BridgeValue::Int(5)]).unwrap(), BridgeValue::Int(15));
     }
 
     #[test]
