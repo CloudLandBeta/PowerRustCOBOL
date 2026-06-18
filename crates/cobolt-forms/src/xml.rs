@@ -337,7 +337,11 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
         }
     }
 
-    form.ok_or_else(|| FormError::MissingElement("Form".into()))
+    let mut form = form.ok_or_else(|| FormError::MissingElement("Form".into()))?;
+    // Empty REPOSITORY ⇒ seed the curated Rust-FFI type bridge; any
+    // developer-authored content is preserved as-is (spec 005).
+    form.seed_repository_if_empty();
+    Ok(form)
 }
 
 /// Parse everything inside `<Form> … </Form>`.
