@@ -249,5 +249,9 @@ pub struct Program {
     /// `SPECIAL-NAMES. DECIMAL-POINT IS COMMA` — comma is the decimal separator
     /// for numeric literals and edited PICs (period becomes grouping insertion).
     pub decimal_comma: bool,
+    /// `REPOSITORY. CLASS name IS "external"` bindings (uppercased class name →
+    /// external type name, e.g. `RUST-STRING` → `Rust.String`). Drives the
+    /// Rust-FFI bridge (spec 005).
+    pub repository: Vec<(String, String)>,
     pub span: Span,
 }

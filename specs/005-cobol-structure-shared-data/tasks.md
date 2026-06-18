@@ -144,7 +144,20 @@ before moving on. **Do not commit/push until the operator asks.**
   - Verify: `cargo test -p cobolt-runtime` green; unit tests create a `Rust.String`
     handle, call a method, and assert a drop counter reaches zero (no leak).
 
-- [ ] **T10 — INVOKE/`::` dispatch into Rust** (R13, R14, R15, AC6)
+- [x] **T10 — INVOKE/`::` dispatch into Rust** (R13, R14, R15, AC6)
+  - Done: parser captures `REPOSITORY. CLASS x IS "y"` → `Program.repository` and
+    the `OBJECT REFERENCE <class>` name → `DataDecl.object_class`. The interpreter
+    holds a `RustBridge` + `object_refs` map; at construction each OBJECT
+    REFERENCE item is created via the bridge (seeded from its `VALUE`) and its
+    handle id stored in the env. `exec_method` routes `INVOKE obj "m" [USING …]
+    [RETURNING …]` (and the statement form `obj::m()`) into the bridge, marshaling
+    `CobolValue ↔ BridgeValue`; objects drop with the interpreter (no leak).
+    Verified: `tests/test_rust_ffi.rs` (len→0005, to_uppercase→HELLO, push_str
+    USING→5) + `rcrun check`/`run` of the AC6 demo prints `len=0005`.
+  - Deferred: inline `obj::method()` used as a *value operand* inside
+    MOVE/COMPUTE/DISPLAY (those use restricted operand parsers that don't reach
+    the `::` expr-primary); INVOKE is the supported path. Semantic REPOSITORY
+    error-checking (unknown class) not added — bindings are simply captured.
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (resolve `OBJECT REFERENCE`
     items to handles; route `INVOKE NAME "method"` / `NAME::method()` to the
     bridge, marshaling args/results), `crates/cobolt-semantic/**` (resolve

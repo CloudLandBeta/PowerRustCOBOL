@@ -370,6 +370,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         picture,
         value,
         usage,
+        object_class: p.pending_object_class.take(),
         occurs,
         redefines,
         renames,
@@ -598,13 +599,15 @@ fn parse_usage_clause(p: &mut Parser) -> Usage {
         Token::Index       => { p.advance(); Usage::Index }
         Token::Pointer     => { p.advance(); Usage::Pointer }
         // OBJECT REFERENCE <class-name>  (COBOL-2002; spec 005 Rust-FFI bridge).
-        // The class name is recognised and consumed here; Phase 2 captures the
-        // binding for FFI dispatch.
+        // The class name is captured onto the data item being built so the
+        // interpreter can resolve it to a Rust type via REPOSITORY.
         Token::Identifier(ref s) if s.eq_ignore_ascii_case("OBJECT") => {
             p.advance();                 // OBJECT
             p.eat(&Token::Reference);    // REFERENCE (optional word)
-            if matches!(p.peek(), Token::Identifier(_)) {
+            if let Token::Identifier(c) = p.peek() {
+                let c = c.clone();
                 p.advance();             // <class-name>
+                p.pending_object_class = Some(c.to_ascii_uppercase());
             }
             Usage::ObjectReference
         }

@@ -171,6 +171,104 @@ fn seed_external_store(env: &mut CobolEnvironment, store: &ExternalStore) {
     }
 }
 
+/// Construct the program's `OBJECT REFERENCE` items (spec 005 Rust-FFI bridge):
+/// resolve each item's class via the program's `REPOSITORY` bindings to a Rust
+/// type, create the object (seeded from the item's `VALUE`, if any), store the
+/// handle id in the environment, and return `item-key → rust-type`.
+fn build_object_refs(
+    program: &Program,
+    env: &mut CobolEnvironment,
+    bridge: &mut crate::rust_bridge::RustBridge,
+) -> HashMap<String, String> {
+    use cobolt_ast::program::DataSection;
+    let repo: HashMap<String, String> = program
+        .repository
+        .iter()
+        .map(|(k, v)| (k.to_ascii_uppercase(), v.clone()))
+        .collect();
+    let mut refs = HashMap::new();
+    if let Some(data) = &program.data {
+        for section in &data.sections {
+            if let DataSection::WorkingStorage(items)
+            | DataSection::LocalStorage(items)
+            | DataSection::Linkage(items) = section
+            {
+                for decl in items {
+                    collect_object_ref(decl, &repo, env, bridge, &mut refs);
+                }
+            }
+        }
+    }
+    refs
+}
+
+fn collect_object_ref(
+    decl: &cobolt_ast::data::DataDecl,
+    repo: &HashMap<String, String>,
+    env: &mut CobolEnvironment,
+    bridge: &mut crate::rust_bridge::RustBridge,
+    refs: &mut HashMap<String, String>,
+) {
+    use cobolt_ast::data::Usage;
+    if matches!(decl.usage, Usage::ObjectReference) {
+        if let (Some(name), Some(class)) = (&decl.name, &decl.object_class) {
+            if let Some(rust_type) = repo.get(&class.to_ascii_uppercase()) {
+                let args = initial_bridge_args(&decl.value);
+                let id = match bridge.create(rust_type, &args) {
+                    Ok(crate::rust_bridge::BridgeValue::Handle(id)) => id,
+                    _ => 0,
+                };
+                let key = name.to_ascii_uppercase();
+                env.set_i64(&key, id);
+                refs.insert(key, rust_type.clone());
+            }
+        }
+    }
+    for child in &decl.children {
+        collect_object_ref(child, repo, env, bridge, refs);
+    }
+}
+
+/// Initial constructor argument(s) from an `OBJECT REFERENCE` item's VALUE clause.
+fn initial_bridge_args(value: &Option<Literal>) -> Vec<crate::rust_bridge::BridgeValue> {
+    use crate::rust_bridge::BridgeValue;
+    match value {
+        Some(Literal::String(s)) => vec![BridgeValue::Str(s.clone())],
+        Some(Literal::Integer(n)) => vec![BridgeValue::Int(*n)],
+        _ => Vec::new(),
+    }
+}
+
+/// Marshal a COBOL value into a bridge value for a Rust call argument.
+fn cobol_to_bridge(v: &CobolValue) -> crate::rust_bridge::BridgeValue {
+    use crate::rust_bridge::BridgeValue;
+    match v {
+        CobolValue::Numeric(_) => match v.as_i64() {
+            Some(i) => BridgeValue::Int(i),
+            None => BridgeValue::Float(v.as_f64()),
+        },
+        CobolValue::Float(f) => BridgeValue::Float(*f),
+        CobolValue::String { .. } => BridgeValue::Str(v.as_display_string().trim_end().to_string()),
+        CobolValue::Unset => BridgeValue::Null,
+    }
+}
+
+/// Marshal a bridge result back into a COBOL value.
+fn bridge_to_cobol(b: crate::rust_bridge::BridgeValue) -> CobolValue {
+    use crate::rust_bridge::BridgeValue;
+    match b {
+        BridgeValue::Int(n) => CobolValue::from_i64(n),
+        BridgeValue::Float(x) => CobolValue::from_f64(x),
+        BridgeValue::Bool(t) => CobolValue::from_i64(t as i64),
+        BridgeValue::Handle(id) => CobolValue::from_i64(id),
+        BridgeValue::Str(s) => {
+            let n = s.len();
+            CobolValue::from_str(&s, n)
+        }
+        BridgeValue::Null => CobolValue::from_str("", 0),
+    }
+}
+
 /// Build the file registry from the program's FILE-CONTROL (SELECT) entries and
 /// FILE SECTION (FD) records: `(logical name → spec, record name → file name)`.
 fn build_file_specs(
@@ -328,6 +426,12 @@ pub struct Interpreter {
     /// [`external_store`](Self::external_store)) to share it with another
     /// interpreter so a multi-module run unit sees one physical copy.
     external_store: ExternalStore,
+    /// Curated Rust-FFI bridge: owns the live Rust objects referenced from COBOL
+    /// `OBJECT REFERENCE` items (spec 005 T9/T10).
+    rust_bridge: crate::rust_bridge::RustBridge,
+    /// `OBJECT REFERENCE` item key (uppercase) → bound Rust type external name
+    /// (e.g. `S` → `Rust.String`). The item's storage holds the bridge handle id.
+    object_refs: HashMap<String, String>,
     /// PowerRustCOBOL form/control object registry.
     pub objects: ObjectRegistry,
     /// Property "shadows": a receiving property reference used by any verb is
@@ -442,6 +546,11 @@ impl Interpreter {
         // Reconcile this program's EXTERNAL items with the run unit: adopt any
         // value already published by an earlier activation, else publish ours.
         seed_external_store(&mut env, &external_store);
+        // Construct the program's Rust-FFI object references (spec 005): each
+        // `OBJECT REFERENCE` item gets a live Rust object (from its VALUE, if any)
+        // and its handle id stored in the environment.
+        let mut rust_bridge = crate::rust_bridge::RustBridge::new();
+        let object_refs = build_object_refs(&program, &mut env, &mut rust_bridge);
         let (para_map, para_order) = build_para_map(&program.procedure.body);
 
         // Register all COBOL-85 nested programs (recursively).
@@ -466,6 +575,8 @@ impl Interpreter {
             program,
             env,
             external_store,
+            rust_bridge,
+            object_refs,
             objects: ObjectRegistry::new(),
             property_shadows: std::collections::HashMap::new(),
             para_map,
@@ -3550,8 +3661,34 @@ impl Interpreter {
     /// Most methods are thin sugar over property get/set — which the form
     /// runtime mirrors to the live UI — and getters return a value (for the
     /// expression form and `RETURNING`).
+    /// Number of live Rust-FFI objects (for tests / leak checks). 0 ⇒ none held.
+    pub fn rust_object_count(&self) -> usize {
+        self.rust_bridge.live_count()
+    }
+
+    /// Dispatch a method on an `OBJECT REFERENCE` item into the Rust bridge,
+    /// marshaling the COBOL arguments in and the result back out (spec 005 T10).
+    fn invoke_rust(&mut self, key: &str, method: &str, args: &[CobolValue]) -> CobolValue {
+        let id = self.env.get_i64(key).unwrap_or(0);
+        let bargs: Vec<crate::rust_bridge::BridgeValue> = args.iter().map(cobol_to_bridge).collect();
+        match self.rust_bridge.invoke(id, method, &bargs) {
+            Ok(v) => bridge_to_cobol(v),
+            Err(e) => {
+                tracing::warn!("Rust bridge {key}::{method}: {e}");
+                CobolValue::from_str("", 0)
+            }
+        }
+    }
+
     fn exec_method(&mut self, object: &str, method: &str, args: &[CobolValue]) -> CobolValue {
         let obj = object.trim();
+        // Rust-FFI object reference? Route the call into the bridge before the
+        // UI-widget method dispatch below (spec 005 T10). The method name is kept
+        // as written (Rust methods are case-sensitive: `len`, `to_uppercase`, …).
+        let upper = obj.to_ascii_uppercase();
+        if self.object_refs.contains_key(&upper) {
+            return self.invoke_rust(&upper, method, args);
+        }
         let m   = method.to_ascii_uppercase();
         let arg = |i: usize| args.get(i)
             .map(|v| v.as_display_string().trim().to_string()).unwrap_or_default();
