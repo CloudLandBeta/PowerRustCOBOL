@@ -1,0 +1,1334 @@
+      *> ───────────────────────────────────────────────────────────
+      *>  This code was generated automatically by PowerRustCOBOL RAD.
+      *>
+      *>  DO NOT MODIFY IT DIRECTLY: it is regenerated the next time
+      *>  you interact with the Form Designer, so manual edits are lost.
+      *>  Edit the form and its event handlers in the Form Designer
+      *>  instead.
+      *>
+      *>  PowerRustCOBOL may change the structure of this generated code
+      *>  at any time — without breaking your code's functionality — for
+      *>  reasons such as performance improvements, new observability
+      *>  features, and bug fixes.
+      *>
+      *>  PowerRustCOBOL and its components are distributed under the
+      *>  Apache 2.0 License.
+      *> ───────────────────────────────────────────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TESTFORM.
+
+       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+      *>── Cobolt runtime fields ─────────────────────────────────────
+       01 COBOL-QUIT             PIC 9        VALUE 0.
+       01 COBOL-EVENT-ID         PIC X(64)   VALUE SPACES.
+       01 COBOL-CONTROL-ID       PIC X(64)   VALUE SPACES.
+       01 COBOL-LAST-STATUS       PIC X(256)  VALUE SPACES.
+       01 FORM-NAME               PIC X(64)   VALUE 'TESTFORM'.
+
+      *>── SQL Database runtime variables ──────────────────────────────
+      *>   Usage:
+      *>     MOVE 'SELECT * FROM t' TO WS-SQL-QUERY
+      *>     PERFORM DB1-CONNECT
+      *>     PERFORM DB1-EXEC
+      *>     PERFORM UNTIL WS-SQL-MORE = 'N'
+      *>         MOVE 1 TO WS-SQL-COL-INDEX
+      *>         CALL "COBOL-FETCH-ROW" USING WS-DB1-HANDLE
+      *>                                       WS-SQL-COL-INDEX
+      *>                                       WS-SQL-CURRENT-VALUE
+      *>                                       WS-SQL-ERROR
+      *>         CALL "COBOL-NEXT-ROW" USING WS-DB1-HANDLE
+      *>                                      WS-SQL-MORE
+      *>     END-PERFORM
+       01 WS-SQL-QUERY           PIC X(4096)  VALUE SPACES.
+       01 WS-SQL-ERROR            PIC X(512)   VALUE SPACES.
+       01 WS-SQL-ROW-COUNT        PIC 9(9)     VALUE 0.
+       01 WS-SQL-COL-INDEX        PIC 9(4)     VALUE 1.
+       01 WS-SQL-CURRENT-VALUE    PIC X(512)   VALUE SPACES.
+       01 WS-SQL-MORE             PIC X(1)     VALUE 'N'.
+
+      *>── SQL instance: SUBJ (sqlite) ─────────────────────────────────
+       01 WS-SUBJ-CONN-STRING   PIC X(512)  VALUE 'x'.
+       01 WS-SUBJ-HANDLE        PIC 9(9)    VALUE 0.
+       01 WS-SUBJ-STATUS        PIC X(512)  VALUE SPACES.
+
+      *>── Form controls ───────────────────────────────────────────────
+       01 WS-SUBJ.
+          05 WS-SUBJ-TEXT       PIC X(256) VALUE 'SUBJ'.
+          05 WS-SUBJ-VISIBLE    PIC 9      VALUE 1.
+          05 WS-SUBJ-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B00.
+          05 WS-B00-TEXT       PIC X(256) VALUE 'BackgroundColor'.
+          05 WS-B00-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B00-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B01.
+          05 WS-B01-TEXT       PIC X(256) VALUE 'ForegroundColor'.
+          05 WS-B01-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B01-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B02.
+          05 WS-B02-TEXT       PIC X(256) VALUE 'FontName'.
+          05 WS-B02-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B02-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B03.
+          05 WS-B03-TEXT       PIC X(256) VALUE 'FontSize'.
+          05 WS-B03-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B03-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B04.
+          05 WS-B04-TEXT       PIC X(256) VALUE 'Bold'.
+          05 WS-B04-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B04-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B05.
+          05 WS-B05-TEXT       PIC X(256) VALUE 'Italic'.
+          05 WS-B05-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B05-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B06.
+          05 WS-B06-TEXT       PIC X(256) VALUE 'Underline'.
+          05 WS-B06-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B06-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B07.
+          05 WS-B07-TEXT       PIC X(256) VALUE 'Strikethrough'.
+          05 WS-B07-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B07-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B08.
+          05 WS-B08-TEXT       PIC X(256) VALUE 'Tooltip'.
+          05 WS-B08-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B08-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B09.
+          05 WS-B09-TEXT       PIC X(256) VALUE 'Cursor'.
+          05 WS-B09-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B09-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B10.
+          05 WS-B10-TEXT       PIC X(256) VALUE 'Dock'.
+          05 WS-B10-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B10-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B11.
+          05 WS-B11-TEXT       PIC X(256) VALUE 'Anchor'.
+          05 WS-B11-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B11-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B12.
+          05 WS-B12-TEXT       PIC X(256) VALUE 'Padding'.
+          05 WS-B12-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B12-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B13.
+          05 WS-B13-TEXT       PIC X(256) VALUE 'Opacity'.
+          05 WS-B13-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B13-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B14.
+          05 WS-B14-TEXT       PIC X(256) VALUE 'ShadowEnabled'.
+          05 WS-B14-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B14-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B15.
+          05 WS-B15-TEXT       PIC X(256) VALUE 'ShadowOpacity'.
+          05 WS-B15-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B15-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B16.
+          05 WS-B16-TEXT       PIC X(256) VALUE 'ShadowColor'.
+          05 WS-B16-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B16-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B17.
+          05 WS-B17-TEXT       PIC X(256) VALUE 'ShadowDirection'.
+          05 WS-B17-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B17-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B18.
+          05 WS-B18-TEXT       PIC X(256) VALUE 'ShadowDistance'.
+          05 WS-B18-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B18-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B19.
+          05 WS-B19-TEXT       PIC X(256) VALUE 'ShadowBlur'.
+          05 WS-B19-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B19-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B20.
+          05 WS-B20-TEXT       PIC X(256) VALUE 'ShadowBlurStrength'.
+          05 WS-B20-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B20-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B21.
+          05 WS-B21-TEXT       PIC X(256) VALUE 'ZOrder'.
+          05 WS-B21-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B21-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B22.
+          05 WS-B22-TEXT       PIC X(256) VALUE 'LabelFor'.
+          05 WS-B22-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B22-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B23.
+          05 WS-B23-TEXT       PIC X(256) VALUE 'DataItem'.
+          05 WS-B23-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B23-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B24.
+          05 WS-B24-TEXT       PIC X(256) VALUE 'DataFormat'.
+          05 WS-B24-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B24-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B25.
+          05 WS-B25-TEXT       PIC X(256) VALUE 'Driver'.
+          05 WS-B25-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B25-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B26.
+          05 WS-B26-TEXT       PIC X(256) VALUE 'ConnectionString'.
+          05 WS-B26-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B26-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B27.
+          05 WS-B27-TEXT       PIC X(256) VALUE 'AutoConnect'.
+          05 WS-B27-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B27-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B28.
+          05 WS-B28-TEXT       PIC X(256) VALUE 'MaximumConnections'.
+          05 WS-B28-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B28-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B29.
+          05 WS-B29-TEXT       PIC X(256) VALUE 'ConnectionDataItem'.
+          05 WS-B29-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B29-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B30.
+          05 WS-B30-TEXT       PIC X(256) VALUE 'ResultSetDataItem'.
+          05 WS-B30-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B30-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B31.
+          05 WS-B31-TEXT       PIC X(256) VALUE 'ConnectParagraph'.
+          05 WS-B31-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B31-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B32.
+          05 WS-B32-TEXT       PIC X(256) VALUE 'ErrorParagraph'.
+          05 WS-B32-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B32-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B33.
+          05 WS-B33-TEXT       PIC X(256) VALUE 'QueryCompleteParagra'.
+          05 WS-B33-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B33-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B34.
+          05 WS-B34-TEXT       PIC X(256) VALUE 'X'.
+          05 WS-B34-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B34-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B35.
+          05 WS-B35-TEXT       PIC X(256) VALUE 'Y'.
+          05 WS-B35-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B35-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B36.
+          05 WS-B36-TEXT       PIC X(256) VALUE 'Width'.
+          05 WS-B36-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B36-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B37.
+          05 WS-B37-TEXT       PIC X(256) VALUE 'Height'.
+          05 WS-B37-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B37-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-B38.
+          05 WS-B38-TEXT       PIC X(256) VALUE 'PlayAnimation'.
+          05 WS-B38-VISIBLE    PIC 9      VALUE 1.
+          05 WS-B38-ENABLED    PIC 9      VALUE 1.
+
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           CALL "COBOL-INIT-FORM" USING FORM-NAME
+           CALL "TESTFORM--ONLOAD"
+           PERFORM COBOL-EVENT-LOOP
+           CALL "TESTFORM--ONCLOSE"
+           STOP RUN.
+
+       COBOL-EVENT-LOOP.
+           PERFORM UNTIL COBOL-QUIT = 1
+               CALL "COBOL-WAIT-EVENT"
+                   USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               EVALUATE COBOL-CONTROL-ID
+                   WHEN "SUBJ"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onQueryComplete"
+                               CALL "SUBJ--ONQUERYCOMPLETE"
+                           WHEN "onConnectOk"
+                               CALL "SUBJ--ONCONNECTOK"
+                           WHEN "onConnectError"
+                               CALL "SUBJ--ONCONNECTERROR"
+                           WHEN "onQueryError"
+                               CALL "SUBJ--ONQUERYERROR"
+                           WHEN "onRowFetched"
+                               CALL "SUBJ--ONROWFETCHED"
+                       END-EVALUATE
+                   WHEN "B00"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B00--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B01"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B01--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B02"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B02--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B03"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B03--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B04"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B04--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B05"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B05--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B06"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B06--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B07"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B07--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B08"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B08--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B09"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B09--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B10"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B10--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B11"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B11--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B12"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B12--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B13"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B13--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B14"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B14--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B15"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B15--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B16"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B16--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B17"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B17--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B18"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B18--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B19"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B19--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B20"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B20--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B21"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B21--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B22"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B22--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B23"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B23--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B24"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B24--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B25"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B25--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B26"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B26--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B27"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B27--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B28"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B28--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B29"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B29--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B30"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B30--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B31"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B31--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B32"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B32--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B33"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B33--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B34"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B34--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B35"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B35--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B36"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B36--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B37"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B37--ONCLICK"
+                       END-EVALUATE
+                   WHEN "B38"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "B38--ONCLICK"
+                       END-EVALUATE
+               END-EVALUATE
+           END-PERFORM.
+
+       SUBJ-CONNECT.
+      *>  Open a SQLite connection for SUBJ.
+      *>  Connection string is in WS-SUBJ-CONN-STRING.
+      *>  On success: WS-SUBJ-HANDLE holds the connection handle.
+      *>  On error:   WS-SQL-ERROR contains the message.
+           MOVE SPACES TO WS-SQL-ERROR
+           CALL "COBOL-OPEN-DB"
+               USING BY REFERENCE WS-SUBJ-CONN-STRING
+                     BY REFERENCE WS-SUBJ-HANDLE
+                     BY REFERENCE WS-SQL-ERROR
+           IF WS-SQL-ERROR NOT = SPACES
+               PERFORM SUBJ-ON-ERROR
+           ELSE
+               PERFORM SUBJ-ON-CONNECT
+           END-IF.
+
+       SUBJ-EXEC.
+      *>  Execute WS-SQL-QUERY via SUBJ.
+      *>  Stores row count in WS-SQL-ROW-COUNT.
+      *>  Resets WS-SQL-MORE to 'Y' if rows are present.
+           MOVE SPACES TO WS-SQL-ERROR
+           CALL "COBOL-EXEC-SQL"
+               USING BY REFERENCE WS-SUBJ-HANDLE
+                     BY REFERENCE WS-SQL-QUERY
+                     BY REFERENCE WS-SQL-ROW-COUNT
+                     BY REFERENCE WS-SQL-ERROR
+           IF WS-SQL-ERROR NOT = SPACES
+               PERFORM SUBJ-ON-ERROR
+           ELSE
+               IF WS-SQL-ROW-COUNT > 0
+                   MOVE 'Y' TO WS-SQL-MORE
+               ELSE
+                   MOVE 'N' TO WS-SQL-MORE
+               END-IF
+               PERFORM SUBJ-ON-QUERY-DONE
+           END-IF.
+
+       SUBJ-FETCH-ALL.
+      *>  Iterate over all rows returned by SUBJ-EXEC.
+      *>  Copy this paragraph and add column reads inside the loop.
+      *>  Example:
+      *>    MOVE 1 TO WS-SQL-COL-INDEX
+      *>    CALL "COBOL-FETCH-ROW" USING WS-SUBJ-HANDLE
+      *>                                   WS-SQL-COL-INDEX
+      *>                                   WS-SQL-CURRENT-VALUE
+      *>                                   WS-SQL-ERROR
+      *>    MOVE WS-SQL-CURRENT-VALUE TO WS-MY-NAME-FIELD
+           PERFORM UNTIL WS-SQL-MORE = 'N'
+               MOVE 1 TO WS-SQL-COL-INDEX
+               CALL "COBOL-FETCH-ROW"
+                   USING BY REFERENCE WS-SUBJ-HANDLE
+                         BY REFERENCE WS-SQL-COL-INDEX
+                         BY REFERENCE WS-SQL-CURRENT-VALUE
+                         BY REFERENCE WS-SQL-ERROR
+      *>          MOVE WS-SQL-CURRENT-VALUE TO your-field-here
+               CONTINUE
+               CALL "COBOL-NEXT-ROW"
+                   USING BY REFERENCE WS-SUBJ-HANDLE
+                         BY REFERENCE WS-SQL-MORE
+           END-PERFORM.
+
+       SUBJ-CLOSE.
+      *>  Close the SQLite connection for SUBJ.
+           CALL "COBOL-CLOSE-DB"
+               USING BY REFERENCE WS-SUBJ-HANDLE.
+
+       SUBJ-ON-CONNECT.
+      *>  TODO: add your SUBJ-ON-CONNECT logic here.
+           CONTINUE.
+
+       SUBJ-ON-QUERY-DONE.
+      *>  TODO: add your SUBJ-ON-QUERY-DONE logic here.
+           CONTINUE.
+
+       SUBJ-ON-ERROR.
+      *>  TODO: add your SUBJ-ON-ERROR logic here.
+           CONTINUE.
+
+
+      *> ── Nested event-handler programs (COBOL-85) ─────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TESTFORM--ONLOAD.
+
+      *>    TODO: Form onLoad handler
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           CONTINUE.
+
+           GOBACK.
+
+       END PROGRAM TESTFORM--ONLOAD.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TESTFORM--ONCLOSE.
+
+      *>    TODO: Form onClose handler
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           CONTINUE.
+
+           GOBACK.
+
+       END PROGRAM TESTFORM--ONCLOSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SUBJ--ONQUERYCOMPLETE.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           DISPLAY "onQueryComplete working".
+
+           GOBACK.
+
+       END PROGRAM SUBJ--ONQUERYCOMPLETE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SUBJ--ONCONNECTOK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           DISPLAY "onConnectOk working".
+
+           GOBACK.
+
+       END PROGRAM SUBJ--ONCONNECTOK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SUBJ--ONCONNECTERROR.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           DISPLAY "onConnectError working".
+
+           GOBACK.
+
+       END PROGRAM SUBJ--ONCONNECTERROR.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SUBJ--ONQUERYERROR.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           DISPLAY "onQueryError working".
+
+           GOBACK.
+
+       END PROGRAM SUBJ--ONQUERYERROR.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SUBJ--ONROWFETCHED.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           DISPLAY "onRowFetched working".
+
+           GOBACK.
+
+       END PROGRAM SUBJ--ONROWFETCHED.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B00--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "BackgroundColor" "#0066CC"
+           DISPLAY SUBJ::GetProperty("BackgroundColor").
+
+           GOBACK.
+
+       END PROGRAM B00--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B01--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ForegroundColor" "#CC3300"
+           DISPLAY SUBJ::GetProperty("ForegroundColor").
+
+           GOBACK.
+
+       END PROGRAM B01--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B02--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "FontName" "TEST"
+           DISPLAY SUBJ::GetProperty("FontName").
+
+           GOBACK.
+
+       END PROGRAM B02--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B03--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "FontSize" "20"
+           DISPLAY SUBJ::GetProperty("FontSize").
+
+           GOBACK.
+
+       END PROGRAM B03--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B04--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Bold" "1"
+           DISPLAY SUBJ::GetProperty("Bold").
+
+           GOBACK.
+
+       END PROGRAM B04--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B05--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Italic" "1"
+           DISPLAY SUBJ::GetProperty("Italic").
+
+           GOBACK.
+
+       END PROGRAM B05--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B06--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Underline" "1"
+           DISPLAY SUBJ::GetProperty("Underline").
+
+           GOBACK.
+
+       END PROGRAM B06--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B07--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Strikethrough" "1"
+           DISPLAY SUBJ::GetProperty("Strikethrough").
+
+           GOBACK.
+
+       END PROGRAM B07--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B08--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Tooltip" "TEST"
+           DISPLAY SUBJ::GetProperty("Tooltip").
+
+           GOBACK.
+
+       END PROGRAM B08--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B09--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Cursor" "TEST"
+           DISPLAY SUBJ::GetProperty("Cursor").
+
+           GOBACK.
+
+       END PROGRAM B09--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B10--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Dock" "TEST"
+           DISPLAY SUBJ::GetProperty("Dock").
+
+           GOBACK.
+
+       END PROGRAM B10--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B11--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Anchor" "TEST"
+           DISPLAY SUBJ::GetProperty("Anchor").
+
+           GOBACK.
+
+       END PROGRAM B11--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B12--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Padding" "10"
+           DISPLAY SUBJ::GetProperty("Padding").
+
+           GOBACK.
+
+       END PROGRAM B12--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B13--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Opacity" "110"
+           DISPLAY SUBJ::GetProperty("Opacity").
+
+           GOBACK.
+
+       END PROGRAM B13--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B14--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowEnabled" "1"
+           DISPLAY SUBJ::GetProperty("ShadowEnabled").
+
+           GOBACK.
+
+       END PROGRAM B14--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B15--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowOpacity" "30"
+           DISPLAY SUBJ::GetProperty("ShadowOpacity").
+
+           GOBACK.
+
+       END PROGRAM B15--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B16--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowColor" "#CC3300"
+           DISPLAY SUBJ::GetProperty("ShadowColor").
+
+           GOBACK.
+
+       END PROGRAM B16--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B17--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowDirection" "TEST"
+           DISPLAY SUBJ::GetProperty("ShadowDirection").
+
+           GOBACK.
+
+       END PROGRAM B17--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B18--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowDistance" "17"
+           DISPLAY SUBJ::GetProperty("ShadowDistance").
+
+           GOBACK.
+
+       END PROGRAM B18--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B19--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowBlur" "0"
+           DISPLAY SUBJ::GetProperty("ShadowBlur").
+
+           GOBACK.
+
+       END PROGRAM B19--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B20--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowBlurStrength" "18"
+           DISPLAY SUBJ::GetProperty("ShadowBlurStrength").
+
+           GOBACK.
+
+       END PROGRAM B20--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B21--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ZOrder" "10"
+           DISPLAY SUBJ::GetProperty("ZOrder").
+
+           GOBACK.
+
+       END PROGRAM B21--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B22--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "LabelFor" "TEST"
+           DISPLAY SUBJ::GetProperty("LabelFor").
+
+           GOBACK.
+
+       END PROGRAM B22--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B23--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "DataItem" "TEST"
+           DISPLAY SUBJ::GetProperty("DataItem").
+
+           GOBACK.
+
+       END PROGRAM B23--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B24--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "DataFormat" "TEST"
+           DISPLAY SUBJ::GetProperty("DataFormat").
+
+           GOBACK.
+
+       END PROGRAM B24--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B25--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Driver" "TEST"
+           DISPLAY SUBJ::GetProperty("Driver").
+
+           GOBACK.
+
+       END PROGRAM B25--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B26--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ConnectionString" "TEST"
+           DISPLAY SUBJ::GetProperty("ConnectionString").
+
+           GOBACK.
+
+       END PROGRAM B26--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B27--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "AutoConnect" "1"
+           DISPLAY SUBJ::GetProperty("AutoConnect").
+
+           GOBACK.
+
+       END PROGRAM B27--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B28--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "MaximumConnections" "15"
+           DISPLAY SUBJ::GetProperty("MaximumConnections").
+
+           GOBACK.
+
+       END PROGRAM B28--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B29--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ConnectionDataItem" "TEST"
+           DISPLAY SUBJ::GetProperty("ConnectionDataItem").
+
+           GOBACK.
+
+       END PROGRAM B29--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B30--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ResultSetDataItem" "TEST"
+           DISPLAY SUBJ::GetProperty("ResultSetDataItem").
+
+           GOBACK.
+
+       END PROGRAM B30--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B31--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ConnectParagraph" "TEST"
+           DISPLAY SUBJ::GetProperty("ConnectParagraph").
+
+           GOBACK.
+
+       END PROGRAM B31--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B32--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ErrorParagraph" "TEST"
+           DISPLAY SUBJ::GetProperty("ErrorParagraph").
+
+           GOBACK.
+
+       END PROGRAM B32--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B33--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "QueryCompleteParagraph" "TEST"
+           DISPLAY SUBJ::GetProperty("QueryCompleteParagraph").
+
+           GOBACK.
+
+       END PROGRAM B33--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B34--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "X" "60"
+           DISPLAY SUBJ::GetProperty("X").
+
+           GOBACK.
+
+       END PROGRAM B34--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B35--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Y" "60"
+           DISPLAY SUBJ::GetProperty("Y").
+
+           GOBACK.
+
+       END PROGRAM B35--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B36--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Width" "180"
+           DISPLAY SUBJ::GetProperty("Width").
+
+           GOBACK.
+
+       END PROGRAM B36--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B37--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Height" "180"
+           DISPLAY SUBJ::GetProperty("Height").
+
+           GOBACK.
+
+       END PROGRAM B37--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. B38--ONCLICK.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "PlayAnimation"
+               USING "1"
+           DISPLAY "PlayAnimation invoked".
+
+           GOBACK.
+
+       END PROGRAM B38--ONCLICK.
+
+       END PROGRAM TESTFORM.

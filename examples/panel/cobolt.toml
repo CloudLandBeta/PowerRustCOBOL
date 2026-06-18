@@ -1,0 +1,8 @@
+[project]
+name = "Panel Test"
+version = "1.0.0"
+main = "generated/panel.cbl"
+
+[files]
+forms = ["forms/panel.cfrm"]
+generated = ["generated/panel.cbl"]

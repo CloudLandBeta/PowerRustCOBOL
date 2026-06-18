@@ -1,0 +1,8 @@
+[project]
+name = "ToolBar Test"
+version = "1.0.0"
+main = "generated/tool-bar.cbl"
+
+[files]
+forms = ["forms/tool-bar.cfrm"]
+generated = ["generated/tool-bar.cbl"]

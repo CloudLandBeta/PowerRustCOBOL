@@ -1,0 +1,8 @@
+[project]
+name = "StatusBar Test"
+version = "1.0.0"
+main = "generated/status-bar.cbl"
+
+[files]
+forms = ["forms/status-bar.cfrm"]
+generated = ["generated/status-bar.cbl"]

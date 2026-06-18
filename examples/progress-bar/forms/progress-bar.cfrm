@@ -1,0 +1,1827 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TESTFORM" title="ProgressBar — control test" width="640" height="1136" background="00000000" transparency="0" grid-size="8" snap-to-grid="true" target="Custom">
+  <form-events>
+    <Event name="onLoad" paragraph="TESTFORM--ONLOAD">
+    </Event>
+    <Event name="onClose" paragraph="TESTFORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="SUBJ" type="ProgressBar" x="20" y="20" w="200" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">0</Property>
+    <Property name="BarColor">#00AA00</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="ShowValue">false</Property>
+    <Event name="onClick" paragraph="SUBJ--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           DISPLAY "onClick working".
+]]></Event>
+  </Control>
+  <Control id="B00" type="Button" x="280" y="20" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">BackgroundColor</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B00--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "BackgroundColor" "#0066CC"
+           DISPLAY SUBJ::GetProperty("BackgroundColor").
+]]></Event>
+  </Control>
+  <Control id="B01" type="Button" x="280" y="48" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ForegroundColor</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B01--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ForegroundColor" "#CC3300"
+           DISPLAY SUBJ::GetProperty("ForegroundColor").
+]]></Event>
+  </Control>
+  <Control id="B02" type="Button" x="280" y="76" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">FontName</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B02--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "FontName" "TEST"
+           DISPLAY SUBJ::GetProperty("FontName").
+]]></Event>
+  </Control>
+  <Control id="B03" type="Button" x="280" y="104" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">FontSize</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B03--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "FontSize" "20"
+           DISPLAY SUBJ::GetProperty("FontSize").
+]]></Event>
+  </Control>
+  <Control id="B04" type="Button" x="280" y="132" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Bold</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B04--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Bold" "1"
+           DISPLAY SUBJ::GetProperty("Bold").
+]]></Event>
+  </Control>
+  <Control id="B05" type="Button" x="280" y="160" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Italic</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B05--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Italic" "1"
+           DISPLAY SUBJ::GetProperty("Italic").
+]]></Event>
+  </Control>
+  <Control id="B06" type="Button" x="280" y="188" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Underline</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B06--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Underline" "1"
+           DISPLAY SUBJ::GetProperty("Underline").
+]]></Event>
+  </Control>
+  <Control id="B07" type="Button" x="280" y="216" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Strikethrough</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B07--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Strikethrough" "1"
+           DISPLAY SUBJ::GetProperty("Strikethrough").
+]]></Event>
+  </Control>
+  <Control id="B08" type="Button" x="280" y="244" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Tooltip</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B08--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Tooltip" "TEST"
+           DISPLAY SUBJ::GetProperty("Tooltip").
+]]></Event>
+  </Control>
+  <Control id="B09" type="Button" x="280" y="272" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Cursor</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B09--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Cursor" "TEST"
+           DISPLAY SUBJ::GetProperty("Cursor").
+]]></Event>
+  </Control>
+  <Control id="B10" type="Button" x="280" y="300" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Dock</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B10--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Dock" "TEST"
+           DISPLAY SUBJ::GetProperty("Dock").
+]]></Event>
+  </Control>
+  <Control id="B11" type="Button" x="280" y="328" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Anchor</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B11--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Anchor" "TEST"
+           DISPLAY SUBJ::GetProperty("Anchor").
+]]></Event>
+  </Control>
+  <Control id="B12" type="Button" x="280" y="356" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Padding</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B12--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Padding" "10"
+           DISPLAY SUBJ::GetProperty("Padding").
+]]></Event>
+  </Control>
+  <Control id="B13" type="Button" x="280" y="384" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Opacity</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B13--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Opacity" "110"
+           DISPLAY SUBJ::GetProperty("Opacity").
+]]></Event>
+  </Control>
+  <Control id="B14" type="Button" x="280" y="412" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShadowEnabled</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B14--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowEnabled" "1"
+           DISPLAY SUBJ::GetProperty("ShadowEnabled").
+]]></Event>
+  </Control>
+  <Control id="B15" type="Button" x="280" y="440" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShadowOpacity</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B15--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowOpacity" "30"
+           DISPLAY SUBJ::GetProperty("ShadowOpacity").
+]]></Event>
+  </Control>
+  <Control id="B16" type="Button" x="280" y="468" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShadowColor</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B16--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowColor" "#CC3300"
+           DISPLAY SUBJ::GetProperty("ShadowColor").
+]]></Event>
+  </Control>
+  <Control id="B17" type="Button" x="280" y="496" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShadowDirection</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B17--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowDirection" "TEST"
+           DISPLAY SUBJ::GetProperty("ShadowDirection").
+]]></Event>
+  </Control>
+  <Control id="B18" type="Button" x="280" y="524" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShadowDistance</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B18--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowDistance" "17"
+           DISPLAY SUBJ::GetProperty("ShadowDistance").
+]]></Event>
+  </Control>
+  <Control id="B19" type="Button" x="280" y="552" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShadowBlur</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B19--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowBlur" "0"
+           DISPLAY SUBJ::GetProperty("ShadowBlur").
+]]></Event>
+  </Control>
+  <Control id="B20" type="Button" x="280" y="580" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShadowBlurStrength</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B20--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShadowBlurStrength" "18"
+           DISPLAY SUBJ::GetProperty("ShadowBlurStrength").
+]]></Event>
+  </Control>
+  <Control id="B21" type="Button" x="280" y="608" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ZOrder</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B21--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ZOrder" "10"
+           DISPLAY SUBJ::GetProperty("ZOrder").
+]]></Event>
+  </Control>
+  <Control id="B22" type="Button" x="280" y="636" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">LabelFor</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B22--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "LabelFor" "TEST"
+           DISPLAY SUBJ::GetProperty("LabelFor").
+]]></Event>
+  </Control>
+  <Control id="B23" type="Button" x="280" y="664" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">DataItem</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B23--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "DataItem" "TEST"
+           DISPLAY SUBJ::GetProperty("DataItem").
+]]></Event>
+  </Control>
+  <Control id="B24" type="Button" x="280" y="692" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">DataFormat</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B24--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "DataFormat" "TEST"
+           DISPLAY SUBJ::GetProperty("DataFormat").
+]]></Event>
+  </Control>
+  <Control id="B25" type="Button" x="280" y="720" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Minimum</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B25--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Minimum" "10"
+           DISPLAY SUBJ::GetProperty("Minimum").
+]]></Event>
+  </Control>
+  <Control id="B26" type="Button" x="280" y="748" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Maximum</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B26--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Maximum" "110"
+           DISPLAY SUBJ::GetProperty("Maximum").
+]]></Event>
+  </Control>
+  <Control id="B27" type="Button" x="280" y="776" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Value</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B27--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Value" "10"
+           DISPLAY SUBJ::GetProperty("Value").
+]]></Event>
+  </Control>
+  <Control id="B28" type="Button" x="280" y="804" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">BarColor</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B28--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "BarColor" "#CC3300"
+           DISPLAY SUBJ::GetProperty("BarColor").
+]]></Event>
+  </Control>
+  <Control id="B29" type="Button" x="280" y="832" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Orientation</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B29--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Orientation" "TEST"
+           DISPLAY SUBJ::GetProperty("Orientation").
+]]></Event>
+  </Control>
+  <Control id="B30" type="Button" x="280" y="860" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Style</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B30--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Style" "TEST"
+           DISPLAY SUBJ::GetProperty("Style").
+]]></Event>
+  </Control>
+  <Control id="B31" type="Button" x="280" y="888" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ShowValue</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B31--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "ShowValue" "1"
+           DISPLAY SUBJ::GetProperty("ShowValue").
+]]></Event>
+  </Control>
+  <Control id="B32" type="Button" x="280" y="916" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">X</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B32--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "X" "60"
+           DISPLAY SUBJ::GetProperty("X").
+]]></Event>
+  </Control>
+  <Control id="B33" type="Button" x="280" y="944" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Y</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B33--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Y" "60"
+           DISPLAY SUBJ::GetProperty("Y").
+]]></Event>
+  </Control>
+  <Control id="B34" type="Button" x="280" y="972" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Width</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B34--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Width" "180"
+           DISPLAY SUBJ::GetProperty("Width").
+]]></Event>
+  </Control>
+  <Control id="B35" type="Button" x="280" y="1000" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Height</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B35--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "SetProperty"
+               USING "Height" "180"
+           DISPLAY SUBJ::GetProperty("Height").
+]]></Event>
+  </Control>
+  <Control id="B36" type="Button" x="280" y="1028" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">PlayAnimation</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">10</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="Dock">None</Property>
+    <Property name="Anchor">Top,Left</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Opacity">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">20</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowDirection">South</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LabelFor"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="IsCancel">false</Property>
+    <Property name="ModalResult">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="FlatStyle">false</Property>
+    <Property name="ImagePath"></Property>
+    <Property name="ImageAlignment">MiddleLeft</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="B36--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           INVOKE SUBJ "PlayAnimation"
+               USING "1"
+           DISPLAY "PlayAnimation invoked".
+]]></Event>
+  </Control>
+</Form>

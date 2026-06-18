@@ -1,0 +1,8 @@
+[project]
+name = "MenuBar Test"
+version = "1.0.0"
+main = "generated/menu-bar.cbl"
+
+[files]
+forms = ["forms/menu-bar.cfrm"]
+generated = ["generated/menu-bar.cbl"]

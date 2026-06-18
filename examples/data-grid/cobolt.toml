@@ -1,0 +1,8 @@
+[project]
+name = "DataGrid Test"
+version = "1.0.0"
+main = "generated/data-grid.cbl"
+
+[files]
+forms = ["forms/data-grid.cfrm"]
+generated = ["generated/data-grid.cbl"]

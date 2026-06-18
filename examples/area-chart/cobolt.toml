@@ -1,0 +1,8 @@
+[project]
+name = "AreaChart Test"
+version = "1.0.0"
+main = "generated/area-chart.cbl"
+
+[files]
+forms = ["forms/area-chart.cfrm"]
+generated = ["generated/area-chart.cbl"]

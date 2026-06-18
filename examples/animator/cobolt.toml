@@ -1,0 +1,8 @@
+[project]
+name = "Animator Test"
+version = "1.0.0"
+main = "generated/animator.cbl"
+
+[files]
+forms = ["forms/animator.cfrm"]
+generated = ["generated/animator.cbl"]

@@ -8,6 +8,30 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.24.0] — 2026-06-17
+
+Per-control test example projects, plus form-rendering fixes surfaced by them.
+
+### New
+
+- **Per-control examples** — a runnable test project for every toolbox control
+  under `examples/<control>/`: the subject control with a console
+  `DISPLAY "<Event> working"` per supported event and one button per property
+  that changes it from COBOL via `INVOKE … "SetProperty"`. `examples/build-all.sh`
+  builds all 34; `cargo run -p cobolt-codegen --example check_examples` verifies
+  event/property coverage.
+
+### Fixed
+
+- **Codegen** — Timer (`SetInterval`), DataGrid (`ExportCSV`), and AgentObject
+  (`Ask`) emitted `INVOKE "<id>" '…'` with the control id quoted as a string
+  literal, which the parser rejected; the id is now an unquoted identifier so
+  forms using those controls build.
+- **Run-form window** — scrollbars now appear automatically when a form is larger
+  than its window, so off-screen content is reachable.
+- **Default colours** — `ForegroundColor` now defaults to white, and Button/Label
+  text falls back to white, so captions are legible on the dark run-form canvas.
+
 ## [PowerRustCOBOL 1.23.0] — 2026-06-15
 
 Indexed File Editor, Grid Browser, and `.cidx` codegen in the IDE.
