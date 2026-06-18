@@ -47,9 +47,10 @@ See the LICENSE file in the project root for full license information.
 18. [Building a distributable binary](#18-building-a-distributable-binary)
 19. [Debugging](#19-debugging)
 20. [Appearance and internationalisation](#20-appearance-and-internationalisation)
-21. [Caveats and current limitations](#21-caveats-and-current-limitations)
-22. [Appendix A — Coming from PowerCOBOL / isCOBOL](#appendix-a--coming-from-powercobol--iscobol)
-23. [Appendix B — Glossary](#appendix-b--glossary)
+21. [COBOL Structure and shared data](#21-cobol-structure-and-shared-data)
+22. [Caveats and current limitations](#22-caveats-and-current-limitations)
+23. [Appendix A — Coming from PowerCOBOL / isCOBOL](#appendix-a--coming-from-powercobol--iscobol)
+24. [Appendix B — Glossary](#appendix-b--glossary)
 
 ---
 
@@ -1389,7 +1390,94 @@ the toolbar **Debug** button (to the right of **Run**).
 
 ---
 
-## 21. Caveats and current limitations
+## 21. COBOL Structure and shared data
+
+A form module is more than its controls and event handlers — it is a real COBOL
+program with an `ENVIRONMENT DIVISION` and a `DATA DIVISION`. The **COBOL
+Structure** editor lets you author those shared parts directly, and the runtime
+gives you COBOL-faithful `GLOBAL` / `EXTERNAL` data sharing across the module and
+the run unit.
+
+### The editor
+
+Select the form itself (click empty canvas, or the form node), then open the
+**COBOL Structure** section in the property inspector. It lists the five shared
+blocks — each woven verbatim into the generated program in the correct
+division/section order — plus the form's user procedures:
+
+| Block | Goes into | Use it for |
+|-------|-----------|------------|
+| `SPECIAL-NAMES`    | CONFIGURATION SECTION | `DECIMAL-POINT IS COMMA`, mnemonic names, currency signs |
+| `REPOSITORY`       | CONFIGURATION SECTION | class names — the Rust-FFI type bridge (see below) |
+| `FILE-CONTROL`     | INPUT-OUTPUT SECTION  | `SELECT … ASSIGN` for files the form opens |
+| `FILE SECTION`     | DATA DIVISION         | the `FD`s for those files |
+| `WORKING-STORAGE`  | DATA DIVISION         | the form's shared data items |
+
+Click a row to open a popup that edits **that one block**. User procedures are
+listed below the sections — **➕ Add** creates one, the name and body are edited
+in the same popup, and 🗑 removes it. Every edit marks the form dirty, so the
+next **Build / Run / Debug / Check** regenerates the `.cbl` with your changes.
+
+### GLOBAL, EXTERNAL, and GLOBAL EXTERNAL
+
+You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
+`01`/`77` items in `WORKING-STORAGE`:
+
+- **`GLOBAL`** — visible to the program's *contained* programs. The event
+  handlers and user procedures are nested in the form module, so a `GLOBAL`
+  item in the form's WORKING-STORAGE is readable and writable from every handler
+  without passing it around.
+- **`EXTERNAL`** — one physical copy shared *run-unit-wide* by its real name.
+  Two form modules that each declare `01 WS-COUNTER PIC 9(4) EXTERNAL` see and
+  update the same storage. `EXTERNAL` is valid only on `01`/`77` items and `FD`s
+  — the checker flags it anywhere else.
+- **`GLOBAL EXTERNAL`** — both at once: run-unit-shared *and* visible to
+  contained programs.
+
+```cobol
+       01  WS-SESSION-ID   PIC X(32) GLOBAL.
+       01  WS-OPEN-FORMS   PIC 9(4)  EXTERNAL.
+       01  WS-APP-CONFIG   PIC X(80) GLOBAL EXTERNAL.
+```
+
+### User procedures
+
+A user procedure is a named nested program the handlers can `CALL "<name>"`.
+Procedures are generated `IS COMMON`, so any handler (a sibling contained
+program) may call them, and they see the form's `GLOBAL` data:
+
+```cobol
+      *> in a button handler
+           CALL "RECALC-TOTAL".
+```
+
+### The Rust-FFI type bridge (preview)
+
+A new form's `REPOSITORY` starts pre-populated with a curated set of Rust types
+declared as COBOL classes — all primitives plus the common standard-library
+types — so you can write object references immediately:
+
+```cobol
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-VEC IS "Rust.Vec"
+      *> … 45 more
+```
+
+```cobol
+       01  WS-NAME  USAGE IS OBJECT REFERENCE RUST-STRING.
+```
+
+The literal is the type's path in the Rust hierarchy (think `System.String` in
+.NET). If you clear `REPOSITORY` to empty it is re-seeded on the next load; any
+content you write is left untouched, even if you delete the Rust entries. The
+declarations parse and generate today; **invoking Rust through them is Phase 2**
+and not yet wired at run time.
+
+---
+
+## 22. Caveats and current limitations
 
 A consolidated list so you are never surprised:
 

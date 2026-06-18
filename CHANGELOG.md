@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.25.0] — 2026-06-18
+
+COBOL Structure & shared data (spec 005, Phase 1).
+
+### New
+
+- **COBOL Structure editor.** The form inspector lists the five shared COBOL
+  blocks — `SPECIAL-NAMES`, `REPOSITORY`, `FILE-CONTROL`, `FILE SECTION`,
+  `WORKING-STORAGE` — plus the form's user procedures; clicking a row opens a
+  popup that edits that one block. Add / rename / delete user procedures from the
+  list. The blocks are woven verbatim into the generated program. (i18n across
+  all six languages.)
+- **`GLOBAL` / `EXTERNAL` / `GLOBAL EXTERNAL` data sharing.** `EXTERNAL` `01`/`77`
+  items (and `FD`s) are now shared run-unit-wide by their real name; `GLOBAL`
+  items stay visible to a module's contained programs. The checker flags
+  `EXTERNAL` on anything other than `01`/`77`/`FD`.
+- **User procedures.** Named nested programs the event handlers can `CALL`;
+  generated `IS COMMON` so siblings may call them.
+- **COBOL-2002 `USAGE IS OBJECT REFERENCE <class>`** parses, and `REPOSITORY`
+  starts pre-seeded with a curated Rust-FFI type bridge (all primitives + common
+  std classes, `CLASS RUST-x IS "Rust.x"`). Declarations generate today; invoking
+  Rust through them is Phase 2.
+
 ## [PowerRustCOBOL 1.24.1] — 2026-06-18
 
 ### Fixed

@@ -107,7 +107,15 @@ before moving on. **Do not commit/push until the operator asks.**
     (no empty translations); manual: edit each block + add a user procedure, save,
     Build → blocks appear in the generated `.cbl`.
 
-- [ ] **T8 — Phase 1 docs + version/CHANGELOG** (AC1, AC7)
+- [x] **T8 — Phase 1 docs + version/CHANGELOG** (AC1, AC7)
+  - Done: new guide section "21. COBOL Structure and shared data" (editor, the
+    five blocks, GLOBAL/EXTERNAL/GLOBAL EXTERNAL, user procedures, Rust-FFI
+    REPOSITORY preview); Caveats renumbered 21→22 + ToC updated; docs.md registry
+    row added. Version 1.24.1 → 1.25.0 (minor, feature); CHANGELOG 1.25.0 entry.
+    English guide only; banner preserved. AC2 (GLOBAL in handler) + AC3/AC4
+    (EXTERNAL / GLOBAL EXTERNAL sharing) proven by `test_external.rs` /
+    `test_user_proc.rs`; live two-form-at-once run-unit sharing awaits the
+    multi-interpreter run path (noted in T5).
   - Files: `docs/developers-guide-en.md` (new "COBOL Structure & shared data"
     section: the editor, GLOBAL/EXTERNAL/GLOBAL EXTERNAL, user procedures),
     `crates/cobolt-ide/src/version.rs` (minor bump), `CHANGELOG.md`.
