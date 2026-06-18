@@ -32,6 +32,7 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#indexed-file-editor--grid-browser` | `crates/cobolt-indexed/**`, `crates/cobolt-ide/src/panels/indexed_*.rs`, `crates/cobolt-codegen/src/indexed.rs` | indexed-editor |
 | `…#7-the-form-designer-rad` | `crates/cobolt-ide/src/panels/designer.rs`, `crates/cobolt-forms/**` | designer |
 | `…#8-the-control-catalogue` | `crates/cobolt-forms/**` | controls |
+| `…#per-control-examples` + `examples/README.md` | `examples/**`, `crates/cobolt-codegen/examples/build_examples.rs` | control-examples |
 | `…#11-talking-to-the-ui-from-cobol` | `crates/cobolt-runtime/**` (dispatch), `crates/cobolt-codegen/**` | ui-calls |
 | `…#12-generated-code` | `crates/cobolt-codegen/**` | codegen |
 | `…#13-the-rustcobol-language` | `crates/cobolt-{lexer,parser,semantic,runtime,stdlib}/**` | language |

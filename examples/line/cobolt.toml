@@ -1,0 +1,8 @@
+[project]
+name = "Line Test"
+version = "1.0.0"
+main = "generated/line.cbl"
+
+[files]
+forms = ["forms/line.cfrm"]
+generated = ["generated/line.cbl"]

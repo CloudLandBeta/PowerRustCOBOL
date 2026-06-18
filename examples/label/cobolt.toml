@@ -1,0 +1,8 @@
+[project]
+name = "Label Test"
+version = "1.0.0"
+main = "generated/label.cbl"
+
+[files]
+forms = ["forms/label.cfrm"]
+generated = ["generated/label.cbl"]

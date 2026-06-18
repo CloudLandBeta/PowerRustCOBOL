@@ -1,0 +1,8 @@
+[project]
+name = "AgentObject Test"
+version = "1.0.0"
+main = "generated/agent-object.cbl"
+
+[files]
+forms = ["forms/agent-object.cfrm"]
+generated = ["generated/agent-object.cbl"]

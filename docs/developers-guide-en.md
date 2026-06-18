@@ -538,6 +538,24 @@ non-visual ones are services.
 > window) showing one of each major control so newcomers can recognise them. The
 > charts especially benefit from a visual.
 
+### Per-control examples
+
+The repository ships a runnable test project for **every** control under
+`examples/<control>/`. Each one places a single instance of the control, prints
+a console line for every event it supports (`DISPLAY "<Event> working"`), and
+gives you one button per property that changes it from COBOL via
+`INVOKE … "SetProperty"`. They double as a reference for wiring events and
+setting properties from code.
+
+```sh
+rcrun build examples/label/cobolt.toml     # build one
+examples/build-all.sh                      # build them all (reports 0 failed)
+```
+
+The service controls (`agent-object`, `rest-client`, `sql-database`) build
+offline but need their local service to run; each project's `README.md` says
+which. See `examples/README.md` for the full index.
+
 ---
 
 ## 9. Properties

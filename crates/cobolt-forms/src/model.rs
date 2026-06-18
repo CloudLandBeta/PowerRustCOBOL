@@ -813,7 +813,7 @@ impl Control {
 
         // ── Universal appearance props ─────────────────────────────────────────
         props.insert("BackgroundColor".into(),       PropValue::String("#F0F0F0".into()));
-        props.insert("ForegroundColor".into(),       PropValue::String("#000000".into()));
+        props.insert("ForegroundColor".into(),       PropValue::String("#FFFFFF".into()));
         props.insert("FontName".into(),        PropValue::String("Arial".into()));
         props.insert("FontSize".into(),        PropValue::Int(10));
         props.insert("Bold".into(),            PropValue::Bool(false));

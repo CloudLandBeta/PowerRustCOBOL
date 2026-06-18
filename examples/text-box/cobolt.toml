@@ -1,0 +1,8 @@
+[project]
+name = "TextBox Test"
+version = "1.0.0"
+main = "generated/text-box.cbl"
+
+[files]
+forms = ["forms/text-box.cfrm"]
+generated = ["generated/text-box.cbl"]

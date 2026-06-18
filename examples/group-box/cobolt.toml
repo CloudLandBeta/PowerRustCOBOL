@@ -1,0 +1,8 @@
+[project]
+name = "GroupBox Test"
+version = "1.0.0"
+main = "generated/group-box.cbl"
+
+[files]
+forms = ["forms/group-box.cfrm"]
+generated = ["generated/group-box.cbl"]

@@ -1,0 +1,8 @@
+[project]
+name = "Button Test"
+version = "1.0.0"
+main = "generated/button.cbl"
+
+[files]
+forms = ["forms/button.cfrm"]
+generated = ["generated/button.cbl"]

@@ -1,0 +1,8 @@
+[project]
+name = "RestClient Test"
+version = "1.0.0"
+main = "generated/rest-client.cbl"
+
+[files]
+forms = ["forms/rest-client.cfrm"]
+generated = ["generated/rest-client.cbl"]

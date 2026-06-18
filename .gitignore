@@ -16,3 +16,6 @@ CLAUDE.md
 # Editor/OS cruft
 *.swp
 *~
+
+# Per-control example build outputs (binaries)
+examples/*/bin/

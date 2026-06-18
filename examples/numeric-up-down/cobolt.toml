@@ -1,0 +1,8 @@
+[project]
+name = "NumericUpDown Test"
+version = "1.0.0"
+main = "generated/numeric-up-down.cbl"
+
+[files]
+forms = ["forms/numeric-up-down.cfrm"]
+generated = ["generated/numeric-up-down.cbl"]

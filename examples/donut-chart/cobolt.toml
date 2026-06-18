@@ -1,0 +1,8 @@
+[project]
+name = "DonutChart Test"
+version = "1.0.0"
+main = "generated/donut-chart.cbl"
+
+[files]
+forms = ["forms/donut-chart.cfrm"]
+generated = ["generated/donut-chart.cbl"]

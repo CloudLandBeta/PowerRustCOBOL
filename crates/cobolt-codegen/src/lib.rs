@@ -470,7 +470,7 @@ fn write_timer_stubs(out: &mut String, all_controls: &[&Control]) {
     for ctrl in &timers {
         let iv = ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000);
         out.push_str(&format!(
-            "           INVOKE \"{id}\" 'SetInterval' USING BY VALUE {iv}\n",
+            "           INVOKE {id} 'SetInterval' USING BY VALUE {iv}\n",
             id = ctrl.id, iv = iv
         ));
     }
@@ -508,7 +508,7 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
             "      *>    Set {pfx}-CSV-PATH to the desired output file path before calling.\n"
         ));
         out.push_str(&format!(
-            "           INVOKE \"{id}\" 'ExportCSV'\n",
+            "           INVOKE {id} 'ExportCSV'\n",
             id = ctrl.id
         ));
         out.push_str(&format!(
@@ -655,7 +655,7 @@ fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
         ));
         out.push_str("      *>    Set WS-AGENT-PROMPT before calling.\n");
         out.push_str(&format!(
-            "           INVOKE \"{id}\" 'Ask'\n               USING BY VALUE WS-AGENT-PROMPT\n               RETURNING WS-AGENT-RESPONSE\n",
+            "           INVOKE {id} 'Ask'\n               USING BY VALUE WS-AGENT-PROMPT\n               RETURNING WS-AGENT-RESPONSE\n",
             id = ctrl.id
         ));
         if !resp_item.is_empty() {

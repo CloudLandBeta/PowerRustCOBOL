@@ -1,0 +1,8 @@
+[project]
+name = "TabControl Test"
+version = "1.0.0"
+main = "generated/tab-control.cbl"
+
+[files]
+forms = ["forms/tab-control.cfrm"]
+generated = ["generated/tab-control.cbl"]

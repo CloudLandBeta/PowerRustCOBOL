@@ -1,0 +1,8 @@
+[project]
+name = "SqlDatabase Test"
+version = "1.0.0"
+main = "generated/sql-database.cbl"
+
+[files]
+forms = ["forms/sql-database.cfrm"]
+generated = ["generated/sql-database.cbl"]

@@ -1,0 +1,8 @@
+[project]
+name = "CheckBox Test"
+version = "1.0.0"
+main = "generated/check-box.cbl"
+
+[files]
+forms = ["forms/check-box.cfrm"]
+generated = ["generated/check-box.cbl"]
