@@ -43,6 +43,7 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#18-building-a-distributable-binary` | `crates/cobolt-compiler/**`, `crates/cobolt-cli/**` | build |
 | `…#19-debugging` | `crates/cobolt-ide/src/panels/debugger.rs`, `crates/cobolt-runtime/**` | debug |
 | `…#20-appearance-and-internationalisation` | `crates/cobolt-ide/src/i18n.rs`, `crates/cobolt-ide/src/fonts.rs` | i18n, theming |
+| `…#21-cobol-structure-and-shared-data` | `crates/cobolt-ide/src/panels/cobol_structure.rs`, `crates/cobolt-forms/**`, `crates/cobolt-codegen/**`, `crates/cobolt-runtime/src/{environment,interpreter}.rs` | cobol-structure, shared-data |
 | `cobol85-supported-syntax.md` | `crates/cobolt-{parser,semantic,runtime}/**` | language-support |
 | `cobol85-verb-test-matrix.md` | `tests/cobol/**`, `crates/cobolt-runtime/**` | verb-tests |
 | `compiler-manual.md` *(planned)* | `crates/cobolt-cli/**`, `crates/cobolt-compiler/**` | cli-flags, build |
