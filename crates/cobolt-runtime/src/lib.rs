@@ -50,6 +50,7 @@ pub mod indexed_redb;
 pub mod interpreter;
 pub mod numedit;
 pub mod objects;
+pub mod rust_bridge;
 pub mod value;
 
 pub use channels::{FormEvent, StateUpdate};
@@ -67,5 +68,6 @@ pub use indexed_ide::{
 pub use indexed_import::{definition_from_inspect, inspect_any_path};
 pub use interpreter::Interpreter;
 pub use environment::{CobolEnvironment, ExternalStore, new_external_store};
+pub use rust_bridge::{BridgeError, BridgeValue, RustBridge};
 pub use objects::ObjectRegistry;
 pub use value::CobolValue;

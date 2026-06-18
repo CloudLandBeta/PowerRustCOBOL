@@ -126,7 +126,17 @@ before moving on. **Do not commit/push until the operator asks.**
 
 ## Phase 2 — Rust FFI
 
-- [ ] **T9 — Rust bridge registry + handles** (R13, R16, R17)
+- [x] **T9 — Rust bridge registry + handles** (R13, R16, R17)
+  - Done: new `crates/cobolt-runtime/src/rust_bridge.rs` — `RustBridge` with an
+    id ↦ `Box<dyn Any>` object table (RAII: `drop_handle` and dropping the bridge
+    run destructors), `BridgeValue`/`BridgeError`, and a curated first-cut type
+    set: `String`, all int widths (stored i64), `f32/f64`, `bool`, `Vec`, each
+    with a method table. `create`/`invoke` marshal `BridgeValue`s; `invoke` runs
+    inside `catch_unwind` so a panic becomes `BridgeError::Panicked` (handle stays
+    live). Re-exported from the crate root. Tests (5): create `Rust.String` +
+    `len`/`to_uppercase`/`push_str`; drop-probe leak test (counter → 0); bridge
+    drop frees remaining; caught panic; unknown type/method/handle. Marshaling to
+    `CobolValue` + `INVOKE`/`::` dispatch is T10.
   - Files: `crates/cobolt-runtime/**` (new `RustBridge`: repo-name ↦
     constructor/method table for a curated first-cut type set — `i32/i64/f64/
     bool`, `String`, `Vec`; an object handle table id ↦ `Box<dyn Any>` with a
