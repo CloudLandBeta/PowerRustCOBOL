@@ -1250,6 +1250,38 @@ impl BgImageMode {
     }
 }
 
+// ── Form COBOL structure (spec 005) ───────────────────────────────────────────
+
+/// Editable raw-COBOL blocks woven into the form's generated outer program,
+/// besides WORKING-STORAGE (which is [`Form::user_ws_source`]). The developer
+/// writes normal COBOL — including `GLOBAL`/`EXTERNAL` clauses; codegen inserts
+/// each non-empty block into the matching division/section. (BASED-STORAGE and
+/// CONSTANT are intentionally out of scope.)
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CobolStructure {
+    /// ENVIRONMENT DIVISION → CONFIGURATION SECTION → `SPECIAL-NAMES`.
+    pub special_names: String,
+    /// ENVIRONMENT DIVISION → CONFIGURATION SECTION → `REPOSITORY` (COBOL-2002;
+    /// the Rust-FFI type bindings live here).
+    pub repository: String,
+    /// ENVIRONMENT DIVISION → INPUT-OUTPUT SECTION → `FILE-CONTROL`.
+    pub file_control: String,
+    /// DATA DIVISION → `FILE SECTION`.
+    pub file_section: String,
+}
+
+/// A developer-written named procedure on a form. Woven as a nested program in
+/// the form's outer program, callable by name from event handlers and from other
+/// user procedures, and able to see the form's `GLOBAL` data.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UserProcedure {
+    /// Procedure name (the nested PROGRAM-ID / CALL target).
+    pub name: String,
+    /// Full COBOL body (`ENVIRONMENT DIVISION` … `PROCEDURE DIVISION` +
+    /// statements), like an event handler's `code`.
+    pub code: String,
+}
+
 // ── Form ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -1281,6 +1313,14 @@ pub struct Form {
     /// outer program's WS after the generated control-bound items.
     /// The user writes normal COBOL declarations here, including GLOBAL / EXTERNAL.
     pub user_ws_source:   String,
+
+    /// Editable COBOL-structure blocks (SPECIAL-NAMES, REPOSITORY, FILE-CONTROL,
+    /// FILE SECTION) woven into the generated outer program (spec 005).
+    pub cobol_structure:  CobolStructure,
+
+    /// Developer-written named procedures, woven as nested programs callable from
+    /// event handlers (spec 005).
+    pub user_procedures:  Vec<UserProcedure>,
 
     /// Form-level lifecycle event handlers (OnLoad, OnClose).
     /// Uses the same `EventBinding` struct as control events; `control_id` is "".
@@ -1323,6 +1363,8 @@ impl Form {
             snap_to_grid:     true,
             target:           "Custom".to_owned(),
             user_ws_source:   String::new(),
+            cobol_structure:  CobolStructure::default(),
+            user_procedures:  Vec::new(),
             form_events,
             deleted_code:     Vec::new(),
         }

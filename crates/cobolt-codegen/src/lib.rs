@@ -78,7 +78,7 @@ pub fn generate(form: &Form) -> String {
 
     write_header(&mut out);
     write_identification(&mut out, form);
-    write_environment(&mut out);
+    write_environment(&mut out, form);
     write_data_division(&mut out, form);
     write_procedure_division(&mut out, form);
 
@@ -131,13 +131,39 @@ fn write_identification(out: &mut String, form: &Form) {
     out.push('\n');
 }
 
-fn write_environment(out: &mut String) {
+/// Append a fixed section/paragraph header and the developer's verbatim block
+/// body, only when the body is non-empty (spec 005 COBOL Structure).
+fn weave_block(out: &mut String, header: &str, body: &str) {
+    if body.trim().is_empty() {
+        return;
+    }
+    out.push_str(header);
+    out.push('\n');
+    out.push_str(body.trim_end());
+    out.push('\n');
+}
+
+fn write_environment(out: &mut String, form: &Form) {
     out.push_str("       ENVIRONMENT DIVISION.\n");
+
+    // ── COBOL Structure: CONFIGURATION / INPUT-OUTPUT (spec 005) ──────────────
+    let cs = &form.cobol_structure;
+    if !cs.special_names.trim().is_empty() || !cs.repository.trim().is_empty() {
+        out.push_str("       CONFIGURATION SECTION.\n");
+        weave_block(out, "       SPECIAL-NAMES.", &cs.special_names);
+        weave_block(out, "       REPOSITORY.", &cs.repository);
+    }
+    if !cs.file_control.trim().is_empty() {
+        out.push_str("       INPUT-OUTPUT SECTION.\n");
+        weave_block(out, "       FILE-CONTROL.", &cs.file_control);
+    }
     out.push('\n');
 }
 
 fn write_data_division(out: &mut String, form: &Form) {
     out.push_str("       DATA DIVISION.\n");
+    // ── COBOL Structure: FILE SECTION (spec 005) — precedes WORKING-STORAGE ───
+    weave_block(out, "       FILE SECTION.", &form.cobol_structure.file_section);
     out.push_str("       WORKING-STORAGE SECTION.\n");
     out.push_str("      *>── Cobolt runtime fields ─────────────────────────────────────\n");
     out.push_str("       01 COBOL-QUIT             PIC 9        VALUE 0.\n");
@@ -993,7 +1019,8 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
 /// Form-level OnLoad / OnClose come first, then per-control events.
 fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control]) {
     let has_any = !form.form_events.is_empty()
-        || all_controls.iter().any(|c| !c.events.is_empty());
+        || all_controls.iter().any(|c| !c.events.is_empty())
+        || !form.user_procedures.is_empty();
     if !has_any { return; }
 
     out.push_str("\n      *> ── Nested event-handler programs (COBOL-85) ─────────────────────\n");
@@ -1011,6 +1038,14 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
             write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
                 &format!("{} {} handler", ctrl.id, ev.event));
         }
+    }
+
+    // User procedures (spec 005) — nested programs callable by name from the
+    // handlers (sibling nested-program CALL resolution; T6 confirms/adds COMMON).
+    for up in &form.user_procedures {
+        if up.name.trim().is_empty() { continue; }
+        write_nested_program(out, up.name.trim(), "", &up.code,
+            &format!("user procedure {}", up.name.trim()));
     }
 }
 
@@ -1166,6 +1201,36 @@ mod tests {
     fn generate_contains_program_id() {
         let src = generate(&make_form());
         assert!(src.contains("PROGRAM-ID. MAIN-FORM."), "missing PROGRAM-ID");
+    }
+
+    #[test]
+    fn generate_weaves_cobol_structure_005() {
+        use cobolt_forms::model::UserProcedure;
+        let mut form = make_form();
+        form.cobol_structure.special_names = "       DECIMAL-POINT IS COMMA.".into();
+        form.cobol_structure.repository    = "       FUNCTION ALL INTRINSIC.".into();
+        form.cobol_structure.file_control  = "           SELECT F ASSIGN TO \"f.dat\".".into();
+        form.cobol_structure.file_section  = "       FD  F.\n       01 F-REC PIC X(80).".into();
+        form.user_procedures = vec![UserProcedure {
+            name: "RECALC-TOTAL".into(),
+            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.".into(),
+        }];
+        let src = generate(&form);
+
+        assert!(src.contains("CONFIGURATION SECTION."));
+        assert!(src.contains("SPECIAL-NAMES.") && src.contains("DECIMAL-POINT IS COMMA."));
+        assert!(src.contains("REPOSITORY.") && src.contains("FUNCTION ALL INTRINSIC."));
+        assert!(src.contains("INPUT-OUTPUT SECTION.") && src.contains("FILE-CONTROL."));
+        assert!(src.contains("SELECT F ASSIGN"));
+        // FILE SECTION must come before WORKING-STORAGE SECTION.
+        let fs = src.find("FILE SECTION.").expect("no FILE SECTION");
+        let ws = src.find("WORKING-STORAGE SECTION.").expect("no WORKING-STORAGE");
+        assert!(fs < ws, "FILE SECTION must precede WORKING-STORAGE");
+        // User procedure emitted as a nested program.
+        assert!(src.contains("PROGRAM-ID. RECALC-TOTAL."));
+        assert!(src.contains("END PROGRAM RECALC-TOTAL."));
+        // Banner still present.
+        assert!(src.contains("generated automatically by PowerRustCOBOL"));
     }
 
     #[test]

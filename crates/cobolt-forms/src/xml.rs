@@ -62,7 +62,8 @@ use thiserror::Error;
 
 use crate::model::{
     AnimationDef, AnimKind, AnimRepeat, AnimTrigger, BgImageMode, Control, ControlType,
-    DeletedControlCode, EasingKind, EventBinding, Form, PropValue, derive_paragraph_name,
+    DeletedControlCode, EasingKind, EventBinding, Form, PropValue, UserProcedure,
+    derive_paragraph_name,
 };
 
 // ── Error ─────────────────────────────────────────────────────────────────────
@@ -150,6 +151,11 @@ enum OwnedEvent {
     PropertyStart(String),              // property name
     ChildrenStart,
     WorkingStorageStart,                // <working-storage>
+    SpecialNamesStart,                  // <special-names>   (spec 005)
+    RepositoryStart,                    // <repository>      (spec 005)
+    FileControlStart,                   // <file-control>    (spec 005)
+    FileSectionStart,                   // <file-section>    (spec 005)
+    UserProceduresStart,                // <user-procedures> (spec 005)
     FormEventsStart,                    // <form-events>
     DeletedControlsStart,               // <deleted-controls>
     DeletedControlStart(String, String),// (control_id, deleted_at) from <DeletedControl>
@@ -220,6 +226,11 @@ fn next_owned<R: std::io::BufRead>(
                 }
                 b"Children"         => Ok(OwnedEvent::ChildrenStart),
                 b"working-storage"  => Ok(OwnedEvent::WorkingStorageStart),
+                b"special-names"    => Ok(OwnedEvent::SpecialNamesStart),
+                b"repository"       => Ok(OwnedEvent::RepositoryStart),
+                b"file-control"     => Ok(OwnedEvent::FileControlStart),
+                b"file-section"     => Ok(OwnedEvent::FileSectionStart),
+                b"user-procedures"  => Ok(OwnedEvent::UserProceduresStart),
                 b"form-events"      => Ok(OwnedEvent::FormEventsStart),
                 b"deleted-controls" => Ok(OwnedEvent::DeletedControlsStart),
                 b"DeletedControl"   => {
@@ -345,6 +356,28 @@ fn parse_form_body<R: std::io::BufRead>(
             // ── <working-storage> ─────────────────────────────────────────────
             OwnedEvent::WorkingStorageStart => {
                 form.user_ws_source = collect_cdata_body(reader, buf, b"working-storage")?;
+            }
+
+            // ── COBOL structure blocks (spec 005) ─────────────────────────────
+            OwnedEvent::SpecialNamesStart => {
+                form.cobol_structure.special_names = collect_cdata_body(reader, buf, b"special-names")?;
+            }
+            OwnedEvent::RepositoryStart => {
+                form.cobol_structure.repository = collect_cdata_body(reader, buf, b"repository")?;
+            }
+            OwnedEvent::FileControlStart => {
+                form.cobol_structure.file_control = collect_cdata_body(reader, buf, b"file-control")?;
+            }
+            OwnedEvent::FileSectionStart => {
+                form.cobol_structure.file_section = collect_cdata_body(reader, buf, b"file-section")?;
+            }
+
+            // ── <user-procedures> (spec 005) — reuse the Event-list machinery ──
+            OwnedEvent::UserProceduresStart => {
+                form.user_procedures = parse_event_list(reader, buf, b"user-procedures")?
+                    .into_iter()
+                    .map(|e| UserProcedure { name: e.event, code: e.code })
+                    .collect();
             }
 
             // ── <form-events> ─────────────────────────────────────────────────
@@ -708,6 +741,34 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
             w.write_event(Event::End(BytesEnd::new("working-storage")))?;
         }
 
+        // ── COBOL structure blocks (spec 005) ─────────────────────────────────
+        for (tag, body) in [
+            ("special-names", form.cobol_structure.special_names.as_str()),
+            ("repository",    form.cobol_structure.repository.as_str()),
+            ("file-control",  form.cobol_structure.file_control.as_str()),
+            ("file-section",  form.cobol_structure.file_section.as_str()),
+        ] {
+            if !body.trim().is_empty() {
+                w.write_event(Event::Start(BytesStart::new(tag)))?;
+                w.write_event(Event::CData(BytesCData::new(body)))?;
+                w.write_event(Event::End(BytesEnd::new(tag)))?;
+            }
+        }
+
+        // ── <user-procedures> (spec 005) ──────────────────────────────────────
+        if !form.user_procedures.is_empty() {
+            w.write_event(Event::Start(BytesStart::new("user-procedures")))?;
+            for up in &form.user_procedures {
+                let eb = EventBinding {
+                    event:     up.name.clone(),
+                    paragraph: up.name.clone(),
+                    code:      up.code.clone(),
+                };
+                write_event_with_code(&mut w, &eb)?;
+            }
+            w.write_event(Event::End(BytesEnd::new("user-procedures")))?;
+        }
+
         // ── <form-events> ─────────────────────────────────────────────────────
         if !form.form_events.is_empty() {
             w.write_event(Event::Start(BytesStart::new("form-events")))?;
@@ -910,6 +971,33 @@ mod tests {
         assert_eq!(btn.events[0].event,     "onClick");
         assert_eq!(btn.events[0].paragraph, "BTN-OK--CLICK");
         assert!(btn.events[0].code.contains("WS-COUNTER"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn roundtrip_cobol_structure_005() {
+        let mut form = sample_form();
+        form.cobol_structure.special_names = "       DECIMAL-POINT IS COMMA.".into();
+        form.cobol_structure.repository    = "       FUNCTION ALL INTRINSIC.".into();
+        form.cobol_structure.file_control  = "           SELECT F ASSIGN TO \"f.dat\".".into();
+        form.cobol_structure.file_section  = "       FD  F.\n       01 F-REC PIC X(80).".into();
+        form.user_procedures = vec![UserProcedure {
+            name: "RECALC-TOTAL".into(),
+            code: "       PROCEDURE DIVISION.\n           ADD 1 TO WS-COUNTER.".into(),
+        }];
+
+        let path = std::env::temp_dir().join("cobolt_test_struct005.cfrm");
+        save_form(&form, &path).expect("save_form failed");
+        let loaded = load_form(&path).expect("load_form failed");
+
+        assert_eq!(loaded.cobol_structure, form.cobol_structure);
+        assert_eq!(loaded.user_procedures.len(), 1);
+        assert_eq!(loaded.user_procedures[0].name, "RECALC-TOTAL");
+        assert!(loaded.user_procedures[0].code.contains("ADD 1 TO WS-COUNTER"));
+        // Existing fields still survive alongside the new ones.
+        assert!(loaded.user_ws_source.contains("WS-COUNTER"));
+        assert_eq!(loaded.controls.len(), 1);
 
         let _ = std::fs::remove_file(&path);
     }

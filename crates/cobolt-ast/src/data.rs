@@ -70,6 +70,10 @@ pub enum Usage {
     Index,
     /// Memory address pointer.
     Pointer,
+    /// `OBJECT REFERENCE <class>` — a handle to an object (COBOL-2002). Used by
+    /// the Rust-FFI bridge (spec 005); the referenced class name is captured in
+    /// Phase 2. Layout is a handle, like `Pointer`.
+    ObjectReference,
 }
 
 // ── OCCURS clause ─────────────────────────────────────────────────────────────

@@ -597,6 +597,17 @@ fn parse_usage_clause(p: &mut Parser) -> Usage {
         Token::PackedDecimal => { p.advance(); Usage::PackedDecimal }
         Token::Index       => { p.advance(); Usage::Index }
         Token::Pointer     => { p.advance(); Usage::Pointer }
+        // OBJECT REFERENCE <class-name>  (COBOL-2002; spec 005 Rust-FFI bridge).
+        // The class name is recognised and consumed here; Phase 2 captures the
+        // binding for FFI dispatch.
+        Token::Identifier(ref s) if s.eq_ignore_ascii_case("OBJECT") => {
+            p.advance();                 // OBJECT
+            p.eat(&Token::Reference);    // REFERENCE (optional word)
+            if matches!(p.peek(), Token::Identifier(_)) {
+                p.advance();             // <class-name>
+            }
+            Usage::ObjectReference
+        }
         _ => {
             p.emit_error(format!("unknown USAGE clause: {:?}", p.peek()));
             Usage::Display

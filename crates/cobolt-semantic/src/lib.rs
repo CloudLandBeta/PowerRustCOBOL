@@ -32,6 +32,7 @@
 
 pub mod duplicates;
 pub mod exec_rust;
+pub mod external;
 pub mod resolver;
 pub mod symbol_table;
 pub mod type_checker;
@@ -129,6 +130,9 @@ pub fn analyze(program: &Program) -> SemanticResult {
 
     // Pass 1b: reject redeclared unique procedure names (paragraphs/sections).
     duplicates::check(program, &mut diagnostics);
+
+    // Pass 1c: EXTERNAL placement (spec 005) — only on 01/77/FD items.
+    external::check(program, &mut diagnostics);
 
     // Pass 2: name resolution.
     resolver::resolve(program, &symbols, &mut diagnostics);
