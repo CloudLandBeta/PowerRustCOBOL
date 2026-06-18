@@ -4814,18 +4814,29 @@ impl CoboltApp {
             };
             let mut open = true;
             let mut changed = false;
+            // Never let the popup exceed 70% of the designer window height; the
+            // editor scrolls inside and the Close button stays pinned at the foot.
+            let max_h = ctx.screen_rect().height() * 0.7;
             egui::Window::new(format!("{} — {title}", tr.cs_open))
                 .id(egui::Id::new(("cobol_structure", idx)))
                 .open(&mut open)
                 .default_size([620.0, 460.0])
+                .max_height(max_h)
                 .resizable(true)
                 .show(ctx, |ui| {
-                    changed = crate::panels::cobol_structure::show_editor(
-                        ui, &mut self.designers[idx].1.form, target, tr);
-                    ui.add_space(6.0);
-                    if ui.button(tr.cs_close).clicked() {
-                        self.designers[idx].1.cobol_structure_edit = None;
-                    }
+                    egui::TopBottomPanel::bottom(egui::Id::new(("cs_footer", idx)))
+                        .show_inside(ui, |ui| {
+                            ui.add_space(4.0);
+                            if ui.button(tr.cs_close).clicked() {
+                                self.designers[idx].1.cobol_structure_edit = None;
+                            }
+                        });
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::none())
+                        .show_inside(ui, |ui| {
+                            changed = crate::panels::cobol_structure::show_editor(
+                                ui, &mut self.designers[idx].1.form, target, tr);
+                        });
                 });
             if changed { self.designers[idx].1.dirty = true; }
             if !open { self.designers[idx].1.cobol_structure_edit = None; }

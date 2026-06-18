@@ -65,21 +65,20 @@ pub fn section_text(form: &Form, t: CsTarget) -> Option<&str> {
     })
 }
 
+/// The multiline code editor, sized to the full remaining space so it fills the
+/// popup all the way down (and scrolls internally past the caller's height cap).
 fn code_edit(ui: &mut egui::Ui, code: &mut String) -> bool {
-    egui::ScrollArea::vertical()
-        .show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::multiline(code)
-                    .code_editor()
-                    .desired_rows(16)
-                    .desired_width(f32::INFINITY),
-            )
-            .changed()
-        })
-        .inner
+    ui.add_sized(
+        ui.available_size(),
+        egui::TextEdit::multiline(code)
+            .code_editor()
+            .desired_width(f32::INFINITY),
+    )
+    .changed()
 }
 
 /// Edit one section / user-procedure block in the popup. Returns `true` on edit.
+/// The header + hint sit on top; the code editor fills the rest and scrolls.
 pub fn show_editor(ui: &mut egui::Ui, form: &mut Form, target: CsTarget, tr: &Tr) -> bool {
     let mut changed = false;
     match target {
@@ -94,6 +93,7 @@ pub fn show_editor(ui: &mut egui::Ui, form: &mut Form, target: CsTarget, tr: &Tr
                     .add(egui::TextEdit::singleline(&mut up.name).desired_width(260.0))
                     .changed();
             });
+            ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
             ui.add_space(4.0);
             changed |= code_edit(ui, &mut up.code);
         }
@@ -103,6 +103,7 @@ pub fn show_editor(ui: &mut egui::Ui, form: &mut Form, target: CsTarget, tr: &Tr
                     .monospace()
                     .strong(),
             );
+            ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
             ui.add_space(4.0);
             let field = match section {
                 CsTarget::SpecialNames => &mut form.cobol_structure.special_names,
@@ -115,7 +116,5 @@ pub fn show_editor(ui: &mut egui::Ui, form: &mut Form, target: CsTarget, tr: &Tr
             changed |= code_edit(ui, field);
         }
     }
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
     changed
 }
