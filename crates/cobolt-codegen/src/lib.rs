@@ -1026,26 +1026,28 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
     out.push_str("\n      *> ── Nested event-handler programs (COBOL-85) ─────────────────────\n");
     out.push('\n');
 
-    // Form-level events: OnLoad, OnClose
+    // Form-level events: OnLoad, OnClose. Handlers are CALLed by the containing
+    // program (the event loop), so they need no COMMON attribute.
     for ev in &form.form_events {
         write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
-            &format!("Form {} handler", ev.event));
+            &format!("Form {} handler", ev.event), false);
     }
 
     // Per-control events
     for ctrl in all_controls {
         for ev in &ctrl.events {
             write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
-                &format!("{} {} handler", ctrl.id, ev.event));
+                &format!("{} {} handler", ctrl.id, ev.event), false);
         }
     }
 
     // User procedures (spec 005) — nested programs callable by name from the
-    // handlers (sibling nested-program CALL resolution; T6 confirms/adds COMMON).
+    // event handlers. A handler is a *sibling* contained program, so the
+    // procedure must be `IS COMMON` for that CALL to be valid COBOL-85.
     for up in &form.user_procedures {
         if up.name.trim().is_empty() { continue; }
         write_nested_program(out, up.name.trim(), "", &up.code,
-            &format!("user procedure {}", up.name.trim()));
+            &format!("user procedure {}", up.name.trim()), true);
     }
 }
 
@@ -1056,9 +1058,20 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
 /// adds the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the closing
 /// `GOBACK` / `END PROGRAM`. An unwritten handler is emitted from the shared
 /// [`event_handler_template`] so the generated file always compiles.
-fn write_nested_program(out: &mut String, prog_id: &str, event: &str, source: &str, comment: &str) {
+///
+/// `common` emits `IS COMMON PROGRAM` so the nested program can be CALLed by its
+/// siblings (used for user procedures, which handlers call).
+fn write_nested_program(
+    out: &mut String,
+    prog_id: &str,
+    event: &str,
+    source: &str,
+    comment: &str,
+    common: bool,
+) {
+    let attr = if common { " IS COMMON PROGRAM" } else { "" };
     out.push_str("       IDENTIFICATION DIVISION.\n");
-    out.push_str(&format!("       PROGRAM-ID. {}.\n", prog_id));
+    out.push_str(&format!("       PROGRAM-ID. {}{}.\n", prog_id, attr));
     out.push('\n');
 
     let trimmed = source.trim();
@@ -1226,8 +1239,9 @@ mod tests {
         let fs = src.find("FILE SECTION.").expect("no FILE SECTION");
         let ws = src.find("WORKING-STORAGE SECTION.").expect("no WORKING-STORAGE");
         assert!(fs < ws, "FILE SECTION must precede WORKING-STORAGE");
-        // User procedure emitted as a nested program.
-        assert!(src.contains("PROGRAM-ID. RECALC-TOTAL."));
+        // User procedure emitted as a nested program, IS COMMON so the event
+        // handlers (sibling contained programs) may CALL it (spec 005 T6).
+        assert!(src.contains("PROGRAM-ID. RECALC-TOTAL IS COMMON PROGRAM."));
         assert!(src.contains("END PROGRAM RECALC-TOTAL."));
         // Banner still present.
         assert!(src.contains("generated automatically by PowerRustCOBOL"));

@@ -71,7 +71,14 @@ before moving on. **Do not commit/push until the operator asks.**
     interpreters sharing one store — program A sets `EXTERNAL WS-COUNTER`,
     program B reads the same value; a GLOBAL item in A is **not** visible to B.
 
-- [ ] **T6 — User-procedure CALL** (R3b, AC8)
+- [x] **T6 — User-procedure CALL** (R3b, AC8)
+  - Done: codegen emits user procedures `IS COMMON PROGRAM` (handlers are
+    siblings, so a sibling CALL needs COMMON to be valid COBOL-85); the parser
+    now accepts `[IS] {COMMON|INITIAL|RECURSIVE} [PROGRAM]` on PROGRAM-ID and
+    ignores it (the runtime's flat nested registry already resolves sibling
+    CALLs, so no runtime restriction). Test `tests/test_user_proc.rs`: a handler
+    CALLs a COMMON user procedure that updates a GLOBAL item; the caller reads
+    the new value (`0099`). COMMON/INITIAL impose no runtime scope today.
   - Files: `crates/cobolt-codegen/src/lib.rs` (emit `COMMON` if required),
     `crates/cobolt-runtime/src/interpreter.rs` (nested-program CALL resolution).
   - Do: ensure an event handler can `CALL "<user-proc>"`; if the runtime needs

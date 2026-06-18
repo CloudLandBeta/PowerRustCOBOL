@@ -36,7 +36,28 @@ pub(crate) fn parse_identification_division(p: &mut Parser) -> IdentificationDiv
         p.advance();
         p.expect_period();
         let name = p.expect_identifier("PROGRAM-ID");
-        // Optional trailing period after the program name
+        // Optional COBOL program attributes: [IS] {COMMON | INITIAL | RECURSIVE}
+        // [PROGRAM]. Accepted and ignored — the interpreter resolves nested-program
+        // CALLs through a flat registry, so COMMON/INITIAL impose no runtime
+        // restriction (generated form modules emit user procedures `IS COMMON`).
+        p.eat(&Token::Is);
+        loop {
+            if p.eat(&Token::Program) {
+                continue;
+            }
+            let is_attr = matches!(
+                p.peek(),
+                Token::Identifier(s)
+                    if matches!(s.to_ascii_uppercase().as_str(),
+                                "COMMON" | "INITIAL" | "RECURSIVE")
+            );
+            if is_attr {
+                p.advance();
+                continue;
+            }
+            break;
+        }
+        // Optional trailing period after the program name / attributes
         p.eat(&Token::Period);
         name
     } else {
