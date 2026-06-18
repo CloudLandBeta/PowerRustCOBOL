@@ -3590,8 +3590,8 @@ pub(crate) fn draw_chart_preview(
 fn control_colors(ct: &ControlType, selected: bool) -> (Color32, Color32, Color32) {
     let border = if selected { Color32::from_rgb(60,120,230) } else { Color32::from_rgb(140,140,160) };
     match ct {
-        ControlType::Button         => (Color32::from_rgb(220,220,235), border, Color32::BLACK),
-        ControlType::Label          => (Color32::TRANSPARENT, border, Color32::from_rgb(40,40,40)),
+        ControlType::Button         => (Color32::from_rgb(220,220,235), border, Color32::WHITE),
+        ControlType::Label          => (Color32::TRANSPARENT, border, Color32::WHITE),
         ControlType::TextBox        => (Color32::WHITE, border, Color32::DARK_GRAY),
         ControlType::CheckBox | ControlType::RadioButton => (Color32::TRANSPARENT, border, Color32::BLACK),
         ControlType::GroupBox | ControlType::Panel => (Color32::from_rgba_premultiplied(200,200,210,40), border, Color32::DARK_GRAY),

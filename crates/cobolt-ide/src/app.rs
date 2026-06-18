@@ -4148,6 +4148,8 @@ impl CoboltApp {
         let bg_image   = self.form_runtimes[idx].background_image.clone();
         let bg_mode    = self.form_runtimes[idx].bg_image_mode;
         let bg_transp  = self.form_runtimes[idx].transparency;
+        let form_w     = self.form_runtimes[idx].form_width  as f32;
+        let form_h     = self.form_runtimes[idx].form_height as f32;
 
         // Derive the form background colour from the stored form metadata.
         let bg_color = {
@@ -4172,6 +4174,10 @@ impl CoboltApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(bg_color))
             .show(ctx, |ui| {
+                // Scrollbars appear automatically when the form is larger than the
+                // window viewport; the content area is at least the form's size.
+                egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_min_size(egui::vec2(form_w, form_h));
                 let origin = ui.min_rect().min;
 
                 // ── Form background image (cached in egui memory) ─────────────
@@ -4442,6 +4448,7 @@ impl CoboltApp {
                         None => {}
                     }
                 }
+                }); // close the form scroll area
             });
 
         // Keep the live interpreter window (and the root-side drain of its
