@@ -592,6 +592,70 @@ abbreviations). A few you will use constantly:
 > (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
 > digits, hyphens; no leading/trailing hyphen).
 
+### Form themes
+
+A **theme** gives your forms a distinctive look without styling every control by
+hand. Themes are applied by the same renderer the designer, the preview, and the
+compiled app all use, so a themed form looks identical everywhere.
+
+There are two kinds of theme, listed together in one picker:
+
+- **Liquid Glass** — the built-in, default look, drawn procedurally. Existing
+  forms use it and are unchanged.
+- **Asset-pack themes** — photoreal "skins" supplied as a folder of images. The
+  catalogue grows simply by dropping a new pack into `assets/themes/` — no rebuild.
+
+**Choosing a theme.** A theme is selected at two levels:
+
+- **Project default** — *Settings → Appearance → Default form theme*. Every form
+  in the project uses it unless overridden.
+- **Per-form override** — in the Designer, the form's *Appearance → Form theme*
+  property. Leave it on **Inherit project default** to follow the project, or pick
+  a specific theme for this one form.
+
+The effective theme is resolved as **per-form override → project default → Liquid
+Glass**. The designer re-renders immediately when you change either.
+
+**Themed background.** A pack may include a background image. Switch on the form's
+*Appearance → Use theme background* to show it; otherwise the form's own Back color
+/ Background image applies.
+
+**What gets themed.** A theme skins all the standard controls (panels, buttons,
+text fields, lists, …) and their states, **including the chart controls** — pie
+slices, line strokes, and bars take on the theme's palette and material. A control
+a pack doesn't cover falls back to Liquid Glass, so a partial pack never breaks a
+form. A control's own explicit *Foreground/Background color* still wins over the
+theme's defaults.
+
+**Adding a theme pack.** A pack is a self-describing folder
+`assets/themes/<id>/` containing a `theme.toml` manifest plus its images:
+
+```toml
+id = "stainless-steel"
+display_name = "Stainless Steel"
+
+[background]
+image = "background.png"      # optional themed background
+
+[palette]
+foreground = "#dfe7ff"
+chart = ["#4C9BE8", "#E87A4C", "#4CE87A", "#E84C9B"]   # chart data palette
+
+[chart_style]
+stroke_width = 2.0
+
+[controls.button]             # one entry per control kind
+image    = "button.png"
+slice    = [12, 12, 12, 12]   # 9-slice insets: left, top, right, bottom
+hover    = "button_hover.png" # optional per-state images
+pressed  = "button_pressed.png"
+```
+
+Images use **9-slice** scaling: the four corners keep their size while the edges
+and centre stretch, so one image fits any control size. Drop the folder in,
+restart the IDE, and the theme appears in the picker. (The bundled
+`cobalt-steel` pack is a small, procedurally generated reference you can copy.)
+
 ---
 
 ## 10. Event-driven programming

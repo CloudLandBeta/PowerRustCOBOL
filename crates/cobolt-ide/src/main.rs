@@ -26,6 +26,7 @@ mod panels;
 mod project_model;
 mod runner;
 pub mod theme;
+pub mod theme_ui;
 pub mod version;
 pub mod welcome;
 

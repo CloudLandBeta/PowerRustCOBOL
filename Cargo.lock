@@ -985,12 +985,17 @@ dependencies = [
 name = "cobolt-forms"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
+ "cobolt-media",
  "egui",
+ "fontdb",
+ "image 0.25.10",
  "indexmap",
  "pretty_assertions",
  "quick-xml 0.36.2",
  "serde",
  "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]

@@ -34,6 +34,9 @@ language. No prior Rust knowledge is required to *use* it.
 - A productive **visual** RAD loop: design a form → generated COBOL → run/debug.
 - Ship real apps: standalone binaries, no runtime install.
 - Fully **localised** UI (EN/ES/PT/JA/ZH/FR) and theme-aware.
+- **Themable forms**: a selectable, extensible catalogue of form themes
+  (procedural Liquid Glass default + drop-in asset packs), applied by the shared
+  renderer so the look is identical across project types (spec 007).
 
 ## Non-goals (by design)
 

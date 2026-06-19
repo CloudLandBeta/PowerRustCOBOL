@@ -42,6 +42,8 @@ pub struct SettingsDraft {
     pub theme_id: String,
     pub bg_image: String,
     pub bg_opacity: u8,
+    /// Default **form** theme id (spec 007); empty ⇒ Liquid Glass.
+    pub form_theme_id: String,
     // ── Runtime ──
     pub fixed_format: bool,
     // ── AI assistant (global) ──
@@ -64,6 +66,7 @@ impl SettingsDraft {
             theme_id: p.ide.theme.clone(),
             bg_image: p.ide.background_image.clone(),
             bg_opacity: p.ide.background_opacity,
+            form_theme_id: p.forms.theme.clone(),
             fixed_format: p.runtime.fixed_format,
             llm_endpoint: llm.endpoint.clone(),
             llm_api_key: llm.api_key.clone(),
@@ -83,6 +86,7 @@ impl SettingsDraft {
         p.ide.theme = self.theme_id.clone();
         p.ide.background_image = self.bg_image.clone();
         p.ide.background_opacity = self.bg_opacity;
+        p.forms.theme = self.form_theme_id.clone();
         p.runtime.fixed_format = self.fixed_format;
         llm.endpoint = self.llm_endpoint.clone();
         llm.api_key = self.llm_api_key.clone();
@@ -394,6 +398,33 @@ impl SettingsForm {
                             .show_ui(ui, |ui| {
                                 for (id, name) in themes {
                                     ui.selectable_value(&mut self.draft.theme_id, (*id).to_owned(), *name);
+                                }
+                            });
+                    });
+                });
+
+                // Default form theme (spec 007) — themes the developer's forms.
+                ui.horizontal_top(|ui| {
+                    let left_rect = ui.allocate_exact_size(egui::vec2(splitter, 0.0), egui::Sense::hover()).0;
+                    ui.allocate_ui_at_rect(left_rect, |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                        ui.set_min_width(splitter);
+                        ui.add_space(property_indent);
+                        ui.add(egui::Label::new(tr.theme_project_default).truncate());
+                    });
+                    ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                    ui.add_space(gap_after_resizer);
+                    let right_w = ui.available_width();
+                    ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                        let w = ui.available_width();
+                        let choices = crate::theme_ui::choices(ui.ctx());
+                        let cur = crate::theme_ui::display_name(ui.ctx(), &self.draft.form_theme_id);
+                        egui::ComboBox::from_id_salt("form_theme_pick")
+                            .selected_text(cur).width(w)
+                            .show_ui(ui, |ui| {
+                                for (id, name) in &choices {
+                                    ui.selectable_value(
+                                        &mut self.draft.form_theme_id, id.clone(), name);
                                 }
                             });
                     });
