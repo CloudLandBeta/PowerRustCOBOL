@@ -445,6 +445,13 @@ pub struct Interpreter {
     para_order: Vec<String>,
     /// COBOL-85 nested programs: program-id (uppercase) → compiled program.
     nested_registry: HashMap<String, NestedProgram>,
+    /// Persistent local WORKING-STORAGE per nested program (program-id uppercase →
+    /// last-seen local values). Procedures are **static by default** (spec 009
+    /// R10): a program's locals are initialised once (from its DATA DIVISION) on
+    /// the first CALL and **preserved** across subsequent CALLs; `CANCEL` drops the
+    /// entry so the next CALL re-initialises. `INITIALIZE` (unchanged) is the
+    /// developer's in-procedure reset.
+    program_locals: HashMap<String, Vec<(String, CobolValue)>>,
     /// Current PERFORM nesting depth (overflow guard).
     perform_depth: usize,
     /// Database runtime engine (Phase 8) — manages SQLite connections.
@@ -582,6 +589,7 @@ impl Interpreter {
             para_map,
             para_order,
             nested_registry,
+            program_locals: HashMap::new(),
             perform_depth: 0,
             db:   DbRegistry::new(),
             http: crate::http_runtime::HttpClient::new(),
@@ -3205,10 +3213,13 @@ impl Interpreter {
         for prog in programs {
             let name = self.eval_expr(prog, prog.span())?
                 .as_display_string().trim().to_ascii_uppercase();
-            if let Some(np) = self.nested_registry.get(&name) {
-                for (key, val) in np.local_items.clone() {
-                    self.env.set(&key.to_ascii_uppercase(), val);
-                }
+            // Static lifecycle (009 R10): CANCEL discards the program's persisted
+            // local state so its next CALL re-initialises from the DATA DIVISION.
+            // (Between calls the locals live only in `program_locals`, not `env`,
+            // so dropping the entry is the reset.)
+            self.program_locals.remove(&name);
+            if !self.nested_registry.contains_key(&name) {
+                // Legacy/flat program names: nothing persisted — no-op.
             }
         }
         Ok(())
@@ -3552,10 +3563,20 @@ impl Interpreter {
                 // Push the nested program's local WS + LINKAGE items into the
                 // shared env. GLOBAL items from the outer program are already
                 // there and are NOT overwritten.
-                let inserted_keys = self.env.push_local_scope(&local_items);
+                //
+                // Static lifecycle (009 R10): the program is **static by default**
+                // — its locals are initialised once (from `local_items`, its DATA
+                // DIVISION) and then **preserved** across calls. We push the
+                // *persisted* snapshot (or the fresh template on the first call),
+                // and `CANCEL` drops the snapshot to re-initialise next time.
+                let snapshot = self.program_locals
+                    .get(&prog_name)
+                    .cloned()
+                    .unwrap_or_else(|| local_items.clone());
+                let inserted_keys = self.env.push_local_scope(&snapshot);
 
                 // Copy-in: bind each parameter to the caller argument's value
-                // (after the local scope so it overrides the LINKAGE default).
+                // (after the local scope so it overrides the persisted slot).
                 for (pk, ak, _) in &bindings {
                     if let Some(v) = self.env.get(ak).cloned() {
                         self.env.set(pk, v);
@@ -3575,7 +3596,17 @@ impl Interpreter {
                     }
                 }
 
-                // Remove the nested program's local items regardless of outcome.
+                // Save the program's local values back into its persistent store
+                // (before popping) so the next CALL resumes with them (static).
+                let mut saved = Vec::with_capacity(snapshot.len());
+                for (k, prev) in &snapshot {
+                    let cur = self.env.get(k).cloned().unwrap_or_else(|| prev.clone());
+                    saved.push((k.clone(), cur));
+                }
+                self.program_locals.insert(prog_name.clone(), saved);
+
+                // Remove the nested program's local items from the shared env
+                // regardless of outcome (their state lives in `program_locals`).
                 self.env.pop_local_scope(&inserted_keys);
 
                 match result {
@@ -3671,7 +3702,12 @@ impl Interpreter {
     fn invoke_rust(&mut self, key: &str, method: &str, args: &[CobolValue]) -> CobolValue {
         let id = self.env.get_i64(key).unwrap_or(0);
         let bargs: Vec<crate::rust_bridge::BridgeValue> = args.iter().map(cobol_to_bridge).collect();
-        match self.rust_bridge.invoke(id, method, &bargs) {
+        // The curated bridge methods are lowercase snake_case (`len`,
+        // `to_uppercase`, …). The inline `obj::method()` form arrives with the
+        // method uppercased by the COBOL lexer (`LEN`), whereas `INVOKE … "len"`
+        // preserves the literal; lowercasing here makes both forms dispatch (R16).
+        let method = method.to_ascii_lowercase();
+        match self.rust_bridge.invoke(id, &method, &bargs) {
             Ok(v) => bridge_to_cobol(v),
             Err(e) => {
                 tracing::warn!("Rust bridge {key}::{method}: {e}");

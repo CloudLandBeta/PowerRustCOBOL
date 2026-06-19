@@ -80,7 +80,7 @@ fn invoke_with_using_argument_mutates() {
     let (out, _live) = run(src);
     assert_eq!(out, vec!["0005".to_string()]); // "ab" + "cde" = 5 bytes
 }
-// NOTE: the inline `obj::method()` form dispatches as a *statement* and the
-// `INVOKE` form (tested above) is fully wired, satisfying AC6. Using `::` as a
-// value operand inside MOVE/COMPUTE/DISPLAY is not yet reached by those
-// statements' restricted operand parsers — a parser follow-up, deferred.
+// NOTE: both the `INVOKE … RETURNING` form (tested above) and the inline
+// `obj::method()` form are wired. Inline `::` as a **value operand** inside
+// DISPLAY/MOVE/COMPUTE is covered by `test_inline_methodcall_009`
+// (spec 009 R16 / AC9 — `DISPLAY S::len()`).

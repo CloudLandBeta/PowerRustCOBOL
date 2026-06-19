@@ -1490,7 +1490,9 @@ You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
 - **`GLOBAL`** — visible to the program's *contained* programs. The event
   handlers and user procedures are nested in the form module, so a `GLOBAL`
   item in the form's WORKING-STORAGE is readable and writable from every handler
-  without passing it around.
+  without passing it around. `GLOBAL` is also valid on an **`FD`** — `FD F IS
+  GLOBAL` makes the file and its record area visible to the form's procedures, so
+  a handler or user procedure can `READ`/`WRITE` a file the form opened.
 - **`EXTERNAL`** — one physical copy shared *run-unit-wide* by its real name.
   Two form modules that each declare `01 WS-COUNTER PIC 9(4) EXTERNAL` see and
   update the same storage. `EXTERNAL` is valid only on `01`/`77` items and `FD`s
@@ -1504,16 +1506,34 @@ You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
        01  WS-APP-CONFIG   PIC X(80) GLOBAL EXTERNAL.
 ```
 
-### User procedures
+### Procedures: the form-module model
 
-A user procedure is a named nested program the handlers can `CALL "<name>"`.
-Procedures are generated `IS COMMON`, so any handler (a sibling contained
-program) may call them, and they see the form's `GLOBAL` data:
+Each form becomes its **own COBOL program module** (`PROGRAM-ID` = the form
+name); a project is one or more such modules. Inside a module, every procedure —
+**each event handler and each user procedure** — is generated as an embedded
+(nested) program marked **`IS COMMON`**, so *any* procedure is callable from
+anywhere in the module: a handler may `CALL` another handler, a user procedure
+may call a handler, and so on. The run-time system feeds OS events into the
+module's event loop, which branches to the matching event procedure.
 
 ```cobol
-      *> in a button handler
+      *> in a button handler — call a user procedure, or another handler
            CALL "RECALC-TOTAL".
 ```
+
+A user procedure is just a named procedure you add via **➕ Add** (the COBOL
+Structure list); it sees the form's `GLOBAL` data and is callable by name.
+
+**Procedure-local data is private.** A procedure may declare its own
+`WORKING-STORAGE`; those items are visible only inside it. A `GLOBAL` clause on a
+procedure-local item shares nothing outward (the procedure is a leaf — there is
+nothing nested below it).
+
+**Procedures are static.** A procedure's local data is initialised **once** and
+its values **persist between calls** — re-entering a handler does not reset its
+WORKING-STORAGE, and exiting does not cancel it. If you want a fresh value on
+each entry, that is your decision: use the COBOL **`INITIALIZE`** verb for the
+items you want reset, or `CANCEL "<name>"` to reset the whole procedure's state.
 
 ### The Rust-FFI type bridge (preview)
 
@@ -1535,9 +1555,21 @@ types — so you can write object references immediately:
 
 The literal is the type's path in the Rust hierarchy (think `System.String` in
 .NET). If you clear `REPOSITORY` to empty it is re-seeded on the next load; any
-content you write is left untouched, even if you delete the Rust entries. The
-declarations parse and generate today; **invoking Rust through them is Phase 2**
-and not yet wired at run time.
+content you write is left untouched, even if you delete the Rust entries.
+
+You **invoke** a Rust method two ways — the `INVOKE` verb, or the inline
+`object::method(…)` form, which also works as a **value** inside
+`DISPLAY`/`MOVE`/`COMPUTE`:
+
+```cobol
+       01  S  USAGE IS OBJECT REFERENCE RUST-STRING VALUE "hello".
+       01  N  PIC 9(4).
+      *> verb form, result into N
+           INVOKE S "len" RETURNING N.
+      *> inline form, used directly as a value
+           DISPLAY S::len().
+           MOVE S::len() TO N.
+```
 
 ---
 

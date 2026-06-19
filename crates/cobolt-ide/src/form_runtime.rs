@@ -344,7 +344,8 @@ mod form_codegen_roundtrip_tests {
         let src = cobolt_codegen::generate(&form);
 
         assert!(src.contains("CALL \"BUTTON-1--ONCLICK\""), "missing dispatch:\n{src}");
-        assert!(src.contains("PROGRAM-ID. BUTTON-1--ONCLICK."), "missing handler program");
+        // Spec 009 R4: handlers are generated `IS COMMON PROGRAM`.
+        assert!(src.contains("PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM."), "missing handler program");
         assert!(src.contains("MOVE 1 TO COBOL-QUIT"), "missing handler body");
 
         let pr = parse(tokenize(&src, SourceFormat::Free));

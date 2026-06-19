@@ -1041,18 +1041,19 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
     out.push_str("\n      *> ── Nested event-handler programs (COBOL-85) ─────────────────────\n");
     out.push('\n');
 
-    // Form-level events: OnLoad, OnClose. Handlers are CALLed by the containing
-    // program (the event loop), so they need no COMMON attribute.
+    // Every woven procedure — event handlers included — is `IS COMMON` (spec 009
+    // R4) so any procedure is callable from anywhere within the form module (e.g.
+    // one handler CALLing another, or a user procedure CALLing a handler).
     for ev in &form.form_events {
         write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
-            &format!("Form {} handler", ev.event), false);
+            &format!("Form {} handler", ev.event), true);
     }
 
     // Per-control events
     for ctrl in all_controls {
         for ev in &ctrl.events {
             write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
-                &format!("{} {} handler", ctrl.id, ev.event), false);
+                &format!("{} {} handler", ctrl.id, ev.event), true);
         }
     }
 
@@ -1263,6 +1264,33 @@ mod tests {
     }
 
     #[test]
+    fn generate_all_procedures_are_common_009() {
+        // Spec 009 R4: every woven procedure — event handlers AND user procedures
+        // — is `IS COMMON` so any procedure is callable from anywhere in the form.
+        use cobolt_forms::model::UserProcedure;
+        let mut form = make_form(); // has BTN-OK onClick handler
+        form.user_procedures = vec![UserProcedure {
+            name: "RECALC-TOTAL".into(),
+            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.".into(),
+        }];
+        let src = generate(&form);
+
+        // The control event handler is now IS COMMON.
+        assert!(
+            src.contains("PROGRAM-ID. BTN-OK--ONCLICK IS COMMON PROGRAM."),
+            "event handler must be IS COMMON (009 R4):\n{src}"
+        );
+        // Form-level OnLoad/OnClose handlers too.
+        assert!(
+            src.contains("IS COMMON PROGRAM.")
+                && src.matches("IS COMMON PROGRAM.").count() >= 3,
+            "all woven procedures (form events + control event + user proc) must be IS COMMON"
+        );
+        // And the user procedure (already COMMON pre-009) stays COMMON.
+        assert!(src.contains("PROGRAM-ID. RECALC-TOTAL IS COMMON PROGRAM."));
+    }
+
+    #[test]
     fn generate_starts_with_developer_header() {
         let src = generate(&make_form());
         // GOLDEN RULE: a developer banner precedes IDENTIFICATION DIVISION.
@@ -1298,8 +1326,9 @@ mod tests {
     #[test]
     fn generate_contains_nested_program() {
         let src = generate(&make_form());
-        // v1.0.0: event handlers are nested COBOL-85 programs
-        assert!(src.contains("PROGRAM-ID. BTN-OK--ONCLICK."), "missing nested program ID");
+        // v1.0.0: event handlers are nested COBOL-85 programs.
+        // Spec 009 R4: each is `IS COMMON PROGRAM` (callable from anywhere in the form).
+        assert!(src.contains("PROGRAM-ID. BTN-OK--ONCLICK IS COMMON PROGRAM."), "missing nested program ID");
         assert!(src.contains("END PROGRAM BTN-OK--ONCLICK."), "missing END PROGRAM for handler");
         assert!(src.contains("GOBACK."), "missing GOBACK in nested program");
         assert!(src.contains("END PROGRAM MAIN-FORM."), "missing outer END PROGRAM");
@@ -1325,8 +1354,9 @@ mod tests {
         // Form events (OnLoad / OnClose) also become nested programs
         // Paragraph names come from `derive_paragraph_name`, which uppercases the
         // event name without inserting separators: "OnLoad" → "ONLOAD".
-        assert!(src.contains("PROGRAM-ID. MAIN-FORM--ONLOAD."), "missing OnLoad nested program");
-        assert!(src.contains("PROGRAM-ID. MAIN-FORM--ONCLOSE."), "missing OnClose nested program");
+        // Spec 009 R4: form-event handlers are `IS COMMON PROGRAM` too.
+        assert!(src.contains("PROGRAM-ID. MAIN-FORM--ONLOAD IS COMMON PROGRAM."), "missing OnLoad nested program");
+        assert!(src.contains("PROGRAM-ID. MAIN-FORM--ONCLOSE IS COMMON PROGRAM."), "missing OnClose nested program");
     }
 
     #[test]
