@@ -22,7 +22,7 @@ is the **same egui form** rendered to a `<canvas>` via the eframe web backend
 The transpiler targets **feature parity** with the interpreter for portable
 constructs (R4) — too large for one feature. This plan ships a **representative
 subset end-to-end** and spins the long tail of verbs into a **dedicated
-transpiler sub-spec (007)**.
+transpiler sub-spec (008)**.
 
 ## 2. Affected crates / files
 
@@ -113,7 +113,7 @@ transpiler sub-spec (007)**.
 
 ## 5. Risks & mitigations
 - **Transpiler scope = full parity (huge).** → Ship a **representative subset**
-  (Phase D); move the long tail to **sub-spec 007**; golden-output + native
+  (Phase D); move the long tail to **sub-spec 008**; golden-output + native
   execution tests gate each verb as it lands.
 - **`cobolt-runtime` is not wasm-clean** (`std::fs`, threads, native `reqwest`).
   → Feature-gate a `portable` build (exclude disk engines + threads); audit
@@ -174,6 +174,6 @@ transpiler sub-spec (007)**.
   data items, MOVE/arithmetic/COMPUTE, IF/EVALUATE/PERFORM, INVOKE UI calls, and
   the REST object; `cobolt-web-rt` (portable value core + shared `form_app` +
   wasm http); a real form runs in the browser. (R4–R6, R12; AC2–AC3, AC5–AC6.)
-  **Long-tail verbs → sub-spec 007.**
+  **Long-tail verbs → sub-spec 008.**
 - **Phase E — Docs + finalize.** Guide section, source maps (R18), steering
   updates, version bump/CHANGELOG. (AC8.)

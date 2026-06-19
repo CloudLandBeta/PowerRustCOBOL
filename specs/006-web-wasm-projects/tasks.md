@@ -6,7 +6,7 @@
 Ordered, independently-verifiable tasks grouped by the plan's phases (§8). The
 project stays green (and Desktop unchanged) after each task. The transpiler's
 **full-parity long tail is out of scope here** — T11 ships a representative
-subset; the remaining verbs go to a dedicated **sub-spec 007**.
+subset; the remaining verbs go to a dedicated **sub-spec 008**.
 
 ## Phase A — Project-type model + two-step New Project + gating
 
@@ -121,7 +121,7 @@ subset; the remaining verbs go to a dedicated **sub-spec 007**.
     DATA items → typed state; paragraphs/handlers → fns; verbs of the
     **representative subset** — MOVE/arithmetic/COMPUTE, IF/EVALUATE/PERFORM,
     `INVOKE`/`obj::method()` UI calls, the REST object — → calls into
-    `cobolt-web-rt`). Long-tail verbs ⇒ **sub-spec 007**.
+    `cobolt-web-rt`). Long-tail verbs ⇒ **sub-spec 008**.
   - Do: emit Rust with no interpreter dependency, carrying a generated header.
   - Verify: `cargo test -p cobolt-transpiler` — golden tests (AST → expected Rust)
     **and** native-execution tests (compile the transpiled Rust natively; assert
@@ -173,4 +173,4 @@ All acceptance criteria in `spec.md` are covered (AC1: T1/T2 · AC2: T7/T12 · A
 T8/T12 · AC4: T5 · AC5: T13 · AC6: T12/T13 · AC7: T3/T16 · AC8: T14), tests pass,
 docs updated, steering updated, and the work is split into feature commit(s) per
 the operator's rules (do **not** commit/push unless the operator asks). The
-transpiler's full-parity long tail continues in **sub-spec 007**.
+transpiler's full-parity long tail continues in **sub-spec 008**.
