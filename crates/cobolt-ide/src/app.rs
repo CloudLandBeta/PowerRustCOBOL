@@ -238,6 +238,10 @@ pub struct CoboltApp {
     cobolt_project: Option<CoboltProject>,
     project_path:   Option<PathBuf>,
 
+    // 007 Form themes — discovered asset packs (id → pack), loaded once.
+    theme_packs: std::collections::HashMap<String, std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>,
+    theme_packs_loaded: bool,
+
     /// The in-pane project Settings form (built when a project loads). Shown in
     /// the Main Pane on start-up and whenever the project (top tree node) is
     /// clicked.
@@ -432,6 +436,8 @@ impl CoboltApp {
 
             cobolt_project: None,
             project_path:   None,
+            theme_packs:        std::collections::HashMap::new(),
+            theme_packs_loaded: false,
 
             settings_form: None,
             show_project_settings: false,
@@ -462,6 +468,53 @@ impl CoboltApp {
             pending_file:     None,
             egui_ctx:         cc.egui_ctx.clone(),
         }
+    }
+
+    // ── 007 Form themes ───────────────────────────────────────────────────────
+
+    /// Locate the bundled `assets/themes` directory (exe-relative first, then the
+    /// current working directory for `cargo run` from the repo root).
+    fn themes_dir() -> PathBuf {
+        if let Some(exe_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+            let c = exe_dir.join("assets/themes");
+            if c.is_dir() { return c; }
+        }
+        PathBuf::from("assets/themes")
+    }
+
+    /// Discover asset-pack themes once (id → pack).
+    fn ensure_theme_packs(&mut self) {
+        if self.theme_packs_loaded { return; }
+        self.theme_packs_loaded = true;
+        for pack in cobolt_forms::theme_pack::discover_packs(&Self::themes_dir()) {
+            self.theme_packs.insert(pack.id.clone(), std::sync::Arc::new(pack));
+        }
+    }
+
+    /// Publish the form-theme picker choices (Liquid Glass first, then discovered
+    /// asset packs in catalog order) into egui temp storage for this frame.
+    fn publish_theme_choices(&mut self, ctx: &Context) {
+        self.ensure_theme_packs();
+        let mut choices = vec![
+            (cobolt_forms::theme::LIQUID_GLASS.to_owned(), "Liquid Glass".to_owned()),
+        ];
+        let mut packs: Vec<_> = self.theme_packs.values().collect();
+        packs.sort_by(|a, b| a.id.cmp(&b.id));
+        for p in packs {
+            choices.push((p.id.clone(), p.display_name.clone()));
+        }
+        crate::theme_ui::publish(ctx, choices);
+    }
+
+    /// Resolve a form's effective theme (per-form override ?? project default ??
+    /// Liquid Glass) to its asset pack. Returns `None` for Liquid Glass.
+    fn resolve_theme_pack(&mut self, form_theme: Option<&str>)
+        -> Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>
+    {
+        self.ensure_theme_packs();
+        let proj_default = self.cobolt_project.as_ref().and_then(|p| p.form_theme_default());
+        let id = cobolt_forms::theme::resolve_theme_id(form_theme, proj_default);
+        self.theme_packs.get(&id).cloned()
     }
 
     // ── Code workspace actions ────────────────────────────────────────────────
@@ -3042,6 +3095,10 @@ impl eframe::App for CoboltApp {
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
 
+        // 007 Form themes — publish the picker choices (Liquid Glass + discovered
+        // packs) so the Settings form and the per-form Appearance pane list them.
+        self.publish_theme_choices(ctx);
+
         // Intercept main window close if the project Settings form has unsaved changes.
         if ctx.input(|i| i.viewport().close_requested()) {
             if self.settings_dirty() && !self.settings_close_confirm {
@@ -4795,6 +4852,11 @@ impl CoboltApp {
         }
 
         // ── Canvas (centre) ───────────────────────────────────────────────────
+        // 007 — resolve the form's theme (per-form override ?? project default ??
+        // Liquid Glass) and hand the designer its asset pack for this frame.
+        let form_theme = self.designers[idx].1.form.theme.clone();
+        let pack = self.resolve_theme_pack(form_theme.as_deref());
+        self.designers[idx].1.active_theme_pack = pack;
         egui::CentralPanel::default().show(ctx, |ui| {
             self.designers[idx].1.show(ui);
         });

@@ -1398,6 +1398,15 @@ pub struct Form {
     /// Recycle bin: code preserved from deleted controls.
     /// Never emitted into generated .cbl — only stored in .cfrm.
     pub deleted_code:     Vec<DeletedControlCode>,
+
+    // ── 007 Form themes ─────────────────────────────────────────────────────────
+    /// Per-form theme override (a catalog id, e.g. `"stainless-steel"`).
+    /// `None` ⇒ inherit the project default; absent in old `.cfrm` ⇒ `None` ⇒
+    /// Liquid Glass, so existing forms render exactly as before.
+    pub theme:            Option<String>,
+    /// Opt into the theme's optional background image. When `false`, the form's
+    /// own `background_color` / `background_image` apply (007 R8).
+    pub use_theme_background: bool,
 }
 
 impl Form {
@@ -1436,6 +1445,8 @@ impl Form {
             user_procedures:  Vec::new(),
             form_events,
             deleted_code:     Vec::new(),
+            theme:            None,
+            use_theme_background: false,
         };
         form.seed_repository_if_empty();
         form

@@ -146,6 +146,8 @@ enum OwnedEvent {
         grid_size:        u8,
         snap_to_grid:     bool,
         target:           String,
+        theme:            Option<String>,
+        use_theme_background: bool,
     },
     ControlStart(AttrPairs),
     PropertyStart(String),              // property name
@@ -204,10 +206,17 @@ fn next_owned<R: std::io::BufRead>(
                                               .unwrap_or(true);
                     let target           = get_attr_str(e, b"target")
                                               .unwrap_or_else(|_| "Custom".to_owned());
+                    let theme            = get_attr(e, b"theme")?
+                                              .map(|s| s.trim().to_owned())
+                                              .filter(|s| !s.is_empty());
+                    let use_theme_background = get_attr(e, b"use-theme-background")?
+                                              .map(|v| v == "true" || v == "1")
+                                              .unwrap_or(false);
                     Ok(OwnedEvent::FormStart {
                         name, title, width, height, background,
                         transparency, background_image, bg_image_mode,
                         grid_size, snap_to_grid, target,
+                        theme, use_theme_background,
                     })
                 }
                 b"Control" => {
@@ -317,6 +326,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 name, title, width, height, background,
                 transparency, background_image, bg_image_mode,
                 grid_size, snap_to_grid, target,
+                theme, use_theme_background,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -327,6 +337,8 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.grid_size        = grid_size;
                 f.snap_to_grid     = snap_to_grid;
                 f.target           = target;
+                f.theme            = theme;
+                f.use_theme_background = use_theme_background;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -732,6 +744,14 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
         elem.push_attribute(("grid-size",     form.grid_size.to_string().as_str()));
         elem.push_attribute(("snap-to-grid",  if form.snap_to_grid { "true" } else { "false" }));
         elem.push_attribute(("target",        form.target.as_str()));
+        // 007 Form themes — additive, only written when set so old forms are
+        // unchanged on round-trip.
+        if let Some(theme) = form.theme.as_deref().filter(|s| !s.is_empty()) {
+            elem.push_attribute(("theme", theme));
+        }
+        if form.use_theme_background {
+            elem.push_attribute(("use-theme-background", "true"));
+        }
         if !form.background_image.is_empty() {
             elem.push_attribute(("background-image", form.background_image.as_str()));
             elem.push_attribute(("bg-image-mode",    form.bg_image_mode.as_str()));
@@ -976,6 +996,38 @@ mod tests {
         assert_eq!(btn.events[0].paragraph, "BTN-OK--CLICK");
         assert!(btn.events[0].code.contains("WS-COUNTER"));
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn roundtrip_theme_007() {
+        // A form with a per-form theme + themed background round-trips.
+        let mut form = sample_form();
+        form.theme = Some("stainless-steel".into());
+        form.use_theme_background = true;
+        let path = std::env::temp_dir().join("cobolt_test_theme.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        assert_eq!(loaded.theme.as_deref(), Some("stainless-steel"));
+        assert!(loaded.use_theme_background);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn theme_absent_defaults_to_none_007() {
+        // A form with no theme set (the default / old .cfrm) loads as None/false,
+        // so existing forms render as Liquid Glass (R9).
+        let form = sample_form();
+        assert_eq!(form.theme, None);
+        assert!(!form.use_theme_background);
+        let path = std::env::temp_dir().join("cobolt_test_theme_absent.cfrm");
+        save_form(&form, &path).expect("save");
+        // No theme attribute is written when unset.
+        let xml = std::fs::read_to_string(&path).expect("read");
+        assert!(!xml.contains("theme="), "theme attr must be omitted when unset");
+        let loaded = load_form(&path).expect("load");
+        assert_eq!(loaded.theme, None);
+        assert!(!loaded.use_theme_background);
         let _ = std::fs::remove_file(&path);
     }
 

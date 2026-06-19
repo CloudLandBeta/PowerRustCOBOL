@@ -44,6 +44,29 @@ pub struct CoboltProject {
     /// Per-project IDE appearance (colour theme + background image).
     #[serde(default)]
     pub ide:     IdeSettings,
+    /// Per-project form appearance — the default **form** theme (spec 007).
+    #[serde(default)]
+    pub forms:   FormsConfig,
+}
+
+/// Per-project form appearance settings (spec 007). Distinct from [`IdeSettings`]
+/// (which themes the IDE chrome); this is the default **form** theme applied to
+/// the developer's designed forms, persisted in `cobolt.toml` under `[forms]`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FormsConfig {
+    /// Default form-theme id (a `cobolt_forms::theme` catalog id). Empty / absent
+    /// ⇒ Liquid Glass, so existing projects render exactly as before (R3, R9).
+    #[serde(default)]
+    pub theme: String,
+}
+
+impl CoboltProject {
+    /// The project's default form theme as an `Option`, treating empty as unset
+    /// so it resolves to Liquid Glass (R3).
+    pub fn form_theme_default(&self) -> Option<&str> {
+        let t = self.forms.theme.trim();
+        if t.is_empty() { None } else { Some(t) }
+    }
 }
 
 /// Per-project IDE appearance settings (colour theme + background image),
@@ -149,6 +172,7 @@ impl CoboltProject {
             files:   ProjectFiles::default(),
             runtime: RuntimeConfig::default(),
             ide:     IdeSettings::default(),
+            forms:   FormsConfig::default(),
         }
     }
 
@@ -729,5 +753,29 @@ main = "src/main.cbl"
         assert_eq!(back.ide.theme, "monokai");
         assert_eq!(back.ide.background_image, "assets/bg.png");
         assert_eq!(back.ide.background_opacity, 35);
+    }
+
+    #[test]
+    fn forms_theme_default_when_missing_007() {
+        // A project file with no [forms] section → empty → Liquid Glass.
+        let toml = r#"
+[project]
+name = "Legacy"
+version = "1.0.0"
+main = "src/main.cbl"
+"#;
+        let p: CoboltProject = toml::from_str(toml).expect("parse");
+        assert_eq!(p.forms.theme, "");
+        assert_eq!(p.form_theme_default(), None, "empty → unset → Liquid Glass");
+    }
+
+    #[test]
+    fn forms_theme_round_trip_007() {
+        let mut p = proj();
+        p.forms.theme = "stainless-steel".into();
+        let s = toml::to_string(&p).expect("serialize");
+        let back: CoboltProject = toml::from_str(&s).expect("deserialize");
+        assert_eq!(back.forms.theme, "stainless-steel");
+        assert_eq!(back.form_theme_default(), Some("stainless-steel"));
     }
 }

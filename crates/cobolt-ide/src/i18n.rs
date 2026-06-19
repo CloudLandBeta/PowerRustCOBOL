@@ -520,6 +520,12 @@ pub struct Tr {
     pub cs_delete:          &'static str,
     pub cs_hint:            &'static str,
     pub cs_close:           &'static str,
+
+    // ── Form themes (spec 007) ────────────────────────────────────────────────
+    pub theme_project_default: &'static str,  // settings: project default form theme
+    pub theme_form_override:   &'static str,  // designer: per-form theme override
+    pub theme_inherit_default: &'static str,  // combo entry: inherit project default
+    pub theme_use_background:  &'static str,  // toggle: use theme's background
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -960,6 +966,12 @@ const EN: Tr = Tr {
     cs_delete:          "Delete",
     cs_hint:            "Declare GLOBAL / EXTERNAL on the items yourself; each block is woven verbatim into the generated program.",
     cs_close:           "Close",
+
+    // ── Form themes (spec 007) ────────────────────────────────────────────────
+    theme_project_default: "Default form theme",
+    theme_form_override: "Form theme",
+    theme_inherit_default: "Inherit project default",
+    theme_use_background: "Use theme background",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -1381,6 +1393,12 @@ const ES: Tr = Tr {
     cs_delete:          "Eliminar",
     cs_hint:            "Declara tú mismo GLOBAL / EXTERNAL en los elementos; cada bloque se inserta literalmente en el programa generado.",
     cs_close:           "Cerrar",
+
+    // ── Form themes (spec 007) ────────────────────────────────────────────────
+    theme_project_default: "Tema de formulario predeterminado",
+    theme_form_override: "Tema del formulario",
+    theme_inherit_default: "Heredar del proyecto",
+    theme_use_background: "Usar fondo del tema",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -1802,6 +1820,12 @@ const PT: Tr = Tr {
     cs_delete:          "Excluir",
     cs_hint:            "Declare você mesmo GLOBAL / EXTERNAL nos itens; cada bloco é inserido literalmente no programa gerado.",
     cs_close:           "Fechar",
+
+    // ── Form themes (spec 007) ────────────────────────────────────────────────
+    theme_project_default: "Tema de formulário padrão",
+    theme_form_override: "Tema do formulário",
+    theme_inherit_default: "Herdar do projeto",
+    theme_use_background: "Usar fundo do tema",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -2223,6 +2247,12 @@ const JA: Tr = Tr {
     cs_delete:          "削除",
     cs_hint:            "GLOBAL / EXTERNAL は項目にご自身で記述してください。各ブロックは生成プログラムにそのまま挿入されます。",
     cs_close:           "閉じる",
+
+    // ── Form themes (spec 007) ────────────────────────────────────────────────
+    theme_project_default: "既定のフォームテーマ",
+    theme_form_override: "フォームテーマ",
+    theme_inherit_default: "プロジェクトの既定を継承",
+    theme_use_background: "テーマの背景を使用",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -2644,6 +2674,12 @@ const ZH: Tr = Tr {
     cs_delete:          "删除",
     cs_hint:            "请自行在数据项上声明 GLOBAL / EXTERNAL；每个代码块都会原样写入生成的程序。",
     cs_close:           "关闭",
+
+    // ── Form themes (spec 007) ────────────────────────────────────────────────
+    theme_project_default: "默认窗体主题",
+    theme_form_override: "窗体主题",
+    theme_inherit_default: "继承项目默认值",
+    theme_use_background: "使用主题背景",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -3065,6 +3101,12 @@ const FR: Tr = Tr {
     cs_delete:          "Supprimer",
     cs_hint:            "Déclarez vous-même GLOBAL / EXTERNAL sur les éléments ; chaque bloc est inséré tel quel dans le programme généré.",
     cs_close:           "Fermer",
+
+    // ── Form themes (spec 007) ────────────────────────────────────────────────
+    theme_project_default: "Thème de formulaire par défaut",
+    theme_form_override: "Thème du formulaire",
+    theme_inherit_default: "Hériter du projet",
+    theme_use_background: "Utiliser l’arrière-plan du thème",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

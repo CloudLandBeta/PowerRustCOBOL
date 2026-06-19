@@ -8,6 +8,50 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.26.0] — 2026-06-19
+
+Form themes (spec 007) — engine + selection + reference pack.
+
+### New
+
+- **Selectable form themes.** Forms can be skinned by a selectable, extensible
+  catalogue of themes, applied by the shared control renderer so a themed form
+  looks identical in the designer, the preview, and (once the web target lands)
+  the compiled app. Two kinds sit under one picker: the built-in procedural
+  **Liquid Glass** (the default, unchanged) and **asset-pack** themes.
+- **Project default + per-form override.** A project default theme is set in
+  *Settings → Appearance* (`[forms] theme` in `cobolt.toml`); any form can
+  override it in its *Appearance → Form theme* property, or inherit the default.
+  Resolution is per-form → project → Liquid Glass. (i18n across all six
+  languages.)
+- **Self-describing asset packs (9-slice).** A theme pack is a drop-in folder
+  `assets/themes/<id>/` with a `theme.toml` manifest plus per-control /
+  per-state 9-slice images, an optional themed background, a foreground colour,
+  and a chart palette/stroke. New packs are discovered automatically and appear
+  in the picker with no code change. A control a pack doesn't cover falls back to
+  Liquid Glass; a control's explicit colours still win.
+- **Themed charts.** Pie/line/bar data marks take the active theme's palette and
+  stroke, not just the chart frame.
+- **Optional themed background.** A form can opt into a pack's background image
+  (*Appearance → Use theme background*); otherwise its own back-colour / image
+  applies.
+- **Reference pack `cobalt-steel`.** A small, procedurally generated, original
+  pack (see `cargo run -p cobolt-forms --example gen_reference_theme`) that
+  exercises the engine end-to-end.
+
+### Changed
+
+- **Unified control renderer.** The canonical `draw_control` (and the system-font
+  module) now live in `cobolt-forms` (`cobolt_forms::paint`), so the designer,
+  preview, run form, and future compiled/web binaries all draw through one
+  renderer. Liquid Glass is byte-for-byte unchanged.
+
+### Notes
+
+- The four "special" art packs (stainless steel, dark wood, modeling clay,
+  knitted wool) and the WASM/desktop-binary embedding are staged behind their
+  asset and spec-006 dependencies; the engine is ready for both.
+
 ## [PowerRustCOBOL 1.25.0] — 2026-06-18
 
 COBOL Structure & shared data (spec 005, Phase 1).
