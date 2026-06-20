@@ -1100,6 +1100,10 @@ impl Control {
                 props.insert("ShowGridLines".into(),   PropValue::Bool(true));
                 props.insert("ShowTooltips".into(),    PropValue::Bool(true));
                 props.insert("AnimateOnLoad".into(),   PropValue::Bool(true));
+                // When true, the panel background fill and border frame are not
+                // drawn — only the chart content (grid, axes, labels, data) shows,
+                // letting the chart sit transparently on the form.
+                props.insert("HideBackground".into(),  PropValue::Bool(false));
                 props.insert("XAxisLabel".into(),      PropValue::String("".into()));
                 props.insert("YAxisLabel".into(),      PropValue::String("".into()));
                 props.insert("SeriesColors".into(),    PropValue::String(
@@ -1576,6 +1580,21 @@ mod tests {
             assert!(!p.is_empty(), "{t} has no properties");
             assert!(p.windows(2).all(|w| w[0] <= w[1]), "{t} not sorted");
         }
+    }
+
+    #[test]
+    fn charts_have_hide_background_defaulting_off() {
+        // Every chart type exposes a HideBackground bool defaulting to false.
+        for t in [
+            ControlType::BarChart, ControlType::LineChart, ControlType::PieChart,
+            ControlType::AreaChart, ControlType::ScatterChart, ControlType::DonutChart,
+        ] {
+            let c = Control::new("C1", t, 0, 0);
+            let v = c.get_prop("HideBackground").expect("chart missing HideBackground");
+            assert!(!v.as_bool(), "HideBackground must default to false");
+        }
+        // Non-chart controls do not gain the property.
+        assert!(Control::new("B", ControlType::Button, 0, 0).get_prop("HideBackground").is_none());
     }
 
     #[test]

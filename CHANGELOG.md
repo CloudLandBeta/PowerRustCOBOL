@@ -8,6 +8,19 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.3] — 2026-06-20
+
+Fix: chart controls gain a **Hide background** property.
+
+### Fixed
+
+- Every chart (Bar, Line, Pie, Area, Scatter, Donut) now has a **Hide
+  background** toggle in the properties pane. When checked, the panel's
+  background fill and border frame are not drawn — only the chart content (grid,
+  axes, labels, data) is rendered, so the chart sits transparently on the form.
+  Default is off (unchanged appearance). Applies at design time and at run time
+  (shared renderer).
+
 ## [PowerRustCOBOL 1.27.2] — 2026-06-20
 
 Fix: complete the RustCOBOL `::` member-access model — IntelliSense now lists

@@ -1298,13 +1298,18 @@ pub fn draw_chart_preview(
     let _ = selected; // selection border drawn by caller
 
     // ── Background ────────────────────────────────────────────────────────────
+    // `HideBackground` suppresses the panel fill + border frame so only the chart
+    // content (grid, axes, labels, data) is visible, transparent over the form.
+    let hide_bg = ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
     let bg = Color32::from_rgba_premultiplied(15,20,45,a);
-    if glass {
-        draw_glass(painter, rect, Color32::from_rgb(15,20,45), 8.0, false, alpha_mul);
-    } else {
-        painter.rect_filled(rect, 8.0, bg);
-        let border = Color32::from_rgba_premultiplied(60,80,160,a);
-        painter.rect_stroke(rect, 8.0, Stroke::new(1.0, border));
+    if !hide_bg {
+        if glass {
+            draw_glass(painter, rect, Color32::from_rgb(15,20,45), 8.0, false, alpha_mul);
+        } else {
+            painter.rect_filled(rect, 8.0, bg);
+            let border = Color32::from_rgba_premultiplied(60,80,160,a);
+            painter.rect_stroke(rect, 8.0, Stroke::new(1.0, border));
+        }
     }
 
     // All chart content is drawn through a clipped painter so nothing bleeds
