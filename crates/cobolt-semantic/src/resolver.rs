@@ -73,7 +73,7 @@ impl<'a> ResolveCtx<'a> {
         match stmt {
             Stmt::Move { from, to, .. } => {
                 self.resolve_expr(from);
-                for t in to { self.resolve_expr(t); }
+                for t in to { self.check_receiving(t); self.resolve_expr(t); }
             }
             Stmt::MoveCorresponding { from, to, .. }
             | Stmt::AddCorresponding { from, to, .. }
@@ -103,7 +103,7 @@ impl<'a> ResolveCtx<'a> {
                 if let Some(r) = remainder { self.resolve_expr(r); }
             }
             Stmt::Compute { targets, expr, .. } => {
-                for (t, _) in targets { self.resolve_expr(t); }
+                for (t, _) in targets { self.check_receiving(t); self.resolve_expr(t); }
                 self.resolve_expr(expr);
             }
             Stmt::If { condition, then_stmts, else_stmts, .. } => {
@@ -201,6 +201,19 @@ impl<'a> ResolveCtx<'a> {
         }
     }
 
+    /// Warn when a member-access chain used as a **receiving field** ends in a
+    /// method call (`MOVE name TO obj::UpperCase()`): a method-call result is an
+    /// rvalue, not a receiving field (spec 011). An empty-parens tail is
+    /// unambiguously a call; an indexed tail (`Items(4)`) carries arguments and
+    /// remains assignable, so it is not flagged here.
+    fn check_receiving(&mut self, expr: &Expr) {
+        if let Expr::Member { parens: true, args, span, .. } = expr {
+            if args.is_empty() {
+                self.warn("a method-call result is not a receiving field", *span);
+            }
+        }
+    }
+
     fn resolve_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Identifier(name, span) => {
@@ -248,9 +261,11 @@ impl<'a> ResolveCtx<'a> {
             Expr::FunctionCall { args, .. } => {
                 for a in args { self.resolve_expr(a); }
             }
-            // Visual-object method call (`obj::Method(args)`): the object is a
-            // form control, not a data item — only resolve the argument exprs.
-            Expr::MethodCall { args, .. } => {
+            // Member-access chain (`obj::Caption`, `Grid::Rows(I)::Value`): the
+            // root object is a form control, not a DATA DIVISION item, so the
+            // receiver chain is not name-resolved here — only the subscript /
+            // call argument expressions are.
+            Expr::Member { args, .. } => {
                 for a in args { self.resolve_expr(a); }
             }
             // Literals and figurative constants need no resolution.

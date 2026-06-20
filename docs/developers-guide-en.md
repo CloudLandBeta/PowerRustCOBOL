@@ -908,6 +908,62 @@ interchangeable; pick whichever reads best for the line you are writing.
 > `Txt-Name::GetText()` (or `Txt-Name::Text`) returns the text you typed at
 > design time even before the first setter runs.
 
+### Member-access chains and collections
+
+The `::` operator **chains**, so you can reach a member of a member to any depth
+with one consistent syntax. A subscript `(n)` indexes a collection (a grid's
+rows, a list's items, a row's columns); a bare name is a property; a name with
+`()` is a method call:
+
+```cobol
+      *> read a nested cell, then a method on its value
+           DISPLAY Grid-1::Rows(I)::Columns(2)::Value.
+           DISPLAY Grid-1::Rows(I)::Columns(2)::Value::toUpperCase().
+
+      *> write a nested cell — the structure is created on demand
+           MOVE "Total" TO Grid-1::Rows(0)::Columns(0)::Value.
+
+      *> a method on a collection element (mutates it)
+           List-1::Rows(I)::Delete().
+
+      *> index the legacy item list; count its entries
+           DISPLAY List-1::Items(3).
+           DISPLAY List-1::Items::Count().
+```
+
+**A property is a receiving field; a method result is not.** A chain that ends in
+a **bare property** (or an indexed cell) is *readable and assignable* — so every
+content-changing verb may write to it, not just `MOVE`/`SET`:
+
+```cobol
+           MOVE  WS-TEXT       TO Label-1::Caption.
+           ADD   1             TO Counter-1::Value.
+           STRING WS-A WS-B DELIMITED BY SIZE INTO Label-1::Caption.
+           COMPUTE Slider-1::Value = Slider-1::Value * 2.
+```
+
+A chain that ends in a **method call** `()` is a value only:
+
+```cobol
+           MOVE name TO obj::UpperCase().   *> INVALID — not a receiving field
+           SET  name TO obj::UpperCase().   *> valid — reads the transformed value
+           obj::UpperCase().                *> valid as a statement, but changes nothing
+```
+
+**Collection / value helper methods** available on a chain element:
+`Count` / `Size` (number of entries), `Delete` / `Remove`, `Clear`, `Add` /
+`Append`, and the value transforms `toUpperCase`, `toLowerCase`, `trim`, `len`.
+
+**INITIALIZE on a control.** Initialising a control resets its **`Value`**
+property; you can also target one property explicitly, and mix controls with
+ordinary data items — each operand follows its own rules:
+
+```cobol
+           INITIALIZE Spinner-1.            *> resets Spinner-1::Value
+           INITIALIZE Spinner-1::Value.     *> the same, explicitly
+           INITIALIZE Spinner-1 WS-COUNT.   *> control → Value, data item → PIC default
+```
+
 ### Property access via CALL (also supported)
 
 The explicit `CALL` form remains available and is interchangeable with the

@@ -381,19 +381,51 @@ fn cancel_is_a_real_statement() {
 // ── Property access syntax (spec 010): only `ctrl::member` / INVOKE ──────────
 
 #[test]
-fn inline_property_access_parses_as_method_call() {
+fn inline_property_access_parses_as_member() {
     use cobolt_ast::expr::Expr;
-    // GET in operand position and SET as a MOVE target both parse to MethodCall.
+    // GET in operand position and SET as a MOVE target both parse to Member
+    // (spec 011 — the chainable node replaces the old MethodCall).
     let stmts = parse_stmts(&prog("    MOVE BTN::Caption TO LBL::Text.\n    STOP RUN.\n"));
     match &stmts[0] {
         Stmt::Move { from, to, .. } => {
-            assert!(matches!(from, Expr::MethodCall { .. }),
-                "source `BTN::Caption` must be a MethodCall: {from:?}");
-            assert!(matches!(to[0], Expr::MethodCall { .. }),
-                "target `LBL::Text` must be a MethodCall: {:?}", to[0]);
+            assert!(matches!(from, Expr::Member { parens: false, .. }),
+                "source `BTN::Caption` must be a bare-property Member: {from:?}");
+            assert!(matches!(to[0], Expr::Member { parens: false, .. }),
+                "target `LBL::Text` must be a bare-property Member: {:?}", to[0]);
         }
         other => panic!("expected MOVE, got {other:?}"),
     }
+}
+
+#[test]
+fn member_access_chain_parses_nested_with_subscripts_and_calls() {
+    use cobolt_ast::expr::Expr;
+    // `Grid::Rows(I)::Columns(2)::Value::toUpperCase()` → nested Member chain.
+    let stmts = parse_stmts(&prog(
+        "    DISPLAY Grid::Rows(I)::Columns(2)::Value::toUpperCase().\n    STOP RUN.\n",
+    ));
+    let Stmt::Display { operands, .. } = &stmts[0] else { panic!("expected DISPLAY") };
+    // Outermost segment is the trailing call `toUpperCase()` (parens, no args).
+    let Expr::Member { member, parens, args, recv, .. } = &operands[0] else {
+        panic!("expected Member chain, got {:?}", operands[0]);
+    };
+    assert_eq!(member.to_ascii_uppercase(), "TOUPPERCASE");
+    assert!(*parens && args.is_empty(), "tail must be a no-arg call");
+    // Next inward: `::Value` (bare property).
+    let Expr::Member { member, parens, .. } = recv.as_ref() else { panic!("expected ::Value") };
+    assert_eq!(member.to_ascii_uppercase(), "VALUE");
+    assert!(!*parens, "Value is a bare property");
+}
+
+#[test]
+fn inline_chain_statement_is_invoke_expr() {
+    // A `::` chain used as a statement → Stmt::InvokeExpr wrapping a Member.
+    use cobolt_ast::expr::Expr;
+    let stmts = parse_stmts(&prog("    Grid::Rows(I)::Delete().\n    STOP RUN.\n"));
+    let Stmt::InvokeExpr { expr, .. } = &stmts[0] else {
+        panic!("expected InvokeExpr, got {:?}", stmts[0]);
+    };
+    assert!(matches!(expr, Expr::Member { parens: true, .. }), "tail Delete() has parens");
 }
 
 #[test]

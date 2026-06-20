@@ -46,7 +46,7 @@ use crate::{
     environment::{CobolEnvironment, ExternalStore, new_external_store},
     error::RuntimeError,
     exec_rust,
-    objects::ObjectRegistry,
+    objects::{ObjectRegistry, PathSeg, PropertyValue},
     value::{CobolValue, CobolNumeric},
 };
 
@@ -437,8 +437,10 @@ pub struct Interpreter {
     /// Property "shadows": a receiving property reference used by any verb is
     /// resolved to a synthetic env item preloaded with the property's current
     /// value; after each statement these are written back to the object store.
-    /// Maps synthetic-env-key → (control, property-key).
-    property_shadows: std::collections::HashMap<String, (String, String)>,
+    /// Maps synthetic-env-key → (control, member-access path). The path is a
+    /// single `[Prop(name)]` for a flat property, or a deeper sequence for a
+    /// nested place (`Grid::Rows(I)::Value`) (spec 011).
+    property_shadows: std::collections::HashMap<String, (String, Vec<PathSeg>)>,
     /// Paragraph name (uppercase) → statement list.
     para_map: IndexMap<String, Vec<Stmt>>,
     /// Paragraph names in declaration order (for fall-through and THRU ranges).
@@ -1116,17 +1118,23 @@ impl Interpreter {
                 for a in args { vals.push(self.eval_expr(a, *span)?); }
                 let result = self.exec_method(object, method, &vals);
                 if let Some(dest) = returning {
-                    let s = result.as_display_string();
-                    let s = s.trim();
-                    // RETURNING into a control property (`… RETURNING B::Caption`)
-                    // sets that property; otherwise into a data item (010).
-                    if let Expr::MethodCall { object, method, .. } = dest {
-                        self.obj_set(object, method, s.to_string());
+                    // RETURNING into a member chain (`… RETURNING B::Caption`)
+                    // assigns that place; otherwise into a data item (spec 011).
+                    if matches!(dest, Expr::Member { .. }) {
+                        self.assign_member(dest, &result)?;
                     } else {
+                        let s = result.as_display_string();
                         let n = self.expr_to_name(dest);
-                        self.env.set_str(&n, s);
+                        self.env.set_str(&n, s.trim());
                     }
                 }
+                Ok(())
+            }
+
+            // Inline member-access chain used as a statement (spec 011):
+            // `Grid-1::Rows(I)::Delete()`, `obj::UpperCase()` (result discarded).
+            Stmt::InvokeExpr { expr, .. } => {
+                self.eval_expr(expr, expr.span())?;
                 Ok(())
             }
 
@@ -1214,11 +1222,11 @@ impl Interpreter {
                 self.assign_refmod(base, start, length.as_deref(), &val, *span)?;
                 continue;
             }
-            // Inline property receiver: `MOVE value TO control::property` (010 R5).
-            // `obj_set` registers the control, writes the property, and notifies UI.
-            if let Expr::MethodCall { object, method, .. } = target {
-                let v = val.as_display_string().trim().to_owned();
-                self.obj_set(object, method, v);
+            // Member-access receiver: `MOVE value TO control::property` /
+            // `… TO Grid::Rows(I)::Value` (spec 011). A method-call tail is not a
+            // receiving field → `assign_member` raises an error.
+            if matches!(target, Expr::Member { .. }) {
+                self.assign_member(target, &val)?;
                 continue;
             }
             let name = self.resolve_lvalue(target);
@@ -1490,6 +1498,27 @@ impl Interpreter {
             repl.push((*cat, self.eval_expr(e, e.span())?));
         }
         for item in items {
+            // Member chain (`INITIALIZE obj::value`) → reset that property to its
+            // category default (spec 011). A method-call tail is skipped.
+            if matches!(item, Expr::Member { .. }) {
+                if let Ok((root, Resolved::Path(path))) = self.resolve_member(item) {
+                    let def = self.init_default_for_member(&root, &path);
+                    self.set_member(&root, &path, def);
+                }
+                continue;
+            }
+            // A bare identifier that is **not** a declared data item is treated as
+            // a control object: `INITIALIZE obj` implicitly resets its `Value`
+            // property (spec 011). `INITIALIZE obj name` thus inits each operand
+            // by its own rules (control → Value, data item → PIC default).
+            if let Expr::Identifier(id, _) = item {
+                if !self.env.contains(id) {
+                    let path = vec![PathSeg::Prop("Value".into())];
+                    let def = self.init_default_for_member(id, &path);
+                    self.set_member(id, &path, def);
+                    continue;
+                }
+            }
             let name = self.resolve_lvalue(item);
             // Walk the DATA DIVISION for the item's declaration so groups recurse
             // into their elementary children; fall back to field-cap inference.
@@ -1503,6 +1532,18 @@ impl Interpreter {
             }
         }
         Ok(())
+    }
+
+    /// The category default for a control property being `INITIALIZE`d: a
+    /// numeric-looking value resets to `"0"`, anything else to the empty string
+    /// (spec 011 — properties have no PIC, so the current value's shape decides).
+    fn init_default_for_member(&self, root: &str, path: &[PathSeg]) -> String {
+        let cur = self.objects.get_path(root, path).map(|v| v.to_string()).unwrap_or_default();
+        if !cur.trim().is_empty() && crate::value::parse_decimal(cur.trim()).is_some() {
+            "0".to_string()
+        } else {
+            String::new()
+        }
     }
 
     /// `INITIALIZE … REPLACING`: set each subordinate elementary item whose
@@ -3661,6 +3702,195 @@ impl Interpreter {
         self.objects.get_property(obj, prop).map(|v| v.to_string()).unwrap_or_default()
     }
 
+    // ── Member-access chains (spec 011) ─────────────────────────────────────────
+
+    /// Flatten an [`Expr::Member`] chain into its root control name and an ordered
+    /// list of segments, evaluating each segment's subscript/call arguments.
+    fn lower_member_chain(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<(String, Vec<MemberSeg>), RuntimeError> {
+        match expr {
+            Expr::Member { recv, member, args, parens, span } => {
+                let (root, mut segs) = self.lower_member_chain(recv)?;
+                let mut vals = Vec::with_capacity(args.len());
+                for a in args {
+                    vals.push(self.eval_expr(a, *span)?);
+                }
+                segs.push(MemberSeg { member: member.clone(), parens: *parens, args: vals });
+                Ok((root, segs))
+            }
+            Expr::Identifier(name, _) => Ok((name.clone(), Vec::new())),
+            // A non-identifier root is unusual; fall back to its display name.
+            other => Ok((self.expr_to_name(other), Vec::new())),
+        }
+    }
+
+    /// Resolve a member chain to either an addressable **path** (a property or a
+    /// collection element — readable and assignable) or a **method call** on a
+    /// place (an rvalue only). A `parens` segment is an *index* when its member
+    /// names a collection (list/legacy-string) and an *argument* is present;
+    /// otherwise it is a method call (terminal).
+    fn resolve_member(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<(String, Resolved), RuntimeError> {
+        let (root, segs) = self.lower_member_chain(expr)?;
+        let mut path: Vec<PathSeg> = Vec::new();
+        for seg in segs {
+            if !seg.parens {
+                // A bare member is always a property (readable / assignable).
+                path.push(PathSeg::Prop(seg.member));
+                continue;
+            }
+            // `member( … )` is a **method call** when the name is a known method
+            // (or there are no arguments — `Foo()` can only be a call); otherwise
+            // it is a **collection index** (`Items(4)`, `Rows(I)`). This decision
+            // does not depend on the collection already existing, so writes that
+            // auto-vivify nested structure classify correctly (spec 011).
+            if is_known_method(&seg.member) || seg.args.is_empty() {
+                return Ok((root, Resolved::Method { path, method: seg.member, args: seg.args }));
+            }
+            let idx = seg.args[0]
+                .as_display_string()
+                .trim()
+                .parse::<i64>()
+                .unwrap_or(0)
+                .max(0) as usize;
+            path.push(PathSeg::Prop(seg.member));
+            path.push(PathSeg::Index(idx));
+        }
+        Ok((root, Resolved::Path(path)))
+    }
+
+    /// Evaluate a member chain to a value (the rvalue / GET form).
+    fn eval_member(&mut self, expr: &Expr) -> Result<CobolValue, RuntimeError> {
+        let (root, res) = self.resolve_member(expr)?;
+        match res {
+            Resolved::Path(path) => Ok(prop_to_value(self.objects.get_path(&root, &path))),
+            Resolved::Method { path, method, args } => {
+                Ok(self.exec_member_method(&root, &path, &method, &args))
+            }
+        }
+    }
+
+    /// Assign `val` to a member chain used as a receiving field. A method-call
+    /// tail is not a receiving field (spec 011) → a runtime error.
+    fn assign_member(&mut self, target: &Expr, val: &CobolValue) -> Result<(), RuntimeError> {
+        let (root, res) = self.resolve_member(target)?;
+        match res {
+            Resolved::Path(path) => {
+                let v = val.as_display_string().trim().to_owned();
+                self.set_member(&root, &path, v);
+                Ok(())
+            }
+            Resolved::Method { .. } => Err(RuntimeError::General {
+                message: "a method-call result is not a receiving field".into(),
+            }),
+        }
+    }
+
+    /// Dispatch a method on a nested place. With an empty `path` the receiver is
+    /// the root control, so the call is delegated to the universal/per-widget
+    /// dispatcher [`Self::exec_method`] (and the Rust-FFI bridge). Otherwise it is
+    /// a collection verb (`delete`/`count`/`clear`/`add`) or a scalar transform
+    /// (`toUpperCase`/`toLowerCase`/`trim`/`len`).
+    fn exec_member_method(
+        &mut self,
+        root: &str,
+        path: &[PathSeg],
+        method: &str,
+        args: &[CobolValue],
+    ) -> CobolValue {
+        if path.is_empty() {
+            return self.exec_method(root, method, args);
+        }
+        let m = method.to_ascii_uppercase();
+        let arg0 = args
+            .first()
+            .map(|v| v.as_display_string().trim().to_string())
+            .unwrap_or_default();
+        let none = CobolValue::from_str("", 0);
+        match m.as_str() {
+            "DELETE" | "REMOVE" => {
+                if matches!(path.last(), Some(PathSeg::Index(_))) {
+                    self.objects.remove_path(root, path);
+                } else if !arg0.is_empty() {
+                    let mut p = path.to_vec();
+                    p.push(PathSeg::Index(arg0.parse::<usize>().unwrap_or(0)));
+                    self.objects.remove_path(root, &p);
+                }
+                none
+            }
+            "COUNT" | "SIZE" => {
+                let n = self.objects.path_len(root, path).unwrap_or(0);
+                CobolValue::Numeric(CobolNumeric::integer(n as i64))
+            }
+            "CLEAR" => {
+                self.set_member(root, path, String::new());
+                none
+            }
+            "ADD" | "APPEND" => {
+                self.append_member(root, path, &arg0);
+                none
+            }
+            _ => {
+                let cur = self
+                    .objects
+                    .get_path(root, path)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                let out = match m.as_str() {
+                    "TOUPPERCASE" | "UPPERCASE" | "UPPER" => cur.to_uppercase(),
+                    "TOLOWERCASE" | "LOWERCASE" | "LOWER" => cur.to_lowercase(),
+                    "TRIM" => cur.trim().to_string(),
+                    "LEN" | "LENGTH" => {
+                        return CobolValue::Numeric(CobolNumeric::integer(cur.chars().count() as i64));
+                    }
+                    // Unknown method on a value → no effect; return the value.
+                    _ => cur,
+                };
+                let n = out.len();
+                CobolValue::from_str(&out, n)
+            }
+        }
+    }
+
+    /// Write a string value to a member place and notify the UI. A flat
+    /// `[Prop(name)]` path emits `StateUpdate(control, name, value)` so existing
+    /// UI bindings update; a deeper path emits a best-effort joined key.
+    fn set_member(&mut self, root: &str, path: &[PathSeg], val: String) {
+        self.objects.set_path(root, path, PropertyValue::String(val.clone()));
+        if let Some(tx) = &self.state_tx {
+            let key = match path {
+                [PathSeg::Prop(name)] => name.clone(),
+                _ => path_display(path),
+            };
+            let _ = tx.send(StateUpdate::new(root.to_string(), key, val));
+        }
+    }
+
+    /// Append an item to the list (or legacy newline-string) at `path`.
+    fn append_member(&mut self, root: &str, path: &[PathSeg], item: &str) {
+        match self.objects.get_path(root, path) {
+            Some(PropertyValue::List(mut items)) => {
+                items.push(PropertyValue::String(item.to_string()));
+                self.objects.set_path(root, path, PropertyValue::List(items));
+            }
+            Some(PropertyValue::String(s)) => {
+                let nv = if s.is_empty() { item.to_string() } else { format!("{s}\n{item}") };
+                self.objects.set_path(root, path, PropertyValue::String(nv));
+            }
+            _ => {
+                self.objects.set_path(
+                    root,
+                    path,
+                    PropertyValue::List(vec![PropertyValue::String(item.to_string())]),
+                );
+            }
+        }
+    }
+
     /// Execute a control method (`obj::method(args)` / `INVOKE obj "method"`).
     /// Most methods are thin sugar over property get/set — which the form
     /// runtime mirrors to the live UI — and getters return a value (for the
@@ -3856,13 +4086,9 @@ impl Interpreter {
         match expr {
             Expr::Literal(lit, _) => Ok(literal_to_value(lit)),
 
-            // Visual-object method call / property read as a value: `obj::GetText()`
-            // or `obj::Caption` (010 — `exec_method` resolves bare properties).
-            Expr::MethodCall { object, method, args, span: s } => {
-                let mut vals = Vec::with_capacity(args.len());
-                for a in args { vals.push(self.eval_expr(a, *s)?); }
-                Ok(self.exec_method(object, method, &vals))
-            }
+            // Member-access chain read as a value: `obj::Caption`,
+            // `Grid::Rows(I)::Value`, `obj::Value::toUpperCase()` (spec 011).
+            Expr::Member { .. } => self.eval_member(expr),
 
             Expr::Identifier(name, _) => {
                 let key = self.env.resolve_name(name, &[]);
@@ -4370,6 +4596,40 @@ impl Interpreter {
                 let idx = self.eval_indices(indices, *span);
                 crate::environment::subscript_key(&base_name, &idx)
             }
+            // A member-access receiver (`ctrl::prop`, `Grid::Rows(I)::Value`) is
+            // backed by a synthetic env item seeded with the property's current
+            // value; `flush_property_shadows` writes it back to the place after
+            // the statement, so *any* verb that resolves its receiving field
+            // through here gains property-receiver support (spec 011). A
+            // method-call tail is not a receiving field — return a throwaway key.
+            Expr::Member { .. } => {
+                if let Ok((root, Resolved::Path(path))) = self.resolve_member(expr) {
+                    let synth = format!("__PROP${root}${}", path_display(&path));
+                    let cur = self
+                        .objects
+                        .get_path(&root, &path)
+                        .map(|v| v.to_string())
+                        .unwrap_or_default();
+                    let trimmed = cur.trim();
+                    // Seed the synthetic item by the value's shape: a numeric item
+                    // for a number (so `ADD … TO ctrl::Value` / `COMPUTE` stay
+                    // arithmetic), otherwise a roomy alphanumeric item (so
+                    // `STRING/UNSTRING INTO ctrl::Text` has space to write).
+                    match crate::value::parse_decimal(trimmed) {
+                        Some(num) if !trimmed.is_empty() => {
+                            self.env.set(&synth, CobolValue::Numeric(num));
+                        }
+                        _ => {
+                            let cap = trimmed.len().max(4096);
+                            self.env.set(&synth, CobolValue::from_str(trimmed, cap));
+                        }
+                    }
+                    self.property_shadows.insert(synth.clone(), (root, path));
+                    synth
+                } else {
+                    "__UNKNOWN__".to_owned()
+                }
+            }
             _ => self.expr_to_name(expr),
         }
     }
@@ -4380,21 +4640,15 @@ impl Interpreter {
         if self.property_shadows.is_empty() {
             return;
         }
-        let shadows: Vec<(String, (String, String))> =
+        let shadows: Vec<(String, (String, Vec<PathSeg>))> =
             self.property_shadows.drain().collect();
-        for (synth, (ctrl, key)) in shadows {
+        for (synth, (ctrl, path)) in shadows {
             let v = self.env.get(&synth)
                 .map(|cv| cv.as_display_string())
                 .unwrap_or_default()
                 .trim()
                 .to_owned();
-            if !self.objects.contains(&ctrl) {
-                self.objects.register(&ctrl, "Control");
-            }
-            self.objects.set_property(&ctrl, &key, v.clone());
-            if let Some(tx) = &self.state_tx {
-                let _ = tx.send(StateUpdate::new(ctrl, key, v));
-            }
+            self.set_member(&ctrl, &path, v);
         }
     }
 
@@ -4685,6 +4939,101 @@ fn collect_quals(of: &Expr) -> Vec<String> {
         Expr::Subscript { base, .. } => collect_quals(base),
         _ => Vec::new(),
     }
+}
+
+// ── Member-access chain support (spec 011) ──────────────────────────────────
+
+/// One lowered segment of an [`Expr::Member`] chain (arguments evaluated).
+struct MemberSeg {
+    member: String,
+    parens: bool,
+    args: Vec<CobolValue>,
+}
+
+/// The result of resolving a member chain: an addressable place (property or
+/// collection element) or a method call on a place.
+enum Resolved {
+    /// A readable / assignable place — a property or an indexed element.
+    Path(Vec<PathSeg>),
+    /// A method call on the place reached by `path` (rvalue only).
+    Method { path: Vec<PathSeg>, method: String, args: Vec<CobolValue> },
+}
+
+/// `true` if `name` is a recognised control/collection **method** (so a parens
+/// segment is a call rather than a collection subscript). Methods are a closed
+/// vocabulary; property and collection names are open — hence the asymmetry. Kept
+/// in step with [`Interpreter::exec_method`] and [`Interpreter::exec_member_method`].
+/// A `GET-`/`SET-` prefix is always a method (explicit accessor, spec 010).
+fn is_known_method(name: &str) -> bool {
+    let m = name.to_ascii_uppercase();
+    if m.starts_with("GET-") || m.starts_with("SET-") {
+        return true;
+    }
+    matches!(
+        m.as_str(),
+        // Universal lifecycle / visibility / geometry
+        "SHOW" | "HIDE" | "ENABLE" | "DISABLE" | "SETFOCUS" | "FOCUS"
+            | "BRINGTOFRONT" | "SENDTOBACK" | "REFRESH" | "VALIDATE"
+            | "MOVETO" | "RESIZE"
+        // Generic / text / caption
+            | "SETPROPERTY" | "GETPROPERTY" | "SETCAPTION" | "SETTEXT"
+            | "GETCAPTION" | "GETTEXT" | "APPENDTEXT" | "SETCOLOR" | "SELECTALL"
+            | "CLEAR"
+        // Checkbox / radio
+            | "ISCHECKED" | "SETCHECKED" | "SELECT" | "TOGGLE"
+        // Numeric value
+            | "SETVALUE" | "GETVALUE" | "INCREMENT" | "DECREMENT" | "RESET"
+        // Items / list / combo
+            | "ADDITEM" | "REMOVEITEM" | "GETSELECTED" | "GETSELECTEDINDEX"
+            | "GETINDEX" | "SETSELECTEDINDEX" | "SETINDEX" | "GETCOUNT"
+        // Timer / animation
+            | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
+            | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
+        // Agent / window / SQL / HTTP
+            | "CLOSE" | "GETRESULT" | "SETTITLE" | "SETPROMPT" | "SETMODEL"
+            | "ASK" | "GET" | "POST" | "PUT" | "DELETE" | "CALL" | "SETHEADER"
+            | "CLEARHEADERS" | "SETTIMEOUT" | "OPEN" | "EXECUTE" | "EXEC"
+            | "QUERY" | "FETCH" | "FETCHALL"
+        // Collection verbs + scalar transforms (exec_member_method)
+            | "COUNT" | "SIZE" | "REMOVE" | "ADD" | "APPEND"
+            | "TOUPPERCASE" | "UPPERCASE" | "UPPER"
+            | "TOLOWERCASE" | "LOWERCASE" | "LOWER" | "TRIM" | "LEN" | "LENGTH"
+    )
+}
+
+/// Convert a stored [`PropertyValue`] to a `CobolValue`, parsing a numeric-looking
+/// scalar to a `Numeric` so comparisons / arithmetic stay algebraic.
+fn prop_to_value(pv: Option<PropertyValue>) -> CobolValue {
+    let s = pv.map(|v| v.to_string()).unwrap_or_default();
+    if !s.trim().is_empty() {
+        if let Some(num) = crate::value::parse_decimal(s.trim()) {
+            return CobolValue::Numeric(num);
+        }
+    }
+    let n = s.len();
+    CobolValue::from_str(&s, n)
+}
+
+/// Render a member path as a human-readable key for a `StateUpdate` on a nested
+/// place, e.g. `[Prop(Rows), Index(2), Prop(Value)]` → `"Rows(2).Value"`.
+fn path_display(path: &[PathSeg]) -> String {
+    let mut out = String::new();
+    for seg in path {
+        match seg {
+            PathSeg::Prop(name) => {
+                if !out.is_empty() {
+                    out.push('.');
+                }
+                out.push_str(name);
+            }
+            PathSeg::Index(i) => {
+                out.push('(');
+                out.push_str(&i.to_string());
+                out.push(')');
+            }
+        }
+    }
+    out
 }
 
 // ── Date / time utilities (no external crate dependency) ─────────────────────

@@ -124,14 +124,23 @@ pub enum Expr {
         span: Span,
     },
 
-    /// Visual-object **method call** as an expression (PowerCOBOL OO style):
-    ///   `Label-1::GetText()`  ·  `CheckBox-1::IsChecked()`
-    /// Used where a value is needed (e.g. `MOVE obj::GetText() TO X`). The same
-    /// form is also a statement ([`crate::stmt::Stmt::Invoke`]).
-    MethodCall {
-        object: String,
-        method: String,
+    /// One `::member` access in a chain (RustCOBOL OO style):
+    ///   `Label-1::Caption` · `Label-1::GetText()` · `Grid-1::Rows(I)::Cols(2)::Value`
+    ///
+    /// The receiver `recv` is the root control [`Expr::Identifier`] or another
+    /// `Member` (the chain is left-recursive). `parens` records whether `()` was
+    /// written: it distinguishes a **property** (`::Value`, no parens — readable
+    /// *and* an assignable lvalue) from a **call / subscript** (`::Method()` or
+    /// `::Items(4)`, parens present — an rvalue, never a receiving field). `args`
+    /// carries the subscript indices or the call arguments; which one it is is
+    /// resolved at runtime from the member's kind (a collection ⇒ index, a method
+    /// ⇒ call). A trailing-call chain is also valid as a statement
+    /// ([`crate::stmt::Stmt::Invoke`]).
+    Member {
+        recv: Box<Expr>,
+        member: String,
         args: Vec<Expr>,
+        parens: bool,
         span: Span,
     },
 }
@@ -148,7 +157,7 @@ impl Expr {
             Expr::FunctionCall { span, .. } => *span,
             Expr::Arithmetic { span, .. } => *span,
             Expr::Unary { span, .. }     => *span,
-            Expr::MethodCall { span, .. } => *span,
+            Expr::Member { span, .. }    => *span,
         }
     }
 }

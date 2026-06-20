@@ -439,10 +439,43 @@ impl<'src> Iterator for Lexer<'src> {
 /// assert!(tokens.iter().any(|st| st.token == Token::Move));
 /// ```
 pub fn tokenize(source: &str, format: SourceFormat) -> Vec<SpannedToken> {
-    Lexer::new(source, format).collect()
+    let lexer = Lexer::new(source, format);
+    let pre = lexer.preprocessed.clone();
+    let mut toks: Vec<SpannedToken> = lexer.collect();
+    reclassify_member_words(&mut toks, &pre);
+    toks
 }
 
 /// Like [`tokenize`] but includes comment tokens in the output.
 pub fn tokenize_with_comments(source: &str, format: SourceFormat) -> Vec<SpannedToken> {
-    Lexer::new(source, format).with_comments().collect()
+    let lexer = Lexer::new(source, format).with_comments();
+    let pre = lexer.preprocessed.clone();
+    let mut toks: Vec<SpannedToken> = lexer.collect();
+    reclassify_member_words(&mut toks, &pre);
+    toks
+}
+
+/// A word following the member-access operator `::` is a control property or
+/// method **name**, never a COBOL keyword — so `Grid::Rows(I)::Delete()` and
+/// `obj::Value` must work even though `DELETE`/`VALUE` are keywords. `::` appears
+/// in no other COBOL construct, so we reclassify any keyword token immediately
+/// after a `:: ` pair back into a [`Token::Identifier`], recovering its spelling
+/// from the (preprocessed) source. Identifier / string members are left as-is.
+fn reclassify_member_words(toks: &mut [SpannedToken], pre: &str) {
+    for i in 2..toks.len() {
+        if toks[i - 1].token != Token::Colon || toks[i - 2].token != Token::Colon {
+            continue;
+        }
+        if matches!(toks[i].token, Token::Identifier(_) | Token::StringLiteral(_)) {
+            continue;
+        }
+        let Some(text) = pre.get(toks[i].span.start..toks[i].span.end) else { continue };
+        let t = text.trim();
+        let is_word = t.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+        if is_word {
+            let name = t.to_ascii_uppercase().trim_end_matches('-').to_string();
+            toks[i].token = Token::Identifier(name);
+        }
+    }
 }

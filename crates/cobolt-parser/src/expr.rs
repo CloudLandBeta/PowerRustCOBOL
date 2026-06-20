@@ -150,19 +150,6 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         return Some(Expr::FunctionCall { name, args, span: sp });
     }
 
-    // Inline OO method call as an expression (a value): `obj::method(args)`,
-    // e.g. `MOVE TextBox-1::GetText() TO WS-X`.
-    if matches!(p.peek(), Token::Identifier(_))
-        && *p.peek_at(1) == Token::Colon
-        && *p.peek_at(2) == Token::Colon
-    {
-        let (object, _) = p.eat_identifier().unwrap();
-        if let Some((method, args)) = crate::stmt::parse_method_tail(p) {
-            let sp = span.merge(p.peek_span());
-            return Some(Expr::MethodCall { object, method, args, span: sp });
-        }
-    }
-
     // Figurative constants / literals
     if let Some((lit, sp)) = parse_literal(p) {
         return Some(Expr::Literal(lit, sp));
@@ -225,10 +212,47 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
             };
         }
 
-        return Some(expr);
+        // Inline member-access chain: `obj::Caption`, `obj::GetText()`,
+        // `Grid::Rows(I)::Cols(2)::Value` — a postfix `::` loop over `expr`.
+        return Some(parse_member_chain(p, expr));
     }
 
     None
+}
+
+/// Apply a postfix `::member [ ( args ) ]` chain to an already-parsed base
+/// expression, building nested [`Expr::Member`] nodes. `parens` records whether
+/// `()` followed the member (a method call / subscript) versus a bare property.
+/// Returns `base` unchanged when no `::` follows.
+pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
+    while *p.peek() == Token::Colon && *p.peek_at(1) == Token::Colon {
+        let start = base.span();
+        p.advance(); // first ':'
+        p.advance(); // second ':'
+        // Member name: a bare identifier (preferred) or a quoted string (tolerated
+        // for symmetry with classic INVOKE / older completion output).
+        let member = p
+            .eat_identifier()
+            .map(|(n, _)| n)
+            .or_else(|| take_string_literal(p))
+            .unwrap_or_default();
+        let mut args = Vec::new();
+        let mut parens = false;
+        if p.at(&Token::LParen) {
+            parens = true;
+            p.advance();
+            while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+                args.push(parse_expr(p));
+                if !p.eat(&Token::Comma) {
+                    break;
+                }
+            }
+            p.expect(&Token::RParen);
+        }
+        let sp = start.merge(p.peek_span());
+        base = Expr::Member { recv: Box::new(base), member, args, parens, span: sp };
+    }
+    base
 }
 
 /// Consume a string literal if the current token is one.

@@ -27,7 +27,7 @@ use indexmap::IndexMap;
 // ── CoboltObject ──────────────────────────────────────────────────────────────
 
 /// A form or control object.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct CoboltObject {
     /// The object class name (`"Form"`, `"Button"`, `"TextBox"`, …).
     pub class: String,
@@ -86,12 +86,22 @@ impl CoboltObject {
 // ── PropertyValue ─────────────────────────────────────────────────────────────
 
 /// The value of an object property.
+///
+/// Beyond the scalar variants, a property may hold a **nested object** (a grid
+/// row, a cell, …) or an indexable **list** (a control's `Rows`, `Columns`,
+/// `Items`). This is what makes member-access chains such as
+/// `Grid-1::Rows(I)::Columns(2)::Value` navigate real structure rather than
+/// flattened keys (spec 011).
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropertyValue {
     String(String),
     Integer(i64),
     Float(f64),
     Bool(bool),
+    /// A nested object — its own named-property map.
+    Object(Box<CoboltObject>),
+    /// An ordered, indexable collection of values.
+    List(Vec<PropertyValue>),
 }
 
 impl From<&str> for PropertyValue {
@@ -120,6 +130,14 @@ impl std::fmt::Display for PropertyValue {
             PropertyValue::Integer(n) => write!(f, "{n}"),
             PropertyValue::Float(v)   => write!(f, "{v}"),
             PropertyValue::Bool(b)    => write!(f, "{b}"),
+            // A list renders as its elements joined by newlines (matching the
+            // legacy newline-joined `Items` string form); a nested object as its
+            // class name in angle brackets (it has no single scalar rendering).
+            PropertyValue::List(items) => {
+                let joined = items.iter().map(|v| v.to_string()).collect::<Vec<_>>().join("\n");
+                write!(f, "{joined}")
+            }
+            PropertyValue::Object(o)  => write!(f, "<{}>", o.class),
         }
     }
 }
@@ -175,5 +193,167 @@ impl ObjectRegistry {
     /// Iterate all registered objects.
     pub fn iter(&self) -> impl Iterator<Item = (&String, &CoboltObject)> {
         self.objects.iter()
+    }
+
+    // ── Member-access path navigation (spec 011) ──────────────────────────────
+
+    /// Read the value at `path` under object `obj` (a clone). `None` if any
+    /// segment is missing. A trailing `Index` into a `String` property reads the
+    /// n-th newline-delimited line (interop with the legacy `Items` form).
+    pub fn get_path(&self, obj: &str, path: &[PathSeg]) -> Option<PropertyValue> {
+        get_in_obj(self.get(obj)?, path)
+    }
+
+    /// Write `val` at `path` under object `obj`, registering the object and
+    /// creating intermediate objects/lists (and growing lists) as needed. A
+    /// trailing `Index` into a `String` property replaces the n-th line.
+    pub fn set_path(&mut self, obj: &str, path: &[PathSeg], val: PropertyValue) {
+        if !self.contains(obj) {
+            self.register(obj, "Control");
+        }
+        if let Some(o) = self.get_mut(obj) {
+            set_in_obj(o, path, val);
+        }
+    }
+
+    /// Remove the element addressed by `path` (which must end in an `Index`) from
+    /// its parent list, returning it. `None` if the parent is not a list or the
+    /// index is out of range.
+    pub fn remove_path(&mut self, obj: &str, path: &[PathSeg]) -> Option<PropertyValue> {
+        let o = self.get_mut(obj)?;
+        let (last, parent) = path.split_last()?;
+        let PathSeg::Index(i) = last else { return None };
+        let place = place_in_obj_mut(o, parent, false)?;
+        match place {
+            PropertyValue::List(items) if *i < items.len() => Some(items.remove(*i)),
+            // Legacy string list: drop the n-th line.
+            PropertyValue::String(s) => {
+                let mut lines: Vec<&str> = s.lines().collect();
+                if *i < lines.len() {
+                    let removed = lines.remove(*i).to_string();
+                    *s = lines.join("\n");
+                    Some(PropertyValue::String(removed))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Number of elements in the list (or lines in the legacy string) at `path`.
+    pub fn path_len(&self, obj: &str, path: &[PathSeg]) -> Option<usize> {
+        match get_in_obj(self.get(obj)?, path)? {
+            PropertyValue::List(items) => Some(items.len()),
+            PropertyValue::String(s) if s.trim().is_empty() => Some(0),
+            PropertyValue::String(s) => Some(s.lines().count()),
+            _ => None,
+        }
+    }
+}
+
+// ── Path segments + free navigation helpers ─────────────────────────────────
+
+/// One step in a member-access path: a named property or a list index.
+/// `Grid::Rows(I)::Columns(2)::Value` lowers to
+/// `[Prop("Rows"), Index(I), Prop("Columns"), Index(2), Prop("Value")]`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PathSeg {
+    Prop(String),
+    Index(usize),
+}
+
+/// Read `path` starting from an object's property map.
+fn get_in_obj(o: &CoboltObject, path: &[PathSeg]) -> Option<PropertyValue> {
+    let (first, rest) = path.split_first()?;
+    // A path under an object must begin with a property name.
+    let PathSeg::Prop(name) = first else { return None };
+    let cur = o.get_property(name)?;
+    get_in_value(cur, rest)
+}
+
+/// Read the remaining `path` from within a property value.
+fn get_in_value(cur: &PropertyValue, path: &[PathSeg]) -> Option<PropertyValue> {
+    let Some((seg, rest)) = path.split_first() else {
+        return Some(cur.clone());
+    };
+    match seg {
+        PathSeg::Index(i) => match cur {
+            PropertyValue::List(items) => get_in_value(items.get(*i)?, rest),
+            // Legacy string list: index a newline-delimited line (terminal).
+            PropertyValue::String(s) if rest.is_empty() => {
+                s.lines().nth(*i).map(|l| PropertyValue::String(l.to_string()))
+            }
+            _ => None,
+        },
+        PathSeg::Prop(_) => match cur {
+            PropertyValue::Object(o) => get_in_obj(o, path),
+            _ => None,
+        },
+    }
+}
+
+/// Write `val` at `path` from an object's property map, creating containers.
+fn set_in_obj(o: &mut CoboltObject, path: &[PathSeg], val: PropertyValue) {
+    if let Some(place) = place_in_obj_mut(o, path, true) {
+        *place = val;
+    }
+}
+
+/// Resolve `path` to a mutable property slot, optionally vivifying intermediate
+/// objects/lists (and growing lists). The path must begin with a property name.
+fn place_in_obj_mut<'a>(
+    o: &'a mut CoboltObject,
+    path: &[PathSeg],
+    vivify: bool,
+) -> Option<&'a mut PropertyValue> {
+    let PathSeg::Prop(name) = path.first()? else { return None };
+    let key = name.to_ascii_uppercase();
+    if vivify && o.get_property(&key).is_none() {
+        let seed = match path.get(1) {
+            Some(PathSeg::Index(_)) => PropertyValue::List(Vec::new()),
+            Some(PathSeg::Prop(_)) => PropertyValue::Object(Box::new(CoboltObject::new("Object"))),
+            None => PropertyValue::String(String::new()),
+        };
+        o.set_property(&key, seed);
+    }
+    let cur = o.properties.get_mut(&key)?;
+    place_in_value_mut(cur, &path[1..], vivify)
+}
+
+/// Resolve the remaining `path` to a mutable slot inside a property value.
+fn place_in_value_mut<'a>(
+    cur: &'a mut PropertyValue,
+    path: &[PathSeg],
+    vivify: bool,
+) -> Option<&'a mut PropertyValue> {
+    let Some((seg, rest)) = path.split_first() else {
+        return Some(cur);
+    };
+    match seg {
+        PathSeg::Index(i) => {
+            // Vivify a bare/empty slot into a list before indexing.
+            if vivify && !matches!(cur, PropertyValue::List(_)) {
+                if matches!(cur, PropertyValue::String(s) if s.is_empty()) {
+                    *cur = PropertyValue::List(Vec::new());
+                }
+            }
+            let PropertyValue::List(items) = cur else { return None };
+            if vivify {
+                while items.len() <= *i {
+                    items.push(PropertyValue::String(String::new()));
+                }
+            }
+            place_in_value_mut(items.get_mut(*i)?, rest, vivify)
+        }
+        PathSeg::Prop(_) => {
+            if vivify && !matches!(cur, PropertyValue::Object(_)) {
+                if matches!(cur, PropertyValue::String(s) if s.is_empty()) {
+                    *cur = PropertyValue::Object(Box::new(CoboltObject::new("Object")));
+                }
+            }
+            let PropertyValue::Object(o) = cur else { return None };
+            place_in_obj_mut(o, path, vivify)
+        }
     }
 }
