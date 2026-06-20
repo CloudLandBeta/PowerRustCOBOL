@@ -110,8 +110,8 @@ const PROP_NUM_SRC: &str = r#"
        PROCEDURE DIVISION.
       *> Numeric property comparison must be algebraic, not lexicographic
       *> ("232" > "64" as STRINGS is false; as NUMBERS it is true).
-           IF "X" OF Button-1 > "X" OF Label-1
-               MOVE "X" OF Label-1 TO "X" OF Button-1
+           IF Button-1::X > Label-1::X
+               MOVE Label-1::X TO Button-1::X
                DISPLAY "MOVED"
            END-IF.
            STOP RUN.
@@ -137,7 +137,7 @@ fn numeric_properties_compare_algebraically() {
     interp.run().expect("run failed");
     let out: Vec<String> = display_rx.try_iter().collect();
     assert!(out.iter().any(|l| l.contains("MOVED")),
-        "IF \"X\" OF Button-1 > \"X\" OF Label-1 must be true (232 > 64): {out:?}");
+        "IF Button-1::X > Label-1::X must be true (232 > 64): {out:?}");
     let updates: Vec<StateUpdate> = state_rx.try_iter().collect();
     assert!(updates.iter().any(|u|
         u.ctrl_id.eq_ignore_ascii_case("Button-1") && u.prop == "X"

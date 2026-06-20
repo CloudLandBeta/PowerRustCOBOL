@@ -1118,9 +1118,10 @@ impl Interpreter {
                 if let Some(dest) = returning {
                     let s = result.as_display_string();
                     let s = s.trim();
-                    if let Expr::PropertyRef { control, path, span: ps } = dest {
-                        let (ctrl, key) = self.property_ref_key(control, path, *ps);
-                        self.obj_set(&ctrl, &key, s.to_string());
+                    // RETURNING into a control property (`… RETURNING B::Caption`)
+                    // sets that property; otherwise into a data item (010).
+                    if let Expr::MethodCall { object, method, .. } = dest {
+                        self.obj_set(object, method, s.to_string());
                     } else {
                         let n = self.expr_to_name(dest);
                         self.env.set_str(&n, s);
@@ -1213,20 +1214,11 @@ impl Interpreter {
                 self.assign_refmod(base, start, length.as_deref(), &val, *span)?;
                 continue;
             }
-            // PowerCOBOL-style property receiver: write the control's property
-            // (the value's type is inferred from the moved value — no temp item).
-            if let Expr::PropertyRef { control, path, span } = target {
-                let (ctrl, key) = self.property_ref_key(control, path, *span);
+            // Inline property receiver: `MOVE value TO control::property` (010 R5).
+            // `obj_set` registers the control, writes the property, and notifies UI.
+            if let Expr::MethodCall { object, method, .. } = target {
                 let v = val.as_display_string().trim().to_owned();
-                // A control referenced by the property syntax exists by virtue of
-                // being on the form — register it on first write if needed.
-                if !self.objects.contains(&ctrl) {
-                    self.objects.register(&ctrl, "Control");
-                }
-                self.objects.set_property(&ctrl, &key, v.clone());
-                if let Some(tx) = &self.state_tx {
-                    let _ = tx.send(StateUpdate::new(ctrl, key, v));
-                }
+                self.obj_set(object, method, v);
                 continue;
             }
             let name = self.resolve_lvalue(target);
@@ -3650,25 +3642,6 @@ impl Interpreter {
     /// Resolve a PowerCOBOL-style property reference to `(control, property-key)`,
     /// evaluating any subscripts. A nested path becomes a composite key, e.g.
     /// `"Text" OF "ListItems" (4) OF Listview1` → `("Listview1", "ListItems(4).Text")`.
-    fn property_ref_key(
-        &mut self,
-        control: &str,
-        path: &[cobolt_ast::expr::PropSeg],
-        span: Span,
-    ) -> (String, String) {
-        let mut parts: Vec<String> = Vec::with_capacity(path.len());
-        for seg in path {
-            match &seg.index {
-                Some(idx) => {
-                    let i = self.eval_expr(idx, span).ok().and_then(|v| v.as_i64()).unwrap_or(0);
-                    parts.push(format!("{}({})", seg.name, i));
-                }
-                None => parts.push(seg.name.clone()),
-            }
-        }
-        (control.trim().to_owned(), parts.join("."))
-    }
-
     // ── Visual-object method dispatch (INVOKE / obj::method) ────────────────────
 
     /// Set a control property and notify the UI thread (auto-registers the
@@ -3848,8 +3821,34 @@ impl Interpreter {
             }
             "FETCH"    => { let h = parse_i(self.obj_get(obj, "_Handle")) as u32; val(if self.db.next_row(h) { "1" } else { "0" }.to_string()) }
             "FETCHALL" => { let h = parse_i(self.obj_get(obj, "_Handle")) as u32; val(self.db.row_count(h).to_string()) }
-            // ── Unknown method: no-op ──
-            _ => none,
+            // ── Property accessor (spec 010 R9) ──
+            // A member that is not an explicit method is a **property**:
+            //   `GET-<prop>` → get · `SET-<prop>` USING → set · bare `<prop>` →
+            //   get with no USING arg, set with a USING arg. A numeric value is
+            //   returned as a NUMBER so `IF C::Width > …` / arithmetic stay
+            //   algebraic. Property names are case-insensitive (`obj_get/obj_set`).
+            _ => {
+                let getval = |s: String| -> CobolValue {
+                    if !s.trim().is_empty() {
+                        if let Some(num) = crate::value::parse_decimal(s.trim()) {
+                            return CobolValue::Numeric(num);
+                        }
+                    }
+                    let n = s.len();
+                    CobolValue::from_str(&s, n)
+                };
+                if m.starts_with("GET-") {
+                    getval(self.obj_get(obj, &method[4..]))
+                } else if m.starts_with("SET-") {
+                    self.obj_set(obj, &method[4..], arg(0));
+                    none
+                } else if args.is_empty() {
+                    getval(self.obj_get(obj, method))
+                } else {
+                    self.obj_set(obj, method, arg(0));
+                    none
+                }
+            }
         }
     }
 
@@ -3857,28 +3856,8 @@ impl Interpreter {
         match expr {
             Expr::Literal(lit, _) => Ok(literal_to_value(lit)),
 
-            // PowerCOBOL-style property reference as a *sending* operand: read the
-            // control's current property value (a string — its type is inferred,
-            // so no temporary data item is needed).
-            Expr::PropertyRef { control, path, span: s } => {
-                let (ctrl, key) = self.property_ref_key(control, path, *s);
-                let val_s = self.objects.get_property(&ctrl, &key)
-                    .map(|pv| pv.to_string())
-                    .unwrap_or_default();
-                // A purely numeric property (X, Width, Value, …) evaluates as a
-                // NUMBER, so comparisons and arithmetic are algebraic —
-                // otherwise `IF "X" OF A > "X" OF B` would compare the digit
-                // strings character by character ("232" < "64").
-                if let Some(num) = crate::value::parse_decimal(val_s.trim()) {
-                    if !val_s.trim().is_empty() {
-                        return Ok(CobolValue::Numeric(num));
-                    }
-                }
-                let n = val_s.len();
-                Ok(CobolValue::from_str(&val_s, n))
-            }
-
-            // Visual-object method call as a value: `obj::GetText()`.
+            // Visual-object method call / property read as a value: `obj::GetText()`
+            // or `obj::Caption` (010 — `exec_method` resolves bare properties).
             Expr::MethodCall { object, method, args, span: s } => {
                 let mut vals = Vec::with_capacity(args.len());
                 for a in args { vals.push(self.eval_expr(a, *s)?); }
@@ -4390,21 +4369,6 @@ impl Interpreter {
                 let base_name = self.expr_to_name(base);
                 let idx = self.eval_indices(indices, *span);
                 crate::environment::subscript_key(&base_name, &idx)
-            }
-            // PowerCOBOL-style property receiver, usable by ANY verb: shadow the
-            // property as a synthetic env item preloaded with its current value;
-            // `flush_property_shadows` (run after each statement) writes it back.
-            Expr::PropertyRef { control, path, span } => {
-                let (ctrl, key) = self.property_ref_key(control, path, *span);
-                let synth = format!("\u{1}PROP\u{1}{ctrl}\u{1}{key}");
-                let cur = self.objects.get_property(&ctrl, &key)
-                    .map(|pv| pv.to_string())
-                    .unwrap_or_default();
-                // Generous capacity so arithmetic / STRING results into a
-                // property are never truncated by the shadow field's width.
-                self.env.set(&synth, CobolValue::from_str(&cur, cur.len().max(128)));
-                self.property_shadows.insert(synth.clone(), (ctrl, key));
-                synth
             }
             _ => self.expr_to_name(expr),
         }

@@ -248,14 +248,6 @@ impl<'a> ResolveCtx<'a> {
             Expr::FunctionCall { args, .. } => {
                 for a in args { self.resolve_expr(a); }
             }
-            // Visual-object property reference (`"Caption" OF Control`): the
-            // control is a form object, not a DATA DIVISION item, so don't warn;
-            // just resolve any subscript expressions.
-            Expr::PropertyRef { path, .. } => {
-                for seg in path {
-                    if let Some(idx) = &seg.index { self.resolve_expr(idx); }
-                }
-            }
             // Visual-object method call (`obj::Method(args)`): the object is a
             // form control, not a data item — only resolve the argument exprs.
             Expr::MethodCall { args, .. } => {

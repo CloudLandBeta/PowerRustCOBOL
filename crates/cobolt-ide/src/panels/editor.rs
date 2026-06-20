@@ -475,8 +475,8 @@ impl AcItem {
             AcKind::Snippet   => ("S", Color32::from_rgb(220, 180,  60)),
             AcKind::Paragraph => ("¶", Color32::from_rgb(197, 134, 192)),
             AcKind::DataItem  => ("D", Color32::from_rgb( 78, 201, 176)),
-            AcKind::Property  => ("●", Color32::from_rgb(120, 220, 110)),
-            AcKind::Method    => ("M", Color32::from_rgb(255, 160,  80)),
+            AcKind::Property  => ("●", Color32::from_rgb(120, 220, 110)),  // green (spec 010)
+            AcKind::Method    => ("M", Color32::from_rgb(100, 190, 245)),  // light blue (spec 010)
             AcKind::Control   => ("C", Color32::from_rgb(140, 200, 255)),
         }
     }
@@ -2255,7 +2255,7 @@ fn detect_invoke_context(
         }
     }
 
-    // ── ctrl-id:: ─────────────────────────────────────────────────────────
+    // ── ctrl-id::  and  ctrl-id::"  (spec 010 R10/R11) ─────────────────────
     if let Some(pos) = line.rfind("::") {
         let before = line[..pos].trim_end();
         let ctrl_tok = before
@@ -2263,7 +2263,10 @@ fn detect_invoke_context(
             .next()
             .unwrap_or("")
             .to_ascii_uppercase();
-        let mprefix = &line[pos + 2..];
+        // The quoted form `ctrl::"member` opens the same list; the leading quote
+        // is not part of the member being filtered, so strip it.
+        let after = &line[pos + 2..];
+        let mprefix = after.strip_prefix('"').unwrap_or(after);
         let ctrl_type = controls
             .iter()
             .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
@@ -2809,6 +2812,31 @@ END-EVALUATE
         assert_eq!(of_qualifier_items("").len(), 1);
         assert_eq!(of_qualifier_items("O").len(), 1);
         assert_eq!(of_qualifier_items("X").len(), 0);
+    }
+
+    #[test]
+    fn member_completion_triggers_on_colons_and_quote_010() {
+        // Spec 010 R10/R11/R12: `::` and `::"` open the member list and filter on
+        // subsequent non-`"` characters; a lone `"` opens no popup.
+        let controls = vec![
+            KnownControl { id: "Button-1".into(), ctrl_type: "Button".into(),
+                           properties: vec!["Caption".into()] },
+        ];
+        let ctx = |line: &str| {
+            let n = line.chars().count();
+            detect_invoke_context(line, n, &controls)
+        };
+        // `::` → list, empty filter, control type resolved
+        let (_id, ty, pre) = ctx("           DISPLAY Button-1::").expect("`::` should trigger");
+        assert_eq!((ty.as_str(), pre.as_str()), ("Button", ""));
+        // `::Cap` → filter "Cap"
+        assert_eq!(ctx("           DISPLAY Button-1::Cap").unwrap().2, "Cap");
+        // `::"` → list, quote stripped from the filter
+        assert_eq!(ctx("           DISPLAY Button-1::\"").unwrap().2, "");
+        // `::"Cap` → filter "Cap"
+        assert_eq!(ctx("           DISPLAY Button-1::\"Cap").unwrap().2, "Cap");
+        // A lone double quote (no `::`) opens no property/method popup.
+        assert_eq!(detect_property_ref("           DISPLAY \""), None);
     }
 
     #[test]

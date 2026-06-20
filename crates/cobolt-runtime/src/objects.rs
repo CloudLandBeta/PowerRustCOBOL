@@ -43,19 +43,22 @@ impl CoboltObject {
         }
     }
 
-    /// Read a property value.
+    /// Read a property value. Property names are **case-insensitive** (COBOL
+    /// identifiers are; the inline `::Caption` arrives upper-cased while designer/
+    /// explicit-method values may use mixed case), so keys are canonicalised to
+    /// upper-case (spec 010).
     pub fn get_property(&self, name: &str) -> Option<&PropertyValue> {
-        self.properties.get(name)
+        self.properties.get(&name.to_ascii_uppercase())
     }
 
-    /// Write a property value.
+    /// Write a property value (case-insensitive key — see [`get_property`]).
     pub fn set_property(&mut self, name: impl Into<String>, value: impl Into<PropertyValue>) {
-        self.properties.insert(name.into(), value.into());
+        self.properties.insert(name.into().to_ascii_uppercase(), value.into());
     }
 
     /// Convenience: read a property as a `String`.
     pub fn get_str(&self, name: &str) -> Option<&str> {
-        match self.properties.get(name)? {
+        match self.properties.get(&name.to_ascii_uppercase())? {
             PropertyValue::String(s) => Some(s.as_str()),
             _ => None,
         }
@@ -63,7 +66,7 @@ impl CoboltObject {
 
     /// Convenience: read a property as a `bool`.
     pub fn get_bool(&self, name: &str) -> Option<bool> {
-        match self.properties.get(name)? {
+        match self.properties.get(&name.to_ascii_uppercase())? {
             PropertyValue::Bool(b) => Some(*b),
             PropertyValue::Integer(n) => Some(*n != 0),
             _ => None,
@@ -72,7 +75,7 @@ impl CoboltObject {
 
     /// Convenience: read a property as an `i64`.
     pub fn get_i64(&self, name: &str) -> Option<i64> {
-        match self.properties.get(name)? {
+        match self.properties.get(&name.to_ascii_uppercase())? {
             PropertyValue::Integer(n) => Some(*n),
             PropertyValue::Bool(b) => Some(*b as i64),
             _ => None,
