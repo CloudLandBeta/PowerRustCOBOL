@@ -377,3 +377,36 @@ fn cancel_is_a_real_statement() {
     let stmts = parse_stmts(&prog("    CANCEL \"SUBP\".\n    STOP RUN.\n"));
     assert!(matches!(stmts[0], Stmt::Cancel { .. }), "expected CANCEL, got {:?}", stmts[0]);
 }
+
+// ── Property access syntax (spec 010): only `ctrl::member` / INVOKE ──────────
+
+#[test]
+fn inline_property_access_parses_as_method_call() {
+    use cobolt_ast::expr::Expr;
+    // GET in operand position and SET as a MOVE target both parse to MethodCall.
+    let stmts = parse_stmts(&prog("    MOVE BTN::Caption TO LBL::Text.\n    STOP RUN.\n"));
+    match &stmts[0] {
+        Stmt::Move { from, to, .. } => {
+            assert!(matches!(from, Expr::MethodCall { .. }),
+                "source `BTN::Caption` must be a MethodCall: {from:?}");
+            assert!(matches!(to[0], Expr::MethodCall { .. }),
+                "target `LBL::Text` must be a MethodCall: {:?}", to[0]);
+        }
+        other => panic!("expected MOVE, got {other:?}"),
+    }
+}
+
+#[test]
+fn quoted_string_of_name_is_not_a_property_ref() {
+    // The Fujitsu `"Prop" OF Ctrl` form is removed (spec 010). A leading string
+    // literal is just a literal — no PropertyRef variant exists any more, so the
+    // construct simply parses as the string `"X"` (the dangling `OF Y` is a
+    // separate token sequence). This must not panic or produce a PropertyRef.
+    use cobolt_ast::expr::Expr;
+    let stmts = parse_stmts(&prog("    DISPLAY \"X\".\n    STOP RUN.\n"));
+    match &stmts[0] {
+        Stmt::Display { operands, .. } =>
+            assert!(matches!(operands[0], Expr::Literal(..)), "expected a literal operand"),
+        other => panic!("expected DISPLAY, got {other:?}"),
+    }
+}

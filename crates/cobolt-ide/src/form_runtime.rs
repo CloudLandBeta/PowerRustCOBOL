@@ -108,15 +108,30 @@ impl CtrlState {
         }
     }
 
+    /// Read a property — **case-insensitive** (the inline `::Caption` arrives
+    /// upper-cased, while designed values keep their model case — spec 010).
     pub fn get(&self, key: &str) -> &str {
-        self.props.get(key).map(|s| s.as_str()).unwrap_or("")
+        if let Some(v) = self.props.get(key) {
+            return v.as_str();
+        }
+        self.props.iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("")
     }
 
     pub fn set(&mut self, key: &str, value: String) {
-        match key {
-            "Visible" => self.visible = value != "0" && value != "false",
-            "Enabled" => self.enabled = value != "0" && value != "false",
+        match key.to_ascii_uppercase().as_str() {
+            "VISIBLE" => self.visible = value != "0" && value != "false",
+            "ENABLED" => self.enabled = value != "0" && value != "false",
             _ => {}
+        }
+        // Overwrite any existing case-insensitive entry so a runtime update
+        // (e.g. `::Caption` → "CAPTION") never shadows the designed "Caption".
+        if !self.props.contains_key(key) {
+            if let Some(existing) = self.props.keys().find(|k| k.eq_ignore_ascii_case(key)).cloned() {
+                self.props.remove(&existing);
+            }
         }
         self.props.insert(key.to_owned(), value);
     }

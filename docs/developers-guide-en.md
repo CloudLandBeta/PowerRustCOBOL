@@ -795,53 +795,53 @@ and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
 
 ## 11. Talking to the UI from COBOL
 
-### Property reference syntax (the concise way)
+### Reading and writing properties
 
-You can read and write a control's properties **directly as COBOL operands**,
-the way PowerCOBOL does — a quoted property name `OF` the control:
+A control's properties are read and written with the **`::`** member syntax or
+the **`INVOKE`** verb — the same forms used for methods. The member is just the
+property name; there is **one** consistent way to touch a property.
 
-```cobol
-      *> Write a property (literal → property)
-           MOVE "Hello!" TO "Caption" OF CmStatic1.
-
-      *> Read a property into a data item — no temporary needed
-           MOVE "Caption" OF CmStatic1 TO WS-NAME.
-
-      *> Property → property, directly. The type is inferred, so you do NOT
-      *> declare a temp data item to shuttle the value:
-           MOVE "Caption" OF CmStatic1 TO "Text" OF "ListItems" (4) OF Listview1.
-```
-
-The editor's **IntelliSense guides you through this syntax**: type `"` and it
-lists every property alphabetically; keep typing to filter (`"Capt…"` → `Caption`)
-and accepting the suggestion closes the quote (`"Caption"`). Then it offers the
-`OF` qualifier, and after `OF` it lists the **controls that actually expose that
-property** (`"Caption" OF Bu…` → `Button-1`, `Button-2`, …). For ordinary COBOL,
-accepting a reserved word simply inserts the word and a space and waits for what
-you type next — no auto-filled template.
-
-A property reference works as both a **sending** and a **receiving** operand with
-**any verb** — not just `MOVE`. For example:
+**Read (GET)** — `control::property` is a value usable anywhere (DISPLAY, a MOVE
+source, IF, COMPUTE), or read with `INVOKE … RETURNING`:
 
 ```cobol
-           COMPUTE "Value" OF Slider1 = "Value" OF Slider1 + 1.
-           ADD 10 TO "Value" OF Spinner1.
-           STRING "First" OF Person DELIMITED BY SPACE
-                  " "                DELIMITED BY SIZE
-                  "Last"  OF Person  DELIMITED BY SPACE
-                  INTO "Caption" OF FullNameLabel.
-           IF "Text" OF TextBox1 = SPACES
+      *> inline — used directly as a value
+           DISPLAY Button-1::Caption.
+           MOVE Button-1::Caption TO WS-NAME.
+           IF TextBox-1::Text = SPACES
                DISPLAY "empty".
+
+      *> quoted member name — identical
+           MOVE Button-1::"Caption" TO WS-NAME.
+
+      *> INVOKE verb (optionally the explicit GET- prefix)
+           INVOKE Button-1 "Caption"     RETURNING WS-NAME.
+           INVOKE Button-1 "GET-Caption" RETURNING WS-NAME.
 ```
 
-The rightmost name is the control; the quoted names are its properties, read
-control-outward, and a name may carry a 1-based subscript
-(`"ListItems" (4)`). Property names are exactly the ones in the properties pane
-(e.g. `"Caption"`, `"Text"`, `"BackgroundColor"`, `"Value"`).
+**Write (SET)** — assign to `control::property` with `MOVE`/`SET`, or pass the
+value with `INVOKE … USING`:
 
-> **Type inference.** Because the runtime carries the property value directly,
-> `MOVE propertyA TO propertyB` needs **no intermediate `PIC` data item** — a
-> step that classic GUI COBOL forces on you.
+```cobol
+      *> inline — MOVE or SET into the property
+           MOVE "Hello!" TO Button-1::Caption.
+           SET Button-1::"Caption" TO "Hello!".
+
+      *> INVOKE verb (a USING argument means set; SET- is the explicit prefix)
+           INVOKE Button-1 "Caption"     USING "Hello!".
+           INVOKE Button-1 "SET-Caption" USING "Hello!".
+```
+
+Property names are **case-insensitive** and are exactly the ones in the
+properties pane (`Caption`, `Text`, `BackgroundColor`, `Value`, …). A **numeric**
+property reads as a number, so `IF Slider1::Value > 50` is algebraic, and you can
+move or compute between a data item and a property — e.g. `MOVE WS-N TO
+Spinner1::Value` — with no intermediate `PIC` item.
+
+> **IntelliSense.** Type `::` (or `::"`) after a control id and the editor lists
+> that control's **properties (green)** and **methods (light blue)**; keep typing
+> to filter (`Button-1::Cap…` → `Caption`). A plain `"` is just a string literal —
+> it opens no popup.
 
 ### Calling control methods
 
@@ -905,7 +905,7 @@ interchangeable; pick whichever reads best for the line you are writing.
 
 > **Designed values are available before you set anything.** When a form starts,
 > every control is seeded with the values from its properties pane, so
-> `Txt-Name::GetText()` (or `"Text" OF Txt-Name`) returns the text you typed at
+> `Txt-Name::GetText()` (or `Txt-Name::Text`) returns the text you typed at
 > design time even before the first setter runs.
 
 ### Property access via CALL (also supported)

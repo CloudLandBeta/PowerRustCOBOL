@@ -4,11 +4,12 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Integration tests for PowerCOBOL-style visual-object property access:
-//!   `MOVE "Hello!" TO "Caption" OF CmStatic1`
-//!   `MOVE "Caption" OF CmStatic1 TO "Text" OF "ListItems" (4) OF Listview1`
-//! including direct property-to-property moves with no temporary data item
-//! (type inference).
+//! Integration tests for RustCOBOL control property access (spec 010):
+//!   GET — `ctrl::prop`, `ctrl::"prop"`, `INVOKE ctrl "prop" RETURNING x`,
+//!         `INVOKE ctrl "GET-prop" RETURNING x`
+//!   SET — `MOVE v TO ctrl::prop`, `SET ctrl::"prop" TO v`,
+//!         `INVOKE ctrl "prop" USING v`, `INVOKE ctrl "SET-prop" USING v`
+//! Property names are case-insensitive; numeric properties compare algebraically.
 
 use std::sync::mpsc;
 
@@ -16,10 +17,8 @@ use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::{parse, Severity};
 use cobolt_runtime::Interpreter;
 
-/// Tokenize, parse (asserting no errors), run, and return captured DISPLAY lines.
 fn run_capture(src: &str) -> Vec<String> {
-    let tokens = tokenize(src, SourceFormat::Free);
-    let result = parse(tokens);
+    let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
         result.diagnostics.iter().all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
@@ -34,75 +33,86 @@ fn run_capture(src: &str) -> Vec<String> {
     display_rx.try_iter().collect()
 }
 
-const SRC: &str = r#"
+// GET via every form, after a single SET.
+const GET_SRC: &str = r#"
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-X PIC X(20).
        PROCEDURE DIVISION.
-           MOVE "Hello!" TO "Caption" OF CmStatic1.
-           MOVE "Caption" OF CmStatic1 TO WS-X.
-           DISPLAY "X=[" WS-X "]".
-           MOVE "Caption" OF CmStatic1
-               TO "Text" OF "ListItems" (4) OF Listview1.
-           MOVE "Text" OF "ListItems" (4) OF Listview1 TO WS-X.
-           DISPLAY "Y=[" WS-X "]".
+           MOVE "Hello!" TO BUTTON-1::Caption.
+           DISPLAY "inline=[" BUTTON-1::Caption "]".
+           DISPLAY "quoted=[" BUTTON-1::"Caption" "]".
+           INVOKE BUTTON-1 "Caption" RETURNING WS-X.
+           DISPLAY "invoke=[" WS-X "]".
+           INVOKE BUTTON-1 "GET-Caption" RETURNING WS-X.
+           DISPLAY "getp=[" WS-X "]".
            STOP RUN.
 "#;
 
 #[test]
-fn property_move_round_trip_and_type_inference() {
-    let out = run_capture(SRC);
-    let joined = out.join("\n");
-    // literal -> property -> data item (no temp; type inferred)
-    assert!(joined.contains("X=[Hello!"), "simple property round-trip failed: {out:?}");
-    // property -> nested indexed property -> read back (no temp data item)
-    assert!(joined.contains("Y=[Hello!"), "nested property round-trip failed: {out:?}");
+fn get_property_all_forms() {
+    let out = run_capture(GET_SRC).join("\n");
+    for tag in ["inline=[Hello!", "quoted=[Hello!", "invoke=[Hello!", "getp=[Hello!"] {
+        assert!(out.contains(tag), "missing {tag:?} in:\n{out}");
+    }
 }
 
-const VERBS_SRC: &str = r#"
+// SET via every form, reading back each time.
+const SET_SRC: &str = r#"
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-A PIC X(10) VALUE "World".
        PROCEDURE DIVISION.
-      *> a property as receiver across several verbs (not just MOVE)
-           COMPUTE "Value" OF S1 = 5 * 2.
-           ADD 3 TO "Value" OF S1.
-           SUBTRACT 1 FROM "Value" OF S1.
-           MULTIPLY 2 BY "Value" OF S1.
-           DISPLAY "arith=[" "Value" OF S1 "]".
-      *> STRING with a property as both a source and the INTO receiver
-           MOVE "Hi" TO "Text" OF Lbl1.
-           STRING "Text" OF Lbl1 DELIMITED BY SPACE
-                  WS-A DELIMITED BY SPACE
-                  INTO "Text" OF Lbl1.
-           DISPLAY "string=[" "Text" OF Lbl1 "]".
+           MOVE "A" TO LBL-1::Text.
+           DISPLAY "move=[" LBL-1::Text "]".
+           SET LBL-1::"Text" TO "B".
+           DISPLAY "set=[" LBL-1::Text "]".
+           INVOKE LBL-1 "Text" USING "C".
+           DISPLAY "using=[" LBL-1::Text "]".
+           INVOKE LBL-1 "SET-Text" USING "D".
+           DISPLAY "setp=[" LBL-1::Text "]".
            STOP RUN.
 "#;
 
 #[test]
-fn property_receiver_works_with_any_verb() {
-    let out = run_capture(VERBS_SRC);
-    let joined = out.join("\n");
-    // ((5*2)+3-1)*2 = 24
-    assert!(joined.contains("arith=[24]"), "arithmetic receivers failed: {out:?}");
-    assert!(joined.contains("string=[HiWorld]"), "STRING INTO property failed: {out:?}");
+fn set_property_all_forms() {
+    let out = run_capture(SET_SRC).join("\n");
+    for tag in ["move=[A", "set=[B", "using=[C", "setp=[D"] {
+        assert!(out.contains(tag), "missing {tag:?} in:\n{out}");
+    }
+}
+
+// Numeric properties compare algebraically (not as digit strings).
+const NUM_SRC: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. T.
+       PROCEDURE DIVISION.
+           MOVE 232 TO BTN::Width.
+           MOVE 64 TO LBL::Width.
+           IF BTN::Width > LBL::Width
+               DISPLAY "GT"
+           ELSE
+               DISPLAY "LE"
+           END-IF.
+           STOP RUN.
+"#;
+
+#[test]
+fn numeric_property_comparison_is_algebraic() {
+    let out = run_capture(NUM_SRC).join("\n");
+    assert!(out.contains("GT"), "232 > 64 must hold algebraically: {out}");
 }
 
 #[test]
-fn property_reference_does_not_warn_on_control_names() {
-    // Control names in property references are form objects, not DATA DIVISION
-    // items, so they must not produce "not declared" warnings.
-    let tokens = tokenize(SRC, SourceFormat::Free);
-    let result = parse(tokens);
+fn property_access_does_not_warn_on_control_names() {
+    // Control names in `ctrl::prop` are form objects, not DATA DIVISION items, so
+    // they must not produce "not declared" warnings.
+    let result = parse(tokenize(GET_SRC, SourceFormat::Free));
     let program = result.program.expect("no program");
     let analysis = cobolt_semantic::analyze(&program);
     assert!(
-        !analysis.diagnostics.iter()
-            .any(|d| d.message.contains("CmStatic1") || d.message.contains("Listview1")),
+        !analysis.diagnostics.iter().any(|d| d.message.contains("BUTTON-1")),
         "unexpected diagnostic for a control name: {:?}",
         analysis.diagnostics
     );

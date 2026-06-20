@@ -8,6 +8,32 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.1] — 2026-06-20
+
+Fix: standardise control property & method access on the RustCOBOL `::`/`INVOKE`
+forms and remove the redundant Fujitsu `"Property" OF Control` syntax (spec 010).
+
+### Changed / Fixed
+
+- **One way to touch a control property** — the `::` member syntax and the
+  `INVOKE` verb, for both read and write:
+  - GET: `control::property`, `control::"property"`, `INVOKE control "property"
+    RETURNING x`, `INVOKE control "GET-property" RETURNING x`.
+  - SET: `MOVE v TO control::property`, `SET control::"property" TO v`,
+    `INVOKE control "property" USING v`, `INVOKE control "SET-property" USING v`.
+  - A bare member resolves as a property accessor (get with no argument, set with
+    a `USING` argument); `GET-`/`SET-` are explicit prefixes; explicit methods
+    (`SetCaption`, `GetText`, …) keep priority.
+- **Case-insensitive property names**, and numeric properties read as numbers so
+  `IF Slider1::Value > 50` and arithmetic stay algebraic.
+- **Removed** the inherited Fujitsu `"Property" OF Control` syntax entirely
+  (parser, AST, runtime, IntelliSense, docs). No legacy code used it, so this is
+  not a breaking change. (This also drops the `OF` form's property-as-receiver in
+  arbitrary verbs and indexed property paths; use `::`/`INVOKE` with a data item.)
+- **IntelliSense:** typing `::` or `::"` after a control id lists its **properties
+  (green)** and **methods (light blue)** and filters as you type; a lone `"` opens
+  no popup.
+
 ## [PowerRustCOBOL 1.27.0] — 2026-06-19
 
 Form module model (spec 009) — procedure scoping, sharing & lifecycle.

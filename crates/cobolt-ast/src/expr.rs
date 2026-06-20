@@ -124,20 +124,6 @@ pub enum Expr {
         span: Span,
     },
 
-    /// Visual-object **property reference** (PowerCOBOL-style), usable as a
-    /// sending or receiving operand:
-    ///   `"Caption" OF CmStatic1`
-    ///   `"Text" OF "ListItems" (4) OF Listview1`
-    /// `control` is the rightmost name (the control); `path` is the property
-    /// chain from the control outward, so its **last** element is the property
-    /// actually read/written. Property names are quoted string literals; an
-    /// element may carry a 1-based subscript.
-    PropertyRef {
-        control: String,
-        path: Vec<PropSeg>,
-        span: Span,
-    },
-
     /// Visual-object **method call** as an expression (PowerCOBOL OO style):
     ///   `Label-1::GetText()`  ·  `CheckBox-1::IsChecked()`
     /// Used where a value is needed (e.g. `MOVE obj::GetText() TO X`). The same
@@ -148,14 +134,6 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
-}
-
-/// One segment of a [`Expr::PropertyRef`] path: a property/collection name with
-/// an optional 1-based subscript (`"ListItems" (4)`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PropSeg {
-    pub name: String,
-    pub index: Option<Box<Expr>>,
 }
 
 impl Expr {
@@ -170,7 +148,6 @@ impl Expr {
             Expr::FunctionCall { span, .. } => *span,
             Expr::Arithmetic { span, .. } => *span,
             Expr::Unary { span, .. }     => *span,
-            Expr::PropertyRef { span, .. } => *span,
             Expr::MethodCall { span, .. } => *span,
         }
     }
