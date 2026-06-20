@@ -79,6 +79,9 @@ Rust types, `USAGE OBJECT REFERENCE` items hold Rust object handles, and
   as a nested program in the form's outer program that can see the form's GLOBAL
   data and is callable (by name) from event handlers and from other user
   procedures.
+  > **Extended by [009](../009-form-module-model/spec.md) R4:** `IS COMMON` is to
+  > be applied to **every** woven procedure (event handlers too), not only user
+  > procedures, so any procedure is callable from anywhere in the form module.
 
 **COBOL-2002 language support**
 - **R4:** The lexer/parser/AST/semantic shall recognise the `REPOSITORY`
@@ -142,8 +145,14 @@ Rust types, `USAGE OBJECT REFERENCE` items hold Rust object handles, and
 - [ ] AC8 — A user procedure defined on a form is callable by name from an event
   handler at run time, and can read/write the form's GLOBAL data.
 - [ ] AC6 — Demo: `REPOSITORY` binds `RUST-STRING` ↦ `Rust.String`;
-  `05 S USAGE OBJECT REFERENCE RUST-STRING`; `INVOKE S "len"` (or `S::len()`)
-  returns the Rust string length; the object is dropped with no leak.
+  `01 S USAGE OBJECT REFERENCE RUST-STRING`; `DISPLAY S::len()` displays the
+  Rust string length; the object is dropped with no leak.
+  > **Gap (folded into [009](../009-form-module-model/spec.md) R16):** using the
+  > inline `S::len()` as a **value operand** (inside `DISPLAY`/`MOVE`/`COMPUTE`) is
+  > **not yet implemented** — today `::` dispatches only as a *statement*, and the
+  > previously wired path was `INVOKE S "len" RETURNING N` then `DISPLAY N`. Making
+  > `DISPLAY S::len()` work needs the runtime to evaluate `Expr::MethodCall` as a
+  > value; specified and planned in 009 (R16).
 - [ ] AC7 — New IDE strings exist in all six languages; English dev guide updated;
   generated banner preserved; no hand-edited generated `.cbl`.
 

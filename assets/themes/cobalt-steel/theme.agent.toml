@@ -1,0 +1,23 @@
+name = "cobalt-steel"
+scale = 3
+material = "photorealistic brushed cobalt steel"
+
+[background]
+mode = "stretch"
+file = "background.png"
+
+[chart_style]
+stroke_width = 2
+fill_texture = "chart_fill.png"
+
+[palette]
+chart = ["#2D6FE8", "#BC35DD", "#24C79B", "#E46F38", "#80D7FF", "#F05FA6"]
+
+[grain]
+top_bottom_edges = "horizontal brushed grain"
+left_right_edges = "vertical brushed grain where generated as side-specific slices"
+centers = "flat/stretch-safe cobalt brushed metal"
+
+[notes]
+reassembly = "Resizable framed controls use 9-slice assets: tl, t, tr, l, c, r, bl, b, br. Corners remain fixed; edges stretch on their primary axis; centers stretch freely."
+exclusions = "Text labels, captions, runtime values, dynamic glows, LEDs, and application-specific content are intentionally excluded."

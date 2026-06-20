@@ -8,6 +8,35 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.0] — 2026-06-19
+
+Form module model (spec 009) — procedure scoping, sharing & lifecycle.
+
+### New / Changed
+
+- **All procedures are `IS COMMON`.** Every woven procedure — event handlers and
+  user procedures alike — is now generated `IS COMMON PROGRAM`, so any procedure
+  is callable from anywhere in the form module (a handler may `CALL` another
+  handler, a user procedure may call a handler, …). Previously only user
+  procedures were `COMMON`.
+- **Static-by-default procedures.** A procedure's local `WORKING-STORAGE` is now
+  initialised **once** and **persists across calls** (re-entering a handler keeps
+  its values; exiting does not cancel it), matching COBOL-85. `CANCEL "<name>"`
+  resets a procedure's state; `INITIALIZE` (unchanged) resets the items you
+  choose, each call.
+- **`FD … IS GLOBAL`.** A global `FD` is accepted and validated; the file and its
+  record are visible to the form's nested procedures. `GLOBAL` placement is now
+  validated (valid only on `01`/`77` items and `FD`s) alongside `EXTERNAL`.
+- **Inline `obj::method()` as a value.** The inline method call now works as a
+  value operand inside `DISPLAY`/`MOVE`/`COMPUTE` (e.g. `DISPLAY S::len()`), not
+  only as a statement — folded in from the 005 Rust-FFI AC6.
+
+### Notes
+
+- `INVOKE-FORM` (form invoking another form) and `#INCLUDE` (copying in external
+  embedded programs) are **deferred** to a follow-up; cross-process `EXTERNAL`
+  sharing remains scoped to a single run unit.
+
 ## [PowerRustCOBOL 1.26.0] — 2026-06-19
 
 Form themes (spec 007) — engine + selection + reference pack.

@@ -267,3 +267,73 @@ LOOP-BODY.
     let errors: Vec<_> = result.errors().collect();
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
+
+// ── GLOBAL placement (spec 009 R6) ──────────────────────────────────────────
+
+#[test]
+fn global_on_01_and_77_is_clean_009() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. GLOBOK.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-SHARED   PIC 9(4) GLOBAL.
+77 WS-FLAG     PIC 9    GLOBAL.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+    let prog = parse_program(src);
+    let result = analyze(&prog);
+    let errors: Vec<_> = result.errors().collect();
+    assert!(errors.is_empty(), "GLOBAL on 01/77 must be clean: {errors:?}");
+}
+
+#[test]
+fn global_on_subordinate_item_is_error_009() {
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. GLOBBAD.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-GROUP.
+   05 WS-CHILD PIC 9(4) GLOBAL.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+    let prog = parse_program(src);
+    let result = analyze(&prog);
+    let errors: Vec<_> = result.errors().collect();
+    assert!(
+        errors.iter().any(|e| e.message.contains("GLOBAL is valid only")),
+        "GLOBAL on a level-05 item must be flagged: {errors:?}"
+    );
+}
+
+#[test]
+fn fd_is_global_parses_and_is_clean_009() {
+    // `FD … IS GLOBAL` (spec 009 R6) parses and raises no placement error.
+    let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. FDGLOB.
+ENVIRONMENT DIVISION.
+INPUT-OUTPUT SECTION.
+FILE-CONTROL.
+    SELECT F ASSIGN TO \"f.dat\"
+        ORGANIZATION IS LINE SEQUENTIAL.
+DATA DIVISION.
+FILE SECTION.
+FD F IS GLOBAL.
+01 F-REC PIC X(80).
+WORKING-STORAGE SECTION.
+01 WS-EOF PIC 9 VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+    let prog = parse_program(src);
+    let result = analyze(&prog);
+    let errors: Vec<_> = result.errors().collect();
+    assert!(errors.is_empty(), "FD IS GLOBAL must parse clean: {errors:?}");
+}

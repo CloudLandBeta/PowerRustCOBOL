@@ -2095,41 +2095,11 @@ impl PropertiesPanel {
             }
             ui.end_row();
 
-            // Form theme override (spec 007). "" ⇒ inherit the project default.
-            ui.label(tr.theme_form_override);
-            {
-                let choices = crate::theme_ui::choices(ui.ctx());
-                let cur_id = form.theme.as_deref().unwrap_or("").to_owned();
-                let cur_text = if cur_id.is_empty() {
-                    tr.theme_inherit_default.to_owned()
-                } else {
-                    crate::theme_ui::display_name(ui.ctx(), &cur_id)
-                };
-                egui::ComboBox::from_id_salt("form_theme_override")
-                    .selected_text(cur_text)
-                    .width(ui.available_width())
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_label(cur_id.is_empty(), tr.theme_inherit_default).clicked() {
-                            action.form_props.push(("Theme".into(), String::new()));
-                        }
-                        for (id, name) in &choices {
-                            if ui.selectable_label(&cur_id == id, name.as_str()).clicked() {
-                                action.form_props.push(("Theme".into(), id.clone()));
-                            }
-                        }
-                    });
-            }
-            ui.end_row();
-
-            // Use the theme's background (R8).
-            ui.label(tr.theme_use_background);
-            {
-                let mut use_bg = form.use_theme_background;
-                if ui.checkbox(&mut use_bg, "").changed() {
-                    action.form_props.push(("UseThemeBackground".into(), if use_bg { "true" } else { "false" }.to_string()));
-                }
-            }
-            ui.end_row();
+            // Form theme override + themed-background toggle (spec 007) are
+            // **hidden for now**: only Liquid Glass ships as a finished look until
+            // the special asset packs are tuned. The model fields (`form.theme`,
+            // `form.use_theme_background`) and the renderer are retained — restoring
+            // these two rows re-enables the per-form chooser.
         });
         });
 
