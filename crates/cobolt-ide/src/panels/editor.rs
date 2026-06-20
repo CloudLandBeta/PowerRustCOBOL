@@ -1577,32 +1577,17 @@ impl EditorPanel {
                                             controls_with_property(&self.known_controls, property, &prefix),
                                     };
                                     (v, true)
-                                } else if let Some((ctrl_id, ctrl_type, method_pfx)) = &invoke {
-                                    // Inside INVOKE ctrl-id '…' → filter methods
+                                } else if let Some((ctrl_id, ctrl_type, member_pfx)) = &invoke {
+                                    // `INVOKE ctrl '…'`, `ctrl::`, and `ctrl::"` all
+                                    // list the control's properties (green) + methods
+                                    // (light-blue), filtered by the typed prefix
+                                    // (spec 010 R10/R11).
                                     let _ = ctrl_id;
-                                    let v = methods_for_type(ctrl_type)
-                                        .iter()
-                                        .filter(|(m, _)| m.to_lowercase().starts_with(&method_pfx.to_lowercase()))
-                                        .map(|(m, d)| AcItem::method(m, d))
-                                        .collect::<Vec<_>>();
-                                    (v, true)
+                                    (member_completions(ctrl_type, member_pfx), true)
                                 } else if let Some((ctrl_type, member_pfx)) = &member_ctrl {
                                     // Exact control ID typed → show EVERY property
                                     // (derived from the canonical control model) + methods.
-                                    let up = member_pfx.to_ascii_uppercase();
-                                    let mut v: Vec<AcItem> =
-                                        cobolt_forms::model::property_names_for(ctrl_type)
-                                            .into_iter()
-                                            .filter(|p| p.to_ascii_uppercase().starts_with(&up))
-                                            .map(|p| AcItem::prop(&p, "property"))
-                                            .collect();
-                                    for (m, d) in methods_for_type(ctrl_type)
-                                        .iter()
-                                        .filter(|(m, _)| m.to_ascii_uppercase().starts_with(&up))
-                                    {
-                                        v.push(AcItem::method(m, d));
-                                    }
-                                    (v, true)
+                                    (member_completions(ctrl_type, member_pfx), true)
                                 } else {
                                     (build_completions(&prefix, &tab.content, &self.known_controls), false)
                                 };
@@ -2255,14 +2240,26 @@ fn detect_invoke_context(
         }
     }
 
-    // ── ctrl-id::  and  ctrl-id::"  (spec 010 R10/R11) ─────────────────────
+    // ── ctrl-id::  ·  ctrl-id::"  ·  chain tail `… )::` / `…::member::`
+    //    (spec 010 R10/R11, extended for member chains in spec 011) ──────────
     if let Some(pos) = line.rfind("::") {
         let before = line[..pos].trim_end();
-        let ctrl_tok = before
+        // The whole chain expression is the last whitespace-delimited token, e.g.
+        // `Grid::Rows(0)`. Its **root** is the identifier before the first `::`
+        // (a leading subscript stripped), so chain-tail completion offers the
+        // root control's members (deep element-type inference is out of scope).
+        let chain_expr = before
             .rsplit(|c: char| c.is_whitespace())
             .next()
+            .unwrap_or("");
+        let root = chain_expr
+            .split("::")
+            .next()
             .unwrap_or("")
-            .to_ascii_uppercase();
+            .split('(')
+            .next()
+            .unwrap_or("");
+        let ctrl_tok = root.to_ascii_uppercase();
         // The quoted form `ctrl::"member` opens the same list; the leading quote
         // is not part of the member being filtered, so strip it.
         let after = &line[pos + 2..];
@@ -2276,6 +2273,26 @@ fn detect_invoke_context(
     }
 
     None
+}
+
+/// Build the member-completion list for a control type, filtered by `member_pfx`:
+/// the control's **properties (green)** followed by its **methods (light-blue)**
+/// (spec 010 R10/R11). Shared by the `INVOKE ctrl '…'`, `ctrl::`, and `ctrl::"`
+/// contexts so all three list the same members.
+fn member_completions(ctrl_type: &str, member_pfx: &str) -> Vec<AcItem> {
+    let up = member_pfx.to_ascii_uppercase();
+    let mut v: Vec<AcItem> = cobolt_forms::model::property_names_for(ctrl_type)
+        .into_iter()
+        .filter(|p| p.to_ascii_uppercase().starts_with(&up))
+        .map(|p| AcItem::prop(&p, "property"))
+        .collect();
+    for (m, d) in methods_for_type(ctrl_type)
+        .iter()
+        .filter(|(m, _)| m.to_ascii_uppercase().starts_with(&up))
+    {
+        v.push(AcItem::method(m, d));
+    }
+    v
 }
 
 /// PowerCOBOL-style property reference context: `"Property" OF Widget`.
@@ -2837,6 +2854,49 @@ END-EVALUATE
         assert_eq!(ctx("           DISPLAY Button-1::\"Cap").unwrap().2, "Cap");
         // A lone double quote (no `::`) opens no property/method popup.
         assert_eq!(detect_property_ref("           DISPLAY \""), None);
+    }
+
+    #[test]
+    fn member_chain_tail_resolves_root_control_011() {
+        // Spec 011: a chain prefix (`Grid::Rows(0)::`) still triggers the member
+        // list, resolved against the chain's ROOT control type.
+        let controls = vec![
+            KnownControl { id: "Grid".into(), ctrl_type: "DataGrid".into(),
+                           properties: vec!["Rows".into()] },
+        ];
+        let ctx = |line: &str| {
+            let n = line.chars().count();
+            detect_invoke_context(line, n, &controls)
+        };
+        let (_id, ty, pre) = ctx("           DISPLAY Grid::Rows(0)::").expect("chain `::` triggers");
+        assert_eq!((ty.as_str(), pre.as_str()), ("DataGrid", ""));
+        // Filtering still applies on the chain tail.
+        assert_eq!(ctx("           DISPLAY Grid::Rows(0)::Val").unwrap().2, "Val");
+    }
+
+    #[test]
+    fn member_completions_list_both_properties_and_methods_010() {
+        // Spec 010 R10/R11: the `::` / `::"` (and INVOKE) member list must contain
+        // BOTH properties (green ●) and methods (light-blue M) — the regression was
+        // a list that showed only methods.
+        let items = member_completions("Slider", "");
+        assert!(
+            items.iter().any(|i| i.kind == AcKind::Property),
+            "member list must contain property items: {:?}",
+            items.iter().map(|i| i.label.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            items.iter().any(|i| i.kind == AcKind::Method),
+            "member list must contain method items"
+        );
+        // Universal geometry/visibility methods are always present.
+        assert!(items.iter().any(|i| i.label == "Show" && i.kind == AcKind::Method));
+        // Field-backed properties are always present (Visible/Enabled/X/Y/…).
+        assert!(items.iter().any(|i| i.label == "Visible" && i.kind == AcKind::Property));
+        // The prefix filters both kinds case-insensitively.
+        let v = member_completions("Slider", "vis");
+        assert!(v.iter().all(|i| i.label.to_ascii_uppercase().starts_with("VIS")));
+        assert!(v.iter().any(|i| i.label == "Visible"));
     }
 
     #[test]

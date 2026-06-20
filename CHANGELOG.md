@@ -8,6 +8,38 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.2] — 2026-06-20
+
+Fix: complete the RustCOBOL `::` member-access model — IntelliSense now lists
+properties alongside methods, the `::` operator chains to any depth over a real
+nested object model, and a control property is a receiving field for every verb
+(spec 011).
+
+### Fixed
+
+- **IntelliSense `::` popup** — the property/method list now shows **properties
+  (green)** as well as methods (light blue); the `::` / `::"` member list and
+  chain tails (`…)::`, `…::member::`) are resolved against the chain's root
+  control.
+- **Member-access chains** — the `::` operator now chains to any depth with one
+  consistent syntax: `Grid-1::Rows(I)::Columns(2)::Value`,
+  `obj::Value::toUpperCase()`. A `(n)` subscript indexes a collection, a bare
+  name is a property, and `()` is a method call.
+- **Nested object model** — controls hold nested objects and indexable
+  collections (rows → columns → cells, list items), navigated by the chain;
+  legacy newline-string item lists interoperate (`List-1::Items(3)`).
+- **Property as a receiving field for every verb** — not just `MOVE`/`SET` but
+  `STRING`/`UNSTRING INTO`, `ADD … TO`, `COMPUTE`, `ACCEPT`, `INSPECT`,
+  `INVOKE … RETURNING`, … may write to `control::property` (and nested cells).
+- **Collection / value helpers** on a chain element — `Count`, `Delete`,
+  `Clear`, `Add`, and the transforms `toUpperCase`, `toLowerCase`, `trim`, `len`.
+- **INITIALIZE on a control** — `INITIALIZE obj` resets its `Value` property;
+  `INITIALIZE obj::prop` targets one property; `INITIALIZE obj name` initialises
+  each operand by its own rules.
+- A chain ending in a **method call** `()` is a value, never a receiving field —
+  `MOVE name TO obj::method()` is rejected (runtime error + a compile-time
+  diagnostic); a chain ending in a **property** or **indexed cell** is assignable.
+
 ## [PowerRustCOBOL 1.27.1] — 2026-06-20
 
 Fix: standardise control property & method access on the RustCOBOL `::`/`INVOKE`

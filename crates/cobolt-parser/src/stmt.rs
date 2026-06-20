@@ -1990,39 +1990,15 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
     Stmt::Invoke { object, method, args, returning, span }
 }
 
-/// Inline OO call as a statement: `object::method(arg, …)`.
-/// (The expression form lives in the expression parser.)
+/// Inline OO call as a statement: `object::member(arg, …)` and chains thereof
+/// (`Grid-1::Rows(I)::Delete()`). The expression parser builds the full
+/// [`Expr::Member`] chain; here we just wrap it as a statement evaluated for
+/// effect. (The value-position form lives in the expression parser.)
 fn parse_inline_invoke(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
-    let object = p.eat_identifier().map(|(n, _)| n).unwrap_or_default();
-    let (method, args) = parse_method_tail(p).unwrap_or_default();
+    let expr = parse_expr(p);
     p.eat(&Token::Period);
-    Stmt::Invoke { object, method, args, returning: None, span }
-}
-
-/// Parse `:: method ( args )` with the cursor on the first `:`. Shared by the
-/// statement and expression forms of an inline method call.
-pub(crate) fn parse_method_tail(p: &mut Parser) -> Option<(String, Vec<Expr>)> {
-    if !(p.eat(&Token::Colon) && p.eat(&Token::Colon)) {
-        return None;
-    }
-    // Accept bare identifier (preferred for :: syntax) or a string literal
-    // (for symmetry with classic INVOKE and to tolerate old completion output
-    // that inserted 'Method' or "Method").
-    let method = p.eat_identifier()
-        .map(|(n, _)| n)
-        .or_else(|| crate::expr::take_string_literal(p))
-        .unwrap_or_default();
-    if method.is_empty() { return None; }
-    let mut args = Vec::new();
-    if p.eat(&Token::LParen) {
-        while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
-            args.push(parse_expr(p));
-            if !p.eat(&Token::Comma) { break; }
-        }
-        p.expect(&Token::RParen);
-    }
-    Some((method, args))
+    Stmt::InvokeExpr { expr, span }
 }
 
 // ── INITIALIZE ────────────────────────────────────────────────────────────────

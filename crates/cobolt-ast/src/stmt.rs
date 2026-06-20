@@ -730,6 +730,15 @@ pub enum Stmt {
         span: Span,
     },
 
+    /// An inline member-access **chain used as a statement**, evaluated for its
+    /// effect: `Grid-1::Rows(I)::Delete()`, `Label-1::SetCaption("Hi")`,
+    /// `obj::UpperCase()` (the last has no effect — the result is discarded).
+    /// `expr` is always an [`Expr::Member`]; its value (if any) is dropped.
+    InvokeExpr {
+        expr: Expr,
+        span: Span,
+    },
+
     /// `CANCEL program …` — drop the program(s) from memory so the next `CALL`
     /// re-initialises their storage.
     Cancel {
@@ -881,6 +890,7 @@ impl Stmt {
             Stmt::Return { span, .. }            => *span,
             Stmt::Call { span, .. }              => *span,
             Stmt::Invoke { span, .. }            => *span,
+            Stmt::InvokeExpr { span, .. }        => *span,
             Stmt::Cancel { span, .. }            => *span,
             Stmt::Stop { span, .. }              => *span,
             Stmt::GoBack { span }                => *span,
