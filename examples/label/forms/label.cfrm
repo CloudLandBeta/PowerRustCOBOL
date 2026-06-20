@@ -1,5 +1,55 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="TESTFORM" title="Label — control test" width="640" height="1080" background="00000000" transparency="0" grid-size="8" snap-to-grid="true" target="Custom">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS my IS "fgfg"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"
+]]></repository>
   <form-events>
     <Event name="onLoad" paragraph="TESTFORM--ONLOAD">
     </Event>
@@ -16,7 +66,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -30,9 +79,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
@@ -80,7 +126,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -94,9 +139,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -104,7 +146,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B00--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -128,7 +169,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -142,9 +182,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -152,7 +189,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B01--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -176,7 +212,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -190,9 +225,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -200,7 +232,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B02--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -224,7 +255,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -238,9 +268,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -248,7 +275,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B03--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -272,7 +298,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -286,9 +311,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -296,7 +318,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B04--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -320,7 +341,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -334,9 +354,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -344,7 +361,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B05--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -368,7 +384,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -382,9 +397,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -392,7 +404,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B06--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -416,7 +427,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -430,9 +440,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -440,7 +447,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B07--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -464,7 +470,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -478,9 +483,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -488,7 +490,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B08--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -512,7 +513,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -526,9 +526,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -536,7 +533,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B09--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -560,7 +556,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -574,9 +569,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -584,7 +576,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B10--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -608,7 +599,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -622,9 +612,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -632,7 +619,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B11--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -656,7 +642,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -670,9 +655,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -680,7 +662,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B12--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -704,7 +685,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -718,9 +698,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -728,7 +705,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B13--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -752,7 +728,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -766,9 +741,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -776,7 +748,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B14--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -800,7 +771,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -814,9 +784,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -824,7 +791,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B15--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -848,7 +814,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -862,9 +827,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -872,7 +834,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B16--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -896,7 +857,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -910,9 +870,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -920,7 +877,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B17--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -944,7 +900,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -958,9 +913,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -968,7 +920,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B18--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -992,7 +943,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1006,9 +956,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1016,7 +963,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B19--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1040,7 +986,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1054,9 +999,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1064,7 +1006,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B20--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1088,7 +1029,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1102,9 +1042,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1112,7 +1049,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B21--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1136,7 +1072,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1150,9 +1085,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1160,7 +1092,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B22--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1184,7 +1115,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1198,9 +1128,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1208,7 +1135,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B23--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1232,7 +1158,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1246,9 +1171,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1256,7 +1178,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B24--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1280,7 +1201,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1294,9 +1214,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1304,7 +1221,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B25--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1328,7 +1244,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1342,9 +1257,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1352,7 +1264,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B26--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1376,7 +1287,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1390,9 +1300,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1400,7 +1307,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B27--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1424,7 +1330,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1438,9 +1343,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1448,7 +1350,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B28--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1472,7 +1373,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1486,9 +1386,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1496,7 +1393,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B29--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1520,7 +1416,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1534,9 +1429,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1544,7 +1436,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B30--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1568,7 +1459,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1582,9 +1472,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1592,7 +1479,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B31--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1616,7 +1502,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1630,9 +1515,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1640,7 +1522,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B32--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1664,7 +1545,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1678,9 +1558,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1688,7 +1565,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B33--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1712,7 +1588,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="Dock">None</Property>
     <Property name="Anchor">Top,Left</Property>
@@ -1726,9 +1601,6 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="LabelFor"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="IsCancel">false</Property>
     <Property name="ModalResult">None</Property>
@@ -1736,7 +1608,6 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="CornerRadius">3</Property>
     <Property name="FlatStyle">false</Property>
-    <Property name="ImagePath"></Property>
     <Property name="ImageAlignment">MiddleLeft</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Event name="onClick" paragraph="B34--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
