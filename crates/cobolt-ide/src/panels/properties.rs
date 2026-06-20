@@ -1759,6 +1759,7 @@ impl PropertiesPanel {
                     bool_row(ui, id, "ShowGridLines", "Show grid lines", ctrl, action); ui.end_row();
                     bool_row(ui, id, "ShowTooltips", "Show tooltips",  ctrl, action); ui.end_row();
                     bool_row(ui, id, "AnimateOnLoad","Animate on load",ctrl, action); ui.end_row();
+                    bool_row(ui, id, "HideBackground","Hide background",ctrl, action); ui.end_row();
                     // Axis labels (not for pie/donut)
                     if !matches!(ctrl.control_type, ControlType::PieChart | ControlType::DonutChart) {
                         let cx = ctrl.get_prop("XAxisLabel").map(|v| v.as_str().to_owned()).unwrap_or_default();

@@ -528,6 +528,9 @@ non-visual ones are services.
 
 **Charts**
 : BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart.
+  Every chart has a **Hide background** property: when checked, the chart's panel
+  fill and border frame are not drawn, so only the chart content (grid, axes,
+  labels, data) shows — letting the chart sit transparently on the form.
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase.
