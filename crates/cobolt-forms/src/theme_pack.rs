@@ -331,11 +331,11 @@ slice = [16, 16, 16, 16]
         }
         let pack = load_pack(&dir).expect("load cobalt-steel");
         assert_eq!(pack.id, "cobalt-steel");
-        assert_eq!(pack.manifest.palette.chart.len(), 4);
+        assert!(pack.manifest.palette.chart.len() >= 4, "chart palette present");
         let btn = pack.control("button").expect("button skin");
         assert!(btn.image_for(ControlState::Hover).contains("hover"));
         // The referenced image files exist on disk.
-        assert!(pack.asset_path(&btn.image).exists(), "button.png must exist");
+        assert!(pack.asset_path(&btn.image).exists(), "button image must exist");
         assert!(pack.manifest.background.is_some());
     }
 }

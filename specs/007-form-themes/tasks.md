@@ -88,8 +88,9 @@ T10) **coordinate with spec 006's shared renderer** — same `draw_control`.
     four packs only need their per-control/per-state 9-slice PNGs (+ backgrounds
     + chart fills) dropped into `assets/themes/{stainless-steel,dark-wood,
     modeling-clay,knitted-wool}/` with a `theme.toml` each. They then surface in
-    the pickers and render with **no code change** (AC7). I cannot author the
-    raster art.
+    the pickers automatically (AC7). **Framed** controls render with no code
+    change; **sprite/composite** controls (checkbox, slider, combobox, …) need
+    **Phase 6 (T13–T17)** first. I cannot author the raster art.
   - Files: `assets/themes/{stainless-steel,dark-wood,modeling-clay,knitted-wool}/`
     (manifests + per-control/per-state 9-slice art + chart fills + backgrounds),
     imported from the operator's AI-generated original assets and sliced/tuned.
@@ -128,9 +129,84 @@ T10) **coordinate with spec 006's shared renderer** — same `draw_control`.
     background toggle), AC6 (existing forms = Liquid Glass), AC7 (drop-in pack
     appears), AC8 (i18n ×6 + docs).
 
+## Phase 6 — Asset-pack engine extensions (decomposed special-theme assets)
+
+Implements the gaps in [asset-decomposition.md](./asset-decomposition.md) §5 so the
+engine can consume the **decomposed** photoreal assets (cobalt-steel first) for
+**all** control kinds — not just single-image 9-slice frames. Each task keeps
+Liquid Glass and the existing single-image packs working (additive), and the
+reference pack / any delivered pack must still load. Order lets the project stay
+green; T13 alone makes framed controls consume parts, the rest add the
+non-9-slice control families.
+
+- [ ] **T13 — Parts-mode 9-slice + per-edge tile/stretch** (addendum §5.1, §5.5)
+  - Files: `crates/cobolt-forms/src/theme_pack.rs` (skin `mode = "parts"`: the 9
+    part files `tl t tr l c r bl b br`; derive insets from corner sizes; optional
+    `tile_edges`/`tile_center`/`grain`); `crates/cobolt-forms/src/paint.rs`
+    (composite parts — corners fixed, edges/center stretched or tiled — reusing
+    `nine_slice_cells`; build/cache the part textures).
+  - Do: a framed control (button/panel/textbox/…) can be skinned from 9 separate
+    PNGs and render identically to the single-image path.
+  - Verify: `cargo test -p cobolt-forms --features render` — a parts-mode pack and
+    an equivalent single-image pack produce the same 9 dest rects (geometry test);
+    a missing part falls back cleanly. Report counts.
+
+- [ ] **T14 — 3-slice frames** (addendum §5.2)
+  - Files: `theme_pack.rs` (`mode = "hslice"`/`"vslice"`: `l c r` parts);
+    `paint.rs` (3-region composite). Used by menubar/toolbar/statusbar/splitter and
+    the slider track/fill + progressbar fill + tabcontrol tab.
+  - Verify: `cargo test -p cobolt-forms` — horizontal/vertical 3-slice geometry
+    (caps fixed, middle stretched/tiled); fallback to glass when absent.
+
+- [ ] **T15 — Sprite controls: checkbox & radio** (addendum §5.3, §5.6)
+  - Files: `theme_pack.rs` (`sprite` skin: fixed box/knob per state + `check`/`dot`
+    glyph overlay); `paint.rs` (draw the box/knob left-aligned at fixed size +
+    glyph when checked; label drawn by existing code); add `Checked` to
+    `ControlState`.
+  - Verify: `cargo test -p cobolt-forms` — a checkbox/radio skin resolves box +
+    state + checked glyph; unskinned → glass. Manual: renders beside the caption.
+
+- [ ] **T16 — Composite controls (sub-elements)** (addendum §5.4)
+  - Files: `theme_pack.rs` (sub-element layout descriptors); `paint.rs`
+    (slider: track+fill+thumb+ticks; progressbar: trough+fill; combobox/
+    numericupdown/datetimepicker: field + right-edge button(s) + glyph;
+    tabcontrol: body + tab strip; groupbox/datagrid: header band). Per-state
+    thumbs/buttons.
+  - Verify: `cargo test -p cobolt-forms` (layout math: thumb position, fill width,
+    button rects). Manual: a themed slider/combo/progress matches the mockup;
+    uncovered sub-parts fall back to glass.
+
+- [ ] **T17 — Glyph/icon overlays + extra states** (addendum §5.6)
+  - Files: `theme_pack.rs`/`paint.rs` — `arrow_down/up`, `expander_collapsed/
+    expanded`, `calendar`, `sort_asc/desc` glyphs; `Selected` state (tab/list row);
+    optional palette-tinting hook (§5.8).
+  - Verify: `cargo test -p cobolt-forms` — glyph resolution per state; tint applies
+    palette foreground when requested.
+
+- [ ] **T18 — Reference/min-size metadata + cobalt-steel decomposed pack** (§5.7)
+  - Files: `theme_pack.rs` (`reference_size`, `min_size`; clamp so a frame never
+    shrinks below its insets); `assets/themes/cobalt-steel/` (import the operator-
+    delivered decomposed parts per the addendum folder layout, replacing the
+    procedural reference pack).
+  - Verify: Manual — the cobalt-steel pack renders every control family
+    (framed, sprite, composite) faithfully to the mockup at varied sizes with no
+    seams/distortion; `cargo test -p cobolt-forms` for any size-clamp logic.
+
+- [ ] **T19 — Docs + finalize (engine extensions)**
+  - Files: `docs/developers-guide-en.md` (extend "Form themes → adding packs": the
+    decomposed/parts + sprite + composite formats); `CHANGELOG.md` +
+    `crates/cobolt-ide/src/version.rs` (minor bump).
+  - Verify: `cargo test --workspace` green; `cargo test -p cobolt-ide i18n`.
+
+> **Sequencing:** T13–T17 are engine work (no operator assets needed — unit-test
+> with tiny fixtures). T18 consumes the delivered cobalt-steel zip and supersedes
+> the procedural reference pack. T9 (the four special packs) then becomes a pure
+> asset drop-in once T13–T17 land.
+
 ## Done criteria
 All acceptance criteria are covered (AC1: T2/T4 · AC2: T2/T3 · AC3: T8/T9 · AC4:
 T1/T10 · AC5: T7 · AC6: T1/T2/T12 · AC7: T5 · AC8: T11), tests pass, Liquid Glass
 is unchanged, docs/steering updated, and the work is committed as feature
 commit(s) per the operator's rules (do **not** commit/push unless asked). Phase 4
-consumes the operator's AI-generated original packs.
+consumes the operator's AI-generated original packs; **Phase 6** adds the engine
+support those decomposed packs require (asset-decomposition.md §5).
