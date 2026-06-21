@@ -632,8 +632,10 @@ impl CoboltApp {
             if rt.form_path == form_path { rt.stop(); false } else { true }
         });
 
+        let glass = self.designers[idx].1.glass_mode;
         match FormRuntime::launch(&form, form_path) {
-            Ok(rt) => {
+            Ok(mut rt) => {
+                rt.glass = glass;
                 self.form_runtimes.push(rt);
             }
             Err(e) => {
@@ -3658,6 +3660,10 @@ impl CoboltApp {
 
         if idx >= self.designers.len() { return; }
 
+        // Match the designer's glass toggle so the preview looks identical to the
+        // canvas (WYSIWYG, spec 003).
+        let glass = self.designers[idx].1.glass_mode;
+
         // ── Animation tick ────────────────────────────────────────────────────
         {
             let d = &mut self.designers[idx].1;
@@ -3942,7 +3948,7 @@ impl CoboltApp {
                             let draw_rect = if pressed { screen_rect.shrink(1.5) } else { screen_rect };
                             crate::panels::designer::draw_control(
                                 &painter, draw_rect.min, &live_at(draw_rect),
-                                false, true, alpha_mul, 1.0, None);
+                                false, glass, alpha_mul, 1.0, None);
                             let corner = ctrl.get_prop("CornerRadius")
                                 .map(|v| v.as_i64() as f32).unwrap_or(4.0);
                             if pressed {
@@ -3954,15 +3960,24 @@ impl CoboltApp {
                         CT::Label | CT::GroupBox | CT::Line | CT::Shape => {
                             crate::panels::designer::draw_control(
                                 &painter, screen_rect.min, &live_at(screen_rect),
-                                false, true, alpha_mul, 1.0, None);
+                                false, glass, alpha_mul, 1.0, None);
                         }
                         CT::TextBox => {
-                            draw_glass(&painter, screen_rect, Color32::from_rgb(30, 40, 80), 8.0, false, alpha_mul);
+                            // Face via the shared renderer (designer parity); the
+                            // static caption is blanked for the editable overlay.
+                            let mut live = live_at(screen_rect);
+                            live.properties.insert("Text".to_owned(),
+                                cobolt_forms::model::PropValue::String(String::new()));
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live, false, glass, alpha_mul, 1.0, None);
+                            let txt_col = ctrl.get_prop("ForegroundColor")
+                                .map(|v| cobolt_forms::paint::parse_color(v.as_str()))
+                                .unwrap_or(Color32::DARK_GRAY);
                             let resp = ui.put(screen_rect,
                                 egui::TextEdit::singleline(cur_val)
                                     .id(ctrl_id)
                                     .frame(false)
-                                    .text_color(Color32::from_rgb(230, 235, 255)));
+                                    .text_color(txt_col));
                             let _ = resp;
                         }
                         CT::CheckBox | CT::RadioButton => {
@@ -3972,7 +3987,7 @@ impl CoboltApp {
                                 cobolt_forms::model::PropValue::Bool(checked));
                             crate::panels::designer::draw_control(
                                 &painter, screen_rect.min, &live,
-                                false, true, alpha_mul, 1.0, None);
+                                false, glass, alpha_mul, 1.0, None);
                             let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
                             if resp.clicked() {
                                 *cur_val = if matches!(ctrl.control_type, CT::RadioButton) {
@@ -4070,7 +4085,7 @@ impl CoboltApp {
 
                             cobolt_forms::paint::draw_control(
                                 &painter, screen_rect.min, &live,
-                                false, true, alpha_mul, 1.0, None);
+                                false, glass, alpha_mul, 1.0, None);
 
                             if (display_val - fval).abs() > 1e-5 {
                                 fval = display_val;
@@ -4083,7 +4098,7 @@ impl CoboltApp {
                                 cobolt_forms::model::PropValue::String(cur_val.clone()));
                             crate::panels::designer::draw_control(
                                 &painter, screen_rect.min, &live,
-                                false, true, alpha_mul, 1.0, None);
+                                false, glass, alpha_mul, 1.0, None);
                         }
                         CT::PictureBox => {
                             let image_path = ctrl.get_prop("ImagePath").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -4106,7 +4121,7 @@ impl CoboltApp {
                         CT::BarChart | CT::LineChart | CT::PieChart
                         | CT::AreaChart | CT::ScatterChart | CT::DonutChart => {
                             let a = (alpha_mul * 255.0) as u8;
-                            draw_chart_preview(&painter, ctrl, screen_rect, a, alpha_mul, true, false);
+                            draw_chart_preview(&painter, ctrl, screen_rect, a, alpha_mul, glass, false);
                         }
 
                         CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
@@ -4180,6 +4195,15 @@ impl CoboltApp {
         use crate::panels::designer::{draw_glass, draw_glass_circle, glass_combo_header, glass_combo_popup, GlassComboAction};
 
         if idx >= self.form_runtimes.len() { return; }
+
+        // Match the designer's glass toggle live so the running form tracks the
+        // canvas (WYSIWYG, spec 003); fall back to the launch-time snapshot if the
+        // designer was closed.
+        let glass = {
+            let fp = self.form_runtimes[idx].form_path.clone();
+            self.designers.iter().find(|(p, _)| *p == fp).map(|(_, d)| d.glass_mode)
+                .unwrap_or(self.form_runtimes[idx].glass)
+        };
 
         // ── Form-level lifecycle events ───────────────────────────────────────
         // onShow / onActivate fire once when the running form first appears;
@@ -4304,6 +4328,21 @@ impl CoboltApp {
                     }
                 }
 
+                // Containment (spec 012): look up parents by id so a child can be
+                // clipped to its container's content area, faded by ancestor
+                // opacity, and hidden on a non-active tab page — like the designer.
+                let meta_by_id: std::collections::HashMap<&str, &crate::form_runtime::CtrlMeta> =
+                    ctrl_order.iter().map(|m| (m.id.as_str(), m)).collect();
+                let states_snap = self.form_runtimes[idx].ctrl_state.clone();
+                let content_rect_screen = |m: &crate::form_runtime::CtrlMeta| -> Rect {
+                    let mut tmp = cobolt_forms::Control::new(&m.id, m.control_type.clone(), m.rect.x, m.rect.y);
+                    tmp.rect = m.rect;
+                    let cr = tmp.content_rect();
+                    Rect::from_min_size(
+                        origin + Vec2::new(cr.x as f32, cr.y as f32),
+                        Vec2::new(cr.w as f32, cr.h as f32))
+                };
+
                 for meta in &ctrl_order {
                     let rt = &mut self.form_runtimes[idx];
                     let state = rt.ctrl_state.entry(meta.id.clone()).or_default().clone();
@@ -4324,10 +4363,40 @@ impl CoboltApp {
                         Pos2::new(origin.x + lx as f32, origin.y + ly as f32),
                         Vec2::new(lw as f32, lh as f32),
                     );
-                    let painter  = ui.painter_at(screen_rect);
+
+                    // Walk ancestors: clip to each container's content area, fold in
+                    // its Opacity, and hide controls on a non-selected tab page.
+                    let mut clip_rect   = screen_rect;
+                    let mut anc_alpha   = 1.0f32;
+                    let mut hidden_tab  = false;
+                    let mut child: &crate::form_runtime::CtrlMeta = meta;
+                    let mut pid = meta.parent.clone();
+                    while let Some(pname) = pid {
+                        let Some(pm) = meta_by_id.get(pname.as_str()).copied() else { break; };
+                        if matches!(pm.control_type, CT::TabControl) {
+                            if let Some(t) = child.tab {
+                                let sel = states_snap.get(&pm.id)
+                                    .and_then(|s| s.props.get("SelectedTab"))
+                                    .and_then(|v| v.trim().parse::<u32>().ok())
+                                    .unwrap_or(0);
+                                if sel != t { hidden_tab = true; }
+                            }
+                        }
+                        clip_rect = clip_rect.intersect(content_rect_screen(pm));
+                        let op = states_snap.get(&pm.id)
+                            .and_then(|s| s.props.get("Opacity"))
+                            .and_then(|v| v.trim().parse::<f32>().ok())
+                            .unwrap_or(100.0);
+                        anc_alpha *= (op / 100.0).clamp(0.0, 1.0);
+                        child = pm;
+                        pid = pm.parent.clone();
+                    }
+                    if hidden_tab { continue; }
+
+                    let painter  = ui.painter_at(clip_rect);
                     let ctrl_id  = egui::Id::new(("run_ctrl", meta.id.as_str()));
                     let enabled  = state.enabled;
-                    let alpha    = if enabled { 1.0f32 } else { 0.45f32 };
+                    let alpha    = (if enabled { 1.0f32 } else { 0.45f32 }) * anc_alpha;
 
                     // Controls rendered through `render_run_control` get their
                     // universal pointer/gesture events from inside it. The ones
@@ -4360,7 +4429,7 @@ impl CoboltApp {
                         | CT::AreaChart | CT::ScatterChart | CT::DonutChart => {
                             let out = render_run_control(
                                 ui, screen_rect, ctrl_id, &meta.id,
-                                meta.control_type.clone(), &state, enabled, alpha,
+                                meta.control_type.clone(), &state, enabled, alpha, glass, clip_rect,
                             );
                             for (k, v) in &out.prop_updates {
                                 rt.ctrl_state.entry(meta.id.clone()).or_default()
@@ -4374,14 +4443,14 @@ impl CoboltApp {
                         // WYSIWYG: faces whose designer rendering IS the real
                         // face are drawn by the designer's own renderer, driven
                         // by the live property state.
-                        CT::Label | CT::GroupBox | CT::ProgressBar
+                        CT::Label | CT::GroupBox | CT::Panel | CT::ProgressBar
                         | CT::Shape | CT::Line => {
                             let live = crate::panels::designer::live_control(
                                 &meta.id, meta.control_type.clone(),
                                 screen_rect.size(), state.props.iter());
                             crate::panels::designer::draw_control(
                                 &painter, screen_rect.min, &live,
-                                false, true, alpha, 1.0, None);
+                                false, glass, alpha, 1.0, None);
                         }
 
                         CT::ComboBox => {
@@ -4485,15 +4554,13 @@ impl CoboltApp {
                         }
 
                         _ => {
-                            // Generic fallback: glass box with caption.
-                            let base = if enabled { Color32::from_rgb(50,55,100) }
-                                       else       { Color32::from_rgb(35,35,55)  };
-                            draw_glass(&painter, screen_rect, base, 6.0, false, alpha);
-                            let label = state.get("Caption").to_owned();
-                            let label = if label.is_empty() { format!("{:?}", meta.control_type) } else { label };
-                            painter.text(screen_rect.center(), egui::Align2::CENTER_CENTER,
-                                &label, egui::FontId::proportional(10.0),
-                                Color32::from_rgba_premultiplied(200,205,240,200));
+                            // Generic fallback: the shared renderer, so any other
+                            // visual control looks identical to the designer.
+                            let live = crate::panels::designer::live_control(
+                                &meta.id, meta.control_type.clone(),
+                                screen_rect.size(), state.props.iter());
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live, false, glass, alpha, 1.0, None);
                         }
                     }
                 }
@@ -4969,6 +5036,8 @@ pub(crate) fn render_run_control(
     state: &crate::form_runtime::CtrlState,
     enabled: bool,
     alpha: f32,
+    glass: bool,
+    clip: egui::Rect,
 ) -> RunOutcome {
     use crate::panels::designer::draw_glass;
     use cobolt_forms::paint;
@@ -4977,7 +5046,9 @@ pub(crate) fn render_run_control(
     use egui::{Color32, Vec2};
 
     let mut out = RunOutcome { events: Vec::new(), prop_updates: Vec::new() };
-    let painter = ui.painter_at(screen_rect);
+    // Draw clipped to the container's content area (spec 012); interaction still
+    // uses the full screen_rect.
+    let painter = ui.painter_at(clip);
 
     // Universal pointer/gesture events (onClick, onDblClick, onMouseDown/Up,
     // onMouseEnter/Leave) for this control, gated by its supported_events.
@@ -4994,7 +5065,7 @@ pub(crate) fn render_run_control(
             let live = crate::panels::designer::live_control(
                 id, CT::Button, draw_rect.size(), state.props.iter());
             crate::panels::designer::draw_control(
-                &painter, draw_rect.min, &live, false, true, alpha, 1.0, None);
+                &painter, draw_rect.min, &live, false, glass, alpha, 1.0, None);
             let corner = state.get("CornerRadius").parse::<f32>().unwrap_or(4.0);
             if pressed {
                 painter.rect_filled(draw_rect, corner, Color32::from_black_alpha(70));
@@ -5016,7 +5087,7 @@ pub(crate) fn render_run_control(
             live.properties.insert("Checked".to_owned(),
                 cobolt_forms::model::PropValue::Bool(checked));
             crate::panels::designer::draw_control(
-                &painter, screen_rect.min, &live, false, true, alpha, 1.0, None);
+                &painter, screen_rect.min, &live, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
             if resp.clicked() && enabled {
                 let v = if checked { "0" } else { "1" };
@@ -5026,14 +5097,25 @@ pub(crate) fn render_run_control(
             }
         }
         CT::TextBox => {
-            draw_glass(&painter, screen_rect, Color32::from_rgb(30, 40, 80), 8.0, false, alpha);
+            // Face via the shared renderer (matches the designer exactly); the
+            // static caption is blanked so the editable overlay shows the value.
+            let mut live = crate::panels::designer::live_control(
+                id, CT::TextBox, screen_rect.size(), state.props.iter());
+            live.properties.insert("Text".to_owned(),
+                cobolt_forms::model::PropValue::String(String::new()));
+            crate::panels::designer::draw_control(
+                &painter, screen_rect.min, &live, false, glass, alpha, 1.0, None);
+            let txt_col = {
+                let fg = state.get("ForegroundColor");
+                if fg.is_empty() { Color32::DARK_GRAY } else { paint::parse_color(fg) }
+            };
             let mut buf = state.get("Text").to_owned();
             let resp = ui.put(screen_rect,
                 egui::TextEdit::singleline(&mut buf)
                     .id(ctrl_id)
                     .frame(false)
                     .interactive(enabled)
-                    .text_color(Color32::from_rgb(230, 235, 255)),
+                    .text_color(txt_col),
             );
             if resp.changed() {
                 out.prop_updates.push(("Text".to_owned(), buf.clone()));
@@ -5130,8 +5212,8 @@ pub(crate) fn render_run_control(
             let mut live_props = state.props.clone();
             live_props.insert("Value".to_owned(), display_val.to_string());
             let live = paint::live_control(id, ct.clone(), screen_rect.size(), live_props.iter().map(|(k, v)| (k, v)));
-            let painter = ui.painter_at(screen_rect);
-            paint::draw_control(&painter, screen_rect.min, &live, false, true, alpha, 1.0, None);
+            let painter = ui.painter_at(clip);
+            paint::draw_control(&painter, screen_rect.min, &live, false, glass, alpha, 1.0, None);
 
             if (display_val - cur).abs() > 1e-5 {
                 out.prop_updates.push(("Value".to_owned(), display_val.to_string()));
@@ -5143,14 +5225,12 @@ pub(crate) fn render_run_control(
             let white = Color32::from_rgb(230, 235, 255);
             let dim = Color32::from_rgb(150, 160, 200);
 
-            // ── Field ────────────────────────────────────────────────────────
-            draw_glass(&painter, screen_rect, Color32::from_rgb(30, 40, 80), 6.0, false, alpha);
+            // ── Field — shared renderer (matches the designer's "📅 value") ───
+            let live = crate::panels::designer::live_control(
+                id, CT::DateTimePicker, screen_rect.size(), state.props.iter());
+            crate::panels::designer::draw_control(
+                &painter, screen_rect.min, &live, false, glass, alpha, 1.0, None);
             let val = state.get("Value").to_owned();
-            let shown = if val.is_empty() { "YYYY-MM-DD".to_owned() } else { val.clone() };
-            painter.text(screen_rect.left_center() + vec2(8.0, 0.0), Align2::LEFT_CENTER,
-                &shown, FontId::proportional(12.0), if val.is_empty() { dim } else { white });
-            painter.text(screen_rect.right_center() - vec2(12.0, 0.0), Align2::CENTER_CENTER,
-                "▾", FontId::proportional(13.0), Color32::from_rgb(200, 210, 255));
             let resp = ui.interact(screen_rect, ctrl_id, Sense::click());
 
             // ── Popup open/viewed-month state (kept in egui temp memory) ─────
@@ -5334,7 +5414,7 @@ pub(crate) fn render_run_control(
             live.properties.insert("Checked".to_owned(),
                 cobolt_forms::model::PropValue::Bool(selected));
             crate::panels::designer::draw_control(
-                &painter, screen_rect.min, &live, false, true, alpha, 1.0, None);
+                &painter, screen_rect.min, &live, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
             if resp.clicked() && enabled {
                 out.prop_updates.push(("Value".to_owned(), "1".to_owned()));
@@ -5428,7 +5508,7 @@ pub(crate) fn render_run_control(
                 ctrl.set_prop(k.clone(), PropValue::String(v.clone()));
             }
             crate::panels::designer::draw_chart_preview(
-                &painter, &ctrl, screen_rect, (alpha * 255.0) as u8, alpha, /*glass*/ true, false);
+                &painter, &ctrl, screen_rect, (alpha * 255.0) as u8, alpha, glass, false);
         }
         _ => {}
     }
@@ -5707,7 +5787,7 @@ mod run_interaction_tests {
                         .frame(egui::Frame::none())
                         .show(ctx, |ui| {
                             let id = egui::Id::new(("test_run", "W1"));
-                            let r = render_run_control(ui, rect, id, "W1", ct.clone(), st, true, 1.0);
+                            let r = render_run_control(ui, rect, id, "W1", ct.clone(), st, true, 1.0, true, rect);
                             let mut b = o.borrow_mut();
                             b.0.extend(r.events);
                             b.1.extend(r.prop_updates);
@@ -5898,7 +5978,7 @@ mod run_interaction_tests {
             egui::CentralPanel::default()
                 .frame(egui::Frame::none())
                 .show(ctx, |ui| {
-                    render_run_control(ui, rect, egui::Id::new(("t", "DG")), "DG", ct.clone(), state, true, 1.0);
+                    render_run_control(ui, rect, egui::Id::new(("t", "DG")), "DG", ct.clone(), state, true, 1.0, true, rect);
                 });
         });
         out.shapes.into_iter().map(|cs| cs.shape).collect()

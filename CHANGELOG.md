@@ -8,6 +8,34 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.8] — 2026-06-21
+
+Fix: preview/run rendering parity with the Form Designer.
+
+### Fixed
+
+- **Glass look now matches the designer** — the live preview and the running form
+  always rendered with the Liquid-Glass look, even when the designer's glass
+  toggle was off. They now mirror the launching designer's glass setting, so a
+  flat (non-glass) canvas runs flat — charts and panels keep the same vivid,
+  non-frosted appearance instead of looking washed out.
+- **Containers (Panel) render in the live run** — a Panel previously fell through
+  to a generic blue glass box with a "Panel" caption when the form was run; it now
+  uses the shared `draw_control` renderer, so it looks identical to the designer
+  (and to GroupBox). The generic run-time fallback for any other visual control
+  also routes through `draw_control` instead of an approximate glass box.
+- **TextBox look matches everywhere** — the live preview and the running form drew
+  TextBoxes with a hard-coded dark-blue glass and fixed light text. They now draw
+  the same `draw_control` face as the designer (honouring BackgroundColor /
+  gradient / border) with the editable text in the control's ForegroundColor.
+- **DateTimePicker field matches** — the running form's date field now uses the
+  shared renderer for its face (the calendar popup is unchanged).
+- **Containment in the running form** — the live run now clips children to their
+  container's content area, fades them by ancestor opacity, and hides controls on
+  a non-selected tab page, exactly like the designer and preview (e.g. a chart
+  inside a GroupBox no longer spills past the box). The running form also tracks
+  the designer's glass toggle live.
+
 ## [PowerRustCOBOL 1.27.7] — 2026-06-21
 
 Visual repeating groups (GroupBox arrays) — spec 015, Phases 1–2 (designer +

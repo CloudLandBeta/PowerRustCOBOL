@@ -75,6 +75,9 @@ pub struct FormRuntime {
     handle: Option<JoinHandle<()>>,
     /// Tracks which ComboBox (by control ID) is currently open in the running form.
     pub combo_open: HashMap<String, bool>,
+    /// Whether to render with the Liquid-Glass look. Mirrors the launching
+    /// designer's glass toggle so the running form matches the canvas (WYSIWYG).
+    pub glass: bool,
 }
 
 /// Per-control metadata needed for rendering (type + rect + initial props).
@@ -85,6 +88,10 @@ pub struct CtrlMeta {
     pub rect:         cobolt_forms::model::Rect,
     pub z_order:      i32,
     pub animations:   Vec<cobolt_forms::model::AnimationDef>,
+    /// Containment (spec 012) so the running form clips children to their
+    /// container and scopes tab pages, exactly like the designer/preview.
+    pub parent:       Option<String>,
+    pub tab:          Option<u32>,
 }
 
 /// Mutable state of a single control as seen by the UI thread.
@@ -189,6 +196,8 @@ impl FormRuntime {
                 rect:         c.rect,
                 z_order:      c.z_order,
                 animations:   c.animations.clone(),
+                parent:       c.parent.clone(),
+                tab:          c.tab,
             })
             .collect();
         ctrl_order.sort_by_key(|m| m.z_order);
@@ -247,6 +256,7 @@ impl FormRuntime {
             stop_flag,
             handle:     Some(handle),
             combo_open: HashMap::new(),
+            glass:      true,
         })
     }
 
