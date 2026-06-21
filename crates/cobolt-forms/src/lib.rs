@@ -25,12 +25,16 @@ pub mod model;
 pub mod xml;
 pub mod theme;
 pub mod theme_pack;
+pub mod containers;
 
 pub use model::{Control, ControlType, EventBinding, Form, PropValue, Rect};
 pub use xml::{load_form, load_form_from_str, save_form, FormError};
 
 #[cfg(feature = "render")]
 pub mod paint;
+
+#[cfg(feature = "render")]
+pub mod render;
 
 #[cfg(feature = "render")]
 pub mod fonts;

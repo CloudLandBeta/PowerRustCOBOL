@@ -9,7 +9,7 @@ launchable after every task.
 
 ### Phase A — engine foundation
 
-- [ ] **T1 — Move container helpers into `cobolt-forms`** (R3,R7)
+- [x] **T1 — Move container helpers into `cobolt-forms`** (R3,R7)
   - Files: new `crates/cobolt-forms/src/containers.rs`;
     `crates/cobolt-ide/src/panels/containers.rs` → thin re-export.
   - Do: move `render_order`, `is_descendant`, `collect_descendants`, `is_visible`,
@@ -19,7 +19,7 @@ launchable after every task.
   - Verify: `cargo build -p cobolt-forms` + `cargo build -p cobolt-ide`;
     `cargo test -p cobolt-ide` green (container tests still pass).
 
-- [ ] **T2 — Engine skeleton: types + background + faces (Static)** (R1,R3,R4)
+- [x] **T2 — Engine skeleton: types + background + faces (Static)** (R1,R3,R4)
   - Files: new `crates/cobolt-forms/src/render.rs` (behind `render`); `lib.rs` mod.
   - Do: define `FormState`, `RenderMode`, `RenderInput`, `RenderOutput`,
     `UiEvent`. Implement `render_form` for the **Static** path: form background
