@@ -519,6 +519,8 @@ non-visual ones are services.
 
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar.
+  **GroupBox, Panel and TabControl are true containers** — see *Containers and
+  nesting* below.
 
 **Data**
 : DataGrid, TreeView.
@@ -537,6 +539,35 @@ non-visual ones are services.
 
 > **Note.** A `Custom` control type exists as an extension point for
 > bespoke/vendor controls; treat it as advanced.
+
+### Containers and nesting
+
+**GroupBox**, **Panel**, and **TabControl** are real **containers**: a control
+placed inside one becomes its **child** and moves, clips, and hides with it.
+Containers nest freely in any combination (a Panel inside a GroupBox inside a
+TabControl page, and so on).
+
+- **Put a control in a container** — drag it (from the toolbox or an existing
+  spot) so it lands over the container's **content area**; it becomes that
+  container's child. Moving the container then moves its whole contents.
+- **Take a control out** — drag it onto the bare form to re-parent it back to the
+  form; drag it over a different container to move it there. Dropping a control
+  over a **non-container** control makes it a sibling (same parent) of that
+  control.
+- **Clipping & corners** — children are clipped to the container's content area.
+  Each container has a **Border radius** property that rounds its frame (and the
+  clip region).
+- **Opacity** — a container's **Opacity** (0–100) fades the container *and its
+  children together*, so you can dim a whole group at once.
+- **Auto-scroll** — turn **Auto-scroll** on for a container whose children may
+  overflow its bounds. (When off, overflowing content is simply clipped.)
+- **TabControl pages** — each tab owns its own set of children. Click a tab in
+  the designer to edit that page; only the selected tab's controls are shown and
+  interactive, at design time and at run time.
+
+Deleting a container deletes the controls inside it. A control keeps its unique
+id wherever it lives, so `control::property` access and event bindings are
+unaffected by nesting.
 
 > 📷 **Screenshot needed — `control-gallery.png`.** A single form (or the preview
 > window) showing one of each major control so newcomers can recognise them. The

@@ -3845,12 +3845,24 @@ impl CoboltApp {
                     }
                 }
 
-                // Collect controls sorted by z_order so they render back-to-front.
-                let mut sorted: Vec<&cobolt_forms::model::Control> = form.controls.iter().collect();
-                sorted.sort_by_key(|c| c.z_order);
+                // Render in container tree order (parents before children, spec
+                // 012) so nested controls paint over their container.
+                let order = crate::panels::containers::render_order(&form.controls);
+                let sorted: Vec<&cobolt_forms::model::Control> =
+                    order.iter().map(|&i| &form.controls[i]).collect();
 
                 for ctrl in &sorted {
                     if !ctrl.visible { continue; }
+
+                    // Index in the flat list, for the containment helpers below.
+                    let cidx = match form.controls.iter().position(|c| c.id == ctrl.id) {
+                        Some(i) => i,
+                        None => continue,
+                    };
+                    // Skip controls on an inactive tab page (active = SelectedTab).
+                    if !crate::panels::containers::is_visible(&form.controls, cidx, &Default::default()) {
+                        continue;
+                    }
 
                     // Apply animation transform for this control (OnFormLoad etc.)
                     let (adx, ady, scale, anim_alpha) = ctrl.animations.iter()
@@ -3890,15 +3902,27 @@ impl CoboltApp {
                         }
                     });
 
-                    // alpha_mul: combine animation alpha, control opacity and transparency
+                    // alpha_mul: animation alpha × ancestor-container opacity ×
+                    // transparency. The control's *own* Opacity is applied inside
+                    // `draw_control` (spec 012), so it is not folded in here.
                     let ctrl_transparency = ctrl.get_prop("Transparency")
                         .map(|v| v.as_i64()).unwrap_or(0).clamp(0, 100);
-                    let ctrl_opacity = ctrl.get_prop("Opacity")
-                        .map(|v| (v.as_i64() as f32 / 100.0).clamp(0.0, 1.0))
-                        .unwrap_or(1.0);
-                    let alpha_mul = (anim_alpha * ctrl_opacity * (1.0 - ctrl_transparency as f32 / 100.0)).clamp(0.0, 1.0);
+                    let anc_opacity = crate::panels::containers::ancestor_opacity(&form.controls, cidx);
+                    let alpha_mul = (anim_alpha * anc_opacity * (1.0 - ctrl_transparency as f32 / 100.0)).clamp(0.0, 1.0);
 
-                    let painter = ui.painter_at(screen_rect);
+                    // Clip the control to its ancestor containers' content areas
+                    // (spec 012). Top-level controls clip only to their own rect.
+                    let painter = {
+                        let mut clip = screen_rect;
+                        if let Some(cm) = crate::panels::containers::clip_rect(&form.controls, cidx) {
+                            let cs = Rect::from_min_size(
+                                Pos2::new(origin.x + cm.x as f32, origin.y + cm.y as f32),
+                                Vec2::new(cm.w as f32, cm.h as f32),
+                            );
+                            clip = clip.intersect(cs);
+                        }
+                        ui.painter_at(clip)
+                    };
                     let enabled = ctrl.enabled;
 
                     // WYSIWYG helper: snapshot this control at the on-screen

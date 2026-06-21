@@ -1034,6 +1034,32 @@ pub fn draw_control(
         painter.rect_stroke(rect, corner, Stroke::new(if selected { 2.0 } else { 1.0 }, bc));
     }
 
+    // ── TabControl tab strip (spec 012) ────────────────────────────────────────
+    // Draw a real strip of tabs across the top, highlighting the selected page.
+    // The active page index is the `SelectedTab` property (the designer updates it
+    // when a tab is clicked; the bounds here mirror `Control::content_rect`).
+    if matches!(ctrl.control_type, CT::TabControl) {
+        let tabs: Vec<String> = ctrl.get_prop("Tabs")
+            .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
+            .unwrap_or_default();
+        let sel = ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+        let strip_h = 24.0_f32;
+        let mut tx = rect.min.x + 2.0;
+        let ty = rect.min.y + 1.0;
+        for (i, t) in tabs.iter().enumerate() {
+            let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
+            if tx + tw > rect.max.x { break; }
+            let tr = egui::Rect::from_min_size(Pos2::new(tx, ty), Vec2::new(tw, strip_h));
+            let active = i == sel;
+            let fill_c = if active { Color32::from_rgb(245, 246, 250) } else { Color32::from_rgb(208, 213, 224) };
+            painter.rect_filled(tr, 3.0, alpha_color(fill_c));
+            painter.rect_stroke(tr, 3.0, Stroke::new(1.0, alpha_color(stroke_color)));
+            painter.text(tr.center(), egui::Align2::CENTER_CENTER, t,
+                egui::FontId::proportional(11.0), alpha_color(Color32::from_rgb(40, 40, 50)));
+            tx += tw + 2.0;
+        }
+    }
+
     // Label text — Caption is on Label, Button, CheckBox, RadioButton, GroupBox.
     let label: String = match ctrl.control_type {
         CT::CheckBox => {
@@ -1102,11 +1128,8 @@ pub fn draw_control(
             let dir = ctrl.get_prop("Orientation").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "H".into());
             if dir.starts_with('V') { "║ Splitter".into() } else { "═ Splitter".into() }
         }
-        CT::TabControl => {
-            let tabs = ctrl.get_prop("Tabs").map(|v| v.as_str().to_owned()).unwrap_or_default();
-            let first = tabs.lines().next().unwrap_or("Tab1");
-            format!("[{first}] [...]")
-        }
+        // The tab strip is drawn above; no centered label.
+        CT::TabControl => String::new(),
         CT::MenuBar    => "☰ MenuBar".into(),
         CT::ToolBar    => "⬛ ToolBar".into(),
         CT::StatusBar  => "▬ StatusBar".into(),
