@@ -1,6 +1,9 @@
 # Spec — Copy as COBOL Code
 
-- **Status:** draft → approved
+- **Status:** draft → **SUPERSEDED / ABANDONED** (2026-06-21)
+- **Superseded by:** specs/015-visual-repeating-groups/ — the operator chose a
+  visual repeating-group (GroupBox-as-array) model instead of emitting
+  control-creation COBOL. Do **not** implement this spec.
 - **Folder:** specs/014-copy-as-cobol-code/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-06-21
 
