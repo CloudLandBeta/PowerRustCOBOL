@@ -567,8 +567,8 @@ TabControl page, and so on).
   over a **non-container** control makes it a sibling (same parent) of that
   control.
 - **Clipping & corners** — children are clipped to the container's content area.
-  Each container has a **Border radius** property that rounds its frame (and the
-  clip region).
+  Every control has a **Corner radius** property (see *Corner radius* below) that
+  rounds the container's frame.
 - **Opacity** — a container's **Opacity** (0–100) fades the container *and its
   children together*, so you can dim a whole group at once.
 - **Auto-scroll** — turn **Auto-scroll** on for a container whose children may
@@ -580,6 +580,29 @@ TabControl page, and so on).
 Deleting a container deletes the controls inside it. A control keeps its unique
 id wherever it lives, so `control::property` access and event bindings are
 unaffected by nesting.
+
+#### Corner radius (all bordered controls)
+
+Every control that draws a border — buttons, text boxes, combo/list boxes,
+picture boxes, data grids, numeric/date pickers, progress bars, sliders, shapes,
+charts, and the containers — has a **Corner radius** property:
+
+- The control's **background and border are rounded** to the radius.
+- **Content is clipped to the rounded shape.** A **PictureBox** image is trimmed
+  to the rounded corners (over any background, including a form background
+  image), and chart frames round too.
+- **Corner radius = 0** means square corners and **no clipping** — the default,
+  so existing forms look exactly as before. The value is clamped so it never
+  exceeds half the control's smaller side (a fully rounded "pill"/circle).
+
+The same radius and clipping apply identically on the design canvas, the live
+preview, and the running form. *Limitation:* the editable text/scroll layer of
+run-time inputs (e.g. a TextBox while typing) stays square inside its rounded
+frame, and container **children** are clipped to the rectangular content area
+(the rounded corners are cosmetic on the frame).
+
+> Older forms that used a container **Border radius** still load and round
+> correctly — it is read as an alias for **Corner radius**.
 
 #### GroupBox appearance
 

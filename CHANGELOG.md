@@ -8,6 +8,34 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.9] — 2026-06-21
+
+Universal corner radius + rounded content (spec 016). Pre-production, treated as
+a fix.
+
+### Added
+
+- **Corner radius on every bordered control** — buttons, text boxes, combo/list
+  boxes, picture boxes, data grids, numeric/date pickers, progress bars, sliders,
+  shapes, charts, and the containers now share one **Corner radius** property.
+  The background and border round to it, and content is clipped to the rounded
+  shape — a **PictureBox** image is trimmed to the rounded corners over any
+  background (via a textured `RectShape`), and chart frames round too.
+  `Corner radius = 0` keeps square corners and no clipping (the default, so
+  existing forms are unchanged); the value is clamped to half the smaller side.
+  Applies identically on the canvas, the live preview, and the running form.
+
+### Changed
+
+- The container property is unified under **CornerRadius**; the legacy
+  `BorderRadius` is still read as an alias so older forms round correctly.
+
+### Known limitations
+
+- The editable text/scroll layer of run-time inputs stays square inside a rounded
+  frame, and container **children** are clipped to the rectangular content area
+  (egui has no rounded scissor; rounded corners are cosmetic on the frame).
+
 ## [PowerRustCOBOL 1.27.8] — 2026-06-21
 
 Fix: preview/run rendering parity with the Form Designer.

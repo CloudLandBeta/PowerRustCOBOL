@@ -1113,6 +1113,33 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_corner_radius_and_legacy_alias_016() {
+        // Canonical CornerRadius round-trips.
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut tb = Control::new("TB", ControlType::TextBox, 10, 10);
+        tb.set_prop("CornerRadius", PropValue::Int(16));
+        form.controls = vec![tb];
+        let path = std::env::temp_dir().join("cobolt_test_corner_016.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        assert_eq!(loaded.controls[0].get_prop("CornerRadius").unwrap().as_i64(), 16);
+        let _ = std::fs::remove_file(&path);
+
+        // An old-format file with only the container `BorderRadius` (no
+        // CornerRadius) still carries the alias key the renderer reads (spec 016).
+        let xml = r#"<?xml version="1.0"?>
+<Form name="F" title="F" width="640" height="480">
+  <Control id="Pnl" type="Panel" x="10" y="10" w="200" h="150">
+    <Property name="BorderRadius">12</Property>
+  </Control>
+</Form>"#;
+        let l = load_form_from_str(xml).expect("load legacy");
+        let pnl = l.controls.iter().find(|c| c.id == "Pnl").unwrap();
+        assert_eq!(pnl.get_prop("BorderRadius").unwrap().as_i64(), 12);
+        assert!(pnl.get_prop("CornerRadius").is_none(), "legacy file has no CornerRadius");
+    }
+
+    #[test]
     fn roundtrip_repeating_groupbox_015() {
         // Spec 015: GroupBox visual + repeating-group metadata round-trips.
         let mut form = Form::new("F", "F", 640, 480);

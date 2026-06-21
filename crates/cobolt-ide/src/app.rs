@@ -4104,7 +4104,8 @@ impl CoboltApp {
                             let image_path = ctrl.get_prop("ImagePath").map(|v| v.as_str().to_owned()).unwrap_or_default();
                             let size_mode  = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned()).unwrap_or_default();
                             let show_frame = ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
-                            draw_picturebox(&painter, screen_rect, &image_path, &size_mode, show_frame, alpha_mul);
+                            let corner = cobolt_forms::paint::corner_radius(ctrl);
+                            draw_picturebox(&painter, screen_rect, &image_path, &size_mode, show_frame, alpha_mul, corner);
                         }
                         CT::Animator => {
                             let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -4499,7 +4500,10 @@ impl CoboltApp {
                             let image_path = state.get("ImagePath").trim().to_owned();
                             let size_mode  = state.get("SizeMode").to_owned();
                             let show_frame = !matches!(state.get("ShowFrame"), "0" | "false" | "False");
-                            draw_picturebox(&painter, screen_rect, &image_path, &size_mode, show_frame, alpha);
+                            let pb_live = crate::panels::designer::live_control(
+                                &meta.id, CT::PictureBox, screen_rect.size(), state.props.iter());
+                            let corner = cobolt_forms::paint::corner_radius(&pb_live);
+                            draw_picturebox(&painter, screen_rect, &image_path, &size_mode, show_frame, alpha, corner);
                         }
 
                         CT::Animator => {
@@ -5641,16 +5645,38 @@ fn draw_picturebox(
     size_mode: &str,
     show_frame: bool,
     alpha_mul: f32,
+    corner: f32,
 ) {
     use crate::panels::designer::{draw_glass, media_dest_rect};
     if show_frame {
-        draw_glass(painter, rect, egui::Color32::from_rgb(20, 30, 60), 4.0, false, alpha_mul * 0.7);
+        draw_glass(painter, rect, egui::Color32::from_rgb(20, 30, 60), corner, false, alpha_mul * 0.7);
     }
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
         let dest = media_dest_rect(rect, tex.size_vec2(), pic_size_mode(size_mode));
-        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        painter.with_clip_rect(rect).image(tex.id(), dest, uv, egui::Color32::from_white_alpha(a));
+        if corner > 0.0 {
+            // Rounded image: a textured RectShape over the control bounds clips to
+            // the corner radius (spec 016). UV maps the visible part of `dest`, so
+            // Stretch/Fill/Zoom crop correctly; Fit margins are approximate.
+            let dw = dest.width().max(1.0);
+            let dh = dest.height().max(1.0);
+            let uv = egui::Rect::from_min_max(
+                egui::pos2((rect.min.x - dest.min.x) / dw, (rect.min.y - dest.min.y) / dh),
+                egui::pos2((rect.max.x - dest.min.x) / dw, (rect.max.y - dest.min.y) / dh),
+            );
+            painter.add(egui::Shape::Rect(egui::epaint::RectShape {
+                rect,
+                rounding: egui::Rounding::same(corner),
+                fill: egui::Color32::from_white_alpha(a),
+                stroke: egui::Stroke::NONE,
+                blur_width: 0.0,
+                fill_texture_id: tex.id(),
+                uv,
+            }));
+        } else {
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            painter.with_clip_rect(rect).image(tex.id(), dest, uv, egui::Color32::from_white_alpha(a));
+        }
     } else if show_frame {
         painter.text(
             rect.center(), egui::Align2::CENTER_CENTER, "🖼",

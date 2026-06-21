@@ -1236,7 +1236,6 @@ impl PropertiesPanel {
                 combo_row_inline(ui, id, "TabPosition", ctrl, action, &["Top","Bottom","Left","Right"]);
                 // Container behaviour (spec 012).
                 bool_row_inline(ui, id, "AutoScroll", "Auto-scroll", ctrl, action);
-                int_row_inline(ui, id, "BorderRadius", "Border radius", ctrl, action, 0..=80);
                 ui.add_space(4.0);
             }
 
@@ -1245,7 +1244,6 @@ impl PropertiesPanel {
                 section_header(ui, "Container");
                 // Auto-scroll overflowing children vs clip them (spec 012).
                 bool_row_inline(ui, id, "AutoScroll", "Auto-scroll", ctrl, action);
-                int_row_inline(ui, id, "BorderRadius", "Border radius", ctrl, action, 0..=80);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
 
@@ -1988,6 +1986,14 @@ impl PropertiesPanel {
             }
 
             _ => {}
+        }
+
+        // Universal corner radius (spec 016): one row for every bordered control
+        // (those the model seeds with a CornerRadius). 0 = square / no rounding.
+        if ctrl.get_prop("CornerRadius").is_some() {
+            section_header(ui, "Corner");
+            int_row_inline(ui, id, "CornerRadius", "Corner radius", ctrl, action, 0..=400);
+            ui.add_space(4.0);
         }
     }
 

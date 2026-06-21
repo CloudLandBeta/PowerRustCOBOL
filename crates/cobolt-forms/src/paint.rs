@@ -962,14 +962,9 @@ pub fn draw_control(
     let label_color = ctrl.get_prop("ForegroundColor").map(|v| parse_color(v.as_str())).unwrap_or(default_text);
     let stroke_color = ctrl.get_prop("BorderColor").map(|v| parse_color(v.as_str())).unwrap_or(default_border);
 
-    let corner = match ctrl.control_type {
-        CT::Button   => ctrl.get_prop("CornerRadius").map(|v| v.as_i64() as f32).unwrap_or(4.0),
-        // Containers expose a configurable BorderRadius (spec 012); it rounds the
-        // frame and is the radius child content is clipped to.
-        CT::Panel | CT::GroupBox | CT::TabControl =>
-            ctrl.get_prop("BorderRadius").map(|v| v.as_i64() as f32).unwrap_or(0.0).max(0.0),
-        _            => 2.0,
-    };
+    // Unified corner radius for every control (spec 016): canonical CornerRadius,
+    // legacy BorderRadius alias, per-type default, clamped. 0 ⇒ square.
+    let corner = corner_radius(ctrl);
 
     let is_label = matches!(ctrl.control_type, CT::Label);
 
@@ -1123,10 +1118,20 @@ pub fn draw_control(
                     "StretchImage" | "Zoom" | "AutoSize" => rect, // stretch to fill
                     _ => rect, // Normal/Tile: for designer preview just stretch too
                 };
-                painter.image(tex_id, img_rect, uv, tint);
+                // Rounded image: a textured RectShape clips the image to the
+                // control's corner radius natively, over any background (spec 016).
+                painter.add(egui::Shape::Rect(egui::epaint::RectShape {
+                    rect: img_rect,
+                    rounding: egui::Rounding::same(corner),
+                    fill: tint,                 // multiplies the texture (tint + alpha)
+                    stroke: Stroke::NONE,
+                    blur_width: 0.0,
+                    fill_texture_id: tex_id,
+                    uv,
+                }));
                 // Selection border on top
                 if selected {
-                    painter.rect_stroke(rect, 0.0, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
+                    painter.rect_stroke(rect, corner, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
                 }
                 return; // skip generic text rendering below
             }
@@ -1655,14 +1660,16 @@ pub fn draw_chart_preview(
     // `HideBackground` suppresses the panel fill + border frame so only the chart
     // content (grid, axes, labels, data) is visible, transparent over the form.
     let hide_bg = ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
+    // Unified corner radius (spec 016); default 8 preserves the prior chart look.
+    let corner = corner_radius(ctrl);
     let bg = Color32::from_rgba_premultiplied(15,20,45,a);
     if !hide_bg {
         if glass {
-            draw_glass(painter, rect, Color32::from_rgb(15,20,45), 8.0, false, alpha_mul);
+            draw_glass(painter, rect, Color32::from_rgb(15,20,45), corner, false, alpha_mul);
         } else {
-            painter.rect_filled(rect, 8.0, bg);
+            painter.rect_filled(rect, corner, bg);
             let border = Color32::from_rgba_premultiplied(60,80,160,a);
-            painter.rect_stroke(rect, 8.0, Stroke::new(1.0, border));
+            painter.rect_stroke(rect, corner, Stroke::new(1.0, border));
         }
     }
 
@@ -1950,6 +1957,25 @@ pub fn draw_chart_preview(
             egui::FontId::proportional(8.0),
             Color32::from_rgba_premultiplied(80,100,180,a));
     }
+}
+
+/// Unified corner radius (px) for a control's rounded fill/border and content
+/// (spec 016). Reads the canonical `CornerRadius`, falls back to the legacy
+/// container `BorderRadius` (spec 012), then a per-type default, and clamps to
+/// half the smaller side so a large value can never produce a degenerate shape.
+/// `0` ⇒ square corners (and no rounded clipping).
+pub fn corner_radius(ctrl: &Control) -> f32 {
+    let raw = ctrl.get_prop("CornerRadius")
+        .or_else(|| ctrl.get_prop("BorderRadius"))
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or_else(|| match ctrl.control_type {
+            ControlType::Button => 3.0,
+            ControlType::BarChart | ControlType::LineChart | ControlType::PieChart
+            | ControlType::AreaChart | ControlType::ScatterChart | ControlType::DonutChart => 8.0,
+            _ => 0.0,
+        });
+    let max_r = 0.5 * (ctrl.rect.w.min(ctrl.rect.h) as f32);
+    raw.clamp(0.0, max_r.max(0.0))
 }
 
 pub fn control_colors(ct: &ControlType, selected: bool) -> (Color32, Color32, Color32) {
@@ -2286,6 +2312,38 @@ mod theme_render_tests {
         assert_eq!(r.vertices.len(), 9);
         assert_eq!(r.vertices[0].color, a, "radial centre is the start colour");
         assert!(r.vertices[1..].iter().all(|v| v.color == b), "radial rim is the end colour");
+    }
+
+    #[test]
+    fn corner_radius_reads_alias_default_and_clamps() {
+        use crate::model::{Control, ControlType, PropValue, Rect};
+        let big = |t| { let mut c = Control::new("C", t, 0, 0); c.rect = Rect::new(0,0,200,100); c };
+        // Per-type defaults when no property is set.
+        assert_eq!(corner_radius(&big(ControlType::TextBox)), 0.0);
+        assert_eq!(corner_radius(&big(ControlType::Button)), 3.0);
+        assert_eq!(corner_radius(&big(ControlType::BarChart)), 8.0);
+        // Canonical CornerRadius is read.
+        let mut c = big(ControlType::TextBox);
+        c.set_prop("CornerRadius", PropValue::Int(20));
+        assert_eq!(corner_radius(&c), 20.0);
+        // Legacy BorderRadius is read as an alias when CornerRadius is absent
+        // (an old .cfrm clears defaults and carries only BorderRadius).
+        let mut c = big(ControlType::Panel);
+        c.properties.shift_remove("CornerRadius");
+        c.set_prop("BorderRadius", PropValue::Int(15));
+        assert_eq!(corner_radius(&c), 15.0);
+        // CornerRadius wins over BorderRadius when both are present.
+        c.set_prop("CornerRadius", PropValue::Int(7));
+        assert_eq!(corner_radius(&c), 7.0);
+        // Clamp to half the smaller side (24×24 ⇒ max 12).
+        let mut s = Control::new("S", ControlType::TextBox, 0, 0);
+        s.rect = Rect::new(0,0,24,24);
+        s.set_prop("CornerRadius", PropValue::Int(40));
+        assert_eq!(corner_radius(&s), 12.0);
+        // Zero stays zero.
+        let mut z = big(ControlType::Button);
+        z.set_prop("CornerRadius", PropValue::Int(0));
+        assert_eq!(corner_radius(&z), 0.0);
     }
 
     #[test]

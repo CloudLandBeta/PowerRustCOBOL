@@ -942,14 +942,12 @@ impl Control {
                 props.insert("BorderColor".into(),  PropValue::String("#888888".into()));
                 // Container behaviour (spec 012): rounded corners + clip radius,
                 // and optional auto-scroll of overflowing children.
-                props.insert("BorderRadius".into(), PropValue::Int(0));
                 props.insert("AutoScroll".into(),   PropValue::Bool(false));
             }
             ControlType::GroupBox => {
                 props.insert("BorderStyle".into(),  PropValue::String("Single".into()));
                 props.insert("BorderColor".into(),  PropValue::String("#888888".into()));
                 // Container behaviour (spec 012).
-                props.insert("BorderRadius".into(), PropValue::Int(0));
                 props.insert("AutoScroll".into(),   PropValue::Bool(false));
 
                 // ── Visual appearance (spec 015, Phase 1) ──────────────────────
@@ -1004,7 +1002,6 @@ impl Control {
                 props.insert("TabPosition".into(), PropValue::String("Top".into()));
                 props.insert("SelectedTab".into(), PropValue::Int(0));
                 // Container behaviour (spec 012).
-                props.insert("BorderRadius".into(), PropValue::Int(0));
                 props.insert("AutoScroll".into(),   PropValue::Bool(false));
             }
             ControlType::MenuBar | ControlType::ToolBar | ControlType::StatusBar => {
@@ -1202,6 +1199,26 @@ impl Control {
             }
 
             _ => {}
+        }
+
+        // Unified corner radius on every bordered visual control (spec 016).
+        // Canonical key `CornerRadius`; the renderer also reads the legacy
+        // container `BorderRadius` as an alias. Default preserves each control's
+        // current look (Button 3, charts 8, everything else 0).
+        let corner_default: Option<i64> = match control_type {
+            ControlType::Button => Some(3),
+            ControlType::BarChart | ControlType::LineChart | ControlType::PieChart
+            | ControlType::AreaChart | ControlType::ScatterChart | ControlType::DonutChart => Some(8),
+            ControlType::TextBox | ControlType::ComboBox | ControlType::ListBox
+            | ControlType::TreeView | ControlType::PictureBox | ControlType::DataGrid
+            | ControlType::NumericUpDown | ControlType::DateTimePicker | ControlType::ProgressBar
+            | ControlType::Slider | ControlType::Shape | ControlType::CheckBox
+            | ControlType::RadioButton | ControlType::GroupBox | ControlType::Panel
+            | ControlType::TabControl => Some(0),
+            _ => None,
+        };
+        if let Some(d) = corner_default {
+            props.entry("CornerRadius".to_owned()).or_insert(PropValue::Int(d));
         }
 
         Self {
@@ -1705,12 +1722,13 @@ mod tests {
 
     #[test]
     fn containers_expose_container_props_and_helpers() {
-        // GroupBox, Panel, TabControl are containers with BorderRadius/AutoScroll
-        // and a working Opacity; their content_rect insets for chrome (spec 012).
+        // GroupBox, Panel, TabControl are containers with a corner radius +
+        // AutoScroll and a working Opacity; content_rect insets for chrome.
         for t in [ControlType::GroupBox, ControlType::Panel, ControlType::TabControl] {
             let c = Control::new("C1", t, 10, 20);
             assert!(c.is_container(), "{:?} should be a container", c.control_type);
-            assert!(c.get_prop("BorderRadius").is_some(), "missing BorderRadius");
+            // Unified corner radius (spec 016) replaces the old BorderRadius default.
+            assert!(c.get_prop("CornerRadius").is_some(), "missing CornerRadius");
             assert_eq!(c.get_prop("AutoScroll").unwrap().as_bool(), false, "AutoScroll default off");
             assert!(c.get_prop("Opacity").is_some(), "missing Opacity");
             let cr = c.content_rect();
@@ -1723,6 +1741,25 @@ mod tests {
         assert_eq!(b.content_rect(), b.rect);
         // parent/tab default to None.
         assert!(b.parent.is_none() && b.tab.is_none());
+    }
+
+    #[test]
+    fn bordered_controls_expose_corner_radius_016() {
+        // Every bordered visual control carries CornerRadius with a default that
+        // preserves its current look (Button 3, charts 8, others 0).
+        assert_eq!(Control::new("B", ControlType::Button, 0, 0).get_prop("CornerRadius").unwrap().as_i64(), 3);
+        assert_eq!(Control::new("C", ControlType::BarChart, 0, 0).get_prop("CornerRadius").unwrap().as_i64(), 8);
+        for t in [ControlType::TextBox, ControlType::ComboBox, ControlType::ListBox,
+                  ControlType::PictureBox, ControlType::DataGrid, ControlType::NumericUpDown,
+                  ControlType::DateTimePicker, ControlType::ProgressBar, ControlType::Slider,
+                  ControlType::Shape, ControlType::GroupBox, ControlType::Panel, ControlType::TabControl] {
+            let c = Control::new("X", t, 0, 0);
+            assert_eq!(c.get_prop("CornerRadius").unwrap().as_i64(), 0,
+                "{:?} CornerRadius should default to 0", c.control_type);
+        }
+        // Non-bordered / non-visual controls do not get a corner radius.
+        assert!(Control::new("L", ControlType::Label, 0, 0).get_prop("CornerRadius").is_none());
+        assert!(Control::new("T", ControlType::Timer, 0, 0).get_prop("CornerRadius").is_none());
     }
 
     #[test]
