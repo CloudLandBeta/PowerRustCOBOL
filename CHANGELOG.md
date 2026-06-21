@@ -8,7 +8,21 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
-## [PowerRustCOBOL 1.27.11] — 2026-06-21
+## [PowerRustCOBOL 1.27.12] — 2026-06-21
+
+Fix: apply the active theme to the preview & running-form viewports (spec 017).
+
+### Fixed
+
+- **Charts/themed controls use the same theme on every surface** — the live
+  preview and the running form each render in their own egui `Context`, and only
+  the designer canvas was calling `set_active_theme`. So `draw_chart_preview`
+  (which reads the active theme for its palette/styling) fell back to defaults in
+  the preview and run, making charts look different from the canvas. Both now set
+  the owning designer's active theme pack on their context before rendering.
+- Removed the temporary on-screen render diagnostics.
+
+
 
 Fix: charts render through the designer's path on every surface (spec 017 step).
 

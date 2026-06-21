@@ -3664,6 +3664,10 @@ impl CoboltApp {
         // canvas (WYSIWYG, spec 003).
         let glass = self.designers[idx].1.glass_mode;
 
+        // Apply the designer's active theme pack to this preview viewport's context
+        // (a separate egui Context) so themed controls and charts match the canvas.
+        cobolt_forms::paint::set_active_theme(ctx, self.designers[idx].1.active_theme_pack.clone());
+
         // ── Animation tick ────────────────────────────────────────────────────
         {
             let d = &mut self.designers[idx].1;
@@ -4215,20 +4219,18 @@ impl CoboltApp {
             found.unwrap_or(self.form_runtimes[idx].glass)
         };
 
-        // TEMP DIAGNOSTIC (spec 017): show how `glass` resolved so we can see the
-        // value rather than guess. Remove once the parity bug is understood.
-        let glass_dbg = {
+        // Apply the owning designer's active theme pack to THIS viewport's context
+        // so charts and themed controls render identically to the canvas. Each
+        // run/preview window is a separate egui Context, so the theme set on the
+        // designer's context does not carry over (spec 017 parity).
+        {
             let fp = self.form_runtimes[idx].form_path.clone();
             let fname = self.form_runtimes[idx].form_name.clone();
-            let by_path = self.designers.iter().find(|(p, _)| *p == fp).map(|(_, d)| d.glass_mode);
-            let by_name = self.designers.iter().find(|(_, d)| d.form.name == fname).map(|(_, d)| d.glass_mode);
-            format!(
-                "DBG glass={glass}  by_path={by_path:?}  by_name={by_name:?}  ndesigners={}  rt_glass={}  rtpath={}",
-                self.designers.len(),
-                self.form_runtimes[idx].glass,
-                self.form_runtimes[idx].form_path.display(),
-            )
-        };
+            let pack = self.designers.iter().find(|(p, _)| *p == fp)
+                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
+                .and_then(|(_, d)| d.active_theme_pack.clone());
+            cobolt_forms::paint::set_active_theme(ctx, pack);
+        }
 
         // ── Form-level lifecycle events ───────────────────────────────────────
         // onShow / onActivate fire once when the running form first appears;
@@ -4326,15 +4328,6 @@ impl CoboltApp {
                 egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_min_size(egui::vec2(form_w, form_h));
                 let origin = ui.min_rect().min;
-
-                // TEMP DIAGNOSTIC overlay (spec 017): the resolved glass value.
-                ui.painter().text(
-                    origin + egui::vec2(6.0, 6.0),
-                    egui::Align2::LEFT_TOP,
-                    &glass_dbg,
-                    egui::FontId::monospace(13.0),
-                    egui::Color32::from_rgb(255, 230, 90),
-                );
 
                 // ── Form background image (cached in egui memory) ─────────────
                 if !bg_image.is_empty() {
@@ -4440,16 +4433,6 @@ impl CoboltApp {
                     let ctrl_id  = egui::Id::new(("run_ctrl", meta.id.as_str()));
                     let enabled  = state.enabled;
                     let alpha    = (if enabled { 1.0f32 } else { 0.45f32 }) * anc_alpha;
-
-                    // TEMP DIAGNOSTIC (spec 017): per-control alpha/enabled/anc.
-                    ui.painter().text(
-                        screen_rect.left_top() + Vec2::new(2.0, -12.0),
-                        egui::Align2::LEFT_BOTTOM,
-                        format!("{}: a={:.2} en={} anc={:.2} par={:?}",
-                            meta.id, alpha, enabled, anc_alpha, meta.parent),
-                        egui::FontId::monospace(10.0),
-                        Color32::from_rgb(255, 120, 220),
-                    );
 
                     // Controls rendered through `render_run_control` get their
                     // universal pointer/gesture events from inside it. The ones
