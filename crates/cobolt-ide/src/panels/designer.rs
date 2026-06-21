@@ -1392,6 +1392,10 @@ impl DesignerPanel {
 
         egui::ScrollArea::both()
             .id_salt("designer_canvas")
+            // Fill the available panel rather than growing to the form size, so
+            // the canvas actually scrolls when the form is larger than the view
+            // (spec 012 follow-up: restore lost form-content scrolling).
+            .auto_shrink([false, false])
             .show(ui, |ui| {
                 let (resp, painter) = ui.allocate_painter(
                     Vec2::new(canvas_w, canvas_h),

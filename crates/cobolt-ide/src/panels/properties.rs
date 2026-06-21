@@ -1776,8 +1776,9 @@ impl PropertiesPanel {
                 });
 
                 // ── Monochrome base colour (spec 013) ─────────────────────────
-                // When Monochrome is on, pick the base colour from the fixed set of
-                // 256 swatches (no pure black/white).
+                // When Monochrome is on: a Gradient toggle + a compact 16×16
+                // swatch grid (1px pure-white internal lines, no external border,
+                // no padding) to pick the base colour from the fixed 256 set.
                 if ctrl.get_prop("Monochrome").map(|v| v.as_bool()).unwrap_or(false) {
                     let cur = ctrl.get_prop("MonochromeColor")
                         .map(|v| v.as_str().to_owned()).unwrap_or_else(|| "#3F6FB5".into());
@@ -1789,6 +1790,7 @@ impl PropertiesPanel {
                             u8::from_str_radix(h.get(4..6).unwrap_or("B5"), 16).unwrap_or(0xB5),
                         )
                     };
+                    bool_row_inline(ui, id, "MonochromeGradient", "Gradient (light→dark)", ctrl, action);
                     ui.horizontal(|ui| {
                         ui.label("Base color:");
                         let (cr, cg, cb) = parse(&cur);
@@ -1797,23 +1799,46 @@ impl PropertiesPanel {
                         ui.monospace(&cur);
                     });
                     let pal = cobolt_forms::paint::chart_palette_256();
-                    egui::Grid::new(format!("mono_pick_{id}")).spacing([2.0, 2.0]).show(ui, |ui| {
-                        for (i, c) in pal.iter().enumerate() {
-                            let (rect, resp) = ui.allocate_exact_size(
-                                egui::vec2(14.0, 14.0), egui::Sense::click());
-                            ui.painter().rect_filled(rect, 2.0, *c);
-                            if resp.hovered() {
-                                ui.painter().rect_stroke(rect, 2.0,
-                                    egui::Stroke::new(1.5, Color32::WHITE));
-                            }
-                            if resp.clicked() {
+                    let cell = 11.0_f32;
+                    let n = 16usize;
+                    let (grid_rect, resp) = ui.allocate_exact_size(
+                        egui::vec2(cell * n as f32, cell * n as f32), egui::Sense::click());
+                    let p = ui.painter_at(grid_rect);
+                    let cur_rgb = parse(&cur);
+                    // Solid colour cells (butted together, no rounding/padding).
+                    for (i, c) in pal.iter().enumerate() {
+                        let cx = (i % n) as f32;
+                        let cy = (i / n) as f32;
+                        let cell_rect = egui::Rect::from_min_size(
+                            grid_rect.min + egui::vec2(cx * cell, cy * cell),
+                            egui::vec2(cell, cell));
+                        p.rect_filled(cell_rect, 0.0, *c);
+                        if (c.r(), c.g(), c.b()) == cur_rgb {
+                            p.rect_stroke(cell_rect.shrink(1.5), 0.0,
+                                egui::Stroke::new(2.0, Color32::BLACK));
+                        }
+                    }
+                    // Internal 1px pure-white grid lines only (no outer border).
+                    for k in 1..n {
+                        let x = grid_rect.min.x + k as f32 * cell;
+                        p.line_segment([egui::pos2(x, grid_rect.min.y), egui::pos2(x, grid_rect.max.y)],
+                            egui::Stroke::new(1.0, Color32::WHITE));
+                        let y = grid_rect.min.y + k as f32 * cell;
+                        p.line_segment([egui::pos2(grid_rect.min.x, y), egui::pos2(grid_rect.max.x, y)],
+                            egui::Stroke::new(1.0, Color32::WHITE));
+                    }
+                    if resp.clicked() {
+                        if let Some(pos) = resp.interact_pointer_pos() {
+                            let rel = pos - grid_rect.min;
+                            let cx = (rel.x / cell).floor().clamp(0.0, (n - 1) as f32) as usize;
+                            let cy = (rel.y / cell).floor().clamp(0.0, (n - 1) as f32) as usize;
+                            if let Some(c) = pal.get(cy * n + cx) {
                                 let hex = format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b());
                                 action.set_props.push(
                                     (id.to_owned(), "MonochromeColor".into(), PropValue::String(hex)));
                             }
-                            if (i + 1) % 16 == 0 { ui.end_row(); }
                         }
-                    });
+                    }
                     ui.add_space(4.0);
                 }
 

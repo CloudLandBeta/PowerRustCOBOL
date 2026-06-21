@@ -8,6 +8,36 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.6] — 2026-06-21
+
+Fixes: form-designer scrolling regression + chart monochrome polish.
+
+### Fixed
+
+- **Form Designer scrolling restored** — the canvas `ScrollArea` now uses
+  `auto_shrink([false, false])`, so a form larger than the viewport scrolls again
+  (regressed alongside the spec-012 container work).
+- **Monochrome colour picker** — compact 16×16 grid with **1px pure-white internal
+  grid lines**, no external border and no padding between swatch and line (much
+  smaller than before); the selected swatch is marked.
+- **Greyscale column** — one hue column of the 256-colour selector is replaced by
+  **16 shades of grey** (still no pure black/white).
+- **Chart "Hide Background" honoured** — a chart with `HideBackground` set now
+  draws **no** card/glass frame at all. Previously the generic control frame was
+  painted behind the chart preview, so the background still showed through when
+  the property was checked.
+
+### Added
+
+- **Monochrome gradient** — a `MonochromeGradient` toggle on charts. Each data
+  element gets its **own** tonal gradient (±20% of the base): bars shade
+  vertically, scatter bubbles and pie/donut slices shade radially; line and area
+  charts get a **vertical** gradient fill (bright at the line, fading toward the
+  baseline). Area/stacked translucency for the non-gradient case is unchanged.
+- **Smooth line/area curves** — the `Smooth` chart property now actually renders
+  a **Catmull-Rom spline** (line and area/stacked charts), matching the smooth
+  reference look; `ShowPoints` gates the line markers.
+
 ## [PowerRustCOBOL 1.27.5] — 2026-06-20
 
 Fix: **chart monochrome mode** (spec 013). Pre-production, treated as a fix.

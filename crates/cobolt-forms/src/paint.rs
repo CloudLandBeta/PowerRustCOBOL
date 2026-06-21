@@ -978,6 +978,14 @@ pub fn draw_control(
     let pic_frameless = matches!(ctrl.control_type, CT::PictureBox)
         && !ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
 
+    // A chart with HideBackground must draw NO card/glass frame here —
+    // `draw_chart_preview` owns the chart's (suppressed) background, so the
+    // generic frame drawn below would otherwise show through (spec 013 fix).
+    let chart_frameless = matches!(ctrl.control_type,
+        CT::BarChart | CT::LineChart | CT::PieChart
+        | CT::AreaChart | CT::ScatterChart | CT::DonutChart)
+        && ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
+
     // 007 Form themes — when an asset-pack theme is active and covers this
     // control kind, 9-slice its skin instead of the procedural glass; controls
     // the pack doesn't cover fall through to Liquid Glass (R6, R7, R11).
@@ -987,7 +995,7 @@ pub fn draw_control(
         pack.control(key).map(|skin| (pack.clone(), skin.clone()))
     });
 
-    if is_label || pic_frameless {
+    if is_label || pic_frameless || chart_frameless {
         // No visible frame. When selected, show a lightweight selection outline.
         if selected {
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
@@ -1411,16 +1419,150 @@ pub fn border_variant(base: Color32, dark_bg: bool) -> Color32 {
 /// 16-hue × 16 saturation/lightness grid with lightness bounded to ~[0.24, 0.80]
 /// so pure black/white (and near-extremes) are never offered.
 pub fn chart_palette_256() -> Vec<Color32> {
+    // One column (hue ~292°, magenta) is replaced by a ramp of 16 greys.
+    const GREY_COL: u32 = 13;
     let mut out = Vec::with_capacity(256);
     for hi in 0..16u32 {
         let h = hi as f32 / 16.0 * 360.0;
         for li in 0..16u32 {
-            let l = 0.24 + (li as f32 / 15.0) * 0.56;        // 0.24 .. 0.80
-            let s = 0.45 + ((li % 4) as f32 / 3.0) * 0.50;   // 0.45 .. 0.95
-            out.push(hsl_to_rgb(h, s.clamp(0.0, 1.0), l));
+            let l = 0.24 + (li as f32 / 15.0) * 0.56;            // 0.24 .. 0.80
+            if hi == GREY_COL {
+                let v = (l * 255.0).round() as u8;              // grey, never pure black/white
+                out.push(Color32::from_rgb(v, v, v));
+            } else {
+                let s = 0.45 + ((li % 4) as f32 / 3.0) * 0.50;  // 0.45 .. 0.95
+                out.push(hsl_to_rgb(h, s.clamp(0.0, 1.0), l));
+            }
         }
     }
     out
+}
+
+/// Shade `base` by `delta` lightness (positive = lighter, negative = darker),
+/// keeping hue/saturation — used for the diagonal monochrome gradient (spec 013).
+pub fn shade(base: Color32, delta: f32) -> Color32 {
+    let (h, s, l) = rgb_to_hsl(base);
+    hsl_to_rgb(h, s, (l + delta).clamp(0.0, 1.0))
+}
+
+// ── Smoothing + gradient meshes (spec 013 gradient/smooth) ──────────────────
+
+/// Catmull-Rom spline through `pts`, `seg` samples per segment — for smooth
+/// line/area curves. Returns `pts` unchanged when there are < 3 points.
+fn catmull_rom(pts: &[Pos2], seg: usize) -> Vec<Pos2> {
+    if pts.len() < 3 || seg < 2 {
+        return pts.to_vec();
+    }
+    let n = pts.len();
+    let mut out = Vec::with_capacity((n - 1) * seg + 1);
+    for i in 0..n - 1 {
+        let p0 = pts[i.saturating_sub(1)];
+        let p1 = pts[i];
+        let p2 = pts[i + 1];
+        let p3 = pts[(i + 2).min(n - 1)];
+        for s in 0..seg {
+            let t = s as f32 / seg as f32;
+            let t2 = t * t;
+            let t3 = t2 * t;
+            let x = 0.5 * ((2.0 * p1.x) + (-p0.x + p2.x) * t
+                + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
+                + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
+            let y = 0.5 * ((2.0 * p1.y) + (-p0.y + p2.y) * t
+                + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
+                + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
+            out.push(Pos2::new(x, y));
+        }
+    }
+    out.push(pts[n - 1]);
+    out
+}
+
+/// Vertical-gradient rectangle (top colour → bottom colour) — one bar's own
+/// gradient (spec 013).
+fn grad_rect_mesh(rect: egui::Rect, top: Color32, bottom: Color32) -> egui::epaint::Mesh {
+    let uv = egui::epaint::WHITE_UV;
+    let mut m = egui::epaint::Mesh::default();
+    m.vertices.push(egui::epaint::Vertex { pos: rect.left_top(),     uv, color: top });
+    m.vertices.push(egui::epaint::Vertex { pos: rect.right_top(),    uv, color: top });
+    m.vertices.push(egui::epaint::Vertex { pos: rect.right_bottom(), uv, color: bottom });
+    m.vertices.push(egui::epaint::Vertex { pos: rect.left_bottom(),  uv, color: bottom });
+    m.indices.extend([0, 1, 2, 0, 2, 3]);
+    m
+}
+
+/// Radial-gradient disc (centre colour → edge colour) — one scatter bubble's or
+/// pie slice's own gradient (spec 013).
+fn radial_disc_mesh(center: Pos2, rad: f32, cc: Color32, ce: Color32) -> egui::epaint::Mesh {
+    let uv = egui::epaint::WHITE_UV;
+    let n = 24_u32;
+    let mut m = egui::epaint::Mesh::default();
+    m.vertices.push(egui::epaint::Vertex { pos: center, uv, color: cc });
+    for i in 0..n {
+        let a = i as f32 / n as f32 * std::f32::consts::TAU;
+        m.vertices.push(egui::epaint::Vertex {
+            pos: center + Vec2::new(a.cos(), a.sin()) * rad, uv, color: ce,
+        });
+    }
+    for i in 1..=n {
+        let j = if i == n { 1 } else { i + 1 };
+        m.indices.extend([0, i, j]);
+    }
+    m
+}
+
+/// Vertical gradient area fill below a polyline: each column fades from `top_c`
+/// at the line to `bot_c` at `baseline` — the line-chart gradient (spec 013).
+fn grad_area_mesh(top: &[Pos2], baseline: f32, top_c: Color32, bot_c: Color32) -> egui::epaint::Mesh {
+    let uv = egui::epaint::WHITE_UV;
+    let mut m = egui::epaint::Mesh::default();
+    for (i, p) in top.iter().enumerate() {
+        let base = m.vertices.len() as u32;
+        m.vertices.push(egui::epaint::Vertex { pos: *p, uv, color: top_c });
+        m.vertices.push(egui::epaint::Vertex { pos: egui::pos2(p.x, baseline), uv, color: bot_c });
+        if i > 0 {
+            m.indices.extend([base - 2, base - 1, base, base - 1, base + 1, base]);
+        }
+    }
+    m
+}
+
+/// Pie/donut slice with a radial gradient (inner `cc` → outer `ce`). `inner_r`
+/// 0 ⇒ solid pie fan; > 0 ⇒ donut ring strip (spec 013).
+fn grad_slice_mesh(
+    center: Pos2, start: f32, sweep: f32, inner_r: f32, outer_r: f32,
+    cc: Color32, ce: Color32,
+) -> egui::epaint::Mesh {
+    let uv = egui::epaint::WHITE_UV;
+    let steps = ((sweep.abs() * outer_r).max(4.0) as u32).clamp(4, 40);
+    let mut m = egui::epaint::Mesh::default();
+    if inner_r <= 0.0 {
+        m.vertices.push(egui::epaint::Vertex { pos: center, uv, color: cc });
+        for s in 0..=steps {
+            let t = start + sweep * s as f32 / steps as f32;
+            m.vertices.push(egui::epaint::Vertex {
+                pos: Pos2::new(center.x + t.cos() * outer_r, center.y + t.sin() * outer_r), uv, color: ce,
+            });
+        }
+        for s in 1..=steps {
+            m.indices.extend([0, s, s + 1]);
+        }
+    } else {
+        for s in 0..=steps {
+            let t = start + sweep * s as f32 / steps as f32;
+            let (ct, st) = (t.cos(), t.sin());
+            m.vertices.push(egui::epaint::Vertex {
+                pos: Pos2::new(center.x + ct * inner_r, center.y + st * inner_r), uv, color: cc,
+            });
+            m.vertices.push(egui::epaint::Vertex {
+                pos: Pos2::new(center.x + ct * outer_r, center.y + st * outer_r), uv, color: ce,
+            });
+            if s > 0 {
+                let b = (s * 2) as u32;
+                m.indices.extend([b - 2, b - 1, b, b - 1, b + 1, b]);
+            }
+        }
+    }
+    m
 }
 
 /// Draw a rich glass chart preview on the canvas for all chart control types.
@@ -1500,6 +1642,11 @@ pub fn draw_chart_preview(
         Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
     );
 
+    // Monochrome gradient (spec 013): when on, each data element gets its OWN
+    // tonal gradient (bars vertical, bubbles/slices radial) and line/area charts
+    // get a vertical fill gradient — handled per-branch via mesh helpers below.
+    let gradient = mono && ctrl.get_prop("MonochromeGradient").map(|v| v.as_bool()).unwrap_or(false);
+
     // title
     let title = ctrl.get_prop("Title").map(|v| v.as_str().to_owned()).unwrap_or_default();
     if !title.is_empty() {
@@ -1549,6 +1696,11 @@ pub fn draw_chart_preview(
     let px_x = |i: usize| plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width();
     let px_y = |v: f32|   plot.max.y - v * plot.height();
 
+    // Line/area curve smoothing (spec 013): the `Smooth` property now actually
+    // bends the polyline into a Catmull-Rom spline. `ShowPoints` gates markers.
+    let smooth = ctrl.get_prop("Smooth").map(|v| v.as_bool()).unwrap_or(true);
+    let show_points = ctrl.get_prop("ShowPoints").map(|v| v.as_bool()).unwrap_or(true);
+
     match ctrl.control_type {
         CT::BarChart => {
             let horizontal = ctrl.get_prop("Horizontal").map(|v| v.as_bool()).unwrap_or(false);
@@ -1557,50 +1709,73 @@ pub fn draw_chart_preview(
             let gap        = bar_total * 0.05;
             for (si, series) in [series1, series2].iter().enumerate() {
                 for (i, &v) in series.iter().enumerate() {
-                    let c = &pal[si % pal.len()];
-                    if horizontal {
+                    let br = if horizontal {
                         let y  = plot.min.y + (i as f32 + 0.5 + si as f32 * (0.5 + gap)) / n as f32 * plot.height() - bar_w * 0.5;
                         let w  = v * plot.width();
-                        let br = egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(w, bar_w));
-                        painter.rect_filled(br, 2.0, *c);
+                        egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(w, bar_w))
                     } else {
                         let x  = plot.min.x + (i as f32 * bar_total) + si as f32 * (bar_w + gap) + gap;
                         let h  = v * plot.height();
-                        let br = egui::Rect::from_min_size(Pos2::new(x, plot.max.y - h), Vec2::new(bar_w, h));
-                        painter.rect_filled(br, 2.0, *c);
+                        egui::Rect::from_min_size(Pos2::new(x, plot.max.y - h), Vec2::new(bar_w, h))
+                    };
+                    if gradient {
+                        // Each bar gets its own light→dark vertical gradient.
+                        painter.add(egui::Shape::mesh(grad_rect_mesh(
+                            br, shade(mono_base, 0.20), shade(mono_base, -0.20))));
+                    } else {
+                        painter.rect_filled(br, 2.0, pal[si % pal.len()]);
                     }
                 }
             }
         }
         CT::LineChart => {
             for (si, series) in [series1, series2].iter().enumerate() {
-                let pts: Vec<Pos2> = series.iter().enumerate()
+                let raw: Vec<Pos2> = series.iter().enumerate()
                     .map(|(i, &v)| Pos2::new(px_x(i), px_y(v)))
                     .collect();
+                // `Smooth` bends the line into a Catmull-Rom curve (spec 013).
+                let line = if smooth { catmull_rom(&raw, 14) } else { raw.clone() };
                 let c = pal[si % pal.len()];
-                for w in pts.windows(2) {
-                    painter.line_segment([w[0], w[1]], Stroke::new(chart_stroke, c));
+                if gradient {
+                    // Vertical gradient fill under the line: brightest at the line,
+                    // fading to transparent at the baseline (spec 013, mockup look).
+                    let top_c = shade(mono_base, 0.12);
+                    let bot_c = Color32::from_rgba_unmultiplied(top_c.r(), top_c.g(), top_c.b(), 0);
+                    painter.add(egui::Shape::mesh(grad_area_mesh(&line, plot.max.y, top_c, bot_c)));
                 }
-                for &p in &pts {
-                    painter.circle_filled(p, 3.0, c);
+                let line_c = if gradient { shade(mono_base, 0.10) } else { c };
+                for w in line.windows(2) {
+                    painter.line_segment([w[0], w[1]], Stroke::new(chart_stroke, line_c));
+                }
+                if show_points {
+                    for &p in &raw {
+                        painter.circle_filled(p, 3.0, line_c);
+                    }
                 }
             }
         }
         CT::AreaChart => {
             for (si, series) in [series1, series2].iter().enumerate() {
-                let pts: Vec<Pos2> = series.iter().enumerate()
+                let raw: Vec<Pos2> = series.iter().enumerate()
                     .map(|(i, &v)| Pos2::new(px_x(i), px_y(v)))
                     .collect();
-                let c = pal[si % pal.len()];
-                let fill = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 80);
-                // Filled polygon
-                let mut poly: Vec<Pos2> = pts.clone();
-                poly.push(Pos2::new(pts.last().unwrap().x, plot.max.y));
-                poly.push(Pos2::new(pts[0].x, plot.max.y));
-                painter.add(egui::Shape::convex_polygon(poly, fill, Stroke::NONE));
-                // Line
-                for w in pts.windows(2) {
-                    painter.line_segment([w[0], w[1]], Stroke::new(chart_stroke, c));
+                let top = if smooth { catmull_rom(&raw, 14) } else { raw.clone() };
+                // Fill via a per-column mesh (handles the concave smoothed edge).
+                // Non-gradient keeps the existing alpha-80 translucency (R8);
+                // gradient fades vertically from the line to transparent.
+                let (top_c, bot_c, line_c) = if gradient {
+                    let t = shade(mono_base, 0.12);
+                    (Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 150),
+                     Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 0),
+                     shade(mono_base, 0.10))
+                } else {
+                    let c = pal[si % pal.len()];
+                    let f = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 80);
+                    (f, f, c)
+                };
+                painter.add(egui::Shape::mesh(grad_area_mesh(&top, plot.max.y, top_c, bot_c)));
+                for w in top.windows(2) {
+                    painter.line_segment([w[0], w[1]], Stroke::new(chart_stroke, line_c));
                 }
             }
         }
@@ -1608,10 +1783,16 @@ pub fn draw_chart_preview(
             let pts1: &[(f32,f32)] = &[(0.15,0.65),(0.35,0.40),(0.50,0.78),(0.70,0.30),(0.88,0.55)];
             let pts2: &[(f32,f32)] = &[(0.20,0.30),(0.42,0.72),(0.60,0.45),(0.78,0.85)];
             for (pts, ci) in [(pts1, 0usize), (pts2, 1)] {
-                let c = pal[ci];
+                let c = pal[ci % pal.len()];
                 for &(fx, fy) in pts {
                     let p = Pos2::new(plot.min.x + fx*plot.width(), plot.max.y - fy*plot.height());
-                    painter.circle_stroke(p, 4.5, Stroke::new(1.5, c));
+                    if gradient {
+                        // Each bubble: its own radial gradient (light centre → dark edge).
+                        painter.add(egui::Shape::mesh(radial_disc_mesh(
+                            p, 5.0, shade(mono_base, 0.20), shade(mono_base, -0.20))));
+                    } else {
+                        painter.circle_stroke(p, 4.5, Stroke::new(1.5, c));
+                    }
                 }
             }
         }
@@ -1628,13 +1809,11 @@ pub fn draw_chart_preview(
             for (i, &frac) in slices.iter().enumerate() {
                 let sweep = frac * TAU;
                 let end   = start + sweep;
-                let c     = pal[i % pal.len()];
-                let fill  = Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), (a as f32 * 0.85) as u8);
-                // Arc approximated with a fan polygon
                 let steps = ((sweep * outer_r).max(4.0) as u32).min(40).max(4);
+                // Outline points (fan for pie, ring for donut) — used for the
+                // slice border in both fill modes.
                 let mut pts: Vec<Pos2> = Vec::with_capacity(steps as usize + 2);
                 if inner_r > 0.0 {
-                    // Donut: outer arc then inner arc reversed
                     for s in 0..=steps {
                         let t = start + sweep * s as f32 / steps as f32;
                         pts.push(Pos2::new(center.x + t.cos()*outer_r, center.y + t.sin()*outer_r));
@@ -1644,7 +1823,6 @@ pub fn draw_chart_preview(
                         pts.push(Pos2::new(center.x + t.cos()*inner_r, center.y + t.sin()*inner_r));
                     }
                 } else {
-                    // Solid pie
                     pts.push(center);
                     for s in 0..=steps {
                         let t = start + sweep * s as f32 / steps as f32;
@@ -1654,7 +1832,17 @@ pub fn draw_chart_preview(
                 // Monochrome: slice borders use a lighter variant of the base so
                 // adjacent slices separate on the dark face (spec 013 R6).
                 let slice_stroke = if mono { mono_border } else { bg };
-                painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(0.8, slice_stroke)));
+                if gradient {
+                    // Each slice gets its own radial gradient (light inner → dark outer).
+                    painter.add(egui::Shape::mesh(grad_slice_mesh(
+                        center, start, sweep, inner_r, outer_r,
+                        shade(mono_base, 0.20), shade(mono_base, -0.20))));
+                    painter.add(egui::Shape::closed_line(pts, Stroke::new(0.8, slice_stroke)));
+                } else {
+                    let c = pal[i % pal.len()];
+                    let fill = Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), (a as f32 * 0.85) as u8);
+                    painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(0.8, slice_stroke)));
+                }
                 start = end;
             }
         }
@@ -1979,6 +2167,29 @@ mod theme_render_tests {
             assert_ne!((c.r(), c.g(), c.b()), (255, 255, 255), "pure white must be excluded");
             assert!(!is_extreme(c), "swatch too close to an extreme: {c:?}");
         }
+    }
+
+    #[test]
+    fn catmull_rom_smooths_and_keeps_endpoints() {
+        let pts = vec![
+            Pos2::new(0.0, 0.0), Pos2::new(10.0, 20.0),
+            Pos2::new(20.0, 5.0), Pos2::new(30.0, 25.0),
+        ];
+        let sm = catmull_rom(&pts, 12);
+        assert!(sm.len() > pts.len(), "smoothing should add intermediate points");
+        assert_eq!(sm.first().copied(), Some(pts[0]), "keeps first point");
+        assert_eq!(sm.last().copied(), Some(*pts.last().unwrap()), "keeps last point");
+        // Fewer than 3 points → unchanged.
+        let two = vec![Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)];
+        assert_eq!(catmull_rom(&two, 12).len(), 2);
+    }
+
+    #[test]
+    fn shade_lightens_and_darkens() {
+        let base = Color32::from_rgb(0x3F, 0x6F, 0xB5);
+        let bl = rgb_to_hsl(base).2;
+        assert!(rgb_to_hsl(shade(base, 0.2)).2 > bl);
+        assert!(rgb_to_hsl(shade(base, -0.2)).2 < bl);
     }
 
     #[test]

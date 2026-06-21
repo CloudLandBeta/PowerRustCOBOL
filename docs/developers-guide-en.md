@@ -539,7 +539,12 @@ non-visual ones are services.
   and axis lines become soft pastel variants and slice/bar borders a
   lighter/darker variant; labels, legends and titles keep the foreground colour,
   and area/stacked transparency is unchanged. Grid visibility stays on the
-  existing **Show grid lines** toggle.
+  existing **Show grid lines** toggle. A **Gradient** option gives each data
+  element its own ±20% tonal gradient (bars shade vertically; scatter bubbles and
+  pie/donut slices radially), while line and area charts get a vertical fill that
+  is bright at the line and fades toward the baseline. The base-colour selector
+  includes a column of greys. Line and area charts honour the **Smooth** property
+  (Catmull-Rom curve).
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase.

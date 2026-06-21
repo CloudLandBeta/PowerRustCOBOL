@@ -1123,6 +1123,9 @@ impl Control {
                 // visibility stays on the existing `ShowGridLines` prop.
                 props.insert("Monochrome".into(),      PropValue::Bool(false));
                 props.insert("MonochromeColor".into(), PropValue::String("#3F6FB5".into())); // medium blue
+                // Diagonal gradient: when on, data elements shade from ~20% lighter
+                // (top-left) to ~20% darker (bottom-right) of MonochromeColor.
+                props.insert("MonochromeGradient".into(), PropValue::Bool(false));
                 props.insert("XAxisLabel".into(),      PropValue::String("".into()));
                 props.insert("YAxisLabel".into(),      PropValue::String("".into()));
                 props.insert("SeriesColors".into(),    PropValue::String(
