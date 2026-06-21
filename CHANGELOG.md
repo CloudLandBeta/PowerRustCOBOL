@@ -8,6 +8,37 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.4] — 2026-06-20
+
+Fix: **form container controls** — GroupBox, Panel, and TabControl become real
+containers (spec 012). Pre-production, so treated as a fix that completes intended
+behaviour.
+
+### Fixed
+
+- **Real containment & nesting** — controls can be placed inside GroupBox, Panel,
+  and TabControl to any depth and in any combination, via a `parent` link on each
+  control. The `.cfrm` round-trips it; legacy `<Children>` files are migrated on
+  load, and the old Panel `Scrollable` flag maps to the new `AutoScroll`.
+- **Reparent by drag-and-drop** — drop a control on the form to detach it, over a
+  container's content area to nest it, or over another control to adopt that
+  control's parent. Undoable, with a guard against dropping a container into its
+  own descendant.
+- **Move-with-parent & cascade delete** — moving a container moves its whole
+  subtree; deleting a container removes its descendants.
+- **Clipping + border radius** — children are clipped to the container's content
+  area; each container has a configurable `BorderRadius`.
+- **Working `Opacity`** — a container's `Opacity` now fades the container and its
+  subtree (the property previously had no visual effect on any control).
+- **TabControl pages** — each tab owns its own children; clicking a tab switches
+  the active page; only the active page's controls are shown and interactive — at
+  design time and in the IDE run-preview.
+- **Auto-scroll property** — per-container `AutoScroll` (default off → overflow is
+  clipped), editable in the properties pane.
+
+Known follow-ups (spec 012): auto-scroll *scrollbars*, the drag-time drop-target
+highlight, and standalone-binary render parity.
+
 ## [PowerRustCOBOL 1.27.3] — 2026-06-20
 
 Fix: chart controls gain a **Hide background** property.

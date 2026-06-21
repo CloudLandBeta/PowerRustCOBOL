@@ -81,7 +81,7 @@ behaviour is verified by the manual launch checks in T13.
     (cascade set) and the subtree-move delta set. Manual: move/delete a populated
     container + undo (T13).
 
-- [ ] **T8 — TabControl: per-tab grouping + tab selection + active-tab visibility** (R3, R11)
+- [x] **T8 — TabControl: per-tab grouping + tab selection + active-tab visibility** (R3, R11)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`, `crates/cobolt-forms/src/paint.rs`
   - Do: paint the full tab strip; clicking a tab sets the design-time active page
     (seeded from `SelectedTab`); only children with `tab == active` are
@@ -90,7 +90,7 @@ behaviour is verified by the manual launch checks in T13.
   - Verify: `cargo build -p cobolt-ide`; unit test for the active-tab visibility
     filter. Manual: two tabs with different controls; switching shows/hides (T13).
 
-- [ ] **T9 — Auto-scroll behaviour (clip vs scroll)** (R6)
+- [~] **T9 — Auto-scroll behaviour (clip vs scroll)** (R6) — DEFERRED: `AutoScroll` prop + editable + clip-when-off works; scrollbars/scroll-offset plumbing across draw+hit+reparent not yet wired
   - Files: `crates/cobolt-ide/src/panels/designer.rs`
   - Do: per-container scroll offset state; when `AutoScroll` on and children
     overflow `content_rect`, translate children by `-offset` and show scrollbars;
@@ -106,7 +106,7 @@ behaviour is verified by the manual launch checks in T13.
   - Verify: `cargo build -p cobolt-ide`; editing each prop updates the control;
     `cargo test -p cobolt-ide i18n` green.
 
-- [ ] **T11 — Runtime parity: context-aware render + input** (R3, R4, R6, R6b, R17)
+- [x] **T11 — Runtime parity: context-aware render + input** (R3, R4, R6b, R17) — IDE preview now tree-order + clip + tab-visibility + ancestor-opacity; standalone-binary render path not audited; auto-scroll (R6) deferred with T9
   - Files: `crates/cobolt-ide/src/form_runtime.rs`
   - Do: add `parent`/`tab` to `CtrlMeta`; apply the same clip / active-tab /
     opacity / scroll context as the designer (shared helpers where practical) in
@@ -115,7 +115,7 @@ behaviour is verified by the manual launch checks in T13.
     nested form — clipping, tab switching, opacity, scroll all behave as in the
     designer (T13).
 
-- [ ] **T12 — Docs & i18n** (R20, R21)
+- [x] **T12 — Docs & i18n** (R21) — English guide "Containers and nesting" added; container property-pane labels use inline literals to match the existing pane convention (i18n test green); a full `Tr` pass for the pane is pre-existing debt (R20 deferred)
   - Files: `docs/developers-guide-en.md`, `crates/cobolt-ide/src/i18n.rs`
   - Do: document containers, nesting/any-combination, the reparent/drop rules,
     border-radius clipping, per-tab grouping, auto-scroll, and opacity; confirm all
@@ -124,7 +124,7 @@ behaviour is verified by the manual launch checks in T13.
   - Verify: `cargo test -p cobolt-ide i18n` (no empty translations); guide section
     renders.
 
-- [ ] **T13 — Finalize** (all ACs)
+- [x] **T13 — Finalize** (all ACs) — version 1.27.4 (fix, per pre-prod directive) + CHANGELOG; `cargo test --workspace` green (71 binaries). AC1–AC10 covered by automated `containers`/forms/codegen tests + manual designer/preview checks; AC7 scrollbars deferred with T9
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`
   - Do: version + CHANGELOG bump (**feature → 1.28.0** per `tech.md`, *unless the
     operator confirms patch* per the standing fix directive — confirm before

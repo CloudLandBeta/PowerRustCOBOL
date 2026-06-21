@@ -708,6 +708,37 @@ impl DesignerPanel {
         self.apply(cmd);
     }
 
+    /// If `(cx, cy)` lands on a `TabControl`'s tab strip, return that control's id
+    /// and the clicked tab index (spec 012). The geometry mirrors the strip drawn
+    /// in `cobolt_forms::paint::draw_control`.
+    fn tab_strip_hit(&self, cx: i32, cy: i32) -> Option<(String, u32)> {
+        for &idx in super::containers::render_order(&self.form.controls).iter().rev() {
+            let c = &self.form.controls[idx];
+            if c.control_type != ControlType::TabControl {
+                continue;
+            }
+            if !super::containers::is_visible(&self.form.controls, idx, &self.active_tabs) {
+                continue;
+            }
+            let r = c.rect;
+            if cy < r.y || cy > r.y + 26 || cx < r.x || cx > r.x + r.w {
+                continue;
+            }
+            let tabs: Vec<String> = c.get_prop("Tabs")
+                .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
+                .unwrap_or_default();
+            let mut tx = r.x as f32 + 2.0;
+            for (i, t) in tabs.iter().enumerate() {
+                let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
+                if (cx as f32) >= tx && (cx as f32) < tx + tw {
+                    return Some((c.id.clone(), i as u32));
+                }
+                tx += tw + 2.0;
+            }
+        }
+        None
+    }
+
     /// Topmost **visible** control under a form-space point, respecting container
     /// clipping and tab visibility (spec 012). Children win over their container.
     fn hit_top_id(&self, cx: i32, cy: i32) -> Option<String> {
@@ -1682,20 +1713,34 @@ impl DesignerPanel {
                 if resp.clicked() {
                     let ctrl_held = ui.ctx().input(|i| i.modifiers.command);
                     if let Some((cx, cy)) = ptr_canvas {
-                        // Hit-test topmost visible control (container-aware, spec 012).
-                        let hit: Option<String> = self.hit_top_id(cx, cy);
-                        if ctrl_held {
-                            // Ctrl+click = toggle in multi-select
-                            if let Some(id) = hit {
-                                self.toggle_selected(&id);
-                                selection_changed = true;
-                            }
+                        // A click on a TabControl's tab strip switches its active
+                        // page (spec 012) instead of selecting a child.
+                        if let Some((tab_id, ti)) = self.tab_strip_hit(cx, cy) {
+                            let old = self.form.find_control(&tab_id)
+                                .and_then(|c| c.get_prop("SelectedTab").cloned());
+                            self.apply(Cmd::SetProperty {
+                                id: tab_id.clone(), key: "SelectedTab".into(),
+                                old, new: PropValue::Int(ti as i64),
+                            });
+                            self.active_tabs.insert(tab_id.clone(), ti);
+                            self.set_selected_one(Some(tab_id));
+                            selection_changed = true;
                         } else {
-                            let hit_same = self.selected_ids.len() == 1
-                                && hit.as_deref() == self.selected_ids.first().map(|s| s.as_str());
-                            if !hit_same {
-                                self.set_selected_one(hit);
-                                selection_changed = true;
+                            // Hit-test topmost visible control (container-aware, spec 012).
+                            let hit: Option<String> = self.hit_top_id(cx, cy);
+                            if ctrl_held {
+                                // Ctrl+click = toggle in multi-select
+                                if let Some(id) = hit {
+                                    self.toggle_selected(&id);
+                                    selection_changed = true;
+                                }
+                            } else {
+                                let hit_same = self.selected_ids.len() == 1
+                                    && hit.as_deref() == self.selected_ids.first().map(|s| s.as_str());
+                                if !hit_same {
+                                    self.set_selected_one(hit);
+                                    selection_changed = true;
+                                }
                             }
                         }
                     }
