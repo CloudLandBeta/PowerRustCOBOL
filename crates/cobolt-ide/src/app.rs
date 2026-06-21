@@ -4441,6 +4441,16 @@ impl CoboltApp {
                     let enabled  = state.enabled;
                     let alpha    = (if enabled { 1.0f32 } else { 0.45f32 }) * anc_alpha;
 
+                    // TEMP DIAGNOSTIC (spec 017): per-control alpha/enabled/anc.
+                    ui.painter().text(
+                        screen_rect.left_top() + Vec2::new(2.0, -12.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        format!("{}: a={:.2} en={} anc={:.2} par={:?}",
+                            meta.id, alpha, enabled, anc_alpha, meta.parent),
+                        egui::FontId::monospace(10.0),
+                        Color32::from_rgb(255, 120, 220),
+                    );
+
                     // Controls rendered through `render_run_control` get their
                     // universal pointer/gesture events from inside it. The ones
                     // handled inline below (Label, ComboBox, ListBox, PictureBox,
