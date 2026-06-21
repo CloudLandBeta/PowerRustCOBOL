@@ -1765,6 +1765,7 @@ impl PropertiesPanel {
                     bool_row(ui, id, "ShowTooltips", "Show tooltips",  ctrl, action); ui.end_row();
                     bool_row(ui, id, "AnimateOnLoad","Animate on load",ctrl, action); ui.end_row();
                     bool_row(ui, id, "HideBackground","Hide background",ctrl, action); ui.end_row();
+                    bool_row(ui, id, "Monochrome",   "Monochrome",     ctrl, action); ui.end_row();
                     // Axis labels (not for pie/donut)
                     if !matches!(ctrl.control_type, ControlType::PieChart | ControlType::DonutChart) {
                         let cx = ctrl.get_prop("XAxisLabel").map(|v| v.as_str().to_owned()).unwrap_or_default();
@@ -1773,6 +1774,48 @@ impl PropertiesPanel {
                         text_row_hint(ui, &mut self.text_bufs, id, "YAxisLabel", &cy, "Y-axis label:", "Amount", action);
                     }
                 });
+
+                // ── Monochrome base colour (spec 013) ─────────────────────────
+                // When Monochrome is on, pick the base colour from the fixed set of
+                // 256 swatches (no pure black/white).
+                if ctrl.get_prop("Monochrome").map(|v| v.as_bool()).unwrap_or(false) {
+                    let cur = ctrl.get_prop("MonochromeColor")
+                        .map(|v| v.as_str().to_owned()).unwrap_or_else(|| "#3F6FB5".into());
+                    let parse = |h: &str| -> (u8, u8, u8) {
+                        let h = h.trim_start_matches('#');
+                        (
+                            u8::from_str_radix(h.get(0..2).unwrap_or("3F"), 16).unwrap_or(0x3F),
+                            u8::from_str_radix(h.get(2..4).unwrap_or("6F"), 16).unwrap_or(0x6F),
+                            u8::from_str_radix(h.get(4..6).unwrap_or("B5"), 16).unwrap_or(0xB5),
+                        )
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label("Base color:");
+                        let (cr, cg, cb) = parse(&cur);
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 14.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(cr, cg, cb));
+                        ui.monospace(&cur);
+                    });
+                    let pal = cobolt_forms::paint::chart_palette_256();
+                    egui::Grid::new(format!("mono_pick_{id}")).spacing([2.0, 2.0]).show(ui, |ui| {
+                        for (i, c) in pal.iter().enumerate() {
+                            let (rect, resp) = ui.allocate_exact_size(
+                                egui::vec2(14.0, 14.0), egui::Sense::click());
+                            ui.painter().rect_filled(rect, 2.0, *c);
+                            if resp.hovered() {
+                                ui.painter().rect_stroke(rect, 2.0,
+                                    egui::Stroke::new(1.5, Color32::WHITE));
+                            }
+                            if resp.clicked() {
+                                let hex = format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b());
+                                action.set_props.push(
+                                    (id.to_owned(), "MonochromeColor".into(), PropValue::String(hex)));
+                            }
+                            if (i + 1) % 16 == 0 { ui.end_row(); }
+                        }
+                    });
+                    ui.add_space(4.0);
+                }
 
                 // ── Data Binding ──────────────────────────────────────────────
                 section_header(ui, "🔗 Data Binding — COBOL Table");

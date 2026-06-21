@@ -1118,6 +1118,11 @@ impl Control {
                 // drawn — only the chart content (grid, axes, labels, data) shows,
                 // letting the chart sit transparently on the form.
                 props.insert("HideBackground".into(),  PropValue::Bool(false));
+                // Monochrome mode (spec 013): render data in tonal variations of a
+                // single base colour instead of the multi-colour palette. Grid
+                // visibility stays on the existing `ShowGridLines` prop.
+                props.insert("Monochrome".into(),      PropValue::Bool(false));
+                props.insert("MonochromeColor".into(), PropValue::String("#3F6FB5".into())); // medium blue
                 props.insert("XAxisLabel".into(),      PropValue::String("".into()));
                 props.insert("YAxisLabel".into(),      PropValue::String("".into()));
                 props.insert("SeriesColors".into(),    PropValue::String(
@@ -1641,6 +1646,24 @@ mod tests {
         }
         // Non-chart controls do not gain the property.
         assert!(Control::new("B", ControlType::Button, 0, 0).get_prop("HideBackground").is_none());
+    }
+
+    #[test]
+    fn charts_have_monochrome_props_defaulting_off() {
+        // Spec 013: every chart exposes Monochrome (off) + a MonochromeColor.
+        for t in [
+            ControlType::BarChart, ControlType::LineChart, ControlType::PieChart,
+            ControlType::AreaChart, ControlType::ScatterChart, ControlType::DonutChart,
+        ] {
+            let c = Control::new("C1", t, 0, 0);
+            assert!(!c.get_prop("Monochrome").expect("missing Monochrome").as_bool());
+            let col = c.get_prop("MonochromeColor").expect("missing MonochromeColor");
+            assert!(col.as_str().starts_with('#'), "MonochromeColor should be a hex colour");
+            // Grid visibility is the existing ShowGridLines (not a new ShowGrid prop).
+            assert!(c.get_prop("ShowGridLines").is_some());
+            assert!(c.get_prop("ShowGrid").is_none(), "no duplicate ShowGrid prop");
+        }
+        assert!(Control::new("B", ControlType::Button, 0, 0).get_prop("Monochrome").is_none());
     }
 
     #[test]
