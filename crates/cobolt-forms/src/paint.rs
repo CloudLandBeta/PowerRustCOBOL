@@ -510,6 +510,13 @@ pub fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     painter.add(egui::Shape::line(front, st));
 }
 
+/// A control's own `Opacity` (0–100) as a 0.0–1.0 multiplier (default 1.0). The
+/// render walk multiplies a container's `opacity_of` into the `alpha_mul` it
+/// passes to descendants, so a faded container dims its whole subtree (spec 012).
+pub fn opacity_of(ctrl: &Control) -> f32 {
+    ctrl.get_prop("Opacity").map(|v| v.as_i64()).unwrap_or(100).clamp(0, 100) as f32 / 100.0
+}
+
 pub fn draw_control(
     painter:   &egui::Painter,
     origin:    Pos2,
@@ -529,6 +536,11 @@ pub fn draw_control(
         Vec2::new(r.w as f32, r.h as f32),
     );
     let rect = scale_rect_about_center(base_rect, scale);
+
+    // Opacity (0–100) fades this control. Ancestor *container* opacities are
+    // already folded into the incoming `alpha_mul` by the render walk, so a faded
+    // container dims its whole subtree (spec 012). Default 100 ⇒ no change.
+    let alpha_mul = alpha_mul * opacity_of(ctrl);
 
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     let c_scale = |c: u8| -> u8 { ((c as f32) * alpha_mul) as u8 };
@@ -952,7 +964,10 @@ pub fn draw_control(
 
     let corner = match ctrl.control_type {
         CT::Button   => ctrl.get_prop("CornerRadius").map(|v| v.as_i64() as f32).unwrap_or(4.0),
-        CT::GroupBox => 4.0,
+        // Containers expose a configurable BorderRadius (spec 012); it rounds the
+        // frame and is the radius child content is clipped to.
+        CT::Panel | CT::GroupBox | CT::TabControl =>
+            ctrl.get_prop("BorderRadius").map(|v| v.as_i64() as f32).unwrap_or(0.0).max(0.0),
         _            => 2.0,
     };
 

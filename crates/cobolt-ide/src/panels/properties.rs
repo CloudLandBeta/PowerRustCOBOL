@@ -1234,13 +1234,18 @@ impl PropertiesPanel {
                     }
                 }
                 combo_row_inline(ui, id, "TabPosition", ctrl, action, &["Top","Bottom","Left","Right"]);
+                // Container behaviour (spec 012).
+                bool_row_inline(ui, id, "AutoScroll", "Auto-scroll", ctrl, action);
+                int_row_inline(ui, id, "BorderRadius", "Border radius", ctrl, action, 0..=80);
                 ui.add_space(4.0);
             }
 
             // ── Panel / GroupBox ──────────────────────────────────────────────
             ControlType::Panel | ControlType::GroupBox => {
                 section_header(ui, "Container");
-                bool_row_inline(ui, id, "Scrollable", "Scrollable", ctrl, action);
+                // Auto-scroll overflowing children vs clip them (spec 012).
+                bool_row_inline(ui, id, "AutoScroll", "Auto-scroll", ctrl, action);
+                int_row_inline(ui, id, "BorderRadius", "Border radius", ctrl, action, 0..=80);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
@@ -2380,6 +2385,20 @@ fn bool_row_inline(ui: &mut Ui, ctrl_id: &str, key: &str, label: &str, ctrl: &Co
     if ui.checkbox(&mut v, label).changed() {
         action.set_props.push((ctrl_id.to_owned(), key.to_owned(), PropValue::Bool(v)));
     }
+}
+
+/// Inline integer editor (label + DragValue), clamped to `range`.
+fn int_row_inline(
+    ui: &mut Ui, ctrl_id: &str, key: &str, label: &str, ctrl: &Control,
+    action: &mut InspectorAction, range: std::ops::RangeInclusive<i64>,
+) {
+    let mut v = ctrl.get_prop(key).map(|p| p.as_i64()).unwrap_or(0);
+    ui.horizontal(|ui| {
+        ui.label(label);
+        if ui.add(DragValue::new(&mut v).speed(1).range(range)).changed() {
+            action.set_props.push((ctrl_id.to_owned(), key.to_owned(), PropValue::Int(v)));
+        }
+    });
 }
 
 /// Combo row — grid cell style.

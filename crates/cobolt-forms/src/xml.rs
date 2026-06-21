@@ -353,7 +353,44 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     // Empty REPOSITORY ⇒ seed the curated Rust-FFI type bridge; any
     // developer-authored content is preserved as-is (spec 005).
     form.seed_repository_if_empty();
+    // Containers (spec 012): flatten any legacy <Children> nesting into the flat
+    // editing list with `parent` links, and migrate the old Panel `Scrollable`
+    // flag to the unified `AutoScroll` property.
+    normalize_containers(&mut form);
     Ok(form)
+}
+
+/// Spec 012 post-load normalization. New `.cfrm` write controls flat with a
+/// `parent` attribute; older files nested children under `<Children>`. Either way
+/// we end with a single flat `form.controls` carrying `parent` links.
+fn normalize_containers(form: &mut Form) {
+    let roots = std::mem::take(&mut form.controls);
+    let mut flat: Vec<Control> = Vec::new();
+    for c in roots {
+        flatten_ctrl(c, None, &mut flat);
+    }
+    form.controls = flat;
+    for c in &mut form.controls {
+        if c.is_container() && c.get_prop("AutoScroll").is_none() {
+            if let Some(scroll) = c.get_prop("Scrollable").map(|v| v.as_bool()) {
+                c.set_prop("AutoScroll", PropValue::Bool(scroll));
+            }
+        }
+    }
+}
+
+fn flatten_ctrl(mut c: Control, parent: Option<String>, out: &mut Vec<Control>) {
+    let kids = std::mem::take(&mut c.children);
+    let id = c.id.clone();
+    // A control loaded from a new flat file already carries its `parent`
+    // attribute; only derive it from tree position for legacy nested files.
+    if c.parent.is_none() {
+        c.parent = parent;
+    }
+    out.push(c);
+    for k in kids {
+        flatten_ctrl(k, Some(id.clone()), out);
+    }
 }
 
 /// Parse everything inside `<Form> … </Form>`.
@@ -600,6 +637,8 @@ fn parse_control<R: std::io::BufRead>(
     let mut z_order     = 0i32;
     let mut visible     = true;
     let mut enabled     = true;
+    let mut parent: Option<String> = None;
+    let mut tab:    Option<u32>    = None;
 
     for (key, val) in attrs {
         match key.as_slice() {
@@ -613,6 +652,9 @@ fn parse_control<R: std::io::BufRead>(
             b"z-order"   => z_order   = val.parse().unwrap_or(0),
             b"visible"   => visible   = val != "false" && val != "0",
             b"enabled"   => enabled   = val != "false" && val != "0",
+            // Container membership (spec 012). Empty `parent` = direct form child.
+            b"parent"    => parent    = if val.is_empty() { None } else { Some(val) },
+            b"tab"       => tab       = val.parse().ok(),
             _ => {}
         }
     }
@@ -625,6 +667,8 @@ fn parse_control<R: std::io::BufRead>(
     ctrl.z_order   = z_order;
     ctrl.visible   = visible;
     ctrl.enabled   = enabled;
+    ctrl.parent    = parent;
+    ctrl.tab       = tab;
     // Clear default properties/events set by Control::new — the file is authoritative.
     ctrl.properties.clear();
     ctrl.events.clear();
@@ -873,6 +917,14 @@ fn write_control<W: std::io::Write>(
     elem.push_attribute(("z-order",   ctrl.z_order.to_string().as_str()));
     elem.push_attribute(("visible",   if ctrl.visible { "true" } else { "false" }));
     elem.push_attribute(("enabled",   if ctrl.enabled { "true" } else { "false" }));
+    // Container membership (spec 012): written only when set, so plain forms and
+    // older readers are unaffected.
+    if let Some(p) = &ctrl.parent {
+        elem.push_attribute(("parent", p.as_str()));
+    }
+    if let Some(t) = ctrl.tab {
+        elem.push_attribute(("tab", t.to_string().as_str()));
+    }
     w.write_event(Event::Start(elem))?;
 
     // Properties
@@ -1011,6 +1063,57 @@ mod tests {
         assert_eq!(loaded.theme.as_deref(), Some("stainless-steel"));
         assert!(loaded.use_theme_background);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn roundtrip_nested_containers_012() {
+        // A deeply nested form round-trips parent/tab links and the new container
+        // props (spec 012).
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut pnl = Control::new("Pnl", ControlType::Panel, 10, 10);
+        pnl.set_prop("BorderRadius", PropValue::Int(8));
+        pnl.set_prop("AutoScroll",   PropValue::Bool(true));
+        let mut grp = Control::new("Grp", ControlType::GroupBox, 20, 20);
+        grp.parent = Some("Pnl".into());
+        let mut tabs = Control::new("Tabs", ControlType::TabControl, 25, 25);
+        tabs.parent = Some("Grp".into());
+        let mut txt = Control::new("Txt", ControlType::TextBox, 30, 30);
+        txt.parent = Some("Tabs".into());
+        txt.tab = Some(1);
+        form.controls = vec![pnl, grp, tabs, txt];
+
+        let path = std::env::temp_dir().join("cobolt_test_nested_012.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        let find = |id: &str| loaded.controls.iter().find(|c| c.id == id).unwrap();
+        assert_eq!(find("Grp").parent.as_deref(), Some("Pnl"));
+        assert_eq!(find("Tabs").parent.as_deref(), Some("Grp"));
+        assert_eq!(find("Txt").parent.as_deref(), Some("Tabs"));
+        assert_eq!(find("Txt").tab, Some(1));
+        assert_eq!(find("Pnl").get_prop("BorderRadius").unwrap().as_i64(), 8);
+        assert!(find("Pnl").get_prop("AutoScroll").unwrap().as_bool());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn legacy_children_and_scrollable_migrate_012() {
+        // An old-format file (nested <Children>, Panel Scrollable) flattens to the
+        // parent-linked list and migrates Scrollable → AutoScroll.
+        let xml = r#"<?xml version="1.0"?>
+<Form name="F" title="F" width="640" height="480">
+  <Control id="Pnl" type="Panel" x="10" y="10" w="200" h="150">
+    <Property name="Scrollable">true</Property>
+    <Children>
+      <Control id="Inner" type="Button" x="20" y="20" w="80" h="24"></Control>
+    </Children>
+  </Control>
+</Form>"#;
+        let loaded = load_form_from_str(xml).expect("load");
+        let inner = loaded.controls.iter().find(|c| c.id == "Inner").expect("Inner flattened");
+        assert_eq!(inner.parent.as_deref(), Some("Pnl"), "legacy child reparented to Pnl");
+        let pnl = loaded.controls.iter().find(|c| c.id == "Pnl").unwrap();
+        assert!(pnl.get_prop("AutoScroll").map(|v| v.as_bool()).unwrap_or(false),
+            "Scrollable must migrate to AutoScroll");
     }
 
     #[test]
