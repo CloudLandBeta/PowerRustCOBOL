@@ -1096,6 +1096,23 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_chart_monochrome_013() {
+        // Spec 013: Monochrome + MonochromeColor round-trip on a chart.
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut ch = Control::new("Chart-1", ControlType::BarChart, 10, 10);
+        ch.set_prop("Monochrome", PropValue::Bool(true));
+        ch.set_prop("MonochromeColor", PropValue::String("#2E8B8B".into()));
+        form.controls = vec![ch];
+        let path = std::env::temp_dir().join("cobolt_test_mono_013.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        let c = loaded.controls.iter().find(|c| c.id == "Chart-1").unwrap();
+        assert!(c.get_prop("Monochrome").unwrap().as_bool());
+        assert_eq!(c.get_prop("MonochromeColor").unwrap().as_str(), "#2E8B8B");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn legacy_children_and_scrollable_migrate_012() {
         // An old-format file (nested <Children>, Panel Scrollable) flattens to the
         // parent-linked list and migrates Scrollable → AutoScroll.

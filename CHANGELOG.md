@@ -8,6 +8,23 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.5] — 2026-06-20
+
+Fix: **chart monochrome mode** (spec 013). Pre-production, treated as a fix.
+
+### Fixed
+
+- Charts gain a **Monochrome** toggle + a **MonochromeColor** chosen from a fixed
+  **256-colour** selector (pure black/white and near-extremes excluded).
+- When on, data elements (bars, slices, lines, points, areas, markers) render in
+  distinguishable **tonal variations** of the base colour (same hue family) across
+  all six chart types; grid lines use a soft **pastel** variant, axes a stronger
+  pastel, and slice borders a lighter variant — so the chart isn't flat.
+- Labels, legends, titles keep the **foreground colour** (not recoloured), and
+  area/stacked **transparency** is unchanged.
+- When off, charts render exactly as before. Grid visibility remains the existing
+  **ShowGridLines** toggle (no duplicate property added).
+
 ## [PowerRustCOBOL 1.27.4] — 2026-06-20
 
 Fix: **form container controls** — GroupBox, Panel, and TabControl become real

@@ -533,6 +533,13 @@ non-visual ones are services.
   Every chart has a **Hide background** property: when checked, the chart's panel
   fill and border frame are not drawn, so only the chart content (grid, axes,
   labels, data) shows — letting the chart sit transparently on the form.
+  Charts also have a **Monochrome** mode: tick it and pick a **base colour** from
+  the 256-swatch selector, and the chart renders its data in distinguishable
+  tonal variations of that one colour instead of the multi-colour palette. Grid
+  and axis lines become soft pastel variants and slice/bar borders a
+  lighter/darker variant; labels, legends and titles keep the foreground colour,
+  and area/stacked transparency is unchanged. Grid visibility stays on the
+  existing **Show grid lines** toggle.
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase.

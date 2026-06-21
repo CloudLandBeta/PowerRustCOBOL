@@ -1321,6 +1321,108 @@ pub fn draw_animator(
     }
 }
 
+// ── Monochrome chart palette (spec 013) ────────────────────────────────────
+
+/// RGB (0–255) → HSL with `h` in [0,360), `s`/`l` in [0,1].
+fn rgb_to_hsl(c: Color32) -> (f32, f32, f32) {
+    let r = c.r() as f32 / 255.0;
+    let g = c.g() as f32 / 255.0;
+    let b = c.b() as f32 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if d.abs() < 1e-6 {
+        return (0.0, 0.0, l); // achromatic
+    }
+    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+    let h = if max == r {
+        ((g - b) / d + if g < b { 6.0 } else { 0.0 }) * 60.0
+    } else if max == g {
+        ((b - r) / d + 2.0) * 60.0
+    } else {
+        ((r - g) / d + 4.0) * 60.0
+    };
+    (h, s, l)
+}
+
+/// HSL (`h` in [0,360), `s`/`l` in [0,1]) → opaque `Color32`.
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> Color32 {
+    let h = h.rem_euclid(360.0) / 360.0;
+    let s = s.clamp(0.0, 1.0);
+    let l = l.clamp(0.0, 1.0);
+    if s.abs() < 1e-6 {
+        let v = (l * 255.0).round() as u8;
+        return Color32::from_rgb(v, v, v);
+    }
+    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = 2.0 * l - q;
+    let hue = |mut t: f32| -> f32 {
+        if t < 0.0 { t += 1.0; }
+        if t > 1.0 { t -= 1.0; }
+        if t < 1.0 / 6.0 { p + (q - p) * 6.0 * t }
+        else if t < 1.0 / 2.0 { q }
+        else if t < 2.0 / 3.0 { p + (q - p) * (2.0 / 3.0 - t) * 6.0 }
+        else { p }
+    };
+    let r = (hue(h + 1.0 / 3.0) * 255.0).round() as u8;
+    let g = (hue(h) * 255.0).round() as u8;
+    let b = (hue(h - 1.0 / 3.0) * 255.0).round() as u8;
+    Color32::from_rgb(r, g, b)
+}
+
+/// `count` distinguishable tones of `base`, same hue family, lightness spread
+/// across ~[0.30, 0.78] so none is pure black/white and adjacent tones differ.
+pub fn monochrome_palette(base: Color32, count: usize) -> Vec<Color32> {
+    let (h, s, _) = rgb_to_hsl(base);
+    let s = s.max(0.40);
+    let n = count.max(1);
+    (0..n)
+        .map(|i| {
+            let t = if n == 1 { 0.5 } else { i as f32 / (n as f32 - 1.0) };
+            let l = 0.30 + t * 0.48;
+            let sat = (s * (0.80 + 0.20 * (1.0 - t))).clamp(0.0, 1.0);
+            hsl_to_rgb(h, sat, l)
+        })
+        .collect()
+}
+
+/// Soft pastel of `base` for grid lines (high lightness, low saturation).
+pub fn pastel_of(base: Color32) -> Color32 {
+    let (h, s, _) = rgb_to_hsl(base);
+    hsl_to_rgb(h, (s * 0.35).clamp(0.0, 0.50), 0.80)
+}
+
+/// Slightly stronger pastel of `base` for axis lines.
+pub fn axis_variant(base: Color32) -> Color32 {
+    let (h, s, _) = rgb_to_hsl(base);
+    hsl_to_rgb(h, (s * 0.55).clamp(0.0, 0.65), 0.66)
+}
+
+/// Outline variant: lighter than `base` on a dark background, darker on a light
+/// one, so borders stay visible (spec 013 R6).
+pub fn border_variant(base: Color32, dark_bg: bool) -> Color32 {
+    let (h, s, l) = rgb_to_hsl(base);
+    let nl = if dark_bg { (l + 0.22).min(0.92) } else { (l - 0.22).max(0.10) };
+    hsl_to_rgb(h, s, nl)
+}
+
+/// The fixed set of **256** selectable monochrome base colours (spec 013 R10): a
+/// 16-hue × 16 saturation/lightness grid with lightness bounded to ~[0.24, 0.80]
+/// so pure black/white (and near-extremes) are never offered.
+pub fn chart_palette_256() -> Vec<Color32> {
+    let mut out = Vec::with_capacity(256);
+    for hi in 0..16u32 {
+        let h = hi as f32 / 16.0 * 360.0;
+        for li in 0..16u32 {
+            let l = 0.24 + (li as f32 / 15.0) * 0.56;        // 0.24 .. 0.80
+            let s = 0.45 + ((li % 4) as f32 / 3.0) * 0.50;   // 0.45 .. 0.95
+            out.push(hsl_to_rgb(h, s.clamp(0.0, 1.0), l));
+        }
+    }
+    out
+}
+
 /// Draw a rich glass chart preview on the canvas for all chart control types.
 pub fn draw_chart_preview(
     painter:   &egui::Painter,
@@ -1361,7 +1463,7 @@ pub fn draw_chart_preview(
     // accent palette.
     let active = active_theme(painter.ctx());
     let pal_raw: &[(u8,u8,u8)] = &[(76,155,232),(232,122,76),(76,232,122),(232,76,155)];
-    let pal: Vec<Color32> = active.as_ref()
+    let base_pal: Vec<Color32> = active.as_ref()
         .map(|p| &p.manifest.palette.chart)
         .filter(|v| !v.is_empty())
         .map(|v| v.iter().map(|s| parse_color(s)).collect::<Vec<_>>())
@@ -1370,6 +1472,23 @@ pub fn draw_chart_preview(
         .map(|p| p.manifest.chart_style.stroke_width)
         .filter(|w| *w > 0.0)
         .unwrap_or(1.8);
+
+    // ── Monochrome mode (spec 013) ─────────────────────────────────────────────
+    // When on, the data palette is replaced by tonal variations of one base
+    // colour, and support colours (grid/axis/border) become derived variants. The
+    // chart face is dark, so borders take the *lighter* variant. Text/alpha are
+    // left untouched (handled by the existing paths below).
+    let mono = ctrl.get_prop("Monochrome").map(|v| v.as_bool()).unwrap_or(false);
+    let mono_base = parse_color(
+        &ctrl.get_prop("MonochromeColor").map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "#3F6FB5".into()));
+    let pal: Vec<Color32> = if mono {
+        let k = if matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) { 4 } else { 2 };
+        monochrome_palette(mono_base, k)
+    } else {
+        base_pal
+    };
+    let mono_border = border_variant(mono_base, true);
 
     // Inner plot area (leave margin for axes / labels)
     let margin_l = rect.width()  * 0.10;
@@ -1396,7 +1515,8 @@ pub fn draw_chart_preview(
     // ── Grid lines ────────────────────────────────────────────────────────────
     let show_grid = ctrl.get_prop("ShowGridLines").map(|v| v.as_bool()).unwrap_or(true);
     if show_grid {
-        let grid_c = Color32::from_rgb(118, 142, 225);
+        // Monochrome: grid lines use a soft pastel of the base colour (spec 013 R5).
+        let grid_c = if mono { pastel_of(mono_base) } else { Color32::from_rgb(118, 142, 225) };
         let n_h = 4u32;
         for i in 1..n_h {
             let y = plot.min.y + plot.height() * i as f32 / n_h as f32;
@@ -1413,8 +1533,8 @@ pub fn draw_chart_preview(
         }
     }
 
-    // Axes
-    let ax_c = Color32::from_rgb(84, 104, 190);
+    // Axes (monochrome: a pastel/slightly-stronger variant of the base — spec 013 R5)
+    let ax_c = if mono { axis_variant(mono_base) } else { Color32::from_rgb(84, 104, 190) };
     if !matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
         painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.45, ax_c));
         painter.line_segment([plot.left_bottom(), plot.left_top()],     Stroke::new(1.45, ax_c));
@@ -1531,7 +1651,10 @@ pub fn draw_chart_preview(
                         pts.push(Pos2::new(center.x + t.cos()*outer_r, center.y + t.sin()*outer_r));
                     }
                 }
-                painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(0.8, bg)));
+                // Monochrome: slice borders use a lighter variant of the base so
+                // adjacent slices separate on the dark face (spec 013 R6).
+                let slice_stroke = if mono { mono_border } else { bg };
+                painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(0.8, slice_stroke)));
                 start = end;
             }
         }
@@ -1814,5 +1937,58 @@ mod theme_render_tests {
         assert_eq!(control_kind_key(&ControlType::Panel), "panel");
         // Line has no skin key → always glass (fallback).
         assert_eq!(control_kind_key(&ControlType::Line), "");
+    }
+
+    // ── Monochrome palette (spec 013) ──────────────────────────────────────────
+
+    fn is_extreme(c: Color32) -> bool {
+        let near0 = c.r() < 12 && c.g() < 12 && c.b() < 12;
+        let near255 = c.r() > 243 && c.g() > 243 && c.b() > 243;
+        near0 || near255
+    }
+
+    #[test]
+    fn monochrome_palette_distinct_in_hue_no_extremes() {
+        let base = Color32::from_rgb(0x3F, 0x6F, 0xB5);
+        let (bh, _, _) = rgb_to_hsl(base);
+        let pal = monochrome_palette(base, 5);
+        assert_eq!(pal.len(), 5);
+        for &c in &pal {
+            assert!(!is_extreme(c), "tone too close to black/white: {c:?}");
+            let (h, _, _) = rgb_to_hsl(c);
+            let dh = (h - bh).abs().min(360.0 - (h - bh).abs());
+            assert!(dh < 25.0, "tone left the base hue family: {dh} deg");
+        }
+        // Adjacent tones must be distinguishable (lightness differs).
+        for w in pal.windows(2) {
+            let l0 = rgb_to_hsl(w[0]).2;
+            let l1 = rgb_to_hsl(w[1]).2;
+            assert!((l0 - l1).abs() > 0.04, "adjacent tones not distinguishable");
+        }
+    }
+
+    #[test]
+    fn chart_palette_256_is_256_unique_no_black_white() {
+        let pal = chart_palette_256();
+        assert_eq!(pal.len(), 256);
+        let uniq: std::collections::HashSet<(u8, u8, u8)> =
+            pal.iter().map(|c| (c.r(), c.g(), c.b())).collect();
+        assert_eq!(uniq.len(), 256, "256 colours must be unique");
+        for &c in &pal {
+            assert_ne!((c.r(), c.g(), c.b()), (0, 0, 0), "pure black must be excluded");
+            assert_ne!((c.r(), c.g(), c.b()), (255, 255, 255), "pure white must be excluded");
+            assert!(!is_extreme(c), "swatch too close to an extreme: {c:?}");
+        }
+    }
+
+    #[test]
+    fn support_variants_are_lighter_pastels() {
+        let base = Color32::from_rgb(0x3F, 0x6F, 0xB5);
+        // Grid pastel is lighter and less saturated than the base.
+        let (_, bs, bl) = rgb_to_hsl(base);
+        let (_, gs, gl) = rgb_to_hsl(pastel_of(base));
+        assert!(gl > bl && gs < bs, "grid pastel should be lighter + softer");
+        // Border on a dark background is lighter than the base.
+        assert!(rgb_to_hsl(border_variant(base, true)).2 > bl);
     }
 }
