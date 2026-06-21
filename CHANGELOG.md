@@ -8,6 +8,26 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.10] — 2026-06-21
+
+Fix: running form now matches the designer/preview (backdrop + glass).
+
+### Fixed
+
+- **Glass toggle tracked reliably in the running form** — the run resolved the
+  owning designer only by file path, which could miss (path normalisation) and
+  fall back to a stale launch-time value, so a glass-on chart rendered dim
+  (solid dark) instead of vivid (frosted). It now resolves by path **then form
+  name** and keeps the runtime snapshot in sync, so the running form's glass
+  matches the canvas — charts and other translucent content look identical.
+- **Running form backdrop** — the live (interpreted) form derived its background
+  straight from the form colour, so a pure-black / unset background rendered the
+  window pure black. The preview and designer instead fall back to a default dark
+  navy in that case. The run now uses the **same** rule (strip `#`, first 6 hex
+  digits, black/unset ⇒ dark navy), so translucent glass content — charts in
+  particular — no longer looks washed out over a black window and matches the
+  canvas and preview.
+
 ## [PowerRustCOBOL 1.27.9] — 2026-06-21
 
 Universal corner radius + rounded content (spec 016). Pre-production, treated as

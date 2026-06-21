@@ -4198,12 +4198,18 @@ impl CoboltApp {
         if idx >= self.form_runtimes.len() { return; }
 
         // Match the designer's glass toggle live so the running form tracks the
-        // canvas (WYSIWYG, spec 003); fall back to the launch-time snapshot if the
-        // designer was closed.
+        // canvas (WYSIWYG, spec 003). Resolve the owning designer by path first,
+        // then by form name (robust to path-normalisation differences), and keep
+        // the runtime's snapshot in sync so a closed designer still renders right.
         let glass = {
             let fp = self.form_runtimes[idx].form_path.clone();
-            self.designers.iter().find(|(p, _)| *p == fp).map(|(_, d)| d.glass_mode)
-                .unwrap_or(self.form_runtimes[idx].glass)
+            let fname = self.form_runtimes[idx].form_name.clone();
+            let found = self.designers.iter()
+                .find(|(p, _)| *p == fp)
+                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
+                .map(|(_, d)| d.glass_mode);
+            if let Some(g) = found { self.form_runtimes[idx].glass = g; }
+            found.unwrap_or(self.form_runtimes[idx].glass)
         };
 
         // ── Form-level lifecycle events ───────────────────────────────────────
@@ -4265,15 +4271,24 @@ impl CoboltApp {
         let form_w     = self.form_runtimes[idx].form_width  as f32;
         let form_h     = self.form_runtimes[idx].form_height as f32;
 
-        // Derive the form background colour from the stored form metadata.
+        // Derive the form background colour from the stored form metadata. This
+        // mirrors the preview window exactly (strip '#', take the first 6 hex
+        // digits, and treat pure black / unset as the default dark navy) so the
+        // running form sits on the same backdrop as the designer and preview —
+        // otherwise translucent (glass) content like charts looks washed out over
+        // a pure-black window.
         let bg_color = {
             let rt = &self.form_runtimes[idx];
-            let hex = &rt.background_color;
+            let raw = rt.background_color.trim();
+            let s = if let Some(stripped) = raw.strip_prefix('#') { stripped } else { raw };
+            let hex = if s.len() >= 6 { &s[..6] } else { s };
             let bg_alpha = (255.0 * (1.0 - rt.transparency as f32 / 100.0)) as u8;
-            if hex.len() >= 6 {
+            if hex.len() == 6 {
                 let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(20);
                 let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(22);
                 let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(45);
+                // Pure black (000000) ⇒ default dark navy, matching the preview.
+                let (r, g, b) = if r == 0 && g == 0 && b == 0 { (20, 22, 45) } else { (r, g, b) };
                 Color32::from_rgba_premultiplied(
                     (r as f32 * bg_alpha as f32 / 255.0) as u8,
                     (g as f32 * bg_alpha as f32 / 255.0) as u8,
@@ -4281,7 +4296,7 @@ impl CoboltApp {
                     bg_alpha,
                 )
             } else {
-                Color32::from_rgba_premultiplied(20, 22, 45, bg_alpha.max(180))
+                Color32::from_rgba_premultiplied(20, 22, 45, bg_alpha.max(200))
             }
         };
 
