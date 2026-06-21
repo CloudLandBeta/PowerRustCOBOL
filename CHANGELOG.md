@@ -8,6 +8,30 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.7] — 2026-06-21
+
+Visual repeating groups (GroupBox arrays) — spec 015, Phases 1–2 (designer +
+model only). Pre-production, treated as a fix.
+
+### Added
+
+- **GroupBox appearance** — new **Hide caption**, **Hide background**, and a
+  two-colour **Background gradient** (Vertical / Horizontal / DiagonalDown /
+  DiagonalUp / Radial) alongside the existing background colour and border
+  radius. Hide-background draws no fill/border while children stay visible.
+- **Repeating groups** — a GroupBox can be marked as a repeating array template
+  via the right-click menu (**Set / Unset as Repeating Group**). A **▦ ARRAY**
+  badge marks it, and a **Repeating Group** properties section exposes array
+  name, item count, data source, layout direction (Vertical / Horizontal /
+  Grid), item spacing, items-per-row, auto-scroll-parent, clone-events and
+  preview-items.
+- **Design-time preview** — **Preview items > 1** renders render-only ghost
+  instances laid out per the chosen direction, without adding controls to the
+  form model (selection/undo unaffected).
+
+Runtime instancing, indexed event dispatch, and data binding (spec 015 Phases
+3–5) are not included in this release.
+
 ## [PowerRustCOBOL 1.27.6] — 2026-06-21
 
 Fixes: form-designer scrolling regression + chart monochrome polish.

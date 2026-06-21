@@ -1628,6 +1628,22 @@ impl DesignerPanel {
 
                     draw_control(dp, anim_origin, ctrl, is_sel, self.glass_mode, effective_alpha, scale, pic_tex);
 
+                    // Repeating-group badge (spec 015) — a small array marker at the
+                    // GroupBox top-right so a template is visually distinct.
+                    if matches!(ctrl.control_type, ControlType::GroupBox)
+                        && ctrl.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false)
+                    {
+                        let r = &ctrl.rect;
+                        let bw = 46.0; let bh = 15.0;
+                        let bmin = origin + Vec2::new(
+                            r.x as f32 + (r.w as f32) * scale - bw - 3.0,
+                            r.y as f32 + 3.0);
+                        let brect = egui::Rect::from_min_size(bmin, Vec2::new(bw, bh));
+                        painter.rect_filled(brect, 3.0, Color32::from_rgba_premultiplied(60, 120, 230, 230));
+                        painter.text(brect.center(), egui::Align2::CENTER_CENTER, "▦ ARRAY",
+                            egui::FontId::proportional(9.0), Color32::WHITE);
+                    }
+
                     // Animation badge tooltip — show animation list on hover
                     if !ctrl.animations.is_empty() {
                         let r = &ctrl.rect;
@@ -1641,6 +1657,57 @@ impl DesignerPanel {
                         let tooltip = format!("Animations set:\n{anim_summary}");
                         ui.interact(badge_rect, egui::Id::new(("anim_badge", ctrl.id.as_str())), egui::Sense::hover())
                             .on_hover_text(tooltip);
+                    }
+                }
+
+                // ── Design-time preview clones for repeating groups (spec 015) ──
+                // Render-only ghosts of each top-level repeating GroupBox + its
+                // subtree, laid out per LayoutDirection. They never enter the form
+                // model (no selection/undo impact); v1 previews top-level groups.
+                {
+                    let controls = &self.form.controls;
+                    let ro = super::containers::render_order(controls);
+                    for gi in 0..controls.len() {
+                        let g = &controls[gi];
+                        if !matches!(g.control_type, ControlType::GroupBox) { continue; }
+                        if g.parent.is_some() { continue; }
+                        if !g.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false) { continue; }
+                        let n = g.get_prop("PreviewItemCount").map(|v| v.as_i64()).unwrap_or(1).clamp(1, 50);
+                        if n <= 1 { continue; }
+                        let spacing = g.get_prop("ItemSpacing").map(|v| v.as_i64()).unwrap_or(8).max(0) as f32;
+                        let layout = g.get_prop("LayoutDirection").map(|v| v.as_str().to_owned())
+                            .unwrap_or_else(|| "Vertical".into());
+                        let ipr = g.get_prop("ItemsPerRow").map(|v| v.as_i64()).unwrap_or(1).max(1);
+                        let gw = g.rect.w as f32; let gh = g.rect.h as f32;
+                        let subtree: Vec<usize> = std::iter::once(gi)
+                            .chain(super::containers::collect_descendants(controls, gi))
+                            .collect();
+                        let g_content = g.content_rect();
+                        for k in 1..n {
+                            let (dx, dy) = match layout.as_str() {
+                                "Horizontal" => ((k as f32) * (gw + spacing), 0.0),
+                                "Grid" => {
+                                    let col = (k % ipr) as f32; let row = (k / ipr) as f32;
+                                    (col * (gw + spacing), row * (gh + spacing))
+                                }
+                                _ /* Vertical */ => (0.0, (k as f32) * (gh + spacing)),
+                            };
+                            // Clip descendants to the shifted group's content area.
+                            let gclip = egui::Rect::from_min_size(
+                                origin + Vec2::new(g_content.x as f32 + dx, g_content.y as f32 + dy),
+                                Vec2::new(g_content.w as f32, g_content.h as f32));
+                            // Group frame first (behind), then its subtree in z-order.
+                            for &si in std::iter::once(&gi)
+                                .chain(ro.iter().filter(|i| **i != gi && subtree.contains(i)))
+                            {
+                                let mut clone = controls[si].clone();
+                                clone.rect.x += dx as i32;
+                                clone.rect.y += dy as i32;
+                                let dp = if si == gi { painter.clone() }
+                                    else { painter.with_clip_rect(painter.clip_rect().intersect(gclip)) };
+                                draw_control(&dp, origin, &clone, false, self.glass_mode, 0.45, 1.0, None);
+                            }
+                        }
                     }
                 }
 
@@ -1708,6 +1775,43 @@ impl DesignerPanel {
                                 }
                             }
                         });
+                    }
+                    // Repeating-group toggle for a single selected GroupBox (spec 015).
+                    let gb_rep: Option<(String, bool)> = if self.selected_ids.len() == 1 {
+                        let sid = self.selected_ids[0].clone();
+                        self.form.find_control(&sid).and_then(|c| {
+                            if matches!(c.control_type, ControlType::GroupBox) {
+                                Some((sid, c.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false)))
+                            } else { None }
+                        })
+                    } else { None };
+                    if let Some((gid, is_rep)) = gb_rep {
+                        ui.separator();
+                        if is_rep {
+                            if ui.button("▦ Unset Repeating Group").clicked() {
+                                let old = self.form.find_control(&gid)
+                                    .and_then(|c| c.get_prop("IsRepeatingGroup").cloned());
+                                self.apply(Cmd::SetProperty { id: gid.clone(), key: "IsRepeatingGroup".into(),
+                                    old, new: PropValue::Bool(false) });
+                                ui.close_menu();
+                            }
+                        } else if ui.button("▦ Set as Repeating Group").clicked() {
+                            // Seed ArrayName with the control id when still empty.
+                            let cur_an = self.form.find_control(&gid)
+                                .and_then(|c| c.get_prop("ArrayName").map(|v| v.as_str().to_owned()))
+                                .unwrap_or_default();
+                            if cur_an.is_empty() {
+                                let old_an = self.form.find_control(&gid)
+                                    .and_then(|c| c.get_prop("ArrayName").cloned());
+                                self.apply(Cmd::SetProperty { id: gid.clone(), key: "ArrayName".into(),
+                                    old: old_an, new: PropValue::String(gid.clone()) });
+                            }
+                            let old = self.form.find_control(&gid)
+                                .and_then(|c| c.get_prop("IsRepeatingGroup").cloned());
+                            self.apply(Cmd::SetProperty { id: gid.clone(), key: "IsRepeatingGroup".into(),
+                                old, new: PropValue::Bool(true) });
+                            ui.close_menu();
+                        }
                     }
                     ui.separator();
                     if ui.button("🏷 Auto-arrange Labels").clicked() { self.auto_arrange_labels(); ui.close_menu(); }

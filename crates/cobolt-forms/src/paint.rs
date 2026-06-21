@@ -986,6 +986,15 @@ pub fn draw_control(
         | CT::AreaChart | CT::ScatterChart | CT::DonutChart)
         && ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
 
+    // A GroupBox with HideBackground draws no fill/border (children stay visible);
+    // with a background gradient enabled it fills with a directional gradient
+    // instead of the solid BackgroundColor (spec 015).
+    let group_frameless = matches!(ctrl.control_type, CT::GroupBox)
+        && ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
+    let group_gradient = matches!(ctrl.control_type, CT::GroupBox)
+        && !group_frameless
+        && ctrl.get_prop("BackgroundGradientEnabled").map(|v| v.as_bool()).unwrap_or(false);
+
     // 007 Form themes — when an asset-pack theme is active and covers this
     // control kind, 9-slice its skin instead of the procedural glass; controls
     // the pack doesn't cover fall through to Liquid Glass (R6, R7, R11).
@@ -995,12 +1004,24 @@ pub fn draw_control(
         pack.control(key).map(|skin| (pack.clone(), skin.clone()))
     });
 
-    if is_label || pic_frameless || chart_frameless {
+    if is_label || pic_frameless || chart_frameless || group_frameless {
         // No visible frame. When selected, show a lightweight selection outline.
         if selected {
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
             painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c));
         }
+    } else if group_gradient {
+        // Directional gradient background (spec 015). Fill via a per-vertex mesh,
+        // then stroke the (rounded) border on top.
+        let dir = ctrl.get_prop("BackgroundGradientDirection")
+            .map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Vertical".into());
+        let start = alpha_color(ctrl.get_prop("BackgroundGradientStartColor")
+            .map(|v| parse_color(v.as_str())).unwrap_or(fill));
+        let end = alpha_color(ctrl.get_prop("BackgroundGradientEndColor")
+            .map(|v| parse_color(v.as_str())).unwrap_or(fill));
+        painter.add(egui::Shape::mesh(grad_dir_mesh(rect, start, end, &dir)));
+        let bc = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { alpha_color(stroke_color) };
+        painter.rect_stroke(rect, corner, Stroke::new(if selected { 2.0 } else { 1.0 }, bc));
     } else if let Some((pack, skin)) = &theme_skin {
         let state = if selected { ControlState::Focused } else { ControlState::Normal };
         let img = pack.asset_path(skin.image_for(state));
@@ -1141,6 +1162,9 @@ pub fn draw_control(
         CT::MenuBar    => "☰ MenuBar".into(),
         CT::ToolBar    => "⬛ ToolBar".into(),
         CT::StatusBar  => "▬ StatusBar".into(),
+        // A GroupBox with HideCaption shows no title text (spec 015).
+        CT::GroupBox if ctrl.get_prop("HideCaption").map(|v| v.as_bool()).unwrap_or(false) =>
+            String::new(),
         // Controls with an intrinsic text label use their Caption property.
         CT::Label | CT::Button | CT::GroupBox =>
             ctrl.get_prop("Caption").map(|v| v.to_string()).unwrap_or_else(|| ctrl.id.clone()),
@@ -1486,6 +1510,54 @@ fn grad_rect_mesh(rect: egui::Rect, top: Color32, bottom: Color32) -> egui::epai
     m.vertices.push(egui::epaint::Vertex { pos: rect.right_top(),    uv, color: top });
     m.vertices.push(egui::epaint::Vertex { pos: rect.right_bottom(), uv, color: bottom });
     m.vertices.push(egui::epaint::Vertex { pos: rect.left_bottom(),  uv, color: bottom });
+    m.indices.extend([0, 1, 2, 0, 2, 3]);
+    m
+}
+
+/// Lerp two colours in straight component space (`t` clamped to 0..=1).
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgba_premultiplied(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()), l(a.a(), b.a()))
+}
+
+/// Directional gradient fill of `rect`, `start`→`end` (spec 015 GroupBox
+/// background). Linear directions (Vertical/Horizontal/DiagonalDown/DiagonalUp)
+/// use a 4-vertex quad with GPU-interpolated corner colours; Radial uses a
+/// centre→edge fan. Corners are square — the rounded border is stroked
+/// separately (same trade-off as the other mesh fills here).
+fn grad_dir_mesh(rect: egui::Rect, start: Color32, end: Color32, dir: &str) -> egui::epaint::Mesh {
+    let uv = egui::epaint::WHITE_UV;
+    let mut m = egui::epaint::Mesh::default();
+    if dir == "Radial" {
+        let c = rect.center();
+        m.vertices.push(egui::epaint::Vertex { pos: c, uv, color: start });
+        let perim = [
+            rect.left_top(), egui::pos2(c.x, rect.top()), rect.right_top(),
+            egui::pos2(rect.right(), c.y), rect.right_bottom(),
+            egui::pos2(c.x, rect.bottom()), rect.left_bottom(),
+            egui::pos2(rect.left(), c.y),
+        ];
+        for p in perim { m.vertices.push(egui::epaint::Vertex { pos: p, uv, color: end }); }
+        let n = perim.len() as u32;
+        for i in 1..=n {
+            let j = if i == n { 1 } else { i + 1 };
+            m.indices.extend([0, i, j]);
+        }
+        return m;
+    }
+    let mid = lerp_color(start, end, 0.5);
+    // (top-left, top-right, bottom-right, bottom-left)
+    let (tl, tr, br, bl) = match dir {
+        "Horizontal"   => (start, end, end, start),
+        "DiagonalDown" => (start, mid, end, mid),   // TL → BR
+        "DiagonalUp"   => (mid, end, start, mid),   // BL → TR
+        _ /* Vertical */ => (start, start, end, end),
+    };
+    m.vertices.push(egui::epaint::Vertex { pos: rect.left_top(),     uv, color: tl });
+    m.vertices.push(egui::epaint::Vertex { pos: rect.right_top(),    uv, color: tr });
+    m.vertices.push(egui::epaint::Vertex { pos: rect.right_bottom(), uv, color: br });
+    m.vertices.push(egui::epaint::Vertex { pos: rect.left_bottom(),  uv, color: bl });
     m.indices.extend([0, 1, 2, 0, 2, 3]);
     m
 }
@@ -2190,6 +2262,30 @@ mod theme_render_tests {
         let bl = rgb_to_hsl(base).2;
         assert!(rgb_to_hsl(shade(base, 0.2)).2 > bl);
         assert!(rgb_to_hsl(shade(base, -0.2)).2 < bl);
+    }
+
+    #[test]
+    fn grad_dir_mesh_endpoints_per_direction() {
+        let rect = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 50.0));
+        let a = Color32::from_rgb(240, 240, 240);
+        let b = Color32::from_rgb(40, 60, 90);
+        // Linear directions: a 4-vertex quad with start/end on opposite edges.
+        for dir in ["Vertical", "Horizontal", "DiagonalDown", "DiagonalUp"] {
+            let m = grad_dir_mesh(rect, a, b, dir);
+            assert_eq!(m.vertices.len(), 4, "{dir} should be a quad");
+            let has_start = m.vertices.iter().any(|v| v.color == a);
+            let has_end   = m.vertices.iter().any(|v| v.color == b);
+            assert!(has_start && has_end, "{dir} must carry both endpoint colours");
+        }
+        // Vertical: top edge = start, bottom edge = end.
+        let v = grad_dir_mesh(rect, a, b, "Vertical");
+        assert_eq!(v.vertices[0].color, a); // top-left
+        assert_eq!(v.vertices[2].color, b); // bottom-right
+        // Radial: centre = start, all perimeter = end (fan = 1 + 8 verts).
+        let r = grad_dir_mesh(rect, a, b, "Radial");
+        assert_eq!(r.vertices.len(), 9);
+        assert_eq!(r.vertices[0].color, a, "radial centre is the start colour");
+        assert!(r.vertices[1..].iter().all(|v| v.color == b), "radial rim is the end colour");
     }
 
     #[test]

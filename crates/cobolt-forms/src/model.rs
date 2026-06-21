@@ -937,13 +937,47 @@ impl Control {
                 props.insert("ImageAlignment".into(),   PropValue::String("MiddleLeft".into()));
                 props.insert("TextAlignment".into(),    PropValue::String("MiddleCenter".into()));
             }
-            ControlType::Panel | ControlType::GroupBox => {
+            ControlType::Panel => {
                 props.insert("BorderStyle".into(),  PropValue::String("Single".into()));
                 props.insert("BorderColor".into(),  PropValue::String("#888888".into()));
                 // Container behaviour (spec 012): rounded corners + clip radius,
                 // and optional auto-scroll of overflowing children.
                 props.insert("BorderRadius".into(), PropValue::Int(0));
                 props.insert("AutoScroll".into(),   PropValue::Bool(false));
+            }
+            ControlType::GroupBox => {
+                props.insert("BorderStyle".into(),  PropValue::String("Single".into()));
+                props.insert("BorderColor".into(),  PropValue::String("#888888".into()));
+                // Container behaviour (spec 012).
+                props.insert("BorderRadius".into(), PropValue::Int(0));
+                props.insert("AutoScroll".into(),   PropValue::Bool(false));
+
+                // ── Visual appearance (spec 015, Phase 1) ──────────────────────
+                // Hide the caption text but stay a container; hide the box
+                // fill/border while keeping children visible (cf. chart
+                // HideBackground); optional directional background gradient.
+                props.insert("HideCaption".into(),    PropValue::Bool(false));
+                props.insert("HideBackground".into(), PropValue::Bool(false));
+                props.insert("BackgroundGradientEnabled".into(),  PropValue::Bool(false));
+                props.insert("BackgroundGradientStartColor".into(), PropValue::String("#F0F0F0".into()));
+                props.insert("BackgroundGradientEndColor".into(),   PropValue::String("#C8D0DC".into()));
+                // Vertical | Horizontal | DiagonalDown | DiagonalUp | Radial
+                props.insert("BackgroundGradientDirection".into(),  PropValue::String("Vertical".into()));
+
+                // ── Repeating group / array template (spec 015, Phase 2) ───────
+                // Inert until IsRepeatingGroup is turned on (existing forms stay
+                // unchanged). ArrayName empty ⇒ use the control id.
+                props.insert("IsRepeatingGroup".into(), PropValue::Bool(false));
+                props.insert("ArrayName".into(),        PropValue::String("".into()));
+                props.insert("ItemCount".into(),        PropValue::Int(0));
+                props.insert("DataSource".into(),       PropValue::String("".into()));
+                // Vertical | Horizontal | Grid
+                props.insert("LayoutDirection".into(),  PropValue::String("Vertical".into()));
+                props.insert("ItemSpacing".into(),      PropValue::Int(8));
+                props.insert("ItemsPerRow".into(),      PropValue::Int(1));
+                props.insert("AutoScrollParent".into(), PropValue::Bool(true));
+                props.insert("CloneEvents".into(),      PropValue::Bool(true));
+                props.insert("PreviewItemCount".into(), PropValue::Int(1));
             }
             ControlType::DataGrid => {
                 // "Name:Type" per line (Type ∈ string|number|datetime; default string).
@@ -1689,6 +1723,36 @@ mod tests {
         assert_eq!(b.content_rect(), b.rect);
         // parent/tab default to None.
         assert!(b.parent.is_none() && b.tab.is_none());
+    }
+
+    #[test]
+    fn groupbox_exposes_visual_and_repeating_props_015() {
+        // Phase-1 visual props + Phase-2 repeating-group metadata default safely
+        // (the box looks/behaves unchanged until they are turned on).
+        let g = Control::new("CustomerCard", ControlType::GroupBox, 0, 0);
+        // Visual (Phase 1)
+        assert_eq!(g.get_prop("HideCaption").unwrap().as_bool(), false);
+        assert_eq!(g.get_prop("HideBackground").unwrap().as_bool(), false);
+        assert_eq!(g.get_prop("BackgroundGradientEnabled").unwrap().as_bool(), false);
+        assert!(g.get_prop("BackgroundGradientStartColor").is_some());
+        assert!(g.get_prop("BackgroundGradientEndColor").is_some());
+        assert_eq!(g.get_prop("BackgroundGradientDirection").unwrap().as_str(), "Vertical");
+        // Repeating (Phase 2)
+        assert_eq!(g.get_prop("IsRepeatingGroup").unwrap().as_bool(), false);
+        assert_eq!(g.get_prop("ArrayName").unwrap().as_str(), "");
+        assert_eq!(g.get_prop("ItemCount").unwrap().as_i64(), 0);
+        assert_eq!(g.get_prop("LayoutDirection").unwrap().as_str(), "Vertical");
+        assert_eq!(g.get_prop("ItemSpacing").unwrap().as_i64(), 8);
+        assert_eq!(g.get_prop("ItemsPerRow").unwrap().as_i64(), 1);
+        assert_eq!(g.get_prop("AutoScrollParent").unwrap().as_bool(), true);
+        assert_eq!(g.get_prop("CloneEvents").unwrap().as_bool(), true);
+        assert_eq!(g.get_prop("PreviewItemCount").unwrap().as_i64(), 1);
+        // Not leaked onto Panel/TabControl or plain controls.
+        let p = Control::new("P", ControlType::Panel, 0, 0);
+        assert!(p.get_prop("IsRepeatingGroup").is_none());
+        assert!(p.get_prop("HideCaption").is_none());
+        let b = Control::new("B", ControlType::Button, 0, 0);
+        assert!(b.get_prop("PreviewItemCount").is_none());
     }
 
     #[cfg(feature = "render")]

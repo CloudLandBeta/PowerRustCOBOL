@@ -1113,6 +1113,38 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_repeating_groupbox_015() {
+        // Spec 015: GroupBox visual + repeating-group metadata round-trips.
+        let mut form = Form::new("F", "F", 640, 480);
+        let mut g = Control::new("CustomerCard", ControlType::GroupBox, 10, 10);
+        g.set_prop("HideCaption", PropValue::Bool(true));
+        g.set_prop("HideBackground", PropValue::Bool(true));
+        g.set_prop("BackgroundGradientEnabled", PropValue::Bool(true));
+        g.set_prop("BackgroundGradientDirection", PropValue::String("DiagonalDown".into()));
+        g.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        g.set_prop("ArrayName", PropValue::String("CustomerCard".into()));
+        g.set_prop("LayoutDirection", PropValue::String("Grid".into()));
+        g.set_prop("ItemSpacing", PropValue::Int(12));
+        g.set_prop("ItemsPerRow", PropValue::Int(3));
+        g.set_prop("PreviewItemCount", PropValue::Int(4));
+        form.controls = vec![g];
+        let path = std::env::temp_dir().join("cobolt_test_repeat_015.cfrm");
+        save_form(&form, &path).expect("save");
+        let loaded = load_form(&path).expect("load");
+        let c = loaded.controls.iter().find(|c| c.id == "CustomerCard").unwrap();
+        assert!(c.get_prop("HideCaption").unwrap().as_bool());
+        assert!(c.get_prop("HideBackground").unwrap().as_bool());
+        assert!(c.get_prop("BackgroundGradientEnabled").unwrap().as_bool());
+        assert_eq!(c.get_prop("BackgroundGradientDirection").unwrap().as_str(), "DiagonalDown");
+        assert!(c.get_prop("IsRepeatingGroup").unwrap().as_bool());
+        assert_eq!(c.get_prop("LayoutDirection").unwrap().as_str(), "Grid");
+        assert_eq!(c.get_prop("ItemSpacing").unwrap().as_i64(), 12);
+        assert_eq!(c.get_prop("ItemsPerRow").unwrap().as_i64(), 3);
+        assert_eq!(c.get_prop("PreviewItemCount").unwrap().as_i64(), 4);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn legacy_children_and_scrollable_migrate_012() {
         // An old-format file (nested <Children>, Panel Scrollable) flattens to the
         // parent-linked list and migrates Scrollable → AutoScroll.

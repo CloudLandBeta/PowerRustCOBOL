@@ -581,6 +581,48 @@ Deleting a container deletes the controls inside it. A control keeps its unique
 id wherever it lives, so `control::property` access and event bindings are
 unaffected by nesting.
 
+#### GroupBox appearance
+
+Beyond the shared container properties, a **GroupBox** adds visual options in the
+**Appearance** section of the properties pane:
+
+- **Hide caption** — keep the box as a container but draw no title text.
+- **Hide background** — make the box transparent (no fill or border) while its
+  children stay visible.
+- **Background color** — the solid fill colour.
+- **Background gradient** — turn on a two-colour gradient fill with a **start**
+  and **end** colour and a **direction**: *Vertical*, *Horizontal*,
+  *DiagonalDown*, *DiagonalUp*, or *Radial*.
+
+#### Repeating groups (GroupBox arrays)
+
+A **GroupBox** can be turned into a **repeating group** — a visual template that
+is repeated at run time, one instance per array element. Design the group once
+(its child controls are the template) and right-click it → **Set as Repeating
+Group** (right-click again for **Unset Repeating Group**). A small **▦ ARRAY**
+badge marks a repeating group in the designer.
+
+A **Repeating Group** section then appears in the properties pane:
+
+- **Array name** — logical name of the array (defaults to the GroupBox id).
+- **Item count** — number of instances at run time.
+- **Data source** — optional source used to populate instances.
+- **Layout direction** — *Vertical*, *Horizontal*, or *Grid*.
+- **Item spacing** — gap between instances.
+- **Items per row** — columns when the layout is *Grid*.
+- **Auto-scroll parent** — let the parent container scroll when instances
+  overflow (place the group inside a **Panel** with **Auto-scroll** on).
+- **Clone events** — all instances of a child control share one event handler.
+- **Preview items** — how many instances the **designer** previews (these are
+  render-only ghosts; they are *not* added to your form, so selection and undo
+  are unaffected).
+
+At run time each instance and its children are addressed by index using the
+member-access syntax, e.g. `CustomerCard(3)::CustomerName::Caption`. A child's
+event handler is shared across every instance and receives the firing instance's
+index. *(Runtime instancing, indexed event dispatch, and data binding are
+delivered in later phases.)*
+
 > 📷 **Screenshot needed — `control-gallery.png`.** A single form (or the preview
 > window) showing one of each major control so newcomers can recognise them. The
 > charts especially benefit from a visual.

@@ -1248,6 +1248,40 @@ impl PropertiesPanel {
                 int_row_inline(ui, id, "BorderRadius", "Border radius", ctrl, action, 0..=80);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
+
+                // GroupBox visual + repeating-group properties (spec 015).
+                if matches!(ctrl.control_type, ControlType::GroupBox) {
+                    section_header(ui, "Appearance");
+                    bool_row_inline(ui, id, "HideCaption",    "Hide caption", ctrl, action);
+                    bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
+                    color_row(ui, id, "BackgroundColor", ctrl, action);
+                    bool_row_inline(ui, id, "BackgroundGradientEnabled", "Background gradient", ctrl, action);
+                    if ctrl.get_prop("BackgroundGradientEnabled").map(|v| v.as_bool()).unwrap_or(false) {
+                        color_row(ui, id, "BackgroundGradientStartColor", ctrl, action);
+                        color_row(ui, id, "BackgroundGradientEndColor",   ctrl, action);
+                        combo_row_inline(ui, id, "BackgroundGradientDirection", ctrl, action,
+                            &["Vertical","Horizontal","DiagonalDown","DiagonalUp","Radial"]);
+                    }
+                    ui.add_space(4.0);
+
+                    let is_rep = ctrl.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false);
+                    bool_row_inline(ui, id, "IsRepeatingGroup", "Repeating group (array)", ctrl, action);
+                    if is_rep {
+                        section_header(ui, "Repeating Group");
+                        let an = ctrl.get_prop("ArrayName").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                        text_row_hint(ui, &mut self.text_bufs, id, "ArrayName", &an, "Array name:", id, action);
+                        int_row_inline(ui, id, "ItemCount", "Item count", ctrl, action, 0..=100_000);
+                        let ds = ctrl.get_prop("DataSource").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                        text_row_hint(ui, &mut self.text_bufs, id, "DataSource", &ds, "Data source:", "(optional)", action);
+                        combo_row_inline(ui, id, "LayoutDirection", ctrl, action, &["Vertical","Horizontal","Grid"]);
+                        int_row_inline(ui, id, "ItemSpacing",  "Item spacing", ctrl, action, 0..=400);
+                        int_row_inline(ui, id, "ItemsPerRow",  "Items per row", ctrl, action, 1..=100);
+                        bool_row_inline(ui, id, "AutoScrollParent", "Auto-scroll parent", ctrl, action);
+                        bool_row_inline(ui, id, "CloneEvents",      "Clone events", ctrl, action);
+                        int_row_inline(ui, id, "PreviewItemCount", "Preview items", ctrl, action, 1..=50);
+                    }
+                    ui.add_space(4.0);
+                }
             }
 
             // ── Line ─────────────────────────────────────────────────────────
