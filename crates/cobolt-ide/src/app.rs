@@ -4215,6 +4215,21 @@ impl CoboltApp {
             found.unwrap_or(self.form_runtimes[idx].glass)
         };
 
+        // TEMP DIAGNOSTIC (spec 017): show how `glass` resolved so we can see the
+        // value rather than guess. Remove once the parity bug is understood.
+        let glass_dbg = {
+            let fp = self.form_runtimes[idx].form_path.clone();
+            let fname = self.form_runtimes[idx].form_name.clone();
+            let by_path = self.designers.iter().find(|(p, _)| *p == fp).map(|(_, d)| d.glass_mode);
+            let by_name = self.designers.iter().find(|(_, d)| d.form.name == fname).map(|(_, d)| d.glass_mode);
+            format!(
+                "DBG glass={glass}  by_path={by_path:?}  by_name={by_name:?}  ndesigners={}  rt_glass={}  rtpath={}",
+                self.designers.len(),
+                self.form_runtimes[idx].glass,
+                self.form_runtimes[idx].form_path.display(),
+            )
+        };
+
         // ── Form-level lifecycle events ───────────────────────────────────────
         // onShow / onActivate fire once when the running form first appears;
         // onResize fires whenever its canvas size changes. All addressed to the
@@ -4311,6 +4326,15 @@ impl CoboltApp {
                 egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_min_size(egui::vec2(form_w, form_h));
                 let origin = ui.min_rect().min;
+
+                // TEMP DIAGNOSTIC overlay (spec 017): the resolved glass value.
+                ui.painter().text(
+                    origin + egui::vec2(6.0, 6.0),
+                    egui::Align2::LEFT_TOP,
+                    &glass_dbg,
+                    egui::FontId::monospace(13.0),
+                    egui::Color32::from_rgb(255, 230, 90),
+                );
 
                 // ── Form background image (cached in egui memory) ─────────────
                 if !bg_image.is_empty() {
