@@ -17,10 +17,20 @@ uniform across the Form Designer canvas, the live preview, the running
 (interpreted) form, and compiled/web builds, because all four share
 `cobolt_forms::paint::draw_control`.
 
-**Important technical note (drives the plan):** egui 0.29's painter clips only to
-an **axis-aligned rectangle** (`Painter::with_clip_rect`) — there is **no
-rounded-rectangle clip** primitive. Rounding the fill and border is trivial;
-clipping *content* to the rounded corners requires a workaround (see §7 Q3).
+**Important technical note (drives the plan):** egui 0.29's runtime clip is only
+an **axis-aligned rectangle** (`Painter::with_clip_rect` / `ClippedPrimitive.clip_rect`
+is a `Rect`) — there is **no arbitrary-shape or rounded-rectangle scissor**.
+However, content can still be rounded by baking the radius into the *geometry*:
+- a control's **fill + border** round trivially (`RectShape.rounding`, already used
+  via the `corner` value in `draw_control`);
+- a **raster image** rounds **natively over any background** by drawing it as an
+  `epaint::RectShape` with `rounding` + `fill_texture_id` + `uv` (confirmed on the
+  pinned egui 0.29.1; the `egui::Image::rounding()` widget is the `Ui`-level
+  equivalent). PictureBox today uses `painter.image()` (a `RectShape` *without*
+  rounding) — adding `rounding` is the whole fix for images;
+- **mesh content** (charts) rounds by clipping its mesh geometry.
+Only **non-image, non-mesh content** — egui native `TextEdit`/`ScrollArea` layers
+and arbitrary child widgets — cannot be shape-masked; see §7 Q3.
 
 ## 2. Goals / Non-goals
 
@@ -115,33 +125,30 @@ clipping *content* to the rounded corners requires a workaround (see §7 Q3).
 - **No "cobolt" in user text; COBOL identifiers English.**
 
 ## 7. Open questions
-- **Q1 — property name:** unify on **`BorderRadius`** (containers already use it)
-  and treat Button's `CornerRadius` as a backward-compat alias (load old files,
-  write `BorderRadius`)? *Recommendation: yes — one name `BorderRadius`, alias
-  `CornerRadius` on read.*
+- **Q1 — property name (RESOLVED):** unify on **`CornerRadius`** (operator's
+  choice). `CornerRadius` is the canonical key written on every bordered control;
+  the container key **`BorderRadius`** (spec 012) is read as a **backward-compat
+  alias** so old `.cfrm` files still round. Button already uses `CornerRadius`.
 - **Q2 — default values:** default **0** for all controls so existing forms are
   unchanged. But Button currently defaults `CornerRadius = 3` and charts use a
   fixed 8-px corner — keeping their *current* look means a non-zero default for
   those. *Recommendation: preserve each control's current effective default
   (Button 3, charts 8, everything else 0), exposed through the unified property,
   so AC6 holds; the user can set 0 to square them.*
-- **Q3 — rounded-clipping technique (the hard part):** egui has no rounded clip.
-  Options:
-  **(a) Corner-mask** — after drawing content, paint the four corner notches with
-  the *resolved background behind the control* (form background colour, or the
-  parent container's fill). Cheap and works for solid backgrounds; **breaks over a
-  form background image** (the mask colour won't match the image).
-  **(b) Rounded mesh for raster content** — draw images/charts into a
-  rounded-corner mesh (rounded geometry). Correct over any background but only
-  practical for texture/mesh content, not arbitrary egui widgets.
-  **(c) Hybrid** — rounded fill/border everywhere (always correct) + corner-mask
-  clipping for content, accepting the background-image limitation, with images
-  using a rounded mesh where feasible.
-  *Recommendation: (c) — ship rounded fill/border universally now, corner-mask
-  content clipping against the resolved background, document the
-  background-image edge case as a known limitation, and use rounded meshes for
-  PictureBox/chart fills. Revisit a fully general clip if egui gains the
-  primitive.*
+- **Q3 — rounded-clipping technique (resolved):** egui has no shape scissor, but
+  most content rounds via *geometry*, so the only hard case is narrow:
+  - **Fill + border** — `RectShape.rounding` (already in `draw_control`). ✅
+  - **PictureBox image** — draw as a rounded textured `RectShape` (`rounding` +
+    `fill_texture_id` + `uv`); native, correct over **any** background including a
+    form background image. No corner-mask needed. ✅
+  - **Charts / mesh content** — round the mesh geometry. ✅
+  - **Residual** — egui native `TextEdit`/`ScrollArea` layers (the editable text
+    of run-time inputs) and arbitrary nested widgets can't be shape-masked.
+  *Recommendation: round fill/border + image (`RectShape`) + mesh content
+  natively; for the rare non-image overflow on a control with a **solid** fill,
+  fall back to corner-masking against that fill; accept that the editable
+  text/scroll layer stays square inside a rounded face (note it). The
+  background-image limitation from the earlier draft is **gone** for images.*
 - **Q4 — control set:** confirm the R1 list. Should `Label` (transparent, no
   frame) and the bars (`MenuBar`/`ToolBar`/`StatusBar`) be included? *Recommendation:
   exclude Label and the bars from clipping (no real frame), include everything
