@@ -790,6 +790,14 @@ pub struct Control {
     pub children:     Vec<Control>,
     /// Animation definitions for this control.
     pub animations:   Vec<AnimationDef>,
+    /// Id of the enclosing container control (`None` = a direct child of the
+    /// form). The editor keeps controls in one flat list and derives nesting from
+    /// this link; the `.cfrm` `<Children>` tree is (re)built from it at save
+    /// (spec 012).
+    pub parent:       Option<String>,
+    /// For a control whose `parent` is a `TabControl`: which tab page (0-based) it
+    /// belongs to. `None` otherwise.
+    pub tab:          Option<u32>,
 }
 
 impl Control {
@@ -932,7 +940,10 @@ impl Control {
             ControlType::Panel | ControlType::GroupBox => {
                 props.insert("BorderStyle".into(),  PropValue::String("Single".into()));
                 props.insert("BorderColor".into(),  PropValue::String("#888888".into()));
-                props.insert("Scrollable".into(),   PropValue::Bool(false));
+                // Container behaviour (spec 012): rounded corners + clip radius,
+                // and optional auto-scroll of overflowing children.
+                props.insert("BorderRadius".into(), PropValue::Int(0));
+                props.insert("AutoScroll".into(),   PropValue::Bool(false));
             }
             ControlType::DataGrid => {
                 // "Name:Type" per line (Type ∈ string|number|datetime; default string).
@@ -958,6 +969,9 @@ impl Control {
                 props.insert("Tabs".into(),        PropValue::String("Tab1\nTab2".into()));
                 props.insert("TabPosition".into(), PropValue::String("Top".into()));
                 props.insert("SelectedTab".into(), PropValue::Int(0));
+                // Container behaviour (spec 012).
+                props.insert("BorderRadius".into(), PropValue::Int(0));
+                props.insert("AutoScroll".into(),   PropValue::Bool(false));
             }
             ControlType::MenuBar | ControlType::ToolBar | ControlType::StatusBar => {
                 props.insert("Items".into(), PropValue::String("".into()));
@@ -1160,6 +1174,38 @@ impl Control {
             events:       Vec::new(),
             children:     Vec::new(),
             animations:   Vec::new(),
+            parent:       None,
+            tab:          None,
+        }
+    }
+
+    /// `true` if this control can contain other controls (spec 012).
+    pub fn is_container(&self) -> bool {
+        matches!(
+            self.control_type,
+            ControlType::GroupBox | ControlType::Panel | ControlType::TabControl
+        )
+    }
+
+    /// The interior rectangle into which child controls are placed and clipped.
+    /// Insets the control's `rect` for the chrome each container draws: a
+    /// `GroupBox` caption band on top, a thin `Panel` border, and a `TabControl`
+    /// tab strip on top. Non-containers return their plain `rect` (spec 012).
+    pub fn content_rect(&self) -> Rect {
+        let r = self.rect;
+        match self.control_type {
+            ControlType::GroupBox => {
+                // caption band ~18px, ~6px inset on the other sides
+                Rect::new(r.x + 6, r.y + 18, (r.w - 12).max(0), (r.h - 24).max(0))
+            }
+            ControlType::Panel => {
+                Rect::new(r.x + 2, r.y + 2, (r.w - 4).max(0), (r.h - 4).max(0))
+            }
+            ControlType::TabControl => {
+                // tab strip ~26px on top
+                Rect::new(r.x + 2, r.y + 26, (r.w - 4).max(0), (r.h - 28).max(0))
+            }
+            _ => r,
         }
     }
 
@@ -1595,6 +1641,40 @@ mod tests {
         }
         // Non-chart controls do not gain the property.
         assert!(Control::new("B", ControlType::Button, 0, 0).get_prop("HideBackground").is_none());
+    }
+
+    #[test]
+    fn containers_expose_container_props_and_helpers() {
+        // GroupBox, Panel, TabControl are containers with BorderRadius/AutoScroll
+        // and a working Opacity; their content_rect insets for chrome (spec 012).
+        for t in [ControlType::GroupBox, ControlType::Panel, ControlType::TabControl] {
+            let c = Control::new("C1", t, 10, 20);
+            assert!(c.is_container(), "{:?} should be a container", c.control_type);
+            assert!(c.get_prop("BorderRadius").is_some(), "missing BorderRadius");
+            assert_eq!(c.get_prop("AutoScroll").unwrap().as_bool(), false, "AutoScroll default off");
+            assert!(c.get_prop("Opacity").is_some(), "missing Opacity");
+            let cr = c.content_rect();
+            assert!(cr.y > c.rect.y && cr.h < c.rect.h, "content_rect must inset for chrome");
+        }
+        // A non-container keeps a plain content_rect and gains no container props.
+        let b = Control::new("B", ControlType::Button, 10, 20);
+        assert!(!b.is_container());
+        assert!(b.get_prop("AutoScroll").is_none());
+        assert_eq!(b.content_rect(), b.rect);
+        // parent/tab default to None.
+        assert!(b.parent.is_none() && b.tab.is_none());
+    }
+
+    #[cfg(feature = "render")]
+    #[test]
+    fn opacity_of_reads_property_012() {
+        // The render walk uses this to fade a container subtree (spec 012).
+        let mut c = Control::new("C", ControlType::Panel, 0, 0);
+        assert_eq!(crate::paint::opacity_of(&c), 1.0); // default 100
+        c.set_prop("Opacity", PropValue::Int(50));
+        assert!((crate::paint::opacity_of(&c) - 0.5).abs() < 1e-6);
+        c.set_prop("Opacity", PropValue::Int(0));
+        assert_eq!(crate::paint::opacity_of(&c), 0.0);
     }
 
     #[test]

@@ -159,6 +159,10 @@ enum Cmd {
     SetProperty   { id: String, key: String, old: Option<PropValue>, new: PropValue },
     ReorderControl{ from: usize, to: usize },
     SetZOrder     { id: String, old_z: i32, new_z: i32 },
+    /// Move a control into a different container (or the form) — spec 012.
+    Reparent      { id: String,
+                    old_parent: Option<String>, old_tab: Option<u32>,
+                    new_parent: Option<String>, new_tab: Option<u32> },
 }
 
 // ── Resize handle ─────────────────────────────────────────────────────────────
@@ -352,6 +356,13 @@ pub struct DesignerPanel {
     /// All currently selected control IDs (first = primary selection).
     pub selected_ids: Vec<String>,
 
+    /// Design-time active tab page per `TabControl` id (spec 012). Set when the
+    /// user clicks a tab to edit its page; absent ⇒ fall back to `SelectedTab`.
+    active_tabs: std::collections::HashMap<String, u32>,
+
+    /// Per-container scroll offset (spec 012) when `AutoScroll` is on.
+    scroll_offsets: std::collections::HashMap<String, egui::Vec2>,
+
     drag: DragState,
 
     undo_stack: Vec<Cmd>,
@@ -436,6 +447,8 @@ impl DesignerPanel {
         Self {
             form,
             selected_ids:     Vec::new(),
+            active_tabs:      std::collections::HashMap::new(),
+            scroll_offsets:   std::collections::HashMap::new(),
             drag:             DragState::None,
             undo_stack:       Vec::new(),
             redo_stack:       Vec::new(),
@@ -584,6 +597,12 @@ impl DesignerPanel {
             Cmd::SetZOrder { id, new_z, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) { c.z_order = *new_z; }
             }
+            Cmd::Reparent { id, new_parent, new_tab, .. } => {
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.parent = new_parent.clone();
+                    c.tab    = *new_tab;
+                }
+            }
         }
     }
 
@@ -627,6 +646,12 @@ impl DesignerPanel {
             Cmd::SetZOrder { id, old_z, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) { c.z_order = *old_z; }
             }
+            Cmd::Reparent { id, old_parent, old_tab, .. } => {
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.parent = old_parent.clone();
+                    c.tab    = *old_tab;
+                }
+            }
         }
     }
 
@@ -652,6 +677,54 @@ impl DesignerPanel {
         let mut max_n = 0u32;
         scan(&self.form.controls, prefix, &mut max_n);
         format!("{prefix}-{}", max_n + 1)
+    }
+
+    /// Re-parent `id` after a move so it belongs to whatever container its body
+    /// now sits over (spec 012 R7–R10). The drop point is the moved control's
+    /// centre; `resolve_drop_target` excludes the control and its descendants
+    /// (cycle guard). No-op when the parent/tab is unchanged.
+    fn reparent_to_drop(&mut self, id: &str) {
+        let Some(idx) = self.form.controls.iter().position(|c| c.id == id) else { return };
+        let r = self.form.controls[idx].rect;
+        let (px, py) = (r.x + r.w / 2, r.y + r.h / 2);
+        let target = super::containers::resolve_drop_target(
+            &self.form.controls, px, py, idx, &self.active_tabs,
+        );
+        let (new_parent, new_tab) = match target {
+            super::containers::DropTarget::Form => (None, None),
+            super::containers::DropTarget::Into { container, tab } => (Some(container), tab),
+        };
+        let c = &self.form.controls[idx];
+        if c.parent == new_parent && c.tab == new_tab {
+            return;
+        }
+        let cmd = Cmd::Reparent {
+            id: id.to_string(),
+            old_parent: c.parent.clone(),
+            old_tab: c.tab,
+            new_parent,
+            new_tab,
+        };
+        self.apply(cmd);
+    }
+
+    /// Topmost **visible** control under a form-space point, respecting container
+    /// clipping and tab visibility (spec 012). Children win over their container.
+    fn hit_top_id(&self, cx: i32, cy: i32) -> Option<String> {
+        for &idx in super::containers::render_order(&self.form.controls).iter().rev() {
+            if !super::containers::is_visible(&self.form.controls, idx, &self.active_tabs) {
+                continue;
+            }
+            if let Some(clip) = super::containers::clip_rect(&self.form.controls, idx) {
+                if !clip.contains(cx, cy) {
+                    continue;
+                }
+            }
+            if self.form.controls[idx].rect.contains(cx, cy) {
+                return Some(self.form.controls[idx].id.clone());
+            }
+        }
+        None
     }
 
     pub fn add_control(&mut self, ct: ControlType, x: i32, y: i32) {
@@ -701,12 +774,26 @@ impl DesignerPanel {
 
         let index = self.form.controls.len();
         self.apply(Cmd::AddControl { index, ctrl });
-        self.set_selected_one(Some(id));
+        self.set_selected_one(Some(id.clone()));
+        // If dropped over a container's content area, nest the new control in it
+        // (spec 012). No-op when placed on the bare form.
+        self.reparent_to_drop(&id);
     }
 
     pub fn delete_selected(&mut self) {
-        // Delete all selected controls, highest index first to not shift indices
-        let mut indices: Vec<usize> = self.selected_ids.iter()
+        // Delete all selected controls AND the descendants of any selected
+        // container (cascade — spec 012 R13), highest index first so indices
+        // don't shift mid-loop.
+        let mut id_set: Vec<String> = self.selected_ids.clone();
+        for sid in &self.selected_ids {
+            if let Some(i) = self.form.controls.iter().position(|c| &c.id == sid) {
+                for d in super::containers::collect_descendants(&self.form.controls, i) {
+                    let did = self.form.controls[d].id.clone();
+                    if !id_set.contains(&did) { id_set.push(did); }
+                }
+            }
+        }
+        let mut indices: Vec<usize> = id_set.iter()
             .filter_map(|sid| self.form.controls.iter().position(|c| &c.id == sid))
             .collect();
         indices.sort_unstable();
@@ -1429,9 +1516,15 @@ impl DesignerPanel {
                 let form_w = self.form.width  as f32;
                 let form_h = self.form.height as f32;
 
-                // Build render list sorted by z_order
-                let mut render_order: Vec<usize> = (0..self.form.controls.len()).collect();
-                render_order.sort_by_key(|&i| self.form.controls[i].z_order);
+                // Build render list in container tree order — parents before
+                // children, siblings by z_order — so nested controls paint on top
+                // of their container (spec 012).
+                let render_order: Vec<usize> = super::containers::render_order(&self.form.controls);
+                // Active tab per TabControl for design-time visibility. The
+                // interactive selection lives in `self.active_tabs`; an entry is
+                // absent until the user clicks a tab, in which case `is_visible`
+                // falls back to the control's `SelectedTab` property.
+                let active_tabs = self.active_tabs.clone();
 
                 // Pre-collect PictureBox image paths before the borrow-split below
                 let pic_paths: Vec<(usize, String)> = render_order.iter().map(|&idx| {
@@ -1454,6 +1547,11 @@ impl DesignerPanel {
                     let ctrl = &self.form.controls[*idx];
                     let is_sel = selected_ids.contains(&ctrl.id);
 
+                    // Skip controls hidden by an inactive tab page (spec 012).
+                    if !super::containers::is_visible(&self.form.controls, *idx, &active_tabs) {
+                        continue;
+                    }
+
                     // Check if an animation preview is playing for this control
                     let anim_offset = ctrl.animations.iter()
                         .find_map(|a| {
@@ -1466,18 +1564,34 @@ impl DesignerPanel {
                     let (adx, ady, scale, alpha_mul) = anim_offset;
                     let anim_origin = origin + Vec2::new(adx, ady);
 
-                    // Combine animation alpha with the control's Opacity property (0–100)
-                    let ctrl_opacity = ctrl.get_prop("Opacity")
-                        .map(|v| (v.as_i64() as f32 / 100.0).clamp(0.0, 1.0))
-                        .unwrap_or(1.0);
-                    let effective_alpha = (alpha_mul * ctrl_opacity).clamp(0.0, 1.0);
+                    // The control's own Opacity (0–100) is applied inside
+                    // `draw_control`; here we compose the animation alpha with any
+                    // ancestor container opacities so a faded container dims its
+                    // subtree (spec 012).
+                    let anc_op = super::containers::ancestor_opacity(&self.form.controls, *idx);
+                    let effective_alpha = (alpha_mul * anc_op).clamp(0.0, 1.0);
 
                     // Retrieve cached texture for PictureBox (if any)
                     let pic_tex: Option<egui::TextureId> = if !img_path.is_empty() {
                         self.image_cache.get(img_path).and_then(|o| o.as_ref()).map(|h| h.id())
                     } else { None };
 
-                    draw_control(&painter, anim_origin, ctrl, is_sel, self.glass_mode, effective_alpha, scale, pic_tex);
+                    // Clip children to their ancestor containers' content areas
+                    // (spec 012). Top-level controls draw unclipped.
+                    let clipped;
+                    let dp: &egui::Painter = match super::containers::clip_rect(&self.form.controls, *idx) {
+                        Some(cm) => {
+                            let screen = egui::Rect::from_min_size(
+                                origin + Vec2::new(cm.x as f32, cm.y as f32),
+                                Vec2::new(cm.w as f32, cm.h as f32),
+                            );
+                            clipped = painter.with_clip_rect(painter.clip_rect().intersect(screen));
+                            &clipped
+                        }
+                        None => &painter,
+                    };
+
+                    draw_control(dp, anim_origin, ctrl, is_sel, self.glass_mode, effective_alpha, scale, pic_tex);
 
                     // Animation badge tooltip — show animation list on hover
                     if !ctrl.animations.is_empty() {
@@ -1568,14 +1682,8 @@ impl DesignerPanel {
                 if resp.clicked() {
                     let ctrl_held = ui.ctx().input(|i| i.modifiers.command);
                     if let Some((cx, cy)) = ptr_canvas {
-                        let mut hit: Option<String> = None;
-                        // Hit-test in reverse z_order (topmost first)
-                        let mut hit_order: Vec<usize> = (0..self.form.controls.len()).collect();
-                        hit_order.sort_by_key(|&i| std::cmp::Reverse(self.form.controls[i].z_order));
-                        for idx in hit_order {
-                            let ctrl = &self.form.controls[idx];
-                            if ctrl.rect.contains(cx, cy) { hit = Some(ctrl.id.clone()); break; }
-                        }
+                        // Hit-test topmost visible control (container-aware, spec 012).
+                        let hit: Option<String> = self.hit_top_id(cx, cy);
                         if ctrl_held {
                             // Ctrl+click = toggle in multi-select
                             if let Some(id) = hit {
@@ -1859,16 +1967,8 @@ impl DesignerPanel {
             resp.ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
 
             if resp.clicked() {
-                // Find which control was clicked (topmost by z-order)
-                let mut hit_id: Option<String> = None;
-                let mut hit_order: Vec<usize> = (0..self.form.controls.len()).collect();
-                hit_order.sort_by_key(|&i| std::cmp::Reverse(self.form.controls[i].z_order));
-                for idx in hit_order {
-                    if self.form.controls[idx].rect.contains(px, py) {
-                        hit_id = Some(self.form.controls[idx].id.clone());
-                        break;
-                    }
-                }
+                // Find which control was clicked (topmost visible, container-aware).
+                let hit_id: Option<String> = self.hit_top_id(px, py);
                 if let Some(target_id) = hit_id {
                     // Extract captured style before mutably borrowing controls
                     let (props, animations, src_rect) = match std::mem::replace(&mut self.format_painter, FormatPainter::Idle) {
@@ -1961,16 +2061,8 @@ impl DesignerPanel {
                             }
                         }
                     } else {
-                        // Hit-test for move
-                        let mut hit_id: Option<String> = None;
-                        let mut hit_order: Vec<usize> = (0..self.form.controls.len()).collect();
-                        hit_order.sort_by_key(|&i| std::cmp::Reverse(self.form.controls[i].z_order));
-                        for idx in hit_order {
-                            if self.form.controls[idx].rect.contains(px, py) {
-                                hit_id = Some(self.form.controls[idx].id.clone());
-                                break;
-                            }
-                        }
+                        // Hit-test for move (topmost visible, container-aware).
+                        let hit_id: Option<String> = self.hit_top_id(px, py);
                         if let Some(id) = hit_id {
                             // If not already selected, select it (unless Ctrl held)
                             let ctrl_held = resp.ctx.input(|i| i.modifiers.command);
@@ -1979,8 +2071,19 @@ impl DesignerPanel {
                                 else         { self.set_selected_one(Some(id.clone())); }
                                 *selection_changed = true;
                             }
-                            // Gather origins for all selected controls
-                            let origins: Vec<(String, i32, i32)> = self.selected_ids.iter()
+                            // Gather origins for the selected controls AND the
+                            // descendants of any selected container, so a
+                            // container drags its whole subtree (spec 012 R2).
+                            let mut move_ids: Vec<String> = self.selected_ids.clone();
+                            for sid in &self.selected_ids {
+                                if let Some(i) = self.form.controls.iter().position(|c| &c.id == sid) {
+                                    for d in super::containers::collect_descendants(&self.form.controls, i) {
+                                        let did = self.form.controls[d].id.clone();
+                                        if !move_ids.contains(&did) { move_ids.push(did); }
+                                    }
+                                }
+                            }
+                            let origins: Vec<(String, i32, i32)> = move_ids.iter()
                                 .filter_map(|sid| self.form.find_control(sid).map(|c| (sid.clone(), c.rect.x, c.rect.y)))
                                 .collect();
                             self.drag = DragState::MovingControls { primary_id: id, origins, start_x: px, start_y: py };
@@ -2064,6 +2167,12 @@ impl DesignerPanel {
                             .map(|(id, ox, oy)| (id.clone(), *ox, *oy, snap(ox + dx, gp, sn), snap(oy + dy, gp, sn)))
                             .collect();
                         self.apply(Cmd::MoveMany { moves });
+                        // Re-parent the *selected* controls to whatever container
+                        // their body now sits over — or back to the form (spec
+                        // 012). Carried descendants keep their container.
+                        for id in self.selected_ids.clone() {
+                            self.reparent_to_drop(&id);
+                        }
                     }
                 }
                 DragState::ResizingControl { id, handle, orig_rect, start_x, start_y } => {
