@@ -3656,7 +3656,7 @@ impl CoboltApp {
     fn show_preview_window(&mut self, ctx: &Context, idx: usize) {
         use cobolt_forms::model::ControlType as CT;
         use egui::{Color32, Pos2, Rect, Stroke, Vec2};
-        use crate::panels::designer::{draw_glass, draw_glass_circle, AnimState, anim_transform, draw_chart_preview, glass_combo_header, glass_combo_popup, GlassComboAction};
+        use crate::panels::designer::{AnimState, anim_transform, glass_combo_header, glass_combo_popup, GlassComboAction};
 
         if idx >= self.designers.len() { return; }
 
@@ -4118,11 +4118,14 @@ impl CoboltApp {
                                 &painter, screen_rect, &key, source.trim(), auto, looping, &size_mode, alpha_mul, false,
                             );
                         }
-                        // ── Chart controls — reuse the designer's chart renderer ──
+                        // ── Chart controls — render through the SAME path as the
+                        // designer (`draw_control`), not the chart painter directly,
+                        // so preview == designer == run (spec 017 unification).
                         CT::BarChart | CT::LineChart | CT::PieChart
                         | CT::AreaChart | CT::ScatterChart | CT::DonutChart => {
-                            let a = (alpha_mul * 255.0) as u8;
-                            draw_chart_preview(&painter, ctrl, screen_rect, a, alpha_mul, glass, false);
+                            crate::panels::designer::draw_control(
+                                &painter, screen_rect.min, &live_at(screen_rect),
+                                false, glass, alpha_mul, 1.0, None);
                         }
 
                         CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
@@ -5520,14 +5523,14 @@ pub(crate) fn render_run_control(
         }
         CT::BarChart | CT::LineChart | CT::PieChart
         | CT::AreaChart | CT::ScatterChart | CT::DonutChart => {
-            use cobolt_forms::model::PropValue;
-            // Reconstruct a Control from the live state so we can reuse the chart painter.
-            let mut ctrl = cobolt_forms::Control::new(id, ct.clone(), 0, 0);
-            for (k, v) in &state.props {
-                ctrl.set_prop(k.clone(), PropValue::String(v.clone()));
-            }
-            crate::panels::designer::draw_chart_preview(
-                &painter, &ctrl, screen_rect, (alpha * 255.0) as u8, alpha, glass, false);
+            // Render the chart through the SAME path as the designer — `draw_control`
+            // (which internally calls the chart painter) — instead of calling the
+            // chart painter directly. This guarantees the running chart matches the
+            // canvas (card frame + glass layering identical); spec 017 unification.
+            let live = crate::panels::designer::live_control(
+                id, ct.clone(), screen_rect.size(), state.props.iter());
+            crate::panels::designer::draw_control(
+                &painter, screen_rect.min, &live, false, glass, alpha, 1.0, None);
         }
         _ => {}
     }

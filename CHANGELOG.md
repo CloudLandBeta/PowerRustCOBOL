@@ -8,6 +8,21 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.11] — 2026-06-21
+
+Fix: charts render through the designer's path on every surface (spec 017 step).
+
+### Fixed
+
+- **Charts match the designer in preview and the running form** — the live
+  preview and the running form drew charts by calling the chart painter
+  **directly**, bypassing the card-frame + glass layering that `draw_control`
+  applies on the designer canvas, so a chart (e.g. an AreaChart) looked washed
+  out / different when run. Both now render charts through **`draw_control`** — the
+  exact path the Form Designer uses — so the chart is identical on the canvas, in
+  the preview, and in the running form. (Part of the spec-017 move toward a single
+  rendering engine; the Form Designer is the source of truth.)
+
 ## [PowerRustCOBOL 1.27.10] — 2026-06-21
 
 Fix: running form now matches the designer/preview (backdrop + glass).
