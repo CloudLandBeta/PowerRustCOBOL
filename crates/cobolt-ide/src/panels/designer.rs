@@ -1628,6 +1628,21 @@ impl DesignerPanel {
 
                     draw_control(dp, anim_origin, ctrl, is_sel, self.glass_mode, effective_alpha, scale, pic_tex);
 
+                    // TEMP DIAGNOSTIC (spec 017): per-control alpha on the canvas,
+                    // to compare designer vs running form. Remove once resolved.
+                    {
+                        let r = &ctrl.rect;
+                        painter.text(
+                            origin + Vec2::new(r.x as f32 + 2.0, r.y as f32 - 12.0),
+                            egui::Align2::LEFT_BOTTOM,
+                            format!("{}: eff={:.2} anc={:.2} op={}",
+                                ctrl.id, effective_alpha, anc_op,
+                                ctrl.get_prop("Opacity").map(|v| v.as_i64()).unwrap_or(100)),
+                            egui::FontId::monospace(10.0),
+                            Color32::from_rgb(120, 255, 160),
+                        );
+                    }
+
                     // Repeating-group badge (spec 015) — a small array marker at the
                     // GroupBox top-right so a template is visually distinct.
                     if matches!(ctrl.control_type, ControlType::GroupBox)
