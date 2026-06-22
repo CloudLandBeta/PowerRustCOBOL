@@ -637,7 +637,23 @@ pub fn draw_control(
                 _          => (rect.left_center(), rect.right_center()),
             }
         };
-        painter.line_segment([p1, p2], Stroke::new(thickness, alpha_color(line_color)));
+        let col = alpha_color(line_color);
+        let stroke = Stroke::new(thickness, col);
+        let t = thickness.max(1.0);
+        // DashStyle: Solid | Dash | Dot | DashDot (egui dashed-line shapes).
+        match ctrl.get_prop("DashStyle").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Solid".into()).as_str() {
+            "Dash"    => painter.extend(egui::Shape::dashed_line(&[p1, p2], stroke, t * 5.0, t * 4.0)),
+            "Dot"     => painter.extend(egui::Shape::dashed_line(&[p1, p2], stroke, t * 1.2, t * 2.5)),
+            "DashDot" => painter.extend(egui::Shape::dashed_line_with_offset(
+                &[p1, p2], stroke, &[t * 5.0, t * 1.2], &[t * 3.0, t * 3.0], 0.0)),
+            _         => { painter.line_segment([p1, p2], stroke); }
+        }
+        // Rounded endings (round caps) — draw a disc at each end.
+        if ctrl.get_prop("RoundedEnds").map(|v| v.as_bool()).unwrap_or(false) {
+            let r = (thickness * 0.5).max(0.5);
+            painter.circle_filled(p1, r, col);
+            painter.circle_filled(p2, r, col);
+        }
         if selected {
             painter.circle_stroke(p1, 4.0, Stroke::new(1.0, Color32::from_rgba_premultiplied(60,120,230, a)));
             painter.circle_stroke(p2, 4.0, Stroke::new(1.0, Color32::from_rgba_premultiplied(60,120,230, a)));

@@ -1308,6 +1308,7 @@ impl PropertiesPanel {
                     ui.end_row();
                     combo_row(ui, id, "DashStyle",     ctrl, action,
                         &["Solid","Dash","Dot","DashDot"]); ui.end_row();
+                    bool_row(ui, id, "RoundedEnds", "Rounded ends", ctrl, action); ui.end_row();
                 });
                 ui.add_space(4.0);
             }

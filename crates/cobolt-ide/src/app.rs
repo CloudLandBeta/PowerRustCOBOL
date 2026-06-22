@@ -4402,7 +4402,10 @@ impl CoboltApp {
 
                     // Walk ancestors: clip to each container's content area, fold in
                     // its Opacity, and hide controls on a non-selected tab page.
-                    let mut clip_rect   = screen_rect;
+                    // Start from the whole form area (NOT the control's own rect) so a
+                    // top-level control is never clipped to its bounds — matching the
+                    // designer, so e.g. a rotated Line drawn past its box still shows.
+                    let mut clip_rect   = ui.max_rect();
                     let mut anc_alpha   = 1.0f32;
                     let mut hidden_tab  = false;
                     let mut child: &crate::form_runtime::CtrlMeta = meta;

@@ -1012,6 +1012,7 @@ impl Control {
                 props.insert("LineThickness".into(), PropValue::Int(1));
                 props.insert("LineDirection".into(), PropValue::String("Horizontal".into()));
                 props.insert("DashStyle".into(),     PropValue::String("Solid".into()));
+                props.insert("RoundedEnds".into(),   PropValue::Bool(false));
             }
             ControlType::DateTimePicker => {
                 props.insert("Value".into(),        PropValue::String("".into()));

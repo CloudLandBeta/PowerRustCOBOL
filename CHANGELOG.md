@@ -8,7 +8,23 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
-## [PowerRustCOBOL 1.27.13] — 2026-06-21
+## [PowerRustCOBOL 1.27.14] — 2026-06-21
+
+### Fixed
+
+- **Rotated lines no longer clip in the running form** — the running form clipped
+  every control to its own bounding box, so a Line rotated past its (thin) box was
+  cut off, while the designer drew it in full. The run now clips controls only to
+  their container ancestors (like the designer), so a rotated/angled Line shows
+  completely on every surface.
+- **Line DashStyle works** — the Line control ignored DashStyle and always drew a
+  solid line. **Dash**, **Dot**, and **DashDot** now render real dashed/dotted
+  patterns (via egui dashed-line shapes); **Solid** is unchanged.
+
+### Added
+
+- **Line rounded ends** — a **Rounded ends** toggle on the Line control draws
+  round caps at both endpoints.
 
 ### Fixed
 
