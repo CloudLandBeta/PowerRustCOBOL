@@ -1143,6 +1143,9 @@ impl Control {
                 props.insert("Title".into(),           PropValue::String("".into()));
                 props.insert("ShowLegend".into(),      PropValue::Bool(true));
                 props.insert("ShowGridLines".into(),   PropValue::Bool(true));
+                // Independent X/Y axis-line visibility (default on).
+                props.insert("ShowXAxis".into(),       PropValue::Bool(true));
+                props.insert("ShowYAxis".into(),       PropValue::Bool(true));
                 props.insert("ShowTooltips".into(),    PropValue::Bool(true));
                 props.insert("AnimateOnLoad".into(),   PropValue::Bool(true));
                 // When true, the panel background fill and border frame are not

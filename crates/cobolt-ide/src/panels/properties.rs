@@ -1295,6 +1295,17 @@ impl PropertiesPanel {
                     ui.end_row();
                     combo_row(ui, id, "LineDirection", ctrl, action,
                         &["Horizontal","Vertical","Diagonal"]); ui.end_row();
+                    // Free rotation angle (degrees). Setting it overrides the
+                    // direction preset; drag the on-canvas knob or this value.
+                    ui.label("Angle°:");
+                    let mut ang = ctrl.get_prop("LineAngle").map(|v| v.as_i64())
+                        .unwrap_or_else(|| match ctrl.get_prop("LineDirection").map(|v| v.as_str().to_owned()).as_deref() {
+                            Some("Vertical") => 90, Some("Diagonal") => 45, _ => 0,
+                        });
+                    if ui.add(DragValue::new(&mut ang).speed(1).range(0..=359)).changed() {
+                        action.set_props.push((id.to_owned(), "LineAngle".into(), PropValue::Int(ang.rem_euclid(360))));
+                    }
+                    ui.end_row();
                     combo_row(ui, id, "DashStyle",     ctrl, action,
                         &["Solid","Dash","Dot","DashDot"]); ui.end_row();
                 });
@@ -1794,6 +1805,8 @@ impl PropertiesPanel {
                         "Title:", "Sales by Region", action);
                     bool_row(ui, id, "ShowLegend",   "Show legend",    ctrl, action); ui.end_row();
                     bool_row(ui, id, "ShowGridLines", "Show grid lines", ctrl, action); ui.end_row();
+                    bool_row(ui, id, "ShowXAxis",    "Show X axis line", ctrl, action); ui.end_row();
+                    bool_row(ui, id, "ShowYAxis",    "Show Y axis line", ctrl, action); ui.end_row();
                     bool_row(ui, id, "ShowTooltips", "Show tooltips",  ctrl, action); ui.end_row();
                     bool_row(ui, id, "AnimateOnLoad","Animate on load",ctrl, action); ui.end_row();
                     bool_row(ui, id, "HideBackground","Hide background",ctrl, action); ui.end_row();

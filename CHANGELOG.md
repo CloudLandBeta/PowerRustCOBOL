@@ -8,6 +8,23 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.13] — 2026-06-21
+
+### Fixed
+
+- **PictureBox image aspect ratio** — the Form Designer canvas stretched the
+  image to fill the box regardless of **SizeMode**, while the preview and running
+  form preserved the aspect ratio. The designer now honours SizeMode too (using
+  the image's native size), so Fit/Zoom/Center keep the aspect ratio and the image
+  looks identical on the canvas, in the preview, and at run time.
+- **Chart axis lines are controllable** — charts drew fixed X/Y axis lines with no
+  way to remove them. All (non-pie/donut) charts now have **Show X axis line** and
+  **Show Y axis line** toggles so the chart can show just its data.
+- **Line direction is no longer limited to the presets** — the **Line** control
+  gained an **Angle°** property (0–359) so it can point in any direction, not only
+  Horizontal/Vertical/Diagonal. Setting the angle overrides the legacy preset;
+  existing lines are unchanged. *(An on-canvas rotation knob is a follow-up.)*
+
 ## [PowerRustCOBOL 1.27.12] — 2026-06-21
 
 Fix: apply the active theme to the preview & running-form viewports (spec 017).

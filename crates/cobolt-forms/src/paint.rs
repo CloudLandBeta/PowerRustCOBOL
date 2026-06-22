@@ -621,10 +621,21 @@ pub fn draw_control(
         let line_color = ctrl.get_prop("LineColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::BLACK);
         let thickness  = ctrl.get_prop("LineThickness").map(|v| v.as_i64() as f32).unwrap_or(1.0);
         let dir        = ctrl.get_prop("LineDirection").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Horizontal".into());
-        let (p1, p2)   = match dir.as_str() {
-            "Vertical" => (rect.left_top(),  rect.left_bottom()),
-            "Diagonal" => (rect.left_top(),  rect.right_bottom()),
-            _          => (rect.left_center(), rect.right_center()),
+        // Free rotation: `LineAngle` (degrees, 0 = horizontal) is the source of
+        // truth when present; otherwise fall back to the legacy LineDirection
+        // presets so existing forms are unchanged. The line is centred and as long
+        // as the control's width, rotated about its centre.
+        let (p1, p2) = if let Some(deg) = ctrl.get_prop("LineAngle").map(|v| v.as_i64() as f32) {
+            let rad = deg.to_radians();
+            let c = rect.center();
+            let d = Vec2::new(rad.cos(), rad.sin()) * (rect.width().max(1.0) * 0.5);
+            (c - d, c + d)
+        } else {
+            match dir.as_str() {
+                "Vertical" => (rect.left_top(),  rect.left_bottom()),
+                "Diagonal" => (rect.left_top(),  rect.right_bottom()),
+                _          => (rect.left_center(), rect.right_center()),
+            }
         };
         painter.line_segment([p1, p2], Stroke::new(thickness, alpha_color(line_color)));
         if selected {
@@ -1112,16 +1123,29 @@ pub fn draw_control(
             // If we have a loaded texture, draw it directly and skip the text label.
             if let Some(tex_id) = pic_tex {
                 let size_mode = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Normal".into());
-                let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
                 let tint = Color32::from_rgba_premultiplied(255, 255, 255, a);
-                let img_rect = match size_mode.as_str() {
-                    "StretchImage" | "Zoom" | "AutoSize" => rect, // stretch to fill
-                    _ => rect, // Normal/Tile: for designer preview just stretch too
+                // Honour SizeMode with the image's native size so the aspect ratio
+                // is preserved (Fit/Zoom/Center) identically to the run/preview —
+                // the native size comes from the texture manager (spec 017 parity).
+                let native = painter.ctx().tex_manager().read().meta(tex_id)
+                    .map(|m| Vec2::new(m.size[0] as f32, m.size[1] as f32))
+                    .unwrap_or_else(|| rect.size());
+                let dest = media_dest_rect(rect, native, pic_size_mode(&size_mode));
+                // Rounded image clipped to the corner radius (spec 016). When the
+                // image is contained (Fit/Center) round the image rect; when it
+                // overflows (Fill/Stretch) round the control rect with mapped UV.
+                let contained = dest.width() <= rect.width() + 0.5 && dest.height() <= rect.height() + 0.5;
+                let (shape_rect, uv) = if contained {
+                    (dest, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)))
+                } else {
+                    let dw = dest.width().max(1.0);
+                    let dh = dest.height().max(1.0);
+                    (rect, egui::Rect::from_min_max(
+                        egui::pos2((rect.min.x - dest.min.x) / dw, (rect.min.y - dest.min.y) / dh),
+                        egui::pos2((rect.max.x - dest.min.x) / dw, (rect.max.y - dest.min.y) / dh)))
                 };
-                // Rounded image: a textured RectShape clips the image to the
-                // control's corner radius natively, over any background (spec 016).
-                painter.add(egui::Shape::Rect(egui::epaint::RectShape {
-                    rect: img_rect,
+                painter.with_clip_rect(rect).add(egui::Shape::Rect(egui::epaint::RectShape {
+                    rect: shape_rect,
                     rounding: egui::Rounding::same(corner),
                     fill: tint,                 // multiplies the texture (tint + alpha)
                     stroke: Stroke::NONE,
@@ -1276,6 +1300,18 @@ pub fn draw_control(
 
 /// Compute the destination rect for an image of `native` size inside `rect`,
 /// according to a PictureBox/Animator-style `size_mode`.
+/// Map a PictureBox/Animator `SizeMode` property value to the canonical mode
+/// understood by [`media_dest_rect`]. Shared so the designer, preview, run, and
+/// compiled binary all size images identically.
+pub fn pic_size_mode(m: &str) -> &'static str {
+    match m {
+        "Stretch" | "StretchImage" => "Stretch",
+        "Zoom" | "Fit"             => "Fit",
+        "Fill"                     => "Fill",
+        _                          => "Center", // Normal / CenterImage / AutoSize
+    }
+}
+
 pub fn media_dest_rect(rect: egui::Rect, native: Vec2, size_mode: &str) -> egui::Rect {
     if native.x <= 0.0 || native.y <= 0.0 {
         return rect;
@@ -1762,8 +1798,15 @@ pub fn draw_chart_preview(
     // Axes (monochrome: a pastel/slightly-stronger variant of the base — spec 013 R5)
     let ax_c = if mono { axis_variant(mono_base) } else { Color32::from_rgb(84, 104, 190) };
     if !matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
-        painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.45, ax_c));
-        painter.line_segment([plot.left_bottom(), plot.left_top()],     Stroke::new(1.45, ax_c));
+        // X/Y axis-line visibility is independently toggleable (default on).
+        let show_x = ctrl.get_prop("ShowXAxis").map(|v| v.as_bool()).unwrap_or(true);
+        let show_y = ctrl.get_prop("ShowYAxis").map(|v| v.as_bool()).unwrap_or(true);
+        if show_x {
+            painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.45, ax_c));
+        }
+        if show_y {
+            painter.line_segment([plot.left_bottom(), plot.left_top()], Stroke::new(1.45, ax_c));
+        }
     }
 
     // ── Sample data (representative preview) ──────────────────────────────────
