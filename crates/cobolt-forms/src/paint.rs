@@ -1355,6 +1355,103 @@ pub fn media_dest_rect(rect: egui::Rect, native: Vec2, size_mode: &str) -> egui:
 /// Render an Animator control: plays its animated/still image (GIF/WebP/APNG/…)
 /// at the current moment, or a placeholder when no source is set / decode fails.
 #[allow(clippy::too_many_arguments)]
+// ── ComboBox glass widgets (shared by designer preview, run, compiled) ─────────
+// Two-pass combo: `glass_combo_header` draws the closed bar; `glass_combo_popup`
+// draws the open dropdown after all controls so it floats on top. The caller
+// stores open/closed state keyed by control id (spec 017 consolidation).
+
+/// Result of a `glass_combo_popup` interaction.
+#[derive(Debug)]
+pub enum GlassComboAction {
+    /// User selected this item.
+    Select(String),
+    /// User clicked outside the popup — close without changing value.
+    Close,
+}
+
+/// Draw the ComboBox header bar (always visible). Returns `true` if clicked.
+pub fn glass_combo_header(
+    painter:     &egui::Painter,
+    ui:          &mut egui::Ui,
+    rect:        egui::Rect,
+    control_id:  egui::Id,
+    selected:    &str,
+    is_open:     bool,
+    enabled:     bool,
+    alpha:       f32,
+) -> bool {
+    use egui::{Align2, FontId, Pos2};
+    draw_glass(painter, rect, Color32::from_rgb(25, 38, 80), 6.0, false, alpha);
+    painter.rect_stroke(rect, 6.0,
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)));
+    painter.text(Pos2::new(rect.min.x + 8.0, rect.center().y),
+        Align2::LEFT_CENTER, selected, FontId::proportional(12.0),
+        Color32::from_rgb(220, 228, 255));
+    painter.text(Pos2::new(rect.max.x - 13.0, rect.center().y),
+        Align2::CENTER_CENTER, if is_open { "▲" } else { "▼" },
+        FontId::proportional(9.0), Color32::from_rgba_premultiplied(160, 190, 255, 200));
+    enabled && ui.interact(rect, control_id, egui::Sense::click()).clicked()
+}
+
+/// Draw the ComboBox dropdown popup (call after all controls). Returns the user
+/// action, if any.
+pub fn glass_combo_popup(
+    ui:           &mut egui::Ui,
+    ctrl_id_str:  &str,
+    header_rect:  egui::Rect,
+    items:        &[String],
+    selected_val: &str,
+) -> Option<GlassComboAction> {
+    use egui::{Align2, FontId, Pos2, Vec2};
+
+    let item_h  = 22.0_f32;
+    let popup_h = (items.len() as f32 * item_h).min(180.0);
+    let popup_rect = egui::Rect::from_min_size(
+        Pos2::new(header_rect.min.x, header_rect.max.y + 1.0),
+        Vec2::new(header_rect.width(), popup_h),
+    );
+
+    let pointer_pos = ui.input(|i| i.pointer.hover_pos());
+    let any_click   = ui.input(|i| i.pointer.any_click());
+    if any_click {
+        let inside = header_rect.contains(pointer_pos.unwrap_or(Pos2::ZERO))
+            || popup_rect.contains(pointer_pos.unwrap_or(Pos2::ZERO));
+        if !inside {
+            return Some(GlassComboAction::Close);
+        }
+    }
+
+    let pp = ui.painter_at(popup_rect);
+    pp.rect_filled(popup_rect, 6.0, Color32::from_rgb(22, 30, 58));
+    draw_glass(&pp, popup_rect, Color32::from_rgb(30, 42, 80), 6.0, false, 0.35);
+    pp.rect_stroke(popup_rect, 6.0,
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)));
+
+    let mut action = None;
+    for (i, item) in items.iter().enumerate() {
+        let item_y = popup_rect.min.y + i as f32 * item_h;
+        if item_y + item_h > popup_rect.max.y { break; }
+        let item_rect = egui::Rect::from_min_size(
+            Pos2::new(popup_rect.min.x, item_y),
+            Vec2::new(popup_rect.width(), item_h));
+        let iid = egui::Id::new(("glass_combo_item", ctrl_id_str, i));
+        let is_sel  = item == selected_val;
+        let hovered = pointer_pos.map(|p| item_rect.contains(p)).unwrap_or(false);
+        if is_sel {
+            pp.rect_filled(item_rect, 4.0, Color32::from_rgba_premultiplied(60, 100, 200, 120));
+        } else if hovered {
+            pp.rect_filled(item_rect, 4.0, Color32::from_rgba_premultiplied(50, 70, 150, 80));
+        }
+        pp.text(Pos2::new(item_rect.min.x + 10.0, item_rect.center().y),
+            Align2::LEFT_CENTER, item, FontId::proportional(12.0),
+            if is_sel { Color32::from_rgb(200, 220, 255) } else { Color32::from_rgb(210, 218, 245) });
+        if ui.interact(item_rect, iid, egui::Sense::click()).clicked() {
+            action = Some(GlassComboAction::Select(item.clone()));
+        }
+    }
+    action
+}
+
 pub fn draw_animator(
     painter:   &egui::Painter,
     rect:      egui::Rect,
