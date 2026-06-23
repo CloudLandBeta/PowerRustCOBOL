@@ -465,6 +465,11 @@ pub struct Interpreter {
     /// Receives UI events (button clicks, text changes, etc.) from the form window.
     /// When `Some`, `COBOL-WAIT-EVENT` blocks on `recv()` instead of quitting.
     event_rx: Option<mpsc::Receiver<FormEvent>>,
+    /// Receives UI-driven property changes (slider drag, text edit, combo
+    /// select, …) from the form window, so `COBOL-GET-PROPERTY` / `"Value" OF
+    /// Ctrl` see the live value a handler is responding to. Drained into the
+    /// object registry by `COBOL-WAIT-EVENT` right before a handler dispatches.
+    input_rx: Option<mpsc::Receiver<StateUpdate>>,
     /// Sends property-change notifications to the form window UI thread.
     /// Used by `COBOL-SET-PROPERTY`.
     state_tx: Option<mpsc::Sender<StateUpdate>>,
@@ -596,6 +601,7 @@ impl Interpreter {
             db:   DbRegistry::new(),
             http: crate::http_runtime::HttpClient::new(),
             event_rx:   None,
+            input_rx:   None,
             state_tx:   None,
             display_tx: None,
             debug_cmd_rx:      None,
@@ -668,6 +674,25 @@ impl Interpreter {
         interp.state_tx   = Some(state_tx);
         interp.display_tx = Some(display_tx);
         interp
+    }
+
+    /// Attach the UI→interpreter property-sync channel. UI-driven value changes
+    /// (slider drag, text edit, combo select, …) arrive here and are folded into
+    /// the object registry by `COBOL-WAIT-EVENT`, so an event handler reads the
+    /// live value rather than the seeded default.
+    pub fn set_input_channel(&mut self, input_rx: mpsc::Receiver<StateUpdate>) {
+        self.input_rx = Some(input_rx);
+    }
+
+    /// Drain any pending UI-driven property updates into the object registry.
+    /// Called just before an event handler runs so getters see the live value.
+    fn drain_input(&mut self) {
+        if let Some(rx) = &self.input_rx {
+            let pending: Vec<StateUpdate> = rx.try_iter().collect();
+            for upd in pending {
+                self.objects.set_property(&upd.ctrl_id, &upd.prop, upd.value);
+            }
+        }
     }
 
     /// Create an interpreter wired to the IDE debugger channels.
@@ -3286,10 +3311,17 @@ impl Interpreter {
             // GUI mode: block until the UI sends a FormEvent, then populate the two fields.
             // CLI mode: immediately set COBOL-QUIT = 1 so the event loop exits cleanly.
             "COBOL-WAIT-EVENT" | "COBOLT-WAIT-EVENT" => {
-                if let Some(rx) = &self.event_rx {
+                if self.event_rx.is_some() {
                     // Block the interpreter thread until the UI sends an event.
-                    match rx.recv() {
+                    // Take the value out of the borrow first so we can mutate
+                    // `self` (drain_input) afterwards.
+                    let recvd = self.event_rx.as_ref().unwrap().recv();
+                    match recvd {
                         Ok(ev) => {
+                            // Fold any UI-driven value changes (the slider drag /
+                            // text edit that produced this event, etc.) into the
+                            // object registry so the handler reads the live value.
+                            self.drain_input();
                             // Populate COBOL-EVENT-ID and COBOL-CONTROL-ID (args 0 and 1).
                             if using.len() >= 1 {
                                 let n = self.expr_to_name(call_arg_expr(&using[0]));

@@ -4473,6 +4473,10 @@ impl CoboltApp {
                             for (k, v) in &out.prop_updates {
                                 rt.ctrl_state.entry(meta.id.clone()).or_default()
                                     .props.insert(k.clone(), v.clone());
+                                // Sync the live value to the interpreter BEFORE the
+                                // event so a change handler reads it (e.g. a slider's
+                                // dragged Value), not the seeded default.
+                                rt.send_input(&meta.id, k, v);
                             }
                             for e in out.events {
                                 rt.send_event(e);
@@ -4526,6 +4530,7 @@ impl CoboltApp {
                                                 if let Some(s) = rt.ctrl_state.get_mut(&meta_id) {
                                                     s.props.insert("Value".to_owned(), item.clone());
                                                 }
+                                                rt.send_input(&meta_id, "Value", item.as_str());
                                                 rt.send_event(FormEvent::change(&meta_id, item.as_str()));
                                                 rt.send_event(FormEvent::new(&meta_id, "onSelectedIndexChanged"));
                                             }
@@ -4636,6 +4641,7 @@ impl CoboltApp {
                             if let Some(s) = rt.ctrl_state.get_mut(&cid) {
                                 s.props.insert("Value".to_owned(), val.clone());
                             }
+                            rt.send_input(&cid, "Value", &val);
                             rt.send_event(FormEvent::change(&cid, &val));
                             rt.send_event(FormEvent::new(&cid, "onSelectedIndexChanged"));
                             rt.combo_open.insert(cid, false);

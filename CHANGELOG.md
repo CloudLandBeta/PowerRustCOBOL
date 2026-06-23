@@ -8,6 +8,17 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.15] — 2026-06-23
+
+### Fixed
+
+- **A control's value now reaches its change handler in the running form** —
+  binding a COBOL handler to a control's change event (e.g. a Slider's) and
+  reading the control's value inside it returned the initial value (`0`) no
+  matter how far you moved the knob. UI-driven value changes (slider drag, text
+  edit, combo/list selection) are now synced to the interpreter the instant the
+  event fires, so the handler reads the live value — not the seeded default.
+
 ## [PowerRustCOBOL 1.27.14] — 2026-06-21
 
 ### Fixed

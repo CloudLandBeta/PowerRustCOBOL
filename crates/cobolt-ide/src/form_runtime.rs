@@ -65,6 +65,9 @@ pub struct FormRuntime {
 
     /// Sends UI events to the interpreter thread.
     event_tx: Sender<FormEvent>,
+    /// Sends UI-driven property changes (slider drag, text edit, …) to the
+    /// interpreter so event handlers read the live value, not the seeded default.
+    input_tx: Sender<StateUpdate>,
     /// Receives property-change notifications from the interpreter.
     state_rx: Receiver<StateUpdate>,
     /// Receives DISPLAY output from the interpreter.
@@ -179,6 +182,7 @@ impl FormRuntime {
 
         // Build channel pairs.
         let (event_tx, event_rx)   = mpsc::channel::<FormEvent>();
+        let (input_tx, input_rx)   = mpsc::channel::<StateUpdate>();
         let (state_tx, state_rx)   = mpsc::channel::<StateUpdate>();
         let (display_tx, display_rx) = mpsc::channel::<String>();
 
@@ -233,6 +237,7 @@ impl FormRuntime {
             let mut interp = Interpreter::new_with_channels(
                 program, event_rx, state_tx, display_tx,
             );
+            interp.set_input_channel(input_rx);
             interp.seed_objects(seed);
             if stop_clone.load(Ordering::Relaxed) { return; }
             let _ = interp.run();
@@ -251,6 +256,7 @@ impl FormRuntime {
             ctrl_state,
             ctrl_order,
             event_tx,
+            input_tx,
             state_rx,
             display_rx,
             stop_flag,
@@ -263,6 +269,14 @@ impl FormRuntime {
     /// Send a UI event to the interpreter.
     pub fn send_event(&self, event: FormEvent) {
         let _ = self.event_tx.send(event);
+    }
+
+    /// Forward a UI-driven property change (a dragged slider value, typed text,
+    /// combo selection, …) to the interpreter so an event handler reads the live
+    /// value. Send this BEFORE the matching event so `COBOL-WAIT-EVENT` folds it
+    /// into the object registry ahead of dispatch.
+    pub fn send_input(&self, ctrl_id: &str, prop: &str, value: &str) {
+        let _ = self.input_tx.send(StateUpdate::new(ctrl_id, prop, value));
     }
 
     /// Drain all pending `StateUpdate` messages and apply them to `ctrl_state`.
