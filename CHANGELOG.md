@@ -8,6 +8,33 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.16] — 2026-06-23
+
+### Fixed
+
+- **Compiled binaries now look like the IDE** — a standalone built form rendered
+  every control as a plain, unstyled native widget (no background image, no glass
+  charts, no themed slider/date picker). The compiled binary now draws through the
+  same unified render engine as the Form Designer, live preview, and running form,
+  so a packaged form matches what you designed.
+- **Slider no longer gets stuck in a built binary** — a freshly opened window
+  could receive a burst of phantom pointer input that left the slider's drag in a
+  bad state, so dragging the knob did nothing. Phantom input at window-open is now
+  ignored during a short warm-up, and the slider clears any stale drag state, so it
+  responds normally.
+- **Chart "Data Binding — COBOL Table" properties stack one per row** — the table
+  binding fields (Table item, Row count item, Label field, Value field(s), Series
+  labels) were packed onto a single line, forcing the property pane to scroll
+  horizontally. Each field is now on its own row. The Scatter chart's "Bubble size
+  field" had the same defect and is fixed too.
+
+### Changed
+
+- **One render engine for every surface (internal)** — the Form Designer canvas,
+  live preview, running form, and compiled binary now share a single rendering
+  engine in `cobolt-forms`, replacing four separate draw loops. This is the
+  groundwork that makes the designer, preview, run, and binary look identical.
+
 ## [PowerRustCOBOL 1.27.15] — 2026-06-23
 
 ### Fixed

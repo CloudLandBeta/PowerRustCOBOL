@@ -601,7 +601,7 @@ fn generate_main_rs(
 
     let form_runtime_code = if has_forms {
         r#"
-// ── Form application ──────────────────────────────────────────────────────────
+// ── Form application (spec 017: one renderer for every surface) ───────────────
 
 /// Mutable UI-side state of a single control (mirrors the IDE's CtrlState).
 #[derive(Clone, Default)]
@@ -618,9 +618,6 @@ impl CtrlState {
         }
         CtrlState { props, visible: ctrl.visible, enabled: ctrl.enabled }
     }
-    fn get(&self, key: &str) -> &str {
-        self.props.get(key).map(|s| s.as_str()).unwrap_or("")
-    }
     fn set(&mut self, key: &str, value: String) {
         match key {
             "Visible" => self.visible = value != "0" && value != "false",
@@ -631,13 +628,6 @@ impl CtrlState {
     }
 }
 
-#[derive(Clone)]
-struct CtrlMeta {
-    id:           String,
-    control_type: cobolt_forms::ControlType,
-    rect:         cobolt_forms::model::Rect,
-}
-
 fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_forms::Control>) {
     for c in controls {
         out.push(c.clone());
@@ -645,36 +635,25 @@ fn flatten_controls(controls: &[cobolt_forms::Control], out: &mut Vec<cobolt_for
     }
 }
 
-fn parse_hex_color(hex: &str) -> Option<egui::Color32> {
-    let h = hex.trim_start_matches('#');
-    if h.len() >= 6 {
-        let r = u8::from_str_radix(&h[0..2], 16).ok()?;
-        let g = u8::from_str_radix(&h[2..4], 16).ok()?;
-        let b = u8::from_str_radix(&h[4..6], 16).ok()?;
-        let a = if h.len() >= 8 { u8::from_str_radix(&h[6..8], 16).unwrap_or(255) } else { 255 };
-        Some(egui::Color32::from_rgba_unmultiplied(r, g, b, a))
-    } else {
-        None
-    }
+/// `FormState` over the compiled control-state map: merges live property values
+/// onto each designed control so the unified render engine paints the binary
+/// exactly like the IDE preview / running form (background, glass, charts,
+/// styled widgets — spec 017 T7).
+struct CompiledState<'a> {
+    state: &'a std::collections::HashMap<String, CtrlState>,
 }
-
-/// Destination rect for an image of `native` size inside `rect` by size-mode.
-fn anim_dest(rect: egui::Rect, native: egui::Vec2, mode: &str) -> egui::Rect {
-    if native.x <= 0.0 || native.y <= 0.0 { return rect; }
-    match mode {
-        "Stretch" => rect,
-        "Fill" => {
-            let s = (rect.width() / native.x).max(rect.height() / native.y);
-            egui::Rect::from_center_size(rect.center(), native * s)
+impl<'a> cobolt_forms::render::FormState for CompiledState<'a> {
+    fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
+        match self.state.get(&base.id) {
+            Some(s) => cobolt_forms::render::merge_props(base, s.props.iter()),
+            None => base.clone(),
         }
-        "Center" | "Normal" => {
-            let s = (rect.width() / native.x).min(rect.height() / native.y).min(1.0);
-            egui::Rect::from_center_size(rect.center(), native * s)
-        }
-        _ => {
-            let s = (rect.width() / native.x).min(rect.height() / native.y);
-            egui::Rect::from_center_size(rect.center(), native * s)
-        }
+    }
+    fn visible(&self, base: &cobolt_forms::Control) -> bool {
+        self.state.get(&base.id).map(|s| s.visible).unwrap_or(true)
+    }
+    fn enabled(&self, base: &cobolt_forms::Control) -> bool {
+        self.state.get(&base.id).map(|s| s.enabled).unwrap_or(true)
     }
 }
 
@@ -698,18 +677,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     flat.sort_by_key(|c| c.z_order);
 
     let mut state: std::collections::HashMap<String, CtrlState> = std::collections::HashMap::new();
-    let mut controls: Vec<CtrlMeta> = Vec::new();
     for c in &flat {
         state.insert(c.id.clone(), CtrlState::from_control(c));
-        controls.push(CtrlMeta {
-            id: c.id.clone(),
-            control_type: c.control_type.clone(),
-            rect: c.rect.clone(),
-        });
     }
 
-    let bg = parse_hex_color(&first_form.background_color)
-        .unwrap_or(egui::Color32::from_rgba_premultiplied(20, 22, 45, 235));
     let (fw, fh) = (first_form.width as f32, first_form.height as f32);
     let title = format!("{} v{}", APP_NAME, APP_VERSION);
 
@@ -721,16 +692,33 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     };
 
     let (ev_tx, ev_rx)           = mpsc::channel::<FormEvent>();
+    let (input_tx, input_rx)     = mpsc::channel::<StateUpdate>();
     let (state_tx, state_rx)     = mpsc::channel::<StateUpdate>();
     let (display_tx, display_rx) = mpsc::channel::<String>();
 
-    // The COBOL event loop runs on its own thread.
+    // The COBOL event loop runs on its own thread. The input channel lets the UI
+    // push live control values (slider drag, text edit, …) so event handlers read
+    // the current value rather than the seeded default.
     std::thread::spawn(move || {
         let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+        interp.set_input_channel(input_rx);
         let _ = interp.run();
     });
 
-    let app = FormApp { controls, state, bg, ev_tx, state_rx, display_rx, start: std::time::Instant::now() };
+    let app = FormApp {
+        controls: flat,
+        state,
+        bg_hex: first_form.background_color.clone(),
+        transparency: first_form.transparency.clamp(0, 100) as u8,
+        bg_image: first_form.background_image.clone(),
+        bg_mode: first_form.bg_image_mode,
+        form_size: egui::vec2(fw, fh),
+        ev_tx,
+        input_tx,
+        state_rx,
+        display_rx,
+        start: std::time::Instant::now(),
+    };
     let _ = eframe::run_native(
         &title,
         native_options,
@@ -739,22 +727,21 @@ fn run_form_app(program: cobolt_ast::program::Program) {
 }
 
 struct FormApp {
-    controls:   Vec<CtrlMeta>,
-    state:      std::collections::HashMap<String, CtrlState>,
-    bg:         egui::Color32,
-    ev_tx:      std::sync::mpsc::Sender<cobolt_runtime::FormEvent>,
-    state_rx:   std::sync::mpsc::Receiver<cobolt_runtime::StateUpdate>,
-    display_rx: std::sync::mpsc::Receiver<String>,
+    controls:     Vec<cobolt_forms::Control>,
+    state:        std::collections::HashMap<String, CtrlState>,
+    bg_hex:       String,
+    transparency: u8,
+    bg_image:     String,
+    bg_mode:      cobolt_forms::model::BgImageMode,
+    form_size:    egui::Vec2,
+    ev_tx:        std::sync::mpsc::Sender<cobolt_runtime::FormEvent>,
+    input_tx:     std::sync::mpsc::Sender<cobolt_runtime::StateUpdate>,
+    state_rx:     std::sync::mpsc::Receiver<cobolt_runtime::StateUpdate>,
+    display_rx:   std::sync::mpsc::Receiver<String>,
     /// When the window opened. Input events are ignored for a short warm-up so
-    /// that a click already in progress as the window appears (e.g. it opened
-    /// under the pointer) cannot be mistaken for an intentional interaction.
-    start:      std::time::Instant,
-}
-
-impl FormApp {
-    fn getp(&self, id: &str, key: &str) -> String {
-        self.state.get(id).map(|s| s.get(key).to_owned()).unwrap_or_default()
-    }
+    /// that a click already in progress as the window appears cannot be mistaken
+    /// for an intentional interaction.
+    start:        std::time::Instant,
 }
 
 impl eframe::App for FormApp {
@@ -768,251 +755,77 @@ impl eframe::App for FormApp {
             println!("{}", line);
         }
 
-        // Ignore input for a brief warm-up after the window appears, so a click
-        // that was already underway when it opened cannot trigger a control.
+        // Ignore input for a brief warm-up after the window appears.
         let armed = self.start.elapsed().as_millis() > 450;
 
-        let metas = self.controls.clone();
-
-        egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(self.bg))
-            .show(ctx, |ui| {
-                let origin = ui.min_rect().min;
-                use cobolt_forms::ControlType as CT;
-
-                for meta in &metas {
-                    let (visible, enabled) = self.state.get(&meta.id)
-                        .map(|s| (s.visible, s.enabled)).unwrap_or((true, true));
-                    if !visible { continue; }
-
-                    // Effective geometry: COBOL may move/resize a control through
-                    // SET-PROPERTY X / Y / Width / Height, or dock it to an edge.
-                    let area = ui.max_rect();
-                    let rect = {
-                        let st = self.state.get(&meta.id);
-                        let num = |k: &str, d: f32| st
-                            .and_then(|s| s.props.get(k))
-                            .and_then(|v| v.trim().parse::<f32>().ok())
-                            .unwrap_or(d);
-                        let x = num("X", meta.rect.x as f32);
-                        let y = num("Y", meta.rect.y as f32);
-                        let w = num("Width",  meta.rect.w as f32).max(1.0);
-                        let h = num("Height", meta.rect.h as f32).max(1.0);
-                        let base = egui::Rect::from_min_size(
-                            egui::pos2(origin.x + x, origin.y + y),
-                            egui::vec2(w, h),
-                        );
-                        match st.map(|s| s.get("Dock")).unwrap_or("") {
-                            "Top"    => egui::Rect::from_min_size(area.min, egui::vec2(area.width(), h)),
-                            "Bottom" => egui::Rect::from_min_size(egui::pos2(area.min.x, area.max.y - h), egui::vec2(area.width(), h)),
-                            "Left"   => egui::Rect::from_min_size(area.min, egui::vec2(w, area.height())),
-                            "Right"  => egui::Rect::from_min_size(egui::pos2(area.max.x - w, area.min.y), egui::vec2(w, area.height())),
-                            "Fill"   => area,
-                            _ => base,
-                        }
-                    };
-
-                    match meta.control_type {
-                        CT::Button => {
-                            let mut label = self.getp(&meta.id, "Caption");
-                            if label.is_empty() { label = meta.id.clone(); }
-                            let resp = ui.put(rect, egui::Button::new(label));
-                            if armed && enabled && resp.clicked() {
-                                let _ = self.ev_tx.send(cobolt_runtime::FormEvent::click(&meta.id));
-                            }
-                        }
-                        CT::Label => {
-                            let text = self.getp(&meta.id, "Caption");
-
-                            // Opacity (0–100) scales every colour's alpha.
-                            let opacity = self.getp(&meta.id, "Opacity").trim()
-                                .parse::<f32>().unwrap_or(100.0).clamp(0.0, 100.0) / 100.0;
-                            let amul = |c: egui::Color32| egui::Color32::from_rgba_unmultiplied(
-                                c.r(), c.g(), c.b(), (c.a() as f32 * opacity) as u8);
-
-                            let painter = ui.painter_at(rect);
-
-                            // BackColor fill.
-                            if let Some(bc) = parse_hex_color(&self.getp(&meta.id, "BackgroundColor")) {
-                                painter.rect_filled(rect, 0.0, amul(bc));
-                            }
-                            // Border.
-                            let bstyle = self.getp(&meta.id, "BorderStyle");
-                            if !bstyle.is_empty() && bstyle != "None" {
-                                let bcol = parse_hex_color(&self.getp(&meta.id, "BorderColor"))
-                                    .unwrap_or(egui::Color32::from_gray(150));
-                                painter.rect_stroke(rect, 0.0, egui::Stroke::new(1.0, amul(bcol)));
-                            }
-
-                            // Text colour: ForeColor, with sensible defaults.
-                            let fsize = self.getp(&meta.id, "FontSize").trim()
-                                .parse::<f32>().unwrap_or(14.0).max(1.0);
-                            let mut fg = parse_hex_color(&self.getp(&meta.id, "ForegroundColor"))
-                                .unwrap_or(egui::Color32::from_gray(230));
-                            if fg == egui::Color32::BLACK { fg = egui::Color32::from_gray(230); }
-                            if !enabled { fg = egui::Color32::from_gray(120); }
-                            let fg = amul(fg);
-
-                            let truthy = |s: String| s == "1" || s.eq_ignore_ascii_case("true");
-                            let bold      = truthy(self.getp(&meta.id, "Bold"));
-                            let italic    = truthy(self.getp(&meta.id, "Italic"));
-                            let underline = truthy(self.getp(&meta.id, "Underline"));
-                            let strike    = truthy(self.getp(&meta.id, "Strikethrough"));
-                            let wrap      = truthy(self.getp(&meta.id, "WordWrap"));
-
-                            // Padding insets the text rect.
-                            let pad = self.getp(&meta.id, "Padding").trim()
-                                .parse::<f32>().unwrap_or(0.0).max(0.0);
-                            let inner = rect.shrink(pad);
-
-                            let (halign, anchor_x) = match self.getp(&meta.id, "TextAlignment").as_str() {
-                                "Center" => (egui::Align::Center, inner.center().x),
-                                "Right"  => (egui::Align::Max,    inner.right()),
-                                _        => (egui::Align::Min,    inner.left()),
-                            };
-
-                            use egui::text::{LayoutJob, TextFormat};
-                            let mut job = LayoutJob::default();
-                            job.halign = halign;
-                            if wrap { job.wrap.max_width = inner.width(); }
-                            job.append(&text, 0.0, TextFormat {
-                                font_id: egui::FontId::proportional(fsize),
-                                color: fg,
-                                italics: italic,
-                                underline:     if underline { egui::Stroke::new(1.0, fg) } else { egui::Stroke::NONE },
-                                strikethrough: if strike    { egui::Stroke::new(1.0, fg) } else { egui::Stroke::NONE },
-                                ..Default::default()
-                            });
-                            let galley = painter.layout_job(job);
-                            let pos = egui::pos2(anchor_x, inner.center().y - galley.size().y / 2.0);
-                            painter.galley(pos, galley.clone(), fg);
-                            // Simulate Bold by repainting with a sub-pixel x-offset.
-                            if bold { painter.galley(pos + egui::vec2(0.5, 0.0), galley, fg); }
-
-                            // Cursor: change the pointer while hovering the label.
-                            let cursor = self.getp(&meta.id, "Cursor");
-                            if !cursor.is_empty() && cursor != "Default" && ui.rect_contains_pointer(rect) {
-                                let ic = match cursor.as_str() {
-                                    "Hand" | "PointingHand" => egui::CursorIcon::PointingHand,
-                                    "Text" | "IBeam"        => egui::CursorIcon::Text,
-                                    "Wait"                  => egui::CursorIcon::Wait,
-                                    "Crosshair"             => egui::CursorIcon::Crosshair,
-                                    "Help"                  => egui::CursorIcon::Help,
-                                    "Move" | "SizeAll"      => egui::CursorIcon::Move,
-                                    "NotAllowed" | "No"     => egui::CursorIcon::NotAllowed,
-                                    _                       => egui::CursorIcon::Default,
-                                };
-                                ui.ctx().set_cursor_icon(ic);
-                            }
-                        }
-                        CT::TextBox => {
-                            let mut buf = self.getp(&meta.id, "Text");
-                            let resp = ui.put(rect,
-                                egui::TextEdit::singleline(&mut buf).interactive(enabled));
-                            if resp.changed() {
-                                if let Some(s) = self.state.get_mut(&meta.id) { s.set("Text", buf.clone()); }
-                                let _ = self.ev_tx.send(cobolt_runtime::FormEvent::change(&meta.id, &buf));
-                            }
-                            if resp.gained_focus() { let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(&meta.id, "GotFocus")); }
-                            if resp.lost_focus()  { let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(&meta.id, "LostFocus")); }
-                        }
-                        CT::CheckBox => {
-                            let label = self.getp(&meta.id, "Caption");
-                            let cur = self.getp(&meta.id, "Value");
-                            let mut checked = cur == "1" || cur == "true";
-                            let resp = ui.put(rect, egui::Checkbox::new(&mut checked, label));
-                            if resp.changed() {
-                                if let Some(s) = self.state.get_mut(&meta.id) {
-                                    s.set("Value", if checked { "1" } else { "0" }.to_owned());
-                                }
-                                let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(&meta.id, "Change"));
-                            }
-                        }
-                        CT::RadioButton => {
-                            let label = self.getp(&meta.id, "Caption");
-                            let cur = self.getp(&meta.id, "Value");
-                            let selected = cur == "1" || cur == "true";
-                            let resp = ui.put(rect, egui::RadioButton::new(selected, label));
-                            if armed && enabled && resp.clicked() {
-                                if let Some(s) = self.state.get_mut(&meta.id) { s.set("Value", "1".to_owned()); }
-                                let _ = self.ev_tx.send(cobolt_runtime::FormEvent::click(&meta.id));
-                            }
-                        }
-                        CT::ProgressBar => {
-                            let val = self.getp(&meta.id, "Value").parse::<f32>().unwrap_or(0.0);
-                            let max = self.getp(&meta.id, "Max").parse::<f32>().unwrap_or(100.0);
-                            let frac = if max > 0.0 { (val / max).clamp(0.0, 1.0) } else { 0.0 };
-                            ui.put(rect, egui::ProgressBar::new(frac));
-                        }
-                        CT::Slider => {
-                            let min = self.getp(&meta.id, "Min").parse::<f64>().unwrap_or(0.0);
-                            let max = self.getp(&meta.id, "Max").parse::<f64>().unwrap_or(100.0);
-                            let mut val = self.getp(&meta.id, "Value").parse::<f64>().unwrap_or(min);
-                            let resp = ui.put(rect, egui::Slider::new(&mut val, min..=max));
-                            if resp.changed() {
-                                if let Some(s) = self.state.get_mut(&meta.id) { s.set("Value", format!("{}", val)); }
-                                let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(&meta.id, "Change"));
-                            }
-                        }
-                        CT::GroupBox | CT::Panel => {
-                            ui.painter().rect_stroke(rect, 4.0,
-                                egui::Stroke::new(1.0, egui::Color32::from_gray(160)));
-                            let cap = self.getp(&meta.id, "Caption");
-                            if !cap.is_empty() {
-                                ui.painter().text(rect.min + egui::vec2(6.0, 2.0),
-                                    egui::Align2::LEFT_TOP, cap,
-                                    egui::FontId::proportional(12.0), egui::Color32::from_gray(220));
-                            }
-                        }
-                        CT::Animator => {
-                            let source = self.getp(&meta.id, "Source").trim().to_string();
-                            let played = if source.is_empty() {
-                                None
-                            } else {
-                                let auto    = !matches!(self.getp(&meta.id, "AutoPlay").as_str(), "0" | "false" | "False");
-                                let looping = !matches!(self.getp(&meta.id, "Loop").as_str(),     "0" | "false" | "False");
-                                let key = format!("{}|{}", meta.id, source);
-                                let path = source.clone();
-                                cobolt_media::play(ui.ctx(), &key, move || std::fs::read(&path).ok(), auto, looping)
-                            };
-                            match played {
-                                Some((tex, native)) => {
-                                    let mode = { let s = self.getp(&meta.id, "SizeMode"); if s.is_empty() { "Fit".to_string() } else { s } };
-                                    let dest = anim_dest(rect, native, &mode);
-                                    ui.painter().with_clip_rect(rect).image(
-                                        tex, dest,
-                                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                        egui::Color32::WHITE);
-                                }
-                                None => {
-                                    ui.painter().rect_filled(rect, 6.0, egui::Color32::from_rgb(18, 24, 48));
-                                    ui.painter().rect_stroke(rect, 6.0,
-                                        egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 150, 230)));
-                                    let label = if source.is_empty() { "\u{25B6} Animator" } else { "\u{25B6} (cannot load)" };
-                                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label,
-                                        egui::FontId::proportional(13.0), egui::Color32::from_rgb(190, 205, 255));
-                                }
-                            }
-                        }
-                        _ => {
-                            // Fallback: outline + best-effort text (Value / Text / Caption / Items).
-                            ui.painter().rect_stroke(rect, 3.0,
-                                egui::Stroke::new(1.0, egui::Color32::from_gray(120)));
-                            let mut txt = self.getp(&meta.id, "Value");
-                            if txt.is_empty() { txt = self.getp(&meta.id, "Text"); }
-                            if txt.is_empty() { txt = self.getp(&meta.id, "Caption"); }
-                            if txt.is_empty() {
-                                txt = self.getp(&meta.id, "Items").lines().next().unwrap_or("").to_owned();
-                            }
-                            if !txt.is_empty() {
-                                ui.painter().text(rect.left_center() + egui::vec2(4.0, 0.0),
-                                    egui::Align2::LEFT_CENTER, txt,
-                                    egui::FontId::proportional(12.0), egui::Color32::from_gray(225));
-                            }
-                        }
-                    }
+        // Background image texture (cached in egui memory by path).
+        let backdrop_image = if self.bg_image.trim().is_empty() {
+            None
+        } else {
+            let path = self.bg_image.clone();
+            let id = egui::Id::new(("compiled_bg", path.as_str()));
+            let cached = ctx.memory(|m| m.data.get_temp::<Option<egui::TextureHandle>>(id));
+            let tex = match cached {
+                Some(t) => t,
+                None => {
+                    let loaded = cobolt_forms::paint::load_image_texture(ctx, &path);
+                    ctx.memory_mut(|m| m.data.insert_temp(id, loaded.clone()));
+                    loaded
                 }
-            });
+            };
+            tex.map(|t| (t.id(), t.size_vec2()))
+        };
+
+        let bg_fill = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
+        let form_size = self.form_size;
+
+        // Render the whole form through the unified engine (one renderer for the
+        // designer, preview, running form, and this compiled binary).
+        let output = {
+            let controls = self.controls.clone();
+            let st = CompiledState { state: &self.state };
+            let active_tabs = cobolt_forms::containers::ActiveTabs::default();
+            let backdrop = cobolt_forms::render::Backdrop {
+                color_hex: self.bg_hex.clone(),
+                transparency: self.transparency,
+                image: backdrop_image,
+                image_mode: self.bg_mode,
+            };
+            let mut out = cobolt_forms::render::RenderOutput::default();
+            egui::CentralPanel::default()
+                .frame(egui::Frame::none().fill(bg_fill))
+                .show(ctx, |ui| {
+                    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                        ui.set_min_size(form_size);
+                        let input = cobolt_forms::render::RenderInput {
+                            controls: &controls,
+                            state: &st,
+                            form_size,
+                            glass: true,
+                            mode: cobolt_forms::render::RenderMode::Interactive,
+                            active_tabs: &active_tabs,
+                            backdrop,
+                        };
+                        out = cobolt_forms::render::render_form(ui, &input);
+                    });
+                });
+            out
+        };
+
+        // Apply value updates locally, sync them to the interpreter (so handlers
+        // read the live value), and forward UI events — but only once warmed up,
+        // so phantom pointer input as the window opens can't mutate state or fire
+        // events (a click/drag already in progress when the window appears).
+        if armed {
+            for (id, key, val) in &output.prop_updates {
+                self.state.entry(id.clone()).or_default().set(key, val.clone());
+                let _ = self.input_tx.send(
+                    cobolt_runtime::StateUpdate::new(id.clone(), key.clone(), val.clone()));
+            }
+            for ev in output.events {
+                let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(ev.ctrl_id, ev.event));
+            }
+        }
 
         ctx.request_repaint();
     }

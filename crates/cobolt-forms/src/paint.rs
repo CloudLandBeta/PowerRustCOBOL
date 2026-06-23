@@ -1352,6 +1352,174 @@ pub fn media_dest_rect(rect: egui::Rect, native: Vec2, size_mode: &str) -> egui:
     }
 }
 
+/// Load an image file into an egui texture. Caching of the returned handle is
+/// the caller's responsibility (see [`picturebox_texture`]). Shared so every
+/// surface (designer, preview, run, compiled) decodes images the same way.
+pub fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
+    let bytes = std::fs::read(path).ok()?;
+    let img = image::load_from_memory(&bytes).ok()?.into_rgba8();
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let pixels: Vec<egui::Color32> = img
+        .pixels()
+        .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+        .collect();
+    let ci = egui::ColorImage { size: [w, h], pixels };
+    Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR))
+}
+
+/// Load (and cache in egui memory) a PictureBox image texture, so it isn't
+/// re-read from disk and re-uploaded every frame.
+pub fn picturebox_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
+    if path.trim().is_empty() {
+        return None;
+    }
+    let id = egui::Id::new(("pb_img", path));
+    if let Some(h) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
+        return Some(h);
+    }
+    let h = load_image_texture(ctx, path)?;
+    ctx.memory_mut(|m| m.data.insert_temp(id, h.clone()));
+    Some(h)
+}
+
+/// Render a PictureBox into `rect`: an optional frame (card + border) plus the
+/// image, honouring `SizeMode`, opacity (`alpha_mul`), and `ShowFrame`. When the
+/// frame is hidden, transparent PNG areas reveal whatever is behind the control.
+pub fn draw_picturebox(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    image_path: &str,
+    size_mode: &str,
+    show_frame: bool,
+    alpha_mul: f32,
+    corner: f32,
+) {
+    if show_frame {
+        draw_glass(painter, rect, Color32::from_rgb(20, 30, 60), corner, false, alpha_mul * 0.7);
+    }
+    let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
+    if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
+        let dest = media_dest_rect(rect, tex.size_vec2(), pic_size_mode(size_mode));
+        if corner > 0.0 {
+            // Rounded image: a textured RectShape over the control bounds clips to
+            // the corner radius (spec 016). UV maps the visible part of `dest`, so
+            // Stretch/Fill/Zoom crop correctly; Fit margins are approximate.
+            let dw = dest.width().max(1.0);
+            let dh = dest.height().max(1.0);
+            let uv = egui::Rect::from_min_max(
+                egui::pos2((rect.min.x - dest.min.x) / dw, (rect.min.y - dest.min.y) / dh),
+                egui::pos2((rect.max.x - dest.min.x) / dw, (rect.max.y - dest.min.y) / dh),
+            );
+            painter.add(egui::Shape::Rect(egui::epaint::RectShape {
+                rect,
+                rounding: egui::Rounding::same(corner),
+                fill: Color32::from_white_alpha(a),
+                stroke: Stroke::NONE,
+                blur_width: 0.0,
+                fill_texture_id: tex.id(),
+                uv,
+            }));
+        } else {
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            painter.with_clip_rect(rect).image(tex.id(), dest, uv, Color32::from_white_alpha(a));
+        }
+    } else if show_frame {
+        painter.text(
+            rect.center(), egui::Align2::CENTER_CENTER, "🖼",
+            egui::FontId::proportional(32.0),
+            Color32::from_rgba_premultiplied(160, 160, 200, (160.0 * alpha_mul) as u8),
+        );
+    }
+}
+
+/// Parse `#RRGGBB` / `#RRGGBBAA` (or without `#`) into a Color32, returning
+/// `None` when the string is too short. Distinct from [`parse_color`], which
+/// always yields a colour; used where a missing value should fall back.
+pub fn parse_hex(s: &str) -> Option<Color32> {
+    let h = s.trim().trim_start_matches('#');
+    if h.len() >= 6 {
+        let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+        let a = if h.len() >= 8 { u8::from_str_radix(&h[6..8], 16).unwrap_or(255) } else { 255 };
+        Some(Color32::from_rgba_unmultiplied(r, g, b, a))
+    } else {
+        None
+    }
+}
+
+/// Short month names for DataGrid date cells and the DateTimePicker field.
+pub const MONTH_ABBR: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// Format a DataGrid cell value by its declared column type.
+/// Returns `(display_text, right_aligned)`.
+pub fn format_cell(raw: &str, ty: &str) -> (String, bool) {
+    match ty {
+        "number" | "num" | "int" | "integer" | "float" | "decimal" => {
+            match raw.trim().parse::<f64>() {
+                Ok(n) if n.fract() == 0.0 => (format!("{}", n as i64), true),
+                Ok(n) => (format!("{n}"), true),
+                Err(_) => (raw.to_owned(), true),
+            }
+        }
+        "datetime" | "date" => match parse_ymd(raw.trim()) {
+            Some((y, m, d)) => (format!("{:02} {} {}", d, MONTH_ABBR[(m.clamp(1, 12) - 1) as usize], y), false),
+            None => (raw.to_owned(), false),
+        },
+        _ => (raw.to_owned(), false),
+    }
+}
+
+// ── DateTimePicker calendar support ────────────────────────────────────────────
+pub const CAL_CELL: f32 = 28.0;
+pub const CAL_W: f32 = CAL_CELL * 7.0;
+pub const CAL_NAV_H: f32 = 24.0;
+pub const CAL_WK_H: f32 = 20.0;
+pub const CAL_GRID_Y: f32 = CAL_NAV_H + CAL_WK_H; // area-top → first day row
+pub const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+
+/// Open/viewed-month state for a DateTimePicker calendar popup, stashed in egui
+/// temp memory keyed by the control id.
+#[derive(Clone)]
+pub struct CalState {
+    pub open: bool,
+    pub year: i32,
+    pub month: u32, // 1-12
+}
+impl Default for CalState {
+    fn default() -> Self { Self { open: false, year: 2026, month: 6 } }
+}
+
+fn is_leap(y: i32) -> bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
+
+pub fn days_in_month(y: i32, m: u32) -> u32 {
+    match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if is_leap(y) { 29 } else { 28 },
+        _ => 30,
+    }
+}
+
+/// Day of week for a date, 0 = Sunday (Sakamoto's algorithm).
+pub fn day_of_week(y: i32, m: u32, d: u32) -> u32 {
+    let t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let yy = if m < 3 { y - 1 } else { y };
+    let v = (yy + yy / 4 - yy / 100 + yy / 400 + t[(m.clamp(1, 12) - 1) as usize] + d as i32) % 7;
+    ((v + 7) % 7) as u32
+}
+
+pub fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
+    let p: Vec<&str> = s.split('-').collect();
+    if p.len() == 3 {
+        Some((p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?))
+    } else {
+        None
+    }
+}
+
 /// Render an Animator control: plays its animated/still image (GIF/WebP/APNG/…)
 /// at the current moment, or a placeholder when no source is set / decode fails.
 #[allow(clippy::too_many_arguments)]

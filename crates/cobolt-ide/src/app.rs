@@ -22,6 +22,14 @@ use std::path::{Path, PathBuf};
 use egui::{Context, Key, KeyboardShortcut, Modifiers, Vec2, ViewportBuilder, ViewportId};
 
 use cobolt_forms::{Form, load_form, save_form};
+// Run-widget helpers shared with the unified render engine (spec 017): moved into
+// cobolt-forms so the engine and the IDE's run/preview loops decode images, format
+// DataGrid cells, and drive the DateTimePicker calendar identically.
+use cobolt_forms::paint::{
+    load_image_texture, draw_picturebox, parse_hex, format_cell,
+    CalState, parse_ymd, day_of_week, days_in_month,
+    CAL_CELL, CAL_W, CAL_NAV_H, CAL_WK_H, CAL_GRID_Y, MONTHS,
+};
 use cobolt_codegen::{generate, generate_indexed};
 use cobolt_indexed::{load_indexed, record_to_text, resolve_path, save_indexed, text_to_record, IndexedDefinition};
 use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
@@ -3652,11 +3660,60 @@ impl eframe::App for CoboltApp {
 
 // ── Preview window contents ───────────────────────────────────────────────────
 
+/// The property key that holds a control's live preview value, by type. The
+/// preview keeps one value per control; this maps it to the key the engine reads.
+fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str {
+    use cobolt_forms::ControlType as CT;
+    match ct {
+        CT::TextBox => "Text",
+        CT::ComboBox | CT::ListBox | CT::Slider | CT::ProgressBar
+        | CT::NumericUpDown | CT::CheckBox | CT::RadioButton => "Value",
+        _ => "Caption",
+    }
+}
+
+/// `FormState` for the live preview: injects the single per-control preview value
+/// into the right property key and supplies the OnFormLoad animation transform.
+/// The engine does everything else (spec 017 T4).
+struct PreviewState<'a> {
+    values: &'a std::collections::HashMap<String, String>,
+    anim: &'a std::collections::HashMap<String, f32>,
+    form_w: f32,
+    form_h: f32,
+}
+impl cobolt_forms::render::FormState for PreviewState<'_> {
+    fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
+        let mut c = base.clone();
+        if let Some(v) = self.values.get(&base.id) {
+            c.set_prop(preview_value_key(&base.control_type).to_owned(),
+                cobolt_forms::PropValue::String(v.clone()));
+        }
+        c
+    }
+    fn visible(&self, base: &cobolt_forms::Control) -> bool { base.visible }
+    fn enabled(&self, base: &cobolt_forms::Control) -> bool { base.enabled }
+    fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
+        let (dx, dy, scale, anim_alpha) = base.animations.iter()
+            .find_map(|a| {
+                let key = format!("{}:{}", base.id, a.name);
+                self.anim.get(&key)
+                    .map(|&t| crate::panels::designer::anim_transform(a, self.form_w, self.form_h, t))
+            })
+            .unwrap_or((0.0, 0.0, 1.0, 1.0));
+        // The control's own Transparency fades it (its Opacity is applied inside
+        // draw_control); container opacity is folded in by the engine separately.
+        let transparency = base.get_prop("Transparency").map(|v| v.as_i64()).unwrap_or(0).clamp(0, 100);
+        cobolt_forms::render::RenderTransform {
+            dx, dy, scale,
+            alpha: anim_alpha * (1.0 - transparency as f32 / 100.0),
+        }
+    }
+}
+
 impl CoboltApp {
     fn show_preview_window(&mut self, ctx: &Context, idx: usize) {
-        use cobolt_forms::model::ControlType as CT;
-        use egui::{Color32, Pos2, Rect, Stroke, Vec2};
-        use crate::panels::designer::{AnimState, anim_transform, glass_combo_header, glass_combo_popup, GlassComboAction};
+        use egui::Color32;
+        use crate::panels::designer::AnimState;
 
         if idx >= self.designers.len() { return; }
 
@@ -3753,8 +3810,8 @@ impl CoboltApp {
             ctx.set_visuals(visuals);
         }
 
-        // Read-only snapshot of everything we need for rendering (avoids borrow conflicts).
-        let bg_color: Color32;
+        // Read-only snapshot of what the engine's transform hook needs (the form
+        // background is now owned by the engine's Backdrop, below).
         let preview_anim_snap: std::collections::HashMap<String, f32>;
         let form_w: f32;
         let form_h: f32;
@@ -3765,37 +3822,6 @@ impl CoboltApp {
             preview_anim_snap = d.preview_anim_states.iter()
                 .map(|(k, s)| (k.clone(), s.t))
                 .collect();
-
-            let raw_hex = d.form.background_color.trim().to_owned();
-            // Strip optional '#' prefix, take first 6 hex chars (ignore alpha byte).
-            let bg_hex: &str = {
-                let s = if raw_hex.starts_with('#') { &raw_hex[1..] } else { &raw_hex };
-                if s.len() >= 6 { &s[..6] } else { s }
-            };
-            let transparency = d.form.transparency.clamp(0, 100);
-            let bg_alpha = (255.0 * (1.0 - transparency as f32 / 100.0)) as u8;
-            bg_color = if bg_hex.len() == 6 {
-                let r = u8::from_str_radix(&bg_hex[0..2], 16).unwrap_or(20);
-                let g = u8::from_str_radix(&bg_hex[2..4], 16).unwrap_or(22);
-                let b = u8::from_str_radix(&bg_hex[4..6], 16).unwrap_or(45);
-                // If the colour is pure black (000000) treat it as the default dark navy
-                // so a transparent/unset background still looks like a proper form window.
-                let (r, g, b) = if r == 0 && g == 0 && b == 0 { (20, 22, 45) } else { (r, g, b) };
-                Color32::from_rgba_premultiplied(
-                    (r as f32 * bg_alpha as f32 / 255.0) as u8,
-                    (g as f32 * bg_alpha as f32 / 255.0) as u8,
-                    (b as f32 * bg_alpha as f32 / 255.0) as u8,
-                    bg_alpha,
-                )
-            } else {
-                // No background colour set — use a solid dark navy so the form is always visible.
-                Color32::from_rgba_premultiplied(
-                    (20.0 * bg_alpha as f32 / 255.0) as u8,
-                    (22.0 * bg_alpha as f32 / 255.0) as u8,
-                    (45.0 * bg_alpha as f32 / 255.0) as u8,
-                    bg_alpha.max(200), // minimum opacity so form is never invisible
-                )
-            };
         }
 
         // Eagerly load the background image into the designer's texture cache.
@@ -3806,379 +3832,65 @@ impl CoboltApp {
             }
         }
 
-        let d     = &mut self.designers[idx].1;
-        let form  = &d.form;
-        let state = &mut d.preview_state;
+        // ── Render the whole form through the unified engine (spec 017 T4). ────
+        // `PreviewState` supplies live values + the animation transform; the
+        // engine owns the backdrop, render order, clipping, faces, and the
+        // interactive widgets. The old preview control loop + per-type branches
+        // are gone.
+        let glass_v = glass;
+        let controls = self.designers[idx].1.form.controls.clone();
+        let values_snap = self.designers[idx].1.preview_state.clone();
+        let backdrop = {
+            let d = &self.designers[idx].1;
+            let bg_path = d.form.background_image.clone();
+            let image = if bg_path.is_empty() {
+                None
+            } else {
+                d.image_cache.get(&bg_path).and_then(|o| o.as_ref())
+                    .map(|t| (t.id(), t.size_vec2()))
+            };
+            cobolt_forms::render::Backdrop {
+                color_hex: d.form.background_color.clone(),
+                transparency: d.form.transparency.min(100) as u8,
+                image,
+                image_mode: d.form.bg_image_mode,
+            }
+        };
+        let active_tabs = cobolt_forms::containers::ActiveTabs::default();
+        let st = PreviewState {
+            values: &values_snap,
+            anim: &preview_anim_snap,
+            form_w,
+            form_h,
+        };
 
+        let mut updates: Vec<(String, String, String)> = Vec::new();
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(bg_color))
+            .frame(egui::Frame::none())
             .show(ctx, |ui| {
-                let origin    = ui.min_rect().min;
-                let form_rect = ui.max_rect();
-
-                // ── Background image ──────────────────────────────────────────
-                let bg_path = &form.background_image;
-                if !bg_path.is_empty() {
-                    if let Some(tex) = d.image_cache.get(bg_path).and_then(|o| o.as_ref()) {
-                        use cobolt_forms::model::BgImageMode;
-                        let tex_size = tex.size_vec2();
-                        let tex_id   = tex.id();
-                        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                        // Form transparency fades the background image too.
-                        let img_a = ((100 - form.transparency.min(100)) as f32 / 100.0 * 255.0) as u8;
-                        let tint = egui::Color32::from_white_alpha(img_a);
-                        let dest = match form.bg_image_mode {
-                            BgImageMode::Fill => {
-                                let sx = form_rect.width()  / tex_size.x;
-                                let sy = form_rect.height() / tex_size.y;
-                                let s  = sx.max(sy);
-                                let dw = tex_size.x * s;
-                                let dh = tex_size.y * s;
-                                let ox = (form_rect.width()  - dw) * 0.5;
-                                let oy = (form_rect.height() - dh) * 0.5;
-                                egui::Rect::from_min_size(form_rect.min + egui::vec2(ox, oy), egui::vec2(dw, dh))
-                            }
-                            BgImageMode::Fit => {
-                                let sx = form_rect.width()  / tex_size.x;
-                                let sy = form_rect.height() / tex_size.y;
-                                let s  = sx.min(sy);
-                                let dw = tex_size.x * s;
-                                let dh = tex_size.y * s;
-                                let ox = (form_rect.width()  - dw) * 0.5;
-                                let oy = (form_rect.height() - dh) * 0.5;
-                                egui::Rect::from_min_size(form_rect.min + egui::vec2(ox, oy), egui::vec2(dw, dh))
-                            }
-                            BgImageMode::Tile => form_rect, // simple stretch for now
-                            BgImageMode::Stretch | BgImageMode::Center => form_rect,
-                        };
-                        ui.painter().image(tex_id, dest, uv, tint);
-                    }
-                }
-
-                // Render in container tree order (parents before children, spec
-                // 012) so nested controls paint over their container.
-                let order = crate::panels::containers::render_order(&form.controls);
-                let sorted: Vec<&cobolt_forms::model::Control> =
-                    order.iter().map(|&i| &form.controls[i]).collect();
-
-                for ctrl in &sorted {
-                    if !ctrl.visible { continue; }
-
-                    // Index in the flat list, for the containment helpers below.
-                    let cidx = match form.controls.iter().position(|c| c.id == ctrl.id) {
-                        Some(i) => i,
-                        None => continue,
+                egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                    ui.set_min_size(egui::vec2(form_w, form_h));
+                    let input = cobolt_forms::render::RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: egui::vec2(form_w, form_h),
+                        glass: glass_v,
+                        mode: cobolt_forms::render::RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop,
                     };
-                    // Skip controls on an inactive tab page (active = SelectedTab).
-                    if !crate::panels::containers::is_visible(&form.controls, cidx, &Default::default()) {
-                        continue;
-                    }
-
-                    // Apply animation transform for this control (OnFormLoad etc.)
-                    let (adx, ady, scale, anim_alpha) = ctrl.animations.iter()
-                        .find_map(|a| {
-                            let key = format!("{}:{}", ctrl.id, a.name);
-                            preview_anim_snap.get(&key).map(|&t| anim_transform(a, form_w, form_h, t))
-                        })
-                        .unwrap_or((0.0, 0.0, 1.0, 1.0));
-
-                    let r = &ctrl.rect;
-                    let base_rect = Rect::from_min_size(
-                        Pos2::new(origin.x + r.x as f32 + adx, origin.y + r.y as f32 + ady),
-                        Vec2::new(r.w as f32, r.h as f32),
-                    );
-                    // Scale the rect about its centre (matches `draw_control`), so
-                    // zoom/spin/flip animations actually resize the control in preview.
-                    let screen_rect = crate::panels::designer::scale_rect_about_center(base_rect, scale);
-
-                    let ctrl_id = egui::Id::new(("preview_ctrl", ctrl.id.as_str()));
-                    let cur_val = state.entry(ctrl.id.clone()).or_insert_with(|| {
-                        use cobolt_forms::model::ControlType as CT2;
-                        match ctrl.control_type {
-                            // TextBox holds its value in "Text", not "Caption" or "Value".
-                            CT2::TextBox => ctrl.get_prop("Text")
-                                .map(|v| v.as_str().to_owned())
-                                .unwrap_or_default(),
-                            // ComboBox / ListBox / Slider / ProgressBar use "Value".
-                            CT2::ComboBox | CT2::ListBox | CT2::Slider | CT2::ProgressBar
-                            | CT2::NumericUpDown | CT2::CheckBox | CT2::RadioButton =>
-                                ctrl.get_prop("Value")
-                                    .map(|v| v.as_str().to_owned())
-                                    .unwrap_or_default(),
-                            // Everything else (Label etc.) uses Caption.
-                            _ => ctrl.get_prop("Caption")
-                                .map(|v| v.as_str().to_owned())
-                                .unwrap_or_default(),
-                        }
-                    });
-
-                    // alpha_mul: animation alpha × ancestor-container opacity ×
-                    // transparency. The control's *own* Opacity is applied inside
-                    // `draw_control` (spec 012), so it is not folded in here.
-                    let ctrl_transparency = ctrl.get_prop("Transparency")
-                        .map(|v| v.as_i64()).unwrap_or(0).clamp(0, 100);
-                    let anc_opacity = crate::panels::containers::ancestor_opacity(&form.controls, cidx);
-                    let alpha_mul = (anim_alpha * anc_opacity * (1.0 - ctrl_transparency as f32 / 100.0)).clamp(0.0, 1.0);
-
-                    // Clip the control to its ancestor containers' content areas
-                    // (spec 012). Top-level controls clip only to their own rect.
-                    let painter = {
-                        let mut clip = screen_rect;
-                        if let Some(cm) = crate::panels::containers::clip_rect(&form.controls, cidx) {
-                            let cs = Rect::from_min_size(
-                                Pos2::new(origin.x + cm.x as f32, origin.y + cm.y as f32),
-                                Vec2::new(cm.w as f32, cm.h as f32),
-                            );
-                            clip = clip.intersect(cs);
-                        }
-                        ui.painter_at(clip)
-                    };
-                    let enabled = ctrl.enabled;
-
-                    // WYSIWYG helper: snapshot this control at the on-screen
-                    // rect so the designer's own renderer draws the face.
-                    let live_at = |rect: egui::Rect| {
-                        let mut live = (*ctrl).clone();
-                        live.rect = cobolt_forms::model::Rect::new(
-                            0, 0, rect.width().round() as i32, rect.height().round() as i32);
-                        live
-                    };
-                    match ctrl.control_type {
-                        CT::Button => {
-                            // Interact first so we know the pressed state before drawing.
-                            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
-                            let pressed = resp.is_pointer_button_down_on();
-                            let hovered = resp.hovered();
-                            let draw_rect = if pressed { screen_rect.shrink(1.5) } else { screen_rect };
-                            crate::panels::designer::draw_control(
-                                &painter, draw_rect.min, &live_at(draw_rect),
-                                false, glass, alpha_mul, 1.0, None);
-                            let corner = ctrl.get_prop("CornerRadius")
-                                .map(|v| v.as_i64() as f32).unwrap_or(4.0);
-                            if pressed {
-                                painter.rect_filled(draw_rect, corner, Color32::from_black_alpha(70));
-                            } else if hovered {
-                                painter.rect_filled(draw_rect, corner, Color32::from_white_alpha(10));
-                            }
-                        }
-                        CT::Label | CT::GroupBox | CT::Line | CT::Shape => {
-                            crate::panels::designer::draw_control(
-                                &painter, screen_rect.min, &live_at(screen_rect),
-                                false, glass, alpha_mul, 1.0, None);
-                        }
-                        CT::TextBox => {
-                            // Face via the shared renderer (designer parity); the
-                            // static caption is blanked for the editable overlay.
-                            let mut live = live_at(screen_rect);
-                            live.properties.insert("Text".to_owned(),
-                                cobolt_forms::model::PropValue::String(String::new()));
-                            crate::panels::designer::draw_control(
-                                &painter, screen_rect.min, &live, false, glass, alpha_mul, 1.0, None);
-                            let txt_col = ctrl.get_prop("ForegroundColor")
-                                .map(|v| cobolt_forms::paint::parse_color(v.as_str()))
-                                .unwrap_or(Color32::DARK_GRAY);
-                            let resp = ui.put(screen_rect,
-                                egui::TextEdit::singleline(cur_val)
-                                    .id(ctrl_id)
-                                    .frame(false)
-                                    .text_color(txt_col));
-                            let _ = resp;
-                        }
-                        CT::CheckBox | CT::RadioButton => {
-                            let checked = *cur_val == "true" || *cur_val == "1";
-                            let mut live = live_at(screen_rect);
-                            live.properties.insert("Checked".to_owned(),
-                                cobolt_forms::model::PropValue::Bool(checked));
-                            crate::panels::designer::draw_control(
-                                &painter, screen_rect.min, &live,
-                                false, glass, alpha_mul, 1.0, None);
-                            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::click());
-                            if resp.clicked() {
-                                *cur_val = if matches!(ctrl.control_type, CT::RadioButton) {
-                                    "1".into()
-                                } else if checked {
-                                    "0".into()
-                                } else {
-                                    "1".into()
-                                };
-                            }
-                        }
-                        CT::ComboBox => {
-                            // Header drawn here; popup rendered in second pass below.
-                            let items: Vec<String> = ctrl.get_prop("Items")
-                                .map(|v| v.as_str().lines().map(|l| l.to_owned()).collect())
-                                .unwrap_or_default();
-                            let sel = if cur_val.is_empty() {
-                                items.first().cloned().unwrap_or_default()
-                            } else { cur_val.clone() };
-                            let is_open = *d.preview_combo_open.get(&ctrl.id).unwrap_or(&false);
-                            if glass_combo_header(&painter, ui, screen_rect, ctrl_id,
-                                                  &sel, is_open, enabled, alpha_mul) {
-                                let e = d.preview_combo_open.entry(ctrl.id.clone()).or_insert(false);
-                                *e = !*e;
-                            }
-                        }
-                        CT::Slider => {
-                            // Use designer paint code (source of truth) for exact glass look + ticks etc.
-                            // live snapshot so Value from preview state drives the pct/thumb.
-                            let min_v: f32 = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
-                            let max_v: f32 = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100).max(1) as f32;
-                            let step: f32  = ctrl.get_prop("Step").map(|v| v.as_i64()).unwrap_or(1) as f32;
-                            let mut fval: f32 = cur_val.parse().unwrap_or(min_v);
-
-                            let orient = ctrl.get_prop("Orientation").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                            let is_vertical = orient.starts_with('V') || orient.eq_ignore_ascii_case("Vertical");
-
-                            // Thumb rect from current value for "started drag over knob" test
-                            let thumb_rect = cobolt_forms::paint::slider_thumb_rect(screen_rect, min_v, max_v, fval, is_vertical);
-
-                            let resp = ui.interact(screen_rect, ctrl_id, egui::Sense::drag());
-
-                            let mut display_val = fval;
-
-                            if resp.drag_started() && enabled {
-                                if let Some(press_pos) = ui.input(|i| i.pointer.press_origin()) {
-                                    if thumb_rect.contains(press_pos) {
-                                        let start_axis = if is_vertical { press_pos.y } else { press_pos.x };
-                                        ui.data_mut(|d| {
-                                            d.insert_temp(ctrl_id, (fval, start_axis));
-                                        });
-                                    }
-                                }
-                            }
-
-                            if let Some((start_val, start_axis)) = ui.data(|d| d.get_temp::<(f32, f32)>(ctrl_id)) {
-                                if resp.dragged() {
-                                    if let Some(ptr) = ui.ctx().pointer_latest_pos() {
-                                        let current_axis = if is_vertical { ptr.y } else { ptr.x };
-
-                                        let pad = 10.0_f32;
-                                        let (track_start, track_len) = if is_vertical {
-                                            let t = screen_rect.top() + pad;
-                                            let b = screen_rect.bottom() - pad;
-                                            (t, (b - t).max(1.0))
-                                        } else {
-                                            let l = screen_rect.left() + pad;
-                                            let r = screen_rect.right() - pad;
-                                            (l, (r - l).max(1.0))
-                                        };
-
-                                        let delta_axis = current_axis - start_axis;
-                                        let delta_val = (delta_axis / track_len) * (max_v - min_v);
-                                        let raw = start_val + delta_val;
-                                        display_val = (raw / step.max(0.0001)).round() * step;
-                                        display_val = display_val.clamp(min_v, max_v);
-                                    }
-                                }
-
-                                if resp.drag_released() {
-                                    ui.data_mut(|d| { d.remove::<(f32, f32)>(ctrl_id); });
-                                }
-                            }
-
-                            // Paint with (possibly tentative) display value
-                            let mut live = live_at(screen_rect);
-                            live.properties.insert("Value".to_owned(),
-                                cobolt_forms::model::PropValue::String(display_val.to_string()));
-                            live.properties.insert("Minimum".to_owned(),
-                                cobolt_forms::model::PropValue::String(min_v.to_string()));
-                            live.properties.insert("Maximum".to_owned(),
-                                cobolt_forms::model::PropValue::String(max_v.to_string()));
-                            live.properties.insert("Step".to_owned(),
-                                cobolt_forms::model::PropValue::String(step.to_string()));
-
-                            cobolt_forms::paint::draw_control(
-                                &painter, screen_rect.min, &live,
-                                false, glass, alpha_mul, 1.0, None);
-
-                            if (display_val - fval).abs() > 1e-5 {
-                                fval = display_val;
-                                *cur_val = fval.to_string();
-                            }
-                        }
-                        CT::ProgressBar => {
-                            let mut live = live_at(screen_rect);
-                            live.properties.insert("Value".to_owned(),
-                                cobolt_forms::model::PropValue::String(cur_val.clone()));
-                            crate::panels::designer::draw_control(
-                                &painter, screen_rect.min, &live,
-                                false, glass, alpha_mul, 1.0, None);
-                        }
-                        CT::PictureBox => {
-                            let image_path = ctrl.get_prop("ImagePath").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                            let size_mode  = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                            let show_frame = ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
-                            let corner = cobolt_forms::paint::corner_radius(ctrl);
-                            draw_picturebox(&painter, screen_rect, &image_path, &size_mode, show_frame, alpha_mul, corner);
-                        }
-                        CT::Animator => {
-                            let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                            let auto    = ctrl.get_prop("AutoPlay").map(|v| v.as_bool()).unwrap_or(true);
-                            let looping = ctrl.get_prop("Loop").map(|v| v.as_bool()).unwrap_or(true);
-                            let size_mode = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned())
-                                .unwrap_or_else(|| "Fit".into());
-                            let key = format!("{}|{}", ctrl.id, source.trim());
-                            crate::panels::designer::draw_animator(
-                                &painter, screen_rect, &key, source.trim(), auto, looping, &size_mode, alpha_mul, false,
-                            );
-                        }
-                        // ── Chart controls — render through the SAME path as the
-                        // designer (`draw_control`), not the chart painter directly,
-                        // so preview == designer == run (spec 017 unification).
-                        CT::BarChart | CT::LineChart | CT::PieChart
-                        | CT::AreaChart | CT::ScatterChart | CT::DonutChart => {
-                            crate::panels::designer::draw_control(
-                                &painter, screen_rect.min, &live_at(screen_rect),
-                                false, glass, alpha_mul, 1.0, None);
-                        }
-
-                        CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
-                            // Non-visual in preview — skip
-                        }
-                        _ => {
-                            // Generic fallback: the designer's own face for this
-                            // control type, at the designed properties.
-                            crate::panels::designer::draw_control(
-                                &painter, screen_rect.min, &live_at(screen_rect),
-                                false, true,
-                                alpha_mul * if enabled { 1.0 } else { 0.5 },
-                                1.0, None);
-                        }
-                    }
-                }
-
-                // ── Second pass: open ComboBox popups (always on top) ────────
-                let open_combos: Vec<(String, Vec<String>, egui::Rect, String)> = {
-                    let mut v = Vec::new();
-                    for ctrl in form.controls.iter() {
-                        if ctrl.control_type != cobolt_forms::model::ControlType::ComboBox { continue; }
-                        if !*d.preview_combo_open.get(&ctrl.id).unwrap_or(&false) { continue; }
-                        let items: Vec<String> = ctrl.get_prop("Items")
-                            .map(|v| v.as_str().lines().map(|l| l.to_owned()).collect())
-                            .unwrap_or_default();
-                        let r = &ctrl.rect;
-                        let header = egui::Rect::from_min_size(
-                            Pos2::new(origin.x + r.x as f32, origin.y + r.y as f32),
-                            Vec2::new(r.w as f32, r.h as f32),
-                        );
-                        let cur = state.get(&ctrl.id).cloned().unwrap_or_default();
-                        v.push((ctrl.id.clone(), items, header, cur));
-                    }
-                    v
-                };
-                for (ctrl_id_str, items, header_rect, cur_sel) in open_combos {
-                    match glass_combo_popup(ui, &ctrl_id_str, header_rect, &items, &cur_sel) {
-                        Some(GlassComboAction::Select(val)) => {
-                            state.insert(ctrl_id_str.clone(), val);
-                            d.preview_combo_open.insert(ctrl_id_str, false);
-                        }
-                        Some(GlassComboAction::Close) => {
-                            d.preview_combo_open.insert(ctrl_id_str, false);
-                        }
-                        None => {}
-                    }
-                }
+                    let out = cobolt_forms::render::render_form(ui, &input);
+                    updates = out.prop_updates;
+                    // Preview has no COBOL event loop; UI events are discarded.
+                });
             });
+
+        // Apply the engine's value updates back to the preview value map so the
+        // next frame renders the edited state (text typed, slider moved, combo
+        // selected, checkbox toggled).
+        for (id, _key, val) in updates {
+            self.designers[idx].1.preview_state.insert(id, val);
+        }
 
         // Ensure the separate live preview viewport keeps receiving frames for
         // its animation ticker and interactive simulation even if the main
@@ -5563,30 +5275,6 @@ pub(crate) fn render_run_control(
     out
 }
 
-const MONTH_ABBR: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/// Format a DataGrid cell value by its declared column type.
-/// Returns `(display_text, right_aligned)`.
-fn format_cell(raw: &str, ty: &str) -> (String, bool) {
-    match ty {
-        "number" | "num" | "int" | "integer" | "float" | "decimal" => {
-            match raw.trim().parse::<f64>() {
-                Ok(n) if n.fract() == 0.0 => (format!("{}", n as i64), true),
-                Ok(n) => (format!("{n}"), true),
-                Err(_) => (raw.to_owned(), true),
-            }
-        }
-        "datetime" | "date" => match parse_ymd(raw.trim()) {
-            Some((y, m, d)) => (format!("{:02} {} {}", d, MONTH_ABBR[(m.clamp(1, 12) - 1) as usize], y), false),
-            None => (raw.to_owned(), false),
-        },
-        _ => (raw.to_owned(), false),
-    }
-}
-
-/// Load an image file into an egui texture (for DataGrid image cells).
-/// Caching of the returned handle is the caller's responsibility.
 /// Current day of the month (1–31) in UTC — used to pick the welcome-pane
 /// background. UTC is fine for a decorative daily rotation. Civil-from-days
 /// (Howard Hinnant's algorithm).
@@ -5640,155 +5328,6 @@ fn sanitize_file_stem(name: &str) -> String {
         .collect();
     let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
     if cleaned.is_empty() { "project".to_string() } else { cleaned }
-}
-
-fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
-    let bytes = std::fs::read(path).ok()?;
-    let img = image::load_from_memory(&bytes).ok()?.into_rgba8();
-    let (w, h) = (img.width() as usize, img.height() as usize);
-    let pixels: Vec<egui::Color32> = img
-        .pixels()
-        .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
-        .collect();
-    let ci = egui::ColorImage { size: [w, h], pixels };
-    Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR))
-}
-
-/// Load (and cache in egui memory) a PictureBox image texture, so it isn't
-/// re-read from disk and re-uploaded every frame.
-fn picturebox_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
-    if path.trim().is_empty() {
-        return None;
-    }
-    let id = egui::Id::new(("pb_img", path));
-    if let Some(h) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
-        return Some(h);
-    }
-    let h = load_image_texture(ctx, path)?;
-    ctx.memory_mut(|m| m.data.insert_temp(id, h.clone()));
-    Some(h)
-}
-
-/// Map a PictureBox `SizeMode` to the scaling modes understood by `media_dest_rect`.
-fn pic_size_mode(m: &str) -> &'static str {
-    match m {
-        "Stretch" | "StretchImage" => "Stretch",
-        "Zoom" | "Fit"             => "Fit",
-        "Fill"                     => "Fill",
-        _                          => "Center", // Normal / CenterImage / AutoSize
-    }
-}
-
-/// Render a PictureBox into `rect`: an optional frame (card + border) plus the
-/// image, honouring `SizeMode`, opacity (`alpha_mul`), and `ShowFrame`. When the
-/// frame is hidden, transparent PNG areas reveal whatever is behind the control.
-fn draw_picturebox(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    image_path: &str,
-    size_mode: &str,
-    show_frame: bool,
-    alpha_mul: f32,
-    corner: f32,
-) {
-    use crate::panels::designer::{draw_glass, media_dest_rect};
-    if show_frame {
-        draw_glass(painter, rect, egui::Color32::from_rgb(20, 30, 60), corner, false, alpha_mul * 0.7);
-    }
-    let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
-    if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
-        let dest = media_dest_rect(rect, tex.size_vec2(), pic_size_mode(size_mode));
-        if corner > 0.0 {
-            // Rounded image: a textured RectShape over the control bounds clips to
-            // the corner radius (spec 016). UV maps the visible part of `dest`, so
-            // Stretch/Fill/Zoom crop correctly; Fit margins are approximate.
-            let dw = dest.width().max(1.0);
-            let dh = dest.height().max(1.0);
-            let uv = egui::Rect::from_min_max(
-                egui::pos2((rect.min.x - dest.min.x) / dw, (rect.min.y - dest.min.y) / dh),
-                egui::pos2((rect.max.x - dest.min.x) / dw, (rect.max.y - dest.min.y) / dh),
-            );
-            painter.add(egui::Shape::Rect(egui::epaint::RectShape {
-                rect,
-                rounding: egui::Rounding::same(corner),
-                fill: egui::Color32::from_white_alpha(a),
-                stroke: egui::Stroke::NONE,
-                blur_width: 0.0,
-                fill_texture_id: tex.id(),
-                uv,
-            }));
-        } else {
-            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            painter.with_clip_rect(rect).image(tex.id(), dest, uv, egui::Color32::from_white_alpha(a));
-        }
-    } else if show_frame {
-        painter.text(
-            rect.center(), egui::Align2::CENTER_CENTER, "🖼",
-            egui::FontId::proportional(32.0),
-            egui::Color32::from_rgba_premultiplied(160, 160, 200, (160.0 * alpha_mul) as u8),
-        );
-    }
-}
-
-/// Parse `#RRGGBB` / `#RRGGBBAA` (or without `#`) into a Color32.
-fn parse_hex(s: &str) -> Option<egui::Color32> {
-    let h = s.trim().trim_start_matches('#');
-    if h.len() >= 6 {
-        let r = u8::from_str_radix(&h[0..2], 16).ok()?;
-        let g = u8::from_str_radix(&h[2..4], 16).ok()?;
-        let b = u8::from_str_radix(&h[4..6], 16).ok()?;
-        let a = if h.len() >= 8 { u8::from_str_radix(&h[6..8], 16).unwrap_or(255) } else { 255 };
-        Some(egui::Color32::from_rgba_unmultiplied(r, g, b, a))
-    } else {
-        None
-    }
-}
-
-// ── DateTimePicker calendar support ────────────────────────────────────────────
-const CAL_CELL: f32 = 28.0;
-const CAL_W: f32 = CAL_CELL * 7.0;
-const CAL_NAV_H: f32 = 24.0;
-const CAL_WK_H: f32 = 20.0;
-const CAL_GRID_Y: f32 = CAL_NAV_H + CAL_WK_H; // area-top → first day row
-const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
-
-#[derive(Clone)]
-pub(crate) struct CalState {
-    pub open: bool,
-    pub year: i32,
-    pub month: u32, // 1-12
-}
-impl Default for CalState {
-    fn default() -> Self { Self { open: false, year: 2026, month: 6 } }
-}
-
-fn is_leap(y: i32) -> bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
-
-fn days_in_month(y: i32, m: u32) -> u32 {
-    match m {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 => if is_leap(y) { 29 } else { 28 },
-        _ => 30,
-    }
-}
-
-/// Day of week for a date, 0 = Sunday (Sakamoto's algorithm).
-fn day_of_week(y: i32, m: u32, d: u32) -> u32 {
-    let t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-    let yy = if m < 3 { y - 1 } else { y };
-    let v = (yy + yy / 4 - yy / 100 + yy / 400 + t[(m.clamp(1, 12) - 1) as usize] + d as i32) % 7;
-    ((v + 7) % 7) as u32
-}
-
-fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
-    let p: Vec<&str> = s.split('-').collect();
-    if p.len() == 3 {
-        Some((p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?))
-    } else {
-        None
-    }
 }
 
 // ── Runtime interaction tests — Phase 2b ───────────────────────────────────────

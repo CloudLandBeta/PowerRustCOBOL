@@ -1890,28 +1890,29 @@ impl PropertiesPanel {
 
                 // ── Data Binding ──────────────────────────────────────────────
                 section_header(ui, "🔗 Data Binding — COBOL Table");
-                egui::Grid::new(format!("chart_data_{id}")).num_columns(2).spacing([8.0,4.0]).show(ui, |ui| {
-                    // DataSource: COBOL working-storage table item name
-                    let ds = ctrl.get_prop("DataSource").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "DataSource", &ds,
-                        "Table item:", "WS-SALES-TABLE", action);
-                    // Row count
-                    let dc = ctrl.get_prop("DataCount").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "DataCount", &dc,
-                        "Row count item:", "WS-SALES-COUNT", action);
-                    // Field for X labels
-                    let lf = ctrl.get_prop("LabelField").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "LabelField", &lf,
-                        "Label field:", "SALES-MONTH", action);
-                    // Y series fields (comma-separated)
-                    let vf = ctrl.get_prop("ValueFields").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ValueFields", &vf,
-                        "Value field(s):", "SALES-AMOUNT,SALES-BUDGET", action);
-                    // Series display labels
-                    let sl = ctrl.get_prop("SeriesLabels").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "SeriesLabels", &sl,
-                        "Series labels:", "Actual,Budget", action);
-                });
+                // `text_row_hint` is a self-contained full-width row (label +
+                // stretch field); it must NOT be wrapped in an egui::Grid, or every
+                // field packs onto one line and forces horizontal scrolling.
+                // DataSource: COBOL working-storage table item name
+                let ds = ctrl.get_prop("DataSource").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.text_bufs, id, "DataSource", &ds,
+                    "Table item:", "WS-SALES-TABLE", action);
+                // Row count
+                let dc = ctrl.get_prop("DataCount").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.text_bufs, id, "DataCount", &dc,
+                    "Row count item:", "WS-SALES-COUNT", action);
+                // Field for X labels
+                let lf = ctrl.get_prop("LabelField").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.text_bufs, id, "LabelField", &lf,
+                    "Label field:", "SALES-MONTH", action);
+                // Y series fields (comma-separated)
+                let vf = ctrl.get_prop("ValueFields").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.text_bufs, id, "ValueFields", &vf,
+                    "Value field(s):", "SALES-AMOUNT,SALES-BUDGET", action);
+                // Series display labels
+                let sl = ctrl.get_prop("SeriesLabels").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                text_row_hint(ui, &mut self.text_bufs, id, "SeriesLabels", &sl,
+                    "Series labels:", "Actual,Budget", action);
 
                 // ── Type-specific ─────────────────────────────────────────────
                 if matches!(ctrl.control_type, ControlType::BarChart) {
@@ -1977,10 +1978,11 @@ impl PropertiesPanel {
                 }
                 if matches!(ctrl.control_type, ControlType::ScatterChart) {
                     section_header(ui, "Scatter / Bubble Options");
+                    // Full-width row — outside the grid (see Data Binding note).
+                    let bb = ctrl.get_prop("BubbleField").map(|v| v.as_str().to_owned()).unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, "BubbleField", &bb,
+                        "Bubble size field:", "SALES-VOLUME", action);
                     egui::Grid::new(format!("chart_sct_{id}")).num_columns(2).spacing([8.0,4.0]).show(ui, |ui| {
-                        let bb = ctrl.get_prop("BubbleField").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                        text_row_hint(ui, &mut self.text_bufs, id, "BubbleField", &bb,
-                            "Bubble size field:", "SALES-VOLUME", action);
                         ui.label("Max bubble (px):"); {
                             let mut v = ctrl.get_prop("BubbleScale").map(|v| v.as_i64()).unwrap_or(20);
                             if ui.add(DragValue::new(&mut v).speed(1).range(4..=60)).changed() {

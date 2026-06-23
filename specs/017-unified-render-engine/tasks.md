@@ -31,7 +31,7 @@ launchable after every task.
     reference form renders, background is navy for unset, chart takes the glass
     branch when `glass=true`, control rects match geometry.
 
-- [ ] **T3 — Engine interactive widgets** (R5,R9)
+- [x] **T3 — Engine interactive widgets** (R5,R9)
   - Files: `crates/cobolt-forms/src/render.rs`.
   - Do: port the **Interactive** widgets verbatim from `render_run_control` + the
     preview branches into the engine (Button press/hover, CheckBox/RadioButton,
@@ -44,12 +44,15 @@ launchable after every task.
 
 ### Phase B — migrate the surfaces (delete old loops)
 
-- [ ] **T4 — Preview → engine** (R1,R2,R8)
+- [x] **T4 — Preview → engine** (R1,R2,R8) — build + tests green; **manual visual
+      parity pending operator sign-off**.
   - Files: `crates/cobolt-ide/src/app.rs::show_preview_window`.
   - Do: implement `FormState` over the preview state map; call
     `render_form(Interactive)`; apply `prop_updates`; map `UiEvent` as the preview
     needs. **Delete** the preview control loop + per-type branches.
   - Verify: `cargo build -p cobolt-ide`; manual: preview unchanged from today.
+  - Done: added engine `RenderTransform` hook (animation shift/scale/alpha) +
+    `PreviewState`; backdrop now owned by the engine; preview loop deleted.
 
 - [ ] **T5 — Running form → engine; delete `render_run_control`** (R1,R2,R8,R9)
   - Files: `crates/cobolt-ide/src/app.rs::show_running_form_window`; remove
@@ -71,11 +74,18 @@ launchable after every task.
   - Verify: `cargo build -p cobolt-ide`; `cargo test -p cobolt-ide` green; manual:
     canvas identical to before; selection/drag/badges/clones still work.
 
-- [ ] **T7 — Compiled binary → engine** (R1,R2,R10)
+- [x] **T7 — Compiled binary → engine** (R1,R2,R10) — done out of phase order to
+      fix a reported "binary has no styles" bug. Built `examples/scatter-chart` to
+      a native binary and confirmed it renders the dark backdrop + glass chart
+      (was all-white native widgets before).
   - Files: `crates/cobolt-compiler/src/lib.rs::FormApp::update`.
   - Do: implement `FormState` over compiled state; call the engine; map events.
     Delete the inline control loop. Ensure the `render` feature is on for
     `cobolt-forms` in the compiler.
+  - Done: `CompiledState` `FormState` over the control-state map; engine-owned
+    backdrop (color + bg image); `glass=true`; correct event names
+    (`onClick`/`onChange`/…); input-sync channel wired (slider fix applies to the
+    binary too). Inline native-widget loop deleted.
   - Verify: `cargo build -p cobolt-compiler`; build a packaged binary of the
     reference form and confirm it matches the IDE preview.
 
