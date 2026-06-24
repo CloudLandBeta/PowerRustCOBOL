@@ -28,10 +28,27 @@ use super::toolbox::ToolboxPanel;
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
 // designer, preview, run form and compiled binaries all draw identically.
 // Re-exported here so existing `designer::draw_control` call sites keep working.
-pub(crate) use cobolt_forms::paint::{
-    draw_animator, draw_chart_preview, draw_control, draw_glass, draw_glass_circle,
-    live_control, media_dest_rect, parse_color, scale_rect_about_center, text_halign,
-};
+pub(crate) use cobolt_forms::paint::{draw_control, parse_color};
+// Used only by the behavioral render tests below (they drive these primitives
+// directly); the runtime designer now goes through the engine's `render_faces`.
+#[cfg(test)]
+use cobolt_forms::paint::{draw_animator, live_control, scale_rect_about_center, text_halign};
+
+/// `FormState` for the design-time canvas (spec 017 T6): the designed form IS the
+/// source of truth (no live overrides), every control is shown (design-time),
+/// disabled controls aren't dimmed, and the only transform is an in-progress
+/// animation preview (supplied per control via `anim`).
+struct DesignerState<'a> {
+    anim: &'a std::collections::HashMap<String, cobolt_forms::render::RenderTransform>,
+}
+impl cobolt_forms::render::FormState for DesignerState<'_> {
+    fn visible(&self, _base: &cobolt_forms::Control) -> bool { true }
+    fn enabled(&self, _base: &cobolt_forms::Control) -> bool { true }
+    fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
+        self.anim.get(&base.id).copied()
+            .unwrap_or(cobolt_forms::render::RenderTransform::IDENTITY)
+    }
+}
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
 /// Snap `v` to the nearest multiple of `grid_px` (only when snap is enabled).
@@ -1561,102 +1578,76 @@ impl DesignerPanel {
                 // falls back to the control's `SelectedTab` property.
                 let active_tabs = self.active_tabs.clone();
 
-                // Pre-collect PictureBox image paths before the borrow-split below
-                let pic_paths: Vec<(usize, String)> = render_order.iter().map(|&idx| {
-                    let ctrl = &self.form.controls[idx];
-                    let path = if matches!(ctrl.control_type, cobolt_forms::ControlType::PictureBox) {
-                        ctrl.get_prop("ImagePath").map(|v| v.as_str().to_owned()).unwrap_or_default()
-                    } else { String::new() };
-                    (idx, path)
-                }).collect();
-
-                // Eagerly load/cache textures for all PictureBox controls this frame
-                let ctx_ref = ui.ctx().clone();
-                for (_, path) in &pic_paths {
-                    if !path.is_empty() {
-                        self.load_image(path, &ctx_ref);
-                    }
-                }
-
-                for (idx, img_path) in &pic_paths {
-                    let ctrl = &self.form.controls[*idx];
-                    let is_sel = selected_ids.contains(&ctrl.id);
-
-                    // Skip controls hidden by an inactive tab page (spec 012).
-                    if !super::containers::is_visible(&self.form.controls, *idx, &active_tabs) {
-                        continue;
-                    }
-
-                    // Check if an animation preview is playing for this control
-                    let anim_offset = ctrl.animations.iter()
-                        .find_map(|a| {
-                            let key = format!("{}:{}", ctrl.id, a.name);
-                            self.anim_states.get(&key).filter(|s| s.playing || s.t > 0.0 && s.t < 1.0)
-                                .map(|s| anim_transform(a, form_w, form_h, s.t))
+                // ── Control faces via the unified engine (spec 017 T6) ──────────
+                // Every face is drawn through the same `draw_control` path as the
+                // preview / running form / compiled binary, so the canvas matches
+                // them exactly. The designer overlays its editor chrome (selection
+                // border + handles, badges, clones, grid, drop hints) on top using
+                // the on-screen rects the engine returns.
+                let anim_tf: std::collections::HashMap<String, cobolt_forms::render::RenderTransform> =
+                    self.form.controls.iter().filter_map(|c| {
+                        c.animations.iter().find_map(|a| {
+                            let key = format!("{}:{}", c.id, a.name);
+                            self.anim_states.get(&key)
+                                .filter(|s| s.playing || (s.t > 0.0 && s.t < 1.0))
+                                .map(|s| {
+                                    let (dx, dy, scale, alpha) = anim_transform(a, form_w, form_h, s.t);
+                                    (c.id.clone(), cobolt_forms::render::RenderTransform { dx, dy, scale, alpha })
+                                })
                         })
-                        .unwrap_or((0.0, 0.0, 1.0, 1.0));
-
-                    let (adx, ady, scale, alpha_mul) = anim_offset;
-                    let anim_origin = origin + Vec2::new(adx, ady);
-
-                    // The control's own Opacity (0–100) is applied inside
-                    // `draw_control`; here we compose the animation alpha with any
-                    // ancestor container opacities so a faded container dims its
-                    // subtree (spec 012).
-                    let anc_op = super::containers::ancestor_opacity(&self.form.controls, *idx);
-                    let effective_alpha = (alpha_mul * anc_op).clamp(0.0, 1.0);
-
-                    // Retrieve cached texture for PictureBox (if any)
-                    let pic_tex: Option<egui::TextureId> = if !img_path.is_empty() {
-                        self.image_cache.get(img_path).and_then(|o| o.as_ref()).map(|h| h.id())
-                    } else { None };
-
-                    // Clip children to their ancestor containers' content areas
-                    // (spec 012). Top-level controls draw unclipped.
-                    let clipped;
-                    let dp: &egui::Painter = match super::containers::clip_rect(&self.form.controls, *idx) {
-                        Some(cm) => {
-                            let screen = egui::Rect::from_min_size(
-                                origin + Vec2::new(cm.x as f32, cm.y as f32),
-                                Vec2::new(cm.w as f32, cm.h as f32),
-                            );
-                            clipped = painter.with_clip_rect(painter.clip_rect().intersect(screen));
-                            &clipped
-                        }
-                        None => &painter,
+                    }).collect();
+                let control_rects = {
+                    let st = DesignerState { anim: &anim_tf };
+                    let input = cobolt_forms::render::RenderInput {
+                        controls: &self.form.controls,
+                        state: &st,
+                        form_size: Vec2::new(form_w, form_h),
+                        glass: self.glass_mode,
+                        mode: cobolt_forms::render::RenderMode::Static,
+                        active_tabs: &active_tabs,
+                        backdrop: cobolt_forms::render::Backdrop::default(),
                     };
+                    cobolt_forms::render::render_faces(&painter, origin, &input).control_rects
+                };
 
-                    draw_control(dp, anim_origin, ctrl, is_sel, self.glass_mode, effective_alpha, scale, pic_tex);
-
-                    // Repeating-group badge (spec 015) — a small array marker at the
-                    // GroupBox top-right so a template is visually distinct.
+                // ── Editor badges on top of the faces ───────────────────────────
+                for &idx in &render_order {
+                    let ctrl = &self.form.controls[idx];
+                    let Some(crect) = control_rects.get(&ctrl.id) else { continue; };
+                    // Repeating-group ARRAY marker at the GroupBox top-right (spec 015).
                     if matches!(ctrl.control_type, ControlType::GroupBox)
                         && ctrl.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false)
                     {
-                        let r = &ctrl.rect;
-                        let bw = 46.0; let bh = 15.0;
-                        let bmin = origin + Vec2::new(
-                            r.x as f32 + (r.w as f32) * scale - bw - 3.0,
-                            r.y as f32 + 3.0);
-                        let brect = egui::Rect::from_min_size(bmin, Vec2::new(bw, bh));
+                        let (bw, bh) = (46.0_f32, 15.0_f32);
+                        let brect = egui::Rect::from_min_size(
+                            egui::pos2(crect.max.x - bw - 3.0, crect.min.y + 3.0),
+                            Vec2::new(bw, bh));
                         painter.rect_filled(brect, 3.0, Color32::from_rgba_premultiplied(60, 120, 230, 230));
                         painter.text(brect.center(), egui::Align2::CENTER_CENTER, "▦ ARRAY",
                             egui::FontId::proportional(9.0), Color32::WHITE);
                     }
-
-                    // Animation badge tooltip — show animation list on hover
+                    // Animation badge tooltip — hover to see the animation list.
                     if !ctrl.animations.is_empty() {
-                        let r = &ctrl.rect;
-                        let badge_pos = origin
-                            + Vec2::new(r.x as f32 + r.w as f32 * scale - 2.0, r.y as f32 + 2.0);
-                        let badge_rect = egui::Rect::from_center_size(badge_pos, Vec2::splat(12.0));
+                        let badge_rect = egui::Rect::from_center_size(
+                            egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0), Vec2::splat(12.0));
                         let anim_summary: String = ctrl.animations.iter()
                             .map(|a| format!("▶ {} ({:?})", a.name, a.trigger))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let tooltip = format!("Animations set:\n{anim_summary}");
+                            .collect::<Vec<_>>().join("\n");
                         ui.interact(badge_rect, egui::Id::new(("anim_badge", ctrl.id.as_str())), egui::Sense::hover())
-                            .on_hover_text(tooltip);
+                            .on_hover_text(format!("Animations set:\n{anim_summary}"));
+                    }
+                }
+
+                // Selection border for every selected control (the engine draws
+                // faces unselected; the editor owns the selection chrome). Handles
+                // and secondary highlights are drawn further below.
+                for sid in &selected_ids {
+                    if let (Some(crect), Some(ctrl)) =
+                        (control_rects.get(sid), self.form.find_control(sid))
+                    {
+                        let corner = cobolt_forms::paint::corner_radius(ctrl);
+                        painter.rect_stroke(*crect, corner,
+                            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)));
                     }
                 }
 
@@ -3240,9 +3231,6 @@ pub(crate) fn target_preset_size(name: &str) -> Option<(u32, u32)> {
         .map(|(_, w, h)| (*w, *h))
 }
 
-// Glass ComboBox widgets moved to cobolt-forms::paint (spec 017 consolidation);
-// re-exported so existing `glass_combo_*` / `GlassComboAction` call sites work.
-pub(crate) use cobolt_forms::paint::{glass_combo_header, glass_combo_popup, GlassComboAction};
 
 // ── Behavioral render tests — Phase 1: design-time canvas (`draw_control`) ──────
 //

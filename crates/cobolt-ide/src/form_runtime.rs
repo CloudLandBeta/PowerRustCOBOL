@@ -62,6 +62,9 @@ pub struct FormRuntime {
     pub ctrl_state: HashMap<String, CtrlState>,
     /// Controls in z_order (for rendering order). Populated at launch.
     pub ctrl_order: Vec<CtrlMeta>,
+    /// The designed controls (flat), used as the base for the unified render
+    /// engine; live values are merged on top from `ctrl_state` (spec 017).
+    pub controls: Vec<cobolt_forms::Control>,
 
     /// Sends UI events to the interpreter thread.
     event_tx: Sender<FormEvent>,
@@ -206,6 +209,10 @@ impl FormRuntime {
             .collect();
         ctrl_order.sort_by_key(|m| m.z_order);
 
+        // Flattened designed controls — the engine's render base (spec 017).
+        let controls: Vec<cobolt_forms::Control> = collect_controls(&form.controls)
+            .into_iter().cloned().collect();
+
         // Seed the interpreter's visual-object registry with every control's
         // designed properties, so property references and method getters return
         // the configured values before any setter runs.
@@ -255,6 +262,7 @@ impl FormRuntime {
             bg_image_mode:    form.bg_image_mode,
             ctrl_state,
             ctrl_order,
+            controls,
             event_tx,
             input_tx,
             state_rx,

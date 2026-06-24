@@ -481,13 +481,19 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 (a non-interactive render), **Run Form** (live, interactive), grid toggle, glass
 toggle, alignment tools, undo/redo.
 
-> **WYSIWYG.** Preview, Run Form, and compiled binaries draw each control's
-> graphical face with the **exact same renderer** (now in `cobolt-forms` paint
-> module, originally the designer canvas `draw_control` + glass helpers) driven
-> by the control's designed properties —
-> background and foreground colours, fonts, corner radius, shadows, checked
-> state, progress value. What you style on the canvas is exactly what runs;
-> the runtime only adds the live behaviour (press feedback, focus, input).
+> **WYSIWYG — one renderer for every surface.** The Form Designer canvas, the
+> live Preview, the Run Form, and the compiled binary all draw through a **single
+> rendering engine** in `cobolt-forms` (`render::render_form` for the interactive
+> surfaces, `render::render_faces` for the designer canvas), which wraps the
+> shared `draw_control` face painter with the form-level concerns that used to
+> diverge across four separate draw loops: background, render order, container
+> clipping, ancestor opacity, and tab visibility. Each surface plugs in its own
+> live values through the `FormState` trait (designer = the designed form,
+> preview = a value map, run = `CtrlState`, binary = compiled state). The result:
+> the same form + state always produces the same pixels — what you style on the
+> canvas is exactly what runs. The runtime surfaces only add live behaviour
+> (press feedback, focus, text input, slider drag), and the designer adds its
+> editor overlay (selection handles, badges, drop hints) on top.
 
 ### Target devices
 

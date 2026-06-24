@@ -247,8 +247,16 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             );
         } else {
             // Static: the one true face renderer (charts, images, glass, rounding).
+            // PictureBox needs its texture pre-loaded so `draw_control` paints the
+            // image (not a placeholder) — same as the designer canvas.
+            let pic_tex = if matches!(face.control_type, ControlType::PictureBox) {
+                crate::paint::picturebox_texture(ui.ctx(), sv(&face, "ImagePath").trim())
+                    .map(|t| t.id())
+            } else {
+                None
+            };
             let dp = painter.with_clip_rect(painter.clip_rect().intersect(clip));
-            crate::paint::draw_control(&dp, screen.min, &face, false, input.glass, alpha, 1.0, None);
+            crate::paint::draw_control(&dp, screen.min, &face, false, input.glass, alpha, 1.0, pic_tex);
         }
     }
 
@@ -268,6 +276,69 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             }
             None => {}
         }
+    }
+    out
+}
+
+/// Draw just the control **faces** (no backdrop, no interaction) onto an existing
+/// `Painter` at `origin`, returning each control's on-screen rect. This is the
+/// engine entry for the **Form Designer canvas** (spec 017 T6): the designer owns
+/// its own canvas background + editor overlay (selection handles, badges, clones,
+/// grid, drop hints) and draws those on top using the returned `control_rects`.
+///
+/// Faces are produced by the same `draw_control` path as every other surface, so
+/// the canvas matches the preview / running form / compiled binary. Clipping uses
+/// the painter's current clip as the baseline (top-level controls draw to the
+/// canvas, not clipped to the form bounds — the designer's long-standing
+/// behaviour, so e.g. a rotated Line past its box still shows on the canvas).
+pub fn render_faces(painter: &egui::Painter, origin: egui::Pos2, input: &RenderInput<'_>) -> RenderOutput {
+    let mut out = RenderOutput::default();
+    let controls = input.controls;
+    let order = containers::render_order(controls);
+    for &idx in &order {
+        let base = &controls[idx];
+        if !input.state.visible(base) {
+            continue;
+        }
+        if !containers::is_visible(controls, idx, input.active_tabs) {
+            continue;
+        }
+
+        let live = input.state.live(base);
+        let r = live.rect;
+        let tf = input.state.transform(base);
+        let base_screen = Rect::from_min_size(
+            origin + Vec2::new(r.x as f32 + tf.dx, r.y as f32 + tf.dy),
+            Vec2::new(r.w as f32, r.h as f32),
+        );
+        let screen = crate::paint::scale_rect_about_center(base_screen, tf.scale);
+        out.control_rects.insert(live.id.clone(), screen);
+
+        // Clip children to ancestor container content areas; top-level controls
+        // draw to the painter's existing clip (the canvas), matching the designer.
+        let clip = match containers::clip_rect(controls, idx) {
+            Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
+                origin + Vec2::new(cm.x as f32, cm.y as f32),
+                Vec2::new(cm.w as f32, cm.h as f32),
+            )),
+            None => painter.clip_rect(),
+        };
+
+        let anc = containers::ancestor_opacity(controls, idx);
+        let enabled = input.state.enabled(base);
+        let alpha = anc * tf.alpha * if enabled { 1.0 } else { 0.45 };
+
+        let mut face = live.clone();
+        face.rect = crate::model::Rect::new(
+            0, 0, screen.width().round() as i32, screen.height().round() as i32);
+        let pic_tex = if matches!(face.control_type, ControlType::PictureBox) {
+            crate::paint::picturebox_texture(painter.ctx(), sv(&face, "ImagePath").trim())
+                .map(|t| t.id())
+        } else {
+            None
+        };
+        let dp = painter.with_clip_rect(clip);
+        crate::paint::draw_control(&dp, screen.min, &face, false, input.glass, alpha, 1.0, pic_tex);
     }
     out
 }
@@ -855,11 +926,13 @@ fn render_interactive(
             }
         }
         CT::PictureBox => {
-            let image_path = sv(ctrl, "ImagePath").trim().to_owned();
-            let size_mode = sv(ctrl, "SizeMode");
-            let show_frame = !matches!(sv(ctrl, "ShowFrame").as_str(), "0" | "false" | "False");
-            let corner = paint::corner_radius(ctrl);
-            paint::draw_picturebox(&painter, screen, &image_path, &size_mode, show_frame, alpha, corner);
+            // Render through `draw_control` with a pre-loaded texture — the SAME
+            // path the designer canvas uses — so the image is tinted/framed
+            // identically and is never dimmed or washed-out relative to the canvas
+            // (spec 017 parity). `draw_picturebox` used a different tint + frame.
+            let tex = paint::picturebox_texture(ui.ctx(), sv(ctrl, "ImagePath").trim())
+                .map(|t| t.id());
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, tex);
         }
         CT::Animator => {
             let source = sv(ctrl, "Source").trim().to_owned();
@@ -969,6 +1042,55 @@ mod tests {
         let out = captured.expect("rendered");
         assert!(out.control_rects.contains_key("Pnl"));
         assert!(out.control_rects.contains_key("Btn"));
+    }
+
+    #[test]
+    fn engine_reference_form_parity_static_vs_faces() {
+        // Parity invariant (spec 017 T8): the designer canvas entry `render_faces`
+        // and the `render_form(Static)` entry used by every other surface must
+        // agree on every control's on-screen geometry for a reference form
+        // (Panel ⊃ {AreaChart, PictureBox, TextBox} + a top-level Label). This is
+        // the guarantee that designer == preview == run == binary.
+        let controls = vec![
+            { let mut c = ctrl("Pnl", ControlType::Panel, 10, 10, 300, 200); c.parent = None; c },
+            { let mut c = ctrl("Chart", ControlType::AreaChart, 20, 30, 120, 80); c.parent = Some("Pnl".into()); c },
+            { let mut c = ctrl("Pic", ControlType::PictureBox, 20, 120, 60, 60); c.parent = Some("Pnl".into()); c },
+            { let mut c = ctrl("Txt", ControlType::TextBox, 150, 40, 120, 24); c.parent = Some("Pnl".into()); c },
+            { let mut c = ctrl("Lbl", ControlType::Label, 10, 230, 100, 20); c.parent = None; c },
+        ];
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let (mut rects_form, mut rects_faces) = (None, None);
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.set_min_size(Vec2::new(400.0, 300.0));
+                let input = RenderInput {
+                    controls: &controls,
+                    state: &DesignedState,
+                    form_size: Vec2::new(400.0, 300.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Backdrop::default(),
+                };
+                rects_form = Some(render_form(ui, &input).control_rects);
+                let painter = ui.painter().clone();
+                let origin = ui.min_rect().min;
+                rects_faces = Some(render_faces(&painter, origin, &input).control_rects);
+            });
+        });
+        let rf = rects_form.expect("render_form rects");
+        let fc = rects_faces.expect("render_faces rects");
+        for id in ["Pnl", "Chart", "Pic", "Txt", "Lbl"] {
+            let a = rf.get(id).unwrap_or_else(|| panic!("render_form missing {id}"));
+            let b = fc.get(id).unwrap_or_else(|| panic!("render_faces missing {id}"));
+            assert!(
+                (a.min.x - b.min.x).abs() < 0.5 && (a.min.y - b.min.y).abs() < 0.5
+                    && (a.width() - b.width()).abs() < 0.5 && (a.height() - b.height()).abs() < 0.5,
+                "geometry mismatch for {id}: render_form={a:?} render_faces={b:?}",
+            );
+        }
     }
 
     // ── Interaction simulation (Interactive mode) ─────────────────────────────

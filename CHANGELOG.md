@@ -8,6 +8,26 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.17] — 2026-06-24
+
+### Fixed
+
+- **PictureBox image no longer dimmed in the running form / preview / binary** —
+  a photo shown vivid on the designer canvas looked washed-out everywhere else,
+  because the runtime surfaces drew images through a different code path with a
+  different tint. They now use the designer's exact path, so an image looks the
+  same on every surface.
+
+### Changed
+
+- **The unified render engine now drives all four surfaces** — the Form Designer
+  canvas, the live preview, the running form, and the compiled binary all render
+  through one engine in `cobolt-forms`. The four separate, drifting draw loops
+  (and the old `render_run_control`) are gone, so the designer, preview, run, and
+  binary are guaranteed to match. The designer keeps its editor overlay
+  (selection handles, badges, drop hints) on top. This completes the unification
+  begun in 1.27.16.
+
 ## [PowerRustCOBOL 1.27.16] — 2026-06-23
 
 ### Fixed

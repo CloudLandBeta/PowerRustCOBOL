@@ -1,6 +1,6 @@
 # Tasks — Unified form rendering engine
 
-- **Status:** draft → in progress → done
+- **Status:** draft → in progress → **done** (automated; manual AC walkthrough pending)
 - **Plan:** ./plan.md   **Date:** 2026-06-21
 
 Phased cut-over: build the engine, then migrate one surface at a time, deleting
@@ -54,7 +54,7 @@ launchable after every task.
   - Done: added engine `RenderTransform` hook (animation shift/scale/alpha) +
     `PreviewState`; backdrop now owned by the engine; preview loop deleted.
 
-- [ ] **T5 — Running form → engine; delete `render_run_control`** (R1,R2,R8,R9)
+- [x] **T5 — Running form → engine; delete `render_run_control`** (R1,R2,R8,R9) — done; run uses the engine, render_run_control/RunOutcome/control_pointer_events + run_interaction_tests deleted (engine tests cover interactions). PictureBox dimming fixed (draw_control+pic_tex).
   - Files: `crates/cobolt-ide/src/app.rs::show_running_form_window`; remove
     `render_run_control`.
   - Do: implement `FormState` over `CtrlState`; call the engine; map `UiEvent` →
@@ -64,7 +64,7 @@ launchable after every task.
     (interaction-sim still passes); manual: running form interactive + **chart now
     matches the designer/preview** (the original bug).
 
-- [ ] **T6 — Designer → engine + overlay; delete designer loop** (R1,R2,R6,R8)
+- [x] **T6 — Designer → engine + overlay; delete designer loop** (R1,R2,R6,R8) — done; canvas draws faces via `render_faces`, editor overlay (selection border+handles, ARRAY/anim badges, clones, grid, drop hints) preserved using `control_rects`. **Manual canvas-identical check pending.**
   - Files: `crates/cobolt-ide/src/panels/designer.rs`.
   - Do: implement `FormState` over the designed form; call `render_form(Static)`;
     draw the editor **overlay** (selection handles, secondary highlights,
@@ -91,7 +91,7 @@ launchable after every task.
 
 ### Phase C — finalize
 
-- [ ] **T8 — Parity test + docs** (R2,R11)
+- [x] **T8 — Parity test + docs** (R2,R11) — added engine_reference_form_parity_static_vs_faces test; updated the English dev guide WYSIWYG note (translations untouched).
   - Files: `crates/cobolt-forms/tests/` (or `render.rs` tests);
     `docs/developers-guide-en.md`.
   - Do: add the headless reference-form parity/invariant test; add a short "one
@@ -99,7 +99,7 @@ launchable after every task.
   - Verify: `cargo test --workspace` green; section present; translations
     untouched.
 
-- [ ] **T9 — Finalize** (all ACs)
+- [x] **T9 — Finalize** (all ACs) — no render_run_control/parallel loop remains (grep); version 1.27.17 + CHANGELOG; cargo test --workspace green (30 binaries, 0 fail). **Manual AC1–AC7 walkthrough pending operator.**
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`.
   - Do: version bump + CHANGELOG (fix per standing directive); confirm no
     `render_run_control` / parallel loop remains (grep). Fold/supersede the interim
