@@ -1258,8 +1258,23 @@ impl Control {
         let r = self.rect;
         match self.control_type {
             ControlType::GroupBox => {
-                // caption band ~18px, ~6px inset on the other sides
-                Rect::new(r.x + 6, r.y + 18, (r.w - 12).max(0), (r.h - 24).max(0))
+                // Children are clipped to the inner area: just inside the border on
+                // every side, with a top caption band reserved ONLY when a caption
+                // is actually shown — otherwise content reaches the border and a
+                // child overlapping the top isn't clipped under an empty title area.
+                let b = 2;
+                let hide = self.get_prop("HideCaption").map(|v| v.as_bool()).unwrap_or(false);
+                let cap = self.get_prop("Caption")
+                    .map(|v| v.to_xml_string())
+                    .unwrap_or_else(|| self.id.clone());
+                let top = if !hide && !cap.trim().is_empty() {
+                    // Clear the legend (centred on the top border) plus a small gap.
+                    let fs = self.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(10).clamp(6, 96);
+                    ((fs * 7 / 10) + 5).max(12) as i32
+                } else {
+                    b
+                };
+                Rect::new(r.x + b, r.y + top, (r.w - 2 * b).max(0), (r.h - top - b).max(0))
             }
             ControlType::Panel => {
                 Rect::new(r.x + 2, r.y + 2, (r.w - 4).max(0), (r.h - 4).max(0))

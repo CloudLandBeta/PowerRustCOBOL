@@ -8,6 +8,18 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.19] — 2026-06-24
+
+### Fixed
+
+- **GroupBox no longer clips child content under an empty title area** — a
+  GroupBox always reserved an 18px top "caption band" (plus a 6px inset on the
+  other sides) for its content, so a child placed across the top edge was cut off
+  even when the GroupBox had no caption. Children are now clipped to the border on
+  every side, and the top caption band is reserved only when a caption is actually
+  shown (sized to clear the legend text). With a caption, content clips just below
+  it; without one, it reaches the border.
+
 ## [PowerRustCOBOL 1.27.18] — 2026-06-24
 
 ### Fixed
