@@ -8,6 +8,21 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.18] — 2026-06-24
+
+### Fixed
+
+- **Captions only where they belong** — non-text controls (Panel, and any control
+  without a real caption) no longer show a centered "<id>" placeholder. The
+  **GroupBox** caption now renders as a title on the **top-left border** (classic
+  legend look, editable in the property pane) instead of centered. Label, Button,
+  CheckBox, and RadioButton keep their caption.
+- **Form/image "Browse" button now sets the path in the window you clicked** — the
+  background-image picker (and the control image picker) used shared keys across
+  the in-window inspector and a detached Designer window, so whichever rendered
+  first consumed the file-dialog result and the path didn't land where expected.
+  The picker state is now namespaced per window.
+
 ## [PowerRustCOBOL 1.27.17] — 2026-06-24
 
 ### Fixed

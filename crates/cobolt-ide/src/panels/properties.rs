@@ -2239,21 +2239,27 @@ impl PropertiesPanel {
             // Image path + browse button
             ui.label(tr.lbl_image_path);
             {
-                const K: &str = "form-BgImage";
-                let wid = egui::Id::new(K);
-                let buf = self.form_bufs.entry(K.into()).or_insert(form.background_image.clone());
+                // Namespace the buffer, widget id, and file-dialog key by viewport
+                // so the in-window inspector and a detached Designer window (each a
+                // separate egui viewport) don't share state — otherwise whichever
+                // renders first in the frame steals the picker's result and the
+                // path never lands on the window the user clicked in.
+                let vp = ui.ctx().viewport_id();
+                let buf_key = format!("form-BgImage:{vp:?}");
+                let wid = egui::Id::new(&buf_key);
+                let buf = self.form_bufs.entry(buf_key).or_insert(form.background_image.clone());
                 if *buf != form.background_image && !ui.memory(|m| m.has_focus(wid)) {
                     *buf = form.background_image.clone();
                 }
                 ui.horizontal(|ui| {
-                    const PICK_K: &str = "form-BgImage-pick";
+                    let pick_k = format!("form-BgImage-pick:{vp:?}");
                     if ui.button("📂").on_hover_text("Browse for image…").clicked() {
                         crate::file_dialog::open_file(
-                            ui.ctx(), PICK_K, "Images",
+                            ui.ctx(), &pick_k, "Images",
                             &["png","jpg","jpeg","bmp","gif","ico","webp","svg"]);
                     }
-                    if crate::file_dialog::is_open(PICK_K) { ui.ctx().request_repaint(); }
-                    if let Some(Some(p)) = crate::file_dialog::take(PICK_K) {
+                    if crate::file_dialog::is_open(&pick_k) { ui.ctx().request_repaint(); }
+                    if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
                         let path_str = p.to_string_lossy().to_string();
                         *buf = path_str.clone();
                         action.form_props.push(("BackgroundImage".into(), path_str));
@@ -2583,11 +2589,15 @@ fn image_browse_row(
     bufs:  &mut std::collections::HashMap<String, String>,
 ) {
     let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
-    let buf_key = format!("{ctrl_id}-{key}");
+    // Namespace by viewport so the in-window inspector and a detached Designer
+    // window don't share buffer/dialog state for the same control (see the form
+    // background picker for the rationale).
+    let vp = ui.ctx().viewport_id();
+    let buf_key = format!("{ctrl_id}-{key}:{vp:?}");
     let wid = egui::Id::new(&buf_key);
     let buf = bufs.entry(buf_key).or_insert(cur.clone());
     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) { *buf = cur; }
-    let pick_key = format!("imgpick:{ctrl_id}:{key}");
+    let pick_key = format!("imgpick:{ctrl_id}:{key}:{vp:?}");
     ui.horizontal(|ui| {
         ui.label(key);
         // Open the native picker asynchronously — a synchronous dialog nests the

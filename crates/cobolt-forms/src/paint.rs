@@ -1111,7 +1111,23 @@ pub fn draw_control(
         }
     }
 
-    // Label text — Caption is on Label, Button, CheckBox, RadioButton, GroupBox.
+    // ── GroupBox caption — a "legend" on the top-left border, just past the
+    // rounded corner (classic GroupBox look), vertically centred on the border
+    // line. Suppressed by HideCaption (spec 015). ─────────────────────────────
+    if matches!(ctrl.control_type, CT::GroupBox)
+        && !ctrl.get_prop("HideCaption").map(|v| v.as_bool()).unwrap_or(false)
+    {
+        let cap = ctrl.get_prop("Caption").map(|v| v.to_string()).unwrap_or_else(|| ctrl.id.clone());
+        if !cap.is_empty() {
+            let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
+            let font_id = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
+            let x = rect.min.x + corner.max(0.0) + 10.0;
+            painter.text(Pos2::new(x, rect.min.y), egui::Align2::LEFT_CENTER, &cap,
+                font_id, alpha_color(label_color));
+        }
+    }
+
+    // Label text — Caption is on Label, Button, CheckBox, RadioButton.
     let label: String = match ctrl.control_type {
         CT::CheckBox => {
             let checked = ctrl.get_prop("Checked").map(|v| v.as_bool()).unwrap_or(false);
@@ -1207,16 +1223,17 @@ pub fn draw_control(
         CT::MenuBar    => "☰ MenuBar".into(),
         CT::ToolBar    => "⬛ ToolBar".into(),
         CT::StatusBar  => "▬ StatusBar".into(),
-        // A GroupBox with HideCaption shows no title text (spec 015).
-        CT::GroupBox if ctrl.get_prop("HideCaption").map(|v| v.as_bool()).unwrap_or(false) =>
-            String::new(),
+        // GroupBox draws its caption as a "legend" on the top-left border (below),
+        // never as centered text.
+        CT::GroupBox => String::new(),
         // Controls with an intrinsic text label use their Caption property.
-        CT::Label | CT::Button | CT::GroupBox =>
+        CT::Label | CT::Button =>
             ctrl.get_prop("Caption").map(|v| v.to_string()).unwrap_or_else(|| ctrl.id.clone()),
         // TextBox shows its current text value.
         CT::TextBox => ctrl.get_prop("Text").map(|v| v.to_string()).unwrap_or_default(),
-        // Everything else: show the control ID.
-        _ => ctrl.id.clone(),
+        // Non-text controls (Panel, …) draw no caption — only GroupBox and Label
+        // (and the text-bearing widgets above) carry one.
+        _ => String::new(),
     };
 
     if !label.is_empty() {
