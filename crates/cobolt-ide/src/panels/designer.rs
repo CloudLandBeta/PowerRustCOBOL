@@ -521,7 +521,9 @@ impl DesignerPanel {
                     .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
                     .collect();
                 let ci = egui::ColorImage { size: [w, h], pixels };
-                Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR))
+                // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a
+                // Tiled background can also tile inside the corner-notch mask (017).
+                Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
             })();
             self.image_cache.insert(path.to_owned(), result);
         }
@@ -1455,6 +1457,10 @@ impl DesignerPanel {
                     &painter, resp.rect, self.form.use_theme_background, form_alpha_mul);
 
                 // ── Background image ───────────────────────────────────────────
+                // Captured for the corner-notch mask: the backdrop texture + the
+                // screen rect it maps to, so a rounded container's notches can be
+                // repainted with the same image behind its children (spec 017).
+                let mut notch_img: Option<(egui::TextureId, egui::Rect)> = None;
                 let bg_img_path = self.form.background_image.clone();
                 let bg_img_mode = self.form.bg_image_mode;
                 if !themed_bg && !bg_img_path.is_empty() {
@@ -1471,6 +1477,7 @@ impl DesignerPanel {
                         match bg_img_mode {
                             BgImageMode::Stretch => {
                                 painter.image(tex_id, form_rect, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
+                                notch_img = Some((tex_id, form_rect));
                             }
                             BgImageMode::Fill => {
                                 // Scale so image fills the whole form keeping aspect ratio (crops if needed)
@@ -1486,6 +1493,7 @@ impl DesignerPanel {
                                     egui::vec2(dw, dh),
                                 );
                                 painter.image(tex_id, dest, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
+                                notch_img = Some((tex_id, dest));
                             }
                             BgImageMode::Fit => {
                                 // Scale so whole image fits inside form, keeping aspect ratio (letterbox)
@@ -1501,6 +1509,7 @@ impl DesignerPanel {
                                     egui::vec2(dw, dh),
                                 );
                                 painter.image(tex_id, dest, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
+                                notch_img = Some((tex_id, dest));
                             }
                             BgImageMode::Center => {
                                 let ox = (form_rect.width()  - tex_size.x) / 2.0;
@@ -1510,11 +1519,15 @@ impl DesignerPanel {
                                     tex_size,
                                 );
                                 painter.image(tex_id, dest, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
+                                notch_img = Some((tex_id, dest));
                             }
                             BgImageMode::Tile => {
                                 // Tile the image across the form canvas
                                 let tw = tex_size.x.max(1.0);
                                 let th = tex_size.y.max(1.0);
+                                // Notch mask samples one tile from the form origin and
+                                // relies on Repeat wrap to tile (matches this phase).
+                                notch_img = Some((tex_id, egui::Rect::from_min_size(form_rect.min, egui::vec2(tw, th))));
                                 let cols = (form_rect.width()  / tw).ceil() as i32 + 1;
                                 let rows = (form_rect.height() / th).ceil() as i32 + 1;
                                 for row in 0..rows {
@@ -1609,6 +1622,30 @@ impl DesignerPanel {
                     };
                     cobolt_forms::render::render_faces(&painter, origin, &input).control_rects
                 };
+
+                // ── Corner-notch masks (spec 017) ───────────────────────────────
+                // egui can't clip children to a rounded rect, so after the faces
+                // are drawn we repaint each rounded GroupBox/Panel's corner notches
+                // with the canvas backdrop (colour + image), covering any child
+                // content — charts, grids, images — that bled past the arc. Drawn
+                // above the faces but below the editor chrome (handles/badges).
+                {
+                    let img_alpha = (255.0 * form_alpha_mul) as u8;
+                    for ctrl in &self.form.controls {
+                        if !matches!(ctrl.control_type, ControlType::GroupBox | ControlType::Panel) {
+                            continue;
+                        }
+                        let rad = cobolt_forms::paint::corner_radius(ctrl);
+                        if rad < 0.5 {
+                            continue;
+                        }
+                        if let Some(crect) = control_rects.get(&ctrl.id) {
+                            cobolt_forms::paint::draw_container_notch_mask(
+                                &painter, *crect, egui::Rounding::same(rad),
+                                canvas_bg, notch_img, img_alpha);
+                        }
+                    }
+                }
 
                 // ── Editor badges on top of the faces ───────────────────────────
                 for &idx in &render_order {
@@ -3283,6 +3320,7 @@ mod form_resize_tests {
 #[cfg(test)]
 mod animator_tests {
     use super::draw_animator;
+    use cobolt_forms::{Control, ControlType};
     use egui::{pos2, vec2, Rect};
 
     /// Write a 2-frame (red→blue) animated GIF, 100 ms each, to a temp file.
@@ -3308,8 +3346,9 @@ mod animator_tests {
         let raw = egui::RawInput { time: Some(t), ..Default::default() };
         let out = ctx.run(raw, |ctx| {
             let painter = ctx.layer_painter(egui::LayerId::background());
+            let ctrl = Control::new("anim", ControlType::Animator, 0, 0);
             draw_animator(&painter, Rect::from_min_size(pos2(0.0, 0.0), vec2(64.0, 64.0)),
-                "anim-key", src, true, true, "Fit", 1.0, false);
+                &ctrl, "anim-key", src, true, true, "Fit", 1.0, false);
         });
         out.shapes.into_iter().find_map(|cs| match cs.shape {
             egui::Shape::Mesh(m) => Some(m.texture_id),

@@ -234,7 +234,7 @@ pub fn draw_glass(
     painter:   &egui::Painter,
     rect:      egui::Rect,
     base:      Color32,   // control's own colour — used only as a faint frost tint
-    corner:    f32,
+    rounding:  impl Into<egui::Rounding>,  // uniform `f32` corner OR per-corner Rounding
     selected:  bool,
     alpha_mul: f32,
 ) {
@@ -262,44 +262,48 @@ pub fn draw_glass(
     let (y0, y1) = (rect.min.y, rect.max.y);
     let w = (x1 - x0).max(1.0);
     let h = (y1 - y0).max(1.0);
-    let radius = corner
-        .max(0.0)
-        .min(w * 0.5)
-        .min(h * 0.5);
+    // Per-corner radii (a uniform `f32` arrives as four equal corners), each
+    // clamped to half the smaller side. `max_radius` drives the uniform-ish bits
+    // (shadow spread, fill inset) so a control with one rounded corner still looks
+    // right (spec 017 — clip children to a container's rounded border).
+    let rnd0: egui::Rounding = rounding.into();
+    let cap = (w * 0.5).min(h * 0.5);
+    let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
+    let max_radius = rnd.nw.max(rnd.ne).max(rnd.sw).max(rnd.se);
 
     // Build a rounded-rectangle mesh from horizontal strips.  This preserves a
     // true top-to-bottom gradient while following the exact rounded contour on
     // the left and right sides.  Unlike a centre-fan mesh, it does not create
     // side bands or corner warping inside the chart frame.
     let rounded_vertical_mesh = |area: egui::Rect,
-                                 r: f32,
+                                 r: egui::Rounding,
                                  rows: usize,
                                  color_at_t: &dyn Fn(f32) -> Color32|
         -> egui::epaint::Mesh
     {
         let uv = egui::pos2(0.0, 0.0);
         let mut m = egui::epaint::Mesh::default();
-        let rr = r
-            .max(0.0)
-            .min(area.width() * 0.5)
-            .min(area.height() * 0.5);
+        let cap = (area.width() * 0.5).min(area.height() * 0.5);
+        let r = round_map(r, |c| c.max(0.0).min(cap));
 
-        let inset_at_y = |y: f32| -> f32 {
-            if rr <= 0.0 { return 0.0; }
+        // Horizontal inset of one side at height `y`, given that side's top and
+        // bottom corner radii — so the left edge follows nw/sw and the right ne/se.
+        let side_inset = |y: f32, r_top: f32, r_bot: f32| -> f32 {
             let mut inset: f32 = 0.0;
-
-            let top = (y - area.min.y).clamp(0.0, area.height());
-            if top < rr {
-                let dy = rr - top;
-                inset = inset.max(rr - (rr * rr - dy * dy).max(0.0).sqrt());
+            if r_top > 0.0 {
+                let top = (y - area.min.y).clamp(0.0, area.height());
+                if top < r_top {
+                    let dy = r_top - top;
+                    inset = inset.max(r_top - (r_top * r_top - dy * dy).max(0.0).sqrt());
+                }
             }
-
-            let bottom = (area.max.y - y).clamp(0.0, area.height());
-            if bottom < rr {
-                let dy = rr - bottom;
-                inset = inset.max(rr - (rr * rr - dy * dy).max(0.0).sqrt());
+            if r_bot > 0.0 {
+                let bottom = (area.max.y - y).clamp(0.0, area.height());
+                if bottom < r_bot {
+                    let dy = r_bot - bottom;
+                    inset = inset.max(r_bot - (r_bot * r_bot - dy * dy).max(0.0).sqrt());
+                }
             }
-
             inset
         };
 
@@ -307,15 +311,16 @@ pub fn draw_glass(
         for i in 0..=n {
             let t = i as f32 / n as f32;
             let y = area.min.y + area.height() * t;
-            let inset = inset_at_y(y);
+            let left = side_inset(y, r.nw, r.sw);
+            let right = side_inset(y, r.ne, r.se);
             let c = color_at_t(t);
             m.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(area.min.x + inset, y),
+                pos: Pos2::new(area.min.x + left, y),
                 uv,
                 color: c,
             });
             m.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(area.max.x - inset, y),
+                pos: Pos2::new(area.max.x - right, y),
                 uv,
                 color: c,
             });
@@ -332,12 +337,12 @@ pub fn draw_glass(
     // ── 1. Layered shadow ────────────────────────────────────────────────────
     painter.rect_filled(
         rect.translate(Vec2::new(0.0, 8.0)).expand(1.0),
-        radius + 4.0,
+        round_map(rnd, |c| c + 4.0),
         pm(0, 0, 0, 18),
     );
     painter.rect_filled(
         rect.translate(Vec2::new(0.0, 16.0)).expand(4.0),
-        radius + 10.0,
+        round_map(rnd, |c| c + 10.0),
         pm(0, 0, 0, 8),
     );
 
@@ -367,10 +372,10 @@ pub fn draw_glass(
     // under the stroke, and curve its corners in a touch MORE than the stroke's
     // radius so the corner is decisively inside it. The frame stroke (drawn
     // last, over the outer rect) seals the resulting hairline on straight edges.
-    let inset       = 1.4_f32.min(radius.max(2.0));
+    let inset       = 1.4_f32.min(max_radius.max(2.0));
     let fill_rect   = rect.shrink(inset);
-    let fill_radius = (radius - inset + 1.0).max(0.0);
-    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_radius, 220, &glass_color)));
+    let fill_round  = round_map(rnd, |c| (c - inset + 1.0).max(0.0));
+    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_round, 220, &glass_color)));
 
     // ── 3. Very gentle depth tint ─────────────────────────────────────────────
     let depth_color = |t: f32| -> Color32 {
@@ -379,7 +384,7 @@ pub fn draw_glass(
         let a = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) as u8;
         pm(28, 44, 56, a)
     };
-    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_radius, 220, &depth_color)));
+    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_round, 220, &depth_color)));
 
     // ── 4. Single rounded frame ───────────────────────────────────────────────
     let (border_w, border_c) = if selected {
@@ -396,7 +401,7 @@ pub fn draw_glass(
     // centres strokes on the path; a centred stroke spills half-a-pixel past
     // the rect, and that overhang is exactly the bright corner fringe).
     let half = border_w * 0.5;
-    painter.rect_stroke(rect.shrink(half), (radius - half).max(0.0),
+    painter.rect_stroke(rect.shrink(half), round_map(rnd, |c| (c - half).max(0.0)),
         Stroke::new(border_w, border_c));
 }
 
@@ -992,6 +997,11 @@ pub fn draw_control(
     // Unified corner radius for every control (spec 016): canonical CornerRadius,
     // legacy BorderRadius alias, per-type default, clamped. 0 ⇒ square.
     let corner = corner_radius(ctrl);
+    // Per-corner frame rounding: the control's own radius, lifted to the container
+    // radius on any corner that lands on a rounded GroupBox/Panel border — so the
+    // card/background is cut by the parent shape and never bleeds past its rounded
+    // corner (spec 017). Equals `corner` on all four corners when free-standing.
+    let frame_round = control_border_rounding(ctrl, rect, corner);
 
     let is_label = matches!(ctrl.control_type, CT::Label);
 
@@ -1057,10 +1067,10 @@ pub fn draw_control(
             }
         } else {
             // Image missing / undecodable → never fail; fall back to glass (R11).
-            draw_glass(painter, rect, fill, corner, selected, alpha_mul);
+            draw_glass(painter, rect, fill, frame_round, selected, alpha_mul);
         }
     } else if glass {
-        draw_glass(painter, rect, fill, corner, selected, alpha_mul);
+        draw_glass(painter, rect, fill, frame_round, selected, alpha_mul);
         // Buttons get a subtle top specular — a soft vertical light reflection
         // that visually separates a clickable Button from flat fields like a
         // TextBox. Two stacked translucent bands fading downward.
@@ -1080,9 +1090,9 @@ pub fn draw_control(
             band(spec_h * 0.45, 22);   // narrower brighter core
         }
     } else {
-        painter.rect_filled(rect, corner, alpha_color(fill));
+        painter.rect_filled(rect, frame_round, alpha_color(fill));
         let bc = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { alpha_color(stroke_color) };
-        painter.rect_stroke(rect, corner, Stroke::new(if selected { 2.0 } else { 1.0 }, bc));
+        painter.rect_stroke(rect, frame_round, Stroke::new(if selected { 2.0 } else { 1.0 }, bc));
     }
 
     // ── TabControl tab strip (spec 012) ────────────────────────────────────────
@@ -1155,36 +1165,13 @@ pub fn draw_control(
             // If we have a loaded texture, draw it directly and skip the text label.
             if let Some(tex_id) = pic_tex {
                 let size_mode = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Normal".into());
-                let tint = Color32::from_rgba_premultiplied(255, 255, 255, a);
                 // Honour SizeMode with the image's native size so the aspect ratio
                 // is preserved (Fit/Zoom/Center) identically to the run/preview —
                 // the native size comes from the texture manager (spec 017 parity).
                 let native = painter.ctx().tex_manager().read().meta(tex_id)
                     .map(|m| Vec2::new(m.size[0] as f32, m.size[1] as f32))
                     .unwrap_or_else(|| rect.size());
-                let dest = media_dest_rect(rect, native, pic_size_mode(&size_mode));
-                // Rounded image clipped to the corner radius (spec 016). When the
-                // image is contained (Fit/Center) round the image rect; when it
-                // overflows (Fill/Stretch) round the control rect with mapped UV.
-                let contained = dest.width() <= rect.width() + 0.5 && dest.height() <= rect.height() + 0.5;
-                let (shape_rect, uv) = if contained {
-                    (dest, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)))
-                } else {
-                    let dw = dest.width().max(1.0);
-                    let dh = dest.height().max(1.0);
-                    (rect, egui::Rect::from_min_max(
-                        egui::pos2((rect.min.x - dest.min.x) / dw, (rect.min.y - dest.min.y) / dh),
-                        egui::pos2((rect.max.x - dest.min.x) / dw, (rect.max.y - dest.min.y) / dh)))
-                };
-                painter.with_clip_rect(rect).add(egui::Shape::Rect(egui::epaint::RectShape {
-                    rect: shape_rect,
-                    rounding: egui::Rounding::same(corner),
-                    fill: tint,                 // multiplies the texture (tint + alpha)
-                    stroke: Stroke::NONE,
-                    blur_width: 0.0,
-                    fill_texture_id: tex_id,
-                    uv,
-                }));
+                draw_media_image(painter, rect, tex_id, native, pic_size_mode(&size_mode), a, ctrl, corner);
                 // Selection border on top
                 if selected {
                     painter.rect_stroke(rect, corner, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
@@ -1205,7 +1192,7 @@ pub fn draw_control(
             let size_mode = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned())
                 .unwrap_or_else(|| "Fit".into());
             let key = format!("{}|{}", ctrl.id, source.trim());
-            draw_animator(painter, rect, &key, source.trim(), auto, looping, &size_mode, alpha_mul, selected);
+            draw_animator(painter, rect, ctrl, &key, source.trim(), auto, looping, &size_mode, alpha_mul, selected);
             return;
         }
         CT::TreeView   => "🌲 [TreeView]".into(),
@@ -1315,9 +1302,9 @@ pub fn draw_control(
         CT::BarChart | CT::LineChart | CT::PieChart |
         CT::AreaChart | CT::ScatterChart | CT::DonutChart)
     {
-        draw_chart_preview(painter, ctrl, rect, a, alpha_mul, glass, selected);
+        draw_chart_preview(painter, ctrl, rect, a, alpha_mul, glass, selected, frame_round);
         if selected {
-            painter.rect_stroke(rect, 8.0, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
+            painter.rect_stroke(rect, frame_round, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
         }
         // Animation indicator falls through to the shared badge below.
     }
@@ -1381,7 +1368,9 @@ pub fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::Textu
         .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
         .collect();
     let ci = egui::ColorImage { size: [w, h], pixels };
-    Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR))
+    // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a Tiled backdrop
+    // can also tile inside the corner-notch mask (spec 017).
+    Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
 }
 
 /// Load (and cache in egui memory) a PictureBox image texture, so it isn't
@@ -1637,9 +1626,11 @@ pub fn glass_combo_popup(
     action
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_animator(
     painter:   &egui::Painter,
     rect:      egui::Rect,
+    ctrl:      &Control,
     key:       &str,
     source:    &str,
     auto_play: bool,
@@ -1649,6 +1640,9 @@ pub fn draw_animator(
     selected:  bool,
 ) {
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
+    // Round the film/placeholder corners that land on a container's rounded border
+    // (spec 017), so the animation is cut by the parent shape like the PictureBox.
+    let round = control_border_rounding(ctrl, rect, 6.0);
 
     let played = if source.is_empty() {
         None
@@ -1665,19 +1659,14 @@ pub fn draw_animator(
 
     match played {
         Some((tex, native)) => {
-            let dest = media_dest_rect(rect, native, size_mode);
-            let clip = painter.with_clip_rect(rect);
-            clip.image(
-                tex,
-                dest,
-                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                Color32::from_white_alpha(a),
-            );
+            // Same clipped/rounded path as the PictureBox image (own = 0 — the film
+            // is unrounded unless a container border clips it).
+            draw_media_image(painter, rect, tex, native, size_mode, a, ctrl, 0.0);
         }
         None => {
             // Placeholder: a dark "film" panel with a play glyph.
-            painter.rect_filled(rect, 6.0, Color32::from_rgba_premultiplied(18, 24, 48, a));
-            painter.rect_stroke(rect, 6.0,
+            painter.rect_filled(rect, round, Color32::from_rgba_premultiplied(18, 24, 48, a));
+            painter.rect_stroke(rect, round,
                 Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 150, 230, a)));
             let label = if source.is_empty() { "▶ Animator" } else { "▶ (cannot load)" };
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, label,
@@ -1687,7 +1676,7 @@ pub fn draw_animator(
     }
 
     if selected {
-        painter.rect_stroke(rect, 6.0,
+        painter.rect_stroke(rect, round,
             Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)));
     }
 }
@@ -1977,6 +1966,7 @@ fn grad_slice_mesh(
 }
 
 /// Draw a rich glass chart preview on the canvas for all chart control types.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_chart_preview(
     painter:   &egui::Painter,
     ctrl:      &Control,
@@ -1985,6 +1975,7 @@ pub fn draw_chart_preview(
     alpha_mul: f32,
     glass:     bool,
     selected:  bool,
+    rounding:  egui::Rounding,  // per-corner: own radius, lifted to a container border
 ) {
     use crate::model::ControlType as CT;
 
@@ -1994,16 +1985,16 @@ pub fn draw_chart_preview(
     // `HideBackground` suppresses the panel fill + border frame so only the chart
     // content (grid, axes, labels, data) is visible, transparent over the form.
     let hide_bg = ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
-    // Unified corner radius (spec 016); default 8 preserves the prior chart look.
-    let corner = corner_radius(ctrl);
+    // Per-corner rounding (spec 016 default 8, lifted to a container's border by the
+    // caller so the chart card never bleeds past a rounded GroupBox/Panel corner).
     let bg = Color32::from_rgba_premultiplied(15,20,45,a);
     if !hide_bg {
         if glass {
-            draw_glass(painter, rect, Color32::from_rgb(15,20,45), corner, false, alpha_mul);
+            draw_glass(painter, rect, Color32::from_rgb(15,20,45), rounding, false, alpha_mul);
         } else {
-            painter.rect_filled(rect, corner, bg);
+            painter.rect_filled(rect, rounding, bg);
             let border = Color32::from_rgba_premultiplied(60,80,160,a);
-            painter.rect_stroke(rect, corner, Stroke::new(1.0, border));
+            painter.rect_stroke(rect, rounding, Stroke::new(1.0, border));
         }
     }
 
@@ -2317,6 +2308,214 @@ pub fn corner_radius(ctrl: &Control) -> f32 {
         });
     let max_r = 0.5 * (ctrl.rect.w.min(ctrl.rect.h) as f32);
     raw.clamp(0.0, max_r.max(0.0))
+}
+
+/// Decode the transient `_ContainerClip` prop the render engine seeds on a
+/// PictureBox face that lives inside a rounded GroupBox/Panel. Returns the
+/// container's screen-space **content** rect, its corner radius, and a per-corner
+/// `[nw, ne, sw, se]` roundable flag. `None` when the prop is absent/malformed.
+fn parse_container_clip(ctrl: &Control) -> Option<(egui::Rect, f32, [bool; 4])> {
+    let v = ctrl.get_prop("_ContainerClip")?;
+    let p: Vec<f32> = v.as_str().split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    if p.len() != 9 {
+        return None;
+    }
+    let rect = egui::Rect::from_min_max(egui::pos2(p[0], p[1]), egui::pos2(p[2], p[3]));
+    let flags = [p[5] != 0.0, p[6] != 0.0, p[7] != 0.0, p[8] != 0.0];
+    Some((rect, p[4], flags))
+}
+
+/// Per-corner rounding for content clipped to its container border. A corner is
+/// rounded with the container radius when the content reaches into that corner's
+/// arc region — i.e. its visible edge comes within the radius of both container
+/// edges meeting at that corner. This covers content that fills the container AND
+/// content inset a few px from the border (which would otherwise keep its small own
+/// radius and poke past the larger container arc). Otherwise the corner keeps the
+/// control's own radius. The applied radius is clamped to half the visible rect.
+fn container_image_rounding(
+    visible: egui::Rect,
+    border: egui::Rect,
+    rad: f32,
+    flags: [bool; 4],
+    own: f32,
+) -> egui::Rounding {
+    let rr = rad.min(0.5 * visible.width().min(visible.height())).max(0.0);
+    // Reach: the visible edge lands inside the container's corner arc band.
+    let m = rad + 1.0;
+    let near_l = visible.min.x <= border.min.x + m;
+    let near_r = visible.max.x >= border.max.x - m;
+    let near_t = visible.min.y <= border.min.y + m;
+    let near_b = visible.max.y >= border.max.y - m;
+    let corner = |on: bool| if on { own.max(rr) } else { own };
+    egui::Rounding {
+        nw: corner(flags[0] && near_l && near_t),
+        ne: corner(flags[1] && near_r && near_t),
+        sw: corner(flags[2] && near_l && near_b),
+        se: corner(flags[3] && near_r && near_b),
+    }
+}
+
+/// Apply `f` to each corner radius of a `Rounding`.
+fn round_map(r: egui::Rounding, f: impl Fn(f32) -> f32) -> egui::Rounding {
+    egui::Rounding { nw: f(r.nw), ne: f(r.ne), sw: f(r.sw), se: f(r.se) }
+}
+
+/// Append a triangle fan covering one rounded-corner **notch** — the slice of the
+/// corner square that lies OUTSIDE the rounded arc — to `m`. `apex` is the square
+/// (un-rounded) corner; the arc of radius `r` is centred at `center` and swept from
+/// `t0` to `t1` radians. `uv_fn` maps a screen position to texture UV (`WHITE_UV`
+/// for a solid fill). egui can't clip to a rounded rect, so we paint these notches
+/// with what's behind the container to cut child bleed (spec 017).
+fn push_notch_fan(
+    m: &mut egui::epaint::Mesh,
+    apex: egui::Pos2,
+    center: egui::Pos2,
+    r: f32,
+    t0: f32,
+    t1: f32,
+    uv_fn: &dyn Fn(egui::Pos2) -> egui::Pos2,
+    color: Color32,
+) {
+    if r < 0.5 {
+        return;
+    }
+    let segs = ((r as usize) / 2).clamp(6, 40);
+    let base = m.vertices.len() as u32;
+    m.vertices.push(egui::epaint::Vertex { pos: apex, uv: uv_fn(apex), color });
+    for i in 0..=segs {
+        let t = t0 + (t1 - t0) * (i as f32 / segs as f32);
+        let p = egui::pos2(center.x + r * t.cos(), center.y + r * t.sin());
+        m.vertices.push(egui::epaint::Vertex { pos: p, uv: uv_fn(p), color });
+    }
+    for i in 0..segs as u32 {
+        m.indices.extend([base, base + 1 + i, base + 2 + i]);
+    }
+}
+
+/// Build the four corner-notch fans of `rect`/`rounding` into one mesh, colouring
+/// each vertex via `uv_fn` (texture) + `color` (tint).
+fn notch_mesh(
+    rect: egui::Rect,
+    rounding: egui::Rounding,
+    uv_fn: &dyn Fn(egui::Pos2) -> egui::Pos2,
+    color: Color32,
+) -> egui::epaint::Mesh {
+    use std::f32::consts::PI;
+    let mut m = egui::epaint::Mesh::default();
+    let cap = 0.5 * rect.width().min(rect.height());
+    let cl = |v: f32| v.max(0.0).min(cap);
+    let (x0, y0, x1, y1) = (rect.min.x, rect.min.y, rect.max.x, rect.max.y);
+    let nw = cl(rounding.nw);
+    let ne = cl(rounding.ne);
+    let sw = cl(rounding.sw);
+    let se = cl(rounding.se);
+    push_notch_fan(&mut m, egui::pos2(x0, y0), egui::pos2(x0 + nw, y0 + nw), nw, PI, 1.5 * PI, uv_fn, color);
+    push_notch_fan(&mut m, egui::pos2(x1, y0), egui::pos2(x1 - ne, y0 + ne), ne, 1.5 * PI, 2.0 * PI, uv_fn, color);
+    push_notch_fan(&mut m, egui::pos2(x1, y1), egui::pos2(x1 - se, y1 - se), se, 0.0, 0.5 * PI, uv_fn, color);
+    push_notch_fan(&mut m, egui::pos2(x0, y1), egui::pos2(x0 + sw, y1 - sw), sw, 0.5 * PI, PI, uv_fn, color);
+    m
+}
+
+/// Paint a rounded container's four corner notches with whatever sits BEHIND it,
+/// so any child content that bled past the rounded corner (charts, grids, anything
+/// egui's axis-aligned clip couldn't trim) is covered. `fill` is the solid backdrop
+/// colour; `image` is an optional backdrop texture and the screen rect it's mapped
+/// to (drawn on top of `fill`, matching how a form paints colour then image).
+/// Spec 017 — the general fix for rounded-corner child bleed.
+///
+/// `fill` is only painted when it is **opaque**: a translucent canvas (e.g. a
+/// transparent form over the runtime glass) is already on screen, so re-painting it
+/// would double the tint into a darker wedge. In that case we rely on the image
+/// layer (which IS opaque-enough) and otherwise leave the notch as drawn.
+pub fn draw_container_notch_mask(
+    painter:   &egui::Painter,
+    rect:      egui::Rect,
+    rounding:  egui::Rounding,
+    fill:      Color32,
+    image:     Option<(egui::TextureId, egui::Rect)>,
+    img_alpha: u8,
+) {
+    if rounding.nw < 0.5 && rounding.ne < 0.5 && rounding.sw < 0.5 && rounding.se < 0.5 {
+        return;
+    }
+    let painter = painter.with_clip_rect(rect);
+    if fill.a() >= 255 {
+        let m = notch_mesh(rect, rounding, &|_p| egui::epaint::WHITE_UV, fill);
+        if !m.indices.is_empty() {
+            painter.add(egui::Shape::mesh(m));
+        }
+    }
+    if let Some((tex, dest)) = image {
+        if img_alpha > 0 && dest.width() > 0.5 && dest.height() > 0.5 {
+            let tint = Color32::from_white_alpha(img_alpha);
+            let (dw, dh) = (dest.width(), dest.height());
+            let uv = |p: egui::Pos2| egui::pos2((p.x - dest.min.x) / dw, (p.y - dest.min.y) / dh);
+            let mut m = notch_mesh(rect, rounding, &uv, tint);
+            m.texture_id = tex;
+            if !m.indices.is_empty() {
+                painter.add(egui::Shape::mesh(m));
+            }
+        }
+    }
+}
+
+/// Per-corner rounding for a control's own rect: its uniform `own` radius, lifted
+/// to the container radius on any corner that lands on the parent's rounded border
+/// (when `ctrl` carries a `_ContainerClip`). Used for non-image fills/strokes that
+/// must follow a container corner (e.g. the Animator placeholder/film) — spec 017.
+fn control_border_rounding(ctrl: &Control, rect: egui::Rect, own: f32) -> egui::Rounding {
+    if let Some((border, rad, flags)) = parse_container_clip(ctrl) {
+        let visible = rect.intersect(border);
+        container_image_rounding(visible, border, rad, flags, own)
+    } else {
+        egui::Rounding::same(own)
+    }
+}
+
+/// Draw a texture into `rect` honouring `size_mode` (its native size), clipped to
+/// the control rect and — when `ctrl` carries a `_ContainerClip` — to the parent
+/// container's rounded BORDER path, so any overflow is cut by the container shape
+/// instead of poking out square (spec 017). Shared by the PictureBox image and the
+/// Animator frame so both clip identically on every surface. `own` is the control's
+/// own corner radius, used only when it is free-standing (no container clip).
+pub fn draw_media_image(
+    painter:   &egui::Painter,
+    rect:      egui::Rect,
+    tex_id:    egui::TextureId,
+    native:    Vec2,
+    size_mode: &str,
+    a:         u8,
+    ctrl:      &Control,
+    own:       f32,
+) {
+    let dest = media_dest_rect(rect, native, size_mode);
+    // The image keeps its own size; the visible area is `dest` trimmed to the
+    // control rect (and the container border). We draw one textured rect over it
+    // with the UV remapped from the full image, so the texture stays put.
+    let mut visible = dest.intersect(rect);
+    let mut rounding = egui::Rounding::same(own);
+    if let Some((border, rad, flags)) = parse_container_clip(ctrl) {
+        visible = visible.intersect(border);
+        rounding = container_image_rounding(visible, border, rad, flags, 0.0);
+    }
+    if visible.width() <= 0.5 || visible.height() <= 0.5 {
+        return;
+    }
+    let dw = dest.width().max(1.0);
+    let dh = dest.height().max(1.0);
+    let uv = egui::Rect::from_min_max(
+        egui::pos2((visible.min.x - dest.min.x) / dw, (visible.min.y - dest.min.y) / dh),
+        egui::pos2((visible.max.x - dest.min.x) / dw, (visible.max.y - dest.min.y) / dh));
+    let tint = Color32::from_rgba_premultiplied(255, 255, 255, a);
+    painter.with_clip_rect(rect).add(egui::Shape::Rect(egui::epaint::RectShape {
+        rect: visible,
+        rounding,
+        fill: tint,
+        stroke: Stroke::NONE,
+        blur_width: 0.0,
+        fill_texture_id: tex_id,
+        uv,
+    }));
 }
 
 pub fn control_colors(ct: &ControlType, selected: bool) -> (Color32, Color32, Color32) {

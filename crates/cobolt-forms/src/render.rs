@@ -169,6 +169,85 @@ pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
     }
 }
 
+/// Whether a control's drawn content (image, film, glass card, chart, …) should be
+/// clipped to a rounded GroupBox/Panel parent's border so it never bleeds past the
+/// container's rounded corner (spec 017). True for every visual control; the
+/// non-visual config objects (Timer/Agent/Sql/Rest) draw nothing that can bleed.
+fn clips_to_container_border(ct: &ControlType) -> bool {
+    !matches!(ct,
+        ControlType::Timer | ControlType::AgentObject
+        | ControlType::SqlDatabase | ControlType::RestClient)
+}
+
+/// Border path of a control's immediate rounded GroupBox/Panel parent, in screen
+/// pixels: the parent's **visual** rect (its actual border, not the inset content
+/// area) and its corner radius. A child is clipped to this shape, so any part that
+/// exceeds the parent's border is cut by the parent — not by the child's own bounds
+/// (spec 017, the container-clip rule). `None` when the parent isn't rounded.
+fn picturebox_container_border(
+    input: &RenderInput<'_>,
+    idx: usize,
+    origin: egui::Pos2,
+) -> Option<(Rect, f32)> {
+    let controls = input.controls;
+    let parent_id = controls[idx].parent.as_ref()?;
+    let parent = controls.iter().find(|c| &c.id == parent_id)?;
+    if !matches!(parent.control_type, ControlType::GroupBox | ControlType::Panel) {
+        return None;
+    }
+    let plive = input.state.live(parent);
+    let rad = crate::paint::corner_radius(&plive);
+    if rad < 0.5 {
+        return None;
+    }
+    let v = plive.rect; // visual (border) rect in form coords
+    let border = Rect::from_min_max(
+        origin + Vec2::new(v.x as f32, v.y as f32),
+        origin + Vec2::new((v.x + v.w) as f32, (v.y + v.h) as f32),
+    );
+    Some((border, rad))
+}
+
+/// `_ContainerClip` descriptor string for `draw_control`: the parent border rect,
+/// radius, and an all-corners-roundable flag set (every corner of a rounded
+/// container border is rounded; `draw_control` still only rounds the corners the
+/// image actually reaches).
+fn container_clip_prop(border: Rect, rad: f32) -> String {
+    format!("{},{},{},{},{},1,1,1,1",
+        border.min.x, border.min.y, border.max.x, border.max.y, rad)
+}
+
+/// After all controls are painted, repaint each rounded GroupBox/Panel's four
+/// corner notches with the backdrop, covering any child content that bled past the
+/// rounded arc (egui can only clip to axis-aligned rects). `bg` is the solid
+/// backdrop colour and `image` the optional backdrop texture + its screen rect.
+fn mask_container_notches(
+    painter: &egui::Painter,
+    input: &RenderInput<'_>,
+    out: &RenderOutput,
+    image: Option<(egui::TextureId, Rect)>,
+    img_alpha: u8,
+    bg: Color32,
+) {
+    let controls = input.controls;
+    for (idx, base) in controls.iter().enumerate() {
+        if !matches!(base.control_type, ControlType::GroupBox | ControlType::Panel) {
+            continue;
+        }
+        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
+            continue;
+        }
+        let live = input.state.live(base);
+        let rad = crate::paint::corner_radius(&live);
+        if rad < 0.5 {
+            continue;
+        }
+        let Some(&screen) = out.control_rects.get(&live.id) else { continue };
+        crate::paint::draw_container_notch_mask(
+            painter, screen, egui::Rounding::same(rad), bg, image, img_alpha);
+    }
+}
+
 /// Render a whole form into `ui` at its content origin. The caller sets up the
 /// `CentralPanel` / `ScrollArea` and `ui.set_min_size(form_size)` first.
 pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
@@ -180,12 +259,15 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let form_rect = Rect::from_min_size(origin, input.form_size);
     let bg = backdrop_color(&input.backdrop.color_hex, input.backdrop.transparency);
     painter.rect_filled(form_rect, 0.0, bg);
-    if let Some((tex, tsize)) = input.backdrop.image {
-        let a = ((100 - input.backdrop.transparency.min(100)) as f32 / 100.0 * 255.0) as u8;
+    let backdrop_img_alpha = ((100 - input.backdrop.transparency.min(100)) as f32 / 100.0 * 255.0) as u8;
+    // Backdrop image, also remembered (texture + screen dest) so the corner-notch
+    // mask can repaint it behind a rounded container's children (spec 017).
+    let backdrop_img: Option<(egui::TextureId, Rect)> = input.backdrop.image.map(|(tex, tsize)| {
         let dest = image_dest(form_rect, tsize, input.backdrop.image_mode);
         let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        painter.with_clip_rect(form_rect).image(tex, dest, uv, Color32::from_white_alpha(a));
-    }
+        painter.with_clip_rect(form_rect).image(tex, dest, uv, Color32::from_white_alpha(backdrop_img_alpha));
+        (tex, dest)
+    });
 
     // ── Controls: designer order, clipped + faded by container ancestry. ──────
     let controls = input.controls;
@@ -217,15 +299,29 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         let screen = crate::paint::scale_rect_about_center(base_screen, tf.scale);
         out.control_rects.insert(live.id.clone(), screen);
 
+        // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
+        // BORDER path, so any overflow is cut by the container shape rather than the
+        // image's own bounds (spec 017). The image is allowed to reach the parent's
+        // border (not just its inset content area), so the clip widens to the border.
+        let pic_border = if clips_to_container_border(&base.control_type) {
+            picturebox_container_border(input, idx, origin)
+        } else {
+            None
+        };
+
         // Clip to ancestor container content areas (rounded clipping is cosmetic;
         // egui clips to the axis-aligned rect — spec 012/016). Start from the whole
         // form so a top-level control is never clipped to its own bounds.
-        let clip = match containers::clip_rect(controls, idx) {
-            Some(cm) => form_rect.intersect(Rect::from_min_size(
-                origin + Vec2::new(cm.x as f32, cm.y as f32),
-                Vec2::new(cm.w as f32, cm.h as f32),
-            )),
-            None => form_rect,
+        let clip = if let Some((border, _)) = pic_border {
+            form_rect.intersect(border)
+        } else {
+            match containers::clip_rect(controls, idx) {
+                Some(cm) => form_rect.intersect(Rect::from_min_size(
+                    origin + Vec2::new(cm.x as f32, cm.y as f32),
+                    Vec2::new(cm.w as f32, cm.h as f32),
+                )),
+                None => form_rect,
+            }
         };
 
         let anc = containers::ancestor_opacity(controls, idx);
@@ -237,6 +333,10 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         let mut face = live.clone();
         face.rect = crate::model::Rect::new(
             0, 0, screen.width().round() as i32, screen.height().round() as i32);
+
+        if let Some((border, rad)) = pic_border {
+            face.set_prop("_ContainerClip", container_clip_prop(border, rad));
+        }
 
         if interactive {
             // Live, editable widget: faces via `draw_control`, plus the interaction
@@ -259,6 +359,10 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             crate::paint::draw_control(&dp, screen.min, &face, false, input.glass, alpha, 1.0, pic_tex);
         }
     }
+
+    // ── Corner-notch masks: cut any child content that bled past a rounded
+    // container's arc by repainting the backdrop in its corner notches (spec 017).
+    mask_container_notches(&painter, input, &out, backdrop_img, backdrop_img_alpha, bg);
 
     // ── Second pass: open ComboBox dropdowns float above everything. ──────────
     for (cid, items, header, cur) in open_combos {
@@ -314,14 +418,26 @@ pub fn render_faces(painter: &egui::Painter, origin: egui::Pos2, input: &RenderI
         let screen = crate::paint::scale_rect_about_center(base_screen, tf.scale);
         out.control_rects.insert(live.id.clone(), screen);
 
+        // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
+        // BORDER path (spec 017) — see `render_form`.
+        let pic_border = if clips_to_container_border(&base.control_type) {
+            picturebox_container_border(input, idx, origin)
+        } else {
+            None
+        };
+
         // Clip children to ancestor container content areas; top-level controls
         // draw to the painter's existing clip (the canvas), matching the designer.
-        let clip = match containers::clip_rect(controls, idx) {
-            Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
-                origin + Vec2::new(cm.x as f32, cm.y as f32),
-                Vec2::new(cm.w as f32, cm.h as f32),
-            )),
-            None => painter.clip_rect(),
+        let clip = if let Some((border, _)) = pic_border {
+            painter.clip_rect().intersect(border)
+        } else {
+            match containers::clip_rect(controls, idx) {
+                Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
+                    origin + Vec2::new(cm.x as f32, cm.y as f32),
+                    Vec2::new(cm.w as f32, cm.h as f32),
+                )),
+                None => painter.clip_rect(),
+            }
         };
 
         let anc = containers::ancestor_opacity(controls, idx);
@@ -331,6 +447,9 @@ pub fn render_faces(painter: &egui::Painter, origin: egui::Pos2, input: &RenderI
         let mut face = live.clone();
         face.rect = crate::model::Rect::new(
             0, 0, screen.width().round() as i32, screen.height().round() as i32);
+        if let Some((border, rad)) = pic_border {
+            face.set_prop("_ContainerClip", container_clip_prop(border, rad));
+        }
         let pic_tex = if matches!(face.control_type, ControlType::PictureBox) {
             crate::paint::picturebox_texture(painter.ctx(), sv(&face, "ImagePath").trim())
                 .map(|t| t.id())
@@ -940,7 +1059,7 @@ fn render_interactive(
             let looping = !matches!(sv(ctrl, "Loop").as_str(), "0" | "false" | "False");
             let size_mode = { let s = sv(ctrl, "SizeMode"); if s.is_empty() { "Fit".to_owned() } else { s } };
             let key = format!("{}|{}", id, source);
-            paint::draw_animator(&painter, screen, &key, &source, auto, looping, &size_mode, alpha, false);
+            paint::draw_animator(&painter, screen, ctrl, &key, &source, auto, looping, &size_mode, alpha, false);
         }
         CT::Timer => {
             // Non-visual, but it TICKS: fire `onTick` every Interval ms while enabled.
@@ -1011,6 +1130,51 @@ mod tests {
         assert_eq!(live.rect.x, 40);
         assert_eq!(live.get_prop("Text").unwrap().as_str(), "hello");
         assert_eq!(live.rect.y, 6, "untouched geometry preserved");
+    }
+
+    #[test]
+    fn picturebox_container_border_is_parent_visual_rect_and_radius() {
+        // A PictureBox child of a rounded GroupBox is clipped to the parent's
+        // BORDER path: the parent's full visual rect (NOT the inset content rect)
+        // and its corner radius, so overflow is cut by the container shape.
+        let mut gb = ctrl("GB", ControlType::GroupBox, 0, 0, 200, 200);
+        gb.set_prop("CornerRadius", 12);
+        let mut pic = ctrl("Pic", ControlType::PictureBox, 10, 10, 180, 180);
+        pic.parent = Some("GB".into());
+        let controls = vec![gb, pic];
+        let active = ActiveTabs::new();
+        // Build a fresh static RenderInput per probe and clip child #1 (avoids
+        // moving the non-Copy Backdrop across reuses).
+        let mk = |controls: &[Control]| -> Option<(Rect, f32)> {
+            let input = RenderInput {
+                controls,
+                state: &DesignedState,
+                form_size: Vec2::new(400.0, 400.0),
+                glass: true,
+                mode: RenderMode::Static,
+                active_tabs: &active,
+                backdrop: Backdrop::default(),
+            };
+            picturebox_container_border(&input, 1, egui::pos2(0.0, 0.0))
+        };
+        let (border, rad) = mk(&controls).expect("rounded parent → border clip");
+        assert_eq!(border, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0)));
+        assert_eq!(rad, 12.0);
+        assert_eq!(container_clip_prop(border, rad), "0,0,200,200,12,1,1,1,1");
+
+        // A square (non-rounded) container needs no clip.
+        let mut panel = ctrl("P", ControlType::Panel, 0, 0, 200, 200);
+        panel.set_prop("CornerRadius", 0);
+        let mut pic2 = ctrl("Pic", ControlType::PictureBox, 10, 10, 50, 50);
+        pic2.parent = Some("P".into());
+        let controls2 = vec![panel, pic2];
+        assert_eq!(mk(&controls2), None);
+
+        // A top-level PictureBox (no parent) needs no clip.
+        let spacer = ctrl("S", ControlType::Label, 0, 0, 10, 10);
+        let mut lone = ctrl("Pic", ControlType::PictureBox, 10, 10, 50, 50);
+        lone.parent = None;
+        assert_eq!(mk(&[spacer, lone]), None);
     }
 
     #[test]

@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.20] — 2026-06-26
+
+### Fixed
+
+- **Child controls no longer bleed past a rounded container's corner** — a
+  PictureBox, Animator, chart, or any control inside a rounded GroupBox/Panel is
+  now clipped to the parent's **border path** instead of its own bounds. The
+  control keeps its size; whatever overflows the container's rounded corner is cut
+  by the container shape. The render engine widens a child's clip to the parent
+  border and the unified `draw_control` rounds each face (image, film, glass card,
+  chart background) on any corner that lands on the container arc.
+- **Corner-notch masking for content egui can't round-clip** — egui only supports
+  axis-aligned clipping, so grid lines and other fine chart/control content can't
+  be rounded directly. After a rounded container's children are painted, its four
+  corner notches are repainted with the backdrop (solid colour and/or the
+  background image, tiled when the form tiles), covering any residual bleed. The
+  solid fill is applied only when opaque, so a translucent canvas is never
+  double-painted into a darker wedge.
+- **`draw_glass` is now per-corner** — the frosted-glass card renderer accepts a
+  full `Rounding` (not a single radius), so a control whose corner meets a rounded
+  container follows that arc on that corner alone. Images load with Repeat wrap so
+  a tiled backdrop also tiles inside the notch mask.
+
 ## [PowerRustCOBOL 1.27.19] — 2026-06-24
 
 ### Fixed
