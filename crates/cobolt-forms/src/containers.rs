@@ -37,7 +37,11 @@ pub enum DropTarget {
 /// A control's `Opacity` (0–100) as a 0.0–1.0 multiplier (default 1.0). Inlined
 /// here so the containers logic stays free of the `render` feature.
 fn opacity_of(ctrl: &Control) -> f32 {
-    ctrl.get_prop("Opacity").map(|v| v.as_i64()).unwrap_or(100).clamp(0, 100) as f32 / 100.0
+    ctrl.get_prop("Opacity")
+        .map(|v| v.as_i64())
+        .unwrap_or(100)
+        .clamp(0, 100) as f32
+        / 100.0
 }
 
 fn index_of(controls: &[Control], id: &str) -> Option<usize> {
@@ -107,12 +111,16 @@ pub fn collect_descendants(controls: &[Control], idx: usize) -> Vec<usize> {
 pub fn is_visible(controls: &[Control], idx: usize, active: &ActiveTabs) -> bool {
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
-        let Some(p) = index_of(controls, &pid) else { break };
+        let Some(p) = index_of(controls, &pid) else {
+            break;
+        };
         if controls[p].control_type == ControlType::TabControl {
-            let act = active
-                .get(&pid)
-                .copied()
-                .unwrap_or_else(|| controls[p].get_prop("SelectedTab").map(|v| v.as_i64() as u32).unwrap_or(0));
+            let act = active.get(&pid).copied().unwrap_or_else(|| {
+                controls[p]
+                    .get_prop("SelectedTab")
+                    .map(|v| v.as_i64() as u32)
+                    .unwrap_or(0)
+            });
             if controls[cur].tab.unwrap_or(0) != act {
                 return false;
             }
@@ -137,7 +145,9 @@ pub fn clip_rect(controls: &[Control], idx: usize) -> Option<Rect> {
     let mut clip: Option<Rect> = None;
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
-        let Some(p) = index_of(controls, &pid) else { break };
+        let Some(p) = index_of(controls, &pid) else {
+            break;
+        };
         let cr = controls[p].content_rect();
         clip = Some(match clip {
             Some(c) => intersect(c, cr),
@@ -150,12 +160,18 @@ pub fn clip_rect(controls: &[Control], idx: usize) -> Option<Rect> {
 
 /// Product of the opacities (0.0–1.0) of all ancestor containers — what a child's
 /// `alpha_mul` should start from so a faded container dims its subtree.
+/// GroupBox opacity applies only to its own frame (border/caption), never to the
+/// controls placed inside it, so GroupBox ancestors are skipped here.
 pub fn ancestor_opacity(controls: &[Control], idx: usize) -> f32 {
     let mut o = 1.0_f32;
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
-        let Some(p) = index_of(controls, &pid) else { break };
-        o *= opacity_of(&controls[p]);
+        let Some(p) = index_of(controls, &pid) else {
+            break;
+        };
+        if !matches!(controls[p].control_type, crate::ControlType::GroupBox) {
+            o *= opacity_of(&controls[p]);
+        }
         cur = p;
     }
     o
@@ -198,21 +214,36 @@ pub fn resolve_drop_target(
         if c.is_container() {
             // Valid drop only over the visible content area (R9). Over chrome
             // (caption / tab strip / border) keep searching for an outer target.
-            if c.content_rect().contains(px, py) {
+            let content_hit = if c.control_type == ControlType::TabControl {
+                // Tab titles are chrome/overlay: they no longer shrink the child
+                // clipping rect, but they are still not a child-placement target.
+                c.content_rect().contains(px, py) && py >= c.rect.y + 26
+            } else {
+                c.content_rect().contains(px, py)
+            };
+            if content_hit {
                 let tab = if c.control_type == ControlType::TabControl {
                     Some(active.get(&c.id).copied().unwrap_or_else(|| {
-                        c.get_prop("SelectedTab").map(|v| v.as_i64() as u32).unwrap_or(0)
+                        c.get_prop("SelectedTab")
+                            .map(|v| v.as_i64() as u32)
+                            .unwrap_or(0)
                     }))
                 } else {
                     None
                 };
-                return DropTarget::Into { container: c.id.clone(), tab };
+                return DropTarget::Into {
+                    container: c.id.clone(),
+                    tab,
+                };
             }
             continue;
         }
         // Non-container: adopt its parent (R10). Parent-less ⇒ the form.
         return match &c.parent {
-            Some(pid) => DropTarget::Into { container: pid.clone(), tab: c.tab },
+            Some(pid) => DropTarget::Into {
+                container: pid.clone(),
+                tab: c.tab,
+            },
             None => DropTarget::Form,
         };
     }
@@ -224,7 +255,15 @@ mod tests {
     use super::*;
     use crate::PropValue;
 
-    fn ctrl(id: &str, t: ControlType, x: i32, y: i32, w: i32, h: i32, parent: Option<&str>) -> Control {
+    fn ctrl(
+        id: &str,
+        t: ControlType,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        parent: Option<&str>,
+    ) -> Control {
         let mut c = Control::new(id, t, x, y);
         c.rect.w = w;
         c.rect.h = h;
@@ -292,14 +331,26 @@ mod tests {
         let active = ActiveTabs::new();
         assert_eq!(
             resolve_drop_target(&c, 100, 100, 2, &active),
-            DropTarget::Into { container: "Pnl".into(), tab: None }
+            DropTarget::Into {
+                container: "Pnl".into(),
+                tab: None
+            }
         );
-        assert_eq!(resolve_drop_target(&c, 600, 400, 2, &active), DropTarget::Form);
+        assert_eq!(
+            resolve_drop_target(&c, 600, 400, 2, &active),
+            DropTarget::Form
+        );
         assert_eq!(
             resolve_drop_target(&c, 60, 58, 2, &active),
-            DropTarget::Into { container: "Pnl".into(), tab: None }
+            DropTarget::Into {
+                container: "Pnl".into(),
+                tab: None
+            }
         );
-        assert_eq!(resolve_drop_target(&c, 100, 100, 0, &active), DropTarget::Form);
+        assert_eq!(
+            resolve_drop_target(&c, 100, 100, 0, &active),
+            DropTarget::Form
+        );
     }
 
     #[test]
@@ -311,10 +362,16 @@ mod tests {
         c[1].tab = Some(0);
         let mut active = ActiveTabs::new();
         active.insert("Tabs".into(), 0);
-        assert_eq!(resolve_drop_target(&c, 100, 10, 1, &active), DropTarget::Form);
+        assert_eq!(
+            resolve_drop_target(&c, 100, 10, 1, &active),
+            DropTarget::Form
+        );
         assert_eq!(
             resolve_drop_target(&c, 150, 100, 1, &active),
-            DropTarget::Into { container: "Tabs".into(), tab: Some(0) }
+            DropTarget::Into {
+                container: "Tabs".into(),
+                tab: Some(0)
+            }
         );
     }
 }

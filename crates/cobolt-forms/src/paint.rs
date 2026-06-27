@@ -20,13 +20,13 @@
 //! perform **only reads** (`get_prop`, rect) + egui draw calls — zero side
 //! effects or mutations.
 
+use crate::model::PropValue;
+use crate::theme_pack::{ControlState, Slice, ThemePack};
+use crate::{Control, ControlType};
+use egui::{Color32, Pos2, Rect, Stroke, Vec2};
+use std::collections::HashMap;
 use std::f32::consts::TAU;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use egui::{Color32, Pos2, Rect, Stroke, Vec2};
-use crate::{Control, ControlType};
-use crate::model::PropValue;
-use crate::theme_pack::{ThemePack, ControlState, Slice};
 
 // ── Public API (the designer-derived appearance) ─────────────────────────────
 
@@ -66,7 +66,10 @@ pub fn slider_thumb_rect(screen_rect: Rect, min: f32, max: f32, val: f32, vertic
         let thumb_x = track_l + pct * track_w;
         let thumb_w_half = (track_half_h * 1.6).clamp(8.0, 20.0);
         let thumb_h = track_half_h * 2.0 + 6.0;
-        Rect::from_center_size(Pos2::new(thumb_x, cy), Vec2::new(thumb_w_half * 2.0, thumb_h))
+        Rect::from_center_size(
+            Pos2::new(thumb_x, cy),
+            Vec2::new(thumb_w_half * 2.0, thumb_h),
+        )
     }
 }
 
@@ -74,17 +77,15 @@ pub fn slider_thumb_rect(screen_rect: Rect, min: f32, max: f32, val: f32, vertic
 /// draw_control can be used for exact designed appearance (WYSIWYG).
 /// Moved fully here (per plan) so both IDE runtime and compiler binary can use it.
 pub fn live_control<'a>(
-    id:    &str,
-    ct:    ControlType,
-    size:  Vec2,
+    id: &str,
+    ct: ControlType,
+    size: Vec2,
     props: impl IntoIterator<Item = (&'a String, &'a String)>,
 ) -> Control {
     let mut c = Control::new(id, ct, 0, 0);
-    c.rect = crate::model::Rect::new(
-        0, 0, size.x.round() as i32, size.y.round() as i32);
+    c.rect = crate::model::Rect::new(0, 0, size.x.round() as i32, size.y.round() as i32);
     for (k, v) in props {
-        c.properties.insert(
-            k.clone(), PropValue::String(v.clone()));
+        c.properties.insert(k.clone(), PropValue::String(v.clone()));
     }
     c
 }
@@ -132,14 +133,16 @@ pub fn text_halign(value: &str) -> egui::Align {
 ///   4. Bottom crescent fan     — characteristic glass-disc reflection at base
 ///   5. Rim stroke
 pub fn draw_glass_circle(
-    painter:   &egui::Painter,
-    center:    Pos2,
-    radius:    f32,
-    base:      Color32,
-    selected:  bool,
+    painter: &egui::Painter,
+    center: Pos2,
+    radius: f32,
+    base: Color32,
+    selected: bool,
     alpha_mul: f32,
 ) {
-    if alpha_mul <= 0.0 { return; }
+    if alpha_mul <= 0.0 {
+        return;
+    }
     let am = alpha_mul.clamp(0.0, 1.0);
 
     let white = |alpha: u8| -> Color32 {
@@ -158,18 +161,21 @@ pub fn draw_glass_circle(
 
     // Radial-gradient fan: 48-gon, colour goes from `cc` at `origin`
     // to `ce` at the perimeter.  GPU interpolation = perfectly smooth gradient.
-    let radial_fan = |origin: Pos2, rad: f32, cc: Color32, ce: Color32|
-        -> egui::epaint::Mesh
-    {
+    let radial_fan = |origin: Pos2, rad: f32, cc: Color32, ce: Color32| -> egui::epaint::Mesh {
         let uv = egui::pos2(0.0, 0.0);
-        let n  = 48_u32;
+        let n = 48_u32;
         let mut m = egui::epaint::Mesh::default();
-        m.vertices.push(egui::epaint::Vertex { pos: origin, uv, color: cc });
+        m.vertices.push(egui::epaint::Vertex {
+            pos: origin,
+            uv,
+            color: cc,
+        });
         for i in 0..n {
             let a = i as f32 / n as f32 * std::f32::consts::TAU;
             m.vertices.push(egui::epaint::Vertex {
                 pos: origin + Vec2::new(a.cos(), a.sin()) * rad,
-                uv, color: ce,
+                uv,
+                color: ce,
             });
         }
         for i in 1..=n {
@@ -189,21 +195,25 @@ pub fn draw_glass_circle(
     // ── 2. Frosted body ───────────────────────────────────────────────────────
     // Barely-there tint so the canvas background shows through (real-glass feel).
     // 85 % cool-blue-white (200, 210, 220) + 15 % control base colour, at 20 % opacity.
-    let t  = 0.20_f32 * am;
+    let t = 0.20_f32 * am;
     let fr = ((200.0 * 0.85 + base.r() as f32 * 0.15) * t) as u8;
     let fg = ((210.0 * 0.85 + base.g() as f32 * 0.15) * t) as u8;
     let fb = ((220.0 * 0.85 + base.b() as f32 * 0.15) * t) as u8;
     let fa = (255.0 * t) as u8;
-    painter.circle_filled(center, radius,
-        Color32::from_rgba_premultiplied(fr, fg, fb, fa));
+    painter.circle_filled(
+        center,
+        radius,
+        Color32::from_rgba_premultiplied(fr, fg, fb, fa),
+    );
 
     // ── 3. Top-arc highlight ──────────────────────────────────────────────────
     // Subtle brightening in the upper third — centre at -30 % of radius.
     let top_c = center + Vec2::new(0.0, -radius * 0.30);
     painter.add(egui::Shape::mesh(radial_fan(
-        top_c, radius * 0.65,
-        white(52),   // centre: soft white
-        white(0),    // edge:   fully transparent
+        top_c,
+        radius * 0.65,
+        white(52), // centre: soft white
+        white(0),  // edge:   fully transparent
     )));
 
     // ── 4. Bottom crescent reflection ─────────────────────────────────────────
@@ -211,19 +221,23 @@ pub fn draw_glass_circle(
     // like light reflecting off the curved lower surface.
     let bot_c = center + Vec2::new(0.0, radius * 0.62);
     painter.add(egui::Shape::mesh(radial_fan(
-        bot_c, radius * 0.50,
-        white(100),  // centre: bright reflection
-        white(0),    // edge:   fades to transparent
+        bot_c,
+        radius * 0.50,
+        white(100), // centre: bright reflection
+        white(0),   // edge:   fades to transparent
     )));
 
     // ── 5. Rim ────────────────────────────────────────────────────────────────
     let (border_w, border_c) = if selected {
-        (2.0, Color32::from_rgba_premultiplied(
-            (140.0 * am) as u8,
-            (190.0 * am) as u8,
-            (255.0 * am) as u8,
-            (255.0 * am) as u8,
-        ))
+        (
+            2.0,
+            Color32::from_rgba_premultiplied(
+                (140.0 * am) as u8,
+                (190.0 * am) as u8,
+                (255.0 * am) as u8,
+                (255.0 * am) as u8,
+            ),
+        )
     } else {
         (1.5, white(150))
     };
@@ -231,14 +245,16 @@ pub fn draw_glass_circle(
 }
 
 pub fn draw_glass(
-    painter:   &egui::Painter,
-    rect:      egui::Rect,
-    base:      Color32,   // control's own colour — used only as a faint frost tint
-    rounding:  impl Into<egui::Rounding>,  // uniform `f32` corner OR per-corner Rounding
-    selected:  bool,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32, // control's own colour — used only as a faint frost tint
+    rounding: impl Into<egui::Rounding>, // uniform `f32` corner OR per-corner Rounding
+    selected: bool,
     alpha_mul: f32,
 ) {
-    if alpha_mul <= 0.0 { return; }
+    if alpha_mul <= 0.0 {
+        return;
+    }
     let am = alpha_mul.clamp(0.0, 1.0);
 
     // Helper: premultiplied white at `alpha` (0-255), scaled by `am`.
@@ -271,69 +287,6 @@ pub fn draw_glass(
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
     let max_radius = rnd.nw.max(rnd.ne).max(rnd.sw).max(rnd.se);
 
-    // Build a rounded-rectangle mesh from horizontal strips.  This preserves a
-    // true top-to-bottom gradient while following the exact rounded contour on
-    // the left and right sides.  Unlike a centre-fan mesh, it does not create
-    // side bands or corner warping inside the chart frame.
-    let rounded_vertical_mesh = |area: egui::Rect,
-                                 r: egui::Rounding,
-                                 rows: usize,
-                                 color_at_t: &dyn Fn(f32) -> Color32|
-        -> egui::epaint::Mesh
-    {
-        let uv = egui::pos2(0.0, 0.0);
-        let mut m = egui::epaint::Mesh::default();
-        let cap = (area.width() * 0.5).min(area.height() * 0.5);
-        let r = round_map(r, |c| c.max(0.0).min(cap));
-
-        // Horizontal inset of one side at height `y`, given that side's top and
-        // bottom corner radii — so the left edge follows nw/sw and the right ne/se.
-        let side_inset = |y: f32, r_top: f32, r_bot: f32| -> f32 {
-            let mut inset: f32 = 0.0;
-            if r_top > 0.0 {
-                let top = (y - area.min.y).clamp(0.0, area.height());
-                if top < r_top {
-                    let dy = r_top - top;
-                    inset = inset.max(r_top - (r_top * r_top - dy * dy).max(0.0).sqrt());
-                }
-            }
-            if r_bot > 0.0 {
-                let bottom = (area.max.y - y).clamp(0.0, area.height());
-                if bottom < r_bot {
-                    let dy = r_bot - bottom;
-                    inset = inset.max(r_bot - (r_bot * r_bot - dy * dy).max(0.0).sqrt());
-                }
-            }
-            inset
-        };
-
-        let n = rows.max(32);
-        for i in 0..=n {
-            let t = i as f32 / n as f32;
-            let y = area.min.y + area.height() * t;
-            let left = side_inset(y, r.nw, r.sw);
-            let right = side_inset(y, r.ne, r.se);
-            let c = color_at_t(t);
-            m.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(area.min.x + left, y),
-                uv,
-                color: c,
-            });
-            m.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(area.max.x - right, y),
-                uv,
-                color: c,
-            });
-        }
-
-        for i in 0..n {
-            let k = (i * 2) as u32;
-            m.indices.extend([k, k + 1, k + 3, k, k + 3, k + 2]);
-        }
-
-        m
-    };
-
     // ── 1. Layered shadow ────────────────────────────────────────────────────
     painter.rect_filled(
         rect.translate(Vec2::new(0.0, 8.0)).expand(1.0),
@@ -346,54 +299,71 @@ pub fn draw_glass(
         pm(0, 0, 0, 8),
     );
 
-    // ── 2. Continuous frosted field ───────────────────────────────────────────
-    let glass_color = |t: f32| -> Color32 {
-        let u = t.clamp(0.0, 1.0);
-        let smooth = u * u * (3.0 - 2.0 * u);
-        let alpha  = 30.0 + 82.0 * (1.0 - smooth).powf(1.18);
-        let lip    = 10.0 * (1.0 - u).powf(5.2);
+    // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
+    // Each 1px band is horizontally inset to follow the rounded corner arcs
+    // (egui's rounding on a 1px-tall rect is capped to 0.5px, so we compute
+    // the inset ourselves). This gives perfect rounded corners with no bleed.
+    {
+        let arc_inset = |y: f32, r: f32, edge: f32| -> f32 {
+            let dy = (y - edge).abs();
+            if dy >= r || r < 0.5 { return 0.0; }
+            // Extra 0.5px so the fill sits under the border stroke's inner edge
+            (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
+        };
+        let band_count = h.ceil() as usize;
+        for i in 0..band_count {
+            let t = i as f32 / (band_count as f32 - 1.0).max(1.0);
+            let y_top = y0 + i as f32;
+            let y_bot = (y_top + 1.0).min(y1);
+            if y_bot <= y_top { continue; }
 
-        let mix_base = 0.035;
-        let r = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
-        let g = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
-        let b = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
+            // Use the y closest to each corner edge for tightest inset
+            let left_inset = arc_inset(y_top, rnd.nw, y0)
+                .max(arc_inset(y_bot, rnd.sw, y1));
+            let right_inset = arc_inset(y_top, rnd.ne, y0)
+                .max(arc_inset(y_bot, rnd.se, y1));
+            let bx0 = x0 + left_inset;
+            let bx1 = x1 - right_inset;
+            if bx1 <= bx0 { continue; }
 
-        let a = ((alpha + lip) * am).clamp(0.0, 255.0);
-        Color32::from_rgba_premultiplied(
-            (r * a / 255.0).clamp(0.0, 255.0) as u8,
-            (g * a / 255.0).clamp(0.0, 255.0) as u8,
-            (b * a / 255.0).clamp(0.0, 255.0) as u8,
-            a as u8,
-        )
-    };
-    // The gradient meshes are NOT anti-aliased by egui, so their hard rounded
-    // contour pokes a few bright pixels past the (feathered) frame stroke at
-    // the four corners. Inset the fill far enough that its whole edge sits
-    // under the stroke, and curve its corners in a touch MORE than the stroke's
-    // radius so the corner is decisively inside it. The frame stroke (drawn
-    // last, over the outer rect) seals the resulting hairline on straight edges.
-    let inset       = 1.4_f32.min(max_radius.max(2.0));
-    let fill_rect   = rect.shrink(inset);
-    let fill_round  = round_map(rnd, |c| (c - inset + 1.0).max(0.0));
-    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_round, 220, &glass_color)));
+            let band_rect = egui::Rect::from_min_max(
+                Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot),
+            );
 
-    // ── 3. Very gentle depth tint ─────────────────────────────────────────────
-    let depth_color = |t: f32| -> Color32 {
-        let u = t.clamp(0.0, 1.0);
-        let smooth = u * u * (3.0 - 2.0 * u);
-        let a = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) as u8;
-        pm(28, 44, 56, a)
-    };
-    painter.add(egui::Shape::mesh(rounded_vertical_mesh(fill_rect, fill_round, 220, &depth_color)));
+            let u = t.clamp(0.0, 1.0);
+            let smooth = u * u * (3.0 - 2.0 * u);
+            let glass_alpha = 30.0 + 82.0 * (1.0 - smooth).powf(1.18);
+            let lip = 10.0 * (1.0 - u).powf(5.2);
+            let mix_base = 0.035;
+            let gr = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
+            let gg = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
+            let gb = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
+            let ga = ((glass_alpha + lip) * am).clamp(0.0, 255.0);
+            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0);
+            let dr = 28.0 * am * da / 255.0;
+            let dg = 44.0 * am * da / 255.0;
+            let db = 56.0 * am * da / 255.0;
+            let d_alpha = da * am;
+            let fr = (gr * ga / 255.0 + dr).clamp(0.0, 255.0) as u8;
+            let fg = (gg * ga / 255.0 + dg).clamp(0.0, 255.0) as u8;
+            let fb = (gb * ga / 255.0 + db).clamp(0.0, 255.0) as u8;
+            let fa = (ga + d_alpha).clamp(0.0, 255.0) as u8;
+
+            painter.rect_filled(band_rect, 0.0, Color32::from_rgba_premultiplied(fr, fg, fb, fa));
+        }
+    }
 
     // ── 4. Single rounded frame ───────────────────────────────────────────────
     let (border_w, border_c) = if selected {
-        (2.0, Color32::from_rgba_premultiplied(
-            (140.0 * am) as u8,
-            (190.0 * am) as u8,
-            (255.0 * am) as u8,
-            (255.0 * am) as u8,
-        ))
+        (
+            2.0,
+            Color32::from_rgba_premultiplied(
+                (140.0 * am) as u8,
+                (190.0 * am) as u8,
+                (255.0 * am) as u8,
+                (255.0 * am) as u8,
+            ),
+        )
     } else {
         (1.4, white(170))
     };
@@ -401,8 +371,196 @@ pub fn draw_glass(
     // centres strokes on the path; a centred stroke spills half-a-pixel past
     // the rect, and that overhang is exactly the bright corner fringe).
     let half = border_w * 0.5;
-    painter.rect_stroke(rect.shrink(half), round_map(rnd, |c| (c - half).max(0.0)),
-        Stroke::new(border_w, border_c));
+    painter.rect_stroke(
+        rect.shrink(half),
+        round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
+        Stroke::new(border_w, border_c),
+    );
+}
+
+/// Liquid Glass Enhanced — a two-part stack per the Setproduct spec:
+///
+/// **Outer shell** (materiality cues):
+///   1. Layered shadow (elevation)
+///   2. Frosted fill (continuous gradient — same as Classic)
+///   3. Depth tint
+///   4. **Highlight band** — a bright top-edge strip implying a locked light direction
+///   5. **Inner stroke** — a softer secondary border suggesting glass cross-section
+///   6. Border edge (outer frame)
+///
+/// **Inner stabilized plate** (readability):
+///   7. A denser scrim patch inset from the edges so content text never sits on
+///      raw translucent glass. Subtle but always present.
+///
+/// The Classic version is untouched; this function adds layers 4, 5, 7 and
+/// widens the highlight band to every control (Classic only has it on Buttons).
+pub fn draw_glass_enhanced(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,
+    rounding: impl Into<egui::Rounding>,
+    selected: bool,
+    alpha_mul: f32,
+) {
+    if alpha_mul <= 0.0 {
+        return;
+    }
+    let am = alpha_mul.clamp(0.0, 1.0);
+
+    let white = |alpha: u8| -> Color32 {
+        let a = (alpha as f32 * am) as u8;
+        Color32::from_rgba_premultiplied(a, a, a, a)
+    };
+
+    let pm = |r: u8, g: u8, b: u8, alpha: u8| -> Color32 {
+        let a = (alpha as f32 * am) as u8;
+        Color32::from_rgba_premultiplied(
+            (r as f32 * am * alpha as f32 / 255.0) as u8,
+            (g as f32 * am * alpha as f32 / 255.0) as u8,
+            (b as f32 * am * alpha as f32 / 255.0) as u8,
+            a,
+        )
+    };
+
+    let (x0, x1) = (rect.min.x, rect.max.x);
+    let (y0, y1) = (rect.min.y, rect.max.y);
+    let w = (x1 - x0).max(1.0);
+    let h = (y1 - y0).max(1.0);
+
+    let rnd0: egui::Rounding = rounding.into();
+    let cap = (w * 0.5).min(h * 0.5);
+    let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
+    let max_radius = rnd.nw.max(rnd.ne).max(rnd.sw).max(rnd.se);
+
+    // ── 1. Layered shadow (same as Classic) ──────────────────────────────────
+    painter.rect_filled(
+        rect.translate(Vec2::new(0.0, 8.0)).expand(1.0),
+        round_map(rnd, |c| c + 4.0),
+        pm(0, 0, 0, 18),
+    );
+    painter.rect_filled(
+        rect.translate(Vec2::new(0.0, 16.0)).expand(4.0),
+        round_map(rnd, |c| c + 10.0),
+        pm(0, 0, 0, 8),
+    );
+
+    // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
+    {
+        let arc_inset = |y: f32, r: f32, edge: f32| -> f32 {
+            let dy = (y - edge).abs();
+            if dy >= r || r < 0.5 { return 0.0; }
+            (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
+        };
+        let band_count = h.ceil() as usize;
+        for i in 0..band_count {
+            let t = i as f32 / (band_count as f32 - 1.0).max(1.0);
+            let y_top = y0 + i as f32;
+            let y_bot = (y_top + 1.0).min(y1);
+            if y_bot <= y_top { continue; }
+            let left_inset = arc_inset(y_top, rnd.nw, y0)
+                .max(arc_inset(y_bot, rnd.sw, y1));
+            let right_inset = arc_inset(y_top, rnd.ne, y0)
+                .max(arc_inset(y_bot, rnd.se, y1));
+            let bx0 = x0 + left_inset;
+            let bx1 = x1 - right_inset;
+            if bx1 <= bx0 { continue; }
+            let band_rect = egui::Rect::from_min_max(
+                Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot),
+            );
+            let u = t.clamp(0.0, 1.0);
+            let smooth = u * u * (3.0 - 2.0 * u);
+            let glass_alpha = 30.0 + 82.0 * (1.0 - smooth).powf(1.18);
+            let lip = 10.0 * (1.0 - u).powf(5.2);
+            let mix_base = 0.035;
+            let gr = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
+            let gg = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
+            let gb = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
+            let ga = ((glass_alpha + lip) * am).clamp(0.0, 255.0);
+            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0);
+            let dr = 28.0 * am * da / 255.0;
+            let dg = 44.0 * am * da / 255.0;
+            let db = 56.0 * am * da / 255.0;
+            let d_alpha = da * am;
+            let fr = (gr * ga / 255.0 + dr).clamp(0.0, 255.0) as u8;
+            let fg = (gg * ga / 255.0 + dg).clamp(0.0, 255.0) as u8;
+            let fb = (gb * ga / 255.0 + db).clamp(0.0, 255.0) as u8;
+            let fa = (ga + d_alpha).clamp(0.0, 255.0) as u8;
+            painter.rect_filled(band_rect, 0.0, Color32::from_rgba_premultiplied(fr, fg, fb, fa));
+        }
+    }
+
+    // ── 4. Highlight band (top edge, locked light direction) ─────────────────
+    // A bright translucent strip along the top ~6-8 px, implying overhead light.
+    // This is the key "thickness cue" that makes flat glass read as material.
+    let band_h = (h * 0.08).clamp(3.0, 10.0);
+    {
+        let arc_hi = |y: f32, r: f32, edge: f32| -> f32 {
+            let dy = (y - edge).abs();
+            if dy >= r || r < 0.5 { return 0.0; }
+            (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
+        };
+        let band_rows = band_h.ceil() as usize;
+        for i in 0..band_rows {
+            let t = i as f32 / (band_rows as f32 - 1.0).max(1.0);
+            let yt = y0 + i as f32;
+            let yb = (yt + 1.0).min(y0 + band_h);
+            if yb <= yt { continue; }
+            let li = arc_hi(yt, rnd.nw, y0);
+            let ri = arc_hi(yt, rnd.ne, y0);
+            let bx0 = x0 + li;
+            let bx1 = x1 - ri;
+            if bx1 <= bx0 { continue; }
+            let fade = (1.0 - t).powf(1.8);
+            let c = white((38.0 * fade) as u8);
+            painter.rect_filled(
+                egui::Rect::from_min_max(Pos2::new(bx0, yt), Pos2::new(bx1, yb)),
+                0.0, c,
+            );
+        }
+    }
+
+    // ── 5. Inner stroke (cross-section cue) ──────────────────────────────────
+    // A softer, lighter border inset from the outer frame, suggesting the glass
+    // has physical thickness. The inner rounding is reduced proportionally so
+    // the inner stroke follows the same curvature as the outer border.
+    let inner_inset = 2.4_f32.min(w * 0.1).min(h * 0.1);
+    let inner_rect = rect.shrink(inner_inset);
+    let inner_round = round_map(rnd, |c| {
+        if c <= 0.0 { 0.0 } else { (c - inner_inset).max(1.0) }
+    });
+    painter.rect_stroke(inner_rect, inner_round, Stroke::new(0.6, white(55)));
+
+    // ── 6. Outer border edge ─────────────────────────────────────────────────
+    let (border_w, border_c) = if selected {
+        (
+            2.0,
+            Color32::from_rgba_premultiplied(
+                (140.0 * am) as u8,
+                (190.0 * am) as u8,
+                (255.0 * am) as u8,
+                (255.0 * am) as u8,
+            ),
+        )
+    } else {
+        (1.4, white(170))
+    };
+    let half = border_w * 0.5;
+    painter.rect_stroke(
+        rect.shrink(half),
+        round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
+        Stroke::new(border_w, border_c),
+    );
+
+    // ── 7. Stabilized plate (scrim under content) ────────────────────────────
+    // A very subtle denser patch in the center area. This ensures text/icons
+    // remain readable over hotspots and busy backgrounds. It is intentionally
+    // barely visible on calm backgrounds — that subtlety is correct.
+    let plate_inset = (4.0 + max_radius * 0.3).min(w * 0.15).min(h * 0.15);
+    let plate_rect = rect.shrink(plate_inset);
+    if plate_rect.width() > 4.0 && plate_rect.height() > 4.0 {
+        let plate_round = round_map(rnd, |c| (c - plate_inset).max(2.0));
+        painter.rect_filled(plate_rect, plate_round, pm(240, 244, 255, 18));
+    }
 }
 
 // ── Non-visual control rendering (standardised "liquid glass" icons) ─────────────
@@ -415,29 +573,42 @@ pub fn draw_glass(
 const NV_CARD: Color32 = Color32::from_rgb(40, 54, 84);
 
 /// Light "glass" colour for the stroke icons + labels.
-pub fn nv_icon_color(a: u8) -> Color32 { Color32::from_rgba_premultiplied(212, 226, 255, a) }
+pub fn nv_icon_color(a: u8) -> Color32 {
+    Color32::from_rgba_premultiplied(212, 226, 255, a)
+}
 
 /// Draw the shared non-visual card background.
-pub fn nv_card(painter: &egui::Painter, rect: egui::Rect, selected: bool, glass: bool, alpha_mul: f32, a: u8) {
+pub fn nv_card(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    selected: bool,
+    glass: bool,
+    alpha_mul: f32,
+    a: u8,
+) {
     if glass {
-        draw_glass(painter, rect, NV_CARD, 12.0, selected, alpha_mul);
+        draw_glass_auto(painter, rect, NV_CARD, 12.0, selected, alpha_mul);
     } else {
-        let fill   = Color32::from_rgba_premultiplied(NV_CARD.r(), NV_CARD.g(), NV_CARD.b(), a);
+        let fill = Color32::from_rgba_premultiplied(NV_CARD.r(), NV_CARD.g(), NV_CARD.b(), a);
         let border = if selected {
             Color32::from_rgba_premultiplied(90, 160, 255, a)
         } else {
             Color32::from_rgba_premultiplied(110, 130, 180, a)
         };
         painter.rect_filled(rect, 12.0, fill);
-        painter.rect_stroke(rect, 12.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border));
+        painter.rect_stroke(
+            rect,
+            12.0,
+            Stroke::new(if selected { 2.0 } else { 1.0 }, border),
+        );
     }
 }
 
 /// Centre / size / stroke for a non-visual icon within `rect`.
 pub fn nv_icon_geom(rect: egui::Rect, a: u8) -> (Pos2, f32, Stroke) {
     let cen = Pos2::new(rect.center().x, rect.min.y + rect.height() * 0.40);
-    let s   = rect.height().min(rect.width()) * 0.22;
-    let sw  = (s * 0.18).clamp(1.6, 3.0);
+    let s = rect.height().min(rect.width()) * 0.22;
+    let sw = (s * 0.18).clamp(1.6, 3.0);
     (cen, s, Stroke::new(sw, nv_icon_color(a)))
 }
 
@@ -456,41 +627,75 @@ pub fn nv_label(painter: &egui::Painter, rect: egui::Rect, text: &str, a: u8) {
 
 pub fn nv_ellipse(painter: &egui::Painter, cx: f32, cy: f32, rw: f32, rh: f32, st: Stroke) {
     let steps = 28u32;
-    let pts: Vec<Pos2> = (0..=steps).map(|i| {
-        let t = i as f32 / steps as f32 * std::f32::consts::TAU;
-        Pos2::new(cx + rw * t.cos(), cy + rh * t.sin())
-    }).collect();
+    let pts: Vec<Pos2> = (0..=steps)
+        .map(|i| {
+            let t = i as f32 / steps as f32 * std::f32::consts::TAU;
+            Pos2::new(cx + rw * t.cos(), cy + rh * t.sin())
+        })
+        .collect();
     painter.add(egui::Shape::closed_line(pts, st));
 }
 
 pub fn nv_icon_clock(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     painter.circle_stroke(c, s, st);
     // top stem (stopwatch button)
-    painter.line_segment([c + Vec2::new(0.0, -s), c + Vec2::new(0.0, -s - s * 0.30)], st);
+    painter.line_segment(
+        [c + Vec2::new(0.0, -s), c + Vec2::new(0.0, -s - s * 0.30)],
+        st,
+    );
     // hands
     painter.line_segment([c, c + Vec2::new(0.0, -s * 0.6)], st);
     painter.line_segment([c, c + Vec2::new(s * 0.45, s * 0.12)], st);
 }
 
 pub fn nv_icon_robot(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
-    let head = egui::Rect::from_center_size(c + Vec2::new(0.0, s * 0.1), Vec2::new(s * 1.7, s * 1.5));
+    let head =
+        egui::Rect::from_center_size(c + Vec2::new(0.0, s * 0.1), Vec2::new(s * 1.7, s * 1.5));
     painter.rect_stroke(head, s * 0.28, st);
     // antenna
-    painter.line_segment([Pos2::new(c.x, head.min.y), Pos2::new(c.x, head.min.y - s * 0.4)], st);
-    painter.circle_filled(Pos2::new(c.x, head.min.y - s * 0.45), st.width * 1.1, st.color);
+    painter.line_segment(
+        [
+            Pos2::new(c.x, head.min.y),
+            Pos2::new(c.x, head.min.y - s * 0.4),
+        ],
+        st,
+    );
+    painter.circle_filled(
+        Pos2::new(c.x, head.min.y - s * 0.45),
+        st.width * 1.1,
+        st.color,
+    );
     // eyes
     painter.circle_filled(c + Vec2::new(-s * 0.42, 0.0), st.width * 1.2, st.color);
     painter.circle_filled(c + Vec2::new(s * 0.42, 0.0), st.width * 1.2, st.color);
     // mouth
-    painter.line_segment([c + Vec2::new(-s * 0.4, s * 0.5), c + Vec2::new(s * 0.4, s * 0.5)], st);
+    painter.line_segment(
+        [
+            c + Vec2::new(-s * 0.4, s * 0.5),
+            c + Vec2::new(s * 0.4, s * 0.5),
+        ],
+        st,
+    );
 }
 
 pub fn nv_icon_globe(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     painter.circle_stroke(c, s, st);
     // equator + two latitude lines
     painter.line_segment([c + Vec2::new(-s, 0.0), c + Vec2::new(s, 0.0)], st);
-    painter.line_segment([c + Vec2::new(-s * 0.86, -s * 0.5), c + Vec2::new(s * 0.86, -s * 0.5)], st);
-    painter.line_segment([c + Vec2::new(-s * 0.86, s * 0.5), c + Vec2::new(s * 0.86, s * 0.5)], st);
+    painter.line_segment(
+        [
+            c + Vec2::new(-s * 0.86, -s * 0.5),
+            c + Vec2::new(s * 0.86, -s * 0.5),
+        ],
+        st,
+    );
+    painter.line_segment(
+        [
+            c + Vec2::new(-s * 0.86, s * 0.5),
+            c + Vec2::new(s * 0.86, s * 0.5),
+        ],
+        st,
+    );
     // central meridian
     nv_ellipse(painter, c.x, c.y, s * 0.45, s, st);
 }
@@ -508,10 +713,12 @@ pub fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     painter.line_segment([Pos2::new(c.x + rw, top), Pos2::new(c.x + rw, bot)], st);
     // front-bottom curve
     let steps = 18u32;
-    let front: Vec<Pos2> = (0..=steps).map(|i| {
-        let t = i as f32 / steps as f32 * std::f32::consts::PI;
-        Pos2::new(c.x + rw * t.cos(), bot + rh * t.sin())
-    }).collect();
+    let front: Vec<Pos2> = (0..=steps)
+        .map(|i| {
+            let t = i as f32 / steps as f32 * std::f32::consts::PI;
+            Pos2::new(c.x + rw * t.cos(), bot + rh * t.sin())
+        })
+        .collect();
     painter.add(egui::Shape::line(front, st));
 }
 
@@ -519,18 +726,22 @@ pub fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
 /// render walk multiplies a container's `opacity_of` into the `alpha_mul` it
 /// passes to descendants, so a faded container dims its whole subtree (spec 012).
 pub fn opacity_of(ctrl: &Control) -> f32 {
-    ctrl.get_prop("Opacity").map(|v| v.as_i64()).unwrap_or(100).clamp(0, 100) as f32 / 100.0
+    ctrl.get_prop("Opacity")
+        .map(|v| v.as_i64())
+        .unwrap_or(100)
+        .clamp(0, 100) as f32
+        / 100.0
 }
 
 pub fn draw_control(
-    painter:   &egui::Painter,
-    origin:    Pos2,
-    ctrl:      &Control,
-    selected:  bool,
-    glass:     bool,
+    painter: &egui::Painter,
+    origin: Pos2,
+    ctrl: &Control,
+    selected: bool,
+    glass: bool,
     alpha_mul: f32,
-    scale:     f32,                        // animation scale factor (1.0 = normal)
-    pic_tex:   Option<egui::TextureId>,   // pre-loaded texture for PictureBox
+    scale: f32,                       // animation scale factor (1.0 = normal)
+    pic_tex: Option<egui::TextureId>, // pre-loaded texture for PictureBox
 ) {
     use crate::ControlType as CT;
 
@@ -549,35 +760,70 @@ pub fn draw_control(
 
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     let c_scale = |c: u8| -> u8 { ((c as f32) * alpha_mul) as u8 };
-    let alpha_color = |c: Color32| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), c_scale(c.a()));
+    let alpha_color =
+        |c: Color32| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), c_scale(c.a()));
 
     // ── Drop shadow ───────────────────────────────────────────────────────────
-    let shadow_on = ctrl.get_prop("ShadowEnabled").map(|v| v.as_bool()).unwrap_or(false);
-    if shadow_on && !matches!(ctrl.control_type, CT::Line | CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase) {
-        let shadow_color   = ctrl.get_prop("ShadowColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::BLACK);
-        let shadow_opac    = ctrl.get_prop("ShadowOpacity").map(|v| v.as_i64()).unwrap_or(20).clamp(0, 100) as f32 / 100.0;
-        let shadow_dir     = ctrl.get_prop("ShadowDirection").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "South".into());
-        let distance       = ctrl.get_prop("ShadowDistance").map(|v| v.as_i64()).unwrap_or(7).clamp(0, 60) as f32;
-        let blur_enabled   = ctrl.get_prop("ShadowBlur").map(|v| v.as_bool()).unwrap_or(true);
-        let blur_strength  = if blur_enabled {
-            ctrl.get_prop("ShadowBlurStrength").map(|v| v.as_i64()).unwrap_or(8).clamp(0, 20) as usize
-        } else { 0 };
+    let shadow_on = ctrl
+        .get_prop("ShadowEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    if shadow_on
+        && !matches!(
+            ctrl.control_type,
+            CT::Line | CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase
+        )
+    {
+        let shadow_color = ctrl
+            .get_prop("ShadowColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::BLACK);
+        let shadow_opac = ctrl
+            .get_prop("ShadowOpacity")
+            .map(|v| v.as_i64())
+            .unwrap_or(20)
+            .clamp(0, 100) as f32
+            / 100.0;
+        let shadow_dir = ctrl
+            .get_prop("ShadowDirection")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "South".into());
+        let distance = ctrl
+            .get_prop("ShadowDistance")
+            .map(|v| v.as_i64())
+            .unwrap_or(7)
+            .clamp(0, 60) as f32;
+        let blur_enabled = ctrl
+            .get_prop("ShadowBlur")
+            .map(|v| v.as_bool())
+            .unwrap_or(true);
+        let blur_strength = if blur_enabled {
+            ctrl.get_prop("ShadowBlurStrength")
+                .map(|v| v.as_i64())
+                .unwrap_or(8)
+                .clamp(0, 20) as usize
+        } else {
+            0
+        };
 
         // Direction → unit vector (ux, uy)
         let (ux, uy): (f32, f32) = match shadow_dir.as_str() {
-            "North"     => ( 0.0,   -1.0  ),
-            "NorthEast" => ( 0.707, -0.707),
-            "East"      => ( 1.0,    0.0  ),
-            "SouthEast" => ( 0.707,  0.707),
-            "South"     => ( 0.0,    1.0  ),
-            "SouthWest" => (-0.707,  0.707),
-            "West"      => (-1.0,    0.0  ),
+            "North" => (0.0, -1.0),
+            "NorthEast" => (0.707, -0.707),
+            "East" => (1.0, 0.0),
+            "SouthEast" => (0.707, 0.707),
+            "South" => (0.0, 1.0),
+            "SouthWest" => (-0.707, 0.707),
+            "West" => (-1.0, 0.0),
             "NorthWest" => (-0.707, -0.707),
-            _           => ( 0.0,    1.0  ),
+            _ => (0.0, 1.0),
         };
         let shadow_rect = rect.translate(Vec2::new(ux * distance, uy * distance));
-        let corner_r    = ctrl.get_prop("CornerRadius").map(|v| v.as_i64() as f32).unwrap_or(3.0);
-        let sc          = shadow_color;
+        let corner_r = ctrl
+            .get_prop("CornerRadius")
+            .map(|v| v.as_i64() as f32)
+            .unwrap_or(3.0);
+        let sc = shadow_color;
 
         if blur_strength == 0 {
             // ── Hard shadow — single solid rect ───────────────────────────────
@@ -600,12 +846,12 @@ pub fn draw_control(
             let layers = blur_strength;
             for i in 0..=layers {
                 // i=0 → outer rim (t=1, faintest); i=layers → core (t=0, darkest)
-                let t       = 1.0 - (i as f32 / layers as f32); // 1 → 0
-                let expand  = t * blur_strength as f32;
+                let t = 1.0 - (i as f32 / layers as f32); // 1 → 0
+                let expand = t * blur_strength as f32;
                 // Gaussian falloff: e^(-k·t²) where k controls how sharply the
                 // shadow fades.  k=3 gives a natural soft shadow feel.
                 let falloff = (-3.0 * t * t).exp();
-                let alpha   = (shadow_opac * alpha_mul * falloff * 255.0) as u8;
+                let alpha = (shadow_opac * alpha_mul * falloff * 255.0) as u8;
                 let layer_rect = shadow_rect.expand(expand);
                 painter.rect_filled(
                     layer_rect,
@@ -623,9 +869,18 @@ pub fn draw_control(
 
     // ── Line control ──────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::Line) {
-        let line_color = ctrl.get_prop("LineColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::BLACK);
-        let thickness  = ctrl.get_prop("LineThickness").map(|v| v.as_i64() as f32).unwrap_or(1.0);
-        let dir        = ctrl.get_prop("LineDirection").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Horizontal".into());
+        let line_color = ctrl
+            .get_prop("LineColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::BLACK);
+        let thickness = ctrl
+            .get_prop("LineThickness")
+            .map(|v| v.as_i64() as f32)
+            .unwrap_or(1.0);
+        let dir = ctrl
+            .get_prop("LineDirection")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Horizontal".into());
         // Free rotation: `LineAngle` (degrees, 0 = horizontal) is the source of
         // truth when present; otherwise fall back to the legacy LineDirection
         // presets so existing forms are unchanged. The line is centred and as long
@@ -637,48 +892,97 @@ pub fn draw_control(
             (c - d, c + d)
         } else {
             match dir.as_str() {
-                "Vertical" => (rect.left_top(),  rect.left_bottom()),
-                "Diagonal" => (rect.left_top(),  rect.right_bottom()),
-                _          => (rect.left_center(), rect.right_center()),
+                "Vertical" => (rect.left_top(), rect.left_bottom()),
+                "Diagonal" => (rect.left_top(), rect.right_bottom()),
+                _ => (rect.left_center(), rect.right_center()),
             }
         };
         let col = alpha_color(line_color);
         let stroke = Stroke::new(thickness, col);
         let t = thickness.max(1.0);
         // DashStyle: Solid | Dash | Dot | DashDot (egui dashed-line shapes).
-        match ctrl.get_prop("DashStyle").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Solid".into()).as_str() {
-            "Dash"    => painter.extend(egui::Shape::dashed_line(&[p1, p2], stroke, t * 5.0, t * 4.0)),
-            "Dot"     => painter.extend(egui::Shape::dashed_line(&[p1, p2], stroke, t * 1.2, t * 2.5)),
+        match ctrl
+            .get_prop("DashStyle")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Solid".into())
+            .as_str()
+        {
+            "Dash" => painter.extend(egui::Shape::dashed_line(
+                &[p1, p2],
+                stroke,
+                t * 5.0,
+                t * 4.0,
+            )),
+            "Dot" => painter.extend(egui::Shape::dashed_line(
+                &[p1, p2],
+                stroke,
+                t * 1.2,
+                t * 2.5,
+            )),
             "DashDot" => painter.extend(egui::Shape::dashed_line_with_offset(
-                &[p1, p2], stroke, &[t * 5.0, t * 1.2], &[t * 3.0, t * 3.0], 0.0)),
-            _         => { painter.line_segment([p1, p2], stroke); }
+                &[p1, p2],
+                stroke,
+                &[t * 5.0, t * 1.2],
+                &[t * 3.0, t * 3.0],
+                0.0,
+            )),
+            _ => {
+                painter.line_segment([p1, p2], stroke);
+            }
         }
         // Rounded endings (round caps) — draw a disc at each end.
-        if ctrl.get_prop("RoundedEnds").map(|v| v.as_bool()).unwrap_or(false) {
+        if ctrl
+            .get_prop("RoundedEnds")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             let r = (thickness * 0.5).max(0.5);
             painter.circle_filled(p1, r, col);
             painter.circle_filled(p2, r, col);
         }
         if selected {
-            painter.circle_stroke(p1, 4.0, Stroke::new(1.0, Color32::from_rgba_premultiplied(60,120,230, a)));
-            painter.circle_stroke(p2, 4.0, Stroke::new(1.0, Color32::from_rgba_premultiplied(60,120,230, a)));
+            painter.circle_stroke(
+                p1,
+                4.0,
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+            );
+            painter.circle_stroke(
+                p2,
+                4.0,
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+            );
         }
         return;
     }
 
     // ── Shape control ─────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::Shape) {
-        let fill_color = ctrl.get_prop("FillColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::from_rgb(192,192,192));
-        let line_color = ctrl.get_prop("LineColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::BLACK);
-        let thickness  = ctrl.get_prop("LineThickness").map(|v| v.as_i64() as f32).unwrap_or(1.0);
-        let fill_style = ctrl.get_prop("FillStyle").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Solid".into());
-        let shape_type = ctrl.get_prop("ShapeType").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Rectangle".into());
+        let fill_color = ctrl
+            .get_prop("FillColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::from_rgb(192, 192, 192));
+        let line_color = ctrl
+            .get_prop("LineColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::BLACK);
+        let thickness = ctrl
+            .get_prop("LineThickness")
+            .map(|v| v.as_i64() as f32)
+            .unwrap_or(1.0);
+        let fill_style = ctrl
+            .get_prop("FillStyle")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Solid".into());
+        let shape_type = ctrl
+            .get_prop("ShapeType")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Rectangle".into());
 
         let rr = match shape_type.as_str() {
-            "Circle"    => rect.width().min(rect.height()) / 2.0,
-            "Ellipse"   => rect.width().min(rect.height()) / 2.0, // backward compat
+            "Circle" => rect.width().min(rect.height()) / 2.0,
+            "Ellipse" => rect.width().min(rect.height()) / 2.0, // backward compat
             "RoundRect" => 8.0,
-            _           => 0.0,
+            _ => 0.0,
         };
 
         let border_c = if selected {
@@ -690,33 +994,49 @@ pub fn draw_control(
         if shape_type == "Circle" || shape_type == "Ellipse" {
             // Circle / Ellipse — use circle primitives so the shape doesn't bleed.
             let circ_r = rect.width().min(rect.height()) / 2.0;
-            let cc     = rect.center();
+            let cc = rect.center();
             if glass && fill_style != "None" {
                 draw_glass_circle(painter, cc, circ_r, fill_color, selected, alpha_mul);
                 if thickness > 0.0 {
                     painter.circle_stroke(cc, circ_r, Stroke::new(thickness, border_c));
                 }
             } else {
-                let fill = if fill_style == "None" { Color32::TRANSPARENT } else { alpha_color(fill_color) };
+                let fill = if fill_style == "None" {
+                    Color32::TRANSPARENT
+                } else {
+                    alpha_color(fill_color)
+                };
                 painter.circle_filled(cc, circ_r, fill);
                 painter.circle_stroke(cc, circ_r, Stroke::new(thickness, border_c));
             }
         } else if shape_type == "Triangle" {
             // Triangle — equilateral pointing up, filling the bounding rect.
-            let top    = Pos2::new(rect.center().x, rect.min.y);
-            let bot_l  = Pos2::new(rect.min.x, rect.max.y);
-            let bot_r  = Pos2::new(rect.max.x, rect.max.y);
-            let pts    = vec![top, bot_r, bot_l];
-            let fill   = if fill_style == "None" { Color32::TRANSPARENT } else { alpha_color(fill_color) };
-            painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(thickness, border_c)));
+            let top = Pos2::new(rect.center().x, rect.min.y);
+            let bot_l = Pos2::new(rect.min.x, rect.max.y);
+            let bot_r = Pos2::new(rect.max.x, rect.max.y);
+            let pts = vec![top, bot_r, bot_l];
+            let fill = if fill_style == "None" {
+                Color32::TRANSPARENT
+            } else {
+                alpha_color(fill_color)
+            };
+            painter.add(egui::Shape::convex_polygon(
+                pts,
+                fill,
+                Stroke::new(thickness, border_c),
+            ));
         } else if glass && fill_style != "None" {
             // Rectangle / RoundRect — draw frosted glass using the user's FillColor as tint.
-            draw_glass(painter, rect, fill_color, rr, selected, alpha_mul);
+            draw_glass_auto(painter, rect, fill_color, rr, selected, alpha_mul);
             if thickness > 0.0 {
                 painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c));
             }
         } else {
-            let fill = if fill_style == "None" { Color32::TRANSPARENT } else { alpha_color(fill_color) };
+            let fill = if fill_style == "None" {
+                Color32::TRANSPARENT
+            } else {
+                alpha_color(fill_color)
+            };
             painter.rect_filled(rect, rr, fill);
             painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c));
         }
@@ -724,7 +1044,10 @@ pub fn draw_control(
     }
 
     // ── Non-visual controls — standardised glass card + stroke icon + label ─────
-    if matches!(ctrl.control_type, CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase) {
+    if matches!(
+        ctrl.control_type,
+        CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase
+    ) {
         nv_card(painter, rect, selected, glass, alpha_mul, a);
         let (cen, s, st) = nv_icon_geom(rect, a);
         let label: String = match ctrl.control_type {
@@ -752,19 +1075,52 @@ pub fn draw_control(
 
     // ── Slider ────────────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::Slider) {
-        let min_v   = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
-        let max_v   = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100).max(1) as f32;
-        let val     = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
-        let _step_v = ctrl.get_prop("Step").map(|v| v.as_i64()).unwrap_or(10).max(1) as f32;
-        let tick_fr = ctrl.get_prop("TickFrequency").map(|v| v.as_i64()).unwrap_or(10).max(1) as f32;
-        let tick_st = ctrl.get_prop("TickStyle").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Bottom".into());
-        let orient  = ctrl.get_prop("Orientation").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Horizontal".into());
+        let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
+        let max_v = ctrl
+            .get_prop("Maximum")
+            .map(|v| v.as_i64())
+            .unwrap_or(100)
+            .max(1) as f32;
+        let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
+        let _step_v = ctrl
+            .get_prop("Step")
+            .map(|v| v.as_i64())
+            .unwrap_or(10)
+            .max(1) as f32;
+        let tick_fr = ctrl
+            .get_prop("TickFrequency")
+            .map(|v| v.as_i64())
+            .unwrap_or(10)
+            .max(1) as f32;
+        let tick_st = ctrl
+            .get_prop("TickStyle")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Bottom".into());
+        let orient = ctrl
+            .get_prop("Orientation")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Horizontal".into());
         let vertical = orient.starts_with('V');
 
-        let track_c  = alpha_color(ctrl.get_prop("TrackColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::from_rgb(170,170,170)));
-        let thumb_c  = alpha_color(ctrl.get_prop("ThumbColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::from_rgb(0,120,215)));
-        let fill_c   = alpha_color(ctrl.get_prop("FillColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::from_rgb(0,120,215)));
-        let show_val = ctrl.get_prop("ShowValue").map(|v| v.as_bool()).unwrap_or(false);
+        let track_c = alpha_color(
+            ctrl.get_prop("TrackColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(170, 170, 170)),
+        );
+        let thumb_c = alpha_color(
+            ctrl.get_prop("ThumbColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(0, 120, 215)),
+        );
+        let fill_c = alpha_color(
+            ctrl.get_prop("FillColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(0, 120, 215)),
+        );
+        let show_val = ctrl
+            .get_prop("ShowValue")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
 
         let _ = (track_c, thumb_c, fill_c); // glass design uses its own colors
 
@@ -785,19 +1141,37 @@ pub fn draw_control(
             if sheen {
                 // Top-half gradient mesh: opaque white → transparent
                 let mut mesh = egui::epaint::Mesh::default();
-                let top    = pill.min.y;
-                let mid    = pill.min.y + pill.height() * 0.5;
-                let left   = pill.min.x + r;
-                let right  = pill.max.x - r;
-                let w_hi   = Color32::from_rgba_premultiplied(120,130,150, (80.0 * alpha_mul) as u8);
-                let w_lo   = Color32::from_rgba_premultiplied(0,0,0,0);
+                let top = pill.min.y;
+                let mid = pill.min.y + pill.height() * 0.5;
+                let left = pill.min.x + r;
+                let right = pill.max.x - r;
+                let w_hi =
+                    Color32::from_rgba_premultiplied(120, 130, 150, (80.0 * alpha_mul) as u8);
+                let w_lo = Color32::from_rgba_premultiplied(0, 0, 0, 0);
                 // quad: 4 vertices
                 let i = mesh.vertices.len() as u32;
-                mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(left,  top), uv: egui::epaint::WHITE_UV, color: w_hi });
-                mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(right, top), uv: egui::epaint::WHITE_UV, color: w_hi });
-                mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(right, mid), uv: egui::epaint::WHITE_UV, color: w_lo });
-                mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(left,  mid), uv: egui::epaint::WHITE_UV, color: w_lo });
-                mesh.indices.extend_from_slice(&[i,i+1,i+2, i,i+2,i+3]);
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: Pos2::new(left, top),
+                    uv: egui::epaint::WHITE_UV,
+                    color: w_hi,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: Pos2::new(right, top),
+                    uv: egui::epaint::WHITE_UV,
+                    color: w_hi,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: Pos2::new(right, mid),
+                    uv: egui::epaint::WHITE_UV,
+                    color: w_lo,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: Pos2::new(left, mid),
+                    uv: egui::epaint::WHITE_UV,
+                    color: w_lo,
+                });
+                mesh.indices
+                    .extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
                 painter.add(egui::Shape::mesh(mesh));
             }
             painter.rect_stroke(pill, r, Stroke::new(1.0, rim));
@@ -812,9 +1186,13 @@ pub fn draw_control(
                 (255.0 * alpha_mul) as u8,
                 (160.0 * alpha_mul) as u8,
             );
-            let edge_c = Color32::from_rgba_premultiplied(0,0,0,0);
+            let edge_c = Color32::from_rgba_premultiplied(0, 0, 0, 0);
             let ci = mesh.vertices.len() as u32;
-            mesh.vertices.push(egui::epaint::Vertex { pos: center, uv: egui::epaint::WHITE_UV, color: center_c });
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: center,
+                uv: egui::epaint::WHITE_UV,
+                color: center_c,
+            });
             let n = 32u32;
             for i in 0..n {
                 let angle = (i as f32 / n as f32) * TAU;
@@ -825,29 +1203,42 @@ pub fn draw_control(
                 });
             }
             for i in 0..n {
-                mesh.indices.extend_from_slice(&[ci, ci+1+i, ci+1+(i+1)%n]);
+                mesh.indices
+                    .extend_from_slice(&[ci, ci + 1 + i, ci + 1 + (i + 1) % n]);
             }
             painter.add(egui::Shape::mesh(mesh));
         };
 
         // Glass track colors
         let track_body = Color32::from_rgba_premultiplied(
-            (100.0 * alpha_mul) as u8, (110.0 * alpha_mul) as u8,
-            (135.0 * alpha_mul) as u8, (90.0  * alpha_mul) as u8);
-        let track_rim  = Color32::from_rgba_premultiplied(
-            (180.0 * alpha_mul) as u8, (185.0 * alpha_mul) as u8,
-            (210.0 * alpha_mul) as u8, (120.0 * alpha_mul) as u8);
+            (100.0 * alpha_mul) as u8,
+            (110.0 * alpha_mul) as u8,
+            (135.0 * alpha_mul) as u8,
+            (90.0 * alpha_mul) as u8,
+        );
+        let track_rim = Color32::from_rgba_premultiplied(
+            (180.0 * alpha_mul) as u8,
+            (185.0 * alpha_mul) as u8,
+            (210.0 * alpha_mul) as u8,
+            (120.0 * alpha_mul) as u8,
+        );
         let thumb_body = Color32::from_rgba_premultiplied(
-            (150.0 * alpha_mul) as u8, (160.0 * alpha_mul) as u8,
-            (195.0 * alpha_mul) as u8, (140.0 * alpha_mul) as u8);
-        let thumb_rim  = Color32::from_rgba_premultiplied(
-            (220.0 * alpha_mul) as u8, (225.0 * alpha_mul) as u8,
-            (245.0 * alpha_mul) as u8, (180.0 * alpha_mul) as u8);
+            (150.0 * alpha_mul) as u8,
+            (160.0 * alpha_mul) as u8,
+            (195.0 * alpha_mul) as u8,
+            (140.0 * alpha_mul) as u8,
+        );
+        let thumb_rim = Color32::from_rgba_premultiplied(
+            (220.0 * alpha_mul) as u8,
+            (225.0 * alpha_mul) as u8,
+            (245.0 * alpha_mul) as u8,
+            (180.0 * alpha_mul) as u8,
+        );
 
         if vertical {
             // ── Vertical glass slider ────────────────────────────────────────
             let track_half_w = (rect.width() * 0.18).clamp(4.0, 12.0);
-            let cx      = rect.center().x;
+            let cx = rect.center().x;
             let track_t = rect.min.y + 10.0;
             let track_b = rect.max.y - 10.0;
             let track_h = (track_b - track_t).max(1.0);
@@ -867,32 +1258,46 @@ pub fn draw_control(
                 let mut tick_v = min_v;
                 while tick_v <= max_v + 0.001 {
                     let ty = track_b - ((tick_v - min_v) / range_units).clamp(0.0, 1.0) * track_h;
-                    let tick_color = Color32::from_rgba_premultiplied(140,145,165,(80.0*alpha_mul) as u8);
+                    let tick_color =
+                        Color32::from_rgba_premultiplied(140, 145, 165, (80.0 * alpha_mul) as u8);
                     let tick_len = 5.0;
                     if tick_st == "Left" || tick_st == "Both" {
-                        painter.line_segment([Pos2::new(cx - track_half_w - tick_len, ty), Pos2::new(cx - track_half_w - 1.0, ty)], Stroke::new(1.0, tick_color));
+                        painter.line_segment(
+                            [
+                                Pos2::new(cx - track_half_w - tick_len, ty),
+                                Pos2::new(cx - track_half_w - 1.0, ty),
+                            ],
+                            Stroke::new(1.0, tick_color),
+                        );
                     }
                     if tick_st != "Left" || tick_st == "Both" {
-                        painter.line_segment([Pos2::new(cx + track_half_w + 1.0, ty), Pos2::new(cx + track_half_w + tick_len, ty)], Stroke::new(1.0, tick_color));
+                        painter.line_segment(
+                            [
+                                Pos2::new(cx + track_half_w + 1.0, ty),
+                                Pos2::new(cx + track_half_w + tick_len, ty),
+                            ],
+                            Stroke::new(1.0, tick_color),
+                        );
                     }
                     tick_v += tick_fr;
                 }
             }
 
             // Thumb pill
-            let thumb_rect = egui::Rect::from_center_size(
-                Pos2::new(cx, thumb_y),
-                Vec2::new(thumb_w, thumb_h),
-            );
+            let thumb_rect =
+                egui::Rect::from_center_size(Pos2::new(cx, thumb_y), Vec2::new(thumb_w, thumb_h));
             draw_glass_pill(painter, thumb_rect, thumb_body, true, thumb_rim);
             // Lens at bottom-center of thumb
-            draw_lens(painter,
+            draw_lens(
+                painter,
                 Pos2::new(cx, thumb_rect.max.y - thumb_h * 0.28),
-                thumb_w * 0.32, thumb_h * 0.18);
+                thumb_w * 0.32,
+                thumb_h * 0.18,
+            );
         } else {
             // ── Horizontal glass slider ──────────────────────────────────────
             let track_half_h = (rect.height() * 0.18).clamp(4.0, 12.0);
-            let cy      = rect.center().y;
+            let cy = rect.center().y;
             let track_l = rect.min.x + 10.0;
             let track_r = rect.max.x - 10.0;
             let track_w = (track_r - track_l).max(1.0);
@@ -912,13 +1317,26 @@ pub fn draw_control(
                 let mut tick_v = min_v;
                 while tick_v <= max_v + 0.001 {
                     let tx = track_l + ((tick_v - min_v) / range_units).clamp(0.0, 1.0) * track_w;
-                    let tick_color = Color32::from_rgba_premultiplied(140,145,165,(80.0*alpha_mul) as u8);
+                    let tick_color =
+                        Color32::from_rgba_premultiplied(140, 145, 165, (80.0 * alpha_mul) as u8);
                     let tick_len = 5.0;
                     if tick_st == "Top" || tick_st == "Both" {
-                        painter.line_segment([Pos2::new(tx, cy - track_half_h - tick_len), Pos2::new(tx, cy - track_half_h - 1.0)], Stroke::new(1.0, tick_color));
+                        painter.line_segment(
+                            [
+                                Pos2::new(tx, cy - track_half_h - tick_len),
+                                Pos2::new(tx, cy - track_half_h - 1.0),
+                            ],
+                            Stroke::new(1.0, tick_color),
+                        );
                     }
                     if tick_st != "Top" || tick_st == "Both" {
-                        painter.line_segment([Pos2::new(tx, cy + track_half_h + 1.0), Pos2::new(tx, cy + track_half_h + tick_len)], Stroke::new(1.0, tick_color));
+                        painter.line_segment(
+                            [
+                                Pos2::new(tx, cy + track_half_h + 1.0),
+                                Pos2::new(tx, cy + track_half_h + tick_len),
+                            ],
+                            Stroke::new(1.0, tick_color),
+                        );
                     }
                     tick_v += tick_fr;
                 }
@@ -931,57 +1349,123 @@ pub fn draw_control(
             );
             draw_glass_pill(painter, thumb_rect, thumb_body, true, thumb_rim);
             // Lens at bottom-center of thumb
-            draw_lens(painter,
+            draw_lens(
+                painter,
                 Pos2::new(thumb_x, thumb_rect.max.y - thumb_h * 0.28),
-                thumb_w_half * 0.6, thumb_h * 0.18);
+                thumb_w_half * 0.6,
+                thumb_h * 0.18,
+            );
         }
 
         // Step label (min / max corners)
         let font_s = egui::FontId::proportional(9.0);
-        let lbl_c  = Color32::from_rgba_premultiplied(80,80,80,a);
+        let lbl_c = Color32::from_rgba_premultiplied(80, 80, 80, a);
         if vertical {
-            painter.text(Pos2::new(rect.center().x, rect.max.y - 2.0), egui::Align2::CENTER_BOTTOM,
-                format!("{}", min_v as i64), font_s.clone(), lbl_c);
-            painter.text(Pos2::new(rect.center().x, rect.min.y + 2.0), egui::Align2::CENTER_TOP,
-                format!("{}", max_v as i64), font_s.clone(), lbl_c);
+            painter.text(
+                Pos2::new(rect.center().x, rect.max.y - 2.0),
+                egui::Align2::CENTER_BOTTOM,
+                format!("{}", min_v as i64),
+                font_s.clone(),
+                lbl_c,
+            );
+            painter.text(
+                Pos2::new(rect.center().x, rect.min.y + 2.0),
+                egui::Align2::CENTER_TOP,
+                format!("{}", max_v as i64),
+                font_s.clone(),
+                lbl_c,
+            );
         } else {
-            painter.text(Pos2::new(rect.min.x + 2.0, rect.max.y - 1.0), egui::Align2::LEFT_BOTTOM,
-                format!("{}", min_v as i64), font_s.clone(), lbl_c);
-            painter.text(Pos2::new(rect.max.x - 2.0, rect.max.y - 1.0), egui::Align2::RIGHT_BOTTOM,
-                format!("{}", max_v as i64), font_s.clone(), lbl_c);
+            painter.text(
+                Pos2::new(rect.min.x + 2.0, rect.max.y - 1.0),
+                egui::Align2::LEFT_BOTTOM,
+                format!("{}", min_v as i64),
+                font_s.clone(),
+                lbl_c,
+            );
+            painter.text(
+                Pos2::new(rect.max.x - 2.0, rect.max.y - 1.0),
+                egui::Align2::RIGHT_BOTTOM,
+                format!("{}", max_v as i64),
+                font_s.clone(),
+                lbl_c,
+            );
         }
 
         // Optional current value label
         if show_val {
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER,
-                format!("{}", val as i64), egui::FontId::proportional(ctrl_font_size(ctrl)),
-                Color32::from_rgba_premultiplied(0,0,0,a));
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("{}", val as i64),
+                egui::FontId::proportional(ctrl_font_size(ctrl)),
+                Color32::from_rgba_premultiplied(0, 0, 0, a),
+            );
         }
 
         // Selection border
         if selected {
-            painter.rect_stroke(rect, 3.0, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
+            painter.rect_stroke(
+                rect,
+                3.0,
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+            );
         }
         return;
     }
 
     // ── ProgressBar ───────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::ProgressBar) {
-        let bg_c  = Color32::from_rgba_premultiplied(220,220,220,a);
-        let bar_c = alpha_color(ctrl.get_prop("BarColor").map(|v| parse_color(v.as_str())).unwrap_or(Color32::from_rgb(0,170,0)));
-        let val   = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
-        let min   = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
-        let max   = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100).max(1) as f32;
-        let pct   = ((val - min) / (max - min)).clamp(0.0, 1.0);
+        let bg_c = Color32::from_rgba_premultiplied(220, 220, 220, a);
+        let bar_c = alpha_color(
+            ctrl.get_prop("BarColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(0, 170, 0)),
+        );
+        let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0) as f32;
+        let min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
+        let max = ctrl
+            .get_prop("Maximum")
+            .map(|v| v.as_i64())
+            .unwrap_or(100)
+            .max(1) as f32;
+        let pct = ((val - min) / (max - min)).clamp(0.0, 1.0);
         painter.rect_filled(rect, 2.0, bg_c);
         let bar = egui::Rect::from_min_size(rect.min, Vec2::new(rect.width() * pct, rect.height()));
-        if glass { draw_glass(painter, bar, Color32::from_rgb(0,170,0), 2.0, false, alpha_mul * pct); }
-        else     { painter.rect_filled(bar, 2.0, bar_c); }
-        let border_c = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { Color32::from_rgba_premultiplied(140,140,160,a) };
-        painter.rect_stroke(rect, 2.0, Stroke::new(if selected { 2.0 } else { 1.0 }, border_c));
-        if ctrl.get_prop("ShowValue").map(|v| v.as_bool()).unwrap_or(false) {
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, format!("{:.0}%", pct*100.0),
-                egui::FontId::proportional(ctrl_font_size(ctrl)), Color32::from_rgba_premultiplied(0,0,0,a));
+        if glass {
+            draw_glass_auto(
+                painter,
+                bar,
+                Color32::from_rgb(0, 170, 0),
+                2.0,
+                false,
+                alpha_mul * pct,
+            );
+        } else {
+            painter.rect_filled(bar, 2.0, bar_c);
+        }
+        let border_c = if selected {
+            Color32::from_rgba_premultiplied(60, 120, 230, a)
+        } else {
+            Color32::from_rgba_premultiplied(140, 140, 160, a)
+        };
+        painter.rect_stroke(
+            rect,
+            2.0,
+            Stroke::new(if selected { 2.0 } else { 1.0 }, border_c),
+        );
+        if ctrl
+            .get_prop("ShowValue")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("{:.0}%", pct * 100.0),
+                egui::FontId::proportional(ctrl_font_size(ctrl)),
+                Color32::from_rgba_premultiplied(0, 0, 0, a),
+            );
         }
         return;
     }
@@ -990,9 +1474,33 @@ pub fn draw_control(
 
     let (default_fill, default_border, default_text) = control_colors(&ctrl.control_type, selected);
 
-    let fill = ctrl.get_prop("BackgroundColor").map(|v| parse_color(v.as_str())).unwrap_or(default_fill);
-    let label_color = ctrl.get_prop("ForegroundColor").map(|v| parse_color(v.as_str())).unwrap_or(default_text);
-    let stroke_color = ctrl.get_prop("BorderColor").map(|v| parse_color(v.as_str())).unwrap_or(default_border);
+    let is_container = matches!(ctrl.control_type, CT::GroupBox | CT::Panel);
+    // Container BackgroundColor/ForegroundColor control only the caption (GroupBox)
+    // or are unused (Panel) — not the box fill. The container's content comes from
+    // the child controls placed inside it.
+    let fill = if is_container {
+        default_fill
+    } else {
+        ctrl.get_prop("BackgroundColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(default_fill)
+    };
+    let label_color = ctrl
+        .get_prop("ForegroundColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(default_text);
+    let stroke_color = ctrl
+        .get_prop("BorderColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(default_border);
+    let border_style = ctrl
+        .get_prop("BorderStyle")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "Single".into());
+    let user_border_width = ctrl
+        .get_prop("BorderWidth")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(1.0);
 
     // Unified corner radius for every control (spec 016): canonical CornerRadius,
     // legacy BorderRadius alias, per-type default, clamped. 0 ⇒ square.
@@ -1008,69 +1516,128 @@ pub fn draw_control(
     // A PictureBox with ShowFrame = false draws no card/background/border —
     // only the image (so transparent PNG areas reveal what's behind).
     let pic_frameless = matches!(ctrl.control_type, CT::PictureBox)
-        && !ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
+        && !ctrl
+            .get_prop("ShowFrame")
+            .map(|v| v.as_bool())
+            .unwrap_or(true);
 
     // A chart with HideBackground must draw NO card/glass frame here —
     // `draw_chart_preview` owns the chart's (suppressed) background, so the
     // generic frame drawn below would otherwise show through (spec 013 fix).
-    let chart_frameless = matches!(ctrl.control_type,
-        CT::BarChart | CT::LineChart | CT::PieChart
-        | CT::AreaChart | CT::ScatterChart | CT::DonutChart)
-        && ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
+    let chart_frameless = matches!(
+        ctrl.control_type,
+        CT::BarChart
+            | CT::LineChart
+            | CT::PieChart
+            | CT::AreaChart
+            | CT::ScatterChart
+            | CT::DonutChart
+    ) && ctrl
+        .get_prop("HideBackground")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
 
-    // A GroupBox with HideBackground draws no fill/border (children stay visible);
-    // with a background gradient enabled it fills with a directional gradient
-    // instead of the solid BackgroundColor (spec 015).
-    let group_frameless = matches!(ctrl.control_type, CT::GroupBox)
-        && ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
-    let group_gradient = matches!(ctrl.control_type, CT::GroupBox)
-        && !group_frameless
-        && ctrl.get_prop("BackgroundGradientEnabled").map(|v| v.as_bool()).unwrap_or(false);
+    // A container (GroupBox/Panel) with HideBackground draws no fill/border
+    // (children stay visible); with a background gradient enabled it fills with
+    // a directional gradient instead of the default glass/solid fill.
+    let container_frameless = is_container
+        && ctrl
+            .get_prop("HideBackground")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
+    let container_gradient = is_container
+        && !container_frameless
+        && ctrl
+            .get_prop("BackgroundGradientEnabled")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
 
     // 007 Form themes — when an asset-pack theme is active and covers this
     // control kind, 9-slice its skin instead of the procedural glass; controls
     // the pack doesn't cover fall through to Liquid Glass (R6, R7, R11).
     let theme_skin = active_theme(painter.ctx()).and_then(|pack| {
         let key = control_kind_key(&ctrl.control_type);
-        if key.is_empty() { return None; }
+        if key.is_empty() {
+            return None;
+        }
         pack.control(key).map(|skin| (pack.clone(), skin.clone()))
     });
 
-    if is_label || pic_frameless || chart_frameless || group_frameless {
+    if is_label || pic_frameless || chart_frameless || container_frameless {
         // No visible frame. When selected, show a lightweight selection outline.
         if selected {
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
             painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c));
         }
-    } else if group_gradient {
+    } else if container_gradient {
         // Directional gradient background (spec 015). Fill via a per-vertex mesh,
         // then stroke the (rounded) border on top.
-        let dir = ctrl.get_prop("BackgroundGradientDirection")
-            .map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Vertical".into());
-        let start = alpha_color(ctrl.get_prop("BackgroundGradientStartColor")
-            .map(|v| parse_color(v.as_str())).unwrap_or(fill));
-        let end = alpha_color(ctrl.get_prop("BackgroundGradientEndColor")
-            .map(|v| parse_color(v.as_str())).unwrap_or(fill));
+        let dir = ctrl
+            .get_prop("BackgroundGradientDirection")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Vertical".into());
+        let start = alpha_color(
+            ctrl.get_prop("BackgroundGradientStartColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(fill),
+        );
+        let end = alpha_color(
+            ctrl.get_prop("BackgroundGradientEndColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(fill),
+        );
         painter.add(egui::Shape::mesh(grad_dir_mesh(rect, start, end, &dir)));
-        let bc = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { alpha_color(stroke_color) };
-        painter.rect_stroke(rect, corner, Stroke::new(if selected { 2.0 } else { 1.0 }, bc));
+        let bc = if selected {
+            Color32::from_rgba_premultiplied(60, 120, 230, a)
+        } else {
+            alpha_color(stroke_color)
+        };
+        painter.rect_stroke(
+            rect,
+            corner,
+            Stroke::new(if selected { 2.0 } else { 1.0 }, bc),
+        );
     } else if let Some((pack, skin)) = &theme_skin {
-        let state = if selected { ControlState::Focused } else { ControlState::Normal };
+        let state = if selected {
+            ControlState::Focused
+        } else {
+            ControlState::Normal
+        };
         let img = pack.asset_path(skin.image_for(state));
         if let Some(tex) = load_theme_texture(painter.ctx(), &img.to_string_lossy()) {
             // Explicit BackgroundColor (R12) tints the skin; otherwise white = as-authored.
             let tint = Color32::from_white_alpha(a);
             draw_nine_slice(painter, rect, &tex, skin.slice, tint);
             if selected {
-                painter.rect_stroke(rect, corner,
-                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)));
+                painter.rect_stroke(
+                    rect,
+                    corner,
+                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                );
             }
         } else {
             // Image missing / undecodable → never fail; fall back to glass (R11).
-            draw_glass(painter, rect, fill, frame_round, selected, alpha_mul);
+            draw_glass_auto(painter, rect, fill, frame_round, selected, alpha_mul);
         }
     } else if glass {
-        draw_glass(painter, rect, fill, frame_round, selected, alpha_mul);
+        draw_glass_auto(painter, rect, fill, frame_round, selected, alpha_mul);
+        // When the control has an explicit BorderStyle + BorderWidth, draw the
+        // user border on top of the glass frame so containers (Panel, GroupBox)
+        // honour the same border properties as non-glass controls.
+        if border_style != "None" && user_border_width > 0.5 {
+            let bw = if selected { 2.0_f32.max(user_border_width) } else { user_border_width };
+            let bc = if selected {
+                Color32::from_rgba_premultiplied(60, 120, 230, a)
+            } else {
+                alpha_color(stroke_color)
+            };
+            let half = bw * 0.5;
+            painter.rect_stroke(
+                rect.shrink(half),
+                round_map(frame_round, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
+                Stroke::new(bw, bc),
+            );
+        }
         // Buttons get a subtle top specular — a soft vertical light reflection
         // that visually separates a clickable Button from flat fields like a
         // TextBox. Two stacked translucent bands fading downward.
@@ -1082,79 +1649,100 @@ pub fn draw_control(
                 painter.rect_filled(
                     egui::Rect::from_min_size(
                         rect.min + Vec2::new(inset, 2.0),
-                        Vec2::new((rect.width() - 2.0 * inset).max(0.0), h)),
+                        Vec2::new((rect.width() - 2.0 * inset).max(0.0), h),
+                    ),
                     (corner - 1.0).max(2.0),
-                    Color32::from_rgba_premultiplied(sa, sa, sa, sa));
+                    Color32::from_rgba_premultiplied(sa, sa, sa, sa),
+                );
             };
-            band(spec_h, 16);          // wide soft glow
-            band(spec_h * 0.45, 22);   // narrower brighter core
+            band(spec_h, 16); // wide soft glow
+            band(spec_h * 0.45, 22); // narrower brighter core
         }
     } else {
         painter.rect_filled(rect, frame_round, alpha_color(fill));
-        let bc = if selected { Color32::from_rgba_premultiplied(60,120,230,a) } else { alpha_color(stroke_color) };
-        painter.rect_stroke(rect, frame_round, Stroke::new(if selected { 2.0 } else { 1.0 }, bc));
+        if border_style != "None" {
+            let bw = if selected { 2.0_f32.max(user_border_width) } else { user_border_width };
+            let bc = if selected {
+                Color32::from_rgba_premultiplied(60, 120, 230, a)
+            } else {
+                alpha_color(stroke_color)
+            };
+            painter.rect_stroke(rect, frame_round, Stroke::new(bw, bc));
+        } else if selected {
+            painter.rect_stroke(
+                rect, frame_round,
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+            );
+        }
     }
 
     // ── TabControl tab strip (spec 012) ────────────────────────────────────────
     // Draw a real strip of tabs across the top, highlighting the selected page.
     // The active page index is the `SelectedTab` property (the designer updates it
-    // when a tab is clicked; the bounds here mirror `Control::content_rect`).
-    if matches!(ctrl.control_type, CT::TabControl) {
-        let tabs: Vec<String> = ctrl.get_prop("Tabs")
-            .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
-            .unwrap_or_default();
-        let sel = ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
-        let strip_h = 24.0_f32;
-        let mut tx = rect.min.x + 2.0;
-        let ty = rect.min.y + 1.0;
-        for (i, t) in tabs.iter().enumerate() {
-            let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
-            if tx + tw > rect.max.x { break; }
-            let tr = egui::Rect::from_min_size(Pos2::new(tx, ty), Vec2::new(tw, strip_h));
-            let active = i == sel;
-            let fill_c = if active { Color32::from_rgb(245, 246, 250) } else { Color32::from_rgb(208, 213, 224) };
-            painter.rect_filled(tr, 3.0, alpha_color(fill_c));
-            painter.rect_stroke(tr, 3.0, Stroke::new(1.0, alpha_color(stroke_color)));
-            painter.text(tr.center(), egui::Align2::CENTER_CENTER, t,
-                egui::FontId::proportional(11.0), alpha_color(Color32::from_rgb(40, 40, 50)));
-            tx += tw + 2.0;
-        }
+    // when a tab is clicked). Shared renderers defer this strip until after
+    // children, so tab titles remain chrome/overlay rather than clipped content.
+    if matches!(ctrl.control_type, CT::TabControl)
+        && !ctrl
+            .get_prop("_DeferTabs")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+    {
+        draw_tabcontrol_tabs(painter, rect.min, ctrl, alpha_mul);
     }
 
     // ── GroupBox caption — a "legend" on the top-left border, just past the
     // rounded corner (classic GroupBox look), vertically centred on the border
     // line. Suppressed by HideCaption (spec 015). ─────────────────────────────
     if matches!(ctrl.control_type, CT::GroupBox)
-        && !ctrl.get_prop("HideCaption").map(|v| v.as_bool()).unwrap_or(false)
+        && !ctrl
+            .get_prop("_DeferCaption")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+        && !ctrl
+            .get_prop("HideCaption")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
     {
-        let cap = ctrl.get_prop("Caption").map(|v| v.to_string()).unwrap_or_else(|| ctrl.id.clone());
-        if !cap.is_empty() {
-            let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
-            let font_id = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
-            let x = rect.min.x + corner.max(0.0) + 10.0;
-            painter.text(Pos2::new(x, rect.min.y), egui::Align2::LEFT_CENTER, &cap,
-                font_id, alpha_color(label_color));
-        }
+        draw_groupbox_caption(painter, rect.min, ctrl, alpha_mul);
     }
 
     // Label text — Caption is on Label, Button, CheckBox, RadioButton.
     let label: String = match ctrl.control_type {
         CT::CheckBox => {
-            let checked = ctrl.get_prop("Checked").map(|v| v.as_bool()).unwrap_or(false);
-            let cap = ctrl.get_prop("Caption").map(|v| v.as_str().to_owned()).unwrap_or_else(|| ctrl.id.clone());
+            let checked = ctrl
+                .get_prop("Checked")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            let cap = ctrl
+                .get_prop("Caption")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| ctrl.id.clone());
             format!("{} {cap}", if checked { "[✓]" } else { "[ ]" })
         }
         CT::RadioButton => {
-            let checked = ctrl.get_prop("Checked").map(|v| v.as_bool()).unwrap_or(false);
-            let cap = ctrl.get_prop("Caption").map(|v| v.as_str().to_owned()).unwrap_or_else(|| ctrl.id.clone());
+            let checked = ctrl
+                .get_prop("Checked")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            let cap = ctrl
+                .get_prop("Caption")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| ctrl.id.clone());
             format!("{} {cap}", if checked { "(●)" } else { "( )" })
         }
         CT::ComboBox => {
-            let items = ctrl.get_prop("Items").map(|v| v.as_str().to_owned()).unwrap_or_default();
+            let items = ctrl
+                .get_prop("Items")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
             format!("{} ▾", items.lines().next().unwrap_or(""))
         }
         CT::DateTimePicker => {
-            let val = ctrl.get_prop("Value").map(|v| v.as_str().to_owned()).filter(|s| !s.is_empty()).unwrap_or_else(|| "DD/MM/YYYY".into());
+            let val = ctrl
+                .get_prop("Value")
+                .map(|v| v.as_str().to_owned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "DD/MM/YYYY".into());
             format!("📅 {val}")
         }
         CT::NumericUpDown => {
@@ -1164,80 +1752,149 @@ pub fn draw_control(
         CT::PictureBox => {
             // If we have a loaded texture, draw it directly and skip the text label.
             if let Some(tex_id) = pic_tex {
-                let size_mode = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Normal".into());
+                let size_mode = ctrl
+                    .get_prop("SizeMode")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_else(|| "Normal".into());
                 // Honour SizeMode with the image's native size so the aspect ratio
                 // is preserved (Fit/Zoom/Center) identically to the run/preview —
                 // the native size comes from the texture manager (spec 017 parity).
-                let native = painter.ctx().tex_manager().read().meta(tex_id)
+                let native = painter
+                    .ctx()
+                    .tex_manager()
+                    .read()
+                    .meta(tex_id)
                     .map(|m| Vec2::new(m.size[0] as f32, m.size[1] as f32))
                     .unwrap_or_else(|| rect.size());
-                draw_media_image(painter, rect, tex_id, native, pic_size_mode(&size_mode), a, ctrl, corner);
+                draw_media_image(
+                    painter,
+                    rect,
+                    tex_id,
+                    native,
+                    pic_size_mode(&size_mode),
+                    a,
+                    ctrl,
+                    corner,
+                );
                 // Selection border on top
                 if selected {
-                    painter.rect_stroke(rect, corner, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
+                    painter.rect_stroke(
+                        rect,
+                        corner,
+                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                    );
                 }
                 return; // skip generic text rendering below
             }
             // No image loaded — show placeholder text
-            if ctrl.get_prop("ImagePath").map(|v| !v.as_str().is_empty()).unwrap_or(false) {
+            if ctrl
+                .get_prop("ImagePath")
+                .map(|v| !v.as_str().is_empty())
+                .unwrap_or(false)
+            {
                 "🖼 [loading…]".into()
             } else {
                 "🖼 (empty)".into()
             }
         }
         CT::Animator => {
-            let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
-            let auto    = ctrl.get_prop("AutoPlay").map(|v| v.as_bool()).unwrap_or(true);
+            let source = ctrl
+                .get_prop("Source")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
+            let auto = ctrl
+                .get_prop("AutoPlay")
+                .map(|v| v.as_bool())
+                .unwrap_or(true);
             let looping = ctrl.get_prop("Loop").map(|v| v.as_bool()).unwrap_or(true);
-            let size_mode = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned())
+            let size_mode = ctrl
+                .get_prop("SizeMode")
+                .map(|v| v.as_str().to_owned())
                 .unwrap_or_else(|| "Fit".into());
             let key = format!("{}|{}", ctrl.id, source.trim());
-            draw_animator(painter, rect, ctrl, &key, source.trim(), auto, looping, &size_mode, alpha_mul, selected);
+            draw_animator(
+                painter,
+                rect,
+                ctrl,
+                &key,
+                source.trim(),
+                auto,
+                looping,
+                &size_mode,
+                alpha_mul,
+                selected,
+            );
             return;
         }
-        CT::TreeView   => "🌲 [TreeView]".into(),
-        CT::DataGrid   => {
-            let cols = ctrl.get_prop("Columns").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        CT::TreeView => "🌲 [TreeView]".into(),
+        CT::DataGrid => {
+            let cols = ctrl
+                .get_prop("Columns")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
             let col_count = cols.lines().count().max(1);
             format!("⊞ DataGrid ({col_count} cols)")
         }
-        CT::Splitter   => {
-            let dir = ctrl.get_prop("Orientation").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "H".into());
-            if dir.starts_with('V') { "║ Splitter".into() } else { "═ Splitter".into() }
+        CT::Splitter => {
+            let dir = ctrl
+                .get_prop("Orientation")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| "H".into());
+            if dir.starts_with('V') {
+                "║ Splitter".into()
+            } else {
+                "═ Splitter".into()
+            }
         }
         // The tab strip is drawn above; no centered label.
         CT::TabControl => String::new(),
-        CT::MenuBar    => "☰ MenuBar".into(),
-        CT::ToolBar    => "⬛ ToolBar".into(),
-        CT::StatusBar  => "▬ StatusBar".into(),
+        CT::MenuBar => "☰ MenuBar".into(),
+        CT::ToolBar => "⬛ ToolBar".into(),
+        CT::StatusBar => "▬ StatusBar".into(),
         // GroupBox draws its caption as a "legend" on the top-left border (below),
         // never as centered text.
         CT::GroupBox => String::new(),
         // Controls with an intrinsic text label use their Caption property.
-        CT::Label | CT::Button =>
-            ctrl.get_prop("Caption").map(|v| v.to_string()).unwrap_or_else(|| ctrl.id.clone()),
+        CT::Label | CT::Button => ctrl
+            .get_prop("Caption")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| ctrl.id.clone()),
         // TextBox shows its current text value.
-        CT::TextBox => ctrl.get_prop("Text").map(|v| v.to_string()).unwrap_or_default(),
+        CT::TextBox => ctrl
+            .get_prop("Text")
+            .map(|v| v.to_string())
+            .unwrap_or_default(),
         // Non-text controls (Panel, …) draw no caption — only GroupBox and Label
         // (and the text-bearing widgets above) carry one.
         _ => String::new(),
     };
 
     if !label.is_empty() {
-        let txt_color = Color32::from_rgba_premultiplied(
-            label_color.r(), label_color.g(), label_color.b(), a,
-        );
+        let txt_color =
+            Color32::from_rgba_premultiplied(label_color.r(), label_color.g(), label_color.b(), a);
         let fsize = ctrl_font_size(ctrl);
-        let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
+        let font_name = ctrl
+            .get_prop("FontName")
+            .map(|v| v.as_str())
+            .unwrap_or_default();
 
         // For Label controls, apply font-style properties via LayoutJob.
         if matches!(ctrl.control_type, CT::Label) {
             use egui::text::{LayoutJob, TextFormat};
 
-            let bold        = ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false);
-            let italic      = ctrl.get_prop("Italic").map(|v| v.as_bool()).unwrap_or(false);
-            let underline   = ctrl.get_prop("Underline").map(|v| v.as_bool()).unwrap_or(false);
-            let strikeout   = ctrl.get_prop("Strikethrough").map(|v| v.as_bool()).unwrap_or(false);
+            let bold = ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false);
+            let italic = ctrl
+                .get_prop("Italic")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            let underline = ctrl
+                .get_prop("Underline")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            let strikeout = ctrl
+                .get_prop("Strikethrough")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
 
             // Egui doesn't have a separate bold typeface registered by default.
             // Simulate bold by painting the galley twice with a tiny x-offset.
@@ -1245,28 +1902,35 @@ pub fn draw_control(
 
             // Honour the Label's TextAlignment (Left / Center / Right).
             let halign = text_halign(
-                ctrl.get_prop("TextAlignment").map(|v| v.as_str()).unwrap_or(""));
+                ctrl.get_prop("TextAlignment")
+                    .map(|v| v.as_str())
+                    .unwrap_or(""),
+            );
 
             let mut job = LayoutJob::default();
             job.halign = halign;
             job.wrap.max_width = rect.width();
             job.wrap.break_anywhere = false;
-            job.append(&label, 0.0, TextFormat {
-                font_id: font_id.clone(),
-                color: txt_color,
-                italics: italic,
-                underline: if underline {
-                    Stroke::new(1.0, txt_color)
-                } else {
-                    Stroke::NONE
+            job.append(
+                &label,
+                0.0,
+                TextFormat {
+                    font_id: font_id.clone(),
+                    color: txt_color,
+                    italics: italic,
+                    underline: if underline {
+                        Stroke::new(1.0, txt_color)
+                    } else {
+                        Stroke::NONE
+                    },
+                    strikethrough: if strikeout {
+                        Stroke::new(1.0, txt_color)
+                    } else {
+                        Stroke::NONE
+                    },
+                    ..Default::default()
                 },
-                strikethrough: if strikeout {
-                    Stroke::new(1.0, txt_color)
-                } else {
-                    Stroke::NONE
-                },
-                ..Default::default()
-            });
+            );
 
             let galley = painter.layout_job(job);
             // The galley's draw origin follows `halign`: top-left for LEFT,
@@ -1276,13 +1940,10 @@ pub fn draw_control(
             let pad = 3.0_f32.min(rect.width() * 0.25);
             let anchor_x = match halign {
                 egui::Align::Center => rect.center().x,
-                egui::Align::RIGHT  => rect.right() - pad,
-                _                   => rect.left() + pad,
+                egui::Align::RIGHT => rect.right() - pad,
+                _ => rect.left() + pad,
             };
-            let text_pos = egui::pos2(
-                anchor_x,
-                rect.center().y - galley.size().y / 2.0,
-            );
+            let text_pos = egui::pos2(anchor_x, rect.center().y - galley.size().y / 2.0);
             painter.galley(text_pos, galley.clone(), txt_color);
 
             // Simulate bold: repaint shifted by 0.5 px
@@ -1291,20 +1952,41 @@ pub fn draw_control(
             }
         } else {
             painter.text(
-                rect.center(), egui::Align2::CENTER_CENTER, &label,
-                crate::fonts::font_id(painter.ctx(), &font_name, fsize), txt_color,
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                &label,
+                crate::fonts::font_id(painter.ctx(), &font_name, fsize),
+                txt_color,
             );
         }
     }
 
     // ── Charts ───────────────────────────────────────────────────────────────
-    if matches!(ctrl.control_type,
-        CT::BarChart | CT::LineChart | CT::PieChart |
-        CT::AreaChart | CT::ScatterChart | CT::DonutChart)
-    {
-        draw_chart_preview(painter, ctrl, rect, a, alpha_mul, glass, selected, frame_round);
+    if matches!(
+        ctrl.control_type,
+        CT::BarChart
+            | CT::LineChart
+            | CT::PieChart
+            | CT::AreaChart
+            | CT::ScatterChart
+            | CT::DonutChart
+    ) {
+        draw_chart_preview(
+            painter,
+            ctrl,
+            rect,
+            a,
+            alpha_mul,
+            glass,
+            selected,
+            frame_round,
+        );
         if selected {
-            painter.rect_stroke(rect, frame_round, Stroke::new(2.0, Color32::from_rgba_premultiplied(60,120,230,a)));
+            painter.rect_stroke(
+                rect,
+                frame_round,
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+            );
         }
         // Animation indicator falls through to the shared badge below.
     }
@@ -1312,9 +1994,18 @@ pub fn draw_control(
     // Animation indicator badge
     if !ctrl.animations.is_empty() {
         let badge_pos = rect.right_top() + Vec2::new(-2.0, 2.0);
-        painter.circle_filled(badge_pos, 5.0, Color32::from_rgba_premultiplied(255,180,0,180));
-        painter.text(badge_pos, egui::Align2::CENTER_CENTER,
-            "▶", egui::FontId::proportional(6.0), Color32::WHITE);
+        painter.circle_filled(
+            badge_pos,
+            5.0,
+            Color32::from_rgba_premultiplied(255, 180, 0, 180),
+        );
+        painter.text(
+            badge_pos,
+            egui::Align2::CENTER_CENTER,
+            "▶",
+            egui::FontId::proportional(6.0),
+            Color32::WHITE,
+        );
     }
 }
 
@@ -1326,9 +2017,9 @@ pub fn draw_control(
 pub fn pic_size_mode(m: &str) -> &'static str {
     match m {
         "Stretch" | "StretchImage" => "Stretch",
-        "Zoom" | "Fit"             => "Fit",
-        "Fill"                     => "Fill",
-        _                          => "Center", // Normal / CenterImage / AutoSize
+        "Zoom" | "Fit" => "Fit",
+        "Fill" => "Fill",
+        _ => "Center", // Normal / CenterImage / AutoSize
     }
 }
 
@@ -1345,7 +2036,9 @@ pub fn media_dest_rect(rect: egui::Rect, native: Vec2, size_mode: &str) -> egui:
         }
         "Center" | "Normal" => {
             // Native size centred, but never larger than the rect.
-            let s = (rect.width() / native.x).min(rect.height() / native.y).min(1.0);
+            let s = (rect.width() / native.x)
+                .min(rect.height() / native.y)
+                .min(1.0);
             egui::Rect::from_center_size(rect.center(), native * s)
         }
         // "Fit" (default): contain, preserving aspect ratio.
@@ -1353,6 +2046,132 @@ pub fn media_dest_rect(rect: egui::Rect, native: Vec2, size_mode: &str) -> egui:
             let s = (rect.width() / native.x).min(rect.height() / native.y);
             egui::Rect::from_center_size(rect.center(), native * s)
         }
+    }
+}
+
+/// Draw a GroupBox caption as a top overlay. The shared renderer defers captions
+/// until after children are drawn, so child clipping can use the whole container
+/// interior while the caption still sits above any overlapping child content.
+pub fn draw_groupbox_caption(
+    painter: &egui::Painter,
+    origin: Pos2,
+    ctrl: &Control,
+    alpha_mul: f32,
+) {
+    if !matches!(ctrl.control_type, ControlType::GroupBox)
+        || ctrl
+            .get_prop("HideCaption")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+    {
+        return;
+    }
+    let cap = match ctrl.get_prop("Caption") {
+        Some(v) if !v.as_str().is_empty() => v.to_string(),
+        _ => return,
+    };
+    let label_color = ctrl
+        .get_prop("ForegroundColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or_else(|| control_colors(&ctrl.control_type, false).2);
+    let caption_enabled = ctrl
+        .get_prop("CaptionEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
+    let a = alpha_mul.clamp(0.0, 1.0) * if caption_enabled { 1.0 } else { 0.45 };
+    let text = Color32::from_rgba_premultiplied(
+        label_color.r(),
+        label_color.g(),
+        label_color.b(),
+        ((label_color.a() as f32) * a) as u8,
+    );
+    let font_name = ctrl
+        .get_prop("FontName")
+        .map(|v| v.as_str())
+        .unwrap_or_default();
+    let font_id = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
+    let x = origin.x + corner_radius(ctrl).max(0.0) + 10.0;
+    let pos = Pos2::new(x, origin.y);
+
+    // BackgroundColor on a GroupBox paints a band behind the caption text.
+    if let Some(bg_val) = ctrl.get_prop("BackgroundColor") {
+        let bg = parse_color(bg_val.as_str());
+        if bg.a() > 0 {
+            let galley = painter.layout_no_wrap(cap.clone(), font_id.clone(), text);
+            let pad = 4.0_f32;
+            let bg_rect = egui::Rect::from_min_size(
+                Pos2::new(x - pad, origin.y - galley.size().y * 0.5 - 1.0),
+                egui::Vec2::new(galley.size().x + pad * 2.0, galley.size().y + 2.0),
+            );
+            let bg_color = Color32::from_rgba_premultiplied(
+                bg.r(), bg.g(), bg.b(), ((bg.a() as f32) * a) as u8,
+            );
+            painter.rect_filled(bg_rect, 2.0, bg_color);
+        }
+    }
+
+    painter.text(pos, egui::Align2::LEFT_CENTER, &cap, font_id, text);
+}
+
+/// Draw a TabControl tab strip as top chrome. Renderers may defer this until
+/// after children are drawn so child clipping can use the whole rounded interior
+/// while tab titles stay above the clipped content.
+pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Control, alpha_mul: f32) {
+    if !matches!(ctrl.control_type, ControlType::TabControl) {
+        return;
+    }
+
+    let tabs: Vec<String> = ctrl
+        .get_prop("Tabs")
+        .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    if tabs.is_empty() {
+        return;
+    }
+
+    let rect = egui::Rect::from_min_size(
+        origin,
+        Vec2::new(ctrl.rect.w.max(0) as f32, ctrl.rect.h.max(0) as f32),
+    );
+    let stroke_color = ctrl
+        .get_prop("BorderColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or_else(|| control_colors(&ctrl.control_type, false).1);
+    let a = alpha_mul.clamp(0.0, 1.0);
+    let alpha_color = |c: Color32| -> Color32 {
+        Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * a) as u8)
+    };
+
+    let sel = ctrl
+        .get_prop("SelectedTab")
+        .map(|v| v.as_i64())
+        .unwrap_or(0)
+        .max(0) as usize;
+    let strip_h = 24.0_f32;
+    let mut tx = rect.min.x + 2.0;
+    let ty = rect.min.y + 1.0;
+    for (i, t) in tabs.iter().enumerate() {
+        let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
+        if tx + tw > rect.max.x {
+            break;
+        }
+        let tr = egui::Rect::from_min_size(Pos2::new(tx, ty), Vec2::new(tw, strip_h));
+        let active = i == sel;
+        let fill_c = if active {
+            Color32::from_rgb(245, 246, 250)
+        } else {
+            Color32::from_rgb(208, 213, 224)
+        };
+        painter.rect_filled(tr, 3.0, alpha_color(fill_c));
+        painter.rect_stroke(tr, 3.0, Stroke::new(1.0, alpha_color(stroke_color)));
+        painter.text(
+            tr.center(),
+            egui::Align2::CENTER_CENTER,
+            t,
+            egui::FontId::proportional(11.0),
+            alpha_color(Color32::from_rgb(40, 40, 50)),
+        );
+        tx += tw + 2.0;
     }
 }
 
@@ -1367,7 +2186,10 @@ pub fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::Textu
         .pixels()
         .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
         .collect();
-    let ci = egui::ColorImage { size: [w, h], pixels };
+    let ci = egui::ColorImage {
+        size: [w, h],
+        pixels,
+    };
     // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a Tiled backdrop
     // can also tile inside the corner-notch mask (spec 017).
     Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
@@ -1401,7 +2223,14 @@ pub fn draw_picturebox(
     corner: f32,
 ) {
     if show_frame {
-        draw_glass(painter, rect, Color32::from_rgb(20, 30, 60), corner, false, alpha_mul * 0.7);
+        draw_glass_auto(
+            painter,
+            rect,
+            Color32::from_rgb(20, 30, 60),
+            corner,
+            false,
+            alpha_mul * 0.7,
+        );
     }
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
@@ -1413,8 +2242,14 @@ pub fn draw_picturebox(
             let dw = dest.width().max(1.0);
             let dh = dest.height().max(1.0);
             let uv = egui::Rect::from_min_max(
-                egui::pos2((rect.min.x - dest.min.x) / dw, (rect.min.y - dest.min.y) / dh),
-                egui::pos2((rect.max.x - dest.min.x) / dw, (rect.max.y - dest.min.y) / dh),
+                egui::pos2(
+                    (rect.min.x - dest.min.x) / dw,
+                    (rect.min.y - dest.min.y) / dh,
+                ),
+                egui::pos2(
+                    (rect.max.x - dest.min.x) / dw,
+                    (rect.max.y - dest.min.y) / dh,
+                ),
             );
             painter.add(egui::Shape::Rect(egui::epaint::RectShape {
                 rect,
@@ -1427,11 +2262,15 @@ pub fn draw_picturebox(
             }));
         } else {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            painter.with_clip_rect(rect).image(tex.id(), dest, uv, Color32::from_white_alpha(a));
+            painter
+                .with_clip_rect(rect)
+                .image(tex.id(), dest, uv, Color32::from_white_alpha(a));
         }
     } else if show_frame {
         painter.text(
-            rect.center(), egui::Align2::CENTER_CENTER, "🖼",
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "🖼",
             egui::FontId::proportional(32.0),
             Color32::from_rgba_premultiplied(160, 160, 200, (160.0 * alpha_mul) as u8),
         );
@@ -1447,7 +2286,11 @@ pub fn parse_hex(s: &str) -> Option<Color32> {
         let r = u8::from_str_radix(&h[0..2], 16).ok()?;
         let g = u8::from_str_radix(&h[2..4], 16).ok()?;
         let b = u8::from_str_radix(&h[4..6], 16).ok()?;
-        let a = if h.len() >= 8 { u8::from_str_radix(&h[6..8], 16).unwrap_or(255) } else { 255 };
+        let a = if h.len() >= 8 {
+            u8::from_str_radix(&h[6..8], 16).unwrap_or(255)
+        } else {
+            255
+        };
         Some(Color32::from_rgba_unmultiplied(r, g, b, a))
     } else {
         None
@@ -1455,8 +2298,9 @@ pub fn parse_hex(s: &str) -> Option<Color32> {
 }
 
 /// Short month names for DataGrid date cells and the DateTimePicker field.
-pub const MONTH_ABBR: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+pub const MONTH_ABBR: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 /// Format a DataGrid cell value by its declared column type.
 /// Returns `(display_text, right_aligned)`.
@@ -1470,7 +2314,15 @@ pub fn format_cell(raw: &str, ty: &str) -> (String, bool) {
             }
         }
         "datetime" | "date" => match parse_ymd(raw.trim()) {
-            Some((y, m, d)) => (format!("{:02} {} {}", d, MONTH_ABBR[(m.clamp(1, 12) - 1) as usize], y), false),
+            Some((y, m, d)) => (
+                format!(
+                    "{:02} {} {}",
+                    d,
+                    MONTH_ABBR[(m.clamp(1, 12) - 1) as usize],
+                    y
+                ),
+                false,
+            ),
             None => (raw.to_owned(), false),
         },
         _ => (raw.to_owned(), false),
@@ -1483,8 +2335,20 @@ pub const CAL_W: f32 = CAL_CELL * 7.0;
 pub const CAL_NAV_H: f32 = 24.0;
 pub const CAL_WK_H: f32 = 20.0;
 pub const CAL_GRID_Y: f32 = CAL_NAV_H + CAL_WK_H; // area-top → first day row
-pub const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"];
+pub const MONTHS: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
 
 /// Open/viewed-month state for a DateTimePicker calendar popup, stashed in egui
 /// temp memory keyed by the control id.
@@ -1495,16 +2359,30 @@ pub struct CalState {
     pub month: u32, // 1-12
 }
 impl Default for CalState {
-    fn default() -> Self { Self { open: false, year: 2026, month: 6 } }
+    fn default() -> Self {
+        Self {
+            open: false,
+            year: 2026,
+            month: 6,
+        }
+    }
 }
 
-fn is_leap(y: i32) -> bool { (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 }
+fn is_leap(y: i32) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
 
 pub fn days_in_month(y: i32, m: u32) -> u32 {
     match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 => if is_leap(y) { 29 } else { 28 },
+        2 => {
+            if is_leap(y) {
+                29
+            } else {
+                28
+            }
+        }
         _ => 30,
     }
 }
@@ -1545,40 +2423,61 @@ pub enum GlassComboAction {
 
 /// Draw the ComboBox header bar (always visible). Returns `true` if clicked.
 pub fn glass_combo_header(
-    painter:     &egui::Painter,
-    ui:          &mut egui::Ui,
-    rect:        egui::Rect,
-    control_id:  egui::Id,
-    selected:    &str,
-    is_open:     bool,
-    enabled:     bool,
-    alpha:       f32,
+    painter: &egui::Painter,
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    control_id: egui::Id,
+    selected: &str,
+    is_open: bool,
+    enabled: bool,
+    alpha: f32,
 ) -> bool {
     use egui::{Align2, FontId, Pos2};
-    draw_glass(painter, rect, Color32::from_rgb(25, 38, 80), 6.0, false, alpha);
-    painter.rect_stroke(rect, 6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)));
-    painter.text(Pos2::new(rect.min.x + 8.0, rect.center().y),
-        Align2::LEFT_CENTER, selected, FontId::proportional(12.0),
-        Color32::from_rgb(220, 228, 255));
-    painter.text(Pos2::new(rect.max.x - 13.0, rect.center().y),
-        Align2::CENTER_CENTER, if is_open { "▲" } else { "▼" },
-        FontId::proportional(9.0), Color32::from_rgba_premultiplied(160, 190, 255, 200));
-    enabled && ui.interact(rect, control_id, egui::Sense::click()).clicked()
+    draw_glass_auto(
+        painter,
+        rect,
+        Color32::from_rgb(25, 38, 80),
+        6.0,
+        false,
+        alpha,
+    );
+    painter.rect_stroke(
+        rect,
+        6.0,
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)),
+    );
+    painter.text(
+        Pos2::new(rect.min.x + 8.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        selected,
+        FontId::proportional(12.0),
+        Color32::from_rgb(220, 228, 255),
+    );
+    painter.text(
+        Pos2::new(rect.max.x - 13.0, rect.center().y),
+        Align2::CENTER_CENTER,
+        if is_open { "▲" } else { "▼" },
+        FontId::proportional(9.0),
+        Color32::from_rgba_premultiplied(160, 190, 255, 200),
+    );
+    enabled
+        && ui
+            .interact(rect, control_id, egui::Sense::click())
+            .clicked()
 }
 
 /// Draw the ComboBox dropdown popup (call after all controls). Returns the user
 /// action, if any.
 pub fn glass_combo_popup(
-    ui:           &mut egui::Ui,
-    ctrl_id_str:  &str,
-    header_rect:  egui::Rect,
-    items:        &[String],
+    ui: &mut egui::Ui,
+    ctrl_id_str: &str,
+    header_rect: egui::Rect,
+    items: &[String],
     selected_val: &str,
 ) -> Option<GlassComboAction> {
     use egui::{Align2, FontId, Pos2, Vec2};
 
-    let item_h  = 22.0_f32;
+    let item_h = 22.0_f32;
     let popup_h = (items.len() as f32 * item_h).min(180.0);
     let popup_rect = egui::Rect::from_min_size(
         Pos2::new(header_rect.min.x, header_rect.max.y + 1.0),
@@ -1586,7 +2485,7 @@ pub fn glass_combo_popup(
     );
 
     let pointer_pos = ui.input(|i| i.pointer.hover_pos());
-    let any_click   = ui.input(|i| i.pointer.any_click());
+    let any_click = ui.input(|i| i.pointer.any_click());
     if any_click {
         let inside = header_rect.contains(pointer_pos.unwrap_or(Pos2::ZERO))
             || popup_rect.contains(pointer_pos.unwrap_or(Pos2::ZERO));
@@ -1597,28 +2496,57 @@ pub fn glass_combo_popup(
 
     let pp = ui.painter_at(popup_rect);
     pp.rect_filled(popup_rect, 6.0, Color32::from_rgb(22, 30, 58));
-    draw_glass(&pp, popup_rect, Color32::from_rgb(30, 42, 80), 6.0, false, 0.35);
-    pp.rect_stroke(popup_rect, 6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)));
+    draw_glass_auto(
+        &pp,
+        popup_rect,
+        Color32::from_rgb(30, 42, 80),
+        6.0,
+        false,
+        0.35,
+    );
+    pp.rect_stroke(
+        popup_rect,
+        6.0,
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)),
+    );
 
     let mut action = None;
     for (i, item) in items.iter().enumerate() {
         let item_y = popup_rect.min.y + i as f32 * item_h;
-        if item_y + item_h > popup_rect.max.y { break; }
+        if item_y + item_h > popup_rect.max.y {
+            break;
+        }
         let item_rect = egui::Rect::from_min_size(
             Pos2::new(popup_rect.min.x, item_y),
-            Vec2::new(popup_rect.width(), item_h));
+            Vec2::new(popup_rect.width(), item_h),
+        );
         let iid = egui::Id::new(("glass_combo_item", ctrl_id_str, i));
-        let is_sel  = item == selected_val;
+        let is_sel = item == selected_val;
         let hovered = pointer_pos.map(|p| item_rect.contains(p)).unwrap_or(false);
         if is_sel {
-            pp.rect_filled(item_rect, 4.0, Color32::from_rgba_premultiplied(60, 100, 200, 120));
+            pp.rect_filled(
+                item_rect,
+                4.0,
+                Color32::from_rgba_premultiplied(60, 100, 200, 120),
+            );
         } else if hovered {
-            pp.rect_filled(item_rect, 4.0, Color32::from_rgba_premultiplied(50, 70, 150, 80));
+            pp.rect_filled(
+                item_rect,
+                4.0,
+                Color32::from_rgba_premultiplied(50, 70, 150, 80),
+            );
         }
-        pp.text(Pos2::new(item_rect.min.x + 10.0, item_rect.center().y),
-            Align2::LEFT_CENTER, item, FontId::proportional(12.0),
-            if is_sel { Color32::from_rgb(200, 220, 255) } else { Color32::from_rgb(210, 218, 245) });
+        pp.text(
+            Pos2::new(item_rect.min.x + 10.0, item_rect.center().y),
+            Align2::LEFT_CENTER,
+            item,
+            FontId::proportional(12.0),
+            if is_sel {
+                Color32::from_rgb(200, 220, 255)
+            } else {
+                Color32::from_rgb(210, 218, 245)
+            },
+        );
         if ui.interact(item_rect, iid, egui::Sense::click()).clicked() {
             action = Some(GlassComboAction::Select(item.clone()));
         }
@@ -1628,16 +2556,16 @@ pub fn glass_combo_popup(
 
 #[allow(clippy::too_many_arguments)]
 pub fn draw_animator(
-    painter:   &egui::Painter,
-    rect:      egui::Rect,
-    ctrl:      &Control,
-    key:       &str,
-    source:    &str,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ctrl: &Control,
+    key: &str,
+    source: &str,
     auto_play: bool,
-    looping:   bool,
+    looping: bool,
     size_mode: &str,
     alpha_mul: f32,
-    selected:  bool,
+    selected: bool,
 ) {
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     // Round the film/placeholder corners that land on a container's rounded border
@@ -1666,18 +2594,32 @@ pub fn draw_animator(
         None => {
             // Placeholder: a dark "film" panel with a play glyph.
             painter.rect_filled(rect, round, Color32::from_rgba_premultiplied(18, 24, 48, a));
-            painter.rect_stroke(rect, round,
-                Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 150, 230, a)));
-            let label = if source.is_empty() { "▶ Animator" } else { "▶ (cannot load)" };
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, label,
+            painter.rect_stroke(
+                rect,
+                round,
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 150, 230, a)),
+            );
+            let label = if source.is_empty() {
+                "▶ Animator"
+            } else {
+                "▶ (cannot load)"
+            };
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                label,
                 egui::FontId::proportional(13.0),
-                Color32::from_rgba_premultiplied(190, 205, 255, a));
+                Color32::from_rgba_premultiplied(190, 205, 255, a),
+            );
         }
     }
 
     if selected {
-        painter.rect_stroke(rect, round,
-            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)));
+        painter.rect_stroke(
+            rect,
+            round,
+            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+        );
     }
 }
 
@@ -1695,7 +2637,11 @@ fn rgb_to_hsl(c: Color32) -> (f32, f32, f32) {
     if d.abs() < 1e-6 {
         return (0.0, 0.0, l); // achromatic
     }
-    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+    let s = if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    };
     let h = if max == r {
         ((g - b) / d + if g < b { 6.0 } else { 0.0 }) * 60.0
     } else if max == g {
@@ -1715,15 +2661,28 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> Color32 {
         let v = (l * 255.0).round() as u8;
         return Color32::from_rgb(v, v, v);
     }
-    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
     let p = 2.0 * l - q;
     let hue = |mut t: f32| -> f32 {
-        if t < 0.0 { t += 1.0; }
-        if t > 1.0 { t -= 1.0; }
-        if t < 1.0 / 6.0 { p + (q - p) * 6.0 * t }
-        else if t < 1.0 / 2.0 { q }
-        else if t < 2.0 / 3.0 { p + (q - p) * (2.0 / 3.0 - t) * 6.0 }
-        else { p }
+        if t < 0.0 {
+            t += 1.0;
+        }
+        if t > 1.0 {
+            t -= 1.0;
+        }
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 1.0 / 2.0 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
     };
     let r = (hue(h + 1.0 / 3.0) * 255.0).round() as u8;
     let g = (hue(h) * 255.0).round() as u8;
@@ -1739,7 +2698,11 @@ pub fn monochrome_palette(base: Color32, count: usize) -> Vec<Color32> {
     let n = count.max(1);
     (0..n)
         .map(|i| {
-            let t = if n == 1 { 0.5 } else { i as f32 / (n as f32 - 1.0) };
+            let t = if n == 1 {
+                0.5
+            } else {
+                i as f32 / (n as f32 - 1.0)
+            };
             let l = 0.30 + t * 0.48;
             let sat = (s * (0.80 + 0.20 * (1.0 - t))).clamp(0.0, 1.0);
             hsl_to_rgb(h, sat, l)
@@ -1763,7 +2726,11 @@ pub fn axis_variant(base: Color32) -> Color32 {
 /// one, so borders stay visible (spec 013 R6).
 pub fn border_variant(base: Color32, dark_bg: bool) -> Color32 {
     let (h, s, l) = rgb_to_hsl(base);
-    let nl = if dark_bg { (l + 0.22).min(0.92) } else { (l - 0.22).max(0.10) };
+    let nl = if dark_bg {
+        (l + 0.22).min(0.92)
+    } else {
+        (l - 0.22).max(0.10)
+    };
     hsl_to_rgb(h, s, nl)
 }
 
@@ -1777,12 +2744,12 @@ pub fn chart_palette_256() -> Vec<Color32> {
     for hi in 0..16u32 {
         let h = hi as f32 / 16.0 * 360.0;
         for li in 0..16u32 {
-            let l = 0.24 + (li as f32 / 15.0) * 0.56;            // 0.24 .. 0.80
+            let l = 0.24 + (li as f32 / 15.0) * 0.56; // 0.24 .. 0.80
             if hi == GREY_COL {
-                let v = (l * 255.0).round() as u8;              // grey, never pure black/white
+                let v = (l * 255.0).round() as u8; // grey, never pure black/white
                 out.push(Color32::from_rgb(v, v, v));
             } else {
-                let s = 0.45 + ((li % 4) as f32 / 3.0) * 0.50;  // 0.45 .. 0.95
+                let s = 0.45 + ((li % 4) as f32 / 3.0) * 0.50; // 0.45 .. 0.95
                 out.push(hsl_to_rgb(h, s.clamp(0.0, 1.0), l));
             }
         }
@@ -1816,12 +2783,16 @@ fn catmull_rom(pts: &[Pos2], seg: usize) -> Vec<Pos2> {
             let t = s as f32 / seg as f32;
             let t2 = t * t;
             let t3 = t2 * t;
-            let x = 0.5 * ((2.0 * p1.x) + (-p0.x + p2.x) * t
-                + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
-                + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
-            let y = 0.5 * ((2.0 * p1.y) + (-p0.y + p2.y) * t
-                + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
-                + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
+            let x = 0.5
+                * ((2.0 * p1.x)
+                    + (-p0.x + p2.x) * t
+                    + (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2
+                    + (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
+            let y = 0.5
+                * ((2.0 * p1.y)
+                    + (-p0.y + p2.y) * t
+                    + (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2
+                    + (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
             out.push(Pos2::new(x, y));
         }
     }
@@ -1834,10 +2805,26 @@ fn catmull_rom(pts: &[Pos2], seg: usize) -> Vec<Pos2> {
 fn grad_rect_mesh(rect: egui::Rect, top: Color32, bottom: Color32) -> egui::epaint::Mesh {
     let uv = egui::epaint::WHITE_UV;
     let mut m = egui::epaint::Mesh::default();
-    m.vertices.push(egui::epaint::Vertex { pos: rect.left_top(),     uv, color: top });
-    m.vertices.push(egui::epaint::Vertex { pos: rect.right_top(),    uv, color: top });
-    m.vertices.push(egui::epaint::Vertex { pos: rect.right_bottom(), uv, color: bottom });
-    m.vertices.push(egui::epaint::Vertex { pos: rect.left_bottom(),  uv, color: bottom });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.left_top(),
+        uv,
+        color: top,
+    });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.right_top(),
+        uv,
+        color: top,
+    });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.right_bottom(),
+        uv,
+        color: bottom,
+    });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.left_bottom(),
+        uv,
+        color: bottom,
+    });
     m.indices.extend([0, 1, 2, 0, 2, 3]);
     m
 }
@@ -1846,7 +2833,12 @@ fn grad_rect_mesh(rect: egui::Rect, top: Color32, bottom: Color32) -> egui::epai
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Color32::from_rgba_premultiplied(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()), l(a.a(), b.a()))
+    Color32::from_rgba_premultiplied(
+        l(a.r(), b.r()),
+        l(a.g(), b.g()),
+        l(a.b(), b.b()),
+        l(a.a(), b.a()),
+    )
 }
 
 /// Directional gradient fill of `rect`, `start`→`end` (spec 015 GroupBox
@@ -1859,14 +2851,28 @@ fn grad_dir_mesh(rect: egui::Rect, start: Color32, end: Color32, dir: &str) -> e
     let mut m = egui::epaint::Mesh::default();
     if dir == "Radial" {
         let c = rect.center();
-        m.vertices.push(egui::epaint::Vertex { pos: c, uv, color: start });
+        m.vertices.push(egui::epaint::Vertex {
+            pos: c,
+            uv,
+            color: start,
+        });
         let perim = [
-            rect.left_top(), egui::pos2(c.x, rect.top()), rect.right_top(),
-            egui::pos2(rect.right(), c.y), rect.right_bottom(),
-            egui::pos2(c.x, rect.bottom()), rect.left_bottom(),
+            rect.left_top(),
+            egui::pos2(c.x, rect.top()),
+            rect.right_top(),
+            egui::pos2(rect.right(), c.y),
+            rect.right_bottom(),
+            egui::pos2(c.x, rect.bottom()),
+            rect.left_bottom(),
             egui::pos2(rect.left(), c.y),
         ];
-        for p in perim { m.vertices.push(egui::epaint::Vertex { pos: p, uv, color: end }); }
+        for p in perim {
+            m.vertices.push(egui::epaint::Vertex {
+                pos: p,
+                uv,
+                color: end,
+            });
+        }
         let n = perim.len() as u32;
         for i in 1..=n {
             let j = if i == n { 1 } else { i + 1 };
@@ -1882,10 +2888,26 @@ fn grad_dir_mesh(rect: egui::Rect, start: Color32, end: Color32, dir: &str) -> e
         "DiagonalUp"   => (mid, end, start, mid),   // BL → TR
         _ /* Vertical */ => (start, start, end, end),
     };
-    m.vertices.push(egui::epaint::Vertex { pos: rect.left_top(),     uv, color: tl });
-    m.vertices.push(egui::epaint::Vertex { pos: rect.right_top(),    uv, color: tr });
-    m.vertices.push(egui::epaint::Vertex { pos: rect.right_bottom(), uv, color: br });
-    m.vertices.push(egui::epaint::Vertex { pos: rect.left_bottom(),  uv, color: bl });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.left_top(),
+        uv,
+        color: tl,
+    });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.right_top(),
+        uv,
+        color: tr,
+    });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.right_bottom(),
+        uv,
+        color: br,
+    });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: rect.left_bottom(),
+        uv,
+        color: bl,
+    });
     m.indices.extend([0, 1, 2, 0, 2, 3]);
     m
 }
@@ -1896,11 +2918,17 @@ fn radial_disc_mesh(center: Pos2, rad: f32, cc: Color32, ce: Color32) -> egui::e
     let uv = egui::epaint::WHITE_UV;
     let n = 24_u32;
     let mut m = egui::epaint::Mesh::default();
-    m.vertices.push(egui::epaint::Vertex { pos: center, uv, color: cc });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: center,
+        uv,
+        color: cc,
+    });
     for i in 0..n {
         let a = i as f32 / n as f32 * std::f32::consts::TAU;
         m.vertices.push(egui::epaint::Vertex {
-            pos: center + Vec2::new(a.cos(), a.sin()) * rad, uv, color: ce,
+            pos: center + Vec2::new(a.cos(), a.sin()) * rad,
+            uv,
+            color: ce,
         });
     }
     for i in 1..=n {
@@ -1912,15 +2940,29 @@ fn radial_disc_mesh(center: Pos2, rad: f32, cc: Color32, ce: Color32) -> egui::e
 
 /// Vertical gradient area fill below a polyline: each column fades from `top_c`
 /// at the line to `bot_c` at `baseline` — the line-chart gradient (spec 013).
-fn grad_area_mesh(top: &[Pos2], baseline: f32, top_c: Color32, bot_c: Color32) -> egui::epaint::Mesh {
+fn grad_area_mesh(
+    top: &[Pos2],
+    baseline: f32,
+    top_c: Color32,
+    bot_c: Color32,
+) -> egui::epaint::Mesh {
     let uv = egui::epaint::WHITE_UV;
     let mut m = egui::epaint::Mesh::default();
     for (i, p) in top.iter().enumerate() {
         let base = m.vertices.len() as u32;
-        m.vertices.push(egui::epaint::Vertex { pos: *p, uv, color: top_c });
-        m.vertices.push(egui::epaint::Vertex { pos: egui::pos2(p.x, baseline), uv, color: bot_c });
+        m.vertices.push(egui::epaint::Vertex {
+            pos: *p,
+            uv,
+            color: top_c,
+        });
+        m.vertices.push(egui::epaint::Vertex {
+            pos: egui::pos2(p.x, baseline),
+            uv,
+            color: bot_c,
+        });
         if i > 0 {
-            m.indices.extend([base - 2, base - 1, base, base - 1, base + 1, base]);
+            m.indices
+                .extend([base - 2, base - 1, base, base - 1, base + 1, base]);
         }
     }
     m
@@ -1929,18 +2971,29 @@ fn grad_area_mesh(top: &[Pos2], baseline: f32, top_c: Color32, bot_c: Color32) -
 /// Pie/donut slice with a radial gradient (inner `cc` → outer `ce`). `inner_r`
 /// 0 ⇒ solid pie fan; > 0 ⇒ donut ring strip (spec 013).
 fn grad_slice_mesh(
-    center: Pos2, start: f32, sweep: f32, inner_r: f32, outer_r: f32,
-    cc: Color32, ce: Color32,
+    center: Pos2,
+    start: f32,
+    sweep: f32,
+    inner_r: f32,
+    outer_r: f32,
+    cc: Color32,
+    ce: Color32,
 ) -> egui::epaint::Mesh {
     let uv = egui::epaint::WHITE_UV;
     let steps = ((sweep.abs() * outer_r).max(4.0) as u32).clamp(4, 40);
     let mut m = egui::epaint::Mesh::default();
     if inner_r <= 0.0 {
-        m.vertices.push(egui::epaint::Vertex { pos: center, uv, color: cc });
+        m.vertices.push(egui::epaint::Vertex {
+            pos: center,
+            uv,
+            color: cc,
+        });
         for s in 0..=steps {
             let t = start + sweep * s as f32 / steps as f32;
             m.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(center.x + t.cos() * outer_r, center.y + t.sin() * outer_r), uv, color: ce,
+                pos: Pos2::new(center.x + t.cos() * outer_r, center.y + t.sin() * outer_r),
+                uv,
+                color: ce,
             });
         }
         for s in 1..=steps {
@@ -1951,10 +3004,14 @@ fn grad_slice_mesh(
             let t = start + sweep * s as f32 / steps as f32;
             let (ct, st) = (t.cos(), t.sin());
             m.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(center.x + ct * inner_r, center.y + st * inner_r), uv, color: cc,
+                pos: Pos2::new(center.x + ct * inner_r, center.y + st * inner_r),
+                uv,
+                color: cc,
             });
             m.vertices.push(egui::epaint::Vertex {
-                pos: Pos2::new(center.x + ct * outer_r, center.y + st * outer_r), uv, color: ce,
+                pos: Pos2::new(center.x + ct * outer_r, center.y + st * outer_r),
+                uv,
+                color: ce,
             });
             if s > 0 {
                 let b = (s * 2) as u32;
@@ -1968,14 +3025,14 @@ fn grad_slice_mesh(
 /// Draw a rich glass chart preview on the canvas for all chart control types.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_chart_preview(
-    painter:   &egui::Painter,
-    ctrl:      &Control,
-    rect:      egui::Rect,
-    a:         u8,
+    painter: &egui::Painter,
+    ctrl: &Control,
+    rect: egui::Rect,
+    a: u8,
     alpha_mul: f32,
-    glass:     bool,
-    selected:  bool,
-    rounding:  egui::Rounding,  // per-corner: own radius, lifted to a container border
+    glass: bool,
+    selected: bool,
+    rounding: egui::Rounding, // per-corner: own radius, lifted to a container border
 ) {
     use crate::model::ControlType as CT;
 
@@ -1984,16 +3041,26 @@ pub fn draw_chart_preview(
     // ── Background ────────────────────────────────────────────────────────────
     // `HideBackground` suppresses the panel fill + border frame so only the chart
     // content (grid, axes, labels, data) is visible, transparent over the form.
-    let hide_bg = ctrl.get_prop("HideBackground").map(|v| v.as_bool()).unwrap_or(false);
+    let hide_bg = ctrl
+        .get_prop("HideBackground")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
     // Per-corner rounding (spec 016 default 8, lifted to a container's border by the
     // caller so the chart card never bleeds past a rounded GroupBox/Panel corner).
-    let bg = Color32::from_rgba_premultiplied(15,20,45,a);
+    let bg = Color32::from_rgba_premultiplied(15, 20, 45, a);
     if !hide_bg {
         if glass {
-            draw_glass(painter, rect, Color32::from_rgb(15,20,45), rounding, false, alpha_mul);
+            draw_glass_auto(
+                painter,
+                rect,
+                Color32::from_rgb(15, 20, 45),
+                rounding,
+                false,
+                alpha_mul,
+            );
         } else {
             painter.rect_filled(rect, rounding, bg);
-            let border = Color32::from_rgba_premultiplied(60,80,160,a);
+            let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
             painter.rect_stroke(rect, rounding, Stroke::new(1.0, border));
         }
     }
@@ -2008,13 +3075,25 @@ pub fn draw_chart_preview(
     // on the theme like every other control (R7). Liquid Glass keeps the built-in
     // accent palette.
     let active = active_theme(painter.ctx());
-    let pal_raw: &[(u8,u8,u8)] = &[(76,155,232),(232,122,76),(76,232,122),(232,76,155)];
-    let base_pal: Vec<Color32> = active.as_ref()
+    let pal_raw: &[(u8, u8, u8)] = &[
+        (76, 155, 232),
+        (232, 122, 76),
+        (76, 232, 122),
+        (232, 76, 155),
+    ];
+    let base_pal: Vec<Color32> = active
+        .as_ref()
         .map(|p| &p.manifest.palette.chart)
         .filter(|v| !v.is_empty())
         .map(|v| v.iter().map(|s| parse_color(s)).collect::<Vec<_>>())
-        .unwrap_or_else(|| pal_raw.iter().map(|&(r,g,b)| Color32::from_rgb(r, g, b)).collect());
-    let chart_stroke = active.as_ref()
+        .unwrap_or_else(|| {
+            pal_raw
+                .iter()
+                .map(|&(r, g, b)| Color32::from_rgb(r, g, b))
+                .collect()
+        });
+    let chart_stroke = active
+        .as_ref()
         .map(|p| p.manifest.chart_style.stroke_width)
         .filter(|w| *w > 0.0)
         .unwrap_or(1.8);
@@ -2024,12 +3103,22 @@ pub fn draw_chart_preview(
     // colour, and support colours (grid/axis/border) become derived variants. The
     // chart face is dark, so borders take the *lighter* variant. Text/alpha are
     // left untouched (handled by the existing paths below).
-    let mono = ctrl.get_prop("Monochrome").map(|v| v.as_bool()).unwrap_or(false);
+    let mono = ctrl
+        .get_prop("Monochrome")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
     let mono_base = parse_color(
-        &ctrl.get_prop("MonochromeColor").map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| "#3F6FB5".into()));
+        &ctrl
+            .get_prop("MonochromeColor")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "#3F6FB5".into()),
+    );
     let pal: Vec<Color32> = if mono {
-        let k = if matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) { 4 } else { 2 };
+        let k = if matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
+            4
+        } else {
+            2
+        };
         monochrome_palette(mono_base, k)
     } else {
         base_pal
@@ -2037,10 +3126,10 @@ pub fn draw_chart_preview(
     let mono_border = border_variant(mono_base, true);
 
     // Inner plot area (leave margin for axes / labels)
-    let margin_l = rect.width()  * 0.10;
+    let margin_l = rect.width() * 0.10;
     let margin_b = rect.height() * 0.12;
     let margin_t = rect.height() * 0.12;
-    let margin_r = rect.width()  * 0.04;
+    let margin_r = rect.width() * 0.04;
     let plot = egui::Rect::from_min_max(
         Pos2::new(rect.min.x + margin_l, rect.min.y + margin_t),
         Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
@@ -2049,52 +3138,88 @@ pub fn draw_chart_preview(
     // Monochrome gradient (spec 013): when on, each data element gets its OWN
     // tonal gradient (bars vertical, bubbles/slices radial) and line/area charts
     // get a vertical fill gradient — handled per-branch via mesh helpers below.
-    let gradient = mono && ctrl.get_prop("MonochromeGradient").map(|v| v.as_bool()).unwrap_or(false);
+    let gradient = mono
+        && ctrl
+            .get_prop("MonochromeGradient")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
 
     // title
-    let title = ctrl.get_prop("Title").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let title = ctrl
+        .get_prop("Title")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_default();
     if !title.is_empty() {
         painter.text(
             Pos2::new(rect.center().x, rect.min.y + margin_t * 0.5),
-            egui::Align2::CENTER_CENTER, &title,
+            egui::Align2::CENTER_CENTER,
+            &title,
             egui::FontId::proportional(10.0),
             // The design-time grid face is white — the title must be dark to
             // be readable (it was near-white and invisible on the face).
-            Color32::DARK_GRAY);
+            Color32::DARK_GRAY,
+        );
     }
 
     // ── Grid lines ────────────────────────────────────────────────────────────
-    let show_grid = ctrl.get_prop("ShowGridLines").map(|v| v.as_bool()).unwrap_or(true);
+    let show_grid = ctrl
+        .get_prop("ShowGridLines")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
     if show_grid {
         // Monochrome: grid lines use a soft pastel of the base colour (spec 013 R5).
-        let grid_c = if mono { pastel_of(mono_base) } else { Color32::from_rgb(118, 142, 225) };
+        let grid_c = if mono {
+            pastel_of(mono_base)
+        } else {
+            Color32::from_rgb(118, 142, 225)
+        };
         let n_h = 4u32;
         for i in 1..n_h {
             let y = plot.min.y + plot.height() * i as f32 / n_h as f32;
-            painter.line_segment([Pos2::new(plot.min.x, y), Pos2::new(plot.max.x, y)],
-                Stroke::new(1.15, grid_c));
+            painter.line_segment(
+                [Pos2::new(plot.min.x, y), Pos2::new(plot.max.x, y)],
+                Stroke::new(1.15, grid_c),
+            );
         }
         if !matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
             let n_v = 5u32;
             for i in 1..n_v {
                 let x = plot.min.x + plot.width() * i as f32 / n_v as f32;
-                painter.line_segment([Pos2::new(x, plot.min.y), Pos2::new(x, plot.max.y)],
-                    Stroke::new(1.15, grid_c));
+                painter.line_segment(
+                    [Pos2::new(x, plot.min.y), Pos2::new(x, plot.max.y)],
+                    Stroke::new(1.15, grid_c),
+                );
             }
         }
     }
 
     // Axes (monochrome: a pastel/slightly-stronger variant of the base — spec 013 R5)
-    let ax_c = if mono { axis_variant(mono_base) } else { Color32::from_rgb(84, 104, 190) };
+    let ax_c = if mono {
+        axis_variant(mono_base)
+    } else {
+        Color32::from_rgb(84, 104, 190)
+    };
     if !matches!(ctrl.control_type, CT::PieChart | CT::DonutChart) {
         // X/Y axis-line visibility is independently toggleable (default on).
-        let show_x = ctrl.get_prop("ShowXAxis").map(|v| v.as_bool()).unwrap_or(true);
-        let show_y = ctrl.get_prop("ShowYAxis").map(|v| v.as_bool()).unwrap_or(true);
+        let show_x = ctrl
+            .get_prop("ShowXAxis")
+            .map(|v| v.as_bool())
+            .unwrap_or(true);
+        let show_y = ctrl
+            .get_prop("ShowYAxis")
+            .map(|v| v.as_bool())
+            .unwrap_or(true);
         if show_x {
-            painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.45, ax_c));
+            painter.line_segment(
+                [plot.left_bottom(), plot.right_bottom()],
+                Stroke::new(1.45, ax_c),
+            );
         }
         if show_y {
-            painter.line_segment([plot.left_bottom(), plot.left_top()], Stroke::new(1.45, ax_c));
+            painter.line_segment(
+                [plot.left_bottom(), plot.left_top()],
+                Stroke::new(1.45, ax_c),
+            );
         }
     }
 
@@ -2105,34 +3230,46 @@ pub fn draw_chart_preview(
     let n = series1.len();
 
     let px_x = |i: usize| plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width();
-    let px_y = |v: f32|   plot.max.y - v * plot.height();
+    let px_y = |v: f32| plot.max.y - v * plot.height();
 
     // Line/area curve smoothing (spec 013): the `Smooth` property now actually
     // bends the polyline into a Catmull-Rom spline. `ShowPoints` gates markers.
     let smooth = ctrl.get_prop("Smooth").map(|v| v.as_bool()).unwrap_or(true);
-    let show_points = ctrl.get_prop("ShowPoints").map(|v| v.as_bool()).unwrap_or(true);
+    let show_points = ctrl
+        .get_prop("ShowPoints")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
 
     match ctrl.control_type {
         CT::BarChart => {
-            let horizontal = ctrl.get_prop("Horizontal").map(|v| v.as_bool()).unwrap_or(false);
-            let bar_total  = plot.width() / n as f32;
-            let bar_w      = bar_total * 0.38;
-            let gap        = bar_total * 0.05;
+            let horizontal = ctrl
+                .get_prop("Horizontal")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            let bar_total = plot.width() / n as f32;
+            let bar_w = bar_total * 0.38;
+            let gap = bar_total * 0.05;
             for (si, series) in [series1, series2].iter().enumerate() {
                 for (i, &v) in series.iter().enumerate() {
                     let br = if horizontal {
-                        let y  = plot.min.y + (i as f32 + 0.5 + si as f32 * (0.5 + gap)) / n as f32 * plot.height() - bar_w * 0.5;
-                        let w  = v * plot.width();
+                        let y = plot.min.y
+                            + (i as f32 + 0.5 + si as f32 * (0.5 + gap)) / n as f32 * plot.height()
+                            - bar_w * 0.5;
+                        let w = v * plot.width();
                         egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(w, bar_w))
                     } else {
-                        let x  = plot.min.x + (i as f32 * bar_total) + si as f32 * (bar_w + gap) + gap;
-                        let h  = v * plot.height();
+                        let x =
+                            plot.min.x + (i as f32 * bar_total) + si as f32 * (bar_w + gap) + gap;
+                        let h = v * plot.height();
                         egui::Rect::from_min_size(Pos2::new(x, plot.max.y - h), Vec2::new(bar_w, h))
                     };
                     if gradient {
                         // Each bar gets its own light→dark vertical gradient.
                         painter.add(egui::Shape::mesh(grad_rect_mesh(
-                            br, shade(mono_base, 0.20), shade(mono_base, -0.20))));
+                            br,
+                            shade(mono_base, 0.20),
+                            shade(mono_base, -0.20),
+                        )));
                     } else {
                         painter.rect_filled(br, 2.0, pal[si % pal.len()]);
                     }
@@ -2141,18 +3278,26 @@ pub fn draw_chart_preview(
         }
         CT::LineChart => {
             for (si, series) in [series1, series2].iter().enumerate() {
-                let raw: Vec<Pos2> = series.iter().enumerate()
+                let raw: Vec<Pos2> = series
+                    .iter()
+                    .enumerate()
                     .map(|(i, &v)| Pos2::new(px_x(i), px_y(v)))
                     .collect();
                 // `Smooth` bends the line into a Catmull-Rom curve (spec 013).
-                let line = if smooth { catmull_rom(&raw, 14) } else { raw.clone() };
+                let line = if smooth {
+                    catmull_rom(&raw, 14)
+                } else {
+                    raw.clone()
+                };
                 let c = pal[si % pal.len()];
                 if gradient {
                     // Vertical gradient fill under the line: brightest at the line,
                     // fading to transparent at the baseline (spec 013, mockup look).
                     let top_c = shade(mono_base, 0.12);
                     let bot_c = Color32::from_rgba_unmultiplied(top_c.r(), top_c.g(), top_c.b(), 0);
-                    painter.add(egui::Shape::mesh(grad_area_mesh(&line, plot.max.y, top_c, bot_c)));
+                    painter.add(egui::Shape::mesh(grad_area_mesh(
+                        &line, plot.max.y, top_c, bot_c,
+                    )));
                 }
                 let line_c = if gradient { shade(mono_base, 0.10) } else { c };
                 for w in line.windows(2) {
@@ -2167,40 +3312,63 @@ pub fn draw_chart_preview(
         }
         CT::AreaChart => {
             for (si, series) in [series1, series2].iter().enumerate() {
-                let raw: Vec<Pos2> = series.iter().enumerate()
+                let raw: Vec<Pos2> = series
+                    .iter()
+                    .enumerate()
                     .map(|(i, &v)| Pos2::new(px_x(i), px_y(v)))
                     .collect();
-                let top = if smooth { catmull_rom(&raw, 14) } else { raw.clone() };
+                let top = if smooth {
+                    catmull_rom(&raw, 14)
+                } else {
+                    raw.clone()
+                };
                 // Fill via a per-column mesh (handles the concave smoothed edge).
                 // Non-gradient keeps the existing alpha-80 translucency (R8);
                 // gradient fades vertically from the line to transparent.
                 let (top_c, bot_c, line_c) = if gradient {
                     let t = shade(mono_base, 0.12);
-                    (Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 150),
-                     Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 0),
-                     shade(mono_base, 0.10))
+                    (
+                        Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 150),
+                        Color32::from_rgba_unmultiplied(t.r(), t.g(), t.b(), 0),
+                        shade(mono_base, 0.10),
+                    )
                 } else {
                     let c = pal[si % pal.len()];
                     let f = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 80);
                     (f, f, c)
                 };
-                painter.add(egui::Shape::mesh(grad_area_mesh(&top, plot.max.y, top_c, bot_c)));
+                painter.add(egui::Shape::mesh(grad_area_mesh(
+                    &top, plot.max.y, top_c, bot_c,
+                )));
                 for w in top.windows(2) {
                     painter.line_segment([w[0], w[1]], Stroke::new(chart_stroke, line_c));
                 }
             }
         }
         CT::ScatterChart => {
-            let pts1: &[(f32,f32)] = &[(0.15,0.65),(0.35,0.40),(0.50,0.78),(0.70,0.30),(0.88,0.55)];
-            let pts2: &[(f32,f32)] = &[(0.20,0.30),(0.42,0.72),(0.60,0.45),(0.78,0.85)];
+            let pts1: &[(f32, f32)] = &[
+                (0.15, 0.65),
+                (0.35, 0.40),
+                (0.50, 0.78),
+                (0.70, 0.30),
+                (0.88, 0.55),
+            ];
+            let pts2: &[(f32, f32)] = &[(0.20, 0.30), (0.42, 0.72), (0.60, 0.45), (0.78, 0.85)];
             for (pts, ci) in [(pts1, 0usize), (pts2, 1)] {
                 let c = pal[ci % pal.len()];
                 for &(fx, fy) in pts {
-                    let p = Pos2::new(plot.min.x + fx*plot.width(), plot.max.y - fy*plot.height());
+                    let p = Pos2::new(
+                        plot.min.x + fx * plot.width(),
+                        plot.max.y - fy * plot.height(),
+                    );
                     if gradient {
                         // Each bubble: its own radial gradient (light centre → dark edge).
                         painter.add(egui::Shape::mesh(radial_disc_mesh(
-                            p, 5.0, shade(mono_base, 0.20), shade(mono_base, -0.20))));
+                            p,
+                            5.0,
+                            shade(mono_base, 0.20),
+                            shade(mono_base, -0.20),
+                        )));
                     } else {
                         painter.circle_stroke(p, 4.5, Stroke::new(1.5, c));
                     }
@@ -2208,18 +3376,24 @@ pub fn draw_chart_preview(
             }
         }
         CT::PieChart | CT::DonutChart => {
-            let center  = plot.center();
+            let center = plot.center();
             let outer_r = plot.size().min_elem() * 0.44;
             let inner_r = if ctrl.control_type == CT::DonutChart {
-                let pct = ctrl.get_prop("InnerRadius").map(|v| v.as_i64()).unwrap_or(40) as f32 / 100.0;
+                let pct = ctrl
+                    .get_prop("InnerRadius")
+                    .map(|v| v.as_i64())
+                    .unwrap_or(40) as f32
+                    / 100.0;
                 outer_r * pct
-            } else { 0.0 };
+            } else {
+                0.0
+            };
 
             let slices: &[f32] = &[0.30, 0.20, 0.25, 0.25]; // proportions
             let mut start = -std::f32::consts::FRAC_PI_2; // top
             for (i, &frac) in slices.iter().enumerate() {
                 let sweep = frac * TAU;
-                let end   = start + sweep;
+                let end = start + sweep;
                 let steps = ((sweep * outer_r).max(4.0) as u32).min(40).max(4);
                 // Outline points (fan for pie, ring for donut) — used for the
                 // slice border in both fill modes.
@@ -2227,17 +3401,26 @@ pub fn draw_chart_preview(
                 if inner_r > 0.0 {
                     for s in 0..=steps {
                         let t = start + sweep * s as f32 / steps as f32;
-                        pts.push(Pos2::new(center.x + t.cos()*outer_r, center.y + t.sin()*outer_r));
+                        pts.push(Pos2::new(
+                            center.x + t.cos() * outer_r,
+                            center.y + t.sin() * outer_r,
+                        ));
                     }
                     for s in (0..=steps).rev() {
                         let t = start + sweep * s as f32 / steps as f32;
-                        pts.push(Pos2::new(center.x + t.cos()*inner_r, center.y + t.sin()*inner_r));
+                        pts.push(Pos2::new(
+                            center.x + t.cos() * inner_r,
+                            center.y + t.sin() * inner_r,
+                        ));
                     }
                 } else {
                     pts.push(center);
                     for s in 0..=steps {
                         let t = start + sweep * s as f32 / steps as f32;
-                        pts.push(Pos2::new(center.x + t.cos()*outer_r, center.y + t.sin()*outer_r));
+                        pts.push(Pos2::new(
+                            center.x + t.cos() * outer_r,
+                            center.y + t.sin() * outer_r,
+                        ));
                     }
                 }
                 // Monochrome: slice borders use a lighter variant of the base so
@@ -2246,13 +3429,31 @@ pub fn draw_chart_preview(
                 if gradient {
                     // Each slice gets its own radial gradient (light inner → dark outer).
                     painter.add(egui::Shape::mesh(grad_slice_mesh(
-                        center, start, sweep, inner_r, outer_r,
-                        shade(mono_base, 0.20), shade(mono_base, -0.20))));
-                    painter.add(egui::Shape::closed_line(pts, Stroke::new(0.8, slice_stroke)));
+                        center,
+                        start,
+                        sweep,
+                        inner_r,
+                        outer_r,
+                        shade(mono_base, 0.20),
+                        shade(mono_base, -0.20),
+                    )));
+                    painter.add(egui::Shape::closed_line(
+                        pts,
+                        Stroke::new(0.8, slice_stroke),
+                    ));
                 } else {
                     let c = pal[i % pal.len()];
-                    let fill = Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), (a as f32 * 0.85) as u8);
-                    painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(0.8, slice_stroke)));
+                    let fill = Color32::from_rgba_premultiplied(
+                        c.r(),
+                        c.g(),
+                        c.b(),
+                        (a as f32 * 0.85) as u8,
+                    );
+                    painter.add(egui::Shape::convex_polygon(
+                        pts,
+                        fill,
+                        Stroke::new(0.8, slice_stroke),
+                    ));
                 }
                 start = end;
             }
@@ -2261,25 +3462,29 @@ pub fn draw_chart_preview(
     }
 
     // data source hint
-    let ds = ctrl.get_prop("DataSource").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let ds = ctrl
+        .get_prop("DataSource")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_default();
     if !ds.is_empty() {
         painter.text(
             Pos2::new(rect.center().x, rect.max.y - margin_b * 0.4),
             egui::Align2::CENTER_CENTER,
             format!("⬡ {ds}"),
             egui::FontId::proportional(8.5),
-            Color32::from_rgba_premultiplied(130,160,220,a));
+            Color32::from_rgba_premultiplied(130, 160, 220, a),
+        );
     }
 
     // type badge
     let badge = match ctrl.control_type {
-        CT::BarChart     => "BAR",
-        CT::LineChart    => "LINE",
-        CT::PieChart     => "PIE",
-        CT::AreaChart    => "AREA",
+        CT::BarChart => "BAR",
+        CT::LineChart => "LINE",
+        CT::PieChart => "PIE",
+        CT::AreaChart => "AREA",
         CT::ScatterChart => "SCATTER",
-        CT::DonutChart   => "DONUT",
-        _                => "",
+        CT::DonutChart => "DONUT",
+        _ => "",
     };
     if !badge.is_empty() {
         painter.text(
@@ -2287,7 +3492,8 @@ pub fn draw_chart_preview(
             egui::Align2::RIGHT_CENTER,
             badge,
             egui::FontId::proportional(8.0),
-            Color32::from_rgba_premultiplied(80,100,180,a));
+            Color32::from_rgba_premultiplied(80, 100, 180, a),
+        );
     }
 }
 
@@ -2297,17 +3503,41 @@ pub fn draw_chart_preview(
 /// half the smaller side so a large value can never produce a degenerate shape.
 /// `0` ⇒ square corners (and no rounded clipping).
 pub fn corner_radius(ctrl: &Control) -> f32 {
-    let raw = ctrl.get_prop("CornerRadius")
+    let raw = ctrl
+        .get_prop("CornerRadius")
         .or_else(|| ctrl.get_prop("BorderRadius"))
         .map(|v| v.as_i64() as f32)
         .unwrap_or_else(|| match ctrl.control_type {
             ControlType::Button => 3.0,
-            ControlType::BarChart | ControlType::LineChart | ControlType::PieChart
-            | ControlType::AreaChart | ControlType::ScatterChart | ControlType::DonutChart => 8.0,
+            ControlType::BarChart
+            | ControlType::LineChart
+            | ControlType::PieChart
+            | ControlType::AreaChart
+            | ControlType::ScatterChart
+            | ControlType::DonutChart => 8.0,
             _ => 0.0,
         });
     let max_r = 0.5 * (ctrl.rect.w.min(ctrl.rect.h) as f32);
     raw.clamp(0.0, max_r.max(0.0))
+}
+
+/// Composite premultiplied `fg` over premultiplied `bg`.
+///
+/// egui stores [`Color32`] in premultiplied-alpha space. Rounded-container notch
+/// masks need to repaint the *already visible* backdrop, not draw a translucent
+/// colour a second time: repainting translucent form glass would double its alpha
+/// and create darker wedges, while skipping it lets children bleed through. This
+/// helper produces the single-pass effective colour to use for those masks.
+pub fn composite_premultiplied_over(fg: Color32, bg: Color32) -> Color32 {
+    let fa = fg.a() as u16;
+    let inv = 255_u16.saturating_sub(fa);
+    let over = |f: u8, b: u8| -> u8 { ((f as u16 + (b as u16 * inv + 127) / 255).min(255)) as u8 };
+    Color32::from_rgba_premultiplied(
+        over(fg.r(), bg.r()),
+        over(fg.g(), bg.g()),
+        over(fg.b(), bg.b()),
+        over(fg.a(), bg.a()),
+    )
 }
 
 /// Decode the transient `_ContainerClip` prop the render engine seeds on a
@@ -2316,7 +3546,11 @@ pub fn corner_radius(ctrl: &Control) -> f32 {
 /// `[nw, ne, sw, se]` roundable flag. `None` when the prop is absent/malformed.
 fn parse_container_clip(ctrl: &Control) -> Option<(egui::Rect, f32, [bool; 4])> {
     let v = ctrl.get_prop("_ContainerClip")?;
-    let p: Vec<f32> = v.as_str().split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    let p: Vec<f32> = v
+        .as_str()
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect();
     if p.len() != 9 {
         return None;
     }
@@ -2339,25 +3573,88 @@ fn container_image_rounding(
     flags: [bool; 4],
     own: f32,
 ) -> egui::Rounding {
-    let rr = rad.min(0.5 * visible.width().min(visible.height())).max(0.0);
-    // Reach: the visible edge lands inside the container's corner arc band.
-    let m = rad + 1.0;
-    let near_l = visible.min.x <= border.min.x + m;
-    let near_r = visible.max.x >= border.max.x - m;
-    let near_t = visible.min.y <= border.min.y + m;
-    let near_b = visible.max.y >= border.max.y - m;
-    let corner = |on: bool| if on { own.max(rr) } else { own };
+    let cap = 0.5 * visible.width().min(visible.height());
+    let rr = |raw: f32| own.max(raw.max(0.0).min(cap));
+    let chord_cut = |inset: f32| -> f32 {
+        let d = (rad - inset.clamp(0.0, rad)).abs();
+        rad - (rad * rad - d * d).max(0.0).sqrt()
+    };
+
+    // When a child is merely near a parent rounded corner, applying the full
+    // parent radius to the child's own corner crops far too early. Calculate how
+    // much of the parent's arc actually crosses the child's visible corner. The
+    // returned radius is intentionally conservative for asymmetric insets: it may
+    // under-approximate the parent arc slightly, but it will not erase pixels that
+    // are still inside the parent's rounded border.
+    let nw = || {
+        if visible.min.x >= border.min.x + rad || visible.min.y >= border.min.y + rad {
+            return own;
+        }
+        let inset_x = (visible.min.x - border.min.x).clamp(0.0, rad);
+        let inset_y = (visible.min.y - border.min.y).clamp(0.0, rad);
+        let dx = rad - inset_x;
+        let dy = rad - inset_y;
+        if dx * dx + dy * dy <= rad * rad {
+            return own;
+        }
+        rr((chord_cut(inset_y) - inset_x).min(chord_cut(inset_x) - inset_y))
+    };
+    let ne = || {
+        if visible.max.x <= border.max.x - rad || visible.min.y >= border.min.y + rad {
+            return own;
+        }
+        let inset_x = (border.max.x - visible.max.x).clamp(0.0, rad);
+        let inset_y = (visible.min.y - border.min.y).clamp(0.0, rad);
+        let dx = rad - inset_x;
+        let dy = rad - inset_y;
+        if dx * dx + dy * dy <= rad * rad {
+            return own;
+        }
+        rr((chord_cut(inset_y) - inset_x).min(chord_cut(inset_x) - inset_y))
+    };
+    let sw = || {
+        if visible.min.x >= border.min.x + rad || visible.max.y <= border.max.y - rad {
+            return own;
+        }
+        let inset_x = (visible.min.x - border.min.x).clamp(0.0, rad);
+        let inset_y = (border.max.y - visible.max.y).clamp(0.0, rad);
+        let dx = rad - inset_x;
+        let dy = rad - inset_y;
+        if dx * dx + dy * dy <= rad * rad {
+            return own;
+        }
+        rr((chord_cut(inset_y) - inset_x).min(chord_cut(inset_x) - inset_y))
+    };
+    let se = || {
+        if visible.max.x <= border.max.x - rad || visible.max.y <= border.max.y - rad {
+            return own;
+        }
+        let inset_x = (border.max.x - visible.max.x).clamp(0.0, rad);
+        let inset_y = (border.max.y - visible.max.y).clamp(0.0, rad);
+        let dx = rad - inset_x;
+        let dy = rad - inset_y;
+        if dx * dx + dy * dy <= rad * rad {
+            return own;
+        }
+        rr((chord_cut(inset_y) - inset_x).min(chord_cut(inset_x) - inset_y))
+    };
+
     egui::Rounding {
-        nw: corner(flags[0] && near_l && near_t),
-        ne: corner(flags[1] && near_r && near_t),
-        sw: corner(flags[2] && near_l && near_b),
-        se: corner(flags[3] && near_r && near_b),
+        nw: if flags[0] { nw() } else { own },
+        ne: if flags[1] { ne() } else { own },
+        sw: if flags[2] { sw() } else { own },
+        se: if flags[3] { se() } else { own },
     }
 }
 
 /// Apply `f` to each corner radius of a `Rounding`.
 fn round_map(r: egui::Rounding, f: impl Fn(f32) -> f32) -> egui::Rounding {
-    egui::Rounding { nw: f(r.nw), ne: f(r.ne), sw: f(r.sw), se: f(r.se) }
+    egui::Rounding {
+        nw: f(r.nw),
+        ne: f(r.ne),
+        sw: f(r.sw),
+        se: f(r.se),
+    }
 }
 
 /// Append a triangle fan covering one rounded-corner **notch** — the slice of the
@@ -2381,11 +3678,19 @@ fn push_notch_fan(
     }
     let segs = ((r as usize) / 2).clamp(6, 40);
     let base = m.vertices.len() as u32;
-    m.vertices.push(egui::epaint::Vertex { pos: apex, uv: uv_fn(apex), color });
+    m.vertices.push(egui::epaint::Vertex {
+        pos: apex,
+        uv: uv_fn(apex),
+        color,
+    });
     for i in 0..=segs {
         let t = t0 + (t1 - t0) * (i as f32 / segs as f32);
         let p = egui::pos2(center.x + r * t.cos(), center.y + r * t.sin());
-        m.vertices.push(egui::epaint::Vertex { pos: p, uv: uv_fn(p), color });
+        m.vertices.push(egui::epaint::Vertex {
+            pos: p,
+            uv: uv_fn(p),
+            color,
+        });
     }
     for i in 0..segs as u32 {
         m.indices.extend([base, base + 1 + i, base + 2 + i]);
@@ -2409,10 +3714,46 @@ fn notch_mesh(
     let ne = cl(rounding.ne);
     let sw = cl(rounding.sw);
     let se = cl(rounding.se);
-    push_notch_fan(&mut m, egui::pos2(x0, y0), egui::pos2(x0 + nw, y0 + nw), nw, PI, 1.5 * PI, uv_fn, color);
-    push_notch_fan(&mut m, egui::pos2(x1, y0), egui::pos2(x1 - ne, y0 + ne), ne, 1.5 * PI, 2.0 * PI, uv_fn, color);
-    push_notch_fan(&mut m, egui::pos2(x1, y1), egui::pos2(x1 - se, y1 - se), se, 0.0, 0.5 * PI, uv_fn, color);
-    push_notch_fan(&mut m, egui::pos2(x0, y1), egui::pos2(x0 + sw, y1 - sw), sw, 0.5 * PI, PI, uv_fn, color);
+    push_notch_fan(
+        &mut m,
+        egui::pos2(x0, y0),
+        egui::pos2(x0 + nw, y0 + nw),
+        nw,
+        PI,
+        1.5 * PI,
+        uv_fn,
+        color,
+    );
+    push_notch_fan(
+        &mut m,
+        egui::pos2(x1, y0),
+        egui::pos2(x1 - ne, y0 + ne),
+        ne,
+        1.5 * PI,
+        2.0 * PI,
+        uv_fn,
+        color,
+    );
+    push_notch_fan(
+        &mut m,
+        egui::pos2(x1, y1),
+        egui::pos2(x1 - se, y1 - se),
+        se,
+        0.0,
+        0.5 * PI,
+        uv_fn,
+        color,
+    );
+    push_notch_fan(
+        &mut m,
+        egui::pos2(x0, y1),
+        egui::pos2(x0 + sw, y1 - sw),
+        sw,
+        0.5 * PI,
+        PI,
+        uv_fn,
+        color,
+    );
     m
 }
 
@@ -2423,23 +3764,22 @@ fn notch_mesh(
 /// to (drawn on top of `fill`, matching how a form paints colour then image).
 /// Spec 017 — the general fix for rounded-corner child bleed.
 ///
-/// `fill` is only painted when it is **opaque**: a translucent canvas (e.g. a
-/// transparent form over the runtime glass) is already on screen, so re-painting it
-/// would double the tint into a darker wedge. In that case we rely on the image
-/// layer (which IS opaque-enough) and otherwise leave the notch as drawn.
+/// Pass an already-composited opaque `fill` when the underlying canvas/background
+/// is translucent; otherwise repainting the translucent colour would double the
+/// tint into a darker wedge.
 pub fn draw_container_notch_mask(
-    painter:   &egui::Painter,
-    rect:      egui::Rect,
-    rounding:  egui::Rounding,
-    fill:      Color32,
-    image:     Option<(egui::TextureId, egui::Rect)>,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: egui::Rounding,
+    fill: Color32,
+    image: Option<(egui::TextureId, egui::Rect)>,
     img_alpha: u8,
 ) {
     if rounding.nw < 0.5 && rounding.ne < 0.5 && rounding.sw < 0.5 && rounding.se < 0.5 {
         return;
     }
     let painter = painter.with_clip_rect(rect);
-    if fill.a() >= 255 {
+    if fill.a() > 0 {
         let m = notch_mesh(rect, rounding, &|_p| egui::epaint::WHITE_UV, fill);
         if !m.indices.is_empty() {
             painter.add(egui::Shape::mesh(m));
@@ -2479,14 +3819,14 @@ fn control_border_rounding(ctrl: &Control, rect: egui::Rect, own: f32) -> egui::
 /// Animator frame so both clip identically on every surface. `own` is the control's
 /// own corner radius, used only when it is free-standing (no container clip).
 pub fn draw_media_image(
-    painter:   &egui::Painter,
-    rect:      egui::Rect,
-    tex_id:    egui::TextureId,
-    native:    Vec2,
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    tex_id: egui::TextureId,
+    native: Vec2,
     size_mode: &str,
-    a:         u8,
-    ctrl:      &Control,
-    own:       f32,
+    a: u8,
+    ctrl: &Control,
+    own: f32,
 ) {
     let dest = media_dest_rect(rect, native, size_mode);
     // The image keeps its own size; the visible area is `dest` trimmed to the
@@ -2496,7 +3836,7 @@ pub fn draw_media_image(
     let mut rounding = egui::Rounding::same(own);
     if let Some((border, rad, flags)) = parse_container_clip(ctrl) {
         visible = visible.intersect(border);
-        rounding = container_image_rounding(visible, border, rad, flags, 0.0);
+        rounding = container_image_rounding(visible, border, rad, flags, own);
     }
     if visible.width() <= 0.5 || visible.height() <= 0.5 {
         return;
@@ -2504,42 +3844,74 @@ pub fn draw_media_image(
     let dw = dest.width().max(1.0);
     let dh = dest.height().max(1.0);
     let uv = egui::Rect::from_min_max(
-        egui::pos2((visible.min.x - dest.min.x) / dw, (visible.min.y - dest.min.y) / dh),
-        egui::pos2((visible.max.x - dest.min.x) / dw, (visible.max.y - dest.min.y) / dh));
+        egui::pos2(
+            (visible.min.x - dest.min.x) / dw,
+            (visible.min.y - dest.min.y) / dh,
+        ),
+        egui::pos2(
+            (visible.max.x - dest.min.x) / dw,
+            (visible.max.y - dest.min.y) / dh,
+        ),
+    );
     let tint = Color32::from_rgba_premultiplied(255, 255, 255, a);
-    painter.with_clip_rect(rect).add(egui::Shape::Rect(egui::epaint::RectShape {
-        rect: visible,
-        rounding,
-        fill: tint,
-        stroke: Stroke::NONE,
-        blur_width: 0.0,
-        fill_texture_id: tex_id,
-        uv,
-    }));
+    painter
+        .with_clip_rect(rect)
+        .add(egui::Shape::Rect(egui::epaint::RectShape {
+            rect: visible,
+            rounding,
+            fill: tint,
+            stroke: Stroke::NONE,
+            blur_width: 0.0,
+            fill_texture_id: tex_id,
+            uv,
+        }));
 }
 
 pub fn control_colors(ct: &ControlType, selected: bool) -> (Color32, Color32, Color32) {
-    let border = if selected { Color32::from_rgb(60,120,230) } else { Color32::from_rgb(140,140,160) };
+    let border = if selected {
+        Color32::from_rgb(60, 120, 230)
+    } else {
+        Color32::from_rgb(140, 140, 160)
+    };
     match ct {
-        ControlType::Button         => (Color32::from_rgb(220,220,235), border, Color32::WHITE),
-        ControlType::Label          => (Color32::TRANSPARENT, border, Color32::WHITE),
-        ControlType::TextBox        => (Color32::WHITE, border, Color32::DARK_GRAY),
-        ControlType::CheckBox | ControlType::RadioButton => (Color32::TRANSPARENT, border, Color32::BLACK),
-        ControlType::GroupBox | ControlType::Panel => (Color32::from_rgba_premultiplied(200,200,210,40), border, Color32::DARK_GRAY),
-        ControlType::PictureBox     => (Color32::from_rgb(180,200,220), border, Color32::DARK_GRAY),
-        ControlType::DataGrid | ControlType::ListBox => (Color32::WHITE, border, Color32::DARK_GRAY),
-        ControlType::MenuBar | ControlType::ToolBar | ControlType::StatusBar => (Color32::from_rgb(200,200,215), border, Color32::BLACK),
-        ControlType::DateTimePicker | ControlType::NumericUpDown => (Color32::WHITE, border, Color32::DARK_GRAY),
-        ControlType::TreeView       => (Color32::WHITE, border, Color32::DARK_GRAY),
-        ControlType::Splitter       => (Color32::from_rgb(180,180,190), border, Color32::DARK_GRAY),
-        ControlType::ComboBox       => (Color32::WHITE, border, Color32::DARK_GRAY),
-        ControlType::TabControl     => (Color32::from_rgba_premultiplied(210,215,230,120), border, Color32::BLACK),
-        _                           => (Color32::from_rgb(210,210,225), border, Color32::BLACK),
+        ControlType::Button => (Color32::from_rgb(220, 220, 235), border, Color32::WHITE),
+        ControlType::Label => (Color32::TRANSPARENT, border, Color32::WHITE),
+        ControlType::TextBox => (Color32::WHITE, border, Color32::DARK_GRAY),
+        ControlType::CheckBox | ControlType::RadioButton => {
+            (Color32::TRANSPARENT, border, Color32::BLACK)
+        }
+        ControlType::GroupBox | ControlType::Panel => (
+            Color32::from_rgba_premultiplied(200, 200, 210, 40),
+            border,
+            Color32::DARK_GRAY,
+        ),
+        ControlType::PictureBox => (Color32::from_rgb(180, 200, 220), border, Color32::DARK_GRAY),
+        ControlType::DataGrid | ControlType::ListBox => {
+            (Color32::WHITE, border, Color32::DARK_GRAY)
+        }
+        ControlType::MenuBar | ControlType::ToolBar | ControlType::StatusBar => {
+            (Color32::from_rgb(200, 200, 215), border, Color32::BLACK)
+        }
+        ControlType::DateTimePicker | ControlType::NumericUpDown => {
+            (Color32::WHITE, border, Color32::DARK_GRAY)
+        }
+        ControlType::TreeView => (Color32::WHITE, border, Color32::DARK_GRAY),
+        ControlType::Splitter => (Color32::from_rgb(180, 180, 190), border, Color32::DARK_GRAY),
+        ControlType::ComboBox => (Color32::WHITE, border, Color32::DARK_GRAY),
+        ControlType::TabControl => (
+            Color32::from_rgba_premultiplied(210, 215, 230, 120),
+            border,
+            Color32::BLACK,
+        ),
+        _ => (Color32::from_rgb(210, 210, 225), border, Color32::BLACK),
     }
 }
 
 pub fn ctrl_font_size(ctrl: &Control) -> f32 {
-    ctrl.get_prop("FontSize").map(|v| v.as_i64() as f32).unwrap_or(11.0).clamp(4.0, 200.0)
+    ctrl.get_prop("FontSize")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(11.0)
+        .clamp(4.0, 200.0)
 }
 
 pub fn parse_color(s: &str) -> Color32 {
@@ -2551,7 +3923,9 @@ pub fn parse_color(s: &str) -> Color32 {
             u8::from_str_radix(&s[2..4], 16),
             u8::from_str_radix(&s[4..6], 16),
             u8::from_str_radix(&s[6..8], 16),
-        ) { return Color32::from_rgba_unmultiplied(r, g, b, a); }
+        ) {
+            return Color32::from_rgba_unmultiplied(r, g, b, a);
+        }
     }
     // 6-char RRGGBB — fully opaque
     if s.len() == 6 {
@@ -2559,7 +3933,9 @@ pub fn parse_color(s: &str) -> Color32 {
             u8::from_str_radix(&s[0..2], 16),
             u8::from_str_radix(&s[2..4], 16),
             u8::from_str_radix(&s[4..6], 16),
-        ) { return Color32::from_rgb(r, g, b); }
+        ) {
+            return Color32::from_rgb(r, g, b);
+        }
     }
     Color32::TRANSPARENT
 }
@@ -2575,7 +3951,47 @@ pub fn parse_color(s: &str) -> Color32 {
 #[derive(Clone)]
 struct ActiveTheme(Option<Arc<ThemePack>>);
 
-fn active_theme_id() -> egui::Id { egui::Id::new("cobolt-active-theme-pack") }
+// ── Glass style context (per-frame, set once before the draw loop) ────────────
+
+fn glass_style_id() -> egui::Id {
+    egui::Id::new("cobolt-active-glass-style")
+}
+
+/// Set the glass style for the current frame. Call once before the control-draw
+/// loop on every rendering surface.
+pub fn set_glass_style(ctx: &egui::Context, style: crate::model::GlassStyle) {
+    ctx.data_mut(|d| d.insert_temp(glass_style_id(), style as u8));
+}
+
+/// Read the active glass style (defaults to Classic).
+fn active_glass_style(ctx: &egui::Context) -> crate::model::GlassStyle {
+    ctx.data(|d| d.get_temp::<u8>(glass_style_id()))
+        .map(|v| if v == 1 { crate::model::GlassStyle::Enhanced } else { crate::model::GlassStyle::Classic })
+        .unwrap_or(crate::model::GlassStyle::Classic)
+}
+
+/// Dispatch to the correct glass renderer based on the active style.
+pub fn draw_glass_auto(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,
+    rounding: impl Into<egui::Rounding>,
+    selected: bool,
+    alpha_mul: f32,
+) {
+    match active_glass_style(painter.ctx()) {
+        crate::model::GlassStyle::Enhanced => {
+            draw_glass_enhanced(painter, rect, base, rounding, selected, alpha_mul);
+        }
+        crate::model::GlassStyle::Classic => {
+            draw_glass(painter, rect, base, rounding, selected, alpha_mul);
+        }
+    }
+}
+
+fn active_theme_id() -> egui::Id {
+    egui::Id::new("cobolt-active-theme-pack")
+}
 
 /// Set the asset-pack theme the next [`draw_control`] calls should skin with.
 /// Pass `None` for procedural Liquid Glass. Call once per frame, before the
@@ -2590,7 +4006,8 @@ pub fn clear_active_theme(ctx: &egui::Context) {
 }
 
 fn active_theme(ctx: &egui::Context) -> Option<Arc<ThemePack>> {
-    ctx.data(|d| d.get_temp::<ActiveTheme>(active_theme_id())).and_then(|a| a.0)
+    ctx.data(|d| d.get_temp::<ActiveTheme>(active_theme_id()))
+        .and_then(|a| a.0)
 }
 
 #[derive(Clone, Default)]
@@ -2599,8 +4016,10 @@ struct ThemeTexCache(Arc<Mutex<HashMap<String, egui::TextureHandle>>>);
 /// Load (and cache, per egui context) a theme image as an egui texture. Returns
 /// `None` if the file is missing or undecodable so the caller can fall back.
 fn load_theme_texture(ctx: &egui::Context, abs_path: &str) -> Option<egui::TextureHandle> {
-    let cache = ctx.data_mut(|d|
-        d.get_temp_mut_or_default::<ThemeTexCache>(egui::Id::new("cobolt-theme-tex")).clone());
+    let cache = ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<ThemeTexCache>(egui::Id::new("cobolt-theme-tex"))
+            .clone()
+    });
     if let Some(h) = cache.0.lock().unwrap().get(abs_path) {
         return Some(h.clone());
     }
@@ -2609,7 +4028,11 @@ fn load_theme_texture(ctx: &egui::Context, abs_path: &str) -> Option<egui::Textu
     let (w, h) = img.dimensions();
     let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], img.as_raw());
     let handle = ctx.load_texture(abs_path, color, egui::TextureOptions::LINEAR);
-    cache.0.lock().unwrap().insert(abs_path.to_owned(), handle.clone());
+    cache
+        .0
+        .lock()
+        .unwrap()
+        .insert(abs_path.to_owned(), handle.clone());
     Some(handle)
 }
 
@@ -2638,10 +4061,12 @@ pub fn nine_slice_cells(dst: Rect, tex: [f32; 2], slice: Slice) -> Vec<(Rect, Re
         for col in 0..3 {
             let d = Rect::from_min_max(
                 Pos2::new(dxs[col], dys[row]),
-                Pos2::new(dxs[col + 1], dys[row + 1]));
+                Pos2::new(dxs[col + 1], dys[row + 1]),
+            );
             let u = Rect::from_min_max(
                 Pos2::new(sxs[col] / tw, sys[row] / th),
-                Pos2::new(sxs[col + 1] / tw, sys[row + 1] / th));
+                Pos2::new(sxs[col + 1] / tw, sys[row + 1] / th),
+            );
             cells.push((d, u));
         }
     }
@@ -2649,7 +4074,13 @@ pub fn nine_slice_cells(dst: Rect, tex: [f32; 2], slice: Slice) -> Vec<(Rect, Re
 }
 
 /// 9-slice a texture into `dst`, tinted by `tint`.
-fn draw_nine_slice(painter: &egui::Painter, dst: Rect, tex: &egui::TextureHandle, slice: Slice, tint: Color32) {
+fn draw_nine_slice(
+    painter: &egui::Painter,
+    dst: Rect,
+    tex: &egui::TextureHandle,
+    slice: Slice,
+    tint: Color32,
+) {
     let sz = tex.size_vec2();
     for (d, u) in nine_slice_cells(dst, [sz.x, sz.y], slice) {
         if d.width() > 0.5 && d.height() > 0.5 {
@@ -2668,12 +4099,22 @@ pub fn draw_theme_background(
     use_theme_background: bool,
     alpha_mul: f32,
 ) -> bool {
-    if !use_theme_background { return false; }
-    let Some(pack) = active_theme(painter.ctx()) else { return false; };
-    let Some(bg) = pack.manifest.background.as_ref() else { return false; };
-    if bg.image.is_empty() { return false; }
+    if !use_theme_background {
+        return false;
+    }
+    let Some(pack) = active_theme(painter.ctx()) else {
+        return false;
+    };
+    let Some(bg) = pack.manifest.background.as_ref() else {
+        return false;
+    };
+    if bg.image.is_empty() {
+        return false;
+    }
     let abs = pack.asset_path(&bg.image);
-    let Some(tex) = load_theme_texture(painter.ctx(), &abs.to_string_lossy()) else { return false; };
+    let Some(tex) = load_theme_texture(painter.ctx(), &abs.to_string_lossy()) else {
+        return false;
+    };
 
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     let tint = Color32::from_white_alpha(a);
@@ -2686,7 +4127,11 @@ pub fn draw_theme_background(
                 let cell = Rect::from_min_size(Pos2::new(x, y), sz).intersect(rect);
                 let uv = Rect::from_min_max(
                     Pos2::new(0.0, 0.0),
-                    Pos2::new((cell.width() / sz.x).min(1.0), (cell.height() / sz.y).min(1.0)));
+                    Pos2::new(
+                        (cell.width() / sz.x).min(1.0),
+                        (cell.height() / sz.y).min(1.0),
+                    ),
+                );
                 painter.image(tex.id(), cell, uv, tint);
                 x += sz.x;
             }
@@ -2704,27 +4149,27 @@ pub fn draw_theme_background(
 fn control_kind_key(ct: &ControlType) -> &'static str {
     use ControlType as CT;
     match ct {
-        CT::Button         => "button",
-        CT::Panel          => "panel",
-        CT::GroupBox       => "groupbox",
-        CT::TextBox        => "textbox",
-        CT::ComboBox       => "combobox",
-        CT::ListBox        => "listbox",
-        CT::CheckBox       => "checkbox",
-        CT::RadioButton    => "radiobutton",
-        CT::DataGrid       => "datagrid",
-        CT::Slider         => "slider",
-        CT::ProgressBar    => "progressbar",
-        CT::TabControl     => "tabcontrol",
+        CT::Button => "button",
+        CT::Panel => "panel",
+        CT::GroupBox => "groupbox",
+        CT::TextBox => "textbox",
+        CT::ComboBox => "combobox",
+        CT::ListBox => "listbox",
+        CT::CheckBox => "checkbox",
+        CT::RadioButton => "radiobutton",
+        CT::DataGrid => "datagrid",
+        CT::Slider => "slider",
+        CT::ProgressBar => "progressbar",
+        CT::TabControl => "tabcontrol",
         CT::DateTimePicker => "datetimepicker",
-        CT::NumericUpDown  => "numericupdown",
-        CT::TreeView       => "treeview",
-        CT::Splitter       => "splitter",
-        CT::MenuBar        => "menubar",
-        CT::ToolBar        => "toolbar",
-        CT::StatusBar      => "statusbar",
-        CT::PictureBox     => "picturebox",
-        _                  => "",
+        CT::NumericUpDown => "numericupdown",
+        CT::TreeView => "treeview",
+        CT::Splitter => "splitter",
+        CT::MenuBar => "menubar",
+        CT::ToolBar => "toolbar",
+        CT::StatusBar => "statusbar",
+        CT::PictureBox => "picturebox",
+        _ => "",
     }
 }
 
@@ -2753,7 +4198,10 @@ mod theme_render_tests {
         let dst = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(20.0, 20.0));
         let cells = nine_slice_cells(dst, [64.0, 64.0], [40, 40, 40, 40]);
         for (d, _u) in &cells {
-            assert!(d.width() >= 0.0 && d.height() >= 0.0, "no inverted dest rect");
+            assert!(
+                d.width() >= 0.0 && d.height() >= 0.0,
+                "no inverted dest rect"
+            );
         }
     }
 
@@ -2801,8 +4249,16 @@ mod theme_render_tests {
             pal.iter().map(|c| (c.r(), c.g(), c.b())).collect();
         assert_eq!(uniq.len(), 256, "256 colours must be unique");
         for &c in &pal {
-            assert_ne!((c.r(), c.g(), c.b()), (0, 0, 0), "pure black must be excluded");
-            assert_ne!((c.r(), c.g(), c.b()), (255, 255, 255), "pure white must be excluded");
+            assert_ne!(
+                (c.r(), c.g(), c.b()),
+                (0, 0, 0),
+                "pure black must be excluded"
+            );
+            assert_ne!(
+                (c.r(), c.g(), c.b()),
+                (255, 255, 255),
+                "pure white must be excluded"
+            );
             assert!(!is_extreme(c), "swatch too close to an extreme: {c:?}");
         }
     }
@@ -2810,13 +4266,22 @@ mod theme_render_tests {
     #[test]
     fn catmull_rom_smooths_and_keeps_endpoints() {
         let pts = vec![
-            Pos2::new(0.0, 0.0), Pos2::new(10.0, 20.0),
-            Pos2::new(20.0, 5.0), Pos2::new(30.0, 25.0),
+            Pos2::new(0.0, 0.0),
+            Pos2::new(10.0, 20.0),
+            Pos2::new(20.0, 5.0),
+            Pos2::new(30.0, 25.0),
         ];
         let sm = catmull_rom(&pts, 12);
-        assert!(sm.len() > pts.len(), "smoothing should add intermediate points");
+        assert!(
+            sm.len() > pts.len(),
+            "smoothing should add intermediate points"
+        );
         assert_eq!(sm.first().copied(), Some(pts[0]), "keeps first point");
-        assert_eq!(sm.last().copied(), Some(*pts.last().unwrap()), "keeps last point");
+        assert_eq!(
+            sm.last().copied(),
+            Some(*pts.last().unwrap()),
+            "keeps last point"
+        );
         // Fewer than 3 points → unchanged.
         let two = vec![Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)];
         assert_eq!(catmull_rom(&two, 12).len(), 2);
@@ -2840,24 +4305,34 @@ mod theme_render_tests {
             let m = grad_dir_mesh(rect, a, b, dir);
             assert_eq!(m.vertices.len(), 4, "{dir} should be a quad");
             let has_start = m.vertices.iter().any(|v| v.color == a);
-            let has_end   = m.vertices.iter().any(|v| v.color == b);
-            assert!(has_start && has_end, "{dir} must carry both endpoint colours");
+            let has_end = m.vertices.iter().any(|v| v.color == b);
+            assert!(
+                has_start && has_end,
+                "{dir} must carry both endpoint colours"
+            );
         }
         // Vertical: top edge = start, bottom edge = end.
         let v = grad_dir_mesh(rect, a, b, "Vertical");
         assert_eq!(v.vertices[0].color, a); // top-left
         assert_eq!(v.vertices[2].color, b); // bottom-right
-        // Radial: centre = start, all perimeter = end (fan = 1 + 8 verts).
+                                            // Radial: centre = start, all perimeter = end (fan = 1 + 8 verts).
         let r = grad_dir_mesh(rect, a, b, "Radial");
         assert_eq!(r.vertices.len(), 9);
         assert_eq!(r.vertices[0].color, a, "radial centre is the start colour");
-        assert!(r.vertices[1..].iter().all(|v| v.color == b), "radial rim is the end colour");
+        assert!(
+            r.vertices[1..].iter().all(|v| v.color == b),
+            "radial rim is the end colour"
+        );
     }
 
     #[test]
     fn corner_radius_reads_alias_default_and_clamps() {
         use crate::model::{Control, ControlType, PropValue, Rect};
-        let big = |t| { let mut c = Control::new("C", t, 0, 0); c.rect = Rect::new(0,0,200,100); c };
+        let big = |t| {
+            let mut c = Control::new("C", t, 0, 0);
+            c.rect = Rect::new(0, 0, 200, 100);
+            c
+        };
         // Per-type defaults when no property is set.
         assert_eq!(corner_radius(&big(ControlType::TextBox)), 0.0);
         assert_eq!(corner_radius(&big(ControlType::Button)), 3.0);
@@ -2877,13 +4352,34 @@ mod theme_render_tests {
         assert_eq!(corner_radius(&c), 7.0);
         // Clamp to half the smaller side (24×24 ⇒ max 12).
         let mut s = Control::new("S", ControlType::TextBox, 0, 0);
-        s.rect = Rect::new(0,0,24,24);
+        s.rect = Rect::new(0, 0, 24, 24);
         s.set_prop("CornerRadius", PropValue::Int(40));
         assert_eq!(corner_radius(&s), 12.0);
         // Zero stays zero.
         let mut z = big(ControlType::Button);
         z.set_prop("CornerRadius", PropValue::Int(0));
         assert_eq!(corner_radius(&z), 0.0);
+    }
+
+    #[test]
+    fn container_image_rounding_only_crops_when_child_crosses_parent_arc() {
+        let border = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 200.0));
+        let flags = [true, true, true, true];
+
+        // This rectangle is inside the 60px top-left corner band, but its own
+        // corner is still inside the parent's rounded path. It must not receive a
+        // synthetic 60px crop just because it is near the parent corner.
+        let inside_arc_band =
+            egui::Rect::from_min_max(Pos2::new(25.0, 35.0), Pos2::new(100.0, 110.0));
+        let r = container_image_rounding(inside_arc_band, border, 60.0, flags, 0.0);
+        assert_eq!(r.nw, 0.0);
+
+        // A child that actually crosses the parent corner still receives rounding,
+        // but inset-aware rounding is much smaller than the full parent radius.
+        let crossing_arc = egui::Rect::from_min_max(Pos2::new(0.0, 30.0), Pos2::new(100.0, 130.0));
+        let r = container_image_rounding(crossing_arc, border, 60.0, flags, 0.0);
+        assert!(r.nw > 0.0, "corner crossing parent arc should be clipped");
+        assert!(r.nw < 60.0, "inset child must not get full parent radius");
     }
 
     #[test]

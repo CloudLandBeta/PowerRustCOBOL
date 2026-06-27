@@ -286,12 +286,16 @@ impl PropertiesPanel {
                 ui.label(RichText::new("(z-order)").small().color(Color32::GRAY));
                 ui.end_row();
             });
+        if ctrl.get_prop("CornerRadius").is_some() {
+            int_row_inline(ui, &id, "CornerRadius", "Corner radius", ctrl, action, 0..=400);
+        }
         ui.add_space(4.0);
 
-        // Non-visual controls (Timer, AgentObject, RestClient) only show
-        // geometry + their own type-specific settings — no style, no animations.
+        // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase) only
+        // show geometry + type-specific settings + events — no style, no animations.
         if ctrl.control_type.is_non_visual() {
             self.show_type_specific(ui, ctrl, &id, action);
+            Self::show_events(ui, ctrl, &id, action, tr);
             return;
         }
 
@@ -688,6 +692,17 @@ impl PropertiesPanel {
         ui.add_space(4.0);
 
         // ── Events ────────────────────────────────────────────────────────────
+        Self::show_events(ui, ctrl, &id, action, tr);
+
+        // ── Animations ────────────────────────────────────────────────────────
+        self.show_animations(ui, ctrl, &id, action, tr);
+    }
+
+    // ── Events section ────────────────────────────────────────────────────────
+
+    fn show_events(
+        ui: &mut Ui, ctrl: &Control, id: &str, action: &mut InspectorAction, tr: &Tr,
+    ) {
         section_header(ui, tr.sec_events);
         ui.label(RichText::new(tr.hint_click_event)
             .small().color(Color32::GRAY).italics());
@@ -725,14 +740,12 @@ impl PropertiesPanel {
 
             let (clicked, double_clicked) = row_resp.inner;
             if double_clicked {
-                action.open_event_in_code = Some((id.clone(), ev_str));
+                action.open_event_in_code = Some((id.to_owned(), ev_str));
             } else if clicked {
-                action.open_event_editor = Some((id.clone(), ev_str));
+                action.open_event_editor = Some((id.to_owned(), ev_str));
             }
         }
-
-        // ── Animations ────────────────────────────────────────────────────────
-        self.show_animations(ui, ctrl, &id, action, tr);
+        ui.add_space(4.0);
     }
 
     // ── Animation editor ─────────────────────────────────────────────────────
@@ -924,7 +937,7 @@ impl PropertiesPanel {
 
             // ── Button ────────────────────────────────────────────────────────
             ControlType::Button => {
-                section_header(ui, "Button");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("btn_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     bool_row(ui, id, "IsDefault", "Default button", ctrl, action); ui.end_row();
                     bool_row(ui, id, "IsCancel",  "Cancel button",  ctrl, action); ui.end_row();
@@ -956,7 +969,7 @@ impl PropertiesPanel {
 
             // ── Label ─────────────────────────────────────────────────────────
             ControlType::Label => {
-                section_header(ui, "Label");
+                section_header(ui, "Basic properties");
                 combo_row_inline(ui, id, "TextAlignment", ctrl, action, &["Left","Center","Right"]);
                 bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
                 bool_row_inline(ui, id, "AutoSize", "AutoSize", ctrl, action);
@@ -966,7 +979,7 @@ impl PropertiesPanel {
 
             // ── TextBox ───────────────────────────────────────────────────────
             ControlType::TextBox => {
-                section_header(ui, "TextBox");
+                section_header(ui, "Basic properties");
                 {
                     let cur = ctrl.get_prop("HintText").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, "HintText", &cur,
@@ -1005,7 +1018,7 @@ impl PropertiesPanel {
 
             // ── CheckBox / RadioButton ────────────────────────────────────────
             ControlType::CheckBox | ControlType::RadioButton => {
-                section_header(ui, "Check Options");
+                section_header(ui, "Basic properties");
                 bool_row_inline(ui, id, "Checked",  "Checked (default)", ctrl, action);
                 combo_row_inline(ui, id, "CheckAlignment", ctrl, action, &["Left","Center","Right"]);
                 color_row(ui, id, "CheckColor", ctrl, action);
@@ -1019,7 +1032,7 @@ impl PropertiesPanel {
 
             // ── PictureBox ────────────────────────────────────────────────────
             ControlType::PictureBox => {
-                section_header(ui, "Image");
+                section_header(ui, "Basic properties");
                 image_browse_row(ui, id, "ImagePath", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(ui, id, "SizeMode", ctrl, action,
                     &["Normal","Stretch","Zoom","CenterImage","AutoSize"]);
@@ -1041,7 +1054,7 @@ impl PropertiesPanel {
 
             // ── Animator ──────────────────────────────────────────────────────
             ControlType::Animator => {
-                section_header(ui, "Animation");
+                section_header(ui, "Basic properties");
                 image_browse_row(ui, id, "Source", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(ui, id, "SizeMode", ctrl, action,
                     &["Fit","Fill","Stretch","Center"]);
@@ -1126,17 +1139,12 @@ impl PropertiesPanel {
                 color_row(ui, id, "TrackColor", ctrl, action);
                 color_row(ui, id, "ThumbColor", ctrl, action);
                 color_row(ui, id, "FillColor",  ctrl, action);
-                {
-                    let cur = ctrl.get_prop("ChangeParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ChangeParagraph", &cur,
-                        "On change PERFORM:", "SLIDER-CHANGED-PARA", action);
-                }
                 ui.add_space(4.0);
             }
 
             // ── ProgressBar ───────────────────────────────────────────────────
             ControlType::ProgressBar => {
-                section_header(ui, "Progress");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("pb_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     ui.label("Min:"); let mut min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
                     if ui.add(DragValue::new(&mut min).speed(1)).changed() {
@@ -1207,11 +1215,6 @@ impl PropertiesPanel {
                     }
                     ui.end_row();
                 });
-                {
-                    let cur = ctrl.get_prop("CSVParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "CSVParagraph", &cur,
-                        "After export PERFORM:", "CSV-EXPORTED-PARA", action);
-                }
                 ui.label(RichText::new("COBOL: INVOKE grid-id 'ExportCSV' USING WS-CSV-PATH")
                     .small().color(Color32::GRAY).italics());
                 ui.add_space(4.0);
@@ -1219,7 +1222,7 @@ impl PropertiesPanel {
 
             // ── TabControl ────────────────────────────────────────────────────
             ControlType::TabControl => {
-                section_header(ui, "TabControl");
+                section_header(ui, "Basic properties");
                 {
                     let cur = ctrl.get_prop("Tabs").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     let buf_key = format!("{id}-Tabs");
@@ -1241,27 +1244,28 @@ impl PropertiesPanel {
 
             // ── Panel / GroupBox ──────────────────────────────────────────────
             ControlType::Panel | ControlType::GroupBox => {
-                section_header(ui, "Container");
+                section_header(ui, "Basic properties");
                 // Auto-scroll overflowing children vs clip them (spec 012).
                 bool_row_inline(ui, id, "AutoScroll", "Auto-scroll", ctrl, action);
+                // Container visual properties (shared by GroupBox and Panel).
+                // Caption props only for GroupBox.
+                if matches!(ctrl.control_type, ControlType::GroupBox) {
+                    bool_row_inline(ui, id, "HideCaption",    "Hide caption", ctrl, action);
+                    bool_row_inline(ui, id, "CaptionEnabled", "Caption enabled", ctrl, action);
+                }
+                bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
+                bool_row_inline(ui, id, "BackgroundGradientEnabled", "Background gradient", ctrl, action);
+                if ctrl.get_prop("BackgroundGradientEnabled").map(|v| v.as_bool()).unwrap_or(false) {
+                    color_row(ui, id, "BackgroundGradientStartColor", ctrl, action);
+                    color_row(ui, id, "BackgroundGradientEndColor",   ctrl, action);
+                    combo_row_inline(ui, id, "BackgroundGradientDirection", ctrl, action,
+                        &["Vertical","Horizontal","DiagonalDown","DiagonalUp","Radial"]);
+                }
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
 
-                // GroupBox visual + repeating-group properties (spec 015).
+                // GroupBox repeating-group properties (spec 015).
                 if matches!(ctrl.control_type, ControlType::GroupBox) {
-                    section_header(ui, "Appearance");
-                    bool_row_inline(ui, id, "HideCaption",    "Hide caption", ctrl, action);
-                    bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
-                    color_row(ui, id, "BackgroundColor", ctrl, action);
-                    bool_row_inline(ui, id, "BackgroundGradientEnabled", "Background gradient", ctrl, action);
-                    if ctrl.get_prop("BackgroundGradientEnabled").map(|v| v.as_bool()).unwrap_or(false) {
-                        color_row(ui, id, "BackgroundGradientStartColor", ctrl, action);
-                        color_row(ui, id, "BackgroundGradientEndColor",   ctrl, action);
-                        combo_row_inline(ui, id, "BackgroundGradientDirection", ctrl, action,
-                            &["Vertical","Horizontal","DiagonalDown","DiagonalUp","Radial"]);
-                    }
-                    ui.add_space(4.0);
-
                     let is_rep = ctrl.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false);
                     bool_row_inline(ui, id, "IsRepeatingGroup", "Repeating group (array)", ctrl, action);
                     if is_rep {
@@ -1284,7 +1288,7 @@ impl PropertiesPanel {
 
             // ── Line ─────────────────────────────────────────────────────────
             ControlType::Line => {
-                section_header(ui, "Line");
+                section_header(ui, "Basic properties");
                 color_row(ui, id, "LineColor", ctrl, action);
                 egui::Grid::new(format!("ln_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     ui.label("Thickness:");
@@ -1315,7 +1319,7 @@ impl PropertiesPanel {
 
             // ── DateTimePicker ────────────────────────────────────────────────
             ControlType::DateTimePicker => {
-                section_header(ui, "DateTimePicker");
+                section_header(ui, "Basic properties");
                 {
                     let cur = ctrl.get_prop("Value").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, "Value", &cur,
@@ -1347,7 +1351,7 @@ impl PropertiesPanel {
 
             // ── NumericUpDown ─────────────────────────────────────────────────
             ControlType::NumericUpDown => {
-                section_header(ui, "NumericUpDown");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("nud_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     ui.label("Value:");
                     let mut v = ctrl.get_prop("Value").map(|vv| vv.as_i64()).unwrap_or(0);
@@ -1388,7 +1392,7 @@ impl PropertiesPanel {
 
             // ── TreeView ──────────────────────────────────────────────────────
             ControlType::TreeView => {
-                section_header(ui, "TreeView");
+                section_header(ui, "Basic properties");
                 {
                     let cur = ctrl.get_prop("Items").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     let buf_key = format!("{id}-Items");
@@ -1417,7 +1421,7 @@ impl PropertiesPanel {
 
             // ── Splitter ──────────────────────────────────────────────────────
             ControlType::Splitter => {
-                section_header(ui, "Splitter");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("sp_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     combo_row(ui, id, "Orientation", ctrl, action, &["Horizontal","Vertical"]); ui.end_row();
                     ui.label("MinSize:");
@@ -1439,7 +1443,7 @@ impl PropertiesPanel {
 
             // ── Timer ─────────────────────────────────────────────────────────
             ControlType::Timer => {
-                section_header(ui, "⏱ Timer");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("tmr_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     ui.label("Interval (ms):");
                     let mut iv = ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000);
@@ -1449,19 +1453,12 @@ impl PropertiesPanel {
                     ui.end_row();
                     bool_row(ui, &id, "Enabled", "Enabled at start", ctrl, action); ui.end_row();
                 });
-                {
-                    let cur = ctrl.get_prop("Paragraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, &id, "Paragraph", &cur,
-                        "PERFORM:", "TICK-HANDLER", action);
-                }
-                ui.label(RichText::new("PERFORM is called every Interval ms. Non-visual at runtime.")
-                    .color(Color32::GRAY).small().italics());
                 ui.add_space(4.0);
             }
 
             // ── Shape ─────────────────────────────────────────────────────────
             ControlType::Shape => {
-                section_header(ui, "Shape");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("shp_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     combo_row(ui, id, "ShapeType", ctrl, action,
                         &["Rectangle","Circle","RoundRect","Triangle"]); ui.end_row();
@@ -1500,7 +1497,7 @@ impl PropertiesPanel {
 
             // ── Agent Object ──────────────────────────────────────────────────
             ControlType::AgentObject => {
-                section_header(ui, "🤖 AI Agent — Network");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("agt_net_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     combo_row(ui, id, "AgentAPI", ctrl, action,
                         &["Ollama","LMStudio","OpenAI","Anthropic","Custom"]); ui.end_row();
@@ -1546,7 +1543,7 @@ impl PropertiesPanel {
                     ui.end_row();
                 });
 
-                section_header(ui, "🤖 AI Agent — Behaviour");
+                section_header(ui, "Behaviour");
                 {
                     let cur = ctrl.get_prop("SystemPrompt").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     let bk = format!("{id}-SystemPrompt");
@@ -1581,7 +1578,7 @@ impl PropertiesPanel {
                     bool_row(ui, id, "Stream", "Streaming mode", ctrl, action); ui.end_row();
                 });
 
-                section_header(ui, "🤖 AI Agent — COBOL Integration");
+                section_header(ui, "COBOL Integration");
                 {
                     let cur = ctrl.get_prop("TargetControls").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, "TargetControls", &cur,
@@ -1592,30 +1589,12 @@ impl PropertiesPanel {
                     text_row_hint(ui, &mut self.text_bufs, id, "ResponseDataItem", &cur,
                         "Response data item:", "WS-AGENT-RESPONSE", action);
                 }
-                {
-                    let cur = ctrl.get_prop("ResponseParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ResponseParagraph", &cur,
-                        "On response PERFORM:", "AGENT-RESPONSE-HANDLER", action);
-                }
-                {
-                    let cur = ctrl.get_prop("StreamChunkParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "StreamChunkParagraph", &cur,
-                        "On stream chunk:", "AGENT-CHUNK-HANDLER", action);
-                }
-                {
-                    let cur = ctrl.get_prop("ErrorParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorParagraph", &cur,
-                        "On error PERFORM:", "AGENT-ERROR-HANDLER", action);
-                }
-                ui.label(RichText::new(
-                    "COBOL: INVOKE agent-id 'Ask' USING WS-PROMPT RETURNING WS-RESPONSE")
-                    .small().color(Color32::GRAY).italics());
                 ui.add_space(4.0);
             }
 
             // ── REST Client ───────────────────────────────────────────────────
             ControlType::RestClient => {
-                section_header(ui, "🌐 REST Client — Connection");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("rst_con_{id}")).num_columns(2).spacing([4.0,3.0]).show(ui, |ui| {
                     let cur = ctrl.get_prop("BaseURL").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     let bk = format!("{id}-BaseURL");
@@ -1664,7 +1643,7 @@ impl PropertiesPanel {
                     }
                 }
 
-                section_header(ui, "🌐 REST Client — COBOL Integration");
+                section_header(ui, "COBOL Integration");
                 {
                     let cur = ctrl.get_prop("RequestDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, "RequestDataItem", &cur,
@@ -1680,27 +1659,12 @@ impl PropertiesPanel {
                     text_row_hint(ui, &mut self.text_bufs, id, "StatusDataItem", &cur,
                         "HTTP status item:", "WS-HTTP-STATUS", action);
                 }
-                {
-                    let cur = ctrl.get_prop("ResponseParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ResponseParagraph", &cur,
-                        "On response PERFORM:", "REST-RESPONSE-HANDLER", action);
-                }
-                {
-                    let cur = ctrl.get_prop("ErrorParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorParagraph", &cur,
-                        "On error PERFORM:", "REST-ERROR-HANDLER", action);
-                }
-                ui.label(RichText::new(
-                    "COBOL: SET WS-RESP TO rst-id::call('GET', 'https://...')\n\
-                     Or:   INVOKE rst-id 'call' USING BY VALUE 'GET' BY VALUE WS-URL\n\
-                           RETURNING WS-RESPONSE-JSON")
-                    .small().color(Color32::GRAY).italics());
                 ui.add_space(4.0);
             }
 
             // ── SQL Database ──────────────────────────────────────────────────
             ControlType::SqlDatabase => {
-                section_header(ui, "🗄 SQL Database — Connection");
+                section_header(ui, "Basic properties");
                 egui::Grid::new(format!("sql_conn_{id}")).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                     ui.label("Driver:");
                     {
@@ -1741,7 +1705,7 @@ impl PropertiesPanel {
                     ui.end_row();
                 });
 
-                section_header(ui, "🗄 SQL Database — COBOL Data Items");
+                section_header(ui, "COBOL Integration");
                 egui::Grid::new(format!("sql_items_{id}")).num_columns(1).spacing([8.0, 4.0]).show(ui, |ui| {
                     let cur = ctrl.get_prop("ConnectionDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, "ConnectionDataItem", &cur,
@@ -1753,30 +1717,7 @@ impl PropertiesPanel {
                         "Result set item:", "resultset1", action);
                     ui.end_row();
 
-                    let cur = ctrl.get_prop("ConnectParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ConnectParagraph", &cur,
-                        "After connect:", "DB-CONNECTED", action);
-                    ui.end_row();
-
-                    let cur = ctrl.get_prop("QueryCompleteParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "QueryCompleteParagraph", &cur,
-                        "After query:", "DB-QUERY-DONE", action);
-                    ui.end_row();
-
-                    let cur = ctrl.get_prop("ErrorParagraph").map(|v| v.as_str().to_owned()).unwrap_or_default();
-                    text_row_hint(ui, &mut self.text_bufs, id, "ErrorParagraph", &cur,
-                        "On SQL error:", "DB-ERROR-HANDLER", action);
-                    ui.end_row();
                 });
-
-                ui.add_space(4.0);
-                ui.label(RichText::new(
-                    "Usage:\n  SET conn1 TO sql1::openConnection()\n\
-                     SET resultset1 TO conn1::exec('SELECT ...')\n\
-                     PERFORM UNTIL resultset1::Next() = sql1::None\n\
-                        COMPUTE total = total + resultset1::fetch()::col\n\
-                     END-PERFORM")
-                    .small().color(Color32::GRAY).italics());
                 ui.add_space(4.0);
             }
 
@@ -1787,16 +1728,7 @@ impl PropertiesPanel {
             | ControlType::AreaChart
             | ControlType::ScatterChart
             | ControlType::DonutChart => {
-                let type_label = match ctrl.control_type {
-                    ControlType::BarChart     => "📊 Bar Chart",
-                    ControlType::LineChart    => "📈 Line Chart",
-                    ControlType::PieChart     => "🥧 Pie Chart",
-                    ControlType::AreaChart    => "📉 Area Chart",
-                    ControlType::ScatterChart => "✦ Scatter Chart",
-                    ControlType::DonutChart   => "🍩 Donut Chart",
-                    _                         => "📊 Chart",
-                };
-                section_header(ui, type_label);
+                section_header(ui, "Basic properties");
 
                 // ── Visual ────────────────────────────────────────────────────
                 egui::Grid::new(format!("chart_vis_{id}")).num_columns(2).spacing([8.0,4.0]).show(ui, |ui| {
@@ -2004,13 +1936,6 @@ impl PropertiesPanel {
             _ => {}
         }
 
-        // Universal corner radius (spec 016): one row for every bordered control
-        // (those the model seeds with a CornerRadius). 0 = square / no rounding.
-        if ctrl.get_prop("CornerRadius").is_some() {
-            section_header(ui, "Corner");
-            int_row_inline(ui, id, "CornerRadius", "Corner radius", ctrl, action, 0..=400);
-            ui.add_space(4.0);
-        }
     }
 
     // ── Form inspector ────────────────────────────────────────────────────────
@@ -2222,6 +2147,22 @@ impl PropertiesPanel {
                 if ui.checkbox(&mut snapping, "").changed() {
                     action.form_props.push(("SnapToGrid".into(), if snapping { "true" } else { "false" }.to_string()));
                 }
+            }
+            ui.end_row();
+
+            // Glass style
+            ui.label("Glass style");
+            {
+                let cur = form.glass_style.as_str();
+                egui::ComboBox::from_id_salt("form_glass_style")
+                    .selected_text(cur).width(120.0)
+                    .show_ui(ui, |ui| {
+                        for opt in &["Classic", "Enhanced"] {
+                            if ui.selectable_label(cur == *opt, *opt).clicked() {
+                                action.form_props.push(("GlassStyle".into(), opt.to_string()));
+                            }
+                        }
+                    });
             }
             ui.end_row();
 
@@ -2576,6 +2517,9 @@ fn border_rows(
     }
     if ctrl.get_prop("BorderStyle").is_some() {
         combo_row_inline(ui, ctrl_id, "BorderStyle", ctrl, action, &["None","Single","Fixed3D","Raised","Sunken"]);
+    }
+    if ctrl.get_prop("BorderWidth").is_some() {
+        int_row_inline(ui, ctrl_id, "BorderWidth", "Border width", ctrl, action, 0..=10);
     }
 }
 

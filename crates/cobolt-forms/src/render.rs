@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use egui::{Color32, Rect, Vec2};
 
 use crate::containers::{self, ActiveTabs};
-use crate::model::BgImageMode;
+use crate::model::{BgImageMode, PropValue};
 use crate::{Control, ControlType};
 
 /// Supplies live control state to the engine, source-agnostic.
@@ -70,10 +70,17 @@ pub struct RenderTransform {
     pub alpha: f32,
 }
 impl RenderTransform {
-    pub const IDENTITY: Self = Self { dx: 0.0, dy: 0.0, scale: 1.0, alpha: 1.0 };
+    pub const IDENTITY: Self = Self {
+        dx: 0.0,
+        dy: 0.0,
+        scale: 1.0,
+        alpha: 1.0,
+    };
 }
 impl Default for RenderTransform {
-    fn default() -> Self { Self::IDENTITY }
+    fn default() -> Self {
+        Self::IDENTITY
+    }
 }
 
 /// A `FormState` that renders the designed form verbatim (the designer canvas).
@@ -102,7 +109,12 @@ pub struct Backdrop {
 
 impl Default for Backdrop {
     fn default() -> Self {
-        Backdrop { color_hex: String::new(), transparency: 0, image: None, image_mode: BgImageMode::Fit }
+        Backdrop {
+            color_hex: String::new(),
+            transparency: 0,
+            image: None,
+            image_mode: BgImageMode::Fit,
+        }
     }
 }
 
@@ -157,7 +169,11 @@ pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
         let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(20);
         let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(22);
         let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(45);
-        let (r, g, b) = if r == 0 && g == 0 && b == 0 { (20, 22, 45) } else { (r, g, b) };
+        let (r, g, b) = if r == 0 && g == 0 && b == 0 {
+            (20, 22, 45)
+        } else {
+            (r, g, b)
+        };
         Color32::from_rgba_premultiplied(
             (r as f32 * bg_alpha as f32 / 255.0) as u8,
             (g as f32 * bg_alpha as f32 / 255.0) as u8,
@@ -174,9 +190,13 @@ pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
 /// container's rounded corner (spec 017). True for every visual control; the
 /// non-visual config objects (Timer/Agent/Sql/Rest) draw nothing that can bleed.
 fn clips_to_container_border(ct: &ControlType) -> bool {
-    !matches!(ct,
-        ControlType::Timer | ControlType::AgentObject
-        | ControlType::SqlDatabase | ControlType::RestClient)
+    !matches!(
+        ct,
+        ControlType::Timer
+            | ControlType::AgentObject
+            | ControlType::SqlDatabase
+            | ControlType::RestClient
+    )
 }
 
 /// Border path of a control's immediate rounded GroupBox/Panel parent, in screen
@@ -192,7 +212,10 @@ fn picturebox_container_border(
     let controls = input.controls;
     let parent_id = controls[idx].parent.as_ref()?;
     let parent = controls.iter().find(|c| &c.id == parent_id)?;
-    if !matches!(parent.control_type, ControlType::GroupBox | ControlType::Panel) {
+    if !matches!(
+        parent.control_type,
+        ControlType::GroupBox | ControlType::Panel
+    ) {
         return None;
     }
     let plive = input.state.live(parent);
@@ -213,8 +236,10 @@ fn picturebox_container_border(
 /// container border is rounded; `draw_control` still only rounds the corners the
 /// image actually reaches).
 fn container_clip_prop(border: Rect, rad: f32) -> String {
-    format!("{},{},{},{},{},1,1,1,1",
-        border.min.x, border.min.y, border.max.x, border.max.y, rad)
+    format!(
+        "{},{},{},{},{},1,1,1,1",
+        border.min.x, border.min.y, border.max.x, border.max.y, rad
+    )
 }
 
 /// After all controls are painted, repaint each rounded GroupBox/Panel's four
@@ -231,7 +256,19 @@ fn mask_container_notches(
 ) {
     let controls = input.controls;
     for (idx, base) in controls.iter().enumerate() {
-        if !matches!(base.control_type, ControlType::GroupBox | ControlType::Panel) {
+        if !matches!(
+            base.control_type,
+            ControlType::GroupBox | ControlType::Panel
+        ) {
+            continue;
+        }
+        if base.parent.is_some() {
+            // A nested rounded container sits on top of another container. Its
+            // notches must reveal that parent surface, not the form backdrop.
+            // Repainting with the form backdrop cuts a dark/background-pattern
+            // hole through the parent panel (visible in the designer grid). A
+            // true fix needs parent-surface/offscreen compositing; until then,
+            // only form-level containers use the global backdrop mask.
             continue;
         }
         if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
@@ -242,9 +279,85 @@ fn mask_container_notches(
         if rad < 0.5 {
             continue;
         }
-        let Some(&screen) = out.control_rects.get(&live.id) else { continue };
+        let Some(&screen) = out.control_rects.get(&live.id) else {
+            continue;
+        };
         crate::paint::draw_container_notch_mask(
-            painter, screen, egui::Rounding::same(rad), bg, image, img_alpha);
+            painter,
+            screen,
+            egui::Rounding::same(rad),
+            bg,
+            image,
+            img_alpha,
+        );
+    }
+}
+
+fn draw_deferred_groupbox_captions(
+    painter: &egui::Painter,
+    input: &RenderInput<'_>,
+    out: &RenderOutput,
+) {
+    for (idx, base) in input.controls.iter().enumerate() {
+        if !matches!(base.control_type, ControlType::GroupBox) {
+            continue;
+        }
+        if !input.state.visible(base)
+            || !containers::is_visible(input.controls, idx, input.active_tabs)
+        {
+            continue;
+        }
+        let live = input.state.live(base);
+        let Some(&screen) = out.control_rects.get(&live.id) else {
+            continue;
+        };
+        let tf = input.state.transform(base);
+        let enabled = input.state.enabled(base);
+        let alpha = containers::ancestor_opacity(input.controls, idx)
+            * tf.alpha
+            * if enabled { 1.0 } else { 0.45 };
+        let mut face = live.clone();
+        face.rect = crate::model::Rect::new(
+            0,
+            0,
+            screen.width().round() as i32,
+            screen.height().round() as i32,
+        );
+        crate::paint::draw_groupbox_caption(painter, screen.min, &face, alpha);
+    }
+}
+
+fn draw_deferred_tabcontrol_tabs(
+    painter: &egui::Painter,
+    input: &RenderInput<'_>,
+    out: &RenderOutput,
+) {
+    for (idx, base) in input.controls.iter().enumerate() {
+        if !matches!(base.control_type, ControlType::TabControl) {
+            continue;
+        }
+        if !input.state.visible(base)
+            || !containers::is_visible(input.controls, idx, input.active_tabs)
+        {
+            continue;
+        }
+        let live = input.state.live(base);
+        let Some(&screen) = out.control_rects.get(&live.id) else {
+            continue;
+        };
+        let tf = input.state.transform(base);
+        let enabled = input.state.enabled(base);
+        let alpha = containers::ancestor_opacity(input.controls, idx)
+            * tf.alpha
+            * if enabled { 1.0 } else { 0.45 };
+        let mut face = live.clone();
+        face.rect = crate::model::Rect::new(
+            0,
+            0,
+            screen.width().round() as i32,
+            screen.height().round() as i32,
+        );
+        crate::paint::draw_tabcontrol_tabs(painter, screen.min, &face, alpha);
     }
 }
 
@@ -259,13 +372,24 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let form_rect = Rect::from_min_size(origin, input.form_size);
     let bg = backdrop_color(&input.backdrop.color_hex, input.backdrop.transparency);
     painter.rect_filled(form_rect, 0.0, bg);
-    let backdrop_img_alpha = ((100 - input.backdrop.transparency.min(100)) as f32 / 100.0 * 255.0) as u8;
+    // The notch mask is drawn *after* children. If the form background is
+    // translucent, repainting `bg` would darken the corner wedges; skipping it
+    // would leave rectangular child bleed visible. Use the effective one-pass
+    // colour over the panel fill instead.
+    let notch_bg = crate::paint::composite_premultiplied_over(bg, ui.visuals().panel_fill);
+    let backdrop_img_alpha =
+        ((100 - input.backdrop.transparency.min(100)) as f32 / 100.0 * 255.0) as u8;
     // Backdrop image, also remembered (texture + screen dest) so the corner-notch
     // mask can repaint it behind a rounded container's children (spec 017).
     let backdrop_img: Option<(egui::TextureId, Rect)> = input.backdrop.image.map(|(tex, tsize)| {
         let dest = image_dest(form_rect, tsize, input.backdrop.image_mode);
         let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        painter.with_clip_rect(form_rect).image(tex, dest, uv, Color32::from_white_alpha(backdrop_img_alpha));
+        painter.with_clip_rect(form_rect).image(
+            tex,
+            dest,
+            uv,
+            Color32::from_white_alpha(backdrop_img_alpha),
+        );
         (tex, dest)
     });
 
@@ -312,16 +436,12 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // Clip to ancestor container content areas (rounded clipping is cosmetic;
         // egui clips to the axis-aligned rect — spec 012/016). Start from the whole
         // form so a top-level control is never clipped to its own bounds.
-        let clip = if let Some((border, _)) = pic_border {
-            form_rect.intersect(border)
-        } else {
-            match containers::clip_rect(controls, idx) {
-                Some(cm) => form_rect.intersect(Rect::from_min_size(
-                    origin + Vec2::new(cm.x as f32, cm.y as f32),
-                    Vec2::new(cm.w as f32, cm.h as f32),
-                )),
-                None => form_rect,
-            }
+        let clip = match containers::clip_rect(controls, idx) {
+            Some(cm) => form_rect.intersect(Rect::from_min_size(
+                origin + Vec2::new(cm.x as f32, cm.y as f32),
+                Vec2::new(cm.w as f32, cm.h as f32),
+            )),
+            None => form_rect,
         };
 
         let anc = containers::ancestor_opacity(controls, idx);
@@ -332,7 +452,17 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // so a shifted/scaled animation draws at the transformed position+size.
         let mut face = live.clone();
         face.rect = crate::model::Rect::new(
-            0, 0, screen.width().round() as i32, screen.height().round() as i32);
+            0,
+            0,
+            screen.width().round() as i32,
+            screen.height().round() as i32,
+        );
+        if matches!(face.control_type, ControlType::GroupBox) {
+            face.set_prop("_DeferCaption", PropValue::Bool(true));
+        }
+        if matches!(face.control_type, ControlType::TabControl) {
+            face.set_prop("_DeferTabs", PropValue::Bool(true));
+        }
 
         if let Some((border, rad)) = pic_border {
             face.set_prop("_ContainerClip", container_clip_prop(border, rad));
@@ -342,8 +472,15 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             // Live, editable widget: faces via `draw_control`, plus the interaction
             // (text edit, slider drag, combo popup, …) ported from the run path.
             render_interactive(
-                ui, &face, screen, clip, input.glass, alpha, enabled,
-                &mut out, &mut open_combos,
+                ui,
+                &face,
+                screen,
+                clip,
+                input.glass,
+                alpha,
+                enabled,
+                &mut out,
+                &mut open_combos,
             );
         } else {
             // Static: the one true face renderer (charts, images, glass, rounding).
@@ -356,19 +493,38 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                 None
             };
             let dp = painter.with_clip_rect(painter.clip_rect().intersect(clip));
-            crate::paint::draw_control(&dp, screen.min, &face, false, input.glass, alpha, 1.0, pic_tex);
+            crate::paint::draw_control(
+                &dp,
+                screen.min,
+                &face,
+                false,
+                input.glass,
+                alpha,
+                1.0,
+                pic_tex,
+            );
         }
     }
 
     // ── Corner-notch masks: cut any child content that bled past a rounded
     // container's arc by repainting the backdrop in its corner notches (spec 017).
-    mask_container_notches(&painter, input, &out, backdrop_img, backdrop_img_alpha, bg);
+    mask_container_notches(
+        &painter,
+        input,
+        &out,
+        backdrop_img,
+        backdrop_img_alpha,
+        notch_bg,
+    );
+    draw_deferred_groupbox_captions(&painter, input, &out);
+    draw_deferred_tabcontrol_tabs(&painter, input, &out);
 
     // ── Second pass: open ComboBox dropdowns float above everything. ──────────
     for (cid, items, header, cur) in open_combos {
         match crate::paint::glass_combo_popup(ui, &cid, header, &items, &cur) {
             Some(crate::paint::GlassComboAction::Select(val)) => {
-                out.prop_updates.push((cid.clone(), "Value".to_owned(), val.clone()));
+                out.prop_updates
+                    .push((cid.clone(), "Value".to_owned(), val.clone()));
                 out.events.push(UiEvent::change(&cid, &val));
                 out.events.push(UiEvent::ev(&cid, "onSelectedIndexChanged"));
                 let open_id = egui::Id::new(("rt_ctrl", cid.as_str())).with("combo_open");
@@ -395,7 +551,11 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
 /// the painter's current clip as the baseline (top-level controls draw to the
 /// canvas, not clipped to the form bounds — the designer's long-standing
 /// behaviour, so e.g. a rotated Line past its box still shows on the canvas).
-pub fn render_faces(painter: &egui::Painter, origin: egui::Pos2, input: &RenderInput<'_>) -> RenderOutput {
+pub fn render_faces(
+    painter: &egui::Painter,
+    origin: egui::Pos2,
+    input: &RenderInput<'_>,
+) -> RenderOutput {
     let mut out = RenderOutput::default();
     let controls = input.controls;
     let order = containers::render_order(controls);
@@ -428,16 +588,12 @@ pub fn render_faces(painter: &egui::Painter, origin: egui::Pos2, input: &RenderI
 
         // Clip children to ancestor container content areas; top-level controls
         // draw to the painter's existing clip (the canvas), matching the designer.
-        let clip = if let Some((border, _)) = pic_border {
-            painter.clip_rect().intersect(border)
-        } else {
-            match containers::clip_rect(controls, idx) {
-                Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
-                    origin + Vec2::new(cm.x as f32, cm.y as f32),
-                    Vec2::new(cm.w as f32, cm.h as f32),
-                )),
-                None => painter.clip_rect(),
-            }
+        let clip = match containers::clip_rect(controls, idx) {
+            Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
+                origin + Vec2::new(cm.x as f32, cm.y as f32),
+                Vec2::new(cm.w as f32, cm.h as f32),
+            )),
+            None => painter.clip_rect(),
         };
 
         let anc = containers::ancestor_opacity(controls, idx);
@@ -446,7 +602,17 @@ pub fn render_faces(painter: &egui::Painter, origin: egui::Pos2, input: &RenderI
 
         let mut face = live.clone();
         face.rect = crate::model::Rect::new(
-            0, 0, screen.width().round() as i32, screen.height().round() as i32);
+            0,
+            0,
+            screen.width().round() as i32,
+            screen.height().round() as i32,
+        );
+        if matches!(face.control_type, ControlType::GroupBox) {
+            face.set_prop("_DeferCaption", PropValue::Bool(true));
+        }
+        if matches!(face.control_type, ControlType::TabControl) {
+            face.set_prop("_DeferTabs", PropValue::Bool(true));
+        }
         if let Some((border, rad)) = pic_border {
             face.set_prop("_ContainerClip", container_clip_prop(border, rad));
         }
@@ -457,8 +623,19 @@ pub fn render_faces(painter: &egui::Painter, origin: egui::Pos2, input: &RenderI
             None
         };
         let dp = painter.with_clip_rect(clip);
-        crate::paint::draw_control(&dp, screen.min, &face, false, input.glass, alpha, 1.0, pic_tex);
+        crate::paint::draw_control(
+            &dp,
+            screen.min,
+            &face,
+            false,
+            input.glass,
+            alpha,
+            1.0,
+            pic_tex,
+        );
     }
+    draw_deferred_groupbox_captions(painter, input, &out);
+    draw_deferred_tabcontrol_tabs(painter, input, &out);
     out
 }
 
@@ -468,19 +645,25 @@ fn image_dest(area: Rect, tsize: Vec2, mode: BgImageMode) -> Rect {
         BgImageMode::Fill | BgImageMode::Fit => {
             let sx = area.width() / tsize.x.max(1.0);
             let sy = area.height() / tsize.y.max(1.0);
-            let s = if matches!(mode, BgImageMode::Fill) { sx.max(sy) } else { sx.min(sy) };
+            let s = if matches!(mode, BgImageMode::Fill) {
+                sx.max(sy)
+            } else {
+                sx.min(sy)
+            };
             let (dw, dh) = (tsize.x * s, tsize.y * s);
             Rect::from_min_size(
                 area.min + Vec2::new((area.width() - dw) * 0.5, (area.height() - dh) * 0.5),
                 Vec2::new(dw, dh),
             )
         }
-        BgImageMode::Center => {
-            Rect::from_min_size(
-                area.min + Vec2::new((area.width() - tsize.x) * 0.5, (area.height() - tsize.y) * 0.5),
-                tsize,
-            )
-        }
+        BgImageMode::Center => Rect::from_min_size(
+            area.min
+                + Vec2::new(
+                    (area.width() - tsize.x) * 0.5,
+                    (area.height() - tsize.y) * 0.5,
+                ),
+            tsize,
+        ),
         _ => area, // Stretch / Tile → fill the area
     }
 }
@@ -495,10 +678,26 @@ pub fn merge_props<'a>(
     let mut c = base.clone();
     for (k, v) in props {
         match k.as_str() {
-            "X" => { if let Ok(n) = v.trim().parse::<f32>() { c.rect.x = n.round() as i32; } }
-            "Y" => { if let Ok(n) = v.trim().parse::<f32>() { c.rect.y = n.round() as i32; } }
-            "Width" => { if let Ok(n) = v.trim().parse::<f32>() { c.rect.w = n.round() as i32; } }
-            "Height" => { if let Ok(n) = v.trim().parse::<f32>() { c.rect.h = n.round() as i32; } }
+            "X" => {
+                if let Ok(n) = v.trim().parse::<f32>() {
+                    c.rect.x = n.round() as i32;
+                }
+            }
+            "Y" => {
+                if let Ok(n) = v.trim().parse::<f32>() {
+                    c.rect.y = n.round() as i32;
+                }
+            }
+            "Width" => {
+                if let Ok(n) = v.trim().parse::<f32>() {
+                    c.rect.w = n.round() as i32;
+                }
+            }
+            "Height" => {
+                if let Ok(n) = v.trim().parse::<f32>() {
+                    c.rect.h = n.round() as i32;
+                }
+            }
             _ => c.set_prop(k.clone(), crate::PropValue::String(v.clone())),
         }
     }
@@ -508,7 +707,11 @@ pub fn merge_props<'a>(
 impl UiEvent {
     /// A valueless event (`onClick`, `onGotFocus`, `onTick`, …).
     fn ev(id: &str, event: &str) -> Self {
-        UiEvent { ctrl_id: id.to_owned(), event: event.to_owned(), value: None }
+        UiEvent {
+            ctrl_id: id.to_owned(),
+            event: event.to_owned(),
+            value: None,
+        }
     }
     /// An `onClick` event.
     fn click(id: &str) -> Self {
@@ -516,7 +719,11 @@ impl UiEvent {
     }
     /// An `onChange` event carrying the control's new value.
     fn change(id: &str, value: &str) -> Self {
-        UiEvent { ctrl_id: id.to_owned(), event: "onChange".to_owned(), value: Some(value.to_owned()) }
+        UiEvent {
+            ctrl_id: id.to_owned(),
+            event: "onChange".to_owned(),
+            value: Some(value.to_owned()),
+        }
     }
 }
 
@@ -529,7 +736,9 @@ fn rt_id(id: &str) -> egui::Id {
 /// rendered to their canonical string form so callers backed by a typed model or
 /// a stringly-typed prop map both work.
 fn sv(c: &Control, key: &str) -> String {
-    c.get_prop(key).map(|p| p.to_xml_string()).unwrap_or_default()
+    c.get_prop(key)
+        .map(|p| p.to_xml_string())
+        .unwrap_or_default()
 }
 
 /// Universal pointer/gesture events for one control, derived purely from pointer
@@ -546,36 +755,54 @@ fn control_pointer_events(
     enabled: bool,
     out: &mut RenderOutput,
 ) {
-    if !enabled { return; }
+    if !enabled {
+        return;
+    }
     let supported = ct.supported_events();
     let want = |e: &str| supported.contains(&e);
 
     let over = ui.rect_contains_pointer(screen);
-    let (pressed, released, dbl, clicked) = ui.input(|i| (
-        i.pointer.primary_pressed(),
-        i.pointer.primary_released(),
-        i.pointer.button_double_clicked(egui::PointerButton::Primary),
-        i.pointer.primary_clicked(),
-    ));
+    let (pressed, released, dbl, clicked) = ui.input(|i| {
+        (
+            i.pointer.primary_pressed(),
+            i.pointer.primary_released(),
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary),
+            i.pointer.primary_clicked(),
+        )
+    });
     let press_mem = ctrl_id.with("press-began-over");
     if pressed {
         ui.ctx().memory_mut(|m| m.data.insert_temp(press_mem, over));
     }
     if over {
-        if pressed  && want("onMouseDown") { out.events.push(UiEvent::ev(id, "onMouseDown")); }
-        if released && want("onMouseUp")   { out.events.push(UiEvent::ev(id, "onMouseUp")); }
-        if dbl      && want("onDblClick")  { out.events.push(UiEvent::ev(id, "onDblClick")); }
-        if clicked && want("onClick")
-            && ui.ctx().memory(|m| m.data.get_temp::<bool>(press_mem).unwrap_or(false))
+        if pressed && want("onMouseDown") {
+            out.events.push(UiEvent::ev(id, "onMouseDown"));
+        }
+        if released && want("onMouseUp") {
+            out.events.push(UiEvent::ev(id, "onMouseUp"));
+        }
+        if dbl && want("onDblClick") {
+            out.events.push(UiEvent::ev(id, "onDblClick"));
+        }
+        if clicked
+            && want("onClick")
+            && ui
+                .ctx()
+                .memory(|m| m.data.get_temp::<bool>(press_mem).unwrap_or(false))
         {
             out.events.push(UiEvent::click(id));
         }
     }
     let mem_id = ctrl_id.with("ptr-over");
-    let was = ui.ctx().memory(|m| m.data.get_temp::<bool>(mem_id).unwrap_or(false));
+    let was = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<bool>(mem_id).unwrap_or(false));
     if over != was {
         let e = if over { "onMouseEnter" } else { "onMouseLeave" };
-        if want(e) { out.events.push(UiEvent::ev(id, e)); }
+        if want(e) {
+            out.events.push(UiEvent::ev(id, e));
+        }
         ui.ctx().memory_mut(|m| m.data.insert_temp(mem_id, over));
     }
 }
@@ -611,8 +838,10 @@ fn render_interactive(
     let painter = ui.painter_at(clip);
 
     // Universal pointer/gesture events for every visual control.
-    let non_visual = matches!(ct,
-        CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient);
+    let non_visual = matches!(
+        ct,
+        CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient
+    );
     if !non_visual {
         control_pointer_events(ui, screen, ctrl_id, id, &ct, enabled, out);
     }
@@ -627,8 +856,21 @@ fn render_interactive(
             // Press shrinks the control: rebase the face to the (shrunk) rect.
             let mut drawn = ctrl.clone();
             drawn.rect = crate::model::Rect::new(
-                0, 0, draw_rect.width().round() as i32, draw_rect.height().round() as i32);
-            paint::draw_control(&painter, draw_rect.min, &drawn, false, glass, alpha, 1.0, None);
+                0,
+                0,
+                draw_rect.width().round() as i32,
+                draw_rect.height().round() as i32,
+            );
+            paint::draw_control(
+                &painter,
+                draw_rect.min,
+                &drawn,
+                false,
+                glass,
+                alpha,
+                1.0,
+                None,
+            );
             let corner = sv(ctrl, "CornerRadius").parse::<f32>().unwrap_or(4.0);
             if pressed {
                 painter.rect_filled(draw_rect, corner, Color32::from_black_alpha(70));
@@ -640,14 +882,19 @@ fn render_interactive(
             let cur = sv(ctrl, "Value");
             let checked = if cur.is_empty() {
                 matches!(sv(ctrl, "Checked").as_str(), "1" | "true")
-            } else { cur == "true" || cur == "1" };
+            } else {
+                cur == "true" || cur == "1"
+            };
             let mut drawn = ctrl.clone();
-            drawn.properties.insert("Checked".to_owned(), crate::PropValue::Bool(checked));
+            drawn
+                .properties
+                .insert("Checked".to_owned(), crate::PropValue::Bool(checked));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             if resp.clicked() && enabled {
                 let v = if checked { "0" } else { "1" };
-                out.prop_updates.push((id.to_owned(), "Value".to_owned(), v.to_owned()));
+                out.prop_updates
+                    .push((id.to_owned(), "Value".to_owned(), v.to_owned()));
                 out.events.push(UiEvent::change(id, v));
                 out.events.push(UiEvent::ev(id, "onCheckedChanged"));
             }
@@ -657,11 +904,14 @@ fn render_interactive(
                 || (sv(ctrl, "Value").is_empty()
                     && matches!(sv(ctrl, "Checked").as_str(), "1" | "true"));
             let mut drawn = ctrl.clone();
-            drawn.properties.insert("Checked".to_owned(), crate::PropValue::Bool(selected));
+            drawn
+                .properties
+                .insert("Checked".to_owned(), crate::PropValue::Bool(selected));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             if resp.clicked() && enabled {
-                out.prop_updates.push((id.to_owned(), "Value".to_owned(), "1".to_owned()));
+                out.prop_updates
+                    .push((id.to_owned(), "Value".to_owned(), "1".to_owned()));
                 out.events.push(UiEvent::change(id, "1"));
                 out.events.push(UiEvent::ev(id, "onCheckedChanged"));
             }
@@ -670,14 +920,21 @@ fn render_interactive(
             // Face via the shared renderer; static caption blanked so the editable
             // overlay shows the value.
             let mut drawn = ctrl.clone();
-            drawn.properties.insert("Text".to_owned(), crate::PropValue::String(String::new()));
+            drawn
+                .properties
+                .insert("Text".to_owned(), crate::PropValue::String(String::new()));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let txt_col = {
                 let fg = sv(ctrl, "ForegroundColor");
-                if fg.is_empty() { Color32::DARK_GRAY } else { paint::parse_color(&fg) }
+                if fg.is_empty() {
+                    Color32::DARK_GRAY
+                } else {
+                    paint::parse_color(&fg)
+                }
             };
             let mut buf = sv(ctrl, "Text");
-            let resp = ui.put(screen,
+            let resp = ui.put(
+                screen,
                 egui::TextEdit::singleline(&mut buf)
                     .id(ctrl_id)
                     .frame(false)
@@ -685,7 +942,8 @@ fn render_interactive(
                     .text_color(txt_col),
             );
             if resp.changed() {
-                out.prop_updates.push((id.to_owned(), "Text".to_owned(), buf.clone()));
+                out.prop_updates
+                    .push((id.to_owned(), "Text".to_owned(), buf.clone()));
                 out.events.push(UiEvent::change(id, &buf));
             }
             if resp.gained_focus() {
@@ -698,27 +956,38 @@ fn render_interactive(
             }
             if resp.has_focus() {
                 let (key_down, key_up, typed) = ui.input(|i| {
-                    let mut down = false; let mut up = false; let mut typed = false;
+                    let mut down = false;
+                    let mut up = false;
+                    let mut typed = false;
                     for e in &i.events {
                         match e {
-                            egui::Event::Key { pressed: true, .. }  => down = true,
+                            egui::Event::Key { pressed: true, .. } => down = true,
                             egui::Event::Key { pressed: false, .. } => up = true,
-                            egui::Event::Text(_)                     => typed = true,
+                            egui::Event::Text(_) => typed = true,
                             _ => {}
                         }
                     }
                     (down, up, typed)
                 });
-                if key_down { out.events.push(UiEvent::ev(id, "onKeyDown")); }
-                if key_up   { out.events.push(UiEvent::ev(id, "onKeyUp")); }
-                if typed || key_down { out.events.push(UiEvent::ev(id, "onKeyPress")); }
+                if key_down {
+                    out.events.push(UiEvent::ev(id, "onKeyDown"));
+                }
+                if key_up {
+                    out.events.push(UiEvent::ev(id, "onKeyUp"));
+                }
+                if typed || key_down {
+                    out.events.push(UiEvent::ev(id, "onKeyPress"));
+                }
             }
         }
         CT::Slider => {
             let min_v: f32 = sv(ctrl, "Minimum").parse::<f32>().unwrap_or(0.0);
-            let max_v: f32 = sv(ctrl, "Maximum").parse::<f32>().unwrap_or(100.0).max(min_v + 1.0);
-            let step: f32  = sv(ctrl, "Step").parse::<f32>().unwrap_or(1.0).max(0.0001);
-            let cur: f32   = sv(ctrl, "Value").parse::<f32>().unwrap_or(min_v);
+            let max_v: f32 = sv(ctrl, "Maximum")
+                .parse::<f32>()
+                .unwrap_or(100.0)
+                .max(min_v + 1.0);
+            let step: f32 = sv(ctrl, "Step").parse::<f32>().unwrap_or(1.0).max(0.0001);
+            let cur: f32 = sv(ctrl, "Value").parse::<f32>().unwrap_or(min_v);
             let orient = sv(ctrl, "Orientation");
             let is_vertical = orient == "Vertical" || orient == "V" || orient == "vertical";
 
@@ -740,7 +1009,11 @@ fn render_interactive(
             if resp.drag_started() && enabled {
                 if let Some(press_pos) = ui.input(|i| i.pointer.press_origin()) {
                     if thumb_rect.contains(press_pos) {
-                        let start_axis = if is_vertical { press_pos.y } else { press_pos.x };
+                        let start_axis = if is_vertical {
+                            press_pos.y
+                        } else {
+                            press_pos.x
+                        };
                         ui.data_mut(|d| d.insert_temp(ctrl_id, (cur, start_axis)));
                     }
                 }
@@ -766,29 +1039,47 @@ fn render_interactive(
                     }
                 }
                 if resp.drag_released() {
-                    ui.data_mut(|d| { d.remove::<(f32, f32)>(ctrl_id); });
+                    ui.data_mut(|d| {
+                        d.remove::<(f32, f32)>(ctrl_id);
+                    });
                 }
             }
 
             let mut drawn = ctrl.clone();
-            drawn.properties.insert("Value".to_owned(), crate::PropValue::String(display_val.to_string()));
+            drawn.properties.insert(
+                "Value".to_owned(),
+                crate::PropValue::String(display_val.to_string()),
+            );
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
 
             if (display_val - cur).abs() > 1e-5 {
-                out.prop_updates.push((id.to_owned(), "Value".to_owned(), display_val.to_string()));
-                out.events.push(UiEvent::change(id, &display_val.to_string()));
+                out.prop_updates
+                    .push((id.to_owned(), "Value".to_owned(), display_val.to_string()));
+                out.events
+                    .push(UiEvent::change(id, &display_val.to_string()));
             }
         }
         CT::NumericUpDown => {
-            paint::draw_glass(&painter, screen, Color32::from_rgb(30, 40, 80), 6.0, false, alpha);
+            paint::draw_glass_auto(
+                &painter,
+                screen,
+                Color32::from_rgb(30, 40, 80),
+                6.0,
+                false,
+                alpha,
+            );
             let min = sv(ctrl, "Minimum").parse::<f64>().unwrap_or(0.0);
             let max = sv(ctrl, "Maximum").parse::<f64>().unwrap_or(100.0);
             let step = sv(ctrl, "Step").parse::<f64>().unwrap_or(1.0).max(0.0001);
             let mut val = sv(ctrl, "Value").parse::<f64>().unwrap_or(min);
-            let resp = ui.put(screen, egui::DragValue::new(&mut val).range(min..=max).speed(step));
+            let resp = ui.put(
+                screen,
+                egui::DragValue::new(&mut val).range(min..=max).speed(step),
+            );
             if resp.changed() && enabled {
                 let s = format!("{val}");
-                out.prop_updates.push((id.to_owned(), "Value".to_owned(), s.clone()));
+                out.prop_updates
+                    .push((id.to_owned(), "Value".to_owned(), s.clone()));
                 out.events.push(UiEvent::change(id, &s));
             }
         }
@@ -798,13 +1089,19 @@ fn render_interactive(
             let cur = sv(ctrl, "Value");
             let sel = if cur.is_empty() {
                 sv(ctrl, "Items").lines().next().unwrap_or("").to_owned()
-            } else { cur };
+            } else {
+                cur
+            };
             let open_id = ctrl_id.with("combo_open");
             let is_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
-            if paint::glass_combo_header(&painter, ui, screen, ctrl_id, &sel, is_open, enabled, alpha) {
+            if paint::glass_combo_header(
+                &painter, ui, screen, ctrl_id, &sel, is_open, enabled, alpha,
+            ) {
                 let now = !is_open;
                 ui.data_mut(|d| d.insert_temp(open_id, now));
-                if now { out.events.push(UiEvent::ev(id, "onDropDown")); }
+                if now {
+                    out.events.push(UiEvent::ev(id, "onDropDown"));
+                }
             }
             if ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false) {
                 let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
@@ -812,7 +1109,14 @@ fn render_interactive(
             }
         }
         CT::ListBox => {
-            paint::draw_glass(&painter, screen, Color32::from_rgb(30, 40, 80), 6.0, false, alpha);
+            paint::draw_glass_auto(
+                &painter,
+                screen,
+                Color32::from_rgb(30, 40, 80),
+                6.0,
+                false,
+                alpha,
+            );
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
             let mut picked: Option<String> = None;
@@ -830,7 +1134,8 @@ fn render_interactive(
                     });
             });
             if let Some(item) = picked {
-                out.prop_updates.push((id.to_owned(), "Value".to_owned(), item.clone()));
+                out.prop_updates
+                    .push((id.to_owned(), "Value".to_owned(), item.clone()));
                 out.events.push(UiEvent::change(id, &item));
                 out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
             }
@@ -842,9 +1147,14 @@ fn render_interactive(
             let val = sv(ctrl, "Value");
             let resp = ui.interact(screen, ctrl_id, Sense::click());
 
-            let mut cal: paint::CalState = ui.data(|d| d.get_temp::<paint::CalState>(ctrl_id))
+            let mut cal: paint::CalState = ui
+                .data(|d| d.get_temp::<paint::CalState>(ctrl_id))
                 .unwrap_or_else(|| match paint::parse_ymd(&val) {
-                    Some((y, m, _)) => paint::CalState { open: false, year: y, month: m },
+                    Some((y, m, _)) => paint::CalState {
+                        open: false,
+                        year: y,
+                        month: m,
+                    },
                     None => paint::CalState::default(),
                 });
             if resp.clicked() && enabled {
@@ -857,24 +1167,66 @@ fn render_interactive(
                     .fixed_pos(area_pos)
                     .show(ui.ctx(), |ui| {
                         let area_rect = Rect::from_min_size(
-                            area_pos, vec2(paint::CAL_W, paint::CAL_GRID_Y + paint::CAL_CELL * 6.0));
+                            area_pos,
+                            vec2(paint::CAL_W, paint::CAL_GRID_Y + paint::CAL_CELL * 6.0),
+                        );
                         let p = ui.painter();
                         p.rect_filled(area_rect, 6.0, Color32::from_rgb(28, 34, 60));
-                        p.rect_stroke(area_rect, 6.0,
-                            Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)));
-                        let prev = ui.put(Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
-                            egui::Button::new("◀").frame(false));
-                        let next = ui.put(Rect::from_min_size(area_pos + vec2(paint::CAL_W - paint::CAL_CELL, 0.0), vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
-                            egui::Button::new("▶").frame(false));
-                        ui.painter().text(area_pos + vec2(paint::CAL_W / 2.0, paint::CAL_NAV_H / 2.0), Align2::CENTER_CENTER,
-                            format!("{} {}", paint::MONTHS[(cal.month.clamp(1, 12) - 1) as usize], cal.year),
-                            FontId::proportional(13.0), white);
-                        if prev.clicked() { if cal.month == 1 { cal.month = 12; cal.year -= 1; } else { cal.month -= 1; } }
-                        if next.clicked() { if cal.month == 12 { cal.month = 1; cal.year += 1; } else { cal.month += 1; } }
+                        p.rect_stroke(
+                            area_rect,
+                            6.0,
+                            Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)),
+                        );
+                        let prev = ui.put(
+                            Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
+                            egui::Button::new("◀").frame(false),
+                        );
+                        let next = ui.put(
+                            Rect::from_min_size(
+                                area_pos + vec2(paint::CAL_W - paint::CAL_CELL, 0.0),
+                                vec2(paint::CAL_CELL, paint::CAL_NAV_H),
+                            ),
+                            egui::Button::new("▶").frame(false),
+                        );
+                        ui.painter().text(
+                            area_pos + vec2(paint::CAL_W / 2.0, paint::CAL_NAV_H / 2.0),
+                            Align2::CENTER_CENTER,
+                            format!(
+                                "{} {}",
+                                paint::MONTHS[(cal.month.clamp(1, 12) - 1) as usize],
+                                cal.year
+                            ),
+                            FontId::proportional(13.0),
+                            white,
+                        );
+                        if prev.clicked() {
+                            if cal.month == 1 {
+                                cal.month = 12;
+                                cal.year -= 1;
+                            } else {
+                                cal.month -= 1;
+                            }
+                        }
+                        if next.clicked() {
+                            if cal.month == 12 {
+                                cal.month = 1;
+                                cal.year += 1;
+                            } else {
+                                cal.month += 1;
+                            }
+                        }
                         for (i, wd) in ["S", "M", "T", "W", "T", "F", "S"].iter().enumerate() {
                             ui.painter().text(
-                                area_pos + vec2(i as f32 * paint::CAL_CELL + paint::CAL_CELL / 2.0, paint::CAL_NAV_H + paint::CAL_WK_H / 2.0),
-                                Align2::CENTER_CENTER, *wd, FontId::proportional(10.0), dim);
+                                area_pos
+                                    + vec2(
+                                        i as f32 * paint::CAL_CELL + paint::CAL_CELL / 2.0,
+                                        paint::CAL_NAV_H + paint::CAL_WK_H / 2.0,
+                                    ),
+                                Align2::CENTER_CENTER,
+                                *wd,
+                                FontId::proportional(10.0),
+                                dim,
+                            );
                         }
                         let first_wd = paint::day_of_week(cal.year, cal.month, 1);
                         let ndays = paint::days_in_month(cal.year, cal.month);
@@ -883,9 +1235,17 @@ fn render_interactive(
                             let idx = first_wd + (day - 1);
                             let (col, row) = (idx % 7, idx / 7);
                             let cell = Rect::from_min_size(
-                                area_pos + vec2(col as f32 * paint::CAL_CELL, paint::CAL_GRID_Y + row as f32 * paint::CAL_CELL),
-                                vec2(paint::CAL_CELL, paint::CAL_CELL));
-                            if ui.put(cell, egui::Button::new(format!("{day}")).frame(false)).clicked() {
+                                area_pos
+                                    + vec2(
+                                        col as f32 * paint::CAL_CELL,
+                                        paint::CAL_GRID_Y + row as f32 * paint::CAL_CELL,
+                                    ),
+                                vec2(paint::CAL_CELL, paint::CAL_CELL),
+                            );
+                            if ui
+                                .put(cell, egui::Button::new(format!("{day}")).frame(false))
+                                .clicked()
+                            {
                                 picked = Some(day);
                             }
                         }
@@ -893,7 +1253,8 @@ fn render_interactive(
                     });
                 if let Some(day) = inner.inner {
                     let date = format!("{:04}-{:02}-{:02}", cal.year, cal.month, day);
-                    out.prop_updates.push((id.to_owned(), "Value".to_owned(), date.clone()));
+                    out.prop_updates
+                        .push((id.to_owned(), "Value".to_owned(), date.clone()));
                     out.events.push(UiEvent::change(id, &date));
                     cal.open = false;
                 } else if !resp.clicked() && inner.response.clicked_elsewhere() {
@@ -904,143 +1265,269 @@ fn render_interactive(
         }
         CT::DataGrid => {
             let cell_fg = Color32::from_rgb(225, 230, 250);
-            let cols: Vec<(String, String)> = sv(ctrl, "Columns").lines()
+            let cols: Vec<(String, String)> = sv(ctrl, "Columns")
+                .lines()
                 .filter_map(|l| {
                     let mut it = l.splitn(2, ':');
                     let name = it.next().unwrap_or("").trim().to_owned();
-                    if name.is_empty() { return None; }
+                    if name.is_empty() {
+                        return None;
+                    }
                     let ty = it.next().unwrap_or("string").trim().to_lowercase();
                     Some((name, ty))
                 })
                 .collect();
             let ncols = cols.len().max(1);
-            let rows: Vec<Vec<String>> = sv(ctrl, "Rows").lines()
+            let rows: Vec<Vec<String>> = sv(ctrl, "Rows")
+                .lines()
                 .filter(|l| !l.is_empty())
                 .map(|l| l.split('\t').map(|c| c.to_owned()).collect())
                 .collect();
-            let row_h = sv(ctrl, "RowHeight").parse::<f32>().unwrap_or(22.0).clamp(14.0, 60.0);
+            let row_h = sv(ctrl, "RowHeight")
+                .parse::<f32>()
+                .unwrap_or(22.0)
+                .clamp(14.0, 60.0);
             let col_w = screen.width() / ncols as f32;
-            let header_bg = paint::parse_hex(&sv(ctrl, "HeaderBackgroundColor")).unwrap_or(Color32::from_rgb(60, 66, 96));
-            let header_fg = paint::parse_hex(&sv(ctrl, "HeaderForegroundColor")).unwrap_or(Color32::from_rgb(235, 238, 250));
-            let alt_bg = paint::parse_hex(&sv(ctrl, "AlternatingRowColor")).unwrap_or(Color32::from_rgb(38, 44, 72));
+            let header_bg = paint::parse_hex(&sv(ctrl, "HeaderBackgroundColor"))
+                .unwrap_or(Color32::from_rgb(60, 66, 96));
+            let header_fg = paint::parse_hex(&sv(ctrl, "HeaderForegroundColor"))
+                .unwrap_or(Color32::from_rgb(235, 238, 250));
+            let alt_bg = paint::parse_hex(&sv(ctrl, "AlternatingRowColor"))
+                .unwrap_or(Color32::from_rgb(38, 44, 72));
             let grid_c = paint::parse_hex(&sv(ctrl, "GridLineColor"))
                 .unwrap_or(Color32::from_rgba_premultiplied(150, 160, 200, 90));
 
-            paint::draw_glass(&painter, screen, Color32::from_rgb(26, 32, 58), 4.0, false, alpha * 0.7);
+            paint::draw_glass_auto(
+                &painter,
+                screen,
+                Color32::from_rgb(26, 32, 58),
+                4.0,
+                false,
+                alpha * 0.7,
+            );
             let header_rect = Rect::from_min_size(screen.min, vec2(screen.width(), row_h));
             painter.rect_filled(header_rect, 0.0, header_bg);
             for (i, (name, _)) in cols.iter().enumerate() {
                 let x = screen.min.x + i as f32 * col_w;
-                painter.text(pos2(x + 6.0, header_rect.center().y), Align2::LEFT_CENTER,
-                    name, FontId::proportional(12.0), header_fg);
+                painter.text(
+                    pos2(x + 6.0, header_rect.center().y),
+                    Align2::LEFT_CENTER,
+                    name,
+                    FontId::proportional(12.0),
+                    header_fg,
+                );
             }
             for (r, row) in rows.iter().enumerate() {
                 let y = screen.min.y + row_h * (r as f32 + 1.0);
-                if y >= screen.max.y { break; }
+                if y >= screen.max.y {
+                    break;
+                }
                 let rrect = Rect::from_min_size(pos2(screen.min.x, y), vec2(screen.width(), row_h));
-                if r % 2 == 1 { painter.rect_filled(rrect, 0.0, alt_bg); }
+                if r % 2 == 1 {
+                    painter.rect_filled(rrect, 0.0, alt_bg);
+                }
                 for (i, (_, ty)) in cols.iter().enumerate() {
                     let raw = row.get(i).map(|s| s.as_str()).unwrap_or("");
                     let x0 = screen.min.x + i as f32 * col_w;
                     if matches!(ty.as_str(), "image" | "img" | "picture") {
                         let path = raw.trim();
-                        let cell = Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col_w, row_h)).shrink(2.0);
+                        let cell = Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col_w, row_h))
+                            .shrink(2.0);
                         if !path.is_empty() {
                             let cid = egui::Id::new(("dg_img", path));
-                            let tex = match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(cid)) {
-                                Some(t) => t,
-                                None => {
-                                    let loaded = paint::load_image_texture(ui.ctx(), path);
-                                    ui.data_mut(|d| d.insert_temp(cid, loaded.clone()));
-                                    loaded
-                                }
-                            };
+                            let tex =
+                                match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(cid)) {
+                                    Some(t) => t,
+                                    None => {
+                                        let loaded = paint::load_image_texture(ui.ctx(), path);
+                                        ui.data_mut(|d| d.insert_temp(cid, loaded.clone()));
+                                        loaded
+                                    }
+                                };
                             if let Some(t) = tex {
                                 let sz = t.size_vec2();
-                                let scale = (cell.width() / sz.x).min(cell.height() / sz.y).min(1.0).max(0.01);
+                                let scale = (cell.width() / sz.x)
+                                    .min(cell.height() / sz.y)
+                                    .min(1.0)
+                                    .max(0.01);
                                 let irect = Rect::from_center_size(cell.center(), sz * scale);
-                                painter.image(t.id(), irect,
-                                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                                painter.image(
+                                    t.id(),
+                                    irect,
+                                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                                    Color32::WHITE,
+                                );
                             } else {
-                                painter.rect_stroke(cell, 2.0, Stroke::new(1.0, Color32::from_rgb(110, 120, 160)));
+                                painter.rect_stroke(
+                                    cell,
+                                    2.0,
+                                    Stroke::new(1.0, Color32::from_rgb(110, 120, 160)),
+                                );
                             }
                         }
                         continue;
                     }
                     let (text, right) = paint::format_cell(raw, ty);
                     if right {
-                        painter.text(pos2(x0 + col_w - 6.0, rrect.center().y), Align2::RIGHT_CENTER,
-                            &text, FontId::proportional(12.0), cell_fg);
+                        painter.text(
+                            pos2(x0 + col_w - 6.0, rrect.center().y),
+                            Align2::RIGHT_CENTER,
+                            &text,
+                            FontId::proportional(12.0),
+                            cell_fg,
+                        );
                     } else {
-                        painter.text(pos2(x0 + 6.0, rrect.center().y), Align2::LEFT_CENTER,
-                            &text, FontId::proportional(12.0), cell_fg);
+                        painter.text(
+                            pos2(x0 + 6.0, rrect.center().y),
+                            Align2::LEFT_CENTER,
+                            &text,
+                            FontId::proportional(12.0),
+                            cell_fg,
+                        );
                     }
                 }
             }
             for i in 1..ncols {
                 let x = screen.min.x + i as f32 * col_w;
-                painter.line_segment([pos2(x, screen.min.y), pos2(x, screen.max.y)], Stroke::new(1.0, grid_c));
+                painter.line_segment(
+                    [pos2(x, screen.min.y), pos2(x, screen.max.y)],
+                    Stroke::new(1.0, grid_c),
+                );
             }
             painter.line_segment(
-                [pos2(screen.min.x, screen.min.y + row_h), pos2(screen.max.x, screen.min.y + row_h)],
-                Stroke::new(1.0, grid_c));
+                [
+                    pos2(screen.min.x, screen.min.y + row_h),
+                    pos2(screen.max.x, screen.min.y + row_h),
+                ],
+                Stroke::new(1.0, grid_c),
+            );
         }
         CT::TabControl => {
             let tabs: Vec<String> = sv(ctrl, "Tabs").lines().map(|s| s.to_owned()).collect();
             let selected = sv(ctrl, "SelectedTab").parse::<usize>().unwrap_or(0);
             let tab_h = 26.0_f32;
             let content = Rect::from_min_max(pos2(screen.min.x, screen.min.y + tab_h), screen.max);
-            paint::draw_glass(&painter, content, Color32::from_rgb(34, 40, 70), 6.0, false, alpha * 0.6);
+            paint::draw_glass_auto(
+                &painter,
+                content,
+                Color32::from_rgb(34, 40, 70),
+                6.0,
+                false,
+                alpha * 0.6,
+            );
             let mut x = screen.min.x;
             for (i, tab) in tabs.iter().enumerate() {
                 let w = 84.0_f32;
                 let tr = Rect::from_min_size(pos2(x, screen.min.y), vec2(w, tab_h));
                 let active = i == selected;
-                painter.rect_filled(tr, 4.0,
-                    if active { Color32::from_rgb(60, 80, 140) } else { Color32::from_rgb(40, 46, 78) });
-                painter.text(tr.center(), Align2::CENTER_CENTER, tab, FontId::proportional(12.0),
-                    if active { Color32::from_rgb(235, 240, 255) } else { Color32::from_rgb(180, 188, 220) });
-                if ui.interact(tr, ctrl_id.with(("tab", i)), Sense::click()).clicked() && enabled {
-                    out.prop_updates.push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
+                painter.rect_filled(
+                    tr,
+                    4.0,
+                    if active {
+                        Color32::from_rgb(60, 80, 140)
+                    } else {
+                        Color32::from_rgb(40, 46, 78)
+                    },
+                );
+                painter.text(
+                    tr.center(),
+                    Align2::CENTER_CENTER,
+                    tab,
+                    FontId::proportional(12.0),
+                    if active {
+                        Color32::from_rgb(235, 240, 255)
+                    } else {
+                        Color32::from_rgb(180, 188, 220)
+                    },
+                );
+                if ui
+                    .interact(tr, ctrl_id.with(("tab", i)), Sense::click())
+                    .clicked()
+                    && enabled
+                {
+                    out.prop_updates
+                        .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
                     out.events.push(UiEvent::ev(id, "onChange"));
                 }
                 x += w + 2.0;
             }
-            painter.rect_stroke(content, 6.0,
-                Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 110)));
+            painter.rect_stroke(
+                content,
+                6.0,
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 110)),
+            );
         }
         CT::TreeView => {
-            paint::draw_glass(&painter, screen, Color32::from_rgb(28, 36, 64), 6.0, false, alpha * 0.7);
+            paint::draw_glass_auto(
+                &painter,
+                screen,
+                Color32::from_rgb(28, 36, 64),
+                6.0,
+                false,
+                alpha * 0.7,
+            );
             let fg = Color32::from_rgb(220, 226, 250);
             let mut y = screen.min.y + 12.0;
             for line in sv(ctrl, "Items").lines() {
-                if y > screen.max.y { break; }
+                if y > screen.max.y {
+                    break;
+                }
                 let depth = (line.len() - line.trim_start().len()) / 2;
                 let text = line.trim();
-                if text.is_empty() { continue; }
-                painter.text(pos2(screen.min.x + 8.0 + depth as f32 * 16.0, y),
-                    Align2::LEFT_CENTER, format!("• {text}"), FontId::proportional(12.0), fg);
+                if text.is_empty() {
+                    continue;
+                }
+                painter.text(
+                    pos2(screen.min.x + 8.0 + depth as f32 * 16.0, y),
+                    Align2::LEFT_CENTER,
+                    format!("• {text}"),
+                    FontId::proportional(12.0),
+                    fg,
+                );
                 y += 18.0;
             }
         }
         CT::Splitter => {
             let horiz = !sv(ctrl, "Orientation").starts_with('V');
-            paint::draw_glass(&painter, screen, Color32::from_rgb(60, 66, 96), 3.0, false, alpha);
+            paint::draw_glass_auto(
+                &painter,
+                screen,
+                Color32::from_rgb(60, 66, 96),
+                3.0,
+                false,
+                alpha,
+            );
             let c = screen.center();
             let dot = Color32::from_rgba_premultiplied(200, 210, 240, 160);
             for k in -1..=1 {
-                let p = if horiz { pos2(c.x + k as f32 * 5.0, c.y) } else { pos2(c.x, c.y + k as f32 * 5.0) };
+                let p = if horiz {
+                    pos2(c.x + k as f32 * 5.0, c.y)
+                } else {
+                    pos2(c.x, c.y + k as f32 * 5.0)
+                };
                 painter.circle_filled(p, 1.5, dot);
             }
         }
         CT::MenuBar | CT::ToolBar | CT::StatusBar => {
-            paint::draw_glass(&painter, screen, Color32::from_rgb(40, 46, 76), 4.0, false, alpha * 0.85);
+            paint::draw_glass_auto(
+                &painter,
+                screen,
+                Color32::from_rgb(40, 46, 76),
+                4.0,
+                false,
+                alpha * 0.85,
+            );
             let fg = Color32::from_rgb(225, 230, 250);
             let mut x = screen.min.x + 8.0;
             for item in sv(ctrl, "Items").lines().filter(|l| !l.trim().is_empty()) {
-                let galley = painter.layout_no_wrap(item.trim().to_owned(), FontId::proportional(12.0), fg);
+                let galley =
+                    painter.layout_no_wrap(item.trim().to_owned(), FontId::proportional(12.0), fg);
                 let w = galley.size().x;
-                painter.galley(pos2(x, screen.center().y - galley.size().y / 2.0), galley, fg);
+                painter.galley(
+                    pos2(x, screen.center().y - galley.size().y / 2.0),
+                    galley,
+                    fg,
+                );
                 x += w + 18.0;
             }
         }
@@ -1049,41 +1536,63 @@ fn render_interactive(
             // path the designer canvas uses — so the image is tinted/framed
             // identically and is never dimmed or washed-out relative to the canvas
             // (spec 017 parity). `draw_picturebox` used a different tint + frame.
-            let tex = paint::picturebox_texture(ui.ctx(), sv(ctrl, "ImagePath").trim())
-                .map(|t| t.id());
+            let tex =
+                paint::picturebox_texture(ui.ctx(), sv(ctrl, "ImagePath").trim()).map(|t| t.id());
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, tex);
         }
         CT::Animator => {
             let source = sv(ctrl, "Source").trim().to_owned();
             let auto = !matches!(sv(ctrl, "AutoPlay").as_str(), "0" | "false" | "False");
             let looping = !matches!(sv(ctrl, "Loop").as_str(), "0" | "false" | "False");
-            let size_mode = { let s = sv(ctrl, "SizeMode"); if s.is_empty() { "Fit".to_owned() } else { s } };
+            let size_mode = {
+                let s = sv(ctrl, "SizeMode");
+                if s.is_empty() {
+                    "Fit".to_owned()
+                } else {
+                    s
+                }
+            };
             let key = format!("{}|{}", id, source);
-            paint::draw_animator(&painter, screen, ctrl, &key, &source, auto, looping, &size_mode, alpha, false);
+            paint::draw_animator(
+                &painter, screen, ctrl, &key, &source, auto, looping, &size_mode, alpha, false,
+            );
         }
         CT::Timer => {
             // Non-visual, but it TICKS: fire `onTick` every Interval ms while enabled.
             if enabled {
-                let interval_s = sv(ctrl, "Interval").trim().parse::<f64>().unwrap_or(1000.0).max(10.0) / 1000.0;
+                let interval_s = sv(ctrl, "Interval")
+                    .trim()
+                    .parse::<f64>()
+                    .unwrap_or(1000.0)
+                    .max(10.0)
+                    / 1000.0;
                 let mem = ctrl_id.with("last_tick");
                 let now = ui.input(|i| i.time);
                 match ui.ctx().memory(|m| m.data.get_temp::<f64>(mem)) {
-                    None => { ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now)); }
+                    None => {
+                        ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
+                    }
                     Some(last) if now - last >= interval_s => {
                         out.events.push(UiEvent::ev(id, "onTick"));
                         ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
                     }
                     _ => {}
                 }
-                ui.ctx().request_repaint_after(
-                    std::time::Duration::from_millis((interval_s * 250.0) as u64 + 10));
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(
+                        (interval_s * 250.0) as u64 + 10,
+                    ));
             } else {
                 let mem = ctrl_id.with("last_tick");
                 ui.ctx().memory_mut(|m| m.data.remove::<f64>(mem));
             }
         }
-        CT::BarChart | CT::LineChart | CT::PieChart
-        | CT::AreaChart | CT::ScatterChart | CT::DonutChart => {
+        CT::BarChart
+        | CT::LineChart
+        | CT::PieChart
+        | CT::AreaChart
+        | CT::ScatterChart
+        | CT::DonutChart => {
             // Charts render through the SAME path as the designer (draw_control →
             // chart painter) so the running chart matches the canvas (spec 017).
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
@@ -1112,9 +1621,18 @@ mod tests {
     #[test]
     fn backdrop_color_black_becomes_navy() {
         // Unset / pure black ⇒ default dark navy (matches preview + run).
-        assert_eq!(backdrop_color("#00000000", 0), Color32::from_rgba_premultiplied(20, 22, 45, 255));
-        assert_eq!(backdrop_color("000000", 0), Color32::from_rgba_premultiplied(20, 22, 45, 255));
-        assert_eq!(backdrop_color("", 0), Color32::from_rgba_premultiplied(20, 22, 45, 255));
+        assert_eq!(
+            backdrop_color("#00000000", 0),
+            Color32::from_rgba_premultiplied(20, 22, 45, 255)
+        );
+        assert_eq!(
+            backdrop_color("000000", 0),
+            Color32::from_rgba_premultiplied(20, 22, 45, 255)
+        );
+        assert_eq!(
+            backdrop_color("", 0),
+            Color32::from_rgba_premultiplied(20, 22, 45, 255)
+        );
         // A real colour is honoured.
         let c = backdrop_color("#204060", 0);
         assert_eq!((c.r(), c.g(), c.b()), (0x20, 0x40, 0x60));
@@ -1158,7 +1676,10 @@ mod tests {
             picturebox_container_border(&input, 1, egui::pos2(0.0, 0.0))
         };
         let (border, rad) = mk(&controls).expect("rounded parent → border clip");
-        assert_eq!(border, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0)));
+        assert_eq!(
+            border,
+            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0))
+        );
         assert_eq!(rad, 12.0);
         assert_eq!(container_clip_prop(border, rad), "0,0,200,200,12,1,1,1,1");
 
@@ -1182,8 +1703,16 @@ mod tests {
         // Headless: a form with a Panel ⊃ Button renders without panic and reports
         // both control rects through the engine (parity foundation).
         let controls = vec![
-            { let mut c = ctrl("Pnl", ControlType::Panel, 0, 0, 200, 120); c.parent = None; c },
-            { let mut c = ctrl("Btn", ControlType::Button, 20, 30, 80, 24); c.parent = Some("Pnl".into()); c },
+            {
+                let mut c = ctrl("Pnl", ControlType::Panel, 0, 0, 200, 120);
+                c.parent = None;
+                c
+            },
+            {
+                let mut c = ctrl("Btn", ControlType::Button, 20, 30, 80, 24);
+                c.parent = Some("Pnl".into());
+                c
+            },
         ];
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
@@ -1198,7 +1727,10 @@ mod tests {
                     glass: true,
                     mode: RenderMode::Static,
                     active_tabs: &active,
-                    backdrop: Backdrop { color_hex: "#00000000".into(), ..Default::default() },
+                    backdrop: Backdrop {
+                        color_hex: "#00000000".into(),
+                        ..Default::default()
+                    },
                 };
                 captured = Some(render_form(ui, &input));
             });
@@ -1216,11 +1748,31 @@ mod tests {
         // (Panel ⊃ {AreaChart, PictureBox, TextBox} + a top-level Label). This is
         // the guarantee that designer == preview == run == binary.
         let controls = vec![
-            { let mut c = ctrl("Pnl", ControlType::Panel, 10, 10, 300, 200); c.parent = None; c },
-            { let mut c = ctrl("Chart", ControlType::AreaChart, 20, 30, 120, 80); c.parent = Some("Pnl".into()); c },
-            { let mut c = ctrl("Pic", ControlType::PictureBox, 20, 120, 60, 60); c.parent = Some("Pnl".into()); c },
-            { let mut c = ctrl("Txt", ControlType::TextBox, 150, 40, 120, 24); c.parent = Some("Pnl".into()); c },
-            { let mut c = ctrl("Lbl", ControlType::Label, 10, 230, 100, 20); c.parent = None; c },
+            {
+                let mut c = ctrl("Pnl", ControlType::Panel, 10, 10, 300, 200);
+                c.parent = None;
+                c
+            },
+            {
+                let mut c = ctrl("Chart", ControlType::AreaChart, 20, 30, 120, 80);
+                c.parent = Some("Pnl".into());
+                c
+            },
+            {
+                let mut c = ctrl("Pic", ControlType::PictureBox, 20, 120, 60, 60);
+                c.parent = Some("Pnl".into());
+                c
+            },
+            {
+                let mut c = ctrl("Txt", ControlType::TextBox, 150, 40, 120, 24);
+                c.parent = Some("Pnl".into());
+                c
+            },
+            {
+                let mut c = ctrl("Lbl", ControlType::Label, 10, 230, 100, 20);
+                c.parent = None;
+                c
+            },
         ];
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
@@ -1247,11 +1799,17 @@ mod tests {
         let rf = rects_form.expect("render_form rects");
         let fc = rects_faces.expect("render_faces rects");
         for id in ["Pnl", "Chart", "Pic", "Txt", "Lbl"] {
-            let a = rf.get(id).unwrap_or_else(|| panic!("render_form missing {id}"));
-            let b = fc.get(id).unwrap_or_else(|| panic!("render_faces missing {id}"));
+            let a = rf
+                .get(id)
+                .unwrap_or_else(|| panic!("render_form missing {id}"));
+            let b = fc
+                .get(id)
+                .unwrap_or_else(|| panic!("render_faces missing {id}"));
             assert!(
-                (a.min.x - b.min.x).abs() < 0.5 && (a.min.y - b.min.y).abs() < 0.5
-                    && (a.width() - b.width()).abs() < 0.5 && (a.height() - b.height()).abs() < 0.5,
+                (a.min.x - b.min.x).abs() < 0.5
+                    && (a.min.y - b.min.y).abs() < 0.5
+                    && (a.width() - b.width()).abs() < 0.5
+                    && (a.height() - b.height()).abs() < 0.5,
                 "geometry mismatch for {id}: render_form={a:?} render_faces={b:?}",
             );
         }
@@ -1260,11 +1818,19 @@ mod tests {
     // ── Interaction simulation (Interactive mode) ─────────────────────────────
     // Drive the engine headlessly with simulated pointer/text/time input and
     // assert the neutral events + property updates it produces (T3 verification).
+    use egui::{pos2, Event, Modifiers, PointerButton, Pos2};
     use std::cell::RefCell;
     use std::collections::HashMap as Map;
-    use egui::{pos2, Event, Modifiers, PointerButton, Pos2};
 
-    fn ctrlp(id: &str, t: ControlType, x: i32, y: i32, w: i32, h: i32, props: &[(&str, &str)]) -> Control {
+    fn ctrlp(
+        id: &str,
+        t: ControlType,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        props: &[(&str, &str)],
+    ) -> Control {
         let mut c = ctrl(id, t, x, y, w, h);
         for (k, v) in props {
             c.set_prop((*k).to_owned(), crate::PropValue::String((*v).to_owned()));
@@ -1273,10 +1839,20 @@ mod tests {
     }
 
     fn press(p: Pos2) -> Event {
-        Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::default() }
+        Event::PointerButton {
+            pos: p,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::default(),
+        }
     }
     fn release(p: Pos2) -> Event {
-        Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::default() }
+        Event::PointerButton {
+            pos: p,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::default(),
+        }
     }
 
     /// A `FormState` over a per-control live-override map (id → key → value),
@@ -1298,9 +1874,10 @@ mod tests {
     /// Like [`drive`] but wraps the engine in `ScrollArea::both()` — the way the
     /// running form and compiled binary host it. Diagnoses whether the scroll
     /// area swallows a widget drag (slider).
-    fn drive_scroll(controls: &[Control], frames: Vec<(f64, Vec<Event>)>)
-        -> (Vec<UiEvent>, Map<String, Map<String, String>>)
-    {
+    fn drive_scroll(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>) {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
@@ -1308,7 +1885,10 @@ mod tests {
         let mut all: Vec<UiEvent> = Vec::new();
         for (i, (_t, evs)) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
-            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.screen_rect = Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                Vec2::new(1000.0, 800.0),
+            ));
             input.focused = true;
             input.time = Some(i as f64 * 0.05);
             input.events = evs;
@@ -1316,22 +1896,30 @@ mod tests {
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
             let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
-                    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-                        // Content larger than the 1000×800 viewport → the scroll area
-                        // has scroll room, reproducing the binary where the form is
-                        // bigger than the window (drag-to-scroll can steal a drag).
-                        ui.set_min_size(Vec2::new(2000.0, 2000.0));
-                        let inp = RenderInput {
-                            controls, state: &st, form_size: Vec2::new(2000.0, 2000.0),
-                            glass: true, mode: RenderMode::Interactive,
-                            active_tabs: &active, backdrop: Backdrop::default(),
-                        };
-                        let out = render_form(ui, &inp);
-                        updates.borrow_mut().extend(out.prop_updates);
-                        events.borrow_mut().extend(out.events);
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::none())
+                    .show(ctx, |ui| {
+                        egui::ScrollArea::both()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                // Content larger than the 1000×800 viewport → the scroll area
+                                // has scroll room, reproducing the binary where the form is
+                                // bigger than the window (drag-to-scroll can steal a drag).
+                                ui.set_min_size(Vec2::new(2000.0, 2000.0));
+                                let inp = RenderInput {
+                                    controls,
+                                    state: &st,
+                                    form_size: Vec2::new(2000.0, 2000.0),
+                                    glass: true,
+                                    mode: RenderMode::Interactive,
+                                    active_tabs: &active,
+                                    backdrop: Backdrop::default(),
+                                };
+                                let out = render_form(ui, &inp);
+                                updates.borrow_mut().extend(out.prop_updates);
+                                events.borrow_mut().extend(out.events);
+                            });
                     });
-                });
             });
             for (id, k, v) in updates.into_inner() {
                 overrides.borrow_mut().entry(id).or_default().insert(k, v);
@@ -1343,25 +1931,48 @@ mod tests {
 
     #[test]
     fn engine_slider_drag_inside_scrollarea() {
-        let c = [ctrlp("Sld", ControlType::Slider, 0, 0, 200, 30,
-            &[("Minimum", "0"), ("Maximum", "100"), ("Value", "50"), ("Step", "1")])];
+        let c = [ctrlp(
+            "Sld",
+            ControlType::Slider,
+            0,
+            0,
+            200,
+            30,
+            &[
+                ("Minimum", "0"),
+                ("Maximum", "100"),
+                ("Value", "50"),
+                ("Step", "1"),
+            ],
+        )];
         let screen = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 30.0));
         let tc = crate::paint::slider_thumb_rect(screen, 0.0, 100.0, 50.0, false).center();
         let to = tc + egui::vec2(30.0, 0.0);
-        let (_evs, map) = drive_scroll(&c, vec![
-            (0.0, vec![]),
-            (1.0, vec![Event::PointerMoved(tc), press(tc)]),
-            (2.0, vec![Event::PointerMoved(to)]),
-            (3.0, vec![Event::PointerMoved(to)]),
-            (4.0, vec![release(to)]),
-        ]);
-        let v = map.get("Sld").and_then(|m| m.get("Value")).cloned().unwrap_or_default();
-        assert_ne!(v, "50", "Slider inside ScrollArea: Value did not change after drag (still {v})");
+        let (_evs, map) = drive_scroll(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(tc), press(tc)]),
+                (2.0, vec![Event::PointerMoved(to)]),
+                (3.0, vec![Event::PointerMoved(to)]),
+                (4.0, vec![release(to)]),
+            ],
+        );
+        let v = map
+            .get("Sld")
+            .and_then(|m| m.get("Value"))
+            .cloned()
+            .unwrap_or_default();
+        assert_ne!(
+            v, "50",
+            "Slider inside ScrollArea: Value did not change after drag (still {v})"
+        );
     }
 
-    fn drive(controls: &[Control], frames: Vec<(f64, Vec<Event>)>)
-        -> (Vec<UiEvent>, Map<String, Map<String, String>>)
-    {
+    fn drive(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>) {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
@@ -1370,7 +1981,10 @@ mod tests {
 
         for (i, (_time, evs)) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
-            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.screen_rect = Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                Vec2::new(1000.0, 800.0),
+            ));
             input.focused = true;
             // Advance by small steps so a press→release across two frames still
             // counts as a click (egui's max click duration), while clearing the
@@ -1414,41 +2028,86 @@ mod tests {
 
     #[test]
     fn engine_button_click_fires_onclick() {
-        let c = [ctrlp("Btn", ControlType::Button, 0, 0, 80, 30, &[("Caption", "OK")])];
+        let c = [ctrlp(
+            "Btn",
+            ControlType::Button,
+            0,
+            0,
+            80,
+            30,
+            &[("Caption", "OK")],
+        )];
         let p = pos2(40.0, 15.0);
-        let (evs, _) = drive(&c, vec![
-            (0.0, vec![]),
-            (1.0, vec![Event::PointerMoved(p), press(p)]),
-            (2.0, vec![Event::PointerMoved(p), release(p)]),
-        ]);
-        assert!(names(&evs).contains(&"onClick"), "Button: no onClick; got {:?}", names(&evs));
+        let (evs, _) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p), press(p)]),
+                (2.0, vec![Event::PointerMoved(p), release(p)]),
+            ],
+        );
+        assert!(
+            names(&evs).contains(&"onClick"),
+            "Button: no onClick; got {:?}",
+            names(&evs)
+        );
     }
 
     #[test]
     fn engine_checkbox_toggle_changes_value() {
-        let c = [ctrlp("Chk", ControlType::CheckBox, 0, 0, 140, 24, &[("Value", "0")])];
+        let c = [ctrlp(
+            "Chk",
+            ControlType::CheckBox,
+            0,
+            0,
+            140,
+            24,
+            &[("Value", "0")],
+        )];
         let p = pos2(70.0, 12.0);
-        let (evs, map) = drive(&c, vec![
-            (0.0, vec![]),
-            (1.0, vec![Event::PointerMoved(p), press(p)]),
-            (2.0, vec![Event::PointerMoved(p), release(p)]),
-        ]);
+        let (evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p), press(p)]),
+                (2.0, vec![Event::PointerMoved(p), release(p)]),
+            ],
+        );
         let n = names(&evs);
         assert!(n.contains(&"onChange"), "CheckBox: no onChange; got {n:?}");
-        assert!(n.contains(&"onCheckedChanged"), "CheckBox: no onCheckedChanged; got {n:?}");
-        assert_eq!(map.get("Chk").and_then(|m| m.get("Value")).map(String::as_str), Some("1"));
+        assert!(
+            n.contains(&"onCheckedChanged"),
+            "CheckBox: no onCheckedChanged; got {n:?}"
+        );
+        assert_eq!(
+            map.get("Chk")
+                .and_then(|m| m.get("Value"))
+                .map(String::as_str),
+            Some("1")
+        );
     }
 
     #[test]
     fn engine_textbox_typing_fires_focus_change_key() {
-        let c = [ctrlp("Txt", ControlType::TextBox, 0, 0, 200, 24, &[("Text", "")])];
+        let c = [ctrlp(
+            "Txt",
+            ControlType::TextBox,
+            0,
+            0,
+            200,
+            24,
+            &[("Text", "")],
+        )];
         let p = pos2(100.0, 12.0);
-        let (evs, _) = drive(&c, vec![
-            (0.0, vec![]),
-            (1.0, vec![Event::PointerMoved(p), press(p)]),
-            (2.0, vec![Event::PointerMoved(p), release(p)]),
-            (3.0, vec![Event::Text("Z".to_owned())]),
-        ]);
+        let (evs, _) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p), press(p)]),
+                (2.0, vec![Event::PointerMoved(p), release(p)]),
+                (3.0, vec![Event::Text("Z".to_owned())]),
+            ],
+        );
         let n = names(&evs);
         for want in ["onGotFocus", "onEnter", "onChange", "onKeyPress"] {
             assert!(n.contains(&want), "TextBox: missing {want}; got {n:?}");
@@ -1457,50 +2116,112 @@ mod tests {
 
     #[test]
     fn engine_slider_drag_changes_value() {
-        let c = [ctrlp("Sld", ControlType::Slider, 0, 0, 200, 30,
-            &[("Minimum", "0"), ("Maximum", "100"), ("Value", "50"), ("Step", "1")])];
+        let c = [ctrlp(
+            "Sld",
+            ControlType::Slider,
+            0,
+            0,
+            200,
+            30,
+            &[
+                ("Minimum", "0"),
+                ("Maximum", "100"),
+                ("Value", "50"),
+                ("Step", "1"),
+            ],
+        )];
         let screen = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 30.0));
         let tc = crate::paint::slider_thumb_rect(screen, 0.0, 100.0, 50.0, false).center();
         let to = tc + egui::vec2(30.0, 0.0);
-        let (evs, map) = drive(&c, vec![
-            (0.0, vec![]),
-            (1.0, vec![Event::PointerMoved(tc), press(tc)]),
-            (2.0, vec![Event::PointerMoved(to)]),
-            (3.0, vec![Event::PointerMoved(to)]),
-            (4.0, vec![release(to)]),
-        ]);
-        assert!(names(&evs).contains(&"onChange"), "Slider: no onChange; got {:?}", names(&evs));
-        let v = map.get("Sld").and_then(|m| m.get("Value")).cloned().unwrap_or_default();
-        assert_ne!(v, "50", "Slider: Value did not change after drag (still {v})");
+        let (evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(tc), press(tc)]),
+                (2.0, vec![Event::PointerMoved(to)]),
+                (3.0, vec![Event::PointerMoved(to)]),
+                (4.0, vec![release(to)]),
+            ],
+        );
+        assert!(
+            names(&evs).contains(&"onChange"),
+            "Slider: no onChange; got {:?}",
+            names(&evs)
+        );
+        let v = map
+            .get("Sld")
+            .and_then(|m| m.get("Value"))
+            .cloned()
+            .unwrap_or_default();
+        assert_ne!(
+            v, "50",
+            "Slider: Value did not change after drag (still {v})"
+        );
     }
 
     #[test]
     fn engine_combobox_select_sets_value() {
-        let c = [ctrlp("Cmb", ControlType::ComboBox, 0, 0, 160, 26,
-            &[("Items", "Apple\nBanana\nCherry"), ("Value", "")])];
+        let c = [ctrlp(
+            "Cmb",
+            ControlType::ComboBox,
+            0,
+            0,
+            160,
+            26,
+            &[("Items", "Apple\nBanana\nCherry"), ("Value", "")],
+        )];
         let hc = pos2(80.0, 13.0);
         // Popup item rows start at header.max_y+1 = 27, 22px tall; Banana = index 1.
         let banana = pos2(80.0, 27.0 + 22.0 + 11.0);
-        let (evs, map) = drive(&c, vec![
-            (0.0, vec![]),
-            (1.0, vec![Event::PointerMoved(hc), press(hc)]),
-            (2.0, vec![Event::PointerMoved(hc), release(hc)]),   // open
-            (3.0, vec![Event::PointerMoved(banana), press(banana)]),
-            (4.0, vec![Event::PointerMoved(banana), release(banana)]), // select
-        ]);
+        let (evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(hc), press(hc)]),
+                (2.0, vec![Event::PointerMoved(hc), release(hc)]), // open
+                (3.0, vec![Event::PointerMoved(banana), press(banana)]),
+                (4.0, vec![Event::PointerMoved(banana), release(banana)]), // select
+            ],
+        );
         let n = names(&evs);
-        assert!(n.contains(&"onDropDown"), "ComboBox: no onDropDown; got {n:?}");
-        assert!(n.contains(&"onSelectedIndexChanged"), "ComboBox: no select event; got {n:?}");
-        assert_eq!(map.get("Cmb").and_then(|m| m.get("Value")).map(String::as_str), Some("Banana"));
+        assert!(
+            n.contains(&"onDropDown"),
+            "ComboBox: no onDropDown; got {n:?}"
+        );
+        assert!(
+            n.contains(&"onSelectedIndexChanged"),
+            "ComboBox: no select event; got {n:?}"
+        );
+        assert_eq!(
+            map.get("Cmb")
+                .and_then(|m| m.get("Value"))
+                .map(String::as_str),
+            Some("Banana")
+        );
     }
 
     #[test]
     fn engine_timer_ticks_on_interval() {
-        let c = [ctrlp("Tmr", ControlType::Timer, 0, 0, 1, 1, &[("Interval", "10")])];
-        let (evs, _) = drive(&c, vec![
-            (0.0, vec![]),    // arm
-            (1.0, vec![]),    // 1s later → tick (interval 10ms)
-        ]);
-        assert!(names(&evs).contains(&"onTick"), "Timer: no onTick; got {:?}", names(&evs));
+        let c = [ctrlp(
+            "Tmr",
+            ControlType::Timer,
+            0,
+            0,
+            1,
+            1,
+            &[("Interval", "10")],
+        )];
+        let (evs, _) = drive(
+            &c,
+            vec![
+                (0.0, vec![]), // arm
+                (1.0, vec![]), // 1s later → tick (interval 10ms)
+            ],
+        );
+        assert!(
+            names(&evs).contains(&"onTick"),
+            "Timer: no onTick; got {:?}",
+            names(&evs)
+        );
     }
 }

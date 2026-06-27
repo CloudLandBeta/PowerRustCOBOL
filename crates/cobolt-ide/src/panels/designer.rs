@@ -17,10 +17,12 @@
 //! - AgentObject, RestClient control rendering
 //! - Undo / Redo command stack
 
-use std::collections::HashMap;
-use egui::{Color32, CursorIcon, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
+use cobolt_forms::model::{
+    AnimKind, AnimRepeat, AnimTrigger, AnimationDef, BgImageMode, EasingKind, PropValue,
+};
 use cobolt_forms::{Control, ControlType, Form};
-use cobolt_forms::model::{PropValue, AnimationDef, AnimKind, AnimTrigger, EasingKind, AnimRepeat, BgImageMode};
+use egui::{Color32, CursorIcon, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
+use std::collections::HashMap;
 
 use super::properties::PropertiesPanel;
 use super::toolbox::ToolboxPanel;
@@ -42,10 +44,16 @@ struct DesignerState<'a> {
     anim: &'a std::collections::HashMap<String, cobolt_forms::render::RenderTransform>,
 }
 impl cobolt_forms::render::FormState for DesignerState<'_> {
-    fn visible(&self, _base: &cobolt_forms::Control) -> bool { true }
-    fn enabled(&self, _base: &cobolt_forms::Control) -> bool { true }
+    fn visible(&self, _base: &cobolt_forms::Control) -> bool {
+        true
+    }
+    fn enabled(&self, _base: &cobolt_forms::Control) -> bool {
+        true
+    }
     fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
-        self.anim.get(&base.id).copied()
+        self.anim
+            .get(&base.id)
+            .copied()
             .unwrap_or(cobolt_forms::render::RenderTransform::IDENTITY)
     }
 }
@@ -53,7 +61,11 @@ impl cobolt_forms::render::FormState for DesignerState<'_> {
 // ── Grid ──────────────────────────────────────────────────────────────────────
 /// Snap `v` to the nearest multiple of `grid_px` (only when snap is enabled).
 fn snap(v: i32, grid_px: i32, enabled: bool) -> i32 {
-    if enabled && grid_px > 0 { (v / grid_px) * grid_px } else { v }
+    if enabled && grid_px > 0 {
+        (v / grid_px) * grid_px
+    } else {
+        v
+    }
 }
 
 // ── Animation preview state ───────────────────────────────────────────────────
@@ -61,22 +73,29 @@ fn snap(v: i32, grid_px: i32, enabled: bool) -> i32 {
 /// Live animation state used for designer preview only.
 pub(crate) struct AnimState {
     /// Animation name being played.
-    pub(crate) name:            String,
+    pub(crate) name: String,
     /// Progress 0.0 → 1.0.
-    pub(crate) t:               f32,
+    pub(crate) t: f32,
     /// Is the preview playing?
-    pub(crate) playing:         bool,
+    pub(crate) playing: bool,
     /// True = forward, false = reverse (for PingPong).
-    pub(crate) forward:         bool,
+    pub(crate) forward: bool,
     /// How many full loops completed.
-    pub(crate) loops:           u32,
+    pub(crate) loops: u32,
     /// Seconds of delay still to wait before `t` starts advancing.
     pub(crate) delay_remaining: f32,
 }
 
 impl AnimState {
     pub(crate) fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), t: 0.0, playing: false, forward: true, loops: 0, delay_remaining: 0.0 }
+        Self {
+            name: name.into(),
+            t: 0.0,
+            playing: false,
+            forward: true,
+            loops: 0,
+            delay_remaining: 0.0,
+        }
     }
     pub(crate) fn play(&mut self, delay_secs: f32) {
         self.t = 0.0;
@@ -85,7 +104,10 @@ impl AnimState {
         self.loops = 0;
         self.delay_remaining = delay_secs.max(0.0);
     }
-    pub(crate) fn stop(&mut self) { self.playing = false; self.t = 1.0; }
+    pub(crate) fn stop(&mut self) {
+        self.playing = false;
+        self.t = 1.0;
+    }
 }
 
 /// ZoomOut "bounce" scale over progress `t`: a damped oscillation that starts at
@@ -104,25 +126,30 @@ fn zoomout_scale(t: f32) -> f32 {
 
 /// Compute offset in canvas-space for an animation at progress t.
 /// Returns (dx, dy, scale, alpha_mul) where alpha_mul is 0..1.
-pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f32) -> (f32, f32, f32, f32) {
-    let te = anim.easing.apply(t);  // eased progress
+pub(crate) fn anim_transform(
+    anim: &AnimationDef,
+    form_w: f32,
+    form_h: f32,
+    t: f32,
+) -> (f32, f32, f32, f32) {
+    let te = anim.easing.apply(t); // eased progress
     let inv = 1.0 - te;
     match &anim.kind {
-        AnimKind::FlyFromLeft       => (-form_w * inv, 0.0, 1.0, 1.0),
-        AnimKind::FlyFromRight      => ( form_w * inv, 0.0, 1.0, 1.0),
-        AnimKind::FlyFromTop        => (0.0, -form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromBottom     => (0.0,  form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromTopLeft    => (-form_w * inv, -form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromTopRight   => ( form_w * inv, -form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromBottomLeft => (-form_w * inv,  form_h * inv, 1.0, 1.0),
-        AnimKind::FlyFromBottomRight=> ( form_w * inv,  form_h * inv, 1.0, 1.0),
-        AnimKind::FadeIn            => (0.0, 0.0, 1.0, te),
-        AnimKind::FadeOut           => (0.0, 0.0, 1.0, 1.0 - te),
+        AnimKind::FlyFromLeft => (-form_w * inv, 0.0, 1.0, 1.0),
+        AnimKind::FlyFromRight => (form_w * inv, 0.0, 1.0, 1.0),
+        AnimKind::FlyFromTop => (0.0, -form_h * inv, 1.0, 1.0),
+        AnimKind::FlyFromBottom => (0.0, form_h * inv, 1.0, 1.0),
+        AnimKind::FlyFromTopLeft => (-form_w * inv, -form_h * inv, 1.0, 1.0),
+        AnimKind::FlyFromTopRight => (form_w * inv, -form_h * inv, 1.0, 1.0),
+        AnimKind::FlyFromBottomLeft => (-form_w * inv, form_h * inv, 1.0, 1.0),
+        AnimKind::FlyFromBottomRight => (form_w * inv, form_h * inv, 1.0, 1.0),
+        AnimKind::FadeIn => (0.0, 0.0, 1.0, te),
+        AnimKind::FadeOut => (0.0, 0.0, 1.0, 1.0 - te),
         // ZoomIn grows 0 → 100% (eased; Elastic overshoots past 100% and settles).
-        AnimKind::ZoomIn            => (0.0, 0.0, te.max(0.001), te),
+        AnimKind::ZoomIn => (0.0, 0.0, te.max(0.001), te),
         // ZoomOut dips and returns: 100% → 25% → 100%. With Elastic easing this
         // becomes a damped multi-bounce (overshoots 3–4 times before settling).
-        AnimKind::ZoomOut           => {
+        AnimKind::ZoomOut => {
             let scale = if matches!(anim.easing, EasingKind::Elastic) {
                 zoomout_scale(t)
             } else {
@@ -131,21 +158,19 @@ pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f
             };
             (0.0, 0.0, scale, 1.0)
         }
-        AnimKind::Bounce            => {
+        AnimKind::Bounce => {
             let dy = -50.0 * (std::f32::consts::PI * t * 3.0).sin().abs() * inv;
             (0.0, dy, 1.0, 1.0)
         }
-        AnimKind::Shake             => {
+        AnimKind::Shake => {
             let dx = 6.0 * (t * std::f32::consts::TAU * 5.0).sin() * inv;
             (dx, 0.0, 1.0, 1.0)
         }
-        AnimKind::Pulse             => {
+        AnimKind::Pulse => {
             let s = 1.0 + 0.15 * (t * std::f32::consts::TAU * 2.0).sin() * inv;
             (0.0, 0.0, s, 1.0)
         }
-        AnimKind::Slide { dx, dy }  => {
-            ((*dx as f32) * inv, (*dy as f32) * inv, 1.0, 1.0)
-        }
+        AnimKind::Slide { dx, dy } => ((*dx as f32) * inv, (*dy as f32) * inv, 1.0, 1.0),
         AnimKind::Spin => {
             // Simulate spin as a scale pulse that goes through 0 twice (simulates
             // a 360° rotation in 2D by shrinking to nothing and back twice).
@@ -158,9 +183,7 @@ pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f
             let s = (te * std::f32::consts::PI).cos().abs().max(0.05);
             (0.0, 0.0, s, 1.0)
         }
-        AnimKind::None | AnimKind::Custom(_) => {
-            (0.0, 0.0, 1.0, 1.0)
-        }
+        AnimKind::None | AnimKind::Custom(_) => (0.0, 0.0, 1.0, 1.0),
     }
 }
 
@@ -168,66 +191,147 @@ pub(crate) fn anim_transform(anim: &AnimationDef, form_w: f32, form_h: f32, t: f
 
 #[derive(Clone)]
 enum Cmd {
-    AddControl    { index: usize, ctrl: Control },
-    DeleteControl { index: usize, ctrl: Control },
-    MoveControl   { id: String, old_x: i32, old_y: i32, new_x: i32, new_y: i32 },
-    MoveMany      { moves: Vec<(String, i32, i32, i32, i32)> },  // id, ox, oy, nx, ny
-    ResizeControl { id: String, old_rect: cobolt_forms::model::Rect, new_rect: cobolt_forms::model::Rect },
-    SetProperty   { id: String, key: String, old: Option<PropValue>, new: PropValue },
-    ReorderControl{ from: usize, to: usize },
-    SetZOrder     { id: String, old_z: i32, new_z: i32 },
+    AddControl {
+        index: usize,
+        ctrl: Control,
+    },
+    DeleteControl {
+        index: usize,
+        ctrl: Control,
+    },
+    MoveControl {
+        id: String,
+        old_x: i32,
+        old_y: i32,
+        new_x: i32,
+        new_y: i32,
+    },
+    MoveMany {
+        moves: Vec<(String, i32, i32, i32, i32)>,
+    }, // id, ox, oy, nx, ny
+    ResizeControl {
+        id: String,
+        old_rect: cobolt_forms::model::Rect,
+        new_rect: cobolt_forms::model::Rect,
+    },
+    SetProperty {
+        id: String,
+        key: String,
+        old: Option<PropValue>,
+        new: PropValue,
+    },
+    ReorderControl {
+        from: usize,
+        to: usize,
+    },
+    SetZOrder {
+        id: String,
+        old_z: i32,
+        new_z: i32,
+    },
     /// Move a control into a different container (or the form) — spec 012.
-    Reparent      { id: String,
-                    old_parent: Option<String>, old_tab: Option<u32>,
-                    new_parent: Option<String>, new_tab: Option<u32> },
+    Reparent {
+        id: String,
+        old_parent: Option<String>,
+        old_tab: Option<u32>,
+        new_parent: Option<String>,
+        new_tab: Option<u32>,
+    },
 }
 
 // ── Resize handle ─────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Handle { TopLeft, Top, TopRight, Left, Right, BotLeft, Bot, BotRight }
+enum Handle {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Right,
+    BotLeft,
+    Bot,
+    BotRight,
+}
 
 const ALL_HANDLES: [Handle; 8] = [
-    Handle::TopLeft, Handle::Top, Handle::TopRight,
-    Handle::Left,                 Handle::Right,
-    Handle::BotLeft, Handle::Bot, Handle::BotRight,
+    Handle::TopLeft,
+    Handle::Top,
+    Handle::TopRight,
+    Handle::Left,
+    Handle::Right,
+    Handle::BotLeft,
+    Handle::Bot,
+    Handle::BotRight,
 ];
 
 fn handle_pos(r: &cobolt_forms::model::Rect, h: Handle) -> Pos2 {
     let (x, y, w, hh) = (r.x as f32, r.y as f32, r.w as f32, r.h as f32);
     match h {
-        Handle::TopLeft  => Pos2::new(x,           y),
-        Handle::Top      => Pos2::new(x + w / 2.0, y),
-        Handle::TopRight => Pos2::new(x + w,        y),
-        Handle::Left     => Pos2::new(x,            y + hh / 2.0),
-        Handle::Right    => Pos2::new(x + w,        y + hh / 2.0),
-        Handle::BotLeft  => Pos2::new(x,            y + hh),
-        Handle::Bot      => Pos2::new(x + w / 2.0,  y + hh),
-        Handle::BotRight => Pos2::new(x + w,         y + hh),
+        Handle::TopLeft => Pos2::new(x, y),
+        Handle::Top => Pos2::new(x + w / 2.0, y),
+        Handle::TopRight => Pos2::new(x + w, y),
+        Handle::Left => Pos2::new(x, y + hh / 2.0),
+        Handle::Right => Pos2::new(x + w, y + hh / 2.0),
+        Handle::BotLeft => Pos2::new(x, y + hh),
+        Handle::Bot => Pos2::new(x + w / 2.0, y + hh),
+        Handle::BotRight => Pos2::new(x + w, y + hh),
     }
 }
 
 fn handle_cursor(h: Handle) -> CursorIcon {
     match h {
-        Handle::TopLeft  | Handle::BotRight => CursorIcon::ResizeNwSe,
-        Handle::TopRight | Handle::BotLeft  => CursorIcon::ResizeNeSw,
-        Handle::Top      | Handle::Bot      => CursorIcon::ResizeVertical,
-        Handle::Left     | Handle::Right    => CursorIcon::ResizeHorizontal,
+        Handle::TopLeft | Handle::BotRight => CursorIcon::ResizeNwSe,
+        Handle::TopRight | Handle::BotLeft => CursorIcon::ResizeNeSw,
+        Handle::Top | Handle::Bot => CursorIcon::ResizeVertical,
+        Handle::Left | Handle::Right => CursorIcon::ResizeHorizontal,
     }
 }
 
-fn apply_resize(r: cobolt_forms::model::Rect, h: Handle, dx: i32, dy: i32, grid_px: i32, snapping: bool) -> cobolt_forms::model::Rect {
+fn apply_resize(
+    r: cobolt_forms::model::Rect,
+    h: Handle,
+    dx: i32,
+    dy: i32,
+    grid_px: i32,
+    snapping: bool,
+) -> cobolt_forms::model::Rect {
     let s = |v| snap(v, grid_px, snapping);
     let mut nr = r;
     match h {
-        Handle::TopLeft  => { nr.x = s(r.x+dx); nr.y = s(r.y+dy); nr.w=(r.w-dx).max(8); nr.h=(r.h-dy).max(8); }
-        Handle::Top      => { nr.y = s(r.y+dy); nr.h=(r.h-dy).max(8); }
-        Handle::TopRight => { nr.y = s(r.y+dy); nr.w=s(r.w+dx).max(8); nr.h=(r.h-dy).max(8); }
-        Handle::Left     => { nr.x = s(r.x+dx); nr.w=(r.w-dx).max(8); }
-        Handle::Right    => { nr.w = s(r.w+dx).max(8); }
-        Handle::BotLeft  => { nr.x = s(r.x+dx); nr.w=(r.w-dx).max(8); nr.h=s(r.h+dy).max(8); }
-        Handle::Bot      => { nr.h = s(r.h+dy).max(8); }
-        Handle::BotRight => { nr.w = s(r.w+dx).max(8); nr.h=s(r.h+dy).max(8); }
+        Handle::TopLeft => {
+            nr.x = s(r.x + dx);
+            nr.y = s(r.y + dy);
+            nr.w = (r.w - dx).max(8);
+            nr.h = (r.h - dy).max(8);
+        }
+        Handle::Top => {
+            nr.y = s(r.y + dy);
+            nr.h = (r.h - dy).max(8);
+        }
+        Handle::TopRight => {
+            nr.y = s(r.y + dy);
+            nr.w = s(r.w + dx).max(8);
+            nr.h = (r.h - dy).max(8);
+        }
+        Handle::Left => {
+            nr.x = s(r.x + dx);
+            nr.w = (r.w - dx).max(8);
+        }
+        Handle::Right => {
+            nr.w = s(r.w + dx).max(8);
+        }
+        Handle::BotLeft => {
+            nr.x = s(r.x + dx);
+            nr.w = (r.w - dx).max(8);
+            nr.h = s(r.h + dy).max(8);
+        }
+        Handle::Bot => {
+            nr.h = s(r.h + dy).max(8);
+        }
+        Handle::BotRight => {
+            nr.w = s(r.w + dx).max(8);
+            nr.h = s(r.h + dy).max(8);
+        }
     }
     nr
 }
@@ -247,24 +351,43 @@ enum DragState {
         start_y: i32,
     },
     ResizingControl {
-        id: String, handle: Handle,
+        id: String,
+        handle: Handle,
         orig_rect: cobolt_forms::model::Rect,
-        start_x: i32, start_y: i32,
+        start_x: i32,
+        start_y: i32,
     },
     PlacingNew {
         ctrl_type: ControlType,
-        start_x: i32, start_y: i32,
-        cur_x: i32, cur_y: i32,
+        start_x: i32,
+        start_y: i32,
+        cur_x: i32,
+        cur_y: i32,
     },
     /// Rubber-band lasso selection.
-    RubberBand { start_x: i32, start_y: i32, cur_x: i32, cur_y: i32 },
+    RubberBand {
+        start_x: i32,
+        start_y: i32,
+        cur_x: i32,
+        cur_y: i32,
+    },
     /// Resizing the form canvas itself by dragging its right/bottom/corner edge.
-    ResizingForm { edge: FormEdge, orig_w: i32, orig_h: i32, start_x: i32, start_y: i32 },
+    ResizingForm {
+        edge: FormEdge,
+        orig_w: i32,
+        orig_h: i32,
+        start_x: i32,
+        start_y: i32,
+    },
 }
 
 /// Which edge of the form canvas is being dragged to resize it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum FormEdge { Right, Bottom, Corner }
+enum FormEdge {
+    Right,
+    Bottom,
+    Corner,
+}
 
 /// Half-width (px) of the grab band along the form's right/bottom border.
 const FORM_EDGE_GRAB: f32 = 7.0;
@@ -276,10 +399,12 @@ const FORM_MIN_SIZE: i32 = 64;
 /// border, given the form size `(w, h)`. Returns the edge, or `None`.
 fn detect_form_edge(px: i32, py: i32, w: f32, h: f32) -> Option<FormEdge> {
     let (px, py) = (px as f32, py as f32);
-    let near_right  = (px - w).abs() <= FORM_EDGE_GRAB && py >= -FORM_EDGE_GRAB && py <= h + FORM_EDGE_GRAB;
-    let near_bottom = (py - h).abs() <= FORM_EDGE_GRAB && px >= -FORM_EDGE_GRAB && px <= w + FORM_EDGE_GRAB;
+    let near_right =
+        (px - w).abs() <= FORM_EDGE_GRAB && py >= -FORM_EDGE_GRAB && py <= h + FORM_EDGE_GRAB;
+    let near_bottom =
+        (py - h).abs() <= FORM_EDGE_GRAB && px >= -FORM_EDGE_GRAB && px <= w + FORM_EDGE_GRAB;
     match (near_right, near_bottom) {
-        (true, true)  => Some(FormEdge::Corner),
+        (true, true) => Some(FormEdge::Corner),
         (true, false) => Some(FormEdge::Right),
         (false, true) => Some(FormEdge::Bottom),
         _ => None,
@@ -288,7 +413,7 @@ fn detect_form_edge(px: i32, py: i32, w: f32, h: f32) -> Option<FormEdge> {
 
 fn form_edge_cursor(e: FormEdge) -> CursorIcon {
     match e {
-        FormEdge::Right  => CursorIcon::ResizeHorizontal,
+        FormEdge::Right => CursorIcon::ResizeHorizontal,
         FormEdge::Bottom => CursorIcon::ResizeVertical,
         FormEdge::Corner => CursorIcon::ResizeNwSe,
     }
@@ -298,12 +423,23 @@ fn form_edge_cursor(e: FormEdge) -> CursorIcon {
 
 /// Visual style properties that can be copied between controls.
 const STYLE_PROP_KEYS: &[&str] = &[
-    "BackgroundColor", "ForegroundColor", "BorderColor",
-    "FontSize", "Bold", "Italic", "Underline", "Strikethrough",
-    "FontName", "Opacity",
-    "CornerRadius", "BorderWidth", "BorderStyle",
-    "HeaderBackgroundColor", "HeaderForegroundColor",
-    "AlternatingRowColor", "GridLineColor",
+    "BackgroundColor",
+    "ForegroundColor",
+    "BorderColor",
+    "FontSize",
+    "Bold",
+    "Italic",
+    "Underline",
+    "Strikethrough",
+    "FontName",
+    "Opacity",
+    "CornerRadius",
+    "BorderWidth",
+    "BorderStyle",
+    "HeaderBackgroundColor",
+    "HeaderForegroundColor",
+    "AlternatingRowColor",
+    "GridLineColor",
 ];
 
 /// State machine for the format-painter (copy style) tool.
@@ -322,9 +458,9 @@ pub(crate) enum FormatPainter {
     WaitingForSource,
     /// Style has been captured from the source; waiting for the user to click a target.
     WaitingForTarget {
-        props:      std::collections::HashMap<String, cobolt_forms::model::PropValue>,
+        props: std::collections::HashMap<String, cobolt_forms::model::PropValue>,
         animations: Vec<AnimationDef>,
-        src_rect:   cobolt_forms::model::Rect,
+        src_rect: cobolt_forms::model::Rect,
     },
 }
 
@@ -334,13 +470,13 @@ pub(crate) enum FormatPainter {
 /// the user clicks an event row in the Properties panel.
 pub struct EventEditorModal {
     /// Control ID whose event is being edited (empty string = form-level event).
-    pub ctrl_id:      String,
+    pub ctrl_id: String,
     /// Human-readable display name for the title bar (e.g. "BTN-OK · Click").
     pub ctrl_display: String,
     /// Event name, e.g. "Click".
-    pub event_name:   String,
+    pub event_name: String,
     /// The nested PROGRAM-ID that will be emitted for this handler.
-    pub program_id:   String,
+    pub program_id: String,
     /// The handler source when the modal opened — used to detect real changes so
     /// an untouched first-time template is not persisted as handler code. (The
     /// live, editable text lives in the hosted `event_editor`.)
@@ -349,18 +485,18 @@ pub struct EventEditorModal {
 
 impl EventEditorModal {
     pub fn new(
-        ctrl_id:      impl Into<String>,
+        ctrl_id: impl Into<String>,
         ctrl_display: impl Into<String>,
-        event_name:   impl Into<String>,
-        program_id:   impl Into<String>,
-        source:       impl Into<String>,
+        event_name: impl Into<String>,
+        program_id: impl Into<String>,
+        source: impl Into<String>,
     ) -> Self {
         Self {
-            ctrl_id:      ctrl_id.into(),
+            ctrl_id: ctrl_id.into(),
             ctrl_display: ctrl_display.into(),
-            event_name:   event_name.into(),
-            program_id:   program_id.into(),
-            orig_source:  source.into(),
+            event_name: event_name.into(),
+            program_id: program_id.into(),
+            orig_source: source.into(),
         }
     }
 }
@@ -393,13 +529,12 @@ pub struct DesignerPanel {
     /// Format-painter (copy-style) state.
     pub(crate) format_painter: FormatPainter,
 
-
     pub toolbox: ToolboxPanel,
     pub properties: PropertiesPanel,
 
     // ── UI options ────────────────────────────────────────────────────────────
-    pub show_grid:    bool,
-    pub glass_mode:   bool,
+    pub show_grid: bool,
+    pub glass_mode: bool,
 
     // ── Animation preview ─────────────────────────────────────────────────────
     /// ctrl_id → AnimState (for designer-time preview of animations)
@@ -463,38 +598,38 @@ impl DesignerPanel {
     pub fn new(form: Form) -> Self {
         Self {
             form,
-            selected_ids:     Vec::new(),
-            active_tabs:      std::collections::HashMap::new(),
-            scroll_offsets:   std::collections::HashMap::new(),
-            drag:             DragState::None,
-            undo_stack:       Vec::new(),
-            redo_stack:       Vec::new(),
-            dirty:            false,
-            close_requested:  false,
-            close_confirm:    false,
-            toolbox:          ToolboxPanel::new(),
-            properties:       PropertiesPanel::new(),
-            show_grid:        true,
-            glass_mode:       true,
-            anim_states:      HashMap::new(),
-            last_frame_time:  None,
-            format_painter:   FormatPainter::Idle,
-            image_cache:      HashMap::new(),
-            last_font_name:   None,
-            last_font_size:   None,
-            press_handle:          None,
-            press_form_edge:       None,
-            event_modal:           None,
-            event_editor:          super::editor::EditorPanel::new(),
-            cs_editor:             super::editor::EditorPanel::new(),
-            cs_loaded:             None,
-            show_preview:          false,
-            cobol_structure_edit:  None,
-            preview_state:         HashMap::new(),
-            preview_anim_states:   HashMap::new(),
-            preview_last_frame:    None,
-            preview_combo_open:    HashMap::new(),
-            active_theme_pack:     None,
+            selected_ids: Vec::new(),
+            active_tabs: std::collections::HashMap::new(),
+            scroll_offsets: std::collections::HashMap::new(),
+            drag: DragState::None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            dirty: false,
+            close_requested: false,
+            close_confirm: false,
+            toolbox: ToolboxPanel::new(),
+            properties: PropertiesPanel::new(),
+            show_grid: true,
+            glass_mode: true,
+            anim_states: HashMap::new(),
+            last_frame_time: None,
+            format_painter: FormatPainter::Idle,
+            image_cache: HashMap::new(),
+            last_font_name: None,
+            last_font_size: None,
+            press_handle: None,
+            press_form_edge: None,
+            event_modal: None,
+            event_editor: super::editor::EditorPanel::new(),
+            cs_editor: super::editor::EditorPanel::new(),
+            cs_loaded: None,
+            show_preview: false,
+            cobol_structure_edit: None,
+            preview_state: HashMap::new(),
+            preview_anim_states: HashMap::new(),
+            preview_last_frame: None,
+            preview_combo_open: HashMap::new(),
+            active_theme_pack: None,
         }
     }
 
@@ -511,16 +646,24 @@ impl DesignerPanel {
     /// Load an image from disk and register it as an egui texture.
     /// Returns `Some(handle)` on success, `None` on any error.
     /// Results are cached by path so each file is read at most once per session.
-    pub(crate) fn load_image(&mut self, path: &str, ctx: &egui::Context) -> Option<&egui::TextureHandle> {
+    pub(crate) fn load_image(
+        &mut self,
+        path: &str,
+        ctx: &egui::Context,
+    ) -> Option<&egui::TextureHandle> {
         if !self.image_cache.contains_key(path) {
             let result: Option<egui::TextureHandle> = (|| {
                 let bytes = std::fs::read(path).ok()?;
-                let img   = image::load_from_memory(&bytes).ok()?.into_rgba8();
+                let img = image::load_from_memory(&bytes).ok()?.into_rgba8();
                 let (w, h) = (img.width() as usize, img.height() as usize);
-                let pixels: Vec<egui::Color32> = img.pixels()
+                let pixels: Vec<egui::Color32> = img
+                    .pixels()
                     .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
                     .collect();
-                let ci = egui::ColorImage { size: [w, h], pixels };
+                let ci = egui::ColorImage {
+                    size: [w, h],
+                    pixels,
+                };
                 // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a
                 // Tiled background can also tile inside the corner-notch mask (017).
                 Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
@@ -541,7 +684,9 @@ impl DesignerPanel {
 
     fn set_selected_one(&mut self, id: Option<String>) {
         self.selected_ids.clear();
-        if let Some(id) = id { self.selected_ids.push(id); }
+        if let Some(id) = id {
+            self.selected_ids.push(id);
+        }
     }
 
     fn toggle_selected(&mut self, id: &str) {
@@ -584,22 +729,30 @@ impl DesignerPanel {
                 self.form.controls.insert(idx, ctrl.clone());
             }
             Cmd::DeleteControl { index, .. } => {
-                if *index < self.form.controls.len() { self.form.controls.remove(*index); }
+                if *index < self.form.controls.len() {
+                    self.form.controls.remove(*index);
+                }
             }
-            Cmd::MoveControl { id, new_x, new_y, .. } => {
+            Cmd::MoveControl {
+                id, new_x, new_y, ..
+            } => {
                 if let Some(c) = self.form.find_control_mut(id) {
-                    c.rect.x = *new_x; c.rect.y = *new_y;
+                    c.rect.x = *new_x;
+                    c.rect.y = *new_y;
                 }
             }
             Cmd::MoveMany { moves } => {
                 for (id, _, _, nx, ny) in moves {
                     if let Some(c) = self.form.find_control_mut(id) {
-                        c.rect.x = *nx; c.rect.y = *ny;
+                        c.rect.x = *nx;
+                        c.rect.y = *ny;
                     }
                 }
             }
             Cmd::ResizeControl { id, new_rect, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) { c.rect = *new_rect; }
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.rect = *new_rect;
+                }
             }
             Cmd::SetProperty { id, key, new, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) {
@@ -614,12 +767,19 @@ impl DesignerPanel {
                 }
             }
             Cmd::SetZOrder { id, new_z, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) { c.z_order = *new_z; }
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.z_order = *new_z;
+                }
             }
-            Cmd::Reparent { id, new_parent, new_tab, .. } => {
+            Cmd::Reparent {
+                id,
+                new_parent,
+                new_tab,
+                ..
+            } => {
                 if let Some(c) = self.form.find_control_mut(id) {
                     c.parent = new_parent.clone();
-                    c.tab    = *new_tab;
+                    c.tab = *new_tab;
                 }
             }
         }
@@ -628,31 +788,42 @@ impl DesignerPanel {
     fn reverse(&mut self, cmd: &Cmd) {
         match cmd {
             Cmd::AddControl { index, .. } => {
-                if *index < self.form.controls.len() { self.form.controls.remove(*index); }
+                if *index < self.form.controls.len() {
+                    self.form.controls.remove(*index);
+                }
             }
             Cmd::DeleteControl { index, ctrl } => {
                 let idx = (*index).min(self.form.controls.len());
                 self.form.controls.insert(idx, ctrl.clone());
             }
-            Cmd::MoveControl { id, old_x, old_y, .. } => {
+            Cmd::MoveControl {
+                id, old_x, old_y, ..
+            } => {
                 if let Some(c) = self.form.find_control_mut(id) {
-                    c.rect.x = *old_x; c.rect.y = *old_y;
+                    c.rect.x = *old_x;
+                    c.rect.y = *old_y;
                 }
             }
             Cmd::MoveMany { moves } => {
                 for (id, ox, oy, _, _) in moves {
                     if let Some(c) = self.form.find_control_mut(id) {
-                        c.rect.x = *ox; c.rect.y = *oy;
+                        c.rect.x = *ox;
+                        c.rect.y = *oy;
                     }
                 }
             }
             Cmd::ResizeControl { id, old_rect, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) { c.rect = *old_rect; }
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.rect = *old_rect;
+                }
             }
             Cmd::SetProperty { id, key, old, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) {
-                    if let Some(v) = old { apply_structural_prop(c, key, v); }
-                    else { c.properties.swap_remove(key); }
+                    if let Some(v) = old {
+                        apply_structural_prop(c, key, v);
+                    } else {
+                        c.properties.swap_remove(key);
+                    }
                 }
             }
             Cmd::ReorderControl { from, to } => {
@@ -663,12 +834,19 @@ impl DesignerPanel {
                 }
             }
             Cmd::SetZOrder { id, old_z, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) { c.z_order = *old_z; }
+                if let Some(c) = self.form.find_control_mut(id) {
+                    c.z_order = *old_z;
+                }
             }
-            Cmd::Reparent { id, old_parent, old_tab, .. } => {
+            Cmd::Reparent {
+                id,
+                old_parent,
+                old_tab,
+                ..
+            } => {
                 if let Some(c) = self.form.find_control_mut(id) {
                     c.parent = old_parent.clone();
-                    c.tab    = *old_tab;
+                    c.tab = *old_tab;
                 }
             }
         }
@@ -703,11 +881,17 @@ impl DesignerPanel {
     /// centre; `resolve_drop_target` excludes the control and its descendants
     /// (cycle guard). No-op when the parent/tab is unchanged.
     fn reparent_to_drop(&mut self, id: &str) {
-        let Some(idx) = self.form.controls.iter().position(|c| c.id == id) else { return };
+        let Some(idx) = self.form.controls.iter().position(|c| c.id == id) else {
+            return;
+        };
         let r = self.form.controls[idx].rect;
         let (px, py) = (r.x + r.w / 2, r.y + r.h / 2);
         let target = super::containers::resolve_drop_target(
-            &self.form.controls, px, py, idx, &self.active_tabs,
+            &self.form.controls,
+            px,
+            py,
+            idx,
+            &self.active_tabs,
         );
         let (new_parent, new_tab) = match target {
             super::containers::DropTarget::Form => (None, None),
@@ -731,7 +915,10 @@ impl DesignerPanel {
     /// and the clicked tab index (spec 012). The geometry mirrors the strip drawn
     /// in `cobolt_forms::paint::draw_control`.
     fn tab_strip_hit(&self, cx: i32, cy: i32) -> Option<(String, u32)> {
-        for &idx in super::containers::render_order(&self.form.controls).iter().rev() {
+        for &idx in super::containers::render_order(&self.form.controls)
+            .iter()
+            .rev()
+        {
             let c = &self.form.controls[idx];
             if c.control_type != ControlType::TabControl {
                 continue;
@@ -743,7 +930,8 @@ impl DesignerPanel {
             if cy < r.y || cy > r.y + 26 || cx < r.x || cx > r.x + r.w {
                 continue;
             }
-            let tabs: Vec<String> = c.get_prop("Tabs")
+            let tabs: Vec<String> = c
+                .get_prop("Tabs")
                 .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
                 .unwrap_or_default();
             let mut tx = r.x as f32 + 2.0;
@@ -761,7 +949,10 @@ impl DesignerPanel {
     /// Topmost **visible** control under a form-space point, respecting container
     /// clipping and tab visibility (spec 012). Children win over their container.
     fn hit_top_id(&self, cx: i32, cy: i32) -> Option<String> {
-        for &idx in super::containers::render_order(&self.form.controls).iter().rev() {
+        for &idx in super::containers::render_order(&self.form.controls)
+            .iter()
+            .rev()
+        {
             if !super::containers::is_visible(&self.form.controls, idx, &self.active_tabs) {
                 continue;
             }
@@ -783,42 +974,55 @@ impl DesignerPanel {
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
         // Assign z_order = highest existing + 1
-        let max_z = self.form.controls.iter().map(|c| c.z_order).max().unwrap_or(-1);
+        let max_z = self
+            .form
+            .controls
+            .iter()
+            .map(|c| c.z_order)
+            .max()
+            .unwrap_or(-1);
         ctrl.z_order = max_z + 1;
         // Controls whose control intrinsically shows a text label get a Caption.
         let has_caption = matches!(
             ct,
             ControlType::Label
-            | ControlType::Button
-            | ControlType::CheckBox
-            | ControlType::RadioButton
-            | ControlType::GroupBox
+                | ControlType::Button
+                | ControlType::CheckBox
+                | ControlType::RadioButton
+                | ControlType::GroupBox
         );
         if has_caption {
-            ctrl.properties.insert("Caption".into(), PropValue::String(id.clone()));
+            ctrl.properties
+                .insert("Caption".into(), PropValue::String(id.clone()));
         }
 
         // Inherit the font the user last set this session, or — if none yet —
         // the font of the most recently added control, so new controls match the
         // rest of the form instead of resetting to the default typeface.
         let inherit_name = self.last_font_name.clone().or_else(|| {
-            self.form.controls.last()
+            self.form
+                .controls
+                .last()
                 .and_then(|c| c.get_prop("FontName"))
                 .map(|v| v.as_str().to_owned())
         });
         let inherit_size = self.last_font_size.or_else(|| {
-            self.form.controls.last()
+            self.form
+                .controls
+                .last()
                 .and_then(|c| c.get_prop("FontSize"))
                 .map(|v| v.as_i64())
         });
         if let Some(name) = inherit_name {
             if ctrl.properties.contains_key("FontName") {
-                ctrl.properties.insert("FontName".into(), PropValue::String(name));
+                ctrl.properties
+                    .insert("FontName".into(), PropValue::String(name));
             }
         }
         if let Some(size) = inherit_size {
             if ctrl.properties.contains_key("FontSize") {
-                ctrl.properties.insert("FontSize".into(), PropValue::Int(size));
+                ctrl.properties
+                    .insert("FontSize".into(), PropValue::Int(size));
             }
         }
 
@@ -839,11 +1043,14 @@ impl DesignerPanel {
             if let Some(i) = self.form.controls.iter().position(|c| &c.id == sid) {
                 for d in super::containers::collect_descendants(&self.form.controls, i) {
                     let did = self.form.controls[d].id.clone();
-                    if !id_set.contains(&did) { id_set.push(did); }
+                    if !id_set.contains(&did) {
+                        id_set.push(did);
+                    }
                 }
             }
         }
-        let mut indices: Vec<usize> = id_set.iter()
+        let mut indices: Vec<usize> = id_set
+            .iter()
             .filter_map(|sid| self.form.controls.iter().position(|c| &c.id == sid))
             .collect();
         indices.sort_unstable();
@@ -858,7 +1065,10 @@ impl DesignerPanel {
 
     pub fn bring_to_front(&mut self) {
         for sid in &self.selected_ids.clone() {
-            let max_z = self.form.controls.iter()
+            let max_z = self
+                .form
+                .controls
+                .iter()
                 .filter(|c| &c.id != sid)
                 .map(|c| c.z_order)
                 .max()
@@ -867,7 +1077,11 @@ impl DesignerPanel {
                 let old_z = c.z_order;
                 let new_z = max_z + 1;
                 if old_z != new_z {
-                    self.apply(Cmd::SetZOrder { id: sid.clone(), old_z, new_z });
+                    self.apply(Cmd::SetZOrder {
+                        id: sid.clone(),
+                        old_z,
+                        new_z,
+                    });
                 }
             }
         }
@@ -875,7 +1089,10 @@ impl DesignerPanel {
 
     pub fn send_to_back(&mut self) {
         for sid in &self.selected_ids.clone() {
-            let min_z = self.form.controls.iter()
+            let min_z = self
+                .form
+                .controls
+                .iter()
                 .filter(|c| &c.id != sid)
                 .map(|c| c.z_order)
                 .min()
@@ -884,7 +1101,11 @@ impl DesignerPanel {
                 let old_z = c.z_order;
                 let new_z = min_z - 1;
                 if old_z != new_z {
-                    self.apply(Cmd::SetZOrder { id: sid.clone(), old_z, new_z });
+                    self.apply(Cmd::SetZOrder {
+                        id: sid.clone(),
+                        old_z,
+                        new_z,
+                    });
                 }
             }
         }
@@ -895,7 +1116,11 @@ impl DesignerPanel {
             if let Some(c) = self.form.find_control(sid) {
                 let old_z = c.z_order;
                 let new_z = old_z + 1;
-                self.apply(Cmd::SetZOrder { id: sid.clone(), old_z, new_z });
+                self.apply(Cmd::SetZOrder {
+                    id: sid.clone(),
+                    old_z,
+                    new_z,
+                });
             }
         }
     }
@@ -905,7 +1130,11 @@ impl DesignerPanel {
             if let Some(c) = self.form.find_control(sid) {
                 let old_z = c.z_order;
                 let new_z = old_z - 1;
-                self.apply(Cmd::SetZOrder { id: sid.clone(), old_z, new_z });
+                self.apply(Cmd::SetZOrder {
+                    id: sid.clone(),
+                    old_z,
+                    new_z,
+                });
             }
         }
     }
@@ -913,78 +1142,159 @@ impl DesignerPanel {
     // ── Alignment ─────────────────────────────────────────────────────────────
 
     fn selected_rects(&self) -> Vec<(String, cobolt_forms::model::Rect)> {
-        self.selected_ids.iter()
+        self.selected_ids
+            .iter()
             .filter_map(|id| self.form.find_control(id).map(|c| (id.clone(), c.rect)))
             .collect()
     }
 
     pub fn align_left(&mut self) {
         let rects = self.selected_rects();
-        if rects.len() < 2 { return; }
+        if rects.len() < 2 {
+            return;
+        }
         let min_x = rects.iter().map(|(_, r)| r.x).min().unwrap();
-        let moves: Vec<Cmd> = rects.iter()
+        let moves: Vec<Cmd> = rects
+            .iter()
             .filter(|(_, r)| r.x != min_x)
-            .map(|(id, r)| Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: min_x, new_y: r.y })
+            .map(|(id, r)| Cmd::MoveControl {
+                id: id.clone(),
+                old_x: r.x,
+                old_y: r.y,
+                new_x: min_x,
+                new_y: r.y,
+            })
             .collect();
-        for cmd in moves { self.apply(cmd); }
+        for cmd in moves {
+            self.apply(cmd);
+        }
     }
 
     pub fn align_right(&mut self) {
         let rects = self.selected_rects();
-        if rects.len() < 2 { return; }
+        if rects.len() < 2 {
+            return;
+        }
         let max_right = rects.iter().map(|(_, r)| r.x + r.w).max().unwrap();
-        let moves: Vec<Cmd> = rects.iter()
-            .map(|(id, r)| { let nx = max_right - r.w; Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: nx, new_y: r.y } })
+        let moves: Vec<Cmd> = rects
+            .iter()
+            .map(|(id, r)| {
+                let nx = max_right - r.w;
+                Cmd::MoveControl {
+                    id: id.clone(),
+                    old_x: r.x,
+                    old_y: r.y,
+                    new_x: nx,
+                    new_y: r.y,
+                }
+            })
             .filter(|c| matches!(c, Cmd::MoveControl { new_x, old_x, .. } if new_x != old_x))
             .collect();
-        for cmd in moves { self.apply(cmd); }
+        for cmd in moves {
+            self.apply(cmd);
+        }
     }
 
     pub fn align_top(&mut self) {
         let rects = self.selected_rects();
-        if rects.len() < 2 { return; }
+        if rects.len() < 2 {
+            return;
+        }
         let min_y = rects.iter().map(|(_, r)| r.y).min().unwrap();
-        let moves: Vec<Cmd> = rects.iter()
+        let moves: Vec<Cmd> = rects
+            .iter()
             .filter(|(_, r)| r.y != min_y)
-            .map(|(id, r)| Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: r.x, new_y: min_y })
+            .map(|(id, r)| Cmd::MoveControl {
+                id: id.clone(),
+                old_x: r.x,
+                old_y: r.y,
+                new_x: r.x,
+                new_y: min_y,
+            })
             .collect();
-        for cmd in moves { self.apply(cmd); }
+        for cmd in moves {
+            self.apply(cmd);
+        }
     }
 
     pub fn align_bottom(&mut self) {
         let rects = self.selected_rects();
-        if rects.len() < 2 { return; }
+        if rects.len() < 2 {
+            return;
+        }
         let max_bottom = rects.iter().map(|(_, r)| r.y + r.h).max().unwrap();
-        let moves: Vec<Cmd> = rects.iter()
-            .map(|(id, r)| { let ny = max_bottom - r.h; Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: r.x, new_y: ny } })
+        let moves: Vec<Cmd> = rects
+            .iter()
+            .map(|(id, r)| {
+                let ny = max_bottom - r.h;
+                Cmd::MoveControl {
+                    id: id.clone(),
+                    old_x: r.x,
+                    old_y: r.y,
+                    new_x: r.x,
+                    new_y: ny,
+                }
+            })
             .filter(|c| matches!(c, Cmd::MoveControl { new_y, old_y, .. } if new_y != old_y))
             .collect();
-        for cmd in moves { self.apply(cmd); }
+        for cmd in moves {
+            self.apply(cmd);
+        }
     }
 
     pub fn center_horizontal(&mut self) {
         let rects = self.selected_rects();
-        if rects.len() < 2 { return; }
-        let avg_cx = rects.iter().map(|(_, r)| r.x + r.w/2).sum::<i32>() / rects.len() as i32;
-        let moves: Vec<Cmd> = rects.iter()
-            .map(|(id, r)| { let nx = avg_cx - r.w/2; Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: nx, new_y: r.y } })
+        if rects.len() < 2 {
+            return;
+        }
+        let avg_cx = rects.iter().map(|(_, r)| r.x + r.w / 2).sum::<i32>() / rects.len() as i32;
+        let moves: Vec<Cmd> = rects
+            .iter()
+            .map(|(id, r)| {
+                let nx = avg_cx - r.w / 2;
+                Cmd::MoveControl {
+                    id: id.clone(),
+                    old_x: r.x,
+                    old_y: r.y,
+                    new_x: nx,
+                    new_y: r.y,
+                }
+            })
             .collect();
-        for cmd in moves { self.apply(cmd); }
+        for cmd in moves {
+            self.apply(cmd);
+        }
     }
 
     pub fn center_vertical(&mut self) {
         let rects = self.selected_rects();
-        if rects.len() < 2 { return; }
-        let avg_cy = rects.iter().map(|(_, r)| r.y + r.h/2).sum::<i32>() / rects.len() as i32;
-        let moves: Vec<Cmd> = rects.iter()
-            .map(|(id, r)| { let ny = avg_cy - r.h/2; Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: r.x, new_y: ny } })
+        if rects.len() < 2 {
+            return;
+        }
+        let avg_cy = rects.iter().map(|(_, r)| r.y + r.h / 2).sum::<i32>() / rects.len() as i32;
+        let moves: Vec<Cmd> = rects
+            .iter()
+            .map(|(id, r)| {
+                let ny = avg_cy - r.h / 2;
+                Cmd::MoveControl {
+                    id: id.clone(),
+                    old_x: r.x,
+                    old_y: r.y,
+                    new_x: r.x,
+                    new_y: ny,
+                }
+            })
             .collect();
-        for cmd in moves { self.apply(cmd); }
+        for cmd in moves {
+            self.apply(cmd);
+        }
     }
 
     pub fn space_evenly_horizontal(&mut self) {
         let mut rects = self.selected_rects();
-        if rects.len() < 3 { return; }
+        if rects.len() < 3 {
+            return;
+        }
         rects.sort_by_key(|(_, r)| r.x);
         let total_w: i32 = rects.iter().map(|(_, r)| r.w).sum();
         let span = (rects.last().unwrap().1.x + rects.last().unwrap().1.w) - rects[0].1.x;
@@ -993,7 +1303,13 @@ impl DesignerPanel {
         for (id, r) in &rects {
             let nx = x;
             if nx != r.x {
-                let _ = self.apply(Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: nx, new_y: r.y });
+                let _ = self.apply(Cmd::MoveControl {
+                    id: id.clone(),
+                    old_x: r.x,
+                    old_y: r.y,
+                    new_x: nx,
+                    new_y: r.y,
+                });
             }
             x += r.w + gap;
         }
@@ -1001,7 +1317,9 @@ impl DesignerPanel {
 
     pub fn space_evenly_vertical(&mut self) {
         let mut rects = self.selected_rects();
-        if rects.len() < 3 { return; }
+        if rects.len() < 3 {
+            return;
+        }
         rects.sort_by_key(|(_, r)| r.y);
         let total_h: i32 = rects.iter().map(|(_, r)| r.h).sum();
         let span = (rects.last().unwrap().1.y + rects.last().unwrap().1.h) - rects[0].1.y;
@@ -1010,7 +1328,13 @@ impl DesignerPanel {
         for (id, r) in &rects {
             let ny = y;
             if ny != r.y {
-                let _ = self.apply(Cmd::MoveControl { id: id.clone(), old_x: r.x, old_y: r.y, new_x: r.x, new_y: ny });
+                let _ = self.apply(Cmd::MoveControl {
+                    id: id.clone(),
+                    old_x: r.x,
+                    old_y: r.y,
+                    new_x: r.x,
+                    new_y: ny,
+                });
             }
             y += r.h + gap;
         }
@@ -1020,11 +1344,19 @@ impl DesignerPanel {
     /// Labels go on the left column, inputs on the right, aligned vertically.
     pub fn auto_arrange_labels(&mut self) {
         // Collect (label_id, input_id) pairs from LabelFor properties
-        let pairs: Vec<(String, String)> = self.form.controls.iter()
+        let pairs: Vec<(String, String)> = self
+            .form
+            .controls
+            .iter()
             .filter(|c| c.control_type == ControlType::Label)
             .filter_map(|lbl| {
-                let for_id = lbl.get_prop("LabelFor")
-                    .and_then(|v| if v.as_str().is_empty() { None } else { Some(v.as_str().to_owned()) })?;
+                let for_id = lbl.get_prop("LabelFor").and_then(|v| {
+                    if v.as_str().is_empty() {
+                        None
+                    } else {
+                        Some(v.as_str().to_owned())
+                    }
+                })?;
                 // Verify the target exists
                 if self.form.find_control(&for_id).is_some() {
                     Some((lbl.id.clone(), for_id))
@@ -1034,13 +1366,15 @@ impl DesignerPanel {
             })
             .collect();
 
-        if pairs.is_empty() { return; }
+        if pairs.is_empty() {
+            return;
+        }
 
         let margin_x = 16;
         let margin_y = 24;
-        let label_w  = 120;
-        let gap_x    = 8;
-        let row_h    = 28;
+        let label_w = 120;
+        let gap_x = 8;
+        let row_h = 28;
 
         let mut y = margin_y;
         for (lbl_id, inp_id) in pairs {
@@ -1051,8 +1385,20 @@ impl DesignerPanel {
             if let (Some(lr), Some(ir)) = (lbl_rect, inp_rect) {
                 // Center label vertically with input
                 let lbl_y = y + (ir.h - lr.h) / 2;
-                self.apply(Cmd::MoveControl { id: lbl_id, old_x: lr.x, old_y: lr.y, new_x: margin_x, new_y: lbl_y });
-                self.apply(Cmd::MoveControl { id: inp_id, old_x: ir.x, old_y: ir.y, new_x: margin_x + label_w + gap_x, new_y: y });
+                self.apply(Cmd::MoveControl {
+                    id: lbl_id,
+                    old_x: lr.x,
+                    old_y: lr.y,
+                    new_x: margin_x,
+                    new_y: lbl_y,
+                });
+                self.apply(Cmd::MoveControl {
+                    id: inp_id,
+                    old_x: ir.x,
+                    old_y: ir.y,
+                    new_x: margin_x + label_w + gap_x,
+                    new_y: y,
+                });
                 y += ir.h.max(lr.h) + row_h / 2;
             }
         }
@@ -1065,22 +1411,30 @@ impl DesignerPanel {
         // resolve its PROGRAM-ID and existing source.
         let (program_id, existing, display) = if ctrl_id.is_empty() {
             let ev = self.form.form_events.iter().find(|e| e.event == event_name);
-            let (pid, code) = ev.map(|e| (e.paragraph.clone(), e.code.clone()))
+            let (pid, code) = ev
+                .map(|e| (e.paragraph.clone(), e.code.clone()))
                 .unwrap_or_else(|| {
-                    let pid = format!("{}--{}",
+                    let pid = format!(
+                        "{}--{}",
                         self.form.name,
-                        event_name.to_ascii_uppercase().replace(' ', "-"));
+                        event_name.to_ascii_uppercase().replace(' ', "-")
+                    );
                     (pid, String::new())
                 });
             (pid, code, format!("Form · {}", event_name))
         } else {
-            let ev = self.form.find_control(ctrl_id)
+            let ev = self
+                .form
+                .find_control(ctrl_id)
                 .and_then(|c| c.events.iter().find(|e| e.event == event_name));
-            let (pid, code) = ev.map(|e| (e.paragraph.clone(), e.code.clone()))
+            let (pid, code) = ev
+                .map(|e| (e.paragraph.clone(), e.code.clone()))
                 .unwrap_or_else(|| {
-                    let pid = format!("{}--{}",
+                    let pid = format!(
+                        "{}--{}",
                         ctrl_id.to_ascii_uppercase(),
-                        event_name.to_ascii_uppercase().replace(' ', "-"));
+                        event_name.to_ascii_uppercase().replace(' ', "-")
+                    );
                     (pid, String::new())
                 });
             (pid, code, format!("{} · {}", ctrl_id, event_name))
@@ -1101,13 +1455,16 @@ impl DesignerPanel {
             std::path::PathBuf::from(format!("{program_id}.handler")),
             source.clone(),
         );
-        self.event_editor.known_controls = self.form.controls.iter()
+        self.event_editor.known_controls = self
+            .form
+            .controls
+            .iter()
             .map(|c| {
                 let type_name = format!("{:?}", c.control_type);
                 super::editor::KnownControl {
                     properties: cobolt_forms::model::property_names_for(&type_name),
-                    ctrl_type:  type_name,
-                    id:         c.id.clone(),
+                    ctrl_type: type_name,
+                    id: c.id.clone(),
                 }
             })
             .collect();
@@ -1123,15 +1480,21 @@ impl DesignerPanel {
             // Form-level event — create the binding if it doesn't exist yet
             // (only onLoad/onClose are pre-stubbed; the rest are created lazily).
             if !self.form.form_events.iter().any(|e| e.event == event_name) {
-                let paragraph = cobolt_forms::model::derive_paragraph_name(&self.form.name, event_name);
+                let paragraph =
+                    cobolt_forms::model::derive_paragraph_name(&self.form.name, event_name);
                 self.form.form_events.push(cobolt_forms::EventBinding {
-                    event:     event_name.to_string(),
+                    event: event_name.to_string(),
                     paragraph,
-                    code:      String::new(),
+                    code: String::new(),
                 });
             }
-            if let Some(ev) = self.form.form_events.iter_mut().find(|e| e.event == event_name) {
-                ev.code    = source;
+            if let Some(ev) = self
+                .form
+                .form_events
+                .iter_mut()
+                .find(|e| e.event == event_name)
+            {
+                ev.code = source;
                 self.dirty = true;
             }
         } else if let Some(ctrl) = self.form.find_control_mut(ctrl_id) {
@@ -1178,26 +1541,28 @@ impl DesignerPanel {
         if let Some(rest) = key.strip_prefix("Anim") {
             if let Some(us) = rest.find('_') {
                 let idx_str = &rest[..us];
-                let field   = &rest[us+1..];
+                let field = &rest[us + 1..];
                 if let Ok(idx) = idx_str.parse::<usize>() {
                     if let Some(ctrl) = self.form.find_control_mut(ctrl_id) {
                         if let Some(anim) = ctrl.animations.get_mut(idx) {
                             match field {
-                                "Name"     => anim.name        = value.as_str().to_owned(),
-                                "Trigger"  => anim.trigger     = AnimTrigger::from_str(value.as_str()),
-                                "Kind"     => anim.kind        = AnimKind::from_str(value.as_str()),
+                                "Name" => anim.name = value.as_str().to_owned(),
+                                "Trigger" => anim.trigger = AnimTrigger::from_str(value.as_str()),
+                                "Kind" => anim.kind = AnimKind::from_str(value.as_str()),
                                 "Duration" => anim.duration_ms = value.as_i64().max(1) as u64,
-                                "Delay"    => anim.delay_ms    = value.as_i64().max(0) as u64,
-                                "Easing"   => anim.easing      = EasingKind::from_str(value.as_str()),
-                                "Repeat"   => anim.repeat      = match value.as_str() {
-                                    "Loop"     => AnimRepeat::Loop,
-                                    "PingPong" => AnimRepeat::PingPong,
-                                    "Count"    => AnimRepeat::Count(3),
-                                    _          => AnimRepeat::Once,
-                                },
-                                "SlideDX"  => anim.slide_dx    = value.as_i64() as i32,
-                                "SlideDY"  => anim.slide_dy    = value.as_i64() as i32,
-                                _          => {}
+                                "Delay" => anim.delay_ms = value.as_i64().max(0) as u64,
+                                "Easing" => anim.easing = EasingKind::from_str(value.as_str()),
+                                "Repeat" => {
+                                    anim.repeat = match value.as_str() {
+                                        "Loop" => AnimRepeat::Loop,
+                                        "PingPong" => AnimRepeat::PingPong,
+                                        "Count" => AnimRepeat::Count(3),
+                                        _ => AnimRepeat::Once,
+                                    }
+                                }
+                                "SlideDX" => anim.slide_dx = value.as_i64() as i32,
+                                "SlideDY" => anim.slide_dy = value.as_i64() as i32,
+                                _ => {}
                             }
                             self.dirty = true;
                         }
@@ -1221,14 +1586,18 @@ impl DesignerPanel {
                 if let Some(old_rect) = old_opt {
                     let mut new_rect = old_rect;
                     match key {
-                        "X"      => new_rect.x = value.as_i64() as i32,
-                        "Y"      => new_rect.y = value.as_i64() as i32,
-                        "Width"  => new_rect.w = (value.as_i64() as i32).max(1),
+                        "X" => new_rect.x = value.as_i64() as i32,
+                        "Y" => new_rect.y = value.as_i64() as i32,
+                        "Width" => new_rect.w = (value.as_i64() as i32).max(1),
                         "Height" => new_rect.h = (value.as_i64() as i32).max(1),
-                        _        => {}
+                        _ => {}
                     }
                     if new_rect != old_rect {
-                        self.apply(Cmd::ResizeControl { id: ctrl_id.to_owned(), old_rect, new_rect });
+                        self.apply(Cmd::ResizeControl {
+                            id: ctrl_id.to_owned(),
+                            old_rect,
+                            new_rect,
+                        });
                     }
                 }
             }
@@ -1237,17 +1606,38 @@ impl DesignerPanel {
                     let old_z = c.z_order;
                     let new_z = value.as_i64() as i32;
                     if old_z != new_z {
-                        self.apply(Cmd::SetZOrder { id: ctrl_id.to_owned(), old_z, new_z });
+                        self.apply(Cmd::SetZOrder {
+                            id: ctrl_id.to_owned(),
+                            old_z,
+                            new_z,
+                        });
                     }
                 }
             }
-            "Visible"  => { if let Some(c) = self.form.find_control_mut(ctrl_id) { c.visible   = value.as_bool(); self.dirty = true; } }
-            "Enabled"  => { if let Some(c) = self.form.find_control_mut(ctrl_id) { c.enabled   = value.as_bool(); self.dirty = true; } }
-            "TabOrder" => { if let Some(c) = self.form.find_control_mut(ctrl_id) { c.tab_order = value.as_i64() as u32; self.dirty = true; } }
+            "Visible" => {
+                if let Some(c) = self.form.find_control_mut(ctrl_id) {
+                    c.visible = value.as_bool();
+                    self.dirty = true;
+                }
+            }
+            "Enabled" => {
+                if let Some(c) = self.form.find_control_mut(ctrl_id) {
+                    c.enabled = value.as_bool();
+                    self.dirty = true;
+                }
+            }
+            "TabOrder" => {
+                if let Some(c) = self.form.find_control_mut(ctrl_id) {
+                    c.tab_order = value.as_i64() as u32;
+                    self.dirty = true;
+                }
+            }
             _ => {
                 // When the ImagePath changes, evict the old texture from cache
                 if key == "ImagePath" {
-                    if let Some(old_path) = self.form.find_control(ctrl_id)
+                    if let Some(old_path) = self
+                        .form
+                        .find_control(ctrl_id)
                         .and_then(|c| c.get_prop("ImagePath"))
                         .map(|v| v.as_str().to_owned())
                     {
@@ -1256,24 +1646,65 @@ impl DesignerPanel {
                     // Also evict the new path in case the file changed on disk
                     self.image_cache.remove(value.as_str());
                 }
-                let old = self.form.find_control(ctrl_id).and_then(|c| c.properties.get(key).cloned());
-                self.apply(Cmd::SetProperty { id: ctrl_id.to_owned(), key: key.to_owned(), old, new: value });
+                let old = self
+                    .form
+                    .find_control(ctrl_id)
+                    .and_then(|c| c.properties.get(key).cloned());
+                self.apply(Cmd::SetProperty {
+                    id: ctrl_id.to_owned(),
+                    key: key.to_owned(),
+                    old,
+                    new: value,
+                });
             }
         }
     }
 
     pub fn set_form_prop(&mut self, key: &str, value: String) {
         match key {
-            "Title"     => { self.form.title            = value; self.dirty = true; }
-            "BackgroundColor" => { self.form.background_color = value.trim_start_matches('#').to_owned(); self.dirty = true; }
-            "Width"     => { if let Ok(w) = value.parse::<u32>() { self.form.width  = w.max(64); self.dirty = true; } }
-            "Height"    => { if let Ok(h) = value.parse::<u32>() { self.form.height = h.max(64); self.dirty = true; } }
-            "Transparency"    => { if let Ok(v) = value.parse::<u8>() { self.form.transparency = v.min(100); self.dirty = true; } }
-            "GridSize"        => { if let Ok(v) = value.parse::<u8>() { self.form.grid_size = v.clamp(4, 64); self.dirty = true; } }
-            "SnapToGrid"      => { self.form.snap_to_grid = value == "true" || value == "1"; self.dirty = true; }
-            "Target"          => {
+            "Title" => {
+                self.form.title = value;
+                self.dirty = true;
+            }
+            "BackgroundColor" => {
+                self.form.background_color = value.trim_start_matches('#').to_owned();
+                self.dirty = true;
+            }
+            "Width" => {
+                if let Ok(w) = value.parse::<u32>() {
+                    self.form.width = w.max(64);
+                    self.dirty = true;
+                }
+            }
+            "Height" => {
+                if let Ok(h) = value.parse::<u32>() {
+                    self.form.height = h.max(64);
+                    self.dirty = true;
+                }
+            }
+            "Transparency" => {
+                if let Ok(v) = value.parse::<u8>() {
+                    self.form.transparency = v.min(100);
+                    self.dirty = true;
+                }
+            }
+            "GridSize" => {
+                if let Ok(v) = value.parse::<u8>() {
+                    self.form.grid_size = v.clamp(4, 64);
+                    self.dirty = true;
+                }
+            }
+            "SnapToGrid" => {
+                self.form.snap_to_grid = value == "true" || value == "1";
+                self.dirty = true;
+            }
+            "GlassStyle" => {
+                self.form.glass_style = cobolt_forms::model::GlassStyle::from_str(&value);
+                self.dirty = true;
+            }
+            "Target" => {
                 if let Some((w, h)) = target_preset_size(&value) {
-                    self.form.width  = w;
+                    self.form.width = w;
                     self.form.height = h;
                 }
                 self.form.target = value;
@@ -1287,11 +1718,18 @@ impl DesignerPanel {
                 self.form.background_image = value;
                 self.dirty = true;
             }
-            "BgImageMode"     => { self.form.bg_image_mode = BgImageMode::from_str(&value); self.dirty = true; }
+            "BgImageMode" => {
+                self.form.bg_image_mode = BgImageMode::from_str(&value);
+                self.dirty = true;
+            }
             // 007 Form themes — per-form override + themed-background opt-in.
-            "Theme"           => {
+            "Theme" => {
                 let v = value.trim();
-                self.form.theme = if v.is_empty() { None } else { Some(v.to_owned()) };
+                self.form.theme = if v.is_empty() {
+                    None
+                } else {
+                    Some(v.to_owned())
+                };
                 self.dirty = true;
             }
             "UseThemeBackground" => {
@@ -1305,21 +1743,28 @@ impl DesignerPanel {
     /// Trigger animation preview for a control by animation name.
     pub fn play_animation_preview(&mut self, ctrl_id: &str, anim_name: &str) {
         // Look up the delay so we honour it during preview.
-        let delay_secs = self.form.find_control(ctrl_id)
+        let delay_secs = self
+            .form
+            .find_control(ctrl_id)
             .and_then(|c| c.animations.iter().find(|a| a.name == anim_name))
             .map(|a| a.delay_ms as f32 / 1000.0)
             .unwrap_or(0.0);
-        let state = self.anim_states
+        let state = self
+            .anim_states
             .entry(format!("{ctrl_id}:{anim_name}"))
             .or_insert_with(|| AnimState::new(anim_name));
         state.play(delay_secs);
     }
 
     /// Whether there is an undoable command on the stack (drives the toolbar Undo icon).
-    pub(crate) fn can_undo(&self) -> bool { !self.undo_stack.is_empty() }
+    pub(crate) fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
 
     /// Whether there is a redoable command on the stack (drives the toolbar Redo icon).
-    pub(crate) fn can_redo(&self) -> bool { !self.redo_stack.is_empty() }
+    pub(crate) fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
 
     /// Toggle the format-painter state machine (same logic as the old toolbar click).
     pub(crate) fn toggle_format_painter(&mut self) {
@@ -1330,13 +1775,19 @@ impl DesignerPanel {
             FormatPainter::Idle => {
                 if let Some(sid) = self.selected_ids.first().cloned() {
                     if let Some(src) = self.form.find_control(&sid) {
-                        let props = src.properties.iter()
+                        let props = src
+                            .properties
+                            .iter()
                             .filter(|(k, _)| STYLE_PROP_KEYS.contains(&k.as_str()))
                             .map(|(k, v)| (k.clone(), v.clone()))
                             .collect();
                         let animations = src.animations.clone();
                         let src_rect = src.rect.clone();
-                        self.format_painter = FormatPainter::WaitingForTarget { props, animations, src_rect };
+                        self.format_painter = FormatPainter::WaitingForTarget {
+                            props,
+                            animations,
+                            src_rect,
+                        };
                     }
                 }
             }
@@ -1345,10 +1796,16 @@ impl DesignerPanel {
 
     /// Play all OnFormLoad animations (Preview Anims button).
     pub(crate) fn play_all_form_load_anims(&mut self) {
-        let ctrl_anims: Vec<(String, String)> = self.form.controls.iter()
-            .flat_map(|c| c.animations.iter()
-                .filter(|a| a.trigger == AnimTrigger::OnFormLoad)
-                .map(move |a| (c.id.clone(), a.name.clone())))
+        let ctrl_anims: Vec<(String, String)> = self
+            .form
+            .controls
+            .iter()
+            .flat_map(|c| {
+                c.animations
+                    .iter()
+                    .filter(|a| a.trigger == AnimTrigger::OnFormLoad)
+                    .map(move |a| (c.id.clone(), a.name.clone()))
+            })
             .collect();
         for (cid, aname) in ctrl_anims {
             self.play_animation_preview(&cid, &aname);
@@ -1364,6 +1821,7 @@ impl DesignerPanel {
         // so the shared `draw_control` skins controls (canvas + preview). `None`
         // ⇒ procedural Liquid Glass.
         cobolt_forms::paint::set_active_theme(ui.ctx(), self.active_theme_pack.clone());
+        cobolt_forms::paint::set_glass_style(ui.ctx(), self.form.glass_style);
 
         // Step animation previews
         let now = std::time::Instant::now();
@@ -1378,24 +1836,37 @@ impl DesignerPanel {
         if dt > 0.0 {
             let mut need_repaint = false;
             // Collect animation definitions: key -> (duration_ms, delay_ms)
-            let anim_meta: HashMap<String, (u64, u64)> = self.form.controls.iter()
-                .flat_map(|c| c.animations.iter()
-                    .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.delay_ms))))
+            let anim_meta: HashMap<String, (u64, u64)> = self
+                .form
+                .controls
+                .iter()
+                .flat_map(|c| {
+                    c.animations
+                        .iter()
+                        .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.delay_ms)))
+                })
                 .collect();
 
             for (key, state) in self.anim_states.iter_mut() {
-                if !state.playing { continue; }
+                if !state.playing {
+                    continue;
+                }
 
                 // ── Delay phase: count down before t starts moving ────────────
                 if state.delay_remaining > 0.0 {
                     state.delay_remaining -= dt;
-                    if state.delay_remaining < 0.0 { state.delay_remaining = 0.0; }
+                    if state.delay_remaining < 0.0 {
+                        state.delay_remaining = 0.0;
+                    }
                     need_repaint = true;
                     continue; // don't advance t yet
                 }
 
                 let dur = anim_meta.get(key).map(|(d, _)| *d).unwrap_or(400) as f32 / 1000.0;
-                if dur <= 0.0 { state.stop(); continue; }
+                if dur <= 0.0 {
+                    state.stop();
+                    continue;
+                }
                 state.t += dt / dur;
                 if state.t >= 1.0 {
                     state.t = 1.0;
@@ -1403,10 +1874,12 @@ impl DesignerPanel {
                 }
                 need_repaint = true;
             }
-            if need_repaint { ui.ctx().request_repaint(); }
+            if need_repaint {
+                ui.ctx().request_repaint();
+            }
         }
 
-        let canvas_w = self.form.width  as f32;
+        let canvas_w = self.form.width as f32;
         let canvas_h = self.form.height as f32;
 
         egui::ScrollArea::both()
@@ -1416,10 +1889,8 @@ impl DesignerPanel {
             // (spec 012 follow-up: restore lost form-content scrolling).
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let (resp, painter) = ui.allocate_painter(
-                    Vec2::new(canvas_w, canvas_h),
-                    Sense::click_and_drag(),
-                );
+                let (resp, painter) =
+                    ui.allocate_painter(Vec2::new(canvas_w, canvas_h), Sense::click_and_drag());
                 let origin = resp.rect.min;
 
                 // ── Form canvas background ─────────────────────────────────────
@@ -1430,7 +1901,9 @@ impl DesignerPanel {
                 let bg_raw = parse_color(&self.form.background_color);
                 // Apply form transparency to background alpha
                 let bg = Color32::from_rgba_premultiplied(
-                    bg_raw.r(), bg_raw.g(), bg_raw.b(),
+                    bg_raw.r(),
+                    bg_raw.g(),
+                    bg_raw.b(),
                     ((bg_raw.a() as f32) * form_alpha_mul) as u8,
                 );
                 // WYSIWYG: a fully transparent form renders over the runtime's
@@ -1439,13 +1912,23 @@ impl DesignerPanel {
                 // captions that will be perfectly visible at run time.
                 let runtime_glass = Color32::from_rgba_unmultiplied(20, 24, 44, 200);
                 let canvas_bg = if bg.a() > 0 { bg } else { runtime_glass };
+                // Corner-notch masks repaint the visible backdrop after child
+                // controls. Use the composited canvas colour so translucent
+                // forms/glass do not either darken (double alpha) or fail to
+                // cover child bleed.
+                let notch_fill = cobolt_forms::paint::composite_premultiplied_over(
+                    canvas_bg,
+                    ui.visuals().panel_fill,
+                );
                 if self.glass_mode {
                     let corner = egui::Rounding::same(6.0);
                     painter.rect_filled(resp.rect, corner, canvas_bg);
                     // Thin border so the form boundary is always visible
-                    painter.rect_stroke(resp.rect, corner,
-                        egui::Stroke::new(1.0,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 60)));
+                    painter.rect_stroke(
+                        resp.rect,
+                        corner,
+                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 60)),
+                    );
                 } else {
                     painter.rect_filled(resp.rect, 0.0, canvas_bg);
                 }
@@ -1454,7 +1937,11 @@ impl DesignerPanel {
                 // When the form opts in and the active pack provides one, the
                 // theme background replaces the form's own back-colour image.
                 let themed_bg = cobolt_forms::paint::draw_theme_background(
-                    &painter, resp.rect, self.form.use_theme_background, form_alpha_mul);
+                    &painter,
+                    resp.rect,
+                    self.form.use_theme_background,
+                    form_alpha_mul,
+                );
 
                 // ── Background image ───────────────────────────────────────────
                 // Captured for the corner-notch mask: the backdrop texture + the
@@ -1468,85 +1955,139 @@ impl DesignerPanel {
                     self.load_image(&bg_img_path, &ctx_ref2);
                     let img_alpha = (255.0 * form_alpha_mul) as u8;
                     if img_alpha > 0 {
-                    if let Some(tex) = self.image_cache.get(&bg_img_path).and_then(|o| o.as_ref()) {
-                        let tex_size = tex.size_vec2();
-                        // White tint at varying alpha — no color modulation, just transparency
-                        let tint = Color32::from_rgba_premultiplied(255, 255, 255, img_alpha);
-                        let tex_id = tex.id();
-                        let form_rect = resp.rect;
-                        match bg_img_mode {
-                            BgImageMode::Stretch => {
-                                painter.image(tex_id, form_rect, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
-                                notch_img = Some((tex_id, form_rect));
-                            }
-                            BgImageMode::Fill => {
-                                // Scale so image fills the whole form keeping aspect ratio (crops if needed)
-                                let sx = form_rect.width()  / tex_size.x;
-                                let sy = form_rect.height() / tex_size.y;
-                                let s  = sx.max(sy);
-                                let dw = tex_size.x * s;
-                                let dh = tex_size.y * s;
-                                let ox = (form_rect.width()  - dw) / 2.0;
-                                let oy = (form_rect.height() - dh) / 2.0;
-                                let dest = egui::Rect::from_min_size(
-                                    form_rect.min + egui::vec2(ox, oy),
-                                    egui::vec2(dw, dh),
-                                );
-                                painter.image(tex_id, dest, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
-                                notch_img = Some((tex_id, dest));
-                            }
-                            BgImageMode::Fit => {
-                                // Scale so whole image fits inside form, keeping aspect ratio (letterbox)
-                                let sx = form_rect.width()  / tex_size.x;
-                                let sy = form_rect.height() / tex_size.y;
-                                let s  = sx.min(sy);
-                                let dw = tex_size.x * s;
-                                let dh = tex_size.y * s;
-                                let ox = (form_rect.width()  - dw) / 2.0;
-                                let oy = (form_rect.height() - dh) / 2.0;
-                                let dest = egui::Rect::from_min_size(
-                                    form_rect.min + egui::vec2(ox, oy),
-                                    egui::vec2(dw, dh),
-                                );
-                                painter.image(tex_id, dest, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
-                                notch_img = Some((tex_id, dest));
-                            }
-                            BgImageMode::Center => {
-                                let ox = (form_rect.width()  - tex_size.x) / 2.0;
-                                let oy = (form_rect.height() - tex_size.y) / 2.0;
-                                let dest = egui::Rect::from_min_size(
-                                    form_rect.min + egui::vec2(ox, oy),
-                                    tex_size,
-                                );
-                                painter.image(tex_id, dest, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(1.0,1.0)), tint);
-                                notch_img = Some((tex_id, dest));
-                            }
-                            BgImageMode::Tile => {
-                                // Tile the image across the form canvas
-                                let tw = tex_size.x.max(1.0);
-                                let th = tex_size.y.max(1.0);
-                                // Notch mask samples one tile from the form origin and
-                                // relies on Repeat wrap to tile (matches this phase).
-                                notch_img = Some((tex_id, egui::Rect::from_min_size(form_rect.min, egui::vec2(tw, th))));
-                                let cols = (form_rect.width()  / tw).ceil() as i32 + 1;
-                                let rows = (form_rect.height() / th).ceil() as i32 + 1;
-                                for row in 0..rows {
-                                    for col in 0..cols {
-                                        let tile_min = form_rect.min + egui::vec2(col as f32 * tw, row as f32 * th);
-                                        let tile_max = egui::pos2(
-                                            (tile_min.x + tw).min(form_rect.max.x),
-                                            (tile_min.y + th).min(form_rect.max.y),
-                                        );
-                                        if tile_min.x >= form_rect.max.x || tile_min.y >= form_rect.max.y { continue; }
-                                        let u1 = (tile_max.x - tile_min.x) / tw;
-                                        let v1 = (tile_max.y - tile_min.y) / th;
-                                        let dest_tile = egui::Rect::from_min_max(tile_min, tile_max);
-                                        painter.image(tex_id, dest_tile, egui::Rect::from_min_max(egui::pos2(0.0,0.0), egui::pos2(u1,v1)), tint);
+                        if let Some(tex) =
+                            self.image_cache.get(&bg_img_path).and_then(|o| o.as_ref())
+                        {
+                            let tex_size = tex.size_vec2();
+                            // White tint at varying alpha — no color modulation, just transparency
+                            let tint = Color32::from_rgba_premultiplied(255, 255, 255, img_alpha);
+                            let tex_id = tex.id();
+                            let form_rect = resp.rect;
+                            match bg_img_mode {
+                                BgImageMode::Stretch => {
+                                    painter.image(
+                                        tex_id,
+                                        form_rect,
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(0.0, 0.0),
+                                            egui::pos2(1.0, 1.0),
+                                        ),
+                                        tint,
+                                    );
+                                    notch_img = Some((tex_id, form_rect));
+                                }
+                                BgImageMode::Fill => {
+                                    // Scale so image fills the whole form keeping aspect ratio (crops if needed)
+                                    let sx = form_rect.width() / tex_size.x;
+                                    let sy = form_rect.height() / tex_size.y;
+                                    let s = sx.max(sy);
+                                    let dw = tex_size.x * s;
+                                    let dh = tex_size.y * s;
+                                    let ox = (form_rect.width() - dw) / 2.0;
+                                    let oy = (form_rect.height() - dh) / 2.0;
+                                    let dest = egui::Rect::from_min_size(
+                                        form_rect.min + egui::vec2(ox, oy),
+                                        egui::vec2(dw, dh),
+                                    );
+                                    painter.image(
+                                        tex_id,
+                                        dest,
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(0.0, 0.0),
+                                            egui::pos2(1.0, 1.0),
+                                        ),
+                                        tint,
+                                    );
+                                    notch_img = Some((tex_id, dest));
+                                }
+                                BgImageMode::Fit => {
+                                    // Scale so whole image fits inside form, keeping aspect ratio (letterbox)
+                                    let sx = form_rect.width() / tex_size.x;
+                                    let sy = form_rect.height() / tex_size.y;
+                                    let s = sx.min(sy);
+                                    let dw = tex_size.x * s;
+                                    let dh = tex_size.y * s;
+                                    let ox = (form_rect.width() - dw) / 2.0;
+                                    let oy = (form_rect.height() - dh) / 2.0;
+                                    let dest = egui::Rect::from_min_size(
+                                        form_rect.min + egui::vec2(ox, oy),
+                                        egui::vec2(dw, dh),
+                                    );
+                                    painter.image(
+                                        tex_id,
+                                        dest,
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(0.0, 0.0),
+                                            egui::pos2(1.0, 1.0),
+                                        ),
+                                        tint,
+                                    );
+                                    notch_img = Some((tex_id, dest));
+                                }
+                                BgImageMode::Center => {
+                                    let ox = (form_rect.width() - tex_size.x) / 2.0;
+                                    let oy = (form_rect.height() - tex_size.y) / 2.0;
+                                    let dest = egui::Rect::from_min_size(
+                                        form_rect.min + egui::vec2(ox, oy),
+                                        tex_size,
+                                    );
+                                    painter.image(
+                                        tex_id,
+                                        dest,
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(0.0, 0.0),
+                                            egui::pos2(1.0, 1.0),
+                                        ),
+                                        tint,
+                                    );
+                                    notch_img = Some((tex_id, dest));
+                                }
+                                BgImageMode::Tile => {
+                                    // Tile the image across the form canvas
+                                    let tw = tex_size.x.max(1.0);
+                                    let th = tex_size.y.max(1.0);
+                                    // Notch mask samples one tile from the form origin and
+                                    // relies on Repeat wrap to tile (matches this phase).
+                                    notch_img = Some((
+                                        tex_id,
+                                        egui::Rect::from_min_size(
+                                            form_rect.min,
+                                            egui::vec2(tw, th),
+                                        ),
+                                    ));
+                                    let cols = (form_rect.width() / tw).ceil() as i32 + 1;
+                                    let rows = (form_rect.height() / th).ceil() as i32 + 1;
+                                    for row in 0..rows {
+                                        for col in 0..cols {
+                                            let tile_min = form_rect.min
+                                                + egui::vec2(col as f32 * tw, row as f32 * th);
+                                            let tile_max = egui::pos2(
+                                                (tile_min.x + tw).min(form_rect.max.x),
+                                                (tile_min.y + th).min(form_rect.max.y),
+                                            );
+                                            if tile_min.x >= form_rect.max.x
+                                                || tile_min.y >= form_rect.max.y
+                                            {
+                                                continue;
+                                            }
+                                            let u1 = (tile_max.x - tile_min.x) / tw;
+                                            let v1 = (tile_max.y - tile_min.y) / th;
+                                            let dest_tile =
+                                                egui::Rect::from_min_max(tile_min, tile_max);
+                                            painter.image(
+                                                tex_id,
+                                                dest_tile,
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(0.0, 0.0),
+                                                    egui::pos2(u1, v1),
+                                                ),
+                                                tint,
+                                            );
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } // if let Some(tex)
+                        } // if let Some(tex)
                     } // if img_alpha > 0
                 }
 
@@ -1557,9 +2098,10 @@ impl DesignerPanel {
                 }
 
                 // Pointer position in canvas space
-                let ptr_canvas: Option<(i32, i32)> = ui.ctx()
-                    .pointer_interact_pos()
-                    .map(|p| { let rel = p - origin; (rel.x as i32, rel.y as i32) });
+                let ptr_canvas: Option<(i32, i32)> = ui.ctx().pointer_interact_pos().map(|p| {
+                    let rel = p - origin;
+                    (rel.x as i32, rel.y as i32)
+                });
 
                 // Show pointer cursor when hovering over any control on the canvas.
                 if let Some((cx, cy)) = ptr_canvas {
@@ -1578,7 +2120,7 @@ impl DesignerPanel {
 
                 // Draw controls sorted by z_order
                 let selected_ids = self.selected_ids.clone();
-                let form_w = self.form.width  as f32;
+                let form_w = self.form.width as f32;
                 let form_h = self.form.height as f32;
 
                 // Build render list in container tree order — parents before
@@ -1597,18 +2139,35 @@ impl DesignerPanel {
                 // them exactly. The designer overlays its editor chrome (selection
                 // border + handles, badges, clones, grid, drop hints) on top using
                 // the on-screen rects the engine returns.
-                let anim_tf: std::collections::HashMap<String, cobolt_forms::render::RenderTransform> =
-                    self.form.controls.iter().filter_map(|c| {
+                let anim_tf: std::collections::HashMap<
+                    String,
+                    cobolt_forms::render::RenderTransform,
+                > = self
+                    .form
+                    .controls
+                    .iter()
+                    .filter_map(|c| {
                         c.animations.iter().find_map(|a| {
                             let key = format!("{}:{}", c.id, a.name);
-                            self.anim_states.get(&key)
+                            self.anim_states
+                                .get(&key)
                                 .filter(|s| s.playing || (s.t > 0.0 && s.t < 1.0))
                                 .map(|s| {
-                                    let (dx, dy, scale, alpha) = anim_transform(a, form_w, form_h, s.t);
-                                    (c.id.clone(), cobolt_forms::render::RenderTransform { dx, dy, scale, alpha })
+                                    let (dx, dy, scale, alpha) =
+                                        anim_transform(a, form_w, form_h, s.t);
+                                    (
+                                        c.id.clone(),
+                                        cobolt_forms::render::RenderTransform {
+                                            dx,
+                                            dy,
+                                            scale,
+                                            alpha,
+                                        },
+                                    )
                                 })
                         })
-                    }).collect();
+                    })
+                    .collect();
                 let control_rects = {
                     let st = DesignerState { anim: &anim_tf };
                     let input = cobolt_forms::render::RenderInput {
@@ -1632,7 +2191,18 @@ impl DesignerPanel {
                 {
                     let img_alpha = (255.0 * form_alpha_mul) as u8;
                     for ctrl in &self.form.controls {
-                        if !matches!(ctrl.control_type, ControlType::GroupBox | ControlType::Panel) {
+                        if !matches!(
+                            ctrl.control_type,
+                            ControlType::GroupBox | ControlType::Panel
+                        ) {
+                            continue;
+                        }
+                        if ctrl.parent.is_some() {
+                            // Nested rounded containers must reveal the already
+                            // painted parent surface in their notches. Masking
+                            // them with the form/canvas backdrop cuts through
+                            // that parent and creates the dark patterned corner
+                            // rectangles we are debugging.
                             continue;
                         }
                         let rad = cobolt_forms::paint::corner_radius(ctrl);
@@ -1641,8 +2211,23 @@ impl DesignerPanel {
                         }
                         if let Some(crect) = control_rects.get(&ctrl.id) {
                             cobolt_forms::paint::draw_container_notch_mask(
-                                &painter, *crect, egui::Rounding::same(rad),
-                                canvas_bg, notch_img, img_alpha);
+                                &painter,
+                                *crect,
+                                egui::Rounding::same(rad),
+                                notch_fill,
+                                notch_img,
+                                img_alpha,
+                            );
+                            if self.show_grid {
+                                draw_grid_in_rounded_notches(
+                                    &painter,
+                                    resp.rect,
+                                    *crect,
+                                    egui::Rounding::same(rad),
+                                    self.form.grid_size.max(4) as f32,
+                                    self.glass_mode,
+                                );
+                            }
                         }
                     }
                 }
@@ -1650,28 +2235,52 @@ impl DesignerPanel {
                 // ── Editor badges on top of the faces ───────────────────────────
                 for &idx in &render_order {
                     let ctrl = &self.form.controls[idx];
-                    let Some(crect) = control_rects.get(&ctrl.id) else { continue; };
+                    let Some(crect) = control_rects.get(&ctrl.id) else {
+                        continue;
+                    };
                     // Repeating-group ARRAY marker at the GroupBox top-right (spec 015).
                     if matches!(ctrl.control_type, ControlType::GroupBox)
-                        && ctrl.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false)
+                        && ctrl
+                            .get_prop("IsRepeatingGroup")
+                            .map(|v| v.as_bool())
+                            .unwrap_or(false)
                     {
                         let (bw, bh) = (46.0_f32, 15.0_f32);
                         let brect = egui::Rect::from_min_size(
                             egui::pos2(crect.max.x - bw - 3.0, crect.min.y + 3.0),
-                            Vec2::new(bw, bh));
-                        painter.rect_filled(brect, 3.0, Color32::from_rgba_premultiplied(60, 120, 230, 230));
-                        painter.text(brect.center(), egui::Align2::CENTER_CENTER, "▦ ARRAY",
-                            egui::FontId::proportional(9.0), Color32::WHITE);
+                            Vec2::new(bw, bh),
+                        );
+                        painter.rect_filled(
+                            brect,
+                            3.0,
+                            Color32::from_rgba_premultiplied(60, 120, 230, 230),
+                        );
+                        painter.text(
+                            brect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "▦ ARRAY",
+                            egui::FontId::proportional(9.0),
+                            Color32::WHITE,
+                        );
                     }
                     // Animation badge tooltip — hover to see the animation list.
                     if !ctrl.animations.is_empty() {
                         let badge_rect = egui::Rect::from_center_size(
-                            egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0), Vec2::splat(12.0));
-                        let anim_summary: String = ctrl.animations.iter()
+                            egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0),
+                            Vec2::splat(12.0),
+                        );
+                        let anim_summary: String = ctrl
+                            .animations
+                            .iter()
                             .map(|a| format!("▶ {} ({:?})", a.name, a.trigger))
-                            .collect::<Vec<_>>().join("\n");
-                        ui.interact(badge_rect, egui::Id::new(("anim_badge", ctrl.id.as_str())), egui::Sense::hover())
-                            .on_hover_text(format!("Animations set:\n{anim_summary}"));
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        ui.interact(
+                            badge_rect,
+                            egui::Id::new(("anim_badge", ctrl.id.as_str())),
+                            egui::Sense::hover(),
+                        )
+                        .on_hover_text(format!("Animations set:\n{anim_summary}"));
                     }
                 }
 
@@ -1683,8 +2292,11 @@ impl DesignerPanel {
                         (control_rects.get(sid), self.form.find_control(sid))
                     {
                         let corner = cobolt_forms::paint::corner_radius(ctrl);
-                        painter.rect_stroke(*crect, corner,
-                            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)));
+                        painter.rect_stroke(
+                            *crect,
+                            corner,
+                            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)),
+                        );
                     }
                 }
 
@@ -1697,16 +2309,43 @@ impl DesignerPanel {
                     let ro = super::containers::render_order(controls);
                     for gi in 0..controls.len() {
                         let g = &controls[gi];
-                        if !matches!(g.control_type, ControlType::GroupBox) { continue; }
-                        if g.parent.is_some() { continue; }
-                        if !g.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false) { continue; }
-                        let n = g.get_prop("PreviewItemCount").map(|v| v.as_i64()).unwrap_or(1).clamp(1, 50);
-                        if n <= 1 { continue; }
-                        let spacing = g.get_prop("ItemSpacing").map(|v| v.as_i64()).unwrap_or(8).max(0) as f32;
-                        let layout = g.get_prop("LayoutDirection").map(|v| v.as_str().to_owned())
+                        if !matches!(g.control_type, ControlType::GroupBox) {
+                            continue;
+                        }
+                        if g.parent.is_some() {
+                            continue;
+                        }
+                        if !g
+                            .get_prop("IsRepeatingGroup")
+                            .map(|v| v.as_bool())
+                            .unwrap_or(false)
+                        {
+                            continue;
+                        }
+                        let n = g
+                            .get_prop("PreviewItemCount")
+                            .map(|v| v.as_i64())
+                            .unwrap_or(1)
+                            .clamp(1, 50);
+                        if n <= 1 {
+                            continue;
+                        }
+                        let spacing = g
+                            .get_prop("ItemSpacing")
+                            .map(|v| v.as_i64())
+                            .unwrap_or(8)
+                            .max(0) as f32;
+                        let layout = g
+                            .get_prop("LayoutDirection")
+                            .map(|v| v.as_str().to_owned())
                             .unwrap_or_else(|| "Vertical".into());
-                        let ipr = g.get_prop("ItemsPerRow").map(|v| v.as_i64()).unwrap_or(1).max(1);
-                        let gw = g.rect.w as f32; let gh = g.rect.h as f32;
+                        let ipr = g
+                            .get_prop("ItemsPerRow")
+                            .map(|v| v.as_i64())
+                            .unwrap_or(1)
+                            .max(1);
+                        let gw = g.rect.w as f32;
+                        let gh = g.rect.h as f32;
                         let subtree: Vec<usize> = std::iter::once(gi)
                             .chain(super::containers::collect_descendants(controls, gi))
                             .collect();
@@ -1722,8 +2361,10 @@ impl DesignerPanel {
                             };
                             // Clip descendants to the shifted group's content area.
                             let gclip = egui::Rect::from_min_size(
-                                origin + Vec2::new(g_content.x as f32 + dx, g_content.y as f32 + dy),
-                                Vec2::new(g_content.w as f32, g_content.h as f32));
+                                origin
+                                    + Vec2::new(g_content.x as f32 + dx, g_content.y as f32 + dy),
+                                Vec2::new(g_content.w as f32, g_content.h as f32),
+                            );
                             // Group frame first (behind), then its subtree in z-order.
                             for &si in std::iter::once(&gi)
                                 .chain(ro.iter().filter(|i| **i != gi && subtree.contains(i)))
@@ -1731,9 +2372,21 @@ impl DesignerPanel {
                                 let mut clone = controls[si].clone();
                                 clone.rect.x += dx as i32;
                                 clone.rect.y += dy as i32;
-                                let dp = if si == gi { painter.clone() }
-                                    else { painter.with_clip_rect(painter.clip_rect().intersect(gclip)) };
-                                draw_control(&dp, origin, &clone, false, self.glass_mode, 0.45, 1.0, None);
+                                let dp = if si == gi {
+                                    painter.clone()
+                                } else {
+                                    painter.with_clip_rect(painter.clip_rect().intersect(gclip))
+                                };
+                                draw_control(
+                                    &dp,
+                                    origin,
+                                    &clone,
+                                    false,
+                                    self.glass_mode,
+                                    0.45,
+                                    1.0,
+                                    None,
+                                );
                             }
                         }
                     }
@@ -1760,37 +2413,74 @@ impl DesignerPanel {
                             origin + Vec2::new(r.x as f32, r.y as f32),
                             Vec2::new(r.w as f32, r.h as f32),
                         );
-                        painter.rect_stroke(rect, 2.0, Stroke::new(1.5, Color32::from_rgba_premultiplied(100,200,255,200)));
+                        painter.rect_stroke(
+                            rect,
+                            2.0,
+                            Stroke::new(1.5, Color32::from_rgba_premultiplied(100, 200, 255, 200)),
+                        );
                     }
                 }
 
                 // Draw rubber-band rectangle
-                if let DragState::RubberBand { start_x, start_y, cur_x, cur_y } = self.drag {
+                if let DragState::RubberBand {
+                    start_x,
+                    start_y,
+                    cur_x,
+                    cur_y,
+                } = self.drag
+                {
                     let x0 = start_x.min(cur_x) as f32 + origin.x;
                     let y0 = start_y.min(cur_y) as f32 + origin.y;
                     let x1 = start_x.max(cur_x) as f32 + origin.x;
                     let y1 = start_y.max(cur_y) as f32 + origin.y;
-                    let band_rect = egui::Rect::from_min_max(Pos2::new(x0,y0), Pos2::new(x1,y1));
-                    painter.rect_filled(band_rect, 0.0, Color32::from_rgba_premultiplied(80,140,255,30));
-                    painter.rect_stroke(band_rect, 0.0, Stroke::new(1.0, Color32::from_rgba_premultiplied(100,170,255,220)));
+                    let band_rect = egui::Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x1, y1));
+                    painter.rect_filled(
+                        band_rect,
+                        0.0,
+                        Color32::from_rgba_premultiplied(80, 140, 255, 30),
+                    );
+                    painter.rect_stroke(
+                        band_rect,
+                        0.0,
+                        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 170, 255, 220)),
+                    );
                 }
 
                 // Right-click context menu
                 resp.context_menu(|ui| {
-                    if ui.button("🗑 Delete").clicked() { self.delete_selected(); ui.close_menu(); }
+                    if ui.button("🗑 Delete").clicked() {
+                        self.delete_selected();
+                        ui.close_menu();
+                    }
                     ui.separator();
-                    if ui.button("⬆ Bring to Front").clicked() { self.bring_to_front(); ui.close_menu(); }
-                    if ui.button("⬇ Send to Back").clicked()   { self.send_to_back();   ui.close_menu(); }
-                    if ui.button("+1 Forward").clicked()        { self.bring_forward();  ui.close_menu(); }
-                    if ui.button("-1 Backward").clicked()       { self.send_backward();  ui.close_menu(); }
+                    if ui.button("⬆ Bring to Front").clicked() {
+                        self.bring_to_front();
+                        ui.close_menu();
+                    }
+                    if ui.button("⬇ Send to Back").clicked() {
+                        self.send_to_back();
+                        ui.close_menu();
+                    }
+                    if ui.button("+1 Forward").clicked() {
+                        self.bring_forward();
+                        ui.close_menu();
+                    }
+                    if ui.button("-1 Backward").clicked() {
+                        self.send_backward();
+                        ui.close_menu();
+                    }
                     ui.separator();
                     // Play animations
                     let anim_preview: Option<(String, Vec<String>)> =
                         self.selected_ids.first().cloned().and_then(|sid| {
                             self.form.find_control(&sid).and_then(|ctrl| {
-                                if ctrl.animations.is_empty() { None }
-                                else {
-                                    Some((sid, ctrl.animations.iter().map(|a| a.name.clone()).collect()))
+                                if ctrl.animations.is_empty() {
+                                    None
+                                } else {
+                                    Some((
+                                        sid,
+                                        ctrl.animations.iter().map(|a| a.name.clone()).collect(),
+                                    ))
                                 }
                             })
                         });
@@ -1809,40 +2499,74 @@ impl DesignerPanel {
                         let sid = self.selected_ids[0].clone();
                         self.form.find_control(&sid).and_then(|c| {
                             if matches!(c.control_type, ControlType::GroupBox) {
-                                Some((sid, c.get_prop("IsRepeatingGroup").map(|v| v.as_bool()).unwrap_or(false)))
-                            } else { None }
+                                Some((
+                                    sid,
+                                    c.get_prop("IsRepeatingGroup")
+                                        .map(|v| v.as_bool())
+                                        .unwrap_or(false),
+                                ))
+                            } else {
+                                None
+                            }
                         })
-                    } else { None };
+                    } else {
+                        None
+                    };
                     if let Some((gid, is_rep)) = gb_rep {
                         ui.separator();
                         if is_rep {
                             if ui.button("▦ Unset Repeating Group").clicked() {
-                                let old = self.form.find_control(&gid)
+                                let old = self
+                                    .form
+                                    .find_control(&gid)
                                     .and_then(|c| c.get_prop("IsRepeatingGroup").cloned());
-                                self.apply(Cmd::SetProperty { id: gid.clone(), key: "IsRepeatingGroup".into(),
-                                    old, new: PropValue::Bool(false) });
+                                self.apply(Cmd::SetProperty {
+                                    id: gid.clone(),
+                                    key: "IsRepeatingGroup".into(),
+                                    old,
+                                    new: PropValue::Bool(false),
+                                });
                                 ui.close_menu();
                             }
                         } else if ui.button("▦ Set as Repeating Group").clicked() {
                             // Seed ArrayName with the control id when still empty.
-                            let cur_an = self.form.find_control(&gid)
-                                .and_then(|c| c.get_prop("ArrayName").map(|v| v.as_str().to_owned()))
+                            let cur_an = self
+                                .form
+                                .find_control(&gid)
+                                .and_then(|c| {
+                                    c.get_prop("ArrayName").map(|v| v.as_str().to_owned())
+                                })
                                 .unwrap_or_default();
                             if cur_an.is_empty() {
-                                let old_an = self.form.find_control(&gid)
+                                let old_an = self
+                                    .form
+                                    .find_control(&gid)
                                     .and_then(|c| c.get_prop("ArrayName").cloned());
-                                self.apply(Cmd::SetProperty { id: gid.clone(), key: "ArrayName".into(),
-                                    old: old_an, new: PropValue::String(gid.clone()) });
+                                self.apply(Cmd::SetProperty {
+                                    id: gid.clone(),
+                                    key: "ArrayName".into(),
+                                    old: old_an,
+                                    new: PropValue::String(gid.clone()),
+                                });
                             }
-                            let old = self.form.find_control(&gid)
+                            let old = self
+                                .form
+                                .find_control(&gid)
                                 .and_then(|c| c.get_prop("IsRepeatingGroup").cloned());
-                            self.apply(Cmd::SetProperty { id: gid.clone(), key: "IsRepeatingGroup".into(),
-                                old, new: PropValue::Bool(true) });
+                            self.apply(Cmd::SetProperty {
+                                id: gid.clone(),
+                                key: "IsRepeatingGroup".into(),
+                                old,
+                                new: PropValue::Bool(true),
+                            });
                             ui.close_menu();
                         }
                     }
                     ui.separator();
-                    if ui.button("🏷 Auto-arrange Labels").clicked() { self.auto_arrange_labels(); ui.close_menu(); }
+                    if ui.button("🏷 Auto-arrange Labels").clicked() {
+                        self.auto_arrange_labels();
+                        ui.close_menu();
+                    }
                 });
 
                 // Click on canvas — select / deselect
@@ -1852,11 +2576,15 @@ impl DesignerPanel {
                         // A click on a TabControl's tab strip switches its active
                         // page (spec 012) instead of selecting a child.
                         if let Some((tab_id, ti)) = self.tab_strip_hit(cx, cy) {
-                            let old = self.form.find_control(&tab_id)
+                            let old = self
+                                .form
+                                .find_control(&tab_id)
                                 .and_then(|c| c.get_prop("SelectedTab").cloned());
                             self.apply(Cmd::SetProperty {
-                                id: tab_id.clone(), key: "SelectedTab".into(),
-                                old, new: PropValue::Int(ti as i64),
+                                id: tab_id.clone(),
+                                key: "SelectedTab".into(),
+                                old,
+                                new: PropValue::Int(ti as i64),
                             });
                             self.active_tabs.insert(tab_id.clone(), ti);
                             self.set_selected_one(Some(tab_id));
@@ -1872,7 +2600,8 @@ impl DesignerPanel {
                                 }
                             } else {
                                 let hit_same = self.selected_ids.len() == 1
-                                    && hit.as_deref() == self.selected_ids.first().map(|s| s.as_str());
+                                    && hit.as_deref()
+                                        == self.selected_ids.first().map(|s| s.as_str());
                                 if !hit_same {
                                     self.set_selected_one(hit);
                                     selection_changed = true;
@@ -1896,14 +2625,24 @@ impl DesignerPanel {
         // Guard: only fire when no text-input control has keyboard focus (i.e. the user is
         // not editing a property field, animation name, etc. in the properties panel).
         let no_text_focus = ctx.memory(|m| m.focused().is_none());
-        let want_delete = no_text_focus && !self.selected_ids.is_empty() && ctx.input(|i| {
-            (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
-                && !i.modifiers.command  // don't eat Cmd+Backspace (system shortcuts)
-        });
-        if want_delete { self.delete_selected(); }
-        if ctx.input(|i| i.key_pressed(egui::Key::Z) && i.modifiers.command && !i.modifiers.shift) { self.undo(); }
-        if ctx.input(|i| i.key_pressed(egui::Key::Y) && i.modifiers.command) { self.redo(); }
-        if ctx.input(|i| i.key_pressed(egui::Key::Z) && i.modifiers.command && i.modifiers.shift) { self.redo(); }
+        let want_delete = no_text_focus
+            && !self.selected_ids.is_empty()
+            && ctx.input(|i| {
+                (i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
+                    && !i.modifiers.command // don't eat Cmd+Backspace (system shortcuts)
+            });
+        if want_delete {
+            self.delete_selected();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Z) && i.modifiers.command && !i.modifiers.shift) {
+            self.undo();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Y) && i.modifiers.command) {
+            self.redo();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Z) && i.modifiers.command && i.modifiers.shift) {
+            self.redo();
+        }
         if ctx.input(|i| i.key_pressed(egui::Key::A) && i.modifiers.command) {
             // Select all
             self.selected_ids = self.form.controls.iter().map(|c| c.id.clone()).collect();
@@ -1926,7 +2665,9 @@ impl DesignerPanel {
         // Snapshot the scalar modal fields and drop the borrow so we can render
         // the hosted editor (`self.event_editor`) freely inside the window.
         let (title, program_id, ctrl_id, event_name, orig_source) = {
-            let Some(m) = self.event_modal.as_ref() else { return };
+            let Some(m) = self.event_modal.as_ref() else {
+                return;
+            };
             (
                 format!("COBOL Event Editor  —  {}", m.ctrl_display),
                 m.program_id.clone(),
@@ -1938,16 +2679,16 @@ impl DesignerPanel {
 
         // Dim overlay covering the canvas (behind the window).
         let overlay = ui.ctx().screen_rect();
-        ui.painter().rect_filled(overlay, 0.0,
-            Color32::from_rgba_premultiplied(0, 0, 0, 140));
+        ui.painter()
+            .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
 
-        let mut save_clicked   = false;
+        let mut save_clicked = false;
         let mut cancel_clicked = false;
 
         // Open at 70 % of the window size; `default_*` only seed the initial
         // size, so the modal does not track the window — the user can resize.
         let screen = ui.ctx().screen_rect();
-        let default_w = (screen.width()  * 0.70).max(360.0);
+        let default_w = (screen.width() * 0.70).max(360.0);
         let default_h = (screen.height() * 0.70).max(420.0);
 
         egui::Window::new(&title)
@@ -1961,18 +2702,24 @@ impl DesignerPanel {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)))
             .show(ui.ctx(), |ui| {
-                let scaffold_color = Color32::from_rgb(140, 200, 140);  // muted green
-                let readonly_color = Color32::from_rgb(160, 170, 190);  // subdued blue-gray
+                let scaffold_color = Color32::from_rgb(140, 200, 140); // muted green
+                let readonly_color = Color32::from_rgb(160, 170, 190); // subdued blue-gray
 
                 // ── Status row at the TOP (line/col · INS/OVR · trim · beautify)
                 self.event_editor.status_row(ui);
                 ui.add_space(4.0);
 
                 // ── Read-only scaffold header (generator-owned) ──────────────
-                ui.monospace(egui::RichText::new("       IDENTIFICATION DIVISION.")
-                    .color(readonly_color).size(12.0));
-                ui.monospace(egui::RichText::new(format!("       PROGRAM-ID. {}.", program_id))
-                    .color(scaffold_color).size(12.0));
+                ui.monospace(
+                    egui::RichText::new("       IDENTIFICATION DIVISION.")
+                        .color(readonly_color)
+                        .size(12.0),
+                );
+                ui.monospace(
+                    egui::RichText::new(format!("       PROGRAM-ID. {}.", program_id))
+                        .color(scaffold_color)
+                        .size(12.0),
+                );
                 ui.add_space(4.0);
 
                 // ── Hosted COBOL editor — a FIXED-size container the editor fills
@@ -2001,15 +2748,25 @@ impl DesignerPanel {
                 ui.add_space(4.0);
 
                 // ── Read-only GOBACK / END PROGRAM footer (generator-owned) ──
-                ui.monospace(egui::RichText::new("           GOBACK.")
-                    .color(readonly_color).size(12.0));
-                ui.monospace(egui::RichText::new(format!("       END PROGRAM {}.", program_id))
-                    .color(scaffold_color).size(12.0));
+                ui.monospace(
+                    egui::RichText::new("           GOBACK.")
+                        .color(readonly_color)
+                        .size(12.0),
+                );
+                ui.monospace(
+                    egui::RichText::new(format!("       END PROGRAM {}.", program_id))
+                        .color(scaffold_color)
+                        .size(12.0),
+                );
 
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button("💾  Save").clicked()   { save_clicked   = true; }
-                    if ui.button("✖  Cancel").clicked() { cancel_clicked = true; }
+                    if ui.button("💾  Save").clicked() {
+                        save_clicked = true;
+                    }
+                    if ui.button("✖  Cancel").clicked() {
+                        cancel_clicked = true;
+                    }
                 });
             });
 
@@ -2031,7 +2788,9 @@ impl DesignerPanel {
     /// back to the form block.
     pub fn show_cobol_structure_window(&mut self, ctx: &egui::Context, tr: &crate::i18n::Tr) {
         use super::cobol_structure as cs;
-        let Some(target) = self.cobol_structure_edit else { return };
+        let Some(target) = self.cobol_structure_edit else {
+            return;
+        };
 
         // (Re)load the selected block into the hosted editor when it changes.
         if self.cs_loaded != Some(target) {
@@ -2040,13 +2799,16 @@ impl DesignerPanel {
                 std::path::PathBuf::from(format!("cobol-structure/{}", target.buffer_key())),
                 text,
             );
-            self.cs_editor.known_controls = self.form.controls.iter()
+            self.cs_editor.known_controls = self
+                .form
+                .controls
+                .iter()
                 .map(|c| {
                     let type_name = format!("{:?}", c.control_type);
                     super::editor::KnownControl {
                         properties: cobolt_forms::model::property_names_for(&type_name),
-                        ctrl_type:  type_name,
-                        id:         c.id.clone(),
+                        ctrl_type: type_name,
+                        id: c.id.clone(),
                     }
                 })
                 .collect();
@@ -2054,7 +2816,10 @@ impl DesignerPanel {
         }
 
         let title = match target {
-            cs::CsTarget::Procedure(i) => self.form.user_procedures.get(i)
+            cs::CsTarget::Procedure(i) => self
+                .form
+                .user_procedures
+                .get(i)
                 .map(|p| p.name.trim().to_owned())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| tr.cs_user_procedures.to_owned()),
@@ -2081,7 +2846,8 @@ impl DesignerPanel {
                     if let Some(up) = self.form.user_procedures.get_mut(i) {
                         ui.horizontal(|ui| {
                             ui.label(tr.cs_proc_name);
-                            if ui.add(egui::TextEdit::singleline(&mut up.name).desired_width(260.0))
+                            if ui
+                                .add(egui::TextEdit::singleline(&mut up.name).desired_width(260.0))
                                 .changed()
                             {
                                 self.dirty = true;
@@ -2089,8 +2855,11 @@ impl DesignerPanel {
                         });
                     }
                 } else {
-                    ui.label(egui::RichText::new(target.section_keyword().unwrap_or(""))
-                        .monospace().strong());
+                    ui.label(
+                        egui::RichText::new(target.section_keyword().unwrap_or(""))
+                            .monospace()
+                            .strong(),
+                    );
                 }
                 ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
                 ui.add_space(4.0);
@@ -2141,7 +2910,10 @@ impl DesignerPanel {
         ptr_canvas: Option<(i32, i32)>,
         selection_changed: &mut bool,
     ) {
-        let (px, py) = match ptr_canvas { Some(p) => p, None => return };
+        let (px, py) = match ptr_canvas {
+            Some(p) => p,
+            None => return,
+        };
 
         // ── Format Painter: intercept clicks while in WaitingForTarget mode ───
         if matches!(self.format_painter, FormatPainter::WaitingForTarget { .. }) {
@@ -2152,10 +2924,15 @@ impl DesignerPanel {
                 let hit_id: Option<String> = self.hit_top_id(px, py);
                 if let Some(target_id) = hit_id {
                     // Extract captured style before mutably borrowing controls
-                    let (props, animations, src_rect) = match std::mem::replace(&mut self.format_painter, FormatPainter::Idle) {
-                        FormatPainter::WaitingForTarget { props, animations, src_rect } => (props, animations, src_rect),
-                        _ => unreachable!(),
-                    };
+                    let (props, animations, src_rect) =
+                        match std::mem::replace(&mut self.format_painter, FormatPainter::Idle) {
+                            FormatPainter::WaitingForTarget {
+                                props,
+                                animations,
+                                src_rect,
+                            } => (props, animations, src_rect),
+                            _ => unreachable!(),
+                        };
                     // Paste style + geometry onto the target control
                     if let Some(tgt) = self.form.find_control_mut(&target_id) {
                         for (k, v) in &props {
@@ -2183,20 +2960,28 @@ impl DesignerPanel {
                 for &h in &ALL_HANDLES {
                     let hp = handle_pos(&ctrl.rect, h);
                     let dist = ((px as f32 - hp.x).powi(2) + (py as f32 - hp.y).powi(2)).sqrt();
-                    if dist < 8.0 { return Some(h); }
+                    if dist < 8.0 {
+                        return Some(h);
+                    }
                 }
                 None
             })
         });
 
-        if let Some(h) = handle_hover { resp.ctx.set_cursor_icon(handle_cursor(h)); }
+        if let Some(h) = handle_hover {
+            resp.ctx.set_cursor_icon(handle_cursor(h));
+        }
 
         // Detect hovering the form's own resize border (only when not over a
         // control's resize handle — control handles take priority).
         let form_edge_hover = if handle_hover.is_none() {
             detect_form_edge(px, py, self.form.width as f32, self.form.height as f32)
-        } else { None };
-        if let Some(e) = form_edge_hover { resp.ctx.set_cursor_icon(form_edge_cursor(e)); }
+        } else {
+            None
+        };
+        if let Some(e) = form_edge_hover {
+            resp.ctx.set_cursor_icon(form_edge_cursor(e));
+        }
 
         // Capture which handle (if any) was under the pointer at the exact moment
         // the mouse button went down.  We must store this NOW because by the time
@@ -2206,14 +2991,14 @@ impl DesignerPanel {
         if resp.contains_pointer() {
             let primary_just_pressed = resp.ctx.input(|i| i.pointer.primary_pressed());
             if primary_just_pressed {
-                self.press_handle    = handle_hover;
+                self.press_handle = handle_hover;
                 self.press_form_edge = form_edge_hover;
             }
         }
         // Clear if the button is no longer held (cancelled press with no drag).
         let primary_held = resp.ctx.input(|i| i.pointer.primary_down());
         if !primary_held {
-            self.press_handle    = None;
+            self.press_handle = None;
             self.press_form_edge = None;
         }
 
@@ -2226,9 +3011,10 @@ impl DesignerPanel {
                     if let Some(edge) = self.press_form_edge.take() {
                         self.drag = DragState::ResizingForm {
                             edge,
-                            orig_w: self.form.width  as i32,
+                            orig_w: self.form.width as i32,
                             orig_h: self.form.height as i32,
-                            start_x: px, start_y: py,
+                            start_x: px,
+                            start_y: py,
                         };
                     } else
                     // Use the handle captured at press-time, not the current hover
@@ -2237,7 +3023,11 @@ impl DesignerPanel {
                         if let Some(sid) = self.selected_ids.first().cloned() {
                             if let Some(ctrl) = self.form.find_control(&sid) {
                                 self.drag = DragState::ResizingControl {
-                                    id: sid, handle: h, orig_rect: ctrl.rect, start_x: px, start_y: py,
+                                    id: sid,
+                                    handle: h,
+                                    orig_rect: ctrl.rect,
+                                    start_x: px,
+                                    start_y: py,
                                 };
                             }
                         }
@@ -2248,8 +3038,11 @@ impl DesignerPanel {
                             // If not already selected, select it (unless Ctrl held)
                             let ctrl_held = resp.ctx.input(|i| i.modifiers.command);
                             if !self.is_selected(&id) {
-                                if ctrl_held { self.selected_ids.push(id.clone()); }
-                                else         { self.set_selected_one(Some(id.clone())); }
+                                if ctrl_held {
+                                    self.selected_ids.push(id.clone());
+                                } else {
+                                    self.set_selected_one(Some(id.clone()));
+                                }
                                 *selection_changed = true;
                             }
                             // Gather origins for the selected controls AND the
@@ -2257,20 +3050,42 @@ impl DesignerPanel {
                             // container drags its whole subtree (spec 012 R2).
                             let mut move_ids: Vec<String> = self.selected_ids.clone();
                             for sid in &self.selected_ids {
-                                if let Some(i) = self.form.controls.iter().position(|c| &c.id == sid) {
-                                    for d in super::containers::collect_descendants(&self.form.controls, i) {
+                                if let Some(i) =
+                                    self.form.controls.iter().position(|c| &c.id == sid)
+                                {
+                                    for d in super::containers::collect_descendants(
+                                        &self.form.controls,
+                                        i,
+                                    ) {
                                         let did = self.form.controls[d].id.clone();
-                                        if !move_ids.contains(&did) { move_ids.push(did); }
+                                        if !move_ids.contains(&did) {
+                                            move_ids.push(did);
+                                        }
                                     }
                                 }
                             }
-                            let origins: Vec<(String, i32, i32)> = move_ids.iter()
-                                .filter_map(|sid| self.form.find_control(sid).map(|c| (sid.clone(), c.rect.x, c.rect.y)))
+                            let origins: Vec<(String, i32, i32)> = move_ids
+                                .iter()
+                                .filter_map(|sid| {
+                                    self.form
+                                        .find_control(sid)
+                                        .map(|c| (sid.clone(), c.rect.x, c.rect.y))
+                                })
                                 .collect();
-                            self.drag = DragState::MovingControls { primary_id: id, origins, start_x: px, start_y: py };
+                            self.drag = DragState::MovingControls {
+                                primary_id: id,
+                                origins,
+                                start_x: px,
+                                start_y: py,
+                            };
                         } else {
                             // Started drag on empty canvas — begin rubber-band
-                            self.drag = DragState::RubberBand { start_x: px, start_y: py, cur_x: px, cur_y: py };
+                            self.drag = DragState::RubberBand {
+                                start_x: px,
+                                start_y: py,
+                                cur_x: px,
+                                cur_y: py,
+                            };
                         }
                     }
                 }
@@ -2280,7 +3095,12 @@ impl DesignerPanel {
         // Update drag in-progress
         if resp.dragged() {
             match self.drag.clone() {
-                DragState::MovingControls { origins, start_x, start_y, .. } => {
+                DragState::MovingControls {
+                    origins,
+                    start_x,
+                    start_y,
+                    ..
+                } => {
                     let dx = px - start_x;
                     let dy = py - start_y;
                     let gp = self.form.grid_size as i32;
@@ -2292,7 +3112,13 @@ impl DesignerPanel {
                         }
                     }
                 }
-                DragState::ResizingControl { ref id, handle, orig_rect, start_x, start_y } => {
+                DragState::ResizingControl {
+                    ref id,
+                    handle,
+                    orig_rect,
+                    start_x,
+                    start_y,
+                } => {
                     let dx = px - start_x;
                     let dy = py - start_y;
                     // Read snap settings before the mutable borrow of find_control_mut.
@@ -2302,8 +3128,19 @@ impl DesignerPanel {
                         ctrl.rect = apply_resize(orig_rect, handle, dx, dy, gp, sn);
                     }
                 }
-                DragState::PlacingNew { ref ctrl_type, start_x, start_y, .. } => {
-                    self.drag = DragState::PlacingNew { ctrl_type: ctrl_type.clone(), start_x, start_y, cur_x: px, cur_y: py };
+                DragState::PlacingNew {
+                    ref ctrl_type,
+                    start_x,
+                    start_y,
+                    ..
+                } => {
+                    self.drag = DragState::PlacingNew {
+                        ctrl_type: ctrl_type.clone(),
+                        start_x,
+                        start_y,
+                        cur_x: px,
+                        cur_y: py,
+                    };
                     // Draw ghost preview
                     let x0 = start_x.min(px) as f32 + origin.x;
                     let y0 = start_y.min(py) as f32 + origin.y;
@@ -2311,20 +3148,41 @@ impl DesignerPanel {
                     let y1 = start_y.max(py) as f32 + origin.y;
                     if (x1 - x0) > 4.0 && (y1 - y0) > 4.0 {
                         let ghost = egui::Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x1, y1));
-                        painter.rect_filled(ghost, 2.0, Color32::from_rgba_premultiplied(80,140,255,60));
-                        painter.rect_stroke(ghost, 2.0, Stroke::new(1.5, Color32::from_rgb(80,140,255)));
+                        painter.rect_filled(
+                            ghost,
+                            2.0,
+                            Color32::from_rgba_premultiplied(80, 140, 255, 60),
+                        );
+                        painter.rect_stroke(
+                            ghost,
+                            2.0,
+                            Stroke::new(1.5, Color32::from_rgb(80, 140, 255)),
+                        );
                     }
                 }
-                DragState::RubberBand { start_x, start_y, .. } => {
-                    self.drag = DragState::RubberBand { start_x, start_y, cur_x: px, cur_y: py };
+                DragState::RubberBand {
+                    start_x, start_y, ..
+                } => {
+                    self.drag = DragState::RubberBand {
+                        start_x,
+                        start_y,
+                        cur_x: px,
+                        cur_y: py,
+                    };
                 }
-                DragState::ResizingForm { edge, orig_w, orig_h, start_x, start_y } => {
+                DragState::ResizingForm {
+                    edge,
+                    orig_w,
+                    orig_h,
+                    start_x,
+                    start_y,
+                } => {
                     let dx = px - start_x;
                     let dy = py - start_y;
                     let gp = self.form.grid_size as i32;
                     let sn = self.form.snap_to_grid;
                     if matches!(edge, FormEdge::Right | FormEdge::Corner) {
-                        self.form.width  = snap((orig_w + dx).max(FORM_MIN_SIZE), gp, sn) as u32;
+                        self.form.width = snap((orig_w + dx).max(FORM_MIN_SIZE), gp, sn) as u32;
                     }
                     if matches!(edge, FormEdge::Bottom | FormEdge::Corner) {
                         self.form.height = snap((orig_h + dy).max(FORM_MIN_SIZE), gp, sn) as u32;
@@ -2338,14 +3196,28 @@ impl DesignerPanel {
         // End drag
         if resp.drag_stopped() {
             match self.drag.clone() {
-                DragState::MovingControls { origins, start_x, start_y, .. } => {
+                DragState::MovingControls {
+                    origins,
+                    start_x,
+                    start_y,
+                    ..
+                } => {
                     let dx = px - start_x;
                     let dy = py - start_y;
                     if dx != 0 || dy != 0 {
                         let gp = self.form.grid_size as i32;
                         let sn = self.form.snap_to_grid;
-                        let moves: Vec<(String, i32, i32, i32, i32)> = origins.iter()
-                            .map(|(id, ox, oy)| (id.clone(), *ox, *oy, snap(ox + dx, gp, sn), snap(oy + dy, gp, sn)))
+                        let moves: Vec<(String, i32, i32, i32, i32)> = origins
+                            .iter()
+                            .map(|(id, ox, oy)| {
+                                (
+                                    id.clone(),
+                                    *ox,
+                                    *oy,
+                                    snap(ox + dx, gp, sn),
+                                    snap(oy + dy, gp, sn),
+                                )
+                            })
                             .collect();
                         self.apply(Cmd::MoveMany { moves });
                         // Re-parent the *selected* controls to whatever container
@@ -2356,16 +3228,38 @@ impl DesignerPanel {
                         }
                     }
                 }
-                DragState::ResizingControl { id, handle, orig_rect, start_x, start_y } => {
+                DragState::ResizingControl {
+                    id,
+                    handle,
+                    orig_rect,
+                    start_x,
+                    start_y,
+                } => {
                     let dx = px - start_x;
                     let dy = py - start_y;
-                    let new_rect = apply_resize(orig_rect, handle, dx, dy,
-                        self.form.grid_size as i32, self.form.snap_to_grid);
+                    let new_rect = apply_resize(
+                        orig_rect,
+                        handle,
+                        dx,
+                        dy,
+                        self.form.grid_size as i32,
+                        self.form.snap_to_grid,
+                    );
                     if new_rect != orig_rect {
-                        self.apply(Cmd::ResizeControl { id, old_rect: orig_rect, new_rect });
+                        self.apply(Cmd::ResizeControl {
+                            id,
+                            old_rect: orig_rect,
+                            new_rect,
+                        });
                     }
                 }
-                DragState::PlacingNew { ctrl_type, start_x, start_y, cur_x, cur_y } => {
+                DragState::PlacingNew {
+                    ctrl_type,
+                    start_x,
+                    start_y,
+                    cur_x,
+                    cur_y,
+                } => {
                     let x = start_x.min(cur_x);
                     let y = start_y.min(cur_y);
                     let w = (start_x - cur_x).unsigned_abs() as i32;
@@ -2379,22 +3273,35 @@ impl DesignerPanel {
                     // resize to drawn size
                     if let Some(sid) = self.selected_ids.first().cloned() {
                         if let Some(ctrl) = self.form.find_control_mut(&sid) {
-                            ctrl.rect.w = fw; ctrl.rect.h = fh;
+                            ctrl.rect.w = fw;
+                            ctrl.rect.h = fh;
                         }
                     }
                 }
-                DragState::RubberBand { start_x, start_y, cur_x, cur_y } => {
+                DragState::RubberBand {
+                    start_x,
+                    start_y,
+                    cur_x,
+                    cur_y,
+                } => {
                     let min_x = start_x.min(cur_x);
                     let min_y = start_y.min(cur_y);
                     let max_x = start_x.max(cur_x);
                     let max_y = start_y.max(cur_y);
                     if (max_x - min_x) > 4 && (max_y - min_y) > 4 {
                         let ctrl_held = resp.ctx.input(|i| i.modifiers.command);
-                        if !ctrl_held { self.selected_ids.clear(); }
-                        let new_sel: Vec<String> = self.form.controls.iter()
+                        if !ctrl_held {
+                            self.selected_ids.clear();
+                        }
+                        let new_sel: Vec<String> = self
+                            .form
+                            .controls
+                            .iter()
                             .filter(|c| {
-                                c.rect.x < max_x && c.rect.x + c.rect.w > min_x &&
-                                c.rect.y < max_y && c.rect.y + c.rect.h > min_y
+                                c.rect.x < max_x
+                                    && c.rect.x + c.rect.w > min_x
+                                    && c.rect.y < max_y
+                                    && c.rect.y + c.rect.h > min_y
                             })
                             .map(|c| c.id.clone())
                             .collect();
@@ -2418,7 +3325,13 @@ impl DesignerPanel {
 
     /// Called by app.rs toolbox result to start a new control placement drag.
     pub fn start_place(&mut self, ct: ControlType, x: i32, y: i32) {
-        self.drag = DragState::PlacingNew { ctrl_type: ct, start_x: x, start_y: y, cur_x: x, cur_y: y };
+        self.drag = DragState::PlacingNew {
+            ctrl_type: ct,
+            start_x: x,
+            start_y: y,
+            cur_x: x,
+            cur_y: y,
+        };
     }
 
     /// Handle a control dragged out of the toolbox onto the canvas.
@@ -2437,8 +3350,7 @@ impl DesignerPanel {
         ptr_canvas: Option<(i32, i32)>,
     ) {
         let ctx = ui.ctx();
-        let Some(ct) = egui::DragAndDrop::payload::<ControlType>(ctx).map(|p| (*p).clone())
-        else {
+        let Some(ct) = egui::DragAndDrop::payload::<ControlType>(ctx).map(|p| (*p).clone()) else {
             return;
         };
         // Repaint each frame so the ghost tracks the cursor smoothly.
@@ -2452,7 +3364,9 @@ impl DesignerPanel {
 
         // If the pointer is off the canvas, do nothing: when the button is released
         // off-canvas egui discards the payload on its own (no stray placement).
-        let Some((px, py)) = ptr_canvas else { return; };
+        let Some((px, py)) = ptr_canvas else {
+            return;
+        };
         if !over_canvas {
             return;
         }
@@ -2482,7 +3396,11 @@ impl DesignerPanel {
             egui::Order::Foreground,
             egui::Id::new("toolbox_drop_ghost"),
         ));
-        painter.rect_filled(ghost, 2.0, Color32::from_rgba_premultiplied(80, 120, 220, 70));
+        painter.rect_filled(
+            ghost,
+            2.0,
+            Color32::from_rgba_premultiplied(80, 120, 220, 70),
+        );
         painter.rect_stroke(
             ghost,
             2.0,
@@ -2514,50 +3432,156 @@ fn draw_grid(painter: &egui::Painter, canvas: egui::Rect, step: f32, glass: bool
     }
 }
 
+fn draw_grid_in_rounded_notches(
+    painter: &egui::Painter,
+    canvas: egui::Rect,
+    rect: egui::Rect,
+    rounding: egui::Rounding,
+    step: f32,
+    glass: bool,
+) {
+    if step <= 0.5 {
+        return;
+    }
+    let cap = 0.5 * rect.width().min(rect.height());
+    let clamp_r = |r: f32| r.max(0.0).min(cap);
+    let radii = [
+        clamp_r(rounding.nw),
+        clamp_r(rounding.ne),
+        clamp_r(rounding.se),
+        clamp_r(rounding.sw),
+    ];
+    if radii.iter().all(|r| *r < 0.5) {
+        return;
+    }
 
+    let alpha = if glass { 35 } else { 60 };
+    let dot_color = Color32::from_rgba_premultiplied(140, 160, 220, alpha);
+    let first_grid = |lo: f32, base: f32| base + ((lo - base) / step).ceil().max(0.0) * step;
+    let painter = painter.with_clip_rect(canvas.intersect(rect));
 
+    let in_notch = |p: Pos2| -> bool {
+        let corners = [
+            (
+                radii[0],
+                rect.min,
+                Pos2::new(rect.min.x + radii[0], rect.min.y + radii[0]),
+            ),
+            (
+                radii[1],
+                Pos2::new(rect.max.x - radii[1], rect.min.y),
+                Pos2::new(rect.max.x - radii[1], rect.min.y + radii[1]),
+            ),
+            (
+                radii[2],
+                Pos2::new(rect.max.x - radii[2], rect.max.y - radii[2]),
+                Pos2::new(rect.max.x - radii[2], rect.max.y - radii[2]),
+            ),
+            (
+                radii[3],
+                Pos2::new(rect.min.x, rect.max.y - radii[3]),
+                Pos2::new(rect.min.x + radii[3], rect.max.y - radii[3]),
+            ),
+        ];
+        for (r, min, center) in corners {
+            if r < 0.5 {
+                continue;
+            }
+            let max = Pos2::new(min.x + r, min.y + r);
+            if p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y {
+                let d = p - center;
+                if d.x * d.x + d.y * d.y >= r * r {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+
+    let mut x = first_grid(rect.min.x, canvas.min.x);
+    while x <= rect.max.x {
+        let mut y = first_grid(rect.min.y, canvas.min.y);
+        while y <= rect.max.y {
+            let p = Pos2::new(x, y);
+            if in_notch(p) {
+                painter.circle_filled(p, 0.7, dot_color);
+            }
+            y += step;
+        }
+        x += step;
+    }
+}
 
 /// The readable type name used as the prefix of an auto-generated control ID
 /// (`Button-1`, `TextBox-2`, …) and, uppercased, of its generated COBOL names.
 fn control_type_name(ct: &ControlType) -> &'static str {
     use ControlType as CT;
     match ct {
-        CT::Button => "Button",            CT::Label => "Label",
-        CT::TextBox => "TextBox",          CT::CheckBox => "CheckBox",
-        CT::RadioButton => "RadioButton",  CT::ComboBox => "ComboBox",
-        CT::ListBox => "ListBox",          CT::PictureBox => "PictureBox",
-        CT::Animator => "Animator",        CT::GroupBox => "GroupBox",
-        CT::Panel => "Panel",              CT::TabControl => "TabControl",
-        CT::ProgressBar => "ProgressBar",  CT::DataGrid => "DataGrid",
-        CT::MenuBar => "MenuBar",          CT::ToolBar => "ToolBar",
-        CT::StatusBar => "StatusBar",      CT::Line => "Line",
-        CT::DateTimePicker => "DateTimePicker", CT::NumericUpDown => "NumericUpDown",
-        CT::TreeView => "TreeView",        CT::Splitter => "Splitter",
-        CT::Timer => "Timer",              CT::Shape => "Shape",
-        CT::AgentObject => "AgentObject",  CT::RestClient => "RestClient",
+        CT::Button => "Button",
+        CT::Label => "Label",
+        CT::TextBox => "TextBox",
+        CT::CheckBox => "CheckBox",
+        CT::RadioButton => "RadioButton",
+        CT::ComboBox => "ComboBox",
+        CT::ListBox => "ListBox",
+        CT::PictureBox => "PictureBox",
+        CT::Animator => "Animator",
+        CT::GroupBox => "GroupBox",
+        CT::Panel => "Panel",
+        CT::TabControl => "TabControl",
+        CT::ProgressBar => "ProgressBar",
+        CT::DataGrid => "DataGrid",
+        CT::MenuBar => "MenuBar",
+        CT::ToolBar => "ToolBar",
+        CT::StatusBar => "StatusBar",
+        CT::Line => "Line",
+        CT::DateTimePicker => "DateTimePicker",
+        CT::NumericUpDown => "NumericUpDown",
+        CT::TreeView => "TreeView",
+        CT::Splitter => "Splitter",
+        CT::Timer => "Timer",
+        CT::Shape => "Shape",
+        CT::AgentObject => "AgentObject",
+        CT::RestClient => "RestClient",
         CT::Slider => "Slider",
-        CT::SqlDatabase => "SqlDatabase",  CT::BarChart => "BarChart",
-        CT::LineChart => "LineChart",      CT::PieChart => "PieChart",
-        CT::AreaChart => "AreaChart",      CT::ScatterChart => "ScatterChart",
-        CT::DonutChart => "DonutChart",    CT::Custom { .. } => "Control",
+        CT::SqlDatabase => "SqlDatabase",
+        CT::BarChart => "BarChart",
+        CT::LineChart => "LineChart",
+        CT::PieChart => "PieChart",
+        CT::AreaChart => "AreaChart",
+        CT::ScatterChart => "ScatterChart",
+        CT::DonutChart => "DonutChart",
+        CT::Custom { .. } => "Control",
     }
 }
-
-
-
-
 
 fn draw_handles(painter: &egui::Painter, origin: Pos2, r: &cobolt_forms::model::Rect, glass: bool) {
     for &h in &ALL_HANDLES {
         let hp = handle_pos(r, h);
         let screen = origin + Vec2::new(hp.x, hp.y);
         if glass {
-            painter.circle_filled(screen, 5.0, Color32::from_rgba_premultiplied(30,60,160,200));
-            painter.circle_filled(screen, 4.0, Color32::from_rgba_premultiplied(255,255,255,220));
-            painter.circle_stroke(screen, 5.0, Stroke::new(1.0, Color32::from_rgba_premultiplied(100,160,255,200)));
+            painter.circle_filled(
+                screen,
+                5.0,
+                Color32::from_rgba_premultiplied(30, 60, 160, 200),
+            );
+            painter.circle_filled(
+                screen,
+                4.0,
+                Color32::from_rgba_premultiplied(255, 255, 255, 220),
+            );
+            painter.circle_stroke(
+                screen,
+                5.0,
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 160, 255, 200)),
+            );
         } else {
             painter.circle_filled(screen, 4.5, Color32::WHITE);
-            painter.circle_stroke(screen, 4.5, Stroke::new(1.5, Color32::from_rgb(60, 120, 230)));
+            painter.circle_stroke(
+                screen,
+                4.5,
+                Stroke::new(1.5, Color32::from_rgb(60, 120, 230)),
+            );
         }
     }
 }
@@ -2585,7 +3609,14 @@ fn draw_form_resize_grips(
     let rcy = canvas.center().y;
     painter.line_segment(
         [Pos2::new(rx, rcy - 14.0), Pos2::new(rx, rcy + 14.0)],
-        Stroke::new(if active == Some(FormEdge::Right) { 4.0 } else { 3.0 }, col(FormEdge::Right)),
+        Stroke::new(
+            if active == Some(FormEdge::Right) {
+                4.0
+            } else {
+                3.0
+            },
+            col(FormEdge::Right),
+        ),
     );
 
     // Bottom edge — a short horizontal bar centred on the bottom border.
@@ -2593,7 +3624,14 @@ fn draw_form_resize_grips(
     let bcx = canvas.center().x;
     painter.line_segment(
         [Pos2::new(bcx - 14.0, by), Pos2::new(bcx + 14.0, by)],
-        Stroke::new(if active == Some(FormEdge::Bottom) { 4.0 } else { 3.0 }, col(FormEdge::Bottom)),
+        Stroke::new(
+            if active == Some(FormEdge::Bottom) {
+                4.0
+            } else {
+                3.0
+            },
+            col(FormEdge::Bottom),
+        ),
     );
 
     // Corner — a small filled square at the bottom-right.
@@ -2601,22 +3639,22 @@ fn draw_form_resize_grips(
     let sz = 7.0;
     let crect = egui::Rect::from_min_max(Pos2::new(corner.x - sz, corner.y - sz), corner);
     painter.rect_filled(crect, 1.5, col(FormEdge::Corner));
-    painter.rect_stroke(crect, 1.5, Stroke::new(1.0, Color32::from_rgba_premultiplied(255,255,255,180)));
+    painter.rect_stroke(
+        crect,
+        1.5,
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 180)),
+    );
 }
-
-
-
-
-
-
 
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
     match key {
-        "Visible"  => ctrl.visible   = value.as_bool(),
-        "Enabled"  => ctrl.enabled   = value.as_bool(),
+        "Visible" => ctrl.visible = value.as_bool(),
+        "Enabled" => ctrl.enabled = value.as_bool(),
         "TabOrder" => ctrl.tab_order = value.as_i64() as u32,
-        "ZOrder"   => ctrl.z_order   = value.as_i64() as i32,
-        _          => { ctrl.properties.insert(key.to_owned(), value.clone()); }
+        "ZOrder" => ctrl.z_order = value.as_i64() as i32,
+        _ => {
+            ctrl.properties.insert(key.to_owned(), value.clone());
+        }
     }
 }
 
@@ -2627,43 +3665,37 @@ fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
 /// Dimensions are logical/point pixels at 1× scale (portrait by default).
 pub(crate) const TARGET_PRESETS: &[(&str, u32, u32)] = &[
     // ── Custom ───────────────────────────────────────────────────────────────
-    ("Custom",                         640,  480),
-
+    ("Custom", 640, 480),
     // ── Apple iPhone ─────────────────────────────────────────────────────────
-    ("iPhone 16 Pro Max",              440,  956),
-    ("iPhone 16 / 15 Pro",             393,  852),
-    ("iPhone 15 / 14",                 390,  844),
-    ("iPhone SE (3rd gen)",            375,  667),
-
+    ("iPhone 16 Pro Max", 440, 956),
+    ("iPhone 16 / 15 Pro", 393, 852),
+    ("iPhone 15 / 14", 390, 844),
+    ("iPhone SE (3rd gen)", 375, 667),
     // ── Apple iPad ───────────────────────────────────────────────────────────
-    ("iPad Pro 13\" (M4)",            1032, 1376),
-    ("iPad Pro 11\" (M4)",             834, 1210),
-    ("iPad Air 13\" (M2)",            1024, 1366),
-    ("iPad (10th gen)",                820, 1180),
-    ("iPad mini (7th gen)",            744, 1133),
-
+    ("iPad Pro 13\" (M4)", 1032, 1376),
+    ("iPad Pro 11\" (M4)", 834, 1210),
+    ("iPad Air 13\" (M2)", 1024, 1366),
+    ("iPad (10th gen)", 820, 1180),
+    ("iPad mini (7th gen)", 744, 1133),
     // ── Apple Watch ──────────────────────────────────────────────────────────
-    ("Apple Watch Ultra 2 (49mm)",     205,  251),
-    ("Apple Watch Series 10 (46mm)",   198,  242),
-    ("Apple Watch Series 10 (42mm)",   176,  215),
-
+    ("Apple Watch Ultra 2 (49mm)", 205, 251),
+    ("Apple Watch Series 10 (46mm)", 198, 242),
+    ("Apple Watch Series 10 (42mm)", 176, 215),
     // ── Android Phone ────────────────────────────────────────────────────────
-    ("Samsung Galaxy S24 Ultra",       384,  824),
-    ("Samsung Galaxy S24",             360,  780),
-    ("Google Pixel 9 Pro",             412,  892),
-    ("Android Phone (generic 1080p)",  393,  851),
-
+    ("Samsung Galaxy S24 Ultra", 384, 824),
+    ("Samsung Galaxy S24", 360, 780),
+    ("Google Pixel 9 Pro", 412, 892),
+    ("Android Phone (generic 1080p)", 393, 851),
     // ── Android Tablet ───────────────────────────────────────────────────────
-    ("Samsung Galaxy Tab S9 Ultra",   1280,  800),
-    ("Samsung Galaxy Tab S9",          800, 1280),
-    ("Lenovo Tab P12",                1280,  800),
-    ("Android Tablet (generic)",       800, 1280),
-
+    ("Samsung Galaxy Tab S9 Ultra", 1280, 800),
+    ("Samsung Galaxy Tab S9", 800, 1280),
+    ("Lenovo Tab P12", 1280, 800),
+    ("Android Tablet (generic)", 800, 1280),
     // ── Android SmartWatch ───────────────────────────────────────────────────
-    ("Samsung Galaxy Watch 7 (44mm)",  456,  456),
-    ("Samsung Galaxy Watch 7 (40mm)",  432,  432),
-    ("Wear OS (generic round)",        384,  384),
-    ("Wear OS (generic square)",       320,  320),
+    ("Samsung Galaxy Watch 7 (44mm)", 456, 456),
+    ("Samsung Galaxy Watch 7 (40mm)", 432, 432),
+    ("Wear OS (generic round)", 384, 384),
+    ("Wear OS (generic square)", 320, 320),
 ];
 
 // ── Unified Form-Designer Icon Toolbar ───────────────────────────────────────
@@ -2673,21 +3705,37 @@ pub(crate) const TARGET_PRESETS: &[(&str, u32, u32)] = &[
 pub(crate) enum DesignerToolbarAction {
     None,
     // History
-    Undo, Redo,
+    Undo,
+    Redo,
     // File
-    SaveAndGenerate, GenerateOnly,
+    SaveAndGenerate,
+    GenerateOnly,
     // View
-    TogglePreview, ToggleAnimPreview, ToggleGrid, ToggleGlass,
+    TogglePreview,
+    ToggleAnimPreview,
+    ToggleGrid,
+    ToggleGlass,
     // Run
-    RunForm, StopForm,
+    RunForm,
+    StopForm,
     // Edit
     Delete,
-    BringToFront, SendToBack, BringForward, SendBackward,
+    BringToFront,
+    SendToBack,
+    BringForward,
+    SendBackward,
     // Align
-    AlignLeft, AlignRight, AlignTop, AlignBottom,
-    CenterH, CenterV, SpaceH, SpaceV,
+    AlignLeft,
+    AlignRight,
+    AlignTop,
+    AlignBottom,
+    CenterH,
+    CenterV,
+    SpaceH,
+    SpaceV,
     // Style
-    FormatPainter, AutoArrange,
+    FormatPainter,
+    AutoArrange,
     // Misc
     ReportBug,
 }
@@ -2701,16 +3749,16 @@ pub(crate) enum DesignerToolbarAction {
 ///
 /// Returns the action clicked this frame (or `None`).
 pub(crate) fn draw_icon_toolbar(
-    ui:             &mut egui::Ui,
-    can_undo:       bool,
-    can_redo:       bool,
-    has_sel:        bool,
-    has_multi:      bool,
-    preview_on:     bool,
-    grid_on:        bool,
-    glass_on:       bool,
-    form_running:   bool,
-    fp_active:      bool,
+    ui: &mut egui::Ui,
+    can_undo: bool,
+    can_redo: bool,
+    has_sel: bool,
+    has_multi: bool,
+    preview_on: bool,
+    grid_on: bool,
+    glass_on: bool,
+    form_running: bool,
+    fp_active: bool,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -2722,17 +3770,18 @@ pub(crate) fn draw_icon_toolbar(
     // sets to its full reserved rect. Without this the unused bottom of the
     // `exact_height` panel showed the white viewport clear (the "white band").
     let strip_rect = ui.clip_rect();
-    ui.painter().rect_filled(strip_rect, 0.0, ui.visuals().panel_fill);
+    ui.painter()
+        .rect_filled(strip_rect, 0.0, ui.visuals().panel_fill);
 
     // Suppress egui control backgrounds so icons paint cleanly over glass
     {
         let v = &mut ui.style_mut().visuals;
         v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-        v.widgets.inactive.bg_fill      = Color32::TRANSPARENT;
-        v.widgets.hovered.weak_bg_fill  = Color32::from_rgba_premultiplied(60, 90, 180, 55);
-        v.widgets.hovered.bg_fill       = Color32::from_rgba_premultiplied(60, 90, 180, 55);
-        v.widgets.active.weak_bg_fill   = Color32::from_rgba_premultiplied(80, 120, 220, 80);
-        v.widgets.active.bg_fill        = Color32::from_rgba_premultiplied(80, 120, 220, 80);
+        v.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgba_premultiplied(60, 90, 180, 55);
+        v.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(60, 90, 180, 55);
+        v.widgets.active.weak_bg_fill = Color32::from_rgba_premultiplied(80, 120, 220, 80);
+        v.widgets.active.bg_fill = Color32::from_rgba_premultiplied(80, 120, 220, 80);
     }
 
     // ── Icon button helper ────────────────────────────────────────────────────
@@ -2745,17 +3794,17 @@ pub(crate) fn draw_icon_toolbar(
     //    larger so the normalisation factor stays near 1, keeping strokes crisp).
     //  - `btn_size` is the click/hover cell (icon size + a little padding).
     let icon_ref_ext = 26.25_f32;
-    let icon_size    = 30.0_f32;
+    let icon_size = 30.0_f32;
     // Cell = icon + 5px padding on each side, so icons aren't crowded together.
-    let btn_size     = icon_ref_ext + 10.0;
+    let btn_size = icon_ref_ext + 10.0;
     // Inter-group gap — half of one icon (button) width, with a separator line.
-    let group_gap    = btn_size * 0.5;
+    let group_gap = btn_size * 0.5;
 
     // Colour palette (frozen white glass)
-    let col_normal   = Color32::from_rgba_premultiplied(215, 225, 255, 210);
-    let col_dim      = Color32::from_rgba_premultiplied(215, 225, 255, 70);
-    let _col_active  = Color32::from_rgba_premultiplied(130, 180, 255, 255);
-    let col_accent   = Color32::from_rgba_premultiplied(255, 220, 100, 240); // gold for toggles
+    let col_normal = Color32::from_rgba_premultiplied(215, 225, 255, 210);
+    let col_dim = Color32::from_rgba_premultiplied(215, 225, 255, 70);
+    let _col_active = Color32::from_rgba_premultiplied(130, 180, 255, 255);
+    let col_accent = Color32::from_rgba_premultiplied(255, 220, 100, 240); // gold for toggles
 
     // Closure: allocate a button rect, draw the icon (collected as shapes and
     // uniformly resized to the reference extent), return whether it was clicked.
@@ -2763,21 +3812,31 @@ pub(crate) fn draw_icon_toolbar(
                         enabled: bool,
                         toggled: bool,
                         tooltip: &str,
-                        draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32)| -> bool
-    {
+                        draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32)|
+     -> bool {
         let (resp, painter) = ui.allocate_painter(Vec2::splat(btn_size), egui::Sense::click());
         let icon_rect = Rect::from_center_size(resp.rect.center(), Vec2::splat(icon_size));
-        let col = if !enabled     { col_dim    }
-                  else if toggled { col_accent  }
-                  else            { col_normal  };
+        let col = if !enabled {
+            col_dim
+        } else if toggled {
+            col_accent
+        } else {
+            col_normal
+        };
         // Hover/active bg ring
         if resp.hovered() && enabled {
-            painter.rect_filled(resp.rect, 6.0,
-                Color32::from_rgba_premultiplied(80, 110, 200, 40));
+            painter.rect_filled(
+                resp.rect,
+                6.0,
+                Color32::from_rgba_premultiplied(80, 110, 200, 40),
+            );
         }
         if toggled {
-            painter.rect_filled(resp.rect, 6.0,
-                Color32::from_rgba_premultiplied(60, 100, 200, 55));
+            painter.rect_filled(
+                resp.rect,
+                6.0,
+                Color32::from_rgba_premultiplied(60, 100, 200, 55),
+            );
         }
         // Draw the icon into a shape buffer, then scale it to the common size.
         let mut shapes: Vec<Shape> = Vec::new();
@@ -2817,10 +3876,22 @@ pub(crate) fn draw_icon_toolbar(
         group_separator(ui, group_gap);
 
         // ── Group 3: View ────────────────────────────────────────────────────
-        if icon_btn(ui, true, preview_on, "Toggle Live Preview window", &icon_preview) {
+        if icon_btn(
+            ui,
+            true,
+            preview_on,
+            "Toggle Live Preview window",
+            &icon_preview,
+        ) {
             action = DesignerToolbarAction::TogglePreview;
         }
-        if icon_btn(ui, true, false, "Play all OnFormLoad animations", &icon_anim_play) {
+        if icon_btn(
+            ui,
+            true,
+            false,
+            "Play all OnFormLoad animations",
+            &icon_anim_play,
+        ) {
             action = DesignerToolbarAction::ToggleAnimPreview;
         }
         if icon_btn(ui, true, grid_on, "Toggle Grid", &icon_grid) {
@@ -2874,7 +3945,13 @@ pub(crate) fn draw_icon_toolbar(
         if icon_btn(ui, has_multi, false, "Align Top Edges", &icon_align_top) {
             action = DesignerToolbarAction::AlignTop;
         }
-        if icon_btn(ui, has_multi, false, "Align Bottom Edges", &icon_align_bottom) {
+        if icon_btn(
+            ui,
+            has_multi,
+            false,
+            "Align Bottom Edges",
+            &icon_align_bottom,
+        ) {
             action = DesignerToolbarAction::AlignBottom;
         }
         if icon_btn(ui, has_multi, false, "Center Horizontally", &icon_center_h) {
@@ -2883,34 +3960,63 @@ pub(crate) fn draw_icon_toolbar(
         if icon_btn(ui, has_multi, false, "Center Vertically", &icon_center_v) {
             action = DesignerToolbarAction::CenterV;
         }
-        if icon_btn(ui, has_multi, false, "Space Evenly (horizontal)", &icon_space_h) {
+        if icon_btn(
+            ui,
+            has_multi,
+            false,
+            "Space Evenly (horizontal)",
+            &icon_space_h,
+        ) {
             action = DesignerToolbarAction::SpaceH;
         }
-        if icon_btn(ui, has_multi, false, "Space Evenly (vertical)", &icon_space_v) {
+        if icon_btn(
+            ui,
+            has_multi,
+            false,
+            "Space Evenly (vertical)",
+            &icon_space_v,
+        ) {
             action = DesignerToolbarAction::SpaceV;
         }
 
         group_separator(ui, group_gap);
 
         // ── Group 7: Style ───────────────────────────────────────────────────
-        if icon_btn(ui, has_sel, fp_active, "Format Painter — copy/paste control style", &icon_format_painter) {
+        if icon_btn(
+            ui,
+            has_sel,
+            fp_active,
+            "Format Painter — copy/paste control style",
+            &icon_format_painter,
+        ) {
             action = DesignerToolbarAction::FormatPainter;
         }
-        if icon_btn(ui, true, false, "Auto-arrange: labels left, inputs right", &icon_auto_arrange) {
+        if icon_btn(
+            ui,
+            true,
+            false,
+            "Auto-arrange: labels left, inputs right",
+            &icon_auto_arrange,
+        ) {
             action = DesignerToolbarAction::AutoArrange;
         }
 
         group_separator(ui, group_gap);
 
         // ── Group 8: Misc ────────────────────────────────────────────────────
-        if icon_btn(ui, true, false, "Report a Problem with the Form Designer", &icon_bug) {
+        if icon_btn(
+            ui,
+            true,
+            false,
+            "Report a Problem with the Form Designer",
+            &icon_bug,
+        ) {
             action = DesignerToolbarAction::ReportBug;
         }
     });
 
     action
 }
-
 
 // ── Icon painters ─────────────────────────────────────────────────────────────
 // Each receives (shape buffer, rect, colour) and PUSHES shapes into the buffer.
@@ -2923,14 +4029,22 @@ pub(crate) fn draw_icon_toolbar(
 fn normalize_icon(shapes: &mut [Shape], center: Pos2, target_ext: f32) {
     use egui::emath::TSTransform;
     let mut bbox = Rect::NOTHING;
-    for s in shapes.iter() { bbox = bbox.union(s.visual_bounding_rect()); }
-    if !bbox.is_finite() { return; }
+    for s in shapes.iter() {
+        bbox = bbox.union(s.visual_bounding_rect());
+    }
+    if !bbox.is_finite() {
+        return;
+    }
     let cur = bbox.size().max_elem();
-    if cur <= 0.01 || target_ext <= 0.01 { return; }
+    if cur <= 0.01 || target_ext <= 0.01 {
+        return;
+    }
     let k = target_ext / cur;
     let translation = center.to_vec2() - k * bbox.center().to_vec2();
     let t = TSTransform::new(translation, k);
-    for s in shapes.iter_mut() { s.transform(t); }
+    for s in shapes.iter_mut() {
+        s.transform(t);
+    }
 }
 
 /// Draw a vertical separator line in the middle of a `gap`-wide space between
@@ -2951,13 +4065,18 @@ fn group_separator(ui: &mut Ui, gap: f32) {
 
 fn icon_undo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.8, c);
-    let cx = r.center().x; let cy = r.center().y;
+    let cx = r.center().x;
+    let cy = r.center().y;
     let rad = r.width() * 0.38;
-    let pts: Vec<Pos2> = (0..=14).map(|i| {
-        let a = std::f32::consts::PI * (0.3 + i as f32 / 14.0 * 1.4);
-        Pos2::new(cx + rad * a.cos(), cy - rad * a.sin())
-    }).collect();
-    for w in pts.windows(2) { out.push(Shape::line_segment([w[0], w[1]], s)); }
+    let pts: Vec<Pos2> = (0..=14)
+        .map(|i| {
+            let a = std::f32::consts::PI * (0.3 + i as f32 / 14.0 * 1.4);
+            Pos2::new(cx + rad * a.cos(), cy - rad * a.sin())
+        })
+        .collect();
+    for w in pts.windows(2) {
+        out.push(Shape::line_segment([w[0], w[1]], s));
+    }
     let tip = pts[0];
     out.push(Shape::line_segment([tip, tip + egui::vec2(-4.0, 1.0)], s));
     out.push(Shape::line_segment([tip, tip + egui::vec2(0.0, -4.0)], s));
@@ -2965,13 +4084,18 @@ fn icon_undo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 
 fn icon_redo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.8, c);
-    let cx = r.center().x; let cy = r.center().y;
+    let cx = r.center().x;
+    let cy = r.center().y;
     let rad = r.width() * 0.38;
-    let pts: Vec<Pos2> = (0..=14).map(|i| {
-        let a = std::f32::consts::PI * (0.3 + i as f32 / 14.0 * 1.4);
-        Pos2::new(cx - rad * a.cos(), cy - rad * a.sin())
-    }).collect();
-    for w in pts.windows(2) { out.push(Shape::line_segment([w[0], w[1]], s)); }
+    let pts: Vec<Pos2> = (0..=14)
+        .map(|i| {
+            let a = std::f32::consts::PI * (0.3 + i as f32 / 14.0 * 1.4);
+            Pos2::new(cx - rad * a.cos(), cy - rad * a.sin())
+        })
+        .collect();
+    for w in pts.windows(2) {
+        out.push(Shape::line_segment([w[0], w[1]], s));
+    }
     let tip = pts[0];
     out.push(Shape::line_segment([tip, tip + egui::vec2(4.0, 1.0)], s));
     out.push(Shape::line_segment([tip, tip + egui::vec2(0.0, -4.0)], s));
@@ -2991,40 +4115,87 @@ fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     );
     out.push(Shape::rect_stroke(notch, 0.0, Stroke::new(1.4, c)));
     let mid_x = r.center().x - 1.0;
-    out.push(Shape::line_segment([Pos2::new(mid_x, r.min.y + 4.0), Pos2::new(mid_x, bot.min.y - 2.0)], s));
-    out.push(Shape::line_segment([Pos2::new(mid_x - 3.0, bot.min.y - 5.0), Pos2::new(mid_x, bot.min.y - 2.0)], s));
-    out.push(Shape::line_segment([Pos2::new(mid_x + 3.0, bot.min.y - 5.0), Pos2::new(mid_x, bot.min.y - 2.0)], s));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(mid_x, r.min.y + 4.0),
+            Pos2::new(mid_x, bot.min.y - 2.0),
+        ],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(mid_x - 3.0, bot.min.y - 5.0),
+            Pos2::new(mid_x, bot.min.y - 2.0),
+        ],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(mid_x + 3.0, bot.min.y - 5.0),
+            Pos2::new(mid_x, bot.min.y - 2.0),
+        ],
+        s,
+    ));
 }
 
 fn icon_generate(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.8, c);
-    let cx = r.center().x; let cy = r.center().y;
-    out.push(Shape::line_segment([Pos2::new(cx - 5.0, cy - 5.0), Pos2::new(cx - 9.0, cy)], s));
-    out.push(Shape::line_segment([Pos2::new(cx - 9.0, cy), Pos2::new(cx - 5.0, cy + 5.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx + 5.0, cy - 5.0), Pos2::new(cx + 9.0, cy)], s));
-    out.push(Shape::line_segment([Pos2::new(cx + 9.0, cy), Pos2::new(cx + 5.0, cy + 5.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx + 3.0, cy - 6.0), Pos2::new(cx - 3.0, cy + 6.0)], s));
+    let cx = r.center().x;
+    let cy = r.center().y;
+    out.push(Shape::line_segment(
+        [Pos2::new(cx - 5.0, cy - 5.0), Pos2::new(cx - 9.0, cy)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx - 9.0, cy), Pos2::new(cx - 5.0, cy + 5.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 5.0, cy - 5.0), Pos2::new(cx + 9.0, cy)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 9.0, cy), Pos2::new(cx + 5.0, cy + 5.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 3.0, cy - 6.0), Pos2::new(cx - 3.0, cy + 6.0)],
+        s,
+    ));
 }
 
 fn icon_preview(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.6, c);
-    let cx = r.center().x; let cy = r.center().y;
-    let brow_pts: Vec<Pos2> = (0..=12).map(|i| {
-        let t = i as f32 / 12.0;
-        let a = std::f32::consts::PI * t;
-        Pos2::new(cx + r.width() * 0.42 * (a - std::f32::consts::PI * 0.5).cos() * 1.2,
-                  cy + r.height() * 0.28 * a.sin())
-    }).collect();
-    for w in brow_pts.windows(2) { out.push(Shape::line_segment([w[0], w[1]], s)); }
-    let bot_pts: Vec<Pos2> = brow_pts.iter().map(|pt| Pos2::new(pt.x, cy - (pt.y - cy))).collect();
-    for w in bot_pts.windows(2) { out.push(Shape::line_segment([w[0], w[1]], s)); }
+    let cx = r.center().x;
+    let cy = r.center().y;
+    let brow_pts: Vec<Pos2> = (0..=12)
+        .map(|i| {
+            let t = i as f32 / 12.0;
+            let a = std::f32::consts::PI * t;
+            Pos2::new(
+                cx + r.width() * 0.42 * (a - std::f32::consts::PI * 0.5).cos() * 1.2,
+                cy + r.height() * 0.28 * a.sin(),
+            )
+        })
+        .collect();
+    for w in brow_pts.windows(2) {
+        out.push(Shape::line_segment([w[0], w[1]], s));
+    }
+    let bot_pts: Vec<Pos2> = brow_pts
+        .iter()
+        .map(|pt| Pos2::new(pt.x, cy - (pt.y - cy)))
+        .collect();
+    for w in bot_pts.windows(2) {
+        out.push(Shape::line_segment([w[0], w[1]], s));
+    }
     out.push(Shape::circle_stroke(r.center(), r.width() * 0.14, s));
     out.push(Shape::circle_filled(r.center(), r.width() * 0.07, c));
 }
 
 fn icon_anim_play(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.5, c);
-    let cx = r.center().x; let cy = r.center().y;
+    let cx = r.center().x;
+    let cy = r.center().y;
     let rad = r.width() * 0.4;
     out.push(Shape::circle_stroke(Pos2::new(cx, cy), rad, s));
     let pts = vec![
@@ -3033,7 +4204,11 @@ fn icon_anim_play(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Pos2::new(cx - rad * 0.3, cy + rad * 0.45),
     ];
     out.push(Shape::convex_polygon(pts, c, Stroke::NONE));
-    for (dx, dy) in [(-rad*0.75, -rad*0.6), (rad*0.75, -rad*0.6), (0.0_f32, -rad*0.9)] {
+    for (dx, dy) in [
+        (-rad * 0.75, -rad * 0.6),
+        (rad * 0.75, -rad * 0.6),
+        (0.0_f32, -rad * 0.9),
+    ] {
         out.push(Shape::circle_filled(Pos2::new(cx + dx, cy + dy), 1.5, c));
     }
 }
@@ -3041,18 +4216,24 @@ fn icon_anim_play(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 fn icon_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.3, c);
     let sr = r.shrink(3.0);
-    for row in 0..3 { for col in 0..3 {
-        let pt = Pos2::new(sr.min.x + col as f32 * sr.width() * 0.5,
-                           sr.min.y + row as f32 * sr.height() * 0.5);
-        out.push(Shape::circle_filled(pt, 1.5, c));
-    }}
+    for row in 0..3 {
+        for col in 0..3 {
+            let pt = Pos2::new(
+                sr.min.x + col as f32 * sr.width() * 0.5,
+                sr.min.y + row as f32 * sr.height() * 0.5,
+            );
+            out.push(Shape::circle_filled(pt, 1.5, c));
+        }
+    }
     out.push(Shape::rect_stroke(sr, 1.0, s));
 }
 
 fn icon_glass(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.6, c);
-    let cx = r.center().x; let cy = r.center().y;
-    let hw = r.width() * 0.42; let hh = r.height() * 0.42;
+    let cx = r.center().x;
+    let cy = r.center().y;
+    let hw = r.width() * 0.42;
+    let hh = r.height() * 0.42;
     let pts = vec![
         Pos2::new(cx, cy - hh),
         Pos2::new(cx + hw, cy - hh * 0.2),
@@ -3060,8 +4241,16 @@ fn icon_glass(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Pos2::new(cx - hw * 0.6, cy + hh),
         Pos2::new(cx - hw, cy - hh * 0.2),
     ];
-    for i in 0..pts.len() { out.push(Shape::line_segment([pts[i], pts[(i+1) % pts.len()]], s)); }
-    out.push(Shape::line_segment([pts[0], pts[2]], Stroke::new(1.0, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 90))));
+    for i in 0..pts.len() {
+        out.push(Shape::line_segment([pts[i], pts[(i + 1) % pts.len()]], s));
+    }
+    out.push(Shape::line_segment(
+        [pts[0], pts[2]],
+        Stroke::new(
+            1.0,
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 90),
+        ),
+    ));
 }
 
 fn icon_run(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -3085,62 +4274,168 @@ fn icon_delete(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         sr.max,
     );
     out.push(Shape::rect_stroke(body, 1.0, s));
-    out.push(Shape::line_segment([Pos2::new(sr.min.x, sr.min.y + sr.height() * 0.22),
-                    Pos2::new(sr.max.x, sr.min.y + sr.height() * 0.22)], s));
-    out.push(Shape::line_segment([Pos2::new(sr.center().x - 3.0, sr.min.y),
-                    Pos2::new(sr.center().x + 3.0, sr.min.y)], s));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(sr.min.x, sr.min.y + sr.height() * 0.22),
+            Pos2::new(sr.max.x, sr.min.y + sr.height() * 0.22),
+        ],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(sr.center().x - 3.0, sr.min.y),
+            Pos2::new(sr.center().x + 3.0, sr.min.y),
+        ],
+        s,
+    ));
     for i in 1..=3 {
         let x = body.min.x + body.width() * i as f32 / 4.0;
-        out.push(Shape::line_segment([Pos2::new(x, body.min.y + 3.0), Pos2::new(x, body.max.y - 3.0)],
-            Stroke::new(1.2, c)));
+        out.push(Shape::line_segment(
+            [
+                Pos2::new(x, body.min.y + 3.0),
+                Pos2::new(x, body.max.y - 3.0),
+            ],
+            Stroke::new(1.2, c),
+        ));
     }
 }
 
 fn icon_bring_front(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.5, c);
-    let cx = r.center().x; let top = r.min.y + 4.0; let bot = r.max.y - 4.0;
-    let r1 = Rect::from_min_max(Pos2::new(r.min.x + 5.0, top + 4.0), Pos2::new(r.max.x - 2.0, bot));
-    let r2 = Rect::from_min_max(Pos2::new(r.min.x + 2.0, top + 8.0), Pos2::new(r.max.x - 5.0, bot + 3.0));
-    out.push(Shape::rect_stroke(r2, 1.0, Stroke::new(1.2, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120))));
-    out.push(Shape::rect_filled(r1, 1.0, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 40)));
+    let cx = r.center().x;
+    let top = r.min.y + 4.0;
+    let bot = r.max.y - 4.0;
+    let r1 = Rect::from_min_max(
+        Pos2::new(r.min.x + 5.0, top + 4.0),
+        Pos2::new(r.max.x - 2.0, bot),
+    );
+    let r2 = Rect::from_min_max(
+        Pos2::new(r.min.x + 2.0, top + 8.0),
+        Pos2::new(r.max.x - 5.0, bot + 3.0),
+    );
+    out.push(Shape::rect_stroke(
+        r2,
+        1.0,
+        Stroke::new(
+            1.2,
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
+        ),
+    ));
+    out.push(Shape::rect_filled(
+        r1,
+        1.0,
+        Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 40),
+    ));
     out.push(Shape::rect_stroke(r1, 1.0, s));
-    out.push(Shape::line_segment([Pos2::new(cx, top - 1.0), Pos2::new(cx, top + 6.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx - 3.0, top + 3.0), Pos2::new(cx, top - 1.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx + 3.0, top + 3.0), Pos2::new(cx, top - 1.0)], s));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx, top - 1.0), Pos2::new(cx, top + 6.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx - 3.0, top + 3.0), Pos2::new(cx, top - 1.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 3.0, top + 3.0), Pos2::new(cx, top - 1.0)],
+        s,
+    ));
 }
 
 fn icon_send_back(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.5, c);
-    let cx = r.center().x; let top = r.min.y + 4.0; let bot = r.max.y - 4.0;
-    let r1 = Rect::from_min_max(Pos2::new(r.min.x + 5.0, top + 4.0), Pos2::new(r.max.x - 2.0, bot));
-    let r2 = Rect::from_min_max(Pos2::new(r.min.x + 2.0, top + 8.0), Pos2::new(r.max.x - 5.0, bot + 3.0));
-    out.push(Shape::rect_filled(r1, 1.0, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 40)));
-    out.push(Shape::rect_stroke(r1, 1.0, Stroke::new(1.2, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120))));
+    let cx = r.center().x;
+    let top = r.min.y + 4.0;
+    let bot = r.max.y - 4.0;
+    let r1 = Rect::from_min_max(
+        Pos2::new(r.min.x + 5.0, top + 4.0),
+        Pos2::new(r.max.x - 2.0, bot),
+    );
+    let r2 = Rect::from_min_max(
+        Pos2::new(r.min.x + 2.0, top + 8.0),
+        Pos2::new(r.max.x - 5.0, bot + 3.0),
+    );
+    out.push(Shape::rect_filled(
+        r1,
+        1.0,
+        Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 40),
+    ));
+    out.push(Shape::rect_stroke(
+        r1,
+        1.0,
+        Stroke::new(
+            1.2,
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
+        ),
+    ));
     out.push(Shape::rect_stroke(r2, 1.0, s));
-    out.push(Shape::line_segment([Pos2::new(cx, bot + 4.0), Pos2::new(cx, bot - 3.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx - 3.0, bot + 1.0), Pos2::new(cx, bot + 4.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx + 3.0, bot + 1.0), Pos2::new(cx, bot + 4.0)], s));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx, bot + 4.0), Pos2::new(cx, bot - 3.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx - 3.0, bot + 1.0), Pos2::new(cx, bot + 4.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 3.0, bot + 1.0), Pos2::new(cx, bot + 4.0)],
+        s,
+    ));
 }
 
 fn icon_fwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.5, c);
-    let cx = r.center().x; let cy = r.center().y;
-    out.push(Shape::rect_stroke(Rect::from_center_size(Pos2::new(cx - 2.0, cy + 1.0), Vec2::new(10.0, 8.0)), 1.0, Stroke::new(1.2, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120))));
-    out.push(Shape::rect_stroke(Rect::from_center_size(Pos2::new(cx + 1.0, cy - 1.0), Vec2::new(10.0, 8.0)), 1.0, s));
+    let cx = r.center().x;
+    let cy = r.center().y;
+    out.push(Shape::rect_stroke(
+        Rect::from_center_size(Pos2::new(cx - 2.0, cy + 1.0), Vec2::new(10.0, 8.0)),
+        1.0,
+        Stroke::new(
+            1.2,
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
+        ),
+    ));
+    out.push(Shape::rect_stroke(
+        Rect::from_center_size(Pos2::new(cx + 1.0, cy - 1.0), Vec2::new(10.0, 8.0)),
+        1.0,
+        s,
+    ));
     // "+" marker (Bring Forward = +1 z-order)
-    let mx = cx + 1.0; let my = cy - 1.0;
-    out.push(Shape::line_segment([Pos2::new(mx - 2.5, my), Pos2::new(mx + 2.5, my)], s));
-    out.push(Shape::line_segment([Pos2::new(mx, my - 2.5), Pos2::new(mx, my + 2.5)], s));
+    let mx = cx + 1.0;
+    let my = cy - 1.0;
+    out.push(Shape::line_segment(
+        [Pos2::new(mx - 2.5, my), Pos2::new(mx + 2.5, my)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(mx, my - 2.5), Pos2::new(mx, my + 2.5)],
+        s,
+    ));
 }
 
 fn icon_bwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.5, c);
-    let cx = r.center().x; let cy = r.center().y;
-    out.push(Shape::rect_stroke(Rect::from_center_size(Pos2::new(cx + 2.0, cy - 1.0), Vec2::new(10.0, 8.0)), 1.0, Stroke::new(1.2, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120))));
-    out.push(Shape::rect_stroke(Rect::from_center_size(Pos2::new(cx - 1.0, cy + 1.0), Vec2::new(10.0, 8.0)), 1.0, s));
+    let cx = r.center().x;
+    let cy = r.center().y;
+    out.push(Shape::rect_stroke(
+        Rect::from_center_size(Pos2::new(cx + 2.0, cy - 1.0), Vec2::new(10.0, 8.0)),
+        1.0,
+        Stroke::new(
+            1.2,
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
+        ),
+    ));
+    out.push(Shape::rect_stroke(
+        Rect::from_center_size(Pos2::new(cx - 1.0, cy + 1.0), Vec2::new(10.0, 8.0)),
+        1.0,
+        s,
+    ));
     // "−" marker (Send Backward = -1 z-order)
-    let mx = cx - 1.0; let my = cy + 1.0;
-    out.push(Shape::line_segment([Pos2::new(mx - 2.5, my), Pos2::new(mx + 2.5, my)], s));
+    let mx = cx - 1.0;
+    let my = cy + 1.0;
+    out.push(Shape::line_segment(
+        [Pos2::new(mx - 2.5, my), Pos2::new(mx + 2.5, my)],
+        s,
+    ));
 }
 
 fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: bool) {
@@ -3148,126 +4443,268 @@ fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: 
     let sr = r.shrink(3.0);
     if horiz {
         let x = if lo_side { sr.min.x } else { sr.max.x };
-        out.push(Shape::line_segment([Pos2::new(x, sr.min.y), Pos2::new(x, sr.max.y)], Stroke::new(1.8, c)));
+        out.push(Shape::line_segment(
+            [Pos2::new(x, sr.min.y), Pos2::new(x, sr.max.y)],
+            Stroke::new(1.8, c),
+        ));
         for (i, w, h) in [(0, 8.0, 4.0), (1, 6.0, 4.0)] {
             let y = sr.min.y + sr.height() * (0.2 + i as f32 * 0.45);
             let x_rect = if lo_side { x + 1.0 } else { x - w - 1.0 };
-            out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(x_rect, y), Vec2::new(w, h)), 1.0, s));
+            out.push(Shape::rect_stroke(
+                Rect::from_min_size(Pos2::new(x_rect, y), Vec2::new(w, h)),
+                1.0,
+                s,
+            ));
         }
     } else {
         let y = if lo_side { sr.min.y } else { sr.max.y };
-        out.push(Shape::line_segment([Pos2::new(sr.min.x, y), Pos2::new(sr.max.x, y)], Stroke::new(1.8, c)));
+        out.push(Shape::line_segment(
+            [Pos2::new(sr.min.x, y), Pos2::new(sr.max.x, y)],
+            Stroke::new(1.8, c),
+        ));
         for (i, w, h) in [(0, 4.0, 7.0), (1, 4.0, 5.0)] {
             let x = sr.min.x + sr.width() * (0.2 + i as f32 * 0.45);
             let y_rect = if lo_side { y + 1.0 } else { y - h - 1.0 };
-            out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(x, y_rect), Vec2::new(w, h)), 1.0, s));
+            out.push(Shape::rect_stroke(
+                Rect::from_min_size(Pos2::new(x, y_rect), Vec2::new(w, h)),
+                1.0,
+                s,
+            ));
         }
     }
 }
-fn icon_align_left(out: &mut Vec<Shape>, r: Rect, c: Color32)   { _icon_align(out, r, c, true,  true);  }
-fn icon_align_right(out: &mut Vec<Shape>, r: Rect, c: Color32)  { _icon_align(out, r, c, true,  false); }
-fn icon_align_top(out: &mut Vec<Shape>, r: Rect, c: Color32)    { _icon_align(out, r, c, false, true);  }
-fn icon_align_bottom(out: &mut Vec<Shape>, r: Rect, c: Color32) { _icon_align(out, r, c, false, false); }
+fn icon_align_left(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    _icon_align(out, r, c, true, true);
+}
+fn icon_align_right(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    _icon_align(out, r, c, true, false);
+}
+fn icon_align_top(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    _icon_align(out, r, c, false, true);
+}
+fn icon_align_bottom(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    _icon_align(out, r, c, false, false);
+}
 
 fn icon_center_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
-    let s = Stroke::new(1.5, c); let sr = r.shrink(3.0);
+    let s = Stroke::new(1.5, c);
+    let sr = r.shrink(3.0);
     let cx = sr.center().x;
-    out.push(Shape::line_segment([Pos2::new(cx, sr.min.y), Pos2::new(cx, sr.max.y)], Stroke::new(1.8, c)));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx, sr.min.y), Pos2::new(cx, sr.max.y)],
+        Stroke::new(1.8, c),
+    ));
     for (dy, w) in [(0.15_f32, 9.0_f32), (0.55, 7.0)] {
         let y = sr.min.y + sr.height() * dy;
-        out.push(Shape::rect_stroke(Rect::from_center_size(Pos2::new(cx, y + 2.0), Vec2::new(w, 4.0)), 1.0, s));
+        out.push(Shape::rect_stroke(
+            Rect::from_center_size(Pos2::new(cx, y + 2.0), Vec2::new(w, 4.0)),
+            1.0,
+            s,
+        ));
     }
 }
 
 fn icon_center_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
-    let s = Stroke::new(1.5, c); let sr = r.shrink(3.0);
+    let s = Stroke::new(1.5, c);
+    let sr = r.shrink(3.0);
     let cy = sr.center().y;
-    out.push(Shape::line_segment([Pos2::new(sr.min.x, cy), Pos2::new(sr.max.x, cy)], Stroke::new(1.8, c)));
+    out.push(Shape::line_segment(
+        [Pos2::new(sr.min.x, cy), Pos2::new(sr.max.x, cy)],
+        Stroke::new(1.8, c),
+    ));
     for (dx, h) in [(0.15_f32, 9.0_f32), (0.55, 7.0)] {
         let x = sr.min.x + sr.width() * dx;
-        out.push(Shape::rect_stroke(Rect::from_center_size(Pos2::new(x + 2.0, cy), Vec2::new(4.0, h)), 1.0, s));
+        out.push(Shape::rect_stroke(
+            Rect::from_center_size(Pos2::new(x + 2.0, cy), Vec2::new(4.0, h)),
+            1.0,
+            s,
+        ));
     }
 }
 
 fn icon_space_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
-    let s = Stroke::new(1.4, c); let sr = r.shrink(3.0);
+    let s = Stroke::new(1.4, c);
+    let sr = r.shrink(3.0);
     for i in 0..3 {
         let x = sr.min.x + sr.width() * (0.15 + i as f32 * 0.35);
-        out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(x, sr.min.y + 3.0),
-            Vec2::new(3.5, sr.height() - 6.0)), 1.0, s));
+        out.push(Shape::rect_stroke(
+            Rect::from_min_size(
+                Pos2::new(x, sr.min.y + 3.0),
+                Vec2::new(3.5, sr.height() - 6.0),
+            ),
+            1.0,
+            s,
+        ));
     }
     let y = sr.max.y - 2.0;
-    out.push(Shape::line_segment([Pos2::new(sr.min.x, y), Pos2::new(sr.max.x, y)], s));
-    out.push(Shape::line_segment([Pos2::new(sr.min.x + 2.0, y - 2.0), Pos2::new(sr.min.x, y)], s));
-    out.push(Shape::line_segment([Pos2::new(sr.max.x - 2.0, y - 2.0), Pos2::new(sr.max.x, y)], s));
+    out.push(Shape::line_segment(
+        [Pos2::new(sr.min.x, y), Pos2::new(sr.max.x, y)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(sr.min.x + 2.0, y - 2.0), Pos2::new(sr.min.x, y)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(sr.max.x - 2.0, y - 2.0), Pos2::new(sr.max.x, y)],
+        s,
+    ));
 }
 
 fn icon_space_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
-    let s = Stroke::new(1.4, c); let sr = r.shrink(3.0);
+    let s = Stroke::new(1.4, c);
+    let sr = r.shrink(3.0);
     for i in 0..3 {
         let y = sr.min.y + sr.height() * (0.12 + i as f32 * 0.35);
-        out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(sr.min.x + 3.0, y),
-            Vec2::new(sr.width() - 6.0, 3.5)), 1.0, s));
+        out.push(Shape::rect_stroke(
+            Rect::from_min_size(
+                Pos2::new(sr.min.x + 3.0, y),
+                Vec2::new(sr.width() - 6.0, 3.5),
+            ),
+            1.0,
+            s,
+        ));
     }
     let x = sr.max.x - 2.0;
-    out.push(Shape::line_segment([Pos2::new(x, sr.min.y), Pos2::new(x, sr.max.y)], s));
-    out.push(Shape::line_segment([Pos2::new(x - 2.0, sr.min.y + 2.0), Pos2::new(x, sr.min.y)], s));
-    out.push(Shape::line_segment([Pos2::new(x - 2.0, sr.max.y - 2.0), Pos2::new(x, sr.max.y)], s));
+    out.push(Shape::line_segment(
+        [Pos2::new(x, sr.min.y), Pos2::new(x, sr.max.y)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(x - 2.0, sr.min.y + 2.0), Pos2::new(x, sr.min.y)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(x - 2.0, sr.max.y - 2.0), Pos2::new(x, sr.max.y)],
+        s,
+    ));
 }
 
 fn icon_format_painter(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.5, c);
-    let cx = r.center().x; let cy = r.center().y;
-    out.push(Shape::line_segment([Pos2::new(cx + 2.0, cy - 7.0), Pos2::new(cx + 2.0, cy + 4.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx + 2.0, cy - 7.0), Pos2::new(cx - 5.0, cy - 7.0)], s));
-    out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(cx - 6.0, cy - 5.0), Vec2::new(10.0, 5.0)), 1.0, s));
-    out.push(Shape::line_segment([Pos2::new(cx + 2.0, cy + 4.0), Pos2::new(cx + 2.0, cy + 7.0)], Stroke::new(1.2, c)));
+    let cx = r.center().x;
+    let cy = r.center().y;
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 2.0, cy - 7.0), Pos2::new(cx + 2.0, cy + 4.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 2.0, cy - 7.0), Pos2::new(cx - 5.0, cy - 7.0)],
+        s,
+    ));
+    out.push(Shape::rect_stroke(
+        Rect::from_min_size(Pos2::new(cx - 6.0, cy - 5.0), Vec2::new(10.0, 5.0)),
+        1.0,
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 2.0, cy + 4.0), Pos2::new(cx + 2.0, cy + 7.0)],
+        Stroke::new(1.2, c),
+    ));
     out.push(Shape::circle_filled(Pos2::new(cx + 2.0, cy + 8.0), 1.5, c));
 }
 
 fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
-    let s = Stroke::new(1.4, c); let sr = r.shrink(3.0);
-    out.push(Shape::rect_stroke(Rect::from_min_size(sr.min, Vec2::new(sr.width() * 0.38, 4.5)), 1.0, s));
-    out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(sr.min.x + sr.width() * 0.45, sr.min.y),
-        Vec2::new(sr.width() * 0.55, 4.5)), 1.0,
-        Stroke::new(1.4, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180))));
+    let s = Stroke::new(1.4, c);
+    let sr = r.shrink(3.0);
+    out.push(Shape::rect_stroke(
+        Rect::from_min_size(sr.min, Vec2::new(sr.width() * 0.38, 4.5)),
+        1.0,
+        s,
+    ));
+    out.push(Shape::rect_stroke(
+        Rect::from_min_size(
+            Pos2::new(sr.min.x + sr.width() * 0.45, sr.min.y),
+            Vec2::new(sr.width() * 0.55, 4.5),
+        ),
+        1.0,
+        Stroke::new(
+            1.4,
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
+        ),
+    ));
     let y2 = sr.min.y + 7.0;
-    out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(sr.min.x, y2), Vec2::new(sr.width() * 0.30, 4.5)), 1.0, s));
-    out.push(Shape::rect_stroke(Rect::from_min_size(Pos2::new(sr.min.x + sr.width() * 0.45, y2),
-        Vec2::new(sr.width() * 0.55, 4.5)), 1.0,
-        Stroke::new(1.4, Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180))));
-    out.push(Shape::line_segment([Pos2::new(sr.center().x - 1.0, sr.max.y - 5.0),
-                    Pos2::new(sr.center().x + 4.0, sr.max.y - 1.0)], Stroke::new(1.6, c)));
-    out.push(Shape::circle_filled(Pos2::new(sr.center().x - 1.0, sr.max.y - 5.0), 2.0, c));
+    out.push(Shape::rect_stroke(
+        Rect::from_min_size(Pos2::new(sr.min.x, y2), Vec2::new(sr.width() * 0.30, 4.5)),
+        1.0,
+        s,
+    ));
+    out.push(Shape::rect_stroke(
+        Rect::from_min_size(
+            Pos2::new(sr.min.x + sr.width() * 0.45, y2),
+            Vec2::new(sr.width() * 0.55, 4.5),
+        ),
+        1.0,
+        Stroke::new(
+            1.4,
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
+        ),
+    ));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(sr.center().x - 1.0, sr.max.y - 5.0),
+            Pos2::new(sr.center().x + 4.0, sr.max.y - 1.0),
+        ],
+        Stroke::new(1.6, c),
+    ));
+    out.push(Shape::circle_filled(
+        Pos2::new(sr.center().x - 1.0, sr.max.y - 5.0),
+        2.0,
+        c,
+    ));
 }
 
 fn icon_bug(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.4, c);
-    let cx = r.center().x; let cy = r.center().y;
-    let pts: Vec<Pos2> = (0..=20).map(|i| {
-        let a = std::f32::consts::TAU * i as f32 / 20.0;
-        Pos2::new(cx + 4.5 * a.cos(), cy + 1.5 + 5.5 * a.sin())
-    }).collect();
-    for w in pts.windows(2) { out.push(Shape::line_segment([w[0], w[1]], s)); }
+    let cx = r.center().x;
+    let cy = r.center().y;
+    let pts: Vec<Pos2> = (0..=20)
+        .map(|i| {
+            let a = std::f32::consts::TAU * i as f32 / 20.0;
+            Pos2::new(cx + 4.5 * a.cos(), cy + 1.5 + 5.5 * a.sin())
+        })
+        .collect();
+    for w in pts.windows(2) {
+        out.push(Shape::line_segment([w[0], w[1]], s));
+    }
     out.push(Shape::circle_stroke(Pos2::new(cx, cy - 4.0), 3.0, s));
-    out.push(Shape::line_segment([Pos2::new(cx - 1.5, cy - 6.5), Pos2::new(cx - 4.0, cy - 9.0)], s));
-    out.push(Shape::line_segment([Pos2::new(cx + 1.5, cy - 6.5), Pos2::new(cx + 4.0, cy - 9.0)], s));
-    for (i, sign) in [(-3.0_f32, -1.0_f32), (0.0, -1.0), (3.0, -1.0),
-                      (-3.0, 1.0), (0.0, 1.0), (3.0, 1.0)] {
+    out.push(Shape::line_segment(
+        [Pos2::new(cx - 1.5, cy - 6.5), Pos2::new(cx - 4.0, cy - 9.0)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx + 1.5, cy - 6.5), Pos2::new(cx + 4.0, cy - 9.0)],
+        s,
+    ));
+    for (i, sign) in [
+        (-3.0_f32, -1.0_f32),
+        (0.0, -1.0),
+        (3.0, -1.0),
+        (-3.0, 1.0),
+        (0.0, 1.0),
+        (3.0, 1.0),
+    ] {
         let by = cy + 1.5 + i;
-        out.push(Shape::line_segment([Pos2::new(cx + sign * 4.5, by),
-                        Pos2::new(cx + sign * 8.0, by - 1.5)], s));
+        out.push(Shape::line_segment(
+            [
+                Pos2::new(cx + sign * 4.5, by),
+                Pos2::new(cx + sign * 8.0, by - 1.5),
+            ],
+            s,
+        ));
     }
 }
 
 /// Return `(width, height)` for a named preset, or `None` for "Custom" / unknown.
 pub(crate) fn target_preset_size(name: &str) -> Option<(u32, u32)> {
-    if name == "Custom" { return None; }
-    TARGET_PRESETS.iter()
+    if name == "Custom" {
+        return None;
+    }
+    TARGET_PRESETS
+        .iter()
         .find(|(label, ..)| *label == name)
         .map(|(_, w, h)| (*w, *h))
 }
-
 
 // ── Behavioral render tests — Phase 1: design-time canvas (`draw_control`) ──────
 //
@@ -3285,7 +4722,7 @@ mod form_resize_tests {
         // Right edge, away from the bottom.
         assert_eq!(detect_form_edge(400, 150, w, h), Some(FormEdge::Right));
         assert_eq!(detect_form_edge(396, 150, w, h), Some(FormEdge::Right)); // inner band
-        // Bottom edge, away from the right.
+                                                                             // Bottom edge, away from the right.
         assert_eq!(detect_form_edge(200, 300, w, h), Some(FormEdge::Bottom));
         // Bottom-right corner — both edges → corner.
         assert_eq!(detect_form_edge(400, 300, w, h), Some(FormEdge::Corner));
@@ -3309,11 +4746,14 @@ mod form_resize_tests {
             }
             (nw, nh)
         };
-        assert_eq!(resize(FormEdge::Right,  400, 300,  50, 99), (450, 300));
-        assert_eq!(resize(FormEdge::Bottom, 400, 300,  99, 40), (400, 340));
-        assert_eq!(resize(FormEdge::Corner, 400, 300,  60, 30), (460, 330));
+        assert_eq!(resize(FormEdge::Right, 400, 300, 50, 99), (450, 300));
+        assert_eq!(resize(FormEdge::Bottom, 400, 300, 99, 40), (400, 340));
+        assert_eq!(resize(FormEdge::Corner, 400, 300, 60, 30), (460, 330));
         // Shrinking past the minimum clamps to FORM_MIN_SIZE.
-        assert_eq!(resize(FormEdge::Corner, 100, 100, -90, -90), (FORM_MIN_SIZE, FORM_MIN_SIZE));
+        assert_eq!(
+            resize(FormEdge::Corner, 100, 100, -90, -90),
+            (FORM_MIN_SIZE, FORM_MIN_SIZE)
+        );
     }
 }
 
@@ -3334,8 +4774,20 @@ mod animator_tests {
             let mut enc = GifEncoder::new(&mut f);
             let red = RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]));
             let blue = RgbaImage::from_pixel(8, 8, Rgba([0, 0, 255, 255]));
-            enc.encode_frame(Frame::from_parts(red, 0, 0, Delay::from_numer_denom_ms(100, 1))).unwrap();
-            enc.encode_frame(Frame::from_parts(blue, 0, 0, Delay::from_numer_denom_ms(100, 1))).unwrap();
+            enc.encode_frame(Frame::from_parts(
+                red,
+                0,
+                0,
+                Delay::from_numer_denom_ms(100, 1),
+            ))
+            .unwrap();
+            enc.encode_frame(Frame::from_parts(
+                blue,
+                0,
+                0,
+                Delay::from_numer_denom_ms(100, 1),
+            ))
+            .unwrap();
         }
         path
     }
@@ -3343,12 +4795,25 @@ mod animator_tests {
     /// Render the Animator at virtual time `t` (seconds) and return the texture
     /// id of the painted image, if any.
     fn frame_tex(ctx: &egui::Context, src: &str, t: f64) -> Option<egui::TextureId> {
-        let raw = egui::RawInput { time: Some(t), ..Default::default() };
+        let raw = egui::RawInput {
+            time: Some(t),
+            ..Default::default()
+        };
         let out = ctx.run(raw, |ctx| {
             let painter = ctx.layer_painter(egui::LayerId::background());
             let ctrl = Control::new("anim", ControlType::Animator, 0, 0);
-            draw_animator(&painter, Rect::from_min_size(pos2(0.0, 0.0), vec2(64.0, 64.0)),
-                &ctrl, "anim-key", src, true, true, "Fit", 1.0, false);
+            draw_animator(
+                &painter,
+                Rect::from_min_size(pos2(0.0, 0.0), vec2(64.0, 64.0)),
+                &ctrl,
+                "anim-key",
+                src,
+                true,
+                true,
+                "Fit",
+                1.0,
+                false,
+            );
         });
         out.shapes.into_iter().find_map(|cs| match cs.shape {
             egui::Shape::Mesh(m) => Some(m.texture_id),
@@ -3364,12 +4829,18 @@ mod animator_tests {
 
         // First render (t=0) decodes + shows frame 0; the playback clock starts here.
         let f0 = frame_tex(&ctx, &src, 0.0);
-        assert!(f0.is_some(), "Animator should paint an image once a source is set");
+        assert!(
+            f0.is_some(),
+            "Animator should paint an image once a source is set"
+        );
 
         // 150 ms later we are on the second frame → a different texture.
         let f1 = frame_tex(&ctx, &src, 0.15);
         assert!(f1.is_some());
-        assert_ne!(f0, f1, "Animator should advance to a different frame over time");
+        assert_ne!(
+            f0, f1,
+            "Animator should advance to a different frame over time"
+        );
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -3432,19 +4903,35 @@ mod render_behavior_tests {
     fn visual_widgets() -> Vec<(ControlType, &'static str)> {
         use ControlType::*;
         vec![
-            (Label, "Label"), (Button, "Button"), (TextBox, "TextBox"),
-            (CheckBox, "CheckBox"), (RadioButton, "RadioButton"),
-            (ComboBox, "ComboBox"), (ListBox, "ListBox"),
-            (GroupBox, "GroupBox"), (Panel, "Panel"),
-            (ProgressBar, "ProgressBar"), (Slider, "Slider"),
-            (NumericUpDown, "NumericUpDown"), (DateTimePicker, "DateTimePicker"),
-            (PictureBox, "PictureBox"), (DataGrid, "DataGrid"),
-            (TabControl, "TabControl"), (TreeView, "TreeView"),
-            (Line, "Line"), (Shape, "Shape"), (Splitter, "Splitter"),
-            (MenuBar, "MenuBar"), (ToolBar, "ToolBar"), (StatusBar, "StatusBar"),
-            (BarChart, "BarChart"), (LineChart, "LineChart"),
-            (PieChart, "PieChart"), (AreaChart, "AreaChart"),
-            (ScatterChart, "ScatterChart"), (DonutChart, "DonutChart"),
+            (Label, "Label"),
+            (Button, "Button"),
+            (TextBox, "TextBox"),
+            (CheckBox, "CheckBox"),
+            (RadioButton, "RadioButton"),
+            (ComboBox, "ComboBox"),
+            (ListBox, "ListBox"),
+            (GroupBox, "GroupBox"),
+            (Panel, "Panel"),
+            (ProgressBar, "ProgressBar"),
+            (Slider, "Slider"),
+            (NumericUpDown, "NumericUpDown"),
+            (DateTimePicker, "DateTimePicker"),
+            (PictureBox, "PictureBox"),
+            (DataGrid, "DataGrid"),
+            (TabControl, "TabControl"),
+            (TreeView, "TreeView"),
+            (Line, "Line"),
+            (Shape, "Shape"),
+            (Splitter, "Splitter"),
+            (MenuBar, "MenuBar"),
+            (ToolBar, "ToolBar"),
+            (StatusBar, "StatusBar"),
+            (BarChart, "BarChart"),
+            (LineChart, "LineChart"),
+            (PieChart, "PieChart"),
+            (AreaChart, "AreaChart"),
+            (ScatterChart, "ScatterChart"),
+            (DonutChart, "DonutChart"),
         ]
     }
 
@@ -3471,14 +4958,20 @@ mod render_behavior_tests {
     // ── Caption / Text content ────────────────────────────────────────────────
     #[test]
     fn caption_is_painted_for_caption_widgets() {
-        for ct in [ControlType::Label, ControlType::Button, ControlType::GroupBox] {
+        for ct in [
+            ControlType::Label,
+            ControlType::Button,
+            ControlType::GroupBox,
+        ] {
             let mut c = Control::new("W", ct.clone(), 5, 7);
             c.set_prop("Caption", PropValue::String("CAP-RC".into()));
             let ts = texts(&render(&c));
             assert!(
                 ts.iter().any(|t| t.galley.text().contains("CAP-RC")),
                 "{ct:?}: Caption not painted; texts={:?}",
-                ts.iter().map(|t| t.galley.text().to_owned()).collect::<Vec<_>>()
+                ts.iter()
+                    .map(|t| t.galley.text().to_owned())
+                    .collect::<Vec<_>>()
             );
         }
     }
@@ -3510,15 +5003,30 @@ mod render_behavior_tests {
     #[test]
     fn label_italic_underline_strike_apply() {
         assert!(
-            label_with("Italic").galley.job.sections.iter().any(|s| s.format.italics),
+            label_with("Italic")
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|s| s.format.italics),
             "Italic not applied"
         );
         assert!(
-            label_with("Underline").galley.job.sections.iter().any(|s| s.format.underline.width > 0.0),
+            label_with("Underline")
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|s| s.format.underline.width > 0.0),
             "Underline not applied"
         );
         assert!(
-            label_with("Strikethrough").galley.job.sections.iter().any(|s| s.format.strikethrough.width > 0.0),
+            label_with("Strikethrough")
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|s| s.format.strikethrough.width > 0.0),
             "Strikethrough not applied"
         );
         // Sanity: a plain label has none of them.
@@ -3536,9 +5044,18 @@ mod render_behavior_tests {
         plain.set_prop("Caption", PropValue::String("BOLD-RC".into()));
         let mut bold = plain.clone();
         bold.set_prop("Bold", PropValue::Bool(true));
-        let n_plain = texts(&render(&plain)).iter().filter(|t| t.galley.text().contains("BOLD-RC")).count();
-        let n_bold = texts(&render(&bold)).iter().filter(|t| t.galley.text().contains("BOLD-RC")).count();
-        assert!(n_bold > n_plain, "Bold did not add an extra paint pass (plain={n_plain}, bold={n_bold})");
+        let n_plain = texts(&render(&plain))
+            .iter()
+            .filter(|t| t.galley.text().contains("BOLD-RC"))
+            .count();
+        let n_bold = texts(&render(&bold))
+            .iter()
+            .filter(|t| t.galley.text().contains("BOLD-RC"))
+            .count();
+        assert!(
+            n_bold > n_plain,
+            "Bold did not add an extra paint pass (plain={n_plain}, bold={n_bold})"
+        );
     }
 
     #[test]
@@ -3546,9 +5063,21 @@ mod render_behavior_tests {
         let mut c = Control::new("LBL", ControlType::Label, 5, 7);
         c.set_prop("Caption", PropValue::String("RED-RC".into()));
         c.set_prop("ForegroundColor", PropValue::String("#FF0000".into()));
-        let t = texts(&render(&c)).into_iter().find(|t| t.galley.text().contains("RED-RC")).expect("painted");
-        let col = t.galley.job.sections.first().map(|s| s.format.color).unwrap_or(egui::Color32::TRANSPARENT);
-        assert!(col.r() > 180 && col.g() < 90 && col.b() < 90, "ForeColor not applied; got {col:?}");
+        let t = texts(&render(&c))
+            .into_iter()
+            .find(|t| t.galley.text().contains("RED-RC"))
+            .expect("painted");
+        let col = t
+            .galley
+            .job
+            .sections
+            .first()
+            .map(|s| s.format.color)
+            .unwrap_or(egui::Color32::TRANSPARENT);
+        assert!(
+            col.r() > 180 && col.g() < 90 && col.b() < 90,
+            "ForeColor not applied; got {col:?}"
+        );
     }
 }
 
@@ -3580,7 +5109,10 @@ mod anim_behavior_tests {
         let a = anim(AnimKind::FlyFromLeft);
         let (dx0, dy0, sc0, al0) = anim_transform(&a, W, H, 0.0);
         let (dx1, _, _, _) = anim_transform(&a, W, H, 1.0);
-        assert!((dx0 + W).abs() < 0.5, "start should be off-screen left (dx≈-W), got {dx0}");
+        assert!(
+            (dx0 + W).abs() < 0.5,
+            "start should be off-screen left (dx≈-W), got {dx0}"
+        );
         assert!(dy0.abs() < 0.5 && (sc0 - 1.0).abs() < 0.01 && (al0 - 1.0).abs() < 0.01);
         assert!(dx1.abs() < 0.5, "end should be in place (dx≈0), got {dx1}");
     }
@@ -3601,14 +5133,20 @@ mod anim_behavior_tests {
         let a = anim(AnimKind::FadeOut);
         let (_, _, _, a0) = anim_transform(&a, W, H, 0.0);
         let (_, _, _, a1) = anim_transform(&a, W, H, 1.0);
-        assert!((a0 - 1.0).abs() < 0.01 && a1.abs() < 0.01, "fade-out 1→0, got {a0}→{a1}");
+        assert!(
+            (a0 - 1.0).abs() < 0.01 && a1.abs() < 0.01,
+            "fade-out 1→0, got {a0}→{a1}"
+        );
     }
 
     #[test]
     fn zoom_out_elastic_is_a_damped_multi_bounce() {
         // With Elastic easing: starts 100%, dips toward ~25%, bounces 3–4 times,
         // settles 100%.
-        let a = AnimationDef { easing: EasingKind::Elastic, ..anim(AnimKind::ZoomOut) };
+        let a = AnimationDef {
+            easing: EasingKind::Elastic,
+            ..anim(AnimKind::ZoomOut)
+        };
         let s = |t: f32| anim_transform(&a, W, H, t).2;
         assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
         assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
@@ -3631,7 +5169,10 @@ mod anim_behavior_tests {
                 prev = cur;
             }
         }
-        assert!(crossings >= 4, "should bounce several times, got {crossings} baseline crossings");
+        assert!(
+            crossings >= 4,
+            "should bounce several times, got {crossings} baseline crossings"
+        );
     }
 
     #[test]
@@ -3642,7 +5183,11 @@ mod anim_behavior_tests {
         let s = |t: f32| anim_transform(&a, W, H, t).2;
         assert!((s(0.0) - 1.0).abs() < 0.01, "start≈100%, got {}", s(0.0));
         assert!((s(1.0) - 1.0).abs() < 0.01, "end≈100%, got {}", s(1.0));
-        assert!((s(0.5) - 0.25).abs() < 0.02, "deepest dip ≈25% at midpoint, got {}", s(0.5));
+        assert!(
+            (s(0.5) - 0.25).abs() < 0.02,
+            "deepest dip ≈25% at midpoint, got {}",
+            s(0.5)
+        );
         // Never overshoots above 100%.
         for i in 0..=100 {
             assert!(s(i as f32 / 100.0) <= 1.0001, "no overshoot expected");
@@ -3670,13 +5215,16 @@ mod anim_behavior_tests {
 
         // Half size, same centre.
         let half = scale_rect_about_center(base, 0.5);
-        assert!((half.width()  - 100.0).abs() < 0.01);
-        assert!((half.height() -  50.0).abs() < 0.01);
-        assert!((half.center() - centre).length() < 0.01, "centre must be preserved");
+        assert!((half.width() - 100.0).abs() < 0.01);
+        assert!((half.height() - 50.0).abs() < 0.01);
+        assert!(
+            (half.center() - centre).length() < 0.01,
+            "centre must be preserved"
+        );
 
         // Double size, same centre.
         let dbl = scale_rect_about_center(base, 2.0);
-        assert!((dbl.width()  - 400.0).abs() < 0.01);
+        assert!((dbl.width() - 400.0).abs() < 0.01);
         assert!((dbl.height() - 200.0).abs() < 0.01);
         assert!((dbl.center() - centre).length() < 0.01);
 
@@ -3751,8 +5299,8 @@ mod live_control_tests {
     fn live_control_carries_designed_props_and_size() {
         let props: Vec<(String, String)> = vec![
             ("BackgroundColor".into(), "#112233FF".into()),
-            ("Caption".into(),         "Hi".into()),
-            ("CornerRadius".into(),    "9".into()),
+            ("Caption".into(), "Hi".into()),
+            ("CornerRadius".into(), "9".into()),
         ];
         let c = live_control(
             "Button-1",
@@ -3774,14 +5322,14 @@ mod text_align_tests {
 
     #[test]
     fn label_text_alignment_maps_to_egui_align() {
-        assert_eq!(text_halign("Left"),   egui::Align::LEFT);
+        assert_eq!(text_halign("Left"), egui::Align::LEFT);
         assert_eq!(text_halign("Center"), egui::Align::Center);
-        assert_eq!(text_halign("Right"),  egui::Align::RIGHT);
+        assert_eq!(text_halign("Right"), egui::Align::RIGHT);
         // Default / unknown → left.
-        assert_eq!(text_halign(""),       egui::Align::LEFT);
-        assert_eq!(text_halign("???"),    egui::Align::LEFT);
+        assert_eq!(text_halign(""), egui::Align::LEFT);
+        assert_eq!(text_halign("???"), egui::Align::LEFT);
         // Lenient about compound 9-position values.
-        assert_eq!(text_halign("MiddleRight"),  egui::Align::RIGHT);
-        assert_eq!(text_halign("TopCenter"),    egui::Align::Center);
+        assert_eq!(text_halign("MiddleRight"), egui::Align::RIGHT);
+        assert_eq!(text_halign("TopCenter"), egui::Align::Center);
     }
 }

@@ -3741,6 +3741,7 @@ impl CoboltApp {
         // Apply the designer's active theme pack to this preview viewport's context
         // (a separate egui Context) so themed controls and charts match the canvas.
         cobolt_forms::paint::set_active_theme(ctx, self.designers[idx].1.active_theme_pack.clone());
+        cobolt_forms::paint::set_glass_style(ctx, self.designers[idx].1.form.glass_style);
 
         // ── Animation tick ────────────────────────────────────────────────────
         {
@@ -3957,7 +3958,12 @@ impl CoboltApp {
             let pack = self.designers.iter().find(|(p, _)| *p == fp)
                 .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
                 .and_then(|(_, d)| d.active_theme_pack.clone());
+            let glass_style = self.designers.iter().find(|(p, _)| *p == fp)
+                .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
+                .map(|(_, d)| d.form.glass_style)
+                .unwrap_or_default();
             cobolt_forms::paint::set_active_theme(ctx, pack);
+            cobolt_forms::paint::set_glass_style(ctx, glass_style);
         }
 
         // ── Form-level lifecycle events ───────────────────────────────────────

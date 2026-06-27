@@ -148,6 +148,7 @@ enum OwnedEvent {
         target:           String,
         theme:            Option<String>,
         use_theme_background: bool,
+        glass_style: crate::model::GlassStyle,
     },
     ControlStart(AttrPairs),
     PropertyStart(String),              // property name
@@ -212,11 +213,14 @@ fn next_owned<R: std::io::BufRead>(
                     let use_theme_background = get_attr(e, b"use-theme-background")?
                                               .map(|v| v == "true" || v == "1")
                                               .unwrap_or(false);
+                    let glass_style = get_attr(e, b"glass-style")?
+                                              .map(|v| crate::model::GlassStyle::from_str(&v))
+                                              .unwrap_or_default();
                     Ok(OwnedEvent::FormStart {
                         name, title, width, height, background,
                         transparency, background_image, bg_image_mode,
                         grid_size, snap_to_grid, target,
-                        theme, use_theme_background,
+                        theme, use_theme_background, glass_style,
                     })
                 }
                 b"Control" => {
@@ -326,7 +330,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 name, title, width, height, background,
                 transparency, background_image, bg_image_mode,
                 grid_size, snap_to_grid, target,
-                theme, use_theme_background,
+                theme, use_theme_background, glass_style,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -339,6 +343,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.target           = target;
                 f.theme            = theme;
                 f.use_theme_background = use_theme_background;
+                f.glass_style      = glass_style;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -357,7 +362,38 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     // editing list with `parent` links, and migrate the old Panel `Scrollable`
     // flag to the unified `AutoScroll` property.
     normalize_containers(&mut form);
+    seed_missing_props(&mut form);
     Ok(form)
+}
+
+/// Seed properties that were added after a control was first created, so that
+/// existing .cfrm files gain the new UI without a manual re-create.
+fn seed_missing_props(form: &mut Form) {
+    use crate::model::{ControlType, PropValue};
+    for c in &mut form.controls {
+        match c.control_type {
+            ControlType::GroupBox => {
+                if c.get_prop("CaptionEnabled").is_none() {
+                    c.set_prop("CaptionEnabled", PropValue::Bool(true));
+                }
+                if c.get_prop("BorderWidth").is_none() {
+                    c.set_prop("BorderWidth", PropValue::Int(1));
+                }
+            }
+            ControlType::Panel => {
+                if c.get_prop("BorderWidth").is_none() {
+                    c.set_prop("BorderWidth", PropValue::Int(1));
+                }
+                if c.get_prop("HideBackground").is_none() {
+                    c.set_prop("HideBackground", PropValue::Bool(false));
+                }
+                if c.get_prop("BackgroundGradientEnabled").is_none() {
+                    c.set_prop("BackgroundGradientEnabled", PropValue::Bool(false));
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Spec 012 post-load normalization. New `.cfrm` write controls flat with a
@@ -795,6 +831,9 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
         }
         if form.use_theme_background {
             elem.push_attribute(("use-theme-background", "true"));
+        }
+        if form.glass_style != crate::model::GlassStyle::Classic {
+            elem.push_attribute(("glass-style", form.glass_style.as_str()));
         }
         if !form.background_image.is_empty() {
             elem.push_attribute(("background-image", form.background_image.as_str()));
