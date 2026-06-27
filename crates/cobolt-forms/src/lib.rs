@@ -22,6 +22,8 @@
 //! ```
 
 pub mod model;
+pub mod menu;
+pub mod icons;
 pub mod xml;
 pub mod theme;
 pub mod theme_pack;

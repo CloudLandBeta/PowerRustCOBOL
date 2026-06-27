@@ -859,6 +859,7 @@ impl ControlType {
             | ControlType::DonutChart => {
                 &["onDataChanged", "onClick", "onSeriesClick", "onTooltipShow"]
             }
+            ControlType::MenuBar => &["onMenuClick", "onMenuOpen", "onMenuClose"],
             _ => &["onClick"],
         }
     }
@@ -1275,8 +1276,6 @@ impl Control {
                 props.insert("ShowRowNumbers".into(), PropValue::Bool(false));
                 props.insert("ExportCSV".into(), PropValue::Bool(true));
                 props.insert("CSVDelimiter".into(), PropValue::String(",".into()));
-                props.insert("CSVParagraph".into(), PropValue::String("".into()));
-                // COBOL para called after export
             }
             ControlType::TabControl => {
                 props.insert("Tabs".into(), PropValue::String("Tab1\nTab2".into()));
@@ -1285,7 +1284,13 @@ impl Control {
                 // Container behaviour (spec 012).
                 props.insert("AutoScroll".into(), PropValue::Bool(false));
             }
-            ControlType::MenuBar | ControlType::ToolBar | ControlType::StatusBar => {
+            ControlType::MenuBar => {
+                props.insert("HighlightBgColor".into(), PropValue::String("#4488FF".into()));
+                props.insert("HighlightFgColor".into(), PropValue::String("#FFFFFF".into()));
+                props.insert("SelectedBgColor".into(), PropValue::String("#3366CC".into()));
+                props.insert("SelectedFgColor".into(), PropValue::String("#FFFFFF".into()));
+            }
+            ControlType::ToolBar | ControlType::StatusBar => {
                 props.insert("Items".into(), PropValue::String("".into()));
             }
             ControlType::Line => {
@@ -1340,7 +1345,6 @@ impl Control {
             ControlType::Timer => {
                 props.insert("Interval".into(), PropValue::Int(1000)); // milliseconds
                 props.insert("Enabled".into(), PropValue::Bool(true));
-                props.insert("Paragraph".into(), PropValue::String("".into())); // COBOL para to PERFORM on Tick
             }
             ControlType::Shape => {
                 props.insert("ShapeType".into(), PropValue::String("Rectangle".into()));
@@ -1371,11 +1375,6 @@ impl Control {
                 props.insert("TimeoutSeconds".into(), PropValue::Int(30));
                 // Target controls — comma-sep list of IDs this agent is allowed to modify
                 props.insert("TargetControls".into(), PropValue::String("".into()));
-                // COBOL paragraphs for events
-                props.insert("ResponseParagraph".into(), PropValue::String("".into()));
-                props.insert("ErrorParagraph".into(), PropValue::String("".into()));
-                props.insert("StreamChunkParagraph".into(), PropValue::String("".into()));
-                // Data item to put the response into
                 props.insert("ResponseDataItem".into(), PropValue::String("".into()));
             }
             ControlType::Slider => {
@@ -1392,8 +1391,6 @@ impl Control {
                 props.insert("FillColor".into(), PropValue::String("#0078D7".into())); // filled portion of track
                 props.insert("ShowValue".into(), PropValue::Bool(false)); // label current value
                 props.insert("DataItem".into(), PropValue::String("".into()));
-                props.insert("ChangeParagraph".into(), PropValue::String("".into()));
-                // COBOL para called on change
             }
             ControlType::RestClient => {
                 props.insert(
@@ -1411,9 +1408,6 @@ impl Control {
                 props.insert("RequestDataItem".into(), PropValue::String("".into())); // JSON body source
                 props.insert("ResponseDataItem".into(), PropValue::String("".into())); // where response goes
                 props.insert("StatusDataItem".into(), PropValue::String("".into())); // HTTP status code
-                                                                                     // COBOL paragraphs
-                props.insert("ResponseParagraph".into(), PropValue::String("".into()));
-                props.insert("ErrorParagraph".into(), PropValue::String("".into()));
             }
             ControlType::SqlDatabase => {
                 // Connection
@@ -1428,12 +1422,6 @@ impl Control {
                 props.insert("ConnectionDataItem".into(), PropValue::String("".into())); // e.g. conn1
                 props.insert("ResultSetDataItem".into(), PropValue::String("".into())); // e.g. resultset1
                                                                                         // COBOL paragraphs
-                props.insert("ConnectParagraph".into(), PropValue::String("".into())); // called after connect
-                props.insert("ErrorParagraph".into(), PropValue::String("".into())); // called on any SQL error
-                props.insert(
-                    "QueryCompleteParagraph".into(),
-                    PropValue::String("".into()),
-                ); // called after exec
             }
 
             // ── Charts ────────────────────────────────────────────────────────
@@ -1480,8 +1468,6 @@ impl Control {
                 props.insert("ValueFields".into(), PropValue::String("".into())); // comma-sep sub-fields for Y series
                 props.insert("SeriesLabels".into(), PropValue::String("".into())); // display names for series
                                                                                    // COBOL paragraphs
-                props.insert("DataChangedParagraph".into(), PropValue::String("".into()));
-                props.insert("ClickParagraph".into(), PropValue::String("".into()));
                 // Bar/Line/Area specifics
                 if matches!(control_type, ControlType::BarChart) {
                     props.insert("Horizontal".into(), PropValue::Bool(false));

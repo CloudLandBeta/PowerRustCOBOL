@@ -49,6 +49,11 @@ serde_json  = "1"
 quick-xml   = { version = "0.36", features = ["serialize"] }
 toml        = "0.8"
 
+# YAML + integrity (menu control persistence)
+serde_yaml  = "0.9"
+hmac        = "0.12"
+sha2        = "0.10"
+
 # Data structures
 indexmap    = { version = "2", features = ["serde"] }
 

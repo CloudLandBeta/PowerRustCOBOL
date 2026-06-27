@@ -75,7 +75,7 @@ Its design goals, in plain terms:
 
 | Goal | What it means for you |
 |------|-----------------------|
-| **COBOL-first** | The application *is* COBOL. The designer generates COBOL; your handlers are COBOL paragraphs and nested programs. You never leave the language. |
+| **COBOL-first** | The application *is* COBOL. The designer generates COBOL; your event handlers are COBOL-85 nested programs. You never leave the language. |
 | **Cross-platform** | The IDE and the produced binaries are not tied to one OS. |
 | **Self-contained** | A built application embeds everything it needs; the end user does not install PowerRustCOBOL. |
 | **Modern data access** | Crash-safe indexed (ISAM) files, SQL (SQLite / PostgreSQL / MySQL), and HTTP/REST are reachable through ordinary `CALL` statements. |
@@ -674,6 +674,49 @@ The service controls (`agent-object`, `rest-client`, `sql-database`) build
 offline but need their local service to run; each project's `README.md` says
 which. See `examples/README.md` for the full index.
 
+### MenuBar (pulldown menus)
+
+The **MenuBar** control provides a 3-level pulldown menu system for your
+application. Menus are authored in a **tree editor** inside the IDE and stored
+as a YAML file alongside the `.cfrm`.
+
+**Editing menus.** Select the MenuBar control in the designer, then click
+"Edit Menu..." in its properties. The tree editor lets you add, remove, and
+reorder items up to 3 levels deep. Each item has:
+
+- **Label** — the text shown in the menu.
+- **Icon** — an optional vector icon from the built-in catalogue (120+ icons
+  covering documents, editing, navigation, communication, media, commerce,
+  and more).
+- **Accelerator** — a keyboard shortcut (e.g. `Cmd+N`, `Shift+Ctrl+S`).
+  Rendered with platform-native symbols.
+- **Action** — what happens when the item is clicked:
+  - *Event* — fires `onMenuClick` (your event handler decides what to do).
+  - *Open form* — opens/switches to a named form.
+  - *Set property* — sets a control property (e.g. `BUTTON-1.Enabled=false`).
+  - *Close application* — terminates the running application.
+- **Enabled** — whether the item is clickable (dimmed when disabled).
+
+**YAML file.** The menu structure is saved as `<control-id>.menu.yaml` in the
+same directory as the `.cfrm`. The file includes an HMAC-SHA256 integrity hash;
+at runtime the hash is validated and a tampered file is rejected.
+
+**Colour properties.** The MenuBar exposes four colour properties:
+`HighlightBgColor`, `HighlightFgColor` (hover colours), `SelectedBgColor`,
+`SelectedFgColor` (open-menu colours).
+
+**Events.** `onMenuClick` fires when any action item is clicked or its
+accelerator key is pressed. The clicked item's `id` is passed as the event
+value. `onMenuOpen` / `onMenuClose` fire when dropdowns open/close.
+
+**Programmatic enable/disable.** From COBOL:
+
+```cobol
+INVOKE MENU1 'SetItemEnabled'
+    USING BY VALUE 'file-save' BY VALUE WS-FALSE
+SET WS-RESULT TO MENU1::GetItemEnabled('file-save')
+```
+
 ---
 
 ## 9. Properties
@@ -696,7 +739,7 @@ abbreviations). A few you will use constantly:
 > **Note.** Standard acronyms are kept (`CSV`, `URL`, `API`, `TLS`); everything
 > else is written in full — for example `BackgroundColor` (not `BackColor`),
 > `MaximumLength` (not `MaxLength`), `PasswordCharacter` (not `PasswordChar`),
-> and every `…Paragraph` reference (not `…Para`).
+> and property names are written in full (not abbreviated).
 
 > **Caption rules.** Only Label, Button, CheckBox, RadioButton, and GroupBox use
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
@@ -704,7 +747,7 @@ abbreviations). A few you will use constantly:
 
 > **Control IDs.** When you drop a control, it gets a readable, per-type ID —
 > `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
-> data-name (`WS-BUTTON-1`) and the base of its handler paragraph
+> data-name (`WS-BUTTON-1`) and the base of its nested event-handler program
 > (`BUTTON-1--ONCLICK`). You can rename a control's ID to something meaningful
 > (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
 > digits, hyphens; no leading/trailing hyphen).

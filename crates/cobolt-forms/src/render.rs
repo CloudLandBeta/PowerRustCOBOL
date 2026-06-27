@@ -1508,14 +1508,163 @@ fn render_interactive(
                 painter.circle_filled(p, 1.5, dot);
             }
         }
-        CT::MenuBar | CT::ToolBar | CT::StatusBar => {
+        CT::MenuBar => {
             paint::draw_glass_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(40, 46, 76),
-                4.0,
-                false,
-                alpha * 0.85,
+                &painter, screen, Color32::from_rgb(40, 46, 76), 4.0, false, alpha * 0.85,
+            );
+            let fg = Color32::from_rgb(225, 230, 250);
+            let highlight_bg = ctrl.get_prop("HighlightBgColor")
+                .map(|v| paint::parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(68, 136, 255));
+            let highlight_fg = ctrl.get_prop("HighlightFgColor")
+                .map(|v| paint::parse_color(v.as_str()))
+                .unwrap_or(Color32::WHITE);
+            let selected_bg = ctrl.get_prop("SelectedBgColor")
+                .map(|v| paint::parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(51, 102, 204));
+
+            let menu_id = egui::Id::new(("menu_open", id));
+            let open_idx: Option<usize> = ui.data(|d| d.get_temp(menu_id)).unwrap_or(None);
+
+            if let Some(def) = paint::get_menu_cache(ui.ctx(), id) {
+                let font = FontId::proportional(12.0);
+                let mut x = screen.min.x + 8.0;
+                let pad = 8.0;
+
+                for (ti, entry) in def.menu.iter().enumerate() {
+                    if entry.item_type == crate::menu::MenuItemType::Separator { continue; }
+                    let galley = painter.layout_no_wrap(entry.label.clone(), font.clone(), fg);
+                    let w = galley.size().x;
+                    let label_rect = egui::Rect::from_min_size(
+                        pos2(x - pad * 0.5, screen.min.y),
+                        Vec2::new(w + pad, screen.height()),
+                    );
+
+                    let is_open = open_idx == Some(ti);
+                    if is_open {
+                        painter.rect_filled(label_rect, 2.0, selected_bg);
+                    }
+
+                    let resp = ui.allocate_rect(label_rect, egui::Sense::click());
+                    if resp.hovered() && !is_open {
+                        painter.rect_filled(label_rect, 2.0, highlight_bg);
+                        painter.galley(pos2(x, screen.center().y - galley.size().y * 0.5), galley, highlight_fg);
+                    } else {
+                        painter.galley(pos2(x, screen.center().y - galley.size().y * 0.5), galley, fg);
+                    }
+
+                    if resp.clicked() {
+                        let new_idx = if is_open { None } else { Some(ti) };
+                        ui.data_mut(|d| d.insert_temp(menu_id, new_idx));
+                    }
+
+                    // Pulldown dropdown
+                    if is_open && !entry.items.is_empty() {
+                        let dropdown_id = egui::Id::new(("menu_dropdown", id, ti));
+                        let dropdown_pos = pos2(label_rect.min.x, label_rect.max.y + 2.0);
+                        egui::Area::new(dropdown_id)
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(dropdown_pos)
+                            .show(ui.ctx(), |ui| {
+                                egui::Frame::popup(&ui.ctx().style())
+                                    .inner_margin(egui::Margin::same(4.0))
+                                    .show(ui, |ui| {
+                                        for item in &entry.items {
+                                            if item.item_type == crate::menu::MenuItemType::Separator {
+                                                ui.separator();
+                                                continue;
+                                            }
+                                            let item_resp = ui.horizontal(|ui| {
+                                                let dimmed = !item.enabled;
+                                                let item_fg = if dimmed {
+                                                    Color32::from_rgb(120, 120, 130)
+                                                } else { fg };
+                                                // Icon
+                                                if let Some(icon_name) = &item.icon {
+                                                    let icon_rect = ui.allocate_space(Vec2::splat(16.0)).1;
+                                                    crate::icons::draw_menu_icon(&painter, icon_rect, icon_name, item_fg);
+                                                } else {
+                                                    ui.allocate_space(Vec2::splat(16.0));
+                                                }
+                                                // Label
+                                                ui.label(egui::RichText::new(&item.label).color(item_fg));
+                                                // Spacer
+                                                ui.add_space(40.0);
+                                                // Accelerator
+                                                if let Some(accel_str) = &item.accelerator {
+                                                    if let Some(accel) = crate::menu::parse_accelerator(accel_str) {
+                                                        let formatted = crate::menu::format_accelerator(&accel);
+                                                        ui.label(egui::RichText::new(formatted)
+                                                            .color(Color32::from_rgb(140, 140, 160)).small());
+                                                    }
+                                                }
+                                                // Sub-menu indicator
+                                                if !item.items.is_empty() {
+                                                    ui.label(egui::RichText::new("▸").color(item_fg));
+                                                }
+                                            });
+                                            let row_resp = ui.interact(item_resp.response.rect, egui::Id::new(("mi", &item.id)), egui::Sense::click());
+                                            if item.enabled && row_resp.hovered() {
+                                                ui.painter().rect_filled(item_resp.response.rect, 2.0, highlight_bg);
+                                            }
+                                            if item.enabled && row_resp.clicked() {
+                                                ui.data_mut(|d| d.insert_temp(menu_id, None::<usize>));
+                                                if let Some(action) = &item.action {
+                                                    if action == "close-application" {
+                                                        out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onCloseApplication".to_owned(), value: None });
+                                                    }
+                                                }
+                                                out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuClick".to_owned(), value: Some(item.id.clone()) });
+                                            }
+                                        }
+                                    });
+                            });
+                    }
+
+                    x += w + pad + 6.0;
+                }
+
+                // Click outside closes menus
+                if open_idx.is_some() && ui.input(|i| i.pointer.any_pressed()) {
+                    let ptr = ui.input(|i| i.pointer.interact_pos()).unwrap_or_default();
+                    if !screen.contains(ptr) {
+                        ui.data_mut(|d| d.insert_temp(menu_id, None::<usize>));
+                    }
+                }
+
+                // Accelerator key dispatch (T13)
+                fn collect_accels<'a>(items: &'a [crate::menu::MenuItem], out: &mut Vec<(&'a crate::menu::MenuItem, crate::menu::Accelerator)>) {
+                    for item in items {
+                        if item.enabled {
+                            if let Some(accel_str) = &item.accelerator {
+                                if let Some(accel) = crate::menu::parse_accelerator(accel_str) {
+                                    out.push((item, accel));
+                                }
+                            }
+                            collect_accels(&item.items, out);
+                        }
+                    }
+                }
+                let mut accels = Vec::new();
+                collect_accels(&def.menu, &mut accels);
+                for (item, accel) in &accels {
+                    let mut mods = egui::Modifiers::NONE;
+                    mods.ctrl = accel.ctrl;
+                    mods.shift = accel.shift;
+                    mods.alt = accel.alt;
+                    mods.command = accel.cmd;
+                    if ui.input(|i| i.modifiers == mods && i.key_pressed(char_to_key(accel.key))) {
+                        out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuClick".to_owned(), value: Some(item.id.clone()) });
+                    }
+                }
+            } else {
+                painter.text(screen.center(), egui::Align2::CENTER_CENTER,
+                    "☰ MenuBar (empty)", FontId::proportional(12.0), fg);
+            }
+        }
+        CT::ToolBar | CT::StatusBar => {
+            paint::draw_glass_auto(
+                &painter, screen, Color32::from_rgb(40, 46, 76), 4.0, false, alpha * 0.85,
             );
             let fg = Color32::from_rgb(225, 230, 250);
             let mut x = screen.min.x + 8.0;
@@ -1525,8 +1674,7 @@ fn render_interactive(
                 let w = galley.size().x;
                 painter.galley(
                     pos2(x, screen.center().y - galley.size().y / 2.0),
-                    galley,
-                    fg,
+                    galley, fg,
                 );
                 x += w + 18.0;
             }
@@ -2223,5 +2371,38 @@ mod tests {
             "Timer: no onTick; got {:?}",
             names(&evs)
         );
+    }
+}
+
+/// Map a character from `menu::Accelerator` to an `egui::Key`.
+#[cfg(feature = "render")]
+fn char_to_key(c: char) -> egui::Key {
+    match c {
+        'A' => egui::Key::A, 'B' => egui::Key::B, 'C' => egui::Key::C,
+        'D' => egui::Key::D, 'E' => egui::Key::E, 'F' => egui::Key::F,
+        'G' => egui::Key::G, 'H' => egui::Key::H, 'I' => egui::Key::I,
+        'J' => egui::Key::J, 'K' => egui::Key::K, 'L' => egui::Key::L,
+        'M' => egui::Key::M, 'N' => egui::Key::N, 'O' => egui::Key::O,
+        'P' => egui::Key::P, 'Q' => egui::Key::Q, 'R' => egui::Key::R,
+        'S' => egui::Key::S, 'T' => egui::Key::T, 'U' => egui::Key::U,
+        'V' => egui::Key::V, 'W' => egui::Key::W, 'X' => egui::Key::X,
+        'Y' => egui::Key::Y, 'Z' => egui::Key::Z,
+        '0' => egui::Key::Num0, '1' => egui::Key::Num1, '2' => egui::Key::Num2,
+        '3' => egui::Key::Num3, '4' => egui::Key::Num4, '5' => egui::Key::Num5,
+        '6' => egui::Key::Num6, '7' => egui::Key::Num7, '8' => egui::Key::Num8,
+        '9' => egui::Key::Num9,
+        '\u{F001}' => egui::Key::F1, '\u{F002}' => egui::Key::F2,
+        '\u{F003}' => egui::Key::F3, '\u{F004}' => egui::Key::F4,
+        '\u{F005}' => egui::Key::F5, '\u{F006}' => egui::Key::F6,
+        '\u{F007}' => egui::Key::F7, '\u{F008}' => egui::Key::F8,
+        '\u{F009}' => egui::Key::F9, '\u{F00A}' => egui::Key::F10,
+        '\u{F00B}' => egui::Key::F11, '\u{F00C}' => egui::Key::F12,
+        '\u{007F}' => egui::Key::Delete,
+        '\u{0008}' => egui::Key::Backspace,
+        '\t' => egui::Key::Tab,
+        '\r' => egui::Key::Enter,
+        '\u{001B}' => egui::Key::Escape,
+        ' ' => egui::Key::Space,
+        _ => egui::Key::A,
     }
 }

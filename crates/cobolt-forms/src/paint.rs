@@ -1848,7 +1848,17 @@ pub fn draw_control(
         }
         // The tab strip is drawn above; no centered label.
         CT::TabControl => String::new(),
-        CT::MenuBar => "☰ MenuBar".into(),
+        CT::MenuBar => {
+            if let Some(def) = get_menu_cache(painter.ctx(), &ctrl.id) {
+                if def.menu.is_empty() {
+                    "☰ MenuBar (empty)".into()
+                } else {
+                    String::new()
+                }
+            } else {
+                "☰ MenuBar (empty)".into()
+            }
+        }
         CT::ToolBar => "⬛ ToolBar".into(),
         CT::StatusBar => "▬ StatusBar".into(),
         // GroupBox draws its caption as a "legend" on the top-left border (below),
@@ -1958,6 +1968,29 @@ pub fn draw_control(
                 crate::fonts::font_id(painter.ctx(), &font_name, fsize),
                 txt_color,
             );
+        }
+    }
+
+    // ── MenuBar: render top-level labels horizontally ────────────────────────
+    if matches!(ctrl.control_type, CT::MenuBar) {
+        if let Some(def) = get_menu_cache(painter.ctx(), &ctrl.id) {
+            if !def.menu.is_empty() {
+                let fg = Color32::from_rgba_premultiplied(225, 230, 250, a);
+                let fsize = ctrl_font_size(ctrl);
+                let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
+                let fid = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
+                let mut x = rect.min.x + 10.0;
+                for entry in &def.menu {
+                    if entry.item_type == crate::menu::MenuItemType::Separator { continue; }
+                    let galley = painter.layout_no_wrap(entry.label.clone(), fid.clone(), fg);
+                    let w = galley.size().x;
+                    painter.galley(
+                        Pos2::new(x, rect.center().y - galley.size().y * 0.5),
+                        galley, fg,
+                    );
+                    x += w + 18.0;
+                }
+            }
         }
     }
 
@@ -3987,6 +4020,20 @@ pub fn draw_glass_auto(
             draw_glass(painter, rect, base, rounding, selected, alpha_mul);
         }
     }
+}
+
+// ── Menu definition cache (per control ID, set by the designer) ──────────────
+
+/// Store a loaded MenuDefinition in egui temp data so `draw_control` can read it.
+pub fn set_menu_cache(ctx: &egui::Context, ctrl_id: &str, def: std::sync::Arc<crate::menu::MenuDefinition>) {
+    let key = egui::Id::new("cobolt-menu-def").with(ctrl_id);
+    ctx.data_mut(|d| d.insert_temp(key, def));
+}
+
+/// Retrieve the cached MenuDefinition for a control (if any).
+pub fn get_menu_cache(ctx: &egui::Context, ctrl_id: &str) -> Option<std::sync::Arc<crate::menu::MenuDefinition>> {
+    let key = egui::Id::new("cobolt-menu-def").with(ctrl_id);
+    ctx.data(|d| d.get_temp::<std::sync::Arc<crate::menu::MenuDefinition>>(key))
 }
 
 fn active_theme_id() -> egui::Id {

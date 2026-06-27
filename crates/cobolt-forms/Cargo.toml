@@ -15,8 +15,11 @@ repository.workspace   = true
 
 [dependencies]
 serde       = { workspace = true }
+serde_yaml  = { workspace = true }
 toml        = { workspace = true }
 quick-xml   = { workspace = true }
+hmac        = { workspace = true }
+sha2        = { workspace = true }
 indexmap    = { workspace = true }
 thiserror   = { workspace = true }
 egui        = { version = "0.29", optional = true }
@@ -30,3 +33,4 @@ render = ["dep:egui", "dep:fontdb", "dep:ab_glyph", "dep:cobolt-media", "dep:ima
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+tempfile = "3"

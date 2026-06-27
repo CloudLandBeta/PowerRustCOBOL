@@ -167,6 +167,8 @@ pub struct InspectorAction {
     pub cs_add_proc: bool,
     /// Set with the index when a user-procedure's delete button is clicked.
     pub cs_del_proc: Option<usize>,
+    /// Set when the "Edit Menu..." button is clicked for a MenuBar control.
+    pub open_menu_editor: Option<String>,
 }
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
@@ -1478,8 +1480,23 @@ impl PropertiesPanel {
                 ui.add_space(4.0);
             }
 
-            // ── MenuBar / ToolBar / StatusBar ─────────────────────────────────
-            ControlType::MenuBar | ControlType::ToolBar | ControlType::StatusBar => {
+            // ── MenuBar ───────────────────────────────────────────────────────
+            ControlType::MenuBar => {
+                section_header(ui, "Basic properties");
+                if ui.button("Edit Menu...").clicked() {
+                    action.open_menu_editor = Some(id.to_owned());
+                }
+                ui.add_space(4.0);
+                section_header(ui, "Colors");
+                color_row(ui, id, "HighlightBgColor", ctrl, action);
+                color_row(ui, id, "HighlightFgColor", ctrl, action);
+                color_row(ui, id, "SelectedBgColor", ctrl, action);
+                color_row(ui, id, "SelectedFgColor", ctrl, action);
+                ui.add_space(4.0);
+            }
+
+            // ── ToolBar / StatusBar ──────────────────────────────────────────
+            ControlType::ToolBar | ControlType::StatusBar => {
                 section_header(ui, "Items");
                 let cur = ctrl.get_prop("Items").map(|v| v.as_str().to_owned()).unwrap_or_default();
                 let buf_key = format!("{id}-Items");

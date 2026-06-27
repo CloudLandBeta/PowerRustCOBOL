@@ -391,6 +391,17 @@ fn seed_missing_props(form: &mut Form) {
                     c.set_prop("BackgroundGradientEnabled", PropValue::Bool(false));
                 }
             }
+            ControlType::MenuBar => {
+                let defaults: &[(&str, &str)] = &[
+                    ("HighlightBgColor", "#4488FF"), ("HighlightFgColor", "#FFFFFF"),
+                    ("SelectedBgColor", "#3366CC"), ("SelectedFgColor", "#FFFFFF"),
+                ];
+                for &(key, val) in defaults {
+                    if c.get_prop(key).is_none() {
+                        c.set_prop(key, PropValue::String(val.into()));
+                    }
+                }
+            }
             _ => {}
         }
     }

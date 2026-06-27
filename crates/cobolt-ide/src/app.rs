@@ -1216,7 +1216,9 @@ impl CoboltApp {
                         self.project.set_root(parent);
                     }
                 }
-                self.designers.push((path, DesignerPanel::new(form)));
+                let mut dp = DesignerPanel::new(form);
+                dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+                self.designers.push((path, dp));
             }
             Err(e) => {
                 self.output.push_status(format!("Failed to open form: {e}"));
@@ -2895,7 +2897,9 @@ impl CoboltApp {
                 self.do_save_project();
             }
         }
-        self.designers.push((path, DesignerPanel::new(form)));
+        let mut dp = DesignerPanel::new(form);
+        dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+        self.designers.push((path, dp));
         self.new_form.open = false;
     }
 
@@ -3100,6 +3104,7 @@ impl eframe::App for CoboltApp {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
+        crate::i18n::set_language(ctx, self.lang);
 
         // 007 Form themes — publish the picker choices (Liquid Glass + discovered
         // packs) so the Settings form and the per-form Appearance pane list them.
@@ -4417,6 +4422,15 @@ impl CoboltApp {
         if preview_triggered { ctx.request_repaint(); }
         if let Some((ctrl_id, ev_name)) = inspector_action.open_event_editor {
             self.designers[idx].1.open_event_modal(&ctrl_id, &ev_name);
+        }
+        if let Some(ctrl_id) = inspector_action.open_menu_editor {
+            let dir = self.designers[idx].1.cfrm_dir.clone();
+            let existing = dir.as_ref()
+                .map(|d| cobolt_forms::menu::menu_yaml_path(d, &ctrl_id))
+                .and_then(|p| cobolt_forms::menu::load_menu(&p).ok())
+                .unwrap_or_default();
+            self.designers[idx].1.menu_modal = Some(
+                super::panels::designer::MenuEditorModal::new(ctrl_id, existing));
         }
         if let Some((ctrl_id, ev_name)) = inspector_action.open_event_in_code {
             self.jump_to_event_code(idx, &ctrl_id, &ev_name);

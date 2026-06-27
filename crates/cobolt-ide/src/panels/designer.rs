@@ -464,6 +464,98 @@ pub(crate) enum FormatPainter {
     },
 }
 
+// ── Menu Editor Modal (spec 018) ──────────────────────────────────────────────
+
+pub struct MenuEditorModal {
+    pub ctrl_id: String,
+    pub def: cobolt_forms::menu::MenuDefinition,
+    /// Path of `[index_in_parent, …]` to the currently selected node.
+    pub selected: Vec<usize>,
+    /// Scratch text buffers for the detail form fields.
+    label_buf: String,
+    accel_buf: String,
+    target_buf: String,
+}
+
+impl MenuEditorModal {
+    pub fn new(ctrl_id: String, def: cobolt_forms::menu::MenuDefinition) -> Self {
+        Self {
+            ctrl_id,
+            def,
+            selected: Vec::new(),
+            label_buf: String::new(),
+            accel_buf: String::new(),
+            target_buf: String::new(),
+        }
+    }
+
+    fn selected_item(&self) -> Option<&cobolt_forms::menu::MenuItem> {
+        Self::item_at(&self.def.menu, &self.selected)
+    }
+
+    fn selected_item_mut(&mut self) -> Option<&mut cobolt_forms::menu::MenuItem> {
+        Self::item_at_mut(&mut self.def.menu, &self.selected)
+    }
+
+    fn item_at<'a>(items: &'a [cobolt_forms::menu::MenuItem], path: &[usize]) -> Option<&'a cobolt_forms::menu::MenuItem> {
+        if path.is_empty() { return None; }
+        let item = items.get(path[0])?;
+        if path.len() == 1 { Some(item) } else { Self::item_at(&item.items, &path[1..]) }
+    }
+
+    fn item_at_mut<'a>(items: &'a mut [cobolt_forms::menu::MenuItem], path: &[usize]) -> Option<&'a mut cobolt_forms::menu::MenuItem> {
+        if path.is_empty() { return None; }
+        let item = items.get_mut(path[0])?;
+        if path.len() == 1 { Some(item) } else { Self::item_at_mut(&mut item.items, &path[1..]) }
+    }
+
+    fn parent_list_mut<'a>(def: &'a mut cobolt_forms::menu::MenuDefinition, path: &[usize]) -> &'a mut Vec<cobolt_forms::menu::MenuItem> {
+        if path.len() <= 1 { return &mut def.menu; }
+        let mut items = &mut def.menu;
+        for &idx in &path[..path.len() - 1] {
+            items = &mut items[idx].items;
+        }
+        items
+    }
+
+    fn depth_of(path: &[usize]) -> usize {
+        path.len()
+    }
+
+    fn next_id(&self) -> String {
+        fn count_all(items: &[cobolt_forms::menu::MenuItem]) -> usize {
+            items.iter().map(|i| 1 + count_all(&i.items)).sum()
+        }
+        let n = count_all(&self.def.menu);
+        format!("item-{}", n + 1)
+    }
+
+    fn sync_bufs_from_selection(&mut self) {
+        if let Some(item) = Self::item_at(&self.def.menu, &self.selected) {
+            self.label_buf = item.label.clone();
+            self.accel_buf = item.accelerator.clone().unwrap_or_default();
+            self.target_buf = match &item.action {
+                Some(a) => {
+                    if let Some(rest) = a.strip_prefix("open-form:") { rest.to_string() }
+                    else if let Some(rest) = a.strip_prefix("property:") { rest.to_string() }
+                    else { String::new() }
+                }
+                None => String::new(),
+            };
+        }
+    }
+
+    fn action_type_of(item: &cobolt_forms::menu::MenuItem) -> &'static str {
+        match item.action.as_deref() {
+            Some("close-application") => "close",
+            Some("event") | None => "event",
+            Some(a) if a.starts_with("open-form:") => "open-form",
+            Some(a) if a.starts_with("property:") => "property",
+            _ => "event",
+        }
+    }
+}
+
 // ── Event Editor Modal ────────────────────────────────────────────────────────
 
 /// State for the modal COBOL code editor that pops up when
@@ -505,6 +597,8 @@ impl EventEditorModal {
 
 pub struct DesignerPanel {
     pub form: Form,
+    /// Directory containing the .cfrm file (for loading menu YAML files etc.).
+    pub cfrm_dir: Option<std::path::PathBuf>,
 
     /// All currently selected control IDs (first = primary selection).
     pub selected_ids: Vec<String>,
@@ -567,6 +661,9 @@ pub struct DesignerPanel {
     /// was first pressed, so the form-resize drag can begin on `drag_started()`.
     press_form_edge: Option<FormEdge>,
 
+    // ── Menu editor modal (spec 018) ────────────────────────────────────────
+    pub menu_modal: Option<MenuEditorModal>,
+
     // ── Event editor modal ────────────────────────────────────────────────────
     /// When `Some`, a modal COBOL code editor is displayed over the canvas.
     pub event_modal: Option<EventEditorModal>,
@@ -598,6 +695,7 @@ impl DesignerPanel {
     pub fn new(form: Form) -> Self {
         Self {
             form,
+            cfrm_dir: None,
             selected_ids: Vec::new(),
             active_tabs: std::collections::HashMap::new(),
             scroll_offsets: std::collections::HashMap::new(),
@@ -619,6 +717,7 @@ impl DesignerPanel {
             last_font_size: None,
             press_handle: None,
             press_form_edge: None,
+            menu_modal: None,
             event_modal: None,
             event_editor: super::editor::EditorPanel::new(),
             cs_editor: super::editor::EditorPanel::new(),
@@ -1823,6 +1922,23 @@ impl DesignerPanel {
         cobolt_forms::paint::set_active_theme(ui.ctx(), self.active_theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ui.ctx(), self.form.glass_style);
 
+        // Load menu YAML files for any MenuBar controls and cache them
+        if let Some(dir) = &self.cfrm_dir {
+            for ctrl in &self.form.controls {
+                if ctrl.control_type == ControlType::MenuBar {
+                    let yaml_path = cobolt_forms::menu::menu_yaml_path(dir, &ctrl.id);
+                    if yaml_path.exists() {
+                        if cobolt_forms::paint::get_menu_cache(ui.ctx(), &ctrl.id).is_none() {
+                            if let Ok(def) = cobolt_forms::menu::load_menu(&yaml_path) {
+                                cobolt_forms::paint::set_menu_cache(
+                                    ui.ctx(), &ctrl.id, std::sync::Arc::new(def));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Step animation previews
         let now = std::time::Instant::now();
         let dt = if let Some(last) = self.last_frame_time {
@@ -2649,10 +2765,317 @@ impl DesignerPanel {
             selection_changed = true;
         }
 
+        // ── Menu Editor Modal (spec 018) ──────────────────────────────────────
+        self.show_menu_editor(ui);
+
         // ── Event Editor Modal ──────────────────────────────────────────────────
         self.show_event_modal(ui);
 
         selection_changed
+    }
+
+    /// Render the menu tree editor modal (spec 018).
+    fn show_menu_editor(&mut self, ui: &mut Ui) {
+        if self.menu_modal.is_none() { return; }
+
+        let overlay = ui.ctx().screen_rect();
+        ui.painter().rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
+
+        let mut save_clicked = false;
+        let mut cancel_clicked = false;
+
+        let screen = ui.ctx().screen_rect();
+        let default_w = (screen.width() * 0.65).max(500.0);
+        let default_h = (screen.height() * 0.65).max(450.0);
+
+        let tr = crate::i18n::current_tr(ui.ctx());
+
+        egui::Window::new(tr.menu_editor_title)
+            .id(egui::Id::new("menu_editor_modal"))
+            .collapsible(false)
+            .resizable(true)
+            .default_width(default_w)
+            .default_height(default_h)
+            .min_width(500.0)
+            .min_height(400.0)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
+            .show(ui.ctx(), |ui| {
+                let modal = self.menu_modal.as_mut().unwrap();
+
+                ui.horizontal(|ui| {
+                    // ── Left pane: tree + toolbar ─────────────────────────────
+                    ui.vertical(|ui| {
+                        ui.set_min_width(220.0);
+                        ui.set_max_width(300.0);
+
+                        egui::ScrollArea::vertical().max_height(default_h - 100.0).show(ui, |ui| {
+                            fn draw_tree(
+                                ui: &mut egui::Ui,
+                                items: &[cobolt_forms::menu::MenuItem],
+                                path: &mut Vec<usize>,
+                                selected: &[usize],
+                                depth: usize,
+                            ) -> Option<Vec<usize>> {
+                                let mut clicked = None;
+                                for (i, item) in items.iter().enumerate() {
+                                    path.push(i);
+                                    let is_sel = *path == selected;
+                                    let indent = depth as f32 * 16.0;
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(indent);
+                                        let label = if item.item_type == cobolt_forms::menu::MenuItemType::Separator {
+                                            "── separator ──".to_string()
+                                        } else {
+                                            let icon_str = item.icon.as_deref().unwrap_or("");
+                                            let accel = item.accelerator.as_deref().unwrap_or("");
+                                            let en = if item.enabled { "" } else { " [off]" };
+                                            if icon_str.is_empty() {
+                                                format!("{}{}", item.label, en)
+                                            } else {
+                                                format!("[{}] {}{}", icon_str, item.label, en)
+                                            }
+                                        };
+                                        let resp = ui.selectable_label(is_sel,
+                                            egui::RichText::new(&label).monospace());
+                                        if resp.clicked() {
+                                            clicked = Some(path.clone());
+                                        }
+                                    });
+                                    if !item.items.is_empty() {
+                                        if let Some(c) = draw_tree(ui, &item.items, path, selected, depth + 1) {
+                                            clicked = Some(c);
+                                        }
+                                    }
+                                    path.pop();
+                                }
+                                clicked
+                            }
+
+                            let mut path = Vec::new();
+                            let selected = modal.selected.clone();
+                            if let Some(clicked) = draw_tree(ui, &modal.def.menu, &mut path, &selected, 0) {
+                                modal.selected = clicked;
+                                modal.sync_bufs_from_selection();
+                            }
+                        });
+
+                        ui.separator();
+                        // Toolbar buttons
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.small_button(tr.menu_add_item).clicked() {
+                                let id = modal.next_id();
+                                let item = cobolt_forms::menu::MenuItem::new_action(&id, "New Item");
+                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                                let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
+                                list.insert(idx.min(list.len()), item);
+                                if modal.selected.is_empty() {
+                                    modal.selected = vec![list.len() - 1];
+                                } else {
+                                    *modal.selected.last_mut().unwrap() = idx.min(list.len() - 1);
+                                }
+                                modal.sync_bufs_from_selection();
+                            }
+                            if ui.small_button(tr.menu_add_separator).clicked() {
+                                let id = modal.next_id();
+                                let item = cobolt_forms::menu::MenuItem::new_separator(&id);
+                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                                let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
+                                list.insert(idx.min(list.len()), item);
+                            }
+                            if ui.small_button(tr.menu_add_submenu).clicked() {
+                                if MenuEditorModal::depth_of(&modal.selected) < 2 {
+                                    let id = modal.next_id();
+                                    if let Some(parent) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                        parent.items.push(cobolt_forms::menu::MenuItem::new_action(&id, "Sub Item"));
+                                    }
+                                }
+                            }
+                        });
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.small_button(tr.menu_delete).clicked() && !modal.selected.is_empty() {
+                                let idx = *modal.selected.last().unwrap();
+                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                                if idx < list.len() {
+                                    list.remove(idx);
+                                    if list.is_empty() {
+                                        modal.selected.pop();
+                                    } else if idx >= list.len() {
+                                        *modal.selected.last_mut().unwrap() = list.len() - 1;
+                                    }
+                                    modal.sync_bufs_from_selection();
+                                }
+                            }
+                            if ui.small_button(tr.menu_move_up).clicked() && !modal.selected.is_empty() {
+                                let idx = *modal.selected.last().unwrap();
+                                if idx > 0 {
+                                    let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                                    list.swap(idx, idx - 1);
+                                    *modal.selected.last_mut().unwrap() = idx - 1;
+                                }
+                            }
+                            if ui.small_button(tr.menu_move_down).clicked() && !modal.selected.is_empty() {
+                                let idx = *modal.selected.last().unwrap();
+                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                                if idx + 1 < list.len() {
+                                    list.swap(idx, idx + 1);
+                                    *modal.selected.last_mut().unwrap() = idx + 1;
+                                }
+                            }
+                        });
+                    });
+
+                    ui.separator();
+
+                    // ── Right pane: detail form ──────────────────────────────
+                    ui.vertical(|ui| {
+                        ui.set_min_width(250.0);
+                        if let Some(item) = MenuEditorModal::item_at(&modal.def.menu, &modal.selected) {
+                            let is_sep = item.item_type == cobolt_forms::menu::MenuItemType::Separator;
+                            let cur_action_type = MenuEditorModal::action_type_of(item).to_string();
+                            let cur_icon = item.icon.clone().unwrap_or_default();
+                            let cur_enabled = item.enabled;
+
+                            if !is_sep {
+                                // Label
+                                ui.horizontal(|ui| {
+                                    ui.label(tr.menu_lbl_label);
+                                    if ui.text_edit_singleline(&mut modal.label_buf).lost_focus() {
+                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                            it.label = modal.label_buf.clone();
+                                        }
+                                    }
+                                });
+
+                                // Icon
+                                ui.horizontal(|ui| {
+                                    ui.label(tr.menu_lbl_icon);
+                                    let sel_text = if cur_icon.is_empty() { tr.menu_no_icon.to_string() } else { cur_icon.clone() };
+                                    egui::ComboBox::from_id_salt("menu_icon_combo")
+                                        .selected_text(&sel_text)
+                                        .width(160.0)
+                                        .show_ui(ui, |ui| {
+                                            if ui.selectable_label(cur_icon.is_empty(), tr.menu_no_icon).clicked() {
+                                                if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                                    it.icon = None;
+                                                }
+                                            }
+                                            for &name in cobolt_forms::icons::MENU_ICON_NAMES {
+                                                if ui.selectable_label(cur_icon == name, name).clicked() {
+                                                    if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                                        it.icon = Some(name.to_string());
+                                                    }
+                                                }
+                                            }
+                                        });
+                                });
+
+                                // Accelerator
+                                ui.horizontal(|ui| {
+                                    ui.label(tr.menu_lbl_accel);
+                                    if ui.text_edit_singleline(&mut modal.accel_buf).lost_focus() {
+                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                            it.accelerator = if modal.accel_buf.trim().is_empty() { None } else { Some(modal.accel_buf.clone()) };
+                                        }
+                                    }
+                                });
+
+                                // Action type
+                                ui.horizontal(|ui| {
+                                    ui.label(tr.menu_lbl_action);
+                                    let mut action_sel = cur_action_type.clone();
+                                    egui::ComboBox::from_id_salt("menu_action_type")
+                                        .selected_text(match action_sel.as_str() {
+                                            "event" => tr.menu_action_event,
+                                            "open-form" => tr.menu_action_open_form,
+                                            "property" => tr.menu_action_property,
+                                            "close" => tr.menu_action_close,
+                                            _ => tr.menu_action_event,
+                                        })
+                                        .width(140.0)
+                                        .show_ui(ui, |ui| {
+                                            for (key, label) in [
+                                                ("event", tr.menu_action_event),
+                                                ("open-form", tr.menu_action_open_form),
+                                                ("property", tr.menu_action_property),
+                                                ("close", tr.menu_action_close),
+                                            ] {
+                                                if ui.selectable_label(action_sel == key, label).clicked() {
+                                                    action_sel = key.to_string();
+                                                    if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                                        it.action = Some(match key {
+                                                            "close" => "close-application".to_string(),
+                                                            "event" => "event".to_string(),
+                                                            "open-form" => format!("open-form:{}", modal.target_buf),
+                                                            "property" => format!("property:{}", modal.target_buf),
+                                                            _ => "event".to_string(),
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        });
+                                });
+
+                                // Action target (for open-form and property)
+                                if cur_action_type == "open-form" || cur_action_type == "property" {
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.menu_lbl_target);
+                                        if ui.text_edit_singleline(&mut modal.target_buf).lost_focus() {
+                                            if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                                it.action = Some(match cur_action_type.as_str() {
+                                                    "open-form" => format!("open-form:{}", modal.target_buf),
+                                                    "property" => format!("property:{}", modal.target_buf),
+                                                    _ => "event".to_string(),
+                                                });
+                                            }
+                                        }
+                                    });
+                                }
+
+                                // Enabled
+                                ui.horizontal(|ui| {
+                                    let mut en = cur_enabled;
+                                    if ui.checkbox(&mut en, tr.menu_lbl_enabled).changed() {
+                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                            it.enabled = en;
+                                        }
+                                    }
+                                });
+                            } else {
+                                ui.label("── separator ──");
+                            }
+                        } else {
+                            ui.colored_label(Color32::GRAY, "Select an item to edit");
+                        }
+                    });
+                });
+
+                ui.separator();
+                // Save / Cancel
+                ui.horizontal(|ui| {
+                    if ui.button(tr.me_save).clicked() { save_clicked = true; }
+                    if ui.button(tr.me_cancel).clicked() { cancel_clicked = true; }
+                });
+            });
+
+        if save_clicked {
+            if let Some(modal) = self.menu_modal.take() {
+                if let Some(dir) = &self.cfrm_dir {
+                    let path = cobolt_forms::menu::menu_yaml_path(dir, &modal.ctrl_id);
+                    if let Err(e) = cobolt_forms::menu::save_menu(&path, &modal.def) {
+                        eprintln!("Failed to save menu: {e}");
+                    } else {
+                        cobolt_forms::paint::set_menu_cache(
+                            ui.ctx(), &modal.ctrl_id,
+                            std::sync::Arc::new(cobolt_forms::menu::load_menu(&path).unwrap_or_default()));
+                        self.dirty = true;
+                    }
+                }
+            }
+        }
+        if cancel_clicked {
+            self.menu_modal = None;
+        }
     }
 
     /// Render the event code editor modal (if open).

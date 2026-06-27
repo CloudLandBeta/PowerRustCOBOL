@@ -67,6 +67,25 @@ impl Language {
     }
 }
 
+/// Store the active language in egui context so modals can retrieve it.
+pub fn set_language(ctx: &egui::Context, lang: Language) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("cobolt-ui-lang"), lang as u8));
+}
+
+/// Retrieve the active Tr table from egui context.
+pub fn current_tr(ctx: &egui::Context) -> Tr {
+    let lang_byte = ctx.data(|d| d.get_temp::<u8>(egui::Id::new("cobolt-ui-lang"))).unwrap_or(0);
+    let lang = match lang_byte {
+        1 => Language::Spanish,
+        2 => Language::Portuguese,
+        3 => Language::Japanese,
+        4 => Language::Chinese,
+        5 => Language::French,
+        _ => Language::English,
+    };
+    lang.tr()
+}
+
 // ── Tr — translation table ────────────────────────────────────────────────────
 
 /// All translatable UI strings as `&'static str` fields.
@@ -522,10 +541,35 @@ pub struct Tr {
     pub cs_close:           &'static str,
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
-    pub theme_project_default: &'static str,  // settings: project default form theme
-    pub theme_form_override:   &'static str,  // designer: per-form theme override
-    pub theme_inherit_default: &'static str,  // combo entry: inherit project default
-    pub theme_use_background:  &'static str,  // toggle: use theme's background
+    pub theme_project_default: &'static str,
+    pub theme_form_override:   &'static str,
+    pub theme_inherit_default: &'static str,
+    pub theme_use_background:  &'static str,
+
+    // ── Menu editor (spec 018) ───────────────────────────────────────────────
+    pub menu_editor_title:     &'static str,
+    pub menu_add_item:         &'static str,
+    pub menu_add_submenu:      &'static str,
+    pub menu_add_separator:    &'static str,
+    pub menu_delete:           &'static str,
+    pub menu_move_up:          &'static str,
+    pub menu_move_down:        &'static str,
+    pub me_save:               &'static str,
+    pub me_cancel:             &'static str,
+    pub menu_lbl_label:        &'static str,
+    pub menu_lbl_icon:         &'static str,
+    pub menu_lbl_accel:        &'static str,
+    pub menu_lbl_action:       &'static str,
+    pub menu_lbl_target:       &'static str,
+    pub menu_lbl_enabled:      &'static str,
+    pub menu_edit_btn:         &'static str,
+    pub menu_err_hash:         &'static str,
+    pub menu_err_depth:        &'static str,
+    pub menu_no_icon:          &'static str,
+    pub menu_action_event:     &'static str,
+    pub menu_action_open_form: &'static str,
+    pub menu_action_property:  &'static str,
+    pub menu_action_close:     &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -972,6 +1016,30 @@ const EN: Tr = Tr {
     theme_form_override: "Form theme",
     theme_inherit_default: "Inherit project default",
     theme_use_background: "Use theme background",
+
+    menu_editor_title: "Menu Editor",
+    menu_add_item: "Add Item",
+    menu_add_submenu: "Add Sub-menu",
+    menu_add_separator: "Add Separator",
+    menu_delete: "Delete",
+    menu_move_up: "Move Up",
+    menu_move_down: "Move Down",
+    me_save: "Save",
+    me_cancel: "Cancel",
+    menu_lbl_label: "Label",
+    menu_lbl_icon: "Icon",
+    menu_lbl_accel: "Accelerator",
+    menu_lbl_action: "Action",
+    menu_lbl_target: "Target",
+    menu_lbl_enabled: "Enabled",
+    menu_edit_btn: "Edit Menu...",
+    menu_err_hash: "Menu integrity error",
+    menu_err_depth: "Maximum menu depth exceeded",
+    menu_no_icon: "(none)",
+    menu_action_event: "Event",
+    menu_action_open_form: "Open form",
+    menu_action_property: "Set property",
+    menu_action_close: "Close application",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -1399,6 +1467,30 @@ const ES: Tr = Tr {
     theme_form_override: "Tema del formulario",
     theme_inherit_default: "Heredar del proyecto",
     theme_use_background: "Usar fondo del tema",
+
+    menu_editor_title: "Editor de Menu",
+    menu_add_item: "Agregar Item",
+    menu_add_submenu: "Agregar Submenu",
+    menu_add_separator: "Agregar Separador",
+    menu_delete: "Eliminar",
+    menu_move_up: "Mover Arriba",
+    menu_move_down: "Mover Abajo",
+    me_save: "Guardar",
+    me_cancel: "Cancelar",
+    menu_lbl_label: "Etiqueta",
+    menu_lbl_icon: "Icono",
+    menu_lbl_accel: "Acelerador",
+    menu_lbl_action: "Accion",
+    menu_lbl_target: "Destino",
+    menu_lbl_enabled: "Habilitado",
+    menu_edit_btn: "Editar Menu...",
+    menu_err_hash: "Error de integridad del menu",
+    menu_err_depth: "Profundidad maxima del menu excedida",
+    menu_no_icon: "(ninguno)",
+    menu_action_event: "Evento",
+    menu_action_open_form: "Abrir formulario",
+    menu_action_property: "Establecer propiedad",
+    menu_action_close: "Cerrar aplicacion",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -1826,6 +1918,30 @@ const PT: Tr = Tr {
     theme_form_override: "Tema do formulário",
     theme_inherit_default: "Herdar do projeto",
     theme_use_background: "Usar fundo do tema",
+
+    menu_editor_title: "Editor de Menu",
+    menu_add_item: "Adicionar Item",
+    menu_add_submenu: "Adicionar Submenu",
+    menu_add_separator: "Adicionar Separador",
+    menu_delete: "Excluir",
+    menu_move_up: "Mover Acima",
+    menu_move_down: "Mover Abaixo",
+    me_save: "Salvar",
+    me_cancel: "Cancelar",
+    menu_lbl_label: "Rotulo",
+    menu_lbl_icon: "Icone",
+    menu_lbl_accel: "Acelerador",
+    menu_lbl_action: "Acao",
+    menu_lbl_target: "Destino",
+    menu_lbl_enabled: "Habilitado",
+    menu_edit_btn: "Editar Menu...",
+    menu_err_hash: "Erro de integridade do menu",
+    menu_err_depth: "Profundidade maxima do menu excedida",
+    menu_no_icon: "(nenhum)",
+    menu_action_event: "Evento",
+    menu_action_open_form: "Abrir formulario",
+    menu_action_property: "Definir propriedade",
+    menu_action_close: "Fechar aplicacao",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -2253,6 +2369,30 @@ const JA: Tr = Tr {
     theme_form_override: "フォームテーマ",
     theme_inherit_default: "プロジェクトの既定を継承",
     theme_use_background: "テーマの背景を使用",
+
+    menu_editor_title: "メニューエディタ",
+    menu_add_item: "項目追加",
+    menu_add_submenu: "サブメニュー追加",
+    menu_add_separator: "区切り追加",
+    menu_delete: "削除",
+    menu_move_up: "上へ移動",
+    menu_move_down: "下へ移動",
+    me_save: "保存",
+    me_cancel: "キャンセル",
+    menu_lbl_label: "ラベル",
+    menu_lbl_icon: "アイコン",
+    menu_lbl_accel: "ショートカット",
+    menu_lbl_action: "アクション",
+    menu_lbl_target: "ターゲット",
+    menu_lbl_enabled: "有効",
+    menu_edit_btn: "メニュー編集...",
+    menu_err_hash: "メニュー整合性エラー",
+    menu_err_depth: "メニューの最大深度を超えました",
+    menu_no_icon: "(なし)",
+    menu_action_event: "イベント",
+    menu_action_open_form: "フォームを開く",
+    menu_action_property: "プロパティ設定",
+    menu_action_close: "アプリ終了",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -2680,6 +2820,30 @@ const ZH: Tr = Tr {
     theme_form_override: "窗体主题",
     theme_inherit_default: "继承项目默认值",
     theme_use_background: "使用主题背景",
+
+    menu_editor_title: "菜单编辑器",
+    menu_add_item: "添加项目",
+    menu_add_submenu: "添加子菜单",
+    menu_add_separator: "添加分隔符",
+    menu_delete: "删除",
+    menu_move_up: "上移",
+    menu_move_down: "下移",
+    me_save: "保存",
+    me_cancel: "取消",
+    menu_lbl_label: "标签",
+    menu_lbl_icon: "图标",
+    menu_lbl_accel: "快捷键",
+    menu_lbl_action: "动作",
+    menu_lbl_target: "目标",
+    menu_lbl_enabled: "启用",
+    menu_edit_btn: "编辑菜单...",
+    menu_err_hash: "菜单完整性错误",
+    menu_err_depth: "超过菜单最大深度",
+    menu_no_icon: "(无)",
+    menu_action_event: "事件",
+    menu_action_open_form: "打开表单",
+    menu_action_property: "设置属性",
+    menu_action_close: "关闭应用",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -3107,6 +3271,30 @@ const FR: Tr = Tr {
     theme_form_override: "Thème du formulaire",
     theme_inherit_default: "Hériter du projet",
     theme_use_background: "Utiliser l’arrière-plan du thème",
+
+    menu_editor_title: "Editeur de menu",
+    menu_add_item: "Ajouter un element",
+    menu_add_submenu: "Ajouter un sous-menu",
+    menu_add_separator: "Ajouter un separateur",
+    menu_delete: "Supprimer",
+    menu_move_up: "Deplacer vers le haut",
+    menu_move_down: "Deplacer vers le bas",
+    me_save: "Enregistrer",
+    me_cancel: "Annuler",
+    menu_lbl_label: "Libelle",
+    menu_lbl_icon: "Icone",
+    menu_lbl_accel: "Raccourci",
+    menu_lbl_action: "Action",
+    menu_lbl_target: "Cible",
+    menu_lbl_enabled: "Active",
+    menu_edit_btn: "Editer le menu...",
+    menu_err_hash: "Erreur d'integrite du menu",
+    menu_err_depth: "Profondeur maximale du menu depassee",
+    menu_no_icon: "(aucun)",
+    menu_action_event: "Evenement",
+    menu_action_open_form: "Ouvrir le formulaire",
+    menu_action_property: "Definir la propriete",
+    menu_action_close: "Fermer l'application",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────
