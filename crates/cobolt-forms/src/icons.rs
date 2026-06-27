@@ -54,6 +54,59 @@ pub const MENU_ICON_NAMES: &[&str] = &[
     "cart", "credit-card", "wallet", "receipt", "tag", "percent",
     // File/Folder (6)
     "folder", "folder-open", "folder-plus", "archive", "trash", "printer",
+    // Payroll (25)
+    "payroll-check", "payroll-schedule", "payroll-deduction", "payroll-bonus",
+    "payroll-overtime", "payroll-tax", "payroll-slip", "payroll-direct-deposit",
+    "payroll-timesheet", "payroll-hours", "payroll-employee", "payroll-benefits",
+    "payroll-pension", "payroll-vacation", "payroll-sick-leave", "payroll-commission",
+    "payroll-garnishment", "payroll-reimbursement", "payroll-w2", "payroll-1099",
+    "payroll-ytd", "payroll-net-pay", "payroll-gross-pay", "payroll-withholding",
+    "payroll-frequency",
+    // Receivables (25)
+    "invoice", "invoice-paid", "invoice-overdue", "invoice-draft", "invoice-send",
+    "credit-memo", "debit-memo", "aging-report", "collection", "dunning-letter",
+    "payment-received", "partial-payment", "advance-payment", "refund",
+    "write-off", "bad-debt", "interest-charge", "statement",
+    "customer-balance", "account-receivable", "open-items", "clearing",
+    "remittance", "factoring", "credit-limit",
+    // Payments (25)
+    "payment-check", "payment-wire", "payment-ach", "payment-cash",
+    "payment-pending", "payment-approved", "payment-rejected", "payment-recurring",
+    "payment-split", "payment-batch", "payment-void", "payment-reversal",
+    "vendor-payment", "bill-pay", "purchase-order", "expense-report",
+    "petty-cash", "bank-transfer", "payment-gateway", "payment-terms",
+    "early-discount", "payment-plan", "installment", "escrow", "disbursement",
+    // Stock Control (25)
+    "inventory", "warehouse", "stock-in", "stock-out", "stock-count",
+    "stock-transfer", "stock-adjust", "stock-reserve", "stock-alert",
+    "stock-reorder", "barcode", "qr-code", "pallet", "shelf",
+    "bin-location", "lot-number", "serial-number", "expiry-date",
+    "fifo", "lifo", "cycle-count", "physical-count", "stock-valuation",
+    "safety-stock", "dead-stock",
+    // Transportation (25)
+    "truck", "truck-loading", "truck-delivery", "van", "ship", "ship-cargo",
+    "airplane", "airplane-landing", "helicopter", "train", "railway",
+    "container", "forklift", "crane", "anchor", "compass",
+    "route", "highway", "bridge", "toll", "fuel-pump",
+    "tire", "engine", "speedometer", "odometer",
+    // Logistics (25)
+    "package", "package-open", "package-check", "package-x", "package-search",
+    "conveyor", "loading-dock", "dispatch", "tracking", "tracking-number",
+    "delivery-time", "express", "fragile", "hazmat", "temperature",
+    "weight-scale", "dimensions", "customs", "manifest", "bill-of-lading",
+    "cross-dock", "last-mile", "return-shipment", "consolidation", "deconsolidation",
+    // Financial (25)
+    "dollar", "euro", "yen", "pound", "bitcoin",
+    "coins", "money-bag", "piggy-bank", "vault", "safe",
+    "bank", "atm", "exchange-rate", "stock-market", "bull-market",
+    "bear-market", "dividend", "interest-rate", "mortgage", "loan",
+    "audit", "ledger", "balance-sheet", "profit-loss", "cash-flow",
+    // Social Media (25)
+    "like", "dislike", "comment", "repost", "mention",
+    "hashtag", "trending", "viral", "follower", "following",
+    "profile", "bio", "story", "reel", "live-stream",
+    "notification-dot", "verified", "influencer", "engagement", "reach",
+    "post", "feed", "timeline", "dm", "group-chat",
 ];
 
 #[cfg(feature = "render")]
@@ -873,6 +926,1746 @@ pub fn draw_menu_icon(painter: &egui::Painter, rect: Rect, name: &str, color: Co
                 Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y + s*0.15)), s*0.05, st);
             painter.rect_stroke(Rect::from_min_max(
                 Pos2::new(c.x - s*0.25, c.y + s*0.15), Pos2::new(c.x + s*0.25, c.y + s*0.42)), s*0.03, st);
+        }
+
+        // ── Payroll ────────────────────────────────────────────────────────
+        "payroll-check" => {
+            // Check/cheque with dollar sign
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.5, c.y - s*0.25), Pos2::new(c.x + s*0.5, c.y + s*0.25)), s*0.03, st);
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.1), Pos2::new(c.x - s*0.05, c.y + s*0.1));
+            painter.text(Pos2::new(c.x + s*0.25, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+        }
+        "payroll-schedule" => {
+            // Calendar with clock
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.35), Pos2::new(c.x + s*0.4, c.y + s*0.45)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+            painter.circle_stroke(Pos2::new(c.x, c.y + s*0.15), s*0.2, st);
+            ls(Pos2::new(c.x, c.y + s*0.15), Pos2::new(c.x, c.y + s*0.02));
+            ls(Pos2::new(c.x, c.y + s*0.15), Pos2::new(c.x + s*0.12, c.y + s*0.15));
+        }
+        "payroll-deduction" => {
+            // Dollar with minus
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.55), color);
+            lsh(Pos2::new(c.x + s*0.1, c.y), Pos2::new(c.x + s*0.45, c.y));
+        }
+        "payroll-bonus" => {
+            // Dollar with plus/star
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.55), color);
+            painter.circle_stroke(Pos2::new(c.x + s*0.3, c.y - s*0.25), s*0.18, st);
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.35), Pos2::new(c.x + s*0.3, c.y - s*0.15));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.25), Pos2::new(c.x + s*0.4, c.y - s*0.25));
+        }
+        "payroll-overtime" => {
+            // Clock with extra arc
+            painter.circle_stroke(c, s*0.35, st);
+            ls(Pos2::new(c.x, c.y), Pos2::new(c.x, c.y - s*0.25));
+            ls(Pos2::new(c.x, c.y), Pos2::new(c.x + s*0.2, c.y + s*0.1));
+            lsh(Pos2::new(c.x + s*0.3, c.y - s*0.35), Pos2::new(c.x + s*0.45, c.y - s*0.2));
+        }
+        "payroll-tax" => {
+            // Dollar with percent
+            painter.text(Pos2::new(c.x - s*0.2, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.45), color);
+            painter.text(Pos2::new(c.x + s*0.25, c.y), egui::Align2::CENTER_CENTER, "%", egui::FontId::proportional(s*0.35), color);
+        }
+        "payroll-slip" => {
+            // Document with lines and dollar
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.2), Pos2::new(c.x + s*0.15, c.y - s*0.2));
+            ls(Pos2::new(c.x - s*0.2, c.y), Pos2::new(c.x + s*0.15, c.y));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.2), Pos2::new(c.x + s*0.15, c.y + s*0.2));
+            painter.text(Pos2::new(c.x, c.y + s*0.4), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.2), color);
+        }
+        "payroll-direct-deposit" => {
+            // Bank building with arrow down
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.3, c.y - s*0.15), Pos2::new(c.x - s*0.3, c.y + s*0.25));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.15), Pos2::new(c.x + s*0.3, c.y + s*0.25));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.25), Pos2::new(c.x + s*0.4, c.y + s*0.25));
+            ls(Pos2::new(c.x, c.y + s*0.05), Pos2::new(c.x, c.y + s*0.45));
+            ls(Pos2::new(c.x - s*0.1, c.y + s*0.35), Pos2::new(c.x, c.y + s*0.45));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.35), Pos2::new(c.x, c.y + s*0.45));
+        }
+        "payroll-timesheet" => {
+            // Grid/table with clock
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.4), Pos2::new(c.x + s*0.4, c.y + s*0.4)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.1), Pos2::new(c.x + s*0.4, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.15), Pos2::new(c.x + s*0.4, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.4), Pos2::new(c.x - s*0.1, c.y + s*0.4));
+            painter.circle_stroke(Pos2::new(c.x + s*0.3, c.y - s*0.3), s*0.12, st);
+        }
+        "payroll-hours" => {
+            // Clock face
+            painter.circle_stroke(c, s*0.4, st);
+            lsh(Pos2::new(c.x, c.y), Pos2::new(c.x, c.y - s*0.28));
+            lsh(Pos2::new(c.x, c.y), Pos2::new(c.x + s*0.22, c.y + s*0.05));
+            painter.circle_filled(c, s*0.05, color);
+        }
+        "payroll-employee" => {
+            // Person with dollar
+            painter.circle_stroke(Pos2::new(c.x - s*0.15, c.y - s*0.25), s*0.18, st);
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.07), Pos2::new(c.x - s*0.15, c.y + s*0.25));
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.05), Pos2::new(c.x + s*0.05, c.y + s*0.05));
+            painter.text(Pos2::new(c.x + s*0.3, c.y + s*0.1), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+        }
+        "payroll-benefits" => {
+            // Heart with plus
+            ls(Pos2::new(c.x, c.y + s*0.3), Pos2::new(c.x - s*0.35, c.y - s*0.05));
+            ls(Pos2::new(c.x, c.y + s*0.3), Pos2::new(c.x + s*0.35, c.y - s*0.05));
+            painter.circle_stroke(Pos2::new(c.x - s*0.18, c.y - s*0.15), s*0.18, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.18, c.y - s*0.15), s*0.18, st);
+        }
+        "payroll-pension" => {
+            // Umbrella/shield over dollar
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.1), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x + s*0.4, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.1), Pos2::new(c.x + s*0.4, c.y - s*0.1));
+            painter.text(Pos2::new(c.x, c.y + s*0.2), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+        }
+        "payroll-vacation" => {
+            // Sun/palm
+            painter.circle_stroke(c, s*0.2, st);
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::TAU / 8.0;
+                let (sin, cos) = a.sin_cos();
+                ls(Pos2::new(c.x + cos*s*0.25, c.y + sin*s*0.25),
+                   Pos2::new(c.x + cos*s*0.4, c.y + sin*s*0.4));
+            }
+        }
+        "payroll-sick-leave" => {
+            // Cross/plus medical
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.12, c.y - s*0.4), Pos2::new(c.x + s*0.12, c.y + s*0.4)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.12), Pos2::new(c.x + s*0.4, c.y + s*0.12)), s*0.02, st);
+        }
+        "payroll-commission" => {
+            // Percent with arrow up
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "%", egui::FontId::proportional(s*0.45), color);
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.3), Pos2::new(c.x + s*0.3, c.y - s*0.3));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.2), Pos2::new(c.x + s*0.3, c.y - s*0.3));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.2), Pos2::new(c.x + s*0.3, c.y - s*0.3));
+        }
+        "payroll-garnishment" => {
+            // Dollar with lock
+            painter.text(Pos2::new(c.x - s*0.2, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.45), color);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.1, c.y), Pos2::new(c.x + s*0.45, c.y + s*0.3)), s*0.03, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.275, c.y - s*0.05), s*0.1, st);
+        }
+        "payroll-reimbursement" => {
+            // Dollar with return arrow
+            painter.text(Pos2::new(c.x, c.y - s*0.1), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.2), Pos2::new(c.x - s*0.3, c.y + s*0.2));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.1), Pos2::new(c.x - s*0.3, c.y + s*0.2));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.3), Pos2::new(c.x - s*0.3, c.y + s*0.2));
+        }
+        "payroll-w2" => {
+            icon_doc_outline(painter, c, s, st);
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "W2", egui::FontId::proportional(s*0.3), color);
+        }
+        "payroll-1099" => {
+            icon_doc_outline(painter, c, s, st);
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "1099", egui::FontId::proportional(s*0.22), color);
+        }
+        "payroll-ytd" => {
+            // Chart trending up
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.35), Pos2::new(c.x + s*0.4, c.y + s*0.35)), s*0.03, st);
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.2), Pos2::new(c.x - s*0.1, c.y));
+            ls(Pos2::new(c.x - s*0.1, c.y), Pos2::new(c.x + s*0.05, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.1), Pos2::new(c.x + s*0.3, c.y - s*0.2));
+        }
+        "payroll-net-pay" => {
+            // Dollar with down arrow (net = after deductions)
+            painter.text(Pos2::new(c.x, c.y - s*0.15), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+            ls(Pos2::new(c.x, c.y + s*0.05), Pos2::new(c.x, c.y + s*0.4));
+            ls(Pos2::new(c.x - s*0.12, c.y + s*0.28), Pos2::new(c.x, c.y + s*0.4));
+            ls(Pos2::new(c.x + s*0.12, c.y + s*0.28), Pos2::new(c.x, c.y + s*0.4));
+        }
+        "payroll-gross-pay" => {
+            // Dollar with up arrow (gross = total)
+            painter.text(Pos2::new(c.x, c.y + s*0.15), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+            ls(Pos2::new(c.x, c.y - s*0.05), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x - s*0.12, c.y - s*0.28), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x + s*0.12, c.y - s*0.28), Pos2::new(c.x, c.y - s*0.4));
+        }
+        "payroll-withholding" => {
+            // Dollar with hand/stop
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.45), color);
+            painter.circle_stroke(Pos2::new(c.x + s*0.25, c.y), s*0.2, st);
+            ls(Pos2::new(c.x + s*0.11, c.y - s*0.14), Pos2::new(c.x + s*0.39, c.y + s*0.14));
+        }
+        "payroll-frequency" => {
+            // Calendar with repeating arrows
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.05, c.y - s*0.02), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.12), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+        }
+
+        // ── Receivables ────────────────────────────────────────────────────
+        "invoice" => {
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.15), Pos2::new(c.x + s*0.15, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.25), Pos2::new(c.x + s*0.15, c.y + s*0.25));
+        }
+        "invoice-paid" => {
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.1), Pos2::new(c.x - s*0.05, c.y + s*0.2));
+            lsh(Pos2::new(c.x - s*0.05, c.y + s*0.2), Pos2::new(c.x + s*0.2, c.y - s*0.05));
+        }
+        "invoice-overdue" => {
+            icon_doc_outline(painter, c, s, st);
+            painter.text(Pos2::new(c.x, c.y + s*0.1), egui::Align2::CENTER_CENTER, "!", egui::FontId::proportional(s*0.4), color);
+        }
+        "invoice-draft" => {
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.1), Pos2::new(c.x + s*0.1, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.1), Pos2::new(c.x + s*0.05, c.y + s*0.1));
+        }
+        "invoice-send" => {
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x, c.y + s*0.1), Pos2::new(c.x + s*0.35, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y), Pos2::new(c.x + s*0.35, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y + s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.1));
+        }
+        "credit-memo" => {
+            icon_doc_outline(painter, c, s, st);
+            painter.text(Pos2::new(c.x, c.y + s*0.05), egui::Align2::CENTER_CENTER, "CR", egui::FontId::proportional(s*0.25), color);
+        }
+        "debit-memo" => {
+            icon_doc_outline(painter, c, s, st);
+            painter.text(Pos2::new(c.x, c.y + s*0.05), egui::Align2::CENTER_CENTER, "DR", egui::FontId::proportional(s*0.25), color);
+        }
+        "aging-report" => {
+            // Bar chart descending
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.35), Pos2::new(c.x + s*0.4, c.y + s*0.35));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.35), Pos2::new(c.x - s*0.4, c.y - s*0.35));
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.25), Pos2::new(c.x - s*0.1, c.y + s*0.35)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.05, c.y - s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.35)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.2, c.y + s*0.1), Pos2::new(c.x + s*0.4, c.y + s*0.35)), s*0.02, st);
+        }
+        "collection" => {
+            // Hand reaching for dollar
+            painter.text(Pos2::new(c.x + s*0.2, c.y - s*0.15), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.15), Pos2::new(c.x + s*0.1, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.15), Pos2::new(c.x + s*0.2, c.y + s*0.05));
+        }
+        "dunning-letter" => {
+            // Envelope with exclamation
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.25)), s*0.03, st);
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.2), Pos2::new(c.x, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.2), Pos2::new(c.x, c.y + s*0.05));
+            painter.text(Pos2::new(c.x, c.y - s*0.35), egui::Align2::CENTER_CENTER, "!", egui::FontId::proportional(s*0.25), color);
+        }
+        "payment-received" => {
+            // Dollar with check
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.5), color);
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.1), Pos2::new(c.x + s*0.2, c.y + s*0.2));
+            lsh(Pos2::new(c.x + s*0.2, c.y + s*0.2), Pos2::new(c.x + s*0.4, c.y - s*0.05));
+        }
+        "partial-payment" => {
+            // Half-filled coin
+            painter.circle_stroke(c, s*0.35, st);
+            ls(Pos2::new(c.x, c.y - s*0.35), Pos2::new(c.x, c.y + s*0.35));
+            painter.text(Pos2::new(c.x - s*0.1, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+        }
+        "advance-payment" => {
+            // Dollar with fast-forward arrows
+            painter.text(Pos2::new(c.x - s*0.2, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.45), color);
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.15), Pos2::new(c.x + s*0.25, c.y));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.15), Pos2::new(c.x + s*0.25, c.y));
+            ls(Pos2::new(c.x + s*0.25, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y));
+            ls(Pos2::new(c.x + s*0.25, c.y + s*0.15), Pos2::new(c.x + s*0.4, c.y));
+        }
+        "refund" => {
+            // Dollar with curved return arrow
+            painter.text(Pos2::new(c.x, c.y - s*0.1), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.15), Pos2::new(c.x - s*0.3, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.15), Pos2::new(c.x - s*0.3, c.y + s*0.3));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.05), Pos2::new(c.x - s*0.3, c.y + s*0.15));
+        }
+        "write-off" => {
+            // Dollar with X
+            painter.text(Pos2::new(c.x - s*0.2, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+            lsh(Pos2::new(c.x + s*0.1, c.y - s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.2));
+            lsh(Pos2::new(c.x + s*0.4, c.y - s*0.2), Pos2::new(c.x + s*0.1, c.y + s*0.2));
+        }
+        "bad-debt" => {
+            // Dollar with warning triangle
+            painter.text(Pos2::new(c.x - s*0.2, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+            ls(Pos2::new(c.x + s*0.25, c.y - s*0.25), Pos2::new(c.x + s*0.1, c.y + s*0.2));
+            ls(Pos2::new(c.x + s*0.25, c.y - s*0.25), Pos2::new(c.x + s*0.4, c.y + s*0.2));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.2));
+        }
+        "interest-charge" => {
+            // Percent with dollar
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "%", egui::FontId::proportional(s*0.45), color);
+            painter.text(Pos2::new(c.x + s*0.3, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+        }
+        "statement" => {
+            // Document with multiple lines
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.25), Pos2::new(c.x + s*0.15, c.y - s*0.25));
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.1), Pos2::new(c.x + s*0.15, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.2), Pos2::new(c.x + s*0.15, c.y + s*0.2));
+            lsh(Pos2::new(c.x - s*0.2, c.y + s*0.35), Pos2::new(c.x + s*0.15, c.y + s*0.35));
+        }
+        "customer-balance" => {
+            // Person with balance scale
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.3), s*0.15, st);
+            ls(Pos2::new(c.x, c.y - s*0.15), Pos2::new(c.x, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x - s*0.25, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.25, c.y + s*0.3));
+        }
+        "account-receivable" => {
+            // Ledger book with arrow in
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.4), Pos2::new(c.x + s*0.35, c.y + s*0.4)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.4), Pos2::new(c.x - s*0.35, c.y + s*0.4));
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.15), Pos2::new(c.x + s*0.2, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.05), Pos2::new(c.x + s*0.2, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.2), Pos2::new(c.x + s*0.25, c.y + s*0.2));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.14), Pos2::new(c.x + s*0.25, c.y + s*0.2));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.26), Pos2::new(c.x + s*0.25, c.y + s*0.2));
+        }
+        "open-items" => {
+            // List with open circles
+            for i in 0..3 {
+                let y = c.y - s*0.2 + i as f32 * s*0.2;
+                painter.circle_stroke(Pos2::new(c.x - s*0.25, y), s*0.07, st);
+                ls(Pos2::new(c.x - s*0.1, y), Pos2::new(c.x + s*0.35, y));
+            }
+        }
+        "clearing" => {
+            // Two arrows meeting
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.1), Pos2::new(c.x + s*0.05, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.05, c.y - s*0.2), Pos2::new(c.x + s*0.05, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.05, c.y), Pos2::new(c.x + s*0.05, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.4, c.y + s*0.1), Pos2::new(c.x - s*0.05, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.05, c.y), Pos2::new(c.x - s*0.05, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.2), Pos2::new(c.x - s*0.05, c.y + s*0.1));
+        }
+        "remittance" => {
+            // Envelope with dollar
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.25)), s*0.03, st);
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.2), Pos2::new(c.x, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.2), Pos2::new(c.x, c.y + s*0.05));
+            painter.text(Pos2::new(c.x, c.y - s*0.35), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.25), color);
+        }
+        "factoring" => {
+            // Document with scissors
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.15));
+            painter.circle_stroke(Pos2::new(c.x + s*0.25, c.y + s*0.25), s*0.08, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.25, c.y + s*0.08), s*0.08, st);
+        }
+        "credit-limit" => {
+            // Dollar with ceiling line
+            painter.text(Pos2::new(c.x, c.y + s*0.05), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.5), color);
+            lsh(Pos2::new(c.x - s*0.35, c.y - s*0.35), Pos2::new(c.x + s*0.35, c.y - s*0.35));
+            ls(Pos2::new(c.x, c.y - s*0.35), Pos2::new(c.x, c.y - s*0.25));
+        }
+
+        // ── Payments ───────────────────────────────────────────────────────
+        "payment-check" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.5, c.y - s*0.25), Pos2::new(c.x + s*0.5, c.y + s*0.25)), s*0.03, st);
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.1), Pos2::new(c.x + s*0.1, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.1), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+        }
+        "payment-wire" => {
+            // Lightning bolt
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.4), Pos2::new(c.x - s*0.1, c.y));
+            ls(Pos2::new(c.x - s*0.1, c.y), Pos2::new(c.x + s*0.15, c.y));
+            ls(Pos2::new(c.x + s*0.15, c.y), Pos2::new(c.x - s*0.05, c.y + s*0.4));
+        }
+        "payment-ach" => {
+            // Bank with electronic signal
+            ls(Pos2::new(c.x - s*0.35, c.y), Pos2::new(c.x, c.y - s*0.3));
+            ls(Pos2::new(c.x, c.y - s*0.3), Pos2::new(c.x + s*0.35, c.y));
+            ls(Pos2::new(c.x - s*0.35, c.y), Pos2::new(c.x + s*0.35, c.y));
+            ls(Pos2::new(c.x - s*0.25, c.y), Pos2::new(c.x - s*0.25, c.y + s*0.2));
+            ls(Pos2::new(c.x + s*0.25, c.y), Pos2::new(c.x + s*0.25, c.y + s*0.2));
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.2));
+            painter.circle_stroke(Pos2::new(c.x, c.y + s*0.35), s*0.08, st);
+        }
+        "payment-cash" => {
+            // Banknote
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.45, c.y - s*0.25), Pos2::new(c.x + s*0.45, c.y + s*0.25)), s*0.04, st);
+            painter.circle_stroke(c, s*0.15, st);
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.25), color);
+        }
+        "payment-pending" => {
+            // Dollar with clock
+            painter.text(Pos2::new(c.x - s*0.2, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.45), color);
+            painter.circle_stroke(Pos2::new(c.x + s*0.25, c.y), s*0.2, st);
+            ls(Pos2::new(c.x + s*0.25, c.y), Pos2::new(c.x + s*0.25, c.y - s*0.13));
+            ls(Pos2::new(c.x + s*0.25, c.y), Pos2::new(c.x + s*0.35, c.y));
+        }
+        "payment-approved" => {
+            // Dollar with checkmark
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.5), color);
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.1), Pos2::new(c.x + s*0.2, c.y + s*0.2));
+            lsh(Pos2::new(c.x + s*0.2, c.y + s*0.2), Pos2::new(c.x + s*0.4, c.y - s*0.1));
+        }
+        "payment-rejected" => {
+            // Dollar with X
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.5), color);
+            lsh(Pos2::new(c.x + s*0.15, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y + s*0.15));
+            lsh(Pos2::new(c.x + s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.15, c.y + s*0.15));
+        }
+        "payment-recurring" => {
+            // Dollar with circular arrows
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+            painter.circle_stroke(c, s*0.35, st);
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.05), Pos2::new(c.x + s*0.45, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.05), Pos2::new(c.x + s*0.3, c.y - s*0.18));
+        }
+        "payment-split" => {
+            // Dollar splitting into two arrows
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+            ls(Pos2::new(c.x + s*0.05, c.y), Pos2::new(c.x + s*0.2, c.y - s*0.2));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.2), Pos2::new(c.x + s*0.4, c.y - s*0.2));
+            ls(Pos2::new(c.x + s*0.05, c.y), Pos2::new(c.x + s*0.2, c.y + s*0.2));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.2));
+        }
+        "payment-batch" => {
+            // Stacked rectangles
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.25)), s*0.03, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.25), Pos2::new(c.x + s*0.4, c.y - s*0.15)), s*0.03, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.25, c.y - s*0.35), Pos2::new(c.x + s*0.45, c.y - s*0.25)), s*0.03, st);
+            painter.text(Pos2::new(c.x, c.y + s*0.05), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.25), color);
+        }
+        "payment-void" => {
+            // Dollar with circle-slash (void)
+            painter.circle_stroke(c, s*0.35, st);
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.25), Pos2::new(c.x + s*0.25, c.y - s*0.25));
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+        }
+        "payment-reversal" => {
+            // Dollar with U-turn arrow
+            painter.text(Pos2::new(c.x, c.y - s*0.1), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.3, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.3), Pos2::new(c.x - s*0.3, c.y + s*0.3));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.2), Pos2::new(c.x - s*0.3, c.y + s*0.3));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.4), Pos2::new(c.x - s*0.3, c.y + s*0.3));
+        }
+        "vendor-payment" => {
+            // Person with arrow out
+            painter.circle_stroke(Pos2::new(c.x - s*0.2, c.y - s*0.2), s*0.15, st);
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.05), Pos2::new(c.x - s*0.2, c.y + s*0.2));
+            ls(Pos2::new(c.x, c.y + s*0.1), Pos2::new(c.x + s*0.35, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y), Pos2::new(c.x + s*0.35, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y + s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.1));
+        }
+        "bill-pay" => {
+            // Document with dollar outgoing
+            icon_doc_outline(painter, c, s, st);
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.35), Pos2::new(c.x + s*0.45, c.y + s*0.35));
+            ls(Pos2::new(c.x + s*0.35, c.y + s*0.25), Pos2::new(c.x + s*0.45, c.y + s*0.35));
+        }
+        "purchase-order" => {
+            // Clipboard with cart
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.45)), s*0.04, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y - s*0.45), Pos2::new(c.x + s*0.15, c.y - s*0.35)), s*0.02, st);
+            ls(Pos2::new(c.x - s*0.15, c.y), Pos2::new(c.x + s*0.2, c.y));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.15), Pos2::new(c.x + s*0.2, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.3), Pos2::new(c.x + s*0.2, c.y + s*0.3));
+        }
+        "expense-report" => {
+            // Document with chart
+            icon_doc_outline(painter, c, s, st);
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.35), Pos2::new(c.x - s*0.2, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.35), Pos2::new(c.x + s*0.2, c.y + s*0.35));
+            ls(Pos2::new(c.x - s*0.1, c.y + s*0.35), Pos2::new(c.x - s*0.1, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.35), Pos2::new(c.x + s*0.05, c.y + s*0.05));
+        }
+        "petty-cash" => {
+            // Small box with coins
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.2)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.05), Pos2::new(c.x + s*0.35, c.y - s*0.05));
+            painter.circle_stroke(Pos2::new(c.x, c.y + s*0.08), s*0.08, st);
+        }
+        "bank-transfer" => {
+            // Two banks with arrow
+            ls(Pos2::new(c.x - s*0.45, c.y - s*0.1), Pos2::new(c.x - s*0.25, c.y - s*0.3));
+            ls(Pos2::new(c.x - s*0.25, c.y - s*0.3), Pos2::new(c.x - s*0.05, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.45, c.y - s*0.1), Pos2::new(c.x - s*0.05, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.1, c.y + s*0.1), Pos2::new(c.x + s*0.1, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.02, c.y + s*0.02), Pos2::new(c.x + s*0.1, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.02, c.y + s*0.18), Pos2::new(c.x + s*0.1, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.05, c.y - s*0.1), Pos2::new(c.x + s*0.25, c.y - s*0.3));
+            ls(Pos2::new(c.x + s*0.25, c.y - s*0.3), Pos2::new(c.x + s*0.45, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.05, c.y - s*0.1), Pos2::new(c.x + s*0.45, c.y - s*0.1));
+        }
+        "payment-gateway" => {
+            // Shield with dollar
+            ls(Pos2::new(c.x - s*0.3, c.y - s*0.35), Pos2::new(c.x, c.y - s*0.45));
+            ls(Pos2::new(c.x, c.y - s*0.45), Pos2::new(c.x + s*0.3, c.y - s*0.35));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.35), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x, c.y + s*0.4));
+            ls(Pos2::new(c.x, c.y + s*0.4), Pos2::new(c.x - s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x - s*0.3, c.y - s*0.35));
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+        }
+        "payment-terms" => {
+            // Calendar with dollar
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y - s*0.15));
+            painter.text(Pos2::new(c.x, c.y + s*0.1), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+        }
+        "early-discount" => {
+            // Clock with percent
+            painter.circle_stroke(Pos2::new(c.x - s*0.15, c.y), s*0.25, st);
+            ls(Pos2::new(c.x - s*0.15, c.y), Pos2::new(c.x - s*0.15, c.y - s*0.18));
+            ls(Pos2::new(c.x - s*0.15, c.y), Pos2::new(c.x - s*0.02, c.y));
+            painter.text(Pos2::new(c.x + s*0.3, c.y), egui::Align2::CENTER_CENTER, "%", egui::FontId::proportional(s*0.3), color);
+        }
+        "payment-plan" => {
+            // Dollar with steps
+            painter.text(Pos2::new(c.x - s*0.25, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+            ls(Pos2::new(c.x, c.y + s*0.3), Pos2::new(c.x + s*0.15, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.3), Pos2::new(c.x + s*0.15, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.1), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.3, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.1), Pos2::new(c.x + s*0.45, c.y - s*0.1));
+        }
+        "installment" => {
+            // Three dollar signs decreasing
+            painter.text(Pos2::new(c.x - s*0.25, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+            painter.text(Pos2::new(c.x + s*0.25, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.25), Pos2::new(c.x + s*0.4, c.y + s*0.25));
+        }
+        "escrow" => {
+            // Lock with dollar inside
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.25, c.y), Pos2::new(c.x + s*0.25, c.y + s*0.35)), s*0.04, st);
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.1), s*0.18, st);
+            painter.text(Pos2::new(c.x, c.y + s*0.18), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.22), color);
+        }
+        "disbursement" => {
+            // Dollar with outward arrows
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.2), Pos2::new(c.x - s*0.4, c.y - s*0.4));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.2), Pos2::new(c.x + s*0.4, c.y - s*0.4));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.2), Pos2::new(c.x - s*0.4, c.y + s*0.4));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.4));
+        }
+
+        // ── Stock Control ──────────────────────────────────────────────────
+        "inventory" => {
+            // Clipboard with boxes
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.45)), s*0.04, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y - s*0.45), Pos2::new(c.x + s*0.15, c.y - s*0.35)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.2, c.y - s*0.1), Pos2::new(c.x + s*0.2, c.y + s*0.1)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.2, c.y + s*0.15), Pos2::new(c.x + s*0.2, c.y + s*0.35)), s*0.02, st);
+        }
+        "warehouse" => {
+            // Building with door
+            ls(Pos2::new(c.x - s*0.45, c.y - s*0.1), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x + s*0.45, c.y - s*0.1));
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.45, c.y - s*0.1), Pos2::new(c.x + s*0.45, c.y + s*0.4)), s*0.03, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.12, c.y + s*0.05), Pos2::new(c.x + s*0.12, c.y + s*0.4)), s*0.02, st);
+        }
+        "stock-in" => {
+            // Box with arrow in
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x, c.y - s*0.45), Pos2::new(c.x, c.y - s*0.05));
+            ls(Pos2::new(c.x - s*0.12, c.y - s*0.17), Pos2::new(c.x, c.y - s*0.05));
+            ls(Pos2::new(c.x + s*0.12, c.y - s*0.17), Pos2::new(c.x, c.y - s*0.05));
+        }
+        "stock-out" => {
+            // Box with arrow out
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x, c.y - s*0.05), Pos2::new(c.x, c.y - s*0.45));
+            ls(Pos2::new(c.x - s*0.12, c.y - s*0.33), Pos2::new(c.x, c.y - s*0.45));
+            ls(Pos2::new(c.x + s*0.12, c.y - s*0.33), Pos2::new(c.x, c.y - s*0.45));
+        }
+        "stock-count" => {
+            // Boxes with numbers
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.1, c.y + s*0.3)), s*0.03, st);
+            painter.text(Pos2::new(c.x - s*0.12, c.y + s*0.07), egui::Align2::CENTER_CENTER, "#", egui::FontId::proportional(s*0.3), color);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.05, c.y - s*0.35), Pos2::new(c.x + s*0.4, c.y)), s*0.03, st);
+        }
+        "stock-transfer" => {
+            // Two boxes with arrow between
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.45, c.y - s*0.15), Pos2::new(c.x - s*0.1, c.y + s*0.2)), s*0.03, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.1, c.y - s*0.15), Pos2::new(c.x + s*0.45, c.y + s*0.2)), s*0.03, st);
+            ls(Pos2::new(c.x - s*0.08, c.y + s*0.025), Pos2::new(c.x + s*0.08, c.y + s*0.025));
+            ls(Pos2::new(c.x + s*0.02, c.y - s*0.04), Pos2::new(c.x + s*0.08, c.y + s*0.025));
+            ls(Pos2::new(c.x + s*0.02, c.y + s*0.09), Pos2::new(c.x + s*0.08, c.y + s*0.025));
+        }
+        "stock-adjust" => {
+            // Box with +/-
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.25)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.05), Pos2::new(c.x + s*0.0, c.y - s*0.05));
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.15), Pos2::new(c.x - s*0.1, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.1, c.y), Pos2::new(c.x + s*0.25, c.y));
+        }
+        "stock-reserve" => {
+            // Box with lock
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.1), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.12, c.y + s*0.05), Pos2::new(c.x + s*0.12, c.y + s*0.25)), s*0.02, st);
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.05), s*0.1, st);
+        }
+        "stock-alert" => {
+            // Box with exclamation
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.3)), s*0.04, st);
+            painter.text(Pos2::new(c.x, c.y - s*0.35), egui::Align2::CENTER_CENTER, "!", egui::FontId::proportional(s*0.35), color);
+        }
+        "stock-reorder" => {
+            // Box with circular arrow
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            painter.circle_stroke(Pos2::new(c.x, c.y + s*0.1), s*0.15, st);
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.08), Pos2::new(c.x + s*0.22, c.y));
+        }
+        "barcode" => {
+            // Vertical bars of varying width
+            let bars = [-0.35f32, -0.25, -0.2, -0.1, 0.0, 0.05, 0.15, 0.2, 0.3, 0.35];
+            for &bx in &bars {
+                ls(Pos2::new(c.x + s*bx, c.y - s*0.3), Pos2::new(c.x + s*bx, c.y + s*0.3));
+            }
+        }
+        "qr-code" => {
+            // QR code pattern: three corner squares + dots
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.4), Pos2::new(c.x - s*0.1, c.y - s*0.1)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.1, c.y - s*0.4), Pos2::new(c.x + s*0.4, c.y - s*0.1)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y + s*0.1), Pos2::new(c.x - s*0.1, c.y + s*0.4)), s*0.02, st);
+            painter.circle_filled(Pos2::new(c.x + s*0.2, c.y + s*0.2), s*0.05, color);
+            painter.circle_filled(Pos2::new(c.x + s*0.35, c.y + s*0.35), s*0.05, color);
+        }
+        "pallet" => {
+            // Pallet base with box on top
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.2));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.35), Pos2::new(c.x + s*0.4, c.y + s*0.35));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.2), Pos2::new(c.x - s*0.3, c.y + s*0.35));
+            ls(Pos2::new(c.x, c.y + s*0.2), Pos2::new(c.x, c.y + s*0.35));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.2), Pos2::new(c.x + s*0.3, c.y + s*0.35));
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.2), Pos2::new(c.x + s*0.3, c.y + s*0.2)), s*0.03, st);
+        }
+        "shelf" => {
+            // Shelving unit
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.4), Pos2::new(c.x - s*0.35, c.y + s*0.4));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.4), Pos2::new(c.x + s*0.35, c.y + s*0.4));
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.1), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.2));
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.2, c.y - s*0.35), Pos2::new(c.x + s*0.05, c.y - s*0.1)), s*0.02, st);
+        }
+        "bin-location" => {
+            // Grid cells with marker
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.3), Pos2::new(c.x + s*0.4, c.y + s*0.3)), s*0.03, st);
+            ls(Pos2::new(c.x, c.y - s*0.3), Pos2::new(c.x, c.y + s*0.3));
+            ls(Pos2::new(c.x - s*0.4, c.y), Pos2::new(c.x + s*0.4, c.y));
+            painter.circle_filled(Pos2::new(c.x + s*0.2, c.y - s*0.15), s*0.08, color);
+        }
+        "lot-number" => {
+            // Tag with hash
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.25)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x - s*0.45, c.y));
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "#", egui::FontId::proportional(s*0.35), color);
+        }
+        "serial-number" => {
+            // Tag with S/N
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.2)), s*0.04, st);
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "SN", egui::FontId::proportional(s*0.25), color);
+        }
+        "expiry-date" => {
+            // Calendar with X
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.3), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.1), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.0), Pos2::new(c.x + s*0.15, c.y + s*0.25));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.0), Pos2::new(c.x - s*0.15, c.y + s*0.25));
+        }
+        "fifo" => {
+            // Arrow left-to-right with "1"
+            ls(Pos2::new(c.x - s*0.4, c.y), Pos2::new(c.x + s*0.4, c.y));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.1), Pos2::new(c.x + s*0.4, c.y));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.4, c.y));
+            painter.text(Pos2::new(c.x - s*0.25, c.y - s*0.25), egui::Align2::CENTER_CENTER, "1", egui::FontId::proportional(s*0.2), color);
+            painter.text(Pos2::new(c.x + s*0.25, c.y - s*0.25), egui::Align2::CENTER_CENTER, "1", egui::FontId::proportional(s*0.2), color);
+        }
+        "lifo" => {
+            // Arrow right-to-left with "1"
+            ls(Pos2::new(c.x - s*0.4, c.y), Pos2::new(c.x + s*0.4, c.y));
+            ls(Pos2::new(c.x - s*0.3, c.y - s*0.1), Pos2::new(c.x - s*0.4, c.y));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x - s*0.4, c.y));
+            painter.text(Pos2::new(c.x + s*0.25, c.y - s*0.25), egui::Align2::CENTER_CENTER, "1", egui::FontId::proportional(s*0.2), color);
+            painter.text(Pos2::new(c.x - s*0.25, c.y - s*0.25), egui::Align2::CENTER_CENTER, "N", egui::FontId::proportional(s*0.2), color);
+        }
+        "cycle-count" => {
+            // Circular arrows with hash
+            painter.circle_stroke(c, s*0.3, st);
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.05), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.05), Pos2::new(c.x + s*0.22, c.y - s*0.15));
+            painter.text(Pos2::new(c.x, c.y), egui::Align2::CENTER_CENTER, "#", egui::FontId::proportional(s*0.25), color);
+        }
+        "physical-count" => {
+            // Hand with clipboard
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.1, c.y - s*0.4), Pos2::new(c.x + s*0.4, c.y + s*0.4)), s*0.04, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.02, c.y - s*0.48), Pos2::new(c.x + s*0.28, c.y - s*0.4)), s*0.02, st);
+            ls(Pos2::new(c.x + s*0.0, c.y - s*0.15), Pos2::new(c.x + s*0.3, c.y - s*0.15));
+            ls(Pos2::new(c.x + s*0.0, c.y + s*0.0), Pos2::new(c.x + s*0.3, c.y + s*0.0));
+            ls(Pos2::new(c.x + s*0.0, c.y + s*0.15), Pos2::new(c.x + s*0.3, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.1), Pos2::new(c.x - s*0.1, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.1), Pos2::new(c.x - s*0.4, c.y - s*0.05));
+        }
+        "stock-valuation" => {
+            // Box with dollar and chart
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.25)), s*0.04, st);
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.3), color);
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.15), Pos2::new(c.x + s*0.15, c.y - s*0.05));
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.05), Pos2::new(c.x + s*0.25, c.y - s*0.15));
+        }
+        "safety-stock" => {
+            // Shield with box
+            ls(Pos2::new(c.x - s*0.3, c.y - s*0.35), Pos2::new(c.x, c.y - s*0.45));
+            ls(Pos2::new(c.x, c.y - s*0.45), Pos2::new(c.x + s*0.3, c.y - s*0.35));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.35), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x, c.y + s*0.4));
+            ls(Pos2::new(c.x, c.y + s*0.4), Pos2::new(c.x - s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x - s*0.3, c.y - s*0.35));
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.12, c.y - s*0.15), Pos2::new(c.x + s*0.12, c.y + s*0.05)), s*0.02, st);
+        }
+        "dead-stock" => {
+            // Box with X
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.25)), s*0.04, st);
+            lsh(Pos2::new(c.x - s*0.2, c.y - s*0.15), Pos2::new(c.x + s*0.2, c.y + s*0.15));
+            lsh(Pos2::new(c.x + s*0.2, c.y - s*0.15), Pos2::new(c.x - s*0.2, c.y + s*0.15));
+        }
+
+        // ── Transportation ──────────────────────────────────────────────────
+        "truck" => {
+            // Cab + body + wheels
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.5, c.y - s*0.25), Pos2::new(c.x + s*0.15, c.y + s*0.2)), s*0.04, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.15, c.y - s*0.05), Pos2::new(c.x + s*0.5, c.y + s*0.2)), s*0.04, st);
+            painter.circle_stroke(Pos2::new(c.x - s*0.3, c.y + s*0.3), s*0.1, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.35, c.y + s*0.3), s*0.1, st);
+        }
+        "truck-loading" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.5, c.y - s*0.25), Pos2::new(c.x + s*0.15, c.y + s*0.2)), s*0.04, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.15, c.y - s*0.05), Pos2::new(c.x + s*0.5, c.y + s*0.2)), s*0.04, st);
+            painter.circle_stroke(Pos2::new(c.x - s*0.3, c.y + s*0.3), s*0.1, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.35, c.y + s*0.3), s*0.1, st);
+            // Arrow into body
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.5), Pos2::new(c.x - s*0.2, c.y - s*0.25));
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.38), Pos2::new(c.x - s*0.2, c.y - s*0.25));
+            ls(Pos2::new(c.x - s*0.05, c.y - s*0.38), Pos2::new(c.x - s*0.2, c.y - s*0.25));
+        }
+        "truck-delivery" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.5, c.y - s*0.25), Pos2::new(c.x + s*0.15, c.y + s*0.2)), s*0.04, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.15, c.y - s*0.05), Pos2::new(c.x + s*0.5, c.y + s*0.2)), s*0.04, st);
+            painter.circle_stroke(Pos2::new(c.x - s*0.3, c.y + s*0.3), s*0.1, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.35, c.y + s*0.3), s*0.1, st);
+            // Check mark on body
+            ls(Pos2::new(c.x - s*0.3, c.y), Pos2::new(c.x - s*0.15, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.1), Pos2::new(c.x + s*0.05, c.y - s*0.15));
+        }
+        "van" => {
+            // Rounded van body
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.5, c.y - s*0.3), Pos2::new(c.x + s*0.5, c.y + s*0.2)), s*0.15, st);
+            painter.circle_stroke(Pos2::new(c.x - s*0.3, c.y + s*0.3), s*0.1, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.3, c.y + s*0.3), s*0.1, st);
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.3), Pos2::new(c.x + s*0.15, c.y + s*0.2));
+        }
+        "ship" => {
+            // Hull
+            ls(Pos2::new(c.x - s*0.5, c.y + s*0.1), Pos2::new(c.x - s*0.35, c.y + s*0.35));
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.35));
+            ls(Pos2::new(c.x + s*0.35, c.y + s*0.35), Pos2::new(c.x + s*0.5, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.5, c.y + s*0.1), Pos2::new(c.x + s*0.5, c.y + s*0.1));
+            // Cabin
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y - s*0.2), Pos2::new(c.x + s*0.15, c.y + s*0.1)), s*0.03, st);
+            // Smokestack
+            ls(Pos2::new(c.x, c.y - s*0.2), Pos2::new(c.x, c.y - s*0.45));
+        }
+        "ship-cargo" => {
+            ls(Pos2::new(c.x - s*0.5, c.y + s*0.1), Pos2::new(c.x - s*0.35, c.y + s*0.35));
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.35));
+            ls(Pos2::new(c.x + s*0.35, c.y + s*0.35), Pos2::new(c.x + s*0.5, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.5, c.y + s*0.1), Pos2::new(c.x + s*0.5, c.y + s*0.1));
+            // Containers on deck
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.15), Pos2::new(c.x - s*0.05, c.y + s*0.1)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.05, c.y - s*0.15), Pos2::new(c.x + s*0.3, c.y + s*0.1)), s*0.02, st);
+        }
+        "airplane" => {
+            // Fuselage
+            ls(Pos2::new(c.x - s*0.5, c.y), Pos2::new(c.x + s*0.5, c.y));
+            // Nose
+            ls(Pos2::new(c.x + s*0.5, c.y), Pos2::new(c.x + s*0.55, c.y - s*0.05));
+            // Wings
+            ls(Pos2::new(c.x - s*0.05, c.y), Pos2::new(c.x - s*0.2, c.y - s*0.35));
+            ls(Pos2::new(c.x - s*0.05, c.y), Pos2::new(c.x - s*0.2, c.y + s*0.35));
+            // Tail
+            ls(Pos2::new(c.x - s*0.45, c.y), Pos2::new(c.x - s*0.5, c.y - s*0.2));
+        }
+        "airplane-landing" => {
+            // Tilted fuselage
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.2), Pos2::new(c.x + s*0.4, c.y + s*0.15));
+            // Wings
+            ls(Pos2::new(c.x, c.y), Pos2::new(c.x - s*0.15, c.y - s*0.35));
+            ls(Pos2::new(c.x, c.y), Pos2::new(c.x - s*0.15, c.y + s*0.25));
+            // Ground line
+            lsh(Pos2::new(c.x - s*0.5, c.y + s*0.4), Pos2::new(c.x + s*0.5, c.y + s*0.4));
+            // Arrow down
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.15), Pos2::new(c.x + s*0.4, c.y + s*0.35));
+        }
+        "helicopter" => {
+            // Body
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.1), Pos2::new(c.x + s*0.2, c.y + s*0.15)), s*0.08, st);
+            // Rotor top
+            ls(Pos2::new(c.x - s*0.45, c.y - s*0.25), Pos2::new(c.x + s*0.45, c.y - s*0.25));
+            ls(Pos2::new(c.x, c.y - s*0.1), Pos2::new(c.x, c.y - s*0.25));
+            // Tail
+            ls(Pos2::new(c.x + s*0.2, c.y), Pos2::new(c.x + s*0.5, c.y - s*0.1));
+            // Skids
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.15), Pos2::new(c.x - s*0.3, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.15), Pos2::new(c.x + s*0.1, c.y + s*0.3));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.3), Pos2::new(c.x + s*0.2, c.y + s*0.3));
+        }
+        "train" => {
+            // Body
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.25), Pos2::new(c.x + s*0.4, c.y + s*0.15)), s*0.06, st);
+            // Window
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y - s*0.2), Pos2::new(c.x + s*0.15, c.y - s*0.05)), s*0.02, st);
+            // Wheels
+            painter.circle_stroke(Pos2::new(c.x - s*0.2, c.y + s*0.25), s*0.1, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.2, c.y + s*0.25), s*0.1, st);
+            // Smokestack
+            ls(Pos2::new(c.x - s*0.25, c.y - s*0.25), Pos2::new(c.x - s*0.25, c.y - s*0.4));
+        }
+        "railway" => {
+            // Two rails
+            ls(Pos2::new(c.x - s*0.5, c.y - s*0.15), Pos2::new(c.x + s*0.5, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.5, c.y + s*0.15), Pos2::new(c.x + s*0.5, c.y + s*0.15));
+            // Ties
+            for i in -2..=2 {
+                let x = c.x + s * 0.2 * i as f32;
+                ls(Pos2::new(x, c.y - s*0.25), Pos2::new(x, c.y + s*0.25));
+            }
+        }
+        "container" => {
+            // Shipping container box
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.45, c.y - s*0.25), Pos2::new(c.x + s*0.45, c.y + s*0.25)), s*0.04, st);
+            // Corrugation lines
+            for i in -1..=1 {
+                let x = c.x + s * 0.2 * i as f32;
+                ls(Pos2::new(x, c.y - s*0.25), Pos2::new(x, c.y + s*0.25));
+            }
+        }
+        "forklift" => {
+            // Body
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y - s*0.2), Pos2::new(c.x + s*0.25, c.y + s*0.2)), s*0.04, st);
+            // Forks
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.15), Pos2::new(c.x - s*0.45, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.05), Pos2::new(c.x - s*0.45, c.y + s*0.05));
+            // Mast
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.4), Pos2::new(c.x - s*0.15, c.y + s*0.2));
+            // Wheel
+            painter.circle_stroke(Pos2::new(c.x + s*0.15, c.y + s*0.3), s*0.1, st);
+        }
+        "crane" => {
+            // Tower
+            ls(Pos2::new(c.x, c.y + s*0.5), Pos2::new(c.x, c.y - s*0.4));
+            // Boom arm
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x + s*0.45, c.y - s*0.4));
+            // Cable
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.4), Pos2::new(c.x + s*0.35, c.y));
+            // Hook
+            painter.circle_stroke(Pos2::new(c.x + s*0.35, c.y + s*0.05), s*0.06, st);
+            // Base
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.5), Pos2::new(c.x + s*0.25, c.y + s*0.5));
+        }
+        "anchor" => {
+            // Ring at top
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.35), s*0.1, st);
+            // Shaft
+            ls(Pos2::new(c.x, c.y - s*0.25), Pos2::new(c.x, c.y + s*0.35));
+            // Cross bar
+            ls(Pos2::new(c.x - s*0.25, c.y - s*0.1), Pos2::new(c.x + s*0.25, c.y - s*0.1));
+            // Flukes
+            ls(Pos2::new(c.x, c.y + s*0.35), Pos2::new(c.x - s*0.3, c.y + s*0.15));
+            ls(Pos2::new(c.x, c.y + s*0.35), Pos2::new(c.x + s*0.3, c.y + s*0.15));
+        }
+        "compass" => {
+            painter.circle_stroke(c, s*0.45, st);
+            // N-S needle
+            ls(Pos2::new(c.x, c.y - s*0.35), Pos2::new(c.x, c.y + s*0.35));
+            // E-W
+            ls(Pos2::new(c.x - s*0.35, c.y), Pos2::new(c.x + s*0.35, c.y));
+            // N pointer
+            ls(Pos2::new(c.x, c.y - s*0.35), Pos2::new(c.x - s*0.08, c.y - s*0.1));
+            ls(Pos2::new(c.x, c.y - s*0.35), Pos2::new(c.x + s*0.08, c.y - s*0.1));
+        }
+        "route" => {
+            // Winding path
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.4), Pos2::new(c.x - s*0.15, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.1), Pos2::new(c.x + s*0.15, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.1), Pos2::new(c.x + s*0.4, c.y - s*0.4));
+            // Pin at end
+            painter.circle_filled(Pos2::new(c.x + s*0.4, c.y - s*0.4), s*0.08, color);
+        }
+        "highway" => {
+            // Two parallel lines
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.5), Pos2::new(c.x - s*0.2, c.y + s*0.5));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.5), Pos2::new(c.x + s*0.2, c.y + s*0.5));
+            // Dashed center
+            for i in -2..=2 {
+                let y = c.y + s * 0.2 * i as f32;
+                ls(Pos2::new(c.x, y - s*0.05), Pos2::new(c.x, y + s*0.05));
+            }
+        }
+        "bridge" => {
+            // Deck
+            lsh(Pos2::new(c.x - s*0.5, c.y), Pos2::new(c.x + s*0.5, c.y));
+            // Arches below
+            ls(Pos2::new(c.x - s*0.4, c.y), Pos2::new(c.x - s*0.25, c.y + s*0.25));
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.25), Pos2::new(c.x - s*0.1, c.y));
+            ls(Pos2::new(c.x + s*0.1, c.y), Pos2::new(c.x + s*0.25, c.y + s*0.25));
+            ls(Pos2::new(c.x + s*0.25, c.y + s*0.25), Pos2::new(c.x + s*0.4, c.y));
+            // Pillars
+            ls(Pos2::new(c.x - s*0.4, c.y), Pos2::new(c.x - s*0.4, c.y + s*0.4));
+            ls(Pos2::new(c.x + s*0.4, c.y), Pos2::new(c.x + s*0.4, c.y + s*0.4));
+        }
+        "toll" => {
+            // Barrier bar
+            lsh(Pos2::new(c.x - s*0.15, c.y - s*0.15), Pos2::new(c.x + s*0.5, c.y - s*0.15));
+            // Post
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.15), Pos2::new(c.x - s*0.15, c.y + s*0.4));
+            // Base
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.4), Pos2::new(c.x + s*0.05, c.y + s*0.4));
+            // Light
+            painter.circle_filled(Pos2::new(c.x - s*0.15, c.y - s*0.3), s*0.08, color);
+        }
+        "fuel-pump" => {
+            // Pump body
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.3), Pos2::new(c.x + s*0.1, c.y + s*0.4)), s*0.04, st);
+            // Nozzle
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y - s*0.15));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.1));
+            // Display
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.2, c.y - s*0.2), Pos2::new(c.x, c.y - s*0.05)), s*0.02, st);
+        }
+        "tire" => {
+            painter.circle_stroke(c, s*0.4, st);
+            painter.circle_stroke(c, s*0.2, st);
+            // Spokes
+            for angle in [0.0f32, 1.57, 3.14, 4.71] {
+                ls(Pos2::new(c.x + s*0.2*angle.cos(), c.y + s*0.2*angle.sin()),
+                   Pos2::new(c.x + s*0.4*angle.cos(), c.y + s*0.4*angle.sin()));
+            }
+        }
+        "engine" => {
+            // Block
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.25), Pos2::new(c.x + s*0.3, c.y + s*0.25)), s*0.04, st);
+            // Pistons on top
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.25), Pos2::new(c.x - s*0.15, c.y - s*0.4));
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.25), Pos2::new(c.x + s*0.15, c.y - s*0.4));
+            // Bolt
+            painter.circle_filled(Pos2::new(c.x, c.y), s*0.06, color);
+        }
+        "speedometer" => {
+            // Half circle gauge
+            painter.circle_stroke(c, s*0.4, st);
+            // Needle pointing upper-right
+            lsh(c, Pos2::new(c.x + s*0.25, c.y - s*0.25));
+            // Tick marks
+            painter.circle_filled(c, s*0.05, color);
+        }
+        "odometer" => {
+            // Display box with digits
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.45, c.y - s*0.15), Pos2::new(c.x + s*0.45, c.y + s*0.15)), s*0.04, st);
+            // Digit separators
+            for i in -1..=1 {
+                let x = c.x + s * 0.18 * i as f32;
+                ls(Pos2::new(x, c.y - s*0.15), Pos2::new(x, c.y + s*0.15));
+            }
+        }
+
+        // ── Logistics ───────────────────────────────────────────────────────
+        "package" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            // Top flaps
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.45));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.45));
+            // Tape
+            ls(Pos2::new(c.x, c.y - s*0.45), Pos2::new(c.x, c.y + s*0.35));
+        }
+        "package-open" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            // Open flaps
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.15), Pos2::new(c.x - s*0.5, c.y - s*0.4));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.15), Pos2::new(c.x + s*0.5, c.y - s*0.4));
+        }
+        "package-check" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.45));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.45));
+            // Check
+            lsh(Pos2::new(c.x - s*0.15, c.y + s*0.05), Pos2::new(c.x - s*0.02, c.y + s*0.2));
+            lsh(Pos2::new(c.x - s*0.02, c.y + s*0.2), Pos2::new(c.x + s*0.2, c.y - s*0.05));
+        }
+        "package-x" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.45));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.45));
+            // X
+            lsh(Pos2::new(c.x - s*0.15, c.y - s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.25));
+            lsh(Pos2::new(c.x + s*0.15, c.y - s*0.05), Pos2::new(c.x - s*0.15, c.y + s*0.25));
+        }
+        "package-search" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.25), Pos2::new(c.x + s*0.2, c.y + s*0.35)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.25), Pos2::new(c.x - s*0.1, c.y - s*0.45));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.25), Pos2::new(c.x - s*0.1, c.y - s*0.45));
+            // Magnifier
+            painter.circle_stroke(Pos2::new(c.x + s*0.25, c.y + s*0.1), s*0.15, st);
+            ls(Pos2::new(c.x + s*0.35, c.y + s*0.2), Pos2::new(c.x + s*0.5, c.y + s*0.35));
+        }
+        "conveyor" => {
+            // Belt (two horizontal lines)
+            ls(Pos2::new(c.x - s*0.45, c.y + s*0.1), Pos2::new(c.x + s*0.45, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.45, c.y + s*0.25), Pos2::new(c.x + s*0.45, c.y + s*0.25));
+            // Rollers
+            painter.circle_stroke(Pos2::new(c.x - s*0.4, c.y + s*0.175), s*0.08, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.4, c.y + s*0.175), s*0.08, st);
+            // Box on belt
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y - s*0.2), Pos2::new(c.x + s*0.15, c.y + s*0.1)), s*0.03, st);
+        }
+        "loading-dock" => {
+            // Dock platform
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.5, c.y), Pos2::new(c.x + s*0.1, c.y + s*0.15)), s*0.02, st);
+            // Truck back
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.1, c.y - s*0.25), Pos2::new(c.x + s*0.5, c.y + s*0.15)), s*0.04, st);
+            // Ramp
+            ls(Pos2::new(c.x - s*0.5, c.y + s*0.15), Pos2::new(c.x - s*0.5, c.y + s*0.4));
+        }
+        "dispatch" => {
+            // Clipboard
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.35), Pos2::new(c.x + s*0.3, c.y + s*0.45)), s*0.04, st);
+            // Clip at top
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.12, c.y - s*0.45), Pos2::new(c.x + s*0.12, c.y - s*0.3)), s*0.02, st);
+            // Arrow right
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.05, c.y - s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.15), Pos2::new(c.x + s*0.15, c.y + s*0.05));
+        }
+        "tracking" => {
+            // Crosshair/target
+            painter.circle_stroke(c, s*0.3, st);
+            painter.circle_stroke(c, s*0.15, st);
+            painter.circle_filled(c, s*0.04, color);
+            // Cross lines extending outside
+            ls(Pos2::new(c.x, c.y - s*0.45), Pos2::new(c.x, c.y - s*0.3));
+            ls(Pos2::new(c.x, c.y + s*0.3), Pos2::new(c.x, c.y + s*0.45));
+            ls(Pos2::new(c.x - s*0.45, c.y), Pos2::new(c.x - s*0.3, c.y));
+            ls(Pos2::new(c.x + s*0.3, c.y), Pos2::new(c.x + s*0.45, c.y));
+        }
+        "tracking-number" => {
+            // Barcode-like lines
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.3), Pos2::new(c.x + s*0.4, c.y + s*0.3)), s*0.04, st);
+            for i in -3..=3 {
+                let x = c.x + s * 0.1 * i as f32;
+                let h = if i % 2 == 0 { 0.2 } else { 0.15 };
+                ls(Pos2::new(x, c.y - h * s), Pos2::new(x, c.y + h * s));
+            }
+        }
+        "delivery-time" => {
+            // Clock face
+            painter.circle_stroke(c, s*0.35, st);
+            // Hands
+            ls(c, Pos2::new(c.x + s*0.2, c.y - s*0.1));
+            ls(c, Pos2::new(c.x, c.y - s*0.25));
+            // Small truck below
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.3), Pos2::new(c.x + s*0.5, c.y + s*0.3));
+        }
+        "express" => {
+            // Lightning bolt
+            lsh(Pos2::new(c.x + s*0.1, c.y - s*0.45), Pos2::new(c.x - s*0.1, c.y));
+            lsh(Pos2::new(c.x - s*0.1, c.y), Pos2::new(c.x + s*0.15, c.y));
+            lsh(Pos2::new(c.x + s*0.15, c.y), Pos2::new(c.x - s*0.05, c.y + s*0.45));
+        }
+        "fragile" => {
+            // Wine glass outline
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.4), Pos2::new(c.x + s*0.2, c.y - s*0.4));
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.4), Pos2::new(c.x - s*0.15, c.y - s*0.05));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.4), Pos2::new(c.x + s*0.15, c.y - s*0.05));
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.05), Pos2::new(c.x + s*0.15, c.y - s*0.05));
+            // Stem
+            ls(Pos2::new(c.x, c.y - s*0.05), Pos2::new(c.x, c.y + s*0.25));
+            // Base
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.25), Pos2::new(c.x + s*0.2, c.y + s*0.25));
+            // Crack
+            ls(Pos2::new(c.x, c.y - s*0.3), Pos2::new(c.x + s*0.08, c.y - s*0.15));
+        }
+        "hazmat" => {
+            // Triangle warning
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x - s*0.4, c.y + s*0.3));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.3), Pos2::new(c.x + s*0.4, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.4, c.y + s*0.3), Pos2::new(c.x, c.y - s*0.4));
+            // Exclamation
+            lsh(Pos2::new(c.x, c.y - s*0.15), Pos2::new(c.x, c.y + s*0.1));
+            painter.circle_filled(Pos2::new(c.x, c.y + s*0.2), s*0.04, color);
+        }
+        "temperature" => {
+            // Thermometer body
+            ls(Pos2::new(c.x, c.y - s*0.45), Pos2::new(c.x, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.08, c.y - s*0.45), Pos2::new(c.x - s*0.08, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.08, c.y - s*0.45), Pos2::new(c.x + s*0.08, c.y + s*0.15));
+            // Bulb
+            painter.circle_stroke(Pos2::new(c.x, c.y + s*0.25), s*0.15, st);
+            painter.circle_filled(Pos2::new(c.x, c.y + s*0.25), s*0.08, color);
+        }
+        "weight-scale" => {
+            // Base
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.35));
+            // Pillar
+            ls(Pos2::new(c.x, c.y + s*0.35), Pos2::new(c.x, c.y - s*0.15));
+            // Beam
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+            // Pans (arcs)
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x - s*0.45, c.y + s*0.05));
+            ls(Pos2::new(c.x - s*0.25, c.y - s*0.15), Pos2::new(c.x - s*0.2, c.y + s*0.05));
+            ls(Pos2::new(c.x - s*0.45, c.y + s*0.05), Pos2::new(c.x - s*0.2, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.45, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.25, c.y - s*0.15), Pos2::new(c.x + s*0.2, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.45, c.y + s*0.05), Pos2::new(c.x + s*0.2, c.y + s*0.05));
+        }
+        "dimensions" => {
+            // Horizontal dimension line
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.25), Pos2::new(c.x - s*0.4, c.y - s*0.05));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.25), Pos2::new(c.x + s*0.4, c.y - s*0.05));
+            // Vertical dimension line
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.4), Pos2::new(c.x - s*0.15, c.y + s*0.4));
+            ls(Pos2::new(c.x - s*0.25, c.y - s*0.4), Pos2::new(c.x - s*0.05, c.y - s*0.4));
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.4), Pos2::new(c.x - s*0.05, c.y + s*0.4));
+        }
+        "customs" => {
+            // Shield
+            ls(Pos2::new(c.x - s*0.3, c.y - s*0.4), Pos2::new(c.x + s*0.3, c.y - s*0.4));
+            ls(Pos2::new(c.x - s*0.3, c.y - s*0.4), Pos2::new(c.x - s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.4), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x, c.y + s*0.4));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x, c.y + s*0.4));
+            // Check inside
+            ls(Pos2::new(c.x - s*0.12, c.y - s*0.05), Pos2::new(c.x - s*0.02, c.y + s*0.08));
+            ls(Pos2::new(c.x - s*0.02, c.y + s*0.08), Pos2::new(c.x + s*0.15, c.y - s*0.15));
+        }
+        "manifest" => {
+            // Document with lines
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.45), Pos2::new(c.x + s*0.3, c.y + s*0.45)), s*0.04, st);
+            for i in -2..=2 {
+                let y = c.y + s * 0.15 * i as f32;
+                ls(Pos2::new(c.x - s*0.2, y), Pos2::new(c.x + s*0.2, y));
+            }
+        }
+        "bill-of-lading" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.45), Pos2::new(c.x + s*0.3, c.y + s*0.45)), s*0.04, st);
+            // Header area
+            lsh(Pos2::new(c.x - s*0.2, c.y - s*0.3), Pos2::new(c.x + s*0.2, c.y - s*0.3));
+            // Content lines
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.1), Pos2::new(c.x + s*0.2, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.05), Pos2::new(c.x + s*0.2, c.y + s*0.05));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.2), Pos2::new(c.x + s*0.2, c.y + s*0.2));
+            // Ship icon in header
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.4), Pos2::new(c.x + s*0.1, c.y - s*0.4));
+        }
+        "cross-dock" => {
+            // Cross shape (dock bays)
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x, c.y + s*0.4));
+            ls(Pos2::new(c.x - s*0.4, c.y), Pos2::new(c.x + s*0.4, c.y));
+            // Arrow tips at ends
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.3), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.3), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.1), Pos2::new(c.x + s*0.4, c.y));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.4, c.y));
+        }
+        "last-mile" => {
+            // House destination
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.3), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.3), Pos2::new(c.x - s*0.15, c.y - s*0.1));
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.1, c.y - s*0.1), Pos2::new(c.x + s*0.3, c.y + s*0.2)), s*0.02, st);
+            // Dotted path to house
+            for i in -3..=0 {
+                let x = c.x + s * 0.15 * i as f32 - s*0.15;
+                painter.circle_filled(Pos2::new(x, c.y + s*0.35), s*0.03, color);
+            }
+        }
+        "return-shipment" => {
+            // Box
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.25, c.y - s*0.15), Pos2::new(c.x + s*0.25, c.y + s*0.25)), s*0.04, st);
+            // Return arrow (curved left)
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.35), Pos2::new(c.x - s*0.2, c.y - s*0.35));
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.35), Pos2::new(c.x - s*0.08, c.y - s*0.45));
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.35), Pos2::new(c.x - s*0.08, c.y - s*0.25));
+        }
+        "consolidation" => {
+            // Multiple small boxes converging into one
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y + s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.35)), s*0.03, st);
+            // Small boxes
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.45, c.y - s*0.4), Pos2::new(c.x - s*0.25, c.y - s*0.2)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.1, c.y - s*0.4), Pos2::new(c.x + s*0.1, c.y - s*0.2)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.25, c.y - s*0.4), Pos2::new(c.x + s*0.45, c.y - s*0.2)), s*0.02, st);
+            // Arrows down
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.2), Pos2::new(c.x, c.y + s*0.05));
+            ls(Pos2::new(c.x, c.y - s*0.2), Pos2::new(c.x, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.2), Pos2::new(c.x, c.y + s*0.05));
+        }
+        "deconsolidation" => {
+            // One big box at top, arrows to small boxes
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.15, c.y - s*0.4), Pos2::new(c.x + s*0.15, c.y - s*0.1)), s*0.03, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.45, c.y + s*0.15), Pos2::new(c.x - s*0.25, c.y + s*0.35)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.1, c.y + s*0.15), Pos2::new(c.x + s*0.1, c.y + s*0.35)), s*0.02, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x + s*0.25, c.y + s*0.15), Pos2::new(c.x + s*0.45, c.y + s*0.35)), s*0.02, st);
+            ls(Pos2::new(c.x, c.y - s*0.1), Pos2::new(c.x - s*0.35, c.y + s*0.15));
+            ls(Pos2::new(c.x, c.y - s*0.1), Pos2::new(c.x, c.y + s*0.15));
+            ls(Pos2::new(c.x, c.y - s*0.1), Pos2::new(c.x + s*0.35, c.y + s*0.15));
+        }
+
+        // ── Financial ───────────────────────────────────────────────────────
+        "dollar" => {
+            painter.circle_stroke(c, s*0.4, st);
+            painter.text(c, egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.7), color);
+        }
+        "euro" => {
+            painter.circle_stroke(c, s*0.4, st);
+            painter.text(c, egui::Align2::CENTER_CENTER, "\u{20AC}", egui::FontId::proportional(s*0.7), color);
+        }
+        "yen" => {
+            painter.circle_stroke(c, s*0.4, st);
+            painter.text(c, egui::Align2::CENTER_CENTER, "\u{00A5}", egui::FontId::proportional(s*0.7), color);
+        }
+        "pound" => {
+            painter.circle_stroke(c, s*0.4, st);
+            painter.text(c, egui::Align2::CENTER_CENTER, "\u{00A3}", egui::FontId::proportional(s*0.7), color);
+        }
+        "bitcoin" => {
+            painter.circle_stroke(c, s*0.4, st);
+            painter.text(c, egui::Align2::CENTER_CENTER, "\u{20BF}", egui::FontId::proportional(s*0.7), color);
+        }
+        "coins" => {
+            painter.circle_stroke(Pos2::new(c.x - s*0.12, c.y + s*0.05), s*0.25, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.12, c.y - s*0.05), s*0.25, st);
+        }
+        "money-bag" => {
+            // Bag body
+            painter.circle_stroke(Pos2::new(c.x, c.y + s*0.1), s*0.35, st);
+            // Tie at top
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.25), Pos2::new(c.x, c.y - s*0.4));
+            painter.text(Pos2::new(c.x, c.y + s*0.15), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.4), color);
+        }
+        "piggy-bank" => {
+            // Body
+            painter.circle_stroke(c, s*0.3, st);
+            // Snout
+            painter.circle_stroke(Pos2::new(c.x + s*0.35, c.y), s*0.1, st);
+            // Ear
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.3), Pos2::new(c.x + s*0.05, c.y - s*0.42));
+            // Legs
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.3), Pos2::new(c.x - s*0.15, c.y + s*0.45));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.3), Pos2::new(c.x + s*0.15, c.y + s*0.45));
+            // Slot
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.3), Pos2::new(c.x + s*0.1, c.y - s*0.3));
+        }
+        "vault" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.4), Pos2::new(c.x + s*0.4, c.y + s*0.4)), s*0.06, st);
+            // Dial
+            painter.circle_stroke(c, s*0.2, st);
+            painter.circle_filled(c, s*0.05, color);
+            // Handle
+            ls(Pos2::new(c.x + s*0.2, c.y), Pos2::new(c.x + s*0.32, c.y));
+        }
+        "safe" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.35), Pos2::new(c.x + s*0.4, c.y + s*0.35)), s*0.06, st);
+            // Keyhole
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.05), s*0.08, st);
+            ls(Pos2::new(c.x, c.y + s*0.03), Pos2::new(c.x, c.y + s*0.15));
+            // Handle bar
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.15), Pos2::new(c.x + s*0.2, c.y + s*0.15));
+        }
+        "bank" => {
+            // Pediment triangle
+            ls(Pos2::new(c.x - s*0.45, c.y - s*0.1), Pos2::new(c.x, c.y - s*0.4));
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x + s*0.45, c.y - s*0.1));
+            ls(Pos2::new(c.x - s*0.45, c.y - s*0.1), Pos2::new(c.x + s*0.45, c.y - s*0.1));
+            // Columns
+            ls(Pos2::new(c.x - s*0.3, c.y - s*0.1), Pos2::new(c.x - s*0.3, c.y + s*0.3));
+            ls(Pos2::new(c.x, c.y - s*0.1), Pos2::new(c.x, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.1), Pos2::new(c.x + s*0.3, c.y + s*0.3));
+            // Base
+            lsh(Pos2::new(c.x - s*0.45, c.y + s*0.3), Pos2::new(c.x + s*0.45, c.y + s*0.3));
+        }
+        "atm" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.45), Pos2::new(c.x + s*0.35, c.y + s*0.45)), s*0.06, st);
+            // Screen
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.22, c.y - s*0.35), Pos2::new(c.x + s*0.22, c.y - s*0.1)), s*0.02, st);
+            // Keypad dots
+            for row in 0..2 {
+                for col in -1..=1 {
+                    painter.circle_filled(
+                        Pos2::new(c.x + s*0.12 * col as f32, c.y + s*0.08 + s*0.15 * row as f32),
+                        s*0.04, color);
+                }
+            }
+            // Card slot
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.38), Pos2::new(c.x + s*0.15, c.y + s*0.38));
+        }
+        "exchange-rate" => {
+            // Two currency circles with arrows between
+            painter.circle_stroke(Pos2::new(c.x - s*0.25, c.y), s*0.18, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.25, c.y), s*0.18, st);
+            // Arrows
+            ls(Pos2::new(c.x - s*0.05, c.y - s*0.15), Pos2::new(c.x + s*0.05, c.y - s*0.15));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.15), Pos2::new(c.x - s*0.05, c.y + s*0.15));
+        }
+        "stock-market" => {
+            // Upward trending line
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.3), Pos2::new(c.x - s*0.15, c.y + s*0.05));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.05), Pos2::new(c.x + s*0.05, c.y + s*0.2));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.2), Pos2::new(c.x + s*0.4, c.y - s*0.3));
+            // Arrow tip
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.3), Pos2::new(c.x + s*0.25, c.y - s*0.3));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.3), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+        }
+        "bull-market" => {
+            // Up arrow
+            lsh(Pos2::new(c.x, c.y + s*0.35), Pos2::new(c.x, c.y - s*0.35));
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.15), Pos2::new(c.x, c.y - s*0.35));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.15), Pos2::new(c.x, c.y - s*0.35));
+            // Horns
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.1), Pos2::new(c.x - s*0.35, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.1), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+        }
+        "bear-market" => {
+            // Down arrow
+            lsh(Pos2::new(c.x, c.y - s*0.35), Pos2::new(c.x, c.y + s*0.35));
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.15), Pos2::new(c.x, c.y + s*0.35));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.15), Pos2::new(c.x, c.y + s*0.35));
+            // Paw marks
+            painter.circle_filled(Pos2::new(c.x - s*0.25, c.y - s*0.15), s*0.05, color);
+            painter.circle_filled(Pos2::new(c.x + s*0.25, c.y - s*0.15), s*0.05, color);
+        }
+        "dividend" => {
+            // Coin with percent sign
+            painter.circle_stroke(c, s*0.35, st);
+            painter.text(c, egui::Align2::CENTER_CENTER, "%", egui::FontId::proportional(s*0.5), color);
+        }
+        "interest-rate" => {
+            // Percentage with up arrow
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "%", egui::FontId::proportional(s*0.5), color);
+            ls(Pos2::new(c.x + s*0.25, c.y + s*0.2), Pos2::new(c.x + s*0.25, c.y - s*0.25));
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.12), Pos2::new(c.x + s*0.25, c.y - s*0.25));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.12), Pos2::new(c.x + s*0.25, c.y - s*0.25));
+        }
+        "mortgage" => {
+            // House outline
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x - s*0.35, c.y - s*0.05));
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x + s*0.35, c.y - s*0.05));
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.05), Pos2::new(c.x + s*0.3, c.y + s*0.35)), s*0.02, st);
+            // Dollar in house
+            painter.text(Pos2::new(c.x, c.y + s*0.15), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.35), color);
+        }
+        "loan" => {
+            // Hand receiving coin
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.15), Pos2::new(c.x - s*0.1, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.1, c.y + s*0.15), Pos2::new(c.x + s*0.05, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.05), Pos2::new(c.x + s*0.15, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.15), Pos2::new(c.x + s*0.4, c.y + s*0.15));
+            // Coin above
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.2), s*0.18, st);
+            painter.text(Pos2::new(c.x, c.y - s*0.2), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.25), color);
+        }
+        "audit" => {
+            // Magnifier over document
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.4), Pos2::new(c.x + s*0.15, c.y + s*0.4)), s*0.04, st);
+            ls(Pos2::new(c.x - s*0.25, c.y - s*0.15), Pos2::new(c.x + s*0.05, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.0), Pos2::new(c.x + s*0.05, c.y + s*0.0));
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.15), Pos2::new(c.x + s*0.05, c.y + s*0.15));
+            // Magnifier
+            painter.circle_stroke(Pos2::new(c.x + s*0.25, c.y + s*0.1), s*0.15, st);
+            ls(Pos2::new(c.x + s*0.35, c.y + s*0.2), Pos2::new(c.x + s*0.48, c.y + s*0.35));
+        }
+        "ledger" => {
+            // Book with lines
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.4), Pos2::new(c.x + s*0.35, c.y + s*0.4)), s*0.06, st);
+            // Spine
+            ls(Pos2::new(c.x - s*0.2, c.y - s*0.4), Pos2::new(c.x - s*0.2, c.y + s*0.4));
+            // Lines
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.2), Pos2::new(c.x + s*0.25, c.y - s*0.2));
+            ls(Pos2::new(c.x - s*0.1, c.y), Pos2::new(c.x + s*0.25, c.y));
+            ls(Pos2::new(c.x - s*0.1, c.y + s*0.2), Pos2::new(c.x + s*0.25, c.y + s*0.2));
+        }
+        "balance-sheet" => {
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.4), Pos2::new(c.x + s*0.35, c.y + s*0.4)), s*0.04, st);
+            // Vertical divider
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x, c.y + s*0.4));
+            // Horizontal header
+            lsh(Pos2::new(c.x - s*0.35, c.y - s*0.2), Pos2::new(c.x + s*0.35, c.y - s*0.2));
+            // Left column items
+            ls(Pos2::new(c.x - s*0.28, c.y - s*0.05), Pos2::new(c.x - s*0.05, c.y - s*0.05));
+            ls(Pos2::new(c.x - s*0.28, c.y + s*0.1), Pos2::new(c.x - s*0.05, c.y + s*0.1));
+            // Right column items
+            ls(Pos2::new(c.x + s*0.05, c.y - s*0.05), Pos2::new(c.x + s*0.28, c.y - s*0.05));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.1), Pos2::new(c.x + s*0.28, c.y + s*0.1));
+        }
+        "profit-loss" => {
+            // Up and down arrows side by side
+            // Profit (up)
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.3), Pos2::new(c.x - s*0.2, c.y - s*0.3));
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.1), Pos2::new(c.x - s*0.2, c.y - s*0.3));
+            ls(Pos2::new(c.x - s*0.05, c.y - s*0.1), Pos2::new(c.x - s*0.2, c.y - s*0.3));
+            // Loss (down)
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.3), Pos2::new(c.x + s*0.2, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.05, c.y + s*0.1), Pos2::new(c.x + s*0.2, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.35, c.y + s*0.1), Pos2::new(c.x + s*0.2, c.y + s*0.3));
+        }
+        "cash-flow" => {
+            // Dollar sign with flowing arrows
+            painter.text(Pos2::new(c.x - s*0.15, c.y), egui::Align2::CENTER_CENTER, "$", egui::FontId::proportional(s*0.6), color);
+            // Arrow right
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.1), Pos2::new(c.x + s*0.4, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.2), Pos2::new(c.x + s*0.4, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.3, c.y), Pos2::new(c.x + s*0.4, c.y - s*0.1));
+            // Arrow left
+            ls(Pos2::new(c.x + s*0.4, c.y + s*0.15), Pos2::new(c.x + s*0.1, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.05), Pos2::new(c.x + s*0.1, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.25), Pos2::new(c.x + s*0.1, c.y + s*0.15));
+        }
+
+        // ── Social Media ────────────────────────────────────────────────────
+        "like" => {
+            // Heart shape (filled)
+            painter.circle_filled(Pos2::new(c.x - s*0.15, c.y - s*0.1), s*0.18, color);
+            painter.circle_filled(Pos2::new(c.x + s*0.15, c.y - s*0.1), s*0.18, color);
+            // Point at bottom
+            ls(Pos2::new(c.x - s*0.3, c.y), Pos2::new(c.x, c.y + s*0.35));
+            ls(Pos2::new(c.x + s*0.3, c.y), Pos2::new(c.x, c.y + s*0.35));
+        }
+        "dislike" => {
+            // Broken heart
+            painter.circle_stroke(Pos2::new(c.x - s*0.15, c.y - s*0.1), s*0.18, st);
+            painter.circle_stroke(Pos2::new(c.x + s*0.15, c.y - s*0.1), s*0.18, st);
+            ls(Pos2::new(c.x - s*0.3, c.y), Pos2::new(c.x, c.y + s*0.35));
+            ls(Pos2::new(c.x + s*0.3, c.y), Pos2::new(c.x, c.y + s*0.35));
+            // Crack
+            lsh(Pos2::new(c.x, c.y - s*0.2), Pos2::new(c.x + s*0.05, c.y + s*0.1));
+            lsh(Pos2::new(c.x + s*0.05, c.y + s*0.1), Pos2::new(c.x - s*0.05, c.y + s*0.25));
+        }
+        "comment" => {
+            // Speech bubble
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.3), Pos2::new(c.x + s*0.4, c.y + s*0.15)), s*0.1, st);
+            // Tail
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.15), Pos2::new(c.x - s*0.25, c.y + s*0.4));
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.4), Pos2::new(c.x + s*0.05, c.y + s*0.15));
+        }
+        "repost" => {
+            // Two circular arrows
+            ls(Pos2::new(c.x - s*0.35, c.y - s*0.1), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y - s*0.2), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y), Pos2::new(c.x + s*0.35, c.y - s*0.1));
+            ls(Pos2::new(c.x + s*0.35, c.y + s*0.1), Pos2::new(c.x - s*0.35, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.25, c.y), Pos2::new(c.x - s*0.35, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.2), Pos2::new(c.x - s*0.35, c.y + s*0.1));
+        }
+        "mention" => {
+            // @ symbol
+            painter.circle_stroke(c, s*0.4, st);
+            painter.text(c, egui::Align2::CENTER_CENTER, "@", egui::FontId::proportional(s*0.55), color);
+        }
+        "hashtag" => {
+            // # grid
+            ls(Pos2::new(c.x - s*0.15, c.y - s*0.4), Pos2::new(c.x - s*0.15, c.y + s*0.4));
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.4), Pos2::new(c.x + s*0.15, c.y + s*0.4));
+            ls(Pos2::new(c.x - s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y - s*0.15));
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.15), Pos2::new(c.x + s*0.4, c.y + s*0.15));
+        }
+        "trending" => {
+            // Upward graph line with arrow
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.3), Pos2::new(c.x - s*0.1, c.y));
+            ls(Pos2::new(c.x - s*0.1, c.y), Pos2::new(c.x + s*0.1, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.15), Pos2::new(c.x + s*0.4, c.y - s*0.3));
+            // Arrow head
+            ls(Pos2::new(c.x + s*0.25, c.y - s*0.3), Pos2::new(c.x + s*0.4, c.y - s*0.3));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.15), Pos2::new(c.x + s*0.4, c.y - s*0.3));
+        }
+        "viral" => {
+            // Branching network
+            painter.circle_filled(c, s*0.08, color);
+            // Branches
+            ls(c, Pos2::new(c.x - s*0.3, c.y - s*0.3));
+            ls(c, Pos2::new(c.x + s*0.3, c.y - s*0.3));
+            ls(c, Pos2::new(c.x - s*0.35, c.y + s*0.2));
+            ls(c, Pos2::new(c.x + s*0.35, c.y + s*0.2));
+            painter.circle_filled(Pos2::new(c.x - s*0.3, c.y - s*0.3), s*0.05, color);
+            painter.circle_filled(Pos2::new(c.x + s*0.3, c.y - s*0.3), s*0.05, color);
+            painter.circle_filled(Pos2::new(c.x - s*0.35, c.y + s*0.2), s*0.05, color);
+            painter.circle_filled(Pos2::new(c.x + s*0.35, c.y + s*0.2), s*0.05, color);
+        }
+        "follower" => {
+            // Person silhouette with + badge
+            painter.circle_stroke(Pos2::new(c.x - s*0.1, c.y - s*0.2), s*0.15, st);
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.35), Pos2::new(c.x - s*0.1, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.35), Pos2::new(c.x - s*0.1, c.y + s*0.05));
+            // + badge
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.15), Pos2::new(c.x + s*0.3, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.05), Pos2::new(c.x + s*0.4, c.y - s*0.05));
+        }
+        "following" => {
+            // Person with check
+            painter.circle_stroke(Pos2::new(c.x - s*0.1, c.y - s*0.2), s*0.15, st);
+            ls(Pos2::new(c.x - s*0.4, c.y + s*0.35), Pos2::new(c.x - s*0.1, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.2, c.y + s*0.35), Pos2::new(c.x - s*0.1, c.y + s*0.05));
+            // Check
+            ls(Pos2::new(c.x + s*0.2, c.y - s*0.05), Pos2::new(c.x + s*0.3, c.y + s*0.05));
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.05), Pos2::new(c.x + s*0.45, c.y - s*0.15));
+        }
+        "profile" => {
+            // Rounded square with person
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.4), Pos2::new(c.x + s*0.4, c.y + s*0.4)), s*0.1, st);
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.12), s*0.15, st);
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.35), Pos2::new(c.x, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y + s*0.35), Pos2::new(c.x, c.y + s*0.1));
+        }
+        "bio" => {
+            // Document with person icon
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.4), Pos2::new(c.x + s*0.35, c.y + s*0.4)), s*0.04, st);
+            painter.circle_stroke(Pos2::new(c.x, c.y - s*0.15), s*0.12, st);
+            // Text lines below
+            ls(Pos2::new(c.x - s*0.2, c.y + s*0.1), Pos2::new(c.x + s*0.2, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.15, c.y + s*0.22), Pos2::new(c.x + s*0.15, c.y + s*0.22));
+        }
+        "story" => {
+            // Circle with gradient ring (camera icon)
+            painter.circle_stroke(c, s*0.4, sth);
+            painter.circle_stroke(c, s*0.25, st);
+            painter.circle_filled(c, s*0.08, color);
+        }
+        "reel" => {
+            // Film reel
+            painter.circle_stroke(c, s*0.4, st);
+            painter.circle_stroke(c, s*0.12, st);
+            // Sprocket holes
+            for angle in [0.0f32, 1.05, 2.09, 3.14, 4.19, 5.24] {
+                painter.circle_filled(
+                    Pos2::new(c.x + s*0.27*angle.cos(), c.y + s*0.27*angle.sin()),
+                    s*0.05, color);
+            }
+        }
+        "live-stream" => {
+            // Camera with broadcast waves
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.15), Pos2::new(c.x + s*0.15, c.y + s*0.2)), s*0.04, st);
+            // Lens triangle
+            ls(Pos2::new(c.x + s*0.15, c.y - s*0.1), Pos2::new(c.x + s*0.35, c.y - s*0.2));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.25));
+            ls(Pos2::new(c.x + s*0.35, c.y - s*0.2), Pos2::new(c.x + s*0.35, c.y + s*0.25));
+            // REC dot
+            painter.circle_filled(Pos2::new(c.x - s*0.1, c.y + s*0.38), s*0.06, color);
+        }
+        "notification-dot" => {
+            // Bell outline with dot
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x - s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x, c.y - s*0.4), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.3, c.y + s*0.1), Pos2::new(c.x + s*0.3, c.y + s*0.1));
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.15), Pos2::new(c.x + s*0.35, c.y + s*0.15));
+            // Dot
+            painter.circle_filled(Pos2::new(c.x + s*0.25, c.y - s*0.3), s*0.1, color);
+        }
+        "verified" => {
+            // Badge circle with check
+            painter.circle_stroke(c, s*0.38, sth);
+            ls(Pos2::new(c.x - s*0.18, c.y), Pos2::new(c.x - s*0.05, c.y + s*0.15));
+            ls(Pos2::new(c.x - s*0.05, c.y + s*0.15), Pos2::new(c.x + s*0.2, c.y - s*0.15));
+        }
+        "influencer" => {
+            // Person with star
+            painter.circle_stroke(Pos2::new(c.x - s*0.1, c.y - s*0.15), s*0.15, st);
+            ls(Pos2::new(c.x - s*0.35, c.y + s*0.35), Pos2::new(c.x - s*0.1, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.15, c.y + s*0.35), Pos2::new(c.x - s*0.1, c.y + s*0.1));
+            // Star
+            painter.text(Pos2::new(c.x + s*0.3, c.y - s*0.25), egui::Align2::CENTER_CENTER, "\u{2605}", egui::FontId::proportional(s*0.3), color);
+        }
+        "engagement" => {
+            // Heart + chart bar
+            painter.circle_filled(Pos2::new(c.x - s*0.08, c.y - s*0.25), s*0.1, color);
+            painter.circle_filled(Pos2::new(c.x + s*0.08, c.y - s*0.25), s*0.1, color);
+            ls(Pos2::new(c.x - s*0.17, c.y - s*0.2), Pos2::new(c.x, c.y));
+            ls(Pos2::new(c.x + s*0.17, c.y - s*0.2), Pos2::new(c.x, c.y));
+            // Bar chart below
+            ls(Pos2::new(c.x - s*0.25, c.y + s*0.35), Pos2::new(c.x - s*0.25, c.y + s*0.15));
+            ls(Pos2::new(c.x, c.y + s*0.35), Pos2::new(c.x, c.y + s*0.1));
+            ls(Pos2::new(c.x + s*0.25, c.y + s*0.35), Pos2::new(c.x + s*0.25, c.y + s*0.2));
+        }
+        "reach" => {
+            // Broadcast waves emanating from point
+            painter.circle_filled(Pos2::new(c.x - s*0.3, c.y), s*0.06, color);
+            // Concentric arcs (quarter circles via strokes)
+            ls(Pos2::new(c.x - s*0.1, c.y - s*0.15), Pos2::new(c.x, c.y));
+            ls(Pos2::new(c.x, c.y), Pos2::new(c.x - s*0.1, c.y + s*0.15));
+            ls(Pos2::new(c.x + s*0.1, c.y - s*0.25), Pos2::new(c.x + s*0.2, c.y));
+            ls(Pos2::new(c.x + s*0.2, c.y), Pos2::new(c.x + s*0.1, c.y + s*0.25));
+            ls(Pos2::new(c.x + s*0.3, c.y - s*0.35), Pos2::new(c.x + s*0.4, c.y));
+            ls(Pos2::new(c.x + s*0.4, c.y), Pos2::new(c.x + s*0.3, c.y + s*0.35));
+        }
+        "post" => {
+            // Text card
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.35), Pos2::new(c.x + s*0.35, c.y + s*0.35)), s*0.06, st);
+            // Lines of text
+            ls(Pos2::new(c.x - s*0.22, c.y - s*0.18), Pos2::new(c.x + s*0.22, c.y - s*0.18));
+            ls(Pos2::new(c.x - s*0.22, c.y - s*0.03), Pos2::new(c.x + s*0.22, c.y - s*0.03));
+            ls(Pos2::new(c.x - s*0.22, c.y + s*0.12), Pos2::new(c.x + s*0.1, c.y + s*0.12));
+        }
+        "feed" => {
+            // Stacked cards
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.3, c.y - s*0.25), Pos2::new(c.x + s*0.3, c.y + s*0.35)), s*0.05, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.35, c.y - s*0.35), Pos2::new(c.x + s*0.35, c.y - s*0.25)), s*0.03, st);
+            // Content line
+            ls(Pos2::new(c.x - s*0.18, c.y), Pos2::new(c.x + s*0.18, c.y));
+            ls(Pos2::new(c.x - s*0.18, c.y + s*0.15), Pos2::new(c.x + s*0.1, c.y + s*0.15));
+        }
+        "timeline" => {
+            // Vertical line with dots
+            ls(Pos2::new(c.x, c.y - s*0.45), Pos2::new(c.x, c.y + s*0.45));
+            painter.circle_filled(Pos2::new(c.x, c.y - s*0.25), s*0.06, color);
+            painter.circle_filled(Pos2::new(c.x, c.y), s*0.06, color);
+            painter.circle_filled(Pos2::new(c.x, c.y + s*0.25), s*0.06, color);
+            // Side lines
+            ls(Pos2::new(c.x, c.y - s*0.25), Pos2::new(c.x + s*0.3, c.y - s*0.25));
+            ls(Pos2::new(c.x, c.y), Pos2::new(c.x - s*0.3, c.y));
+            ls(Pos2::new(c.x, c.y + s*0.25), Pos2::new(c.x + s*0.3, c.y + s*0.25));
+        }
+        "dm" => {
+            // Paper airplane (direct message)
+            ls(Pos2::new(c.x - s*0.4, c.y), Pos2::new(c.x + s*0.4, c.y - s*0.3));
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.3), Pos2::new(c.x + s*0.1, c.y + s*0.3));
+            ls(Pos2::new(c.x + s*0.1, c.y + s*0.3), Pos2::new(c.x - s*0.4, c.y));
+            // Fold line
+            ls(Pos2::new(c.x + s*0.4, c.y - s*0.3), Pos2::new(c.x - s*0.05, c.y + s*0.05));
+        }
+        "group-chat" => {
+            // Multiple speech bubbles
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.4, c.y - s*0.35), Pos2::new(c.x + s*0.1, c.y + s*0.0)), s*0.08, st);
+            painter.rect_stroke(Rect::from_min_max(
+                Pos2::new(c.x - s*0.1, c.y - s*0.05), Pos2::new(c.x + s*0.4, c.y + s*0.25)), s*0.08, st);
+            // Tail for first
+            ls(Pos2::new(c.x - s*0.3, c.y), Pos2::new(c.x - s*0.35, c.y + s*0.15));
+            // Tail for second
+            ls(Pos2::new(c.x + s*0.3, c.y + s*0.25), Pos2::new(c.x + s*0.35, c.y + s*0.4));
         }
 
         // ── Fallback ────────────────────────────────────────────────────────

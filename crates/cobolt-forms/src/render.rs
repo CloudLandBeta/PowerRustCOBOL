@@ -1509,10 +1509,17 @@ fn render_interactive(
             }
         }
         CT::MenuBar => {
-            paint::draw_glass_auto(
-                &painter, screen, Color32::from_rgb(40, 46, 76), 4.0, false, alpha * 0.85,
-            );
-            let fg = Color32::from_rgb(225, 230, 250);
+            let menu_bg = ctrl.get_prop("BackgroundColor")
+                .map(|v| paint::parse_color(v.as_str()))
+                .unwrap_or(Color32::TRANSPARENT);
+            if menu_bg.a() > 0 {
+                paint::draw_glass_auto(
+                    &painter, screen, menu_bg, 4.0, false, alpha * 0.85,
+                );
+            }
+            let fg = ctrl.get_prop("ForegroundColor")
+                .map(|v| paint::parse_color(v.as_str()))
+                .unwrap_or(Color32::from_rgb(225, 230, 250));
             let highlight_bg = ctrl.get_prop("HighlightBgColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::from_rgb(68, 136, 255));
@@ -1581,10 +1588,10 @@ fn render_interactive(
                                                 } else { fg };
                                                 // Icon
                                                 if let Some(icon_name) = &item.icon {
-                                                    let icon_rect = ui.allocate_space(Vec2::splat(16.0)).1;
+                                                    let icon_rect = ui.allocate_space(Vec2::splat(24.0)).1;
                                                     crate::icons::draw_menu_icon(&painter, icon_rect, icon_name, item_fg);
                                                 } else {
-                                                    ui.allocate_space(Vec2::splat(16.0));
+                                                    ui.allocate_space(Vec2::splat(24.0));
                                                 }
                                                 // Label
                                                 ui.label(egui::RichText::new(&item.label).color(item_fg));
@@ -1615,6 +1622,8 @@ fn render_interactive(
                                                     }
                                                 }
                                                 out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuClick".to_owned(), value: Some(item.id.clone()) });
+                                                let path = def.item_path(&item.id).unwrap_or_else(|| format!("/{}", item.label));
+                                                out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuItemClick".to_owned(), value: Some(path) });
                                             }
                                         }
                                     });
@@ -1655,6 +1664,8 @@ fn render_interactive(
                     mods.command = accel.cmd;
                     if ui.input(|i| i.modifiers == mods && i.key_pressed(char_to_key(accel.key))) {
                         out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuClick".to_owned(), value: Some(item.id.clone()) });
+                        let path = def.item_path(&item.id).unwrap_or_else(|| format!("/{}", item.label));
+                        out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuItemClick".to_owned(), value: Some(path) });
                     }
                 }
             } else {

@@ -393,6 +393,7 @@ fn seed_missing_props(form: &mut Form) {
             }
             ControlType::MenuBar => {
                 let defaults: &[(&str, &str)] = &[
+                    ("BackgroundColor", "#00000000"), ("ForegroundColor", "#E1E6FA"),
                     ("HighlightBgColor", "#4488FF"), ("HighlightFgColor", "#FFFFFF"),
                     ("SelectedBgColor", "#3366CC"), ("SelectedFgColor", "#FFFFFF"),
                 ];

@@ -859,7 +859,7 @@ impl ControlType {
             | ControlType::DonutChart => {
                 &["onDataChanged", "onClick", "onSeriesClick", "onTooltipShow"]
             }
-            ControlType::MenuBar => &["onMenuClick", "onMenuOpen", "onMenuClose"],
+            ControlType::MenuBar => &["onMenuClick", "onMenuItemClick", "onMenuOpen", "onMenuClose"],
             _ => &["onClick"],
         }
     }
@@ -1285,6 +1285,8 @@ impl Control {
                 props.insert("AutoScroll".into(), PropValue::Bool(false));
             }
             ControlType::MenuBar => {
+                props.insert("BackgroundColor".into(), PropValue::String("#00000000".into()));
+                props.insert("ForegroundColor".into(), PropValue::String("#E1E6FA".into()));
                 props.insert("HighlightBgColor".into(), PropValue::String("#4488FF".into()));
                 props.insert("HighlightFgColor".into(), PropValue::String("#FFFFFF".into()));
                 props.insert("SelectedBgColor".into(), PropValue::String("#3366CC".into()));

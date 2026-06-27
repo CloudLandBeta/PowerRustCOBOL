@@ -475,6 +475,9 @@ pub struct MenuEditorModal {
     label_buf: String,
     accel_buf: String,
     target_buf: String,
+    /// Icon picker modal state
+    icon_picker_open: bool,
+    icon_search: String,
 }
 
 impl MenuEditorModal {
@@ -486,6 +489,8 @@ impl MenuEditorModal {
             label_buf: String::new(),
             accel_buf: String::new(),
             target_buf: String::new(),
+            icon_picker_open: false,
+            icon_search: String::new(),
         }
     }
 
@@ -550,7 +555,6 @@ impl MenuEditorModal {
             Some("close-application") => "close",
             Some("event") | None => "event",
             Some(a) if a.starts_with("open-form:") => "open-form",
-            Some(a) if a.starts_with("property:") => "property",
             _ => "event",
         }
     }
@@ -2786,18 +2790,20 @@ impl DesignerPanel {
 
         let screen = ui.ctx().screen_rect();
         let default_w = (screen.width() * 0.65).max(500.0);
-        let default_h = (screen.height() * 0.65).max(450.0);
+        let default_h = (screen.height() * 0.70).max(450.0);
 
         let tr = crate::i18n::current_tr(ui.ctx());
 
+        // Reset stored window size each time the modal opens so it always
+        // respects the 70% sizing instead of remembering a previous session.
+        let modal_id = egui::Id::new("menu_editor_modal");
+        ui.ctx().memory_mut(|m| m.data.remove::<egui::Rect>(modal_id));
+
         egui::Window::new(tr.menu_editor_title)
-            .id(egui::Id::new("menu_editor_modal"))
+            .id(modal_id)
             .collapsible(false)
             .resizable(true)
-            .default_width(default_w)
-            .default_height(default_h)
-            .min_width(500.0)
-            .min_height(400.0)
+            .fixed_size(egui::Vec2::new(default_w, default_h))
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
             .show(ui.ctx(), |ui| {
@@ -2947,35 +2953,86 @@ impl DesignerPanel {
                                     }
                                 });
 
-                                // Icon
+                                // Icon — click to open picker, Delete to clear
                                 ui.horizontal(|ui| {
                                     ui.label(tr.menu_lbl_icon);
-                                    let sel_text = if cur_icon.is_empty() { tr.menu_no_icon.to_string() } else { cur_icon.clone() };
-                                    egui::ComboBox::from_id_salt("menu_icon_combo")
-                                        .selected_text(&sel_text)
-                                        .width(160.0)
-                                        .show_ui(ui, |ui| {
-                                            if ui.selectable_label(cur_icon.is_empty(), tr.menu_no_icon).clicked() {
-                                                if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                                    it.icon = None;
-                                                }
-                                            }
-                                            for &name in cobolt_forms::icons::MENU_ICON_NAMES {
-                                                if ui.selectable_label(cur_icon == name, name).clicked() {
-                                                    if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                                        it.icon = Some(name.to_string());
+                                    // Show selected icon preview + name
+                                    if !cur_icon.is_empty() {
+                                        let icon_rect = ui.allocate_space(egui::Vec2::splat(24.0)).1;
+                                        cobolt_forms::icons::draw_menu_icon(
+                                            ui.painter(), icon_rect, &cur_icon, Color32::WHITE);
+                                    }
+                                    let display = if cur_icon.is_empty() { tr.menu_no_icon.to_string() } else { cur_icon.clone() };
+                                    let resp = ui.button(&display);
+                                    if resp.clicked() || (resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Tab))) {
+                                        modal.icon_picker_open = true;
+                                        modal.icon_search.clear();
+                                    }
+                                    // Delete key clears the icon
+                                    if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                            it.icon = None;
+                                        }
+                                    }
+                                });
+
+                                // Accelerator — key capture widget
+                                ui.horizontal(|ui| {
+                                    ui.label(tr.menu_lbl_accel);
+                                    let accel_id = egui::Id::new("menu_accel_capture");
+                                    let is_capturing = ui.data(|d| d.get_temp::<bool>(accel_id)).unwrap_or(false);
+
+                                    if is_capturing {
+                                        let mut parts: Vec<String> = Vec::new();
+                                        let mut final_key: Option<String> = None;
+                                        ui.input(|i| {
+                                            if i.modifiers.shift { parts.push("Shift".into()); }
+                                            if i.modifiers.ctrl { parts.push("Ctrl".into()); }
+                                            if i.modifiers.alt { parts.push("Alt".into()); }
+                                            if i.modifiers.command { parts.push("Cmd".into()); }
+                                            for ev in &i.events {
+                                                if let egui::Event::Key { key, pressed: true, .. } = ev {
+                                                    if *key == egui::Key::Escape {
+                                                        final_key = Some("__ESC__".into());
+                                                    } else {
+                                                        final_key = Some(format!("{key:?}"));
                                                     }
                                                 }
                                             }
                                         });
-                                });
 
-                                // Accelerator
-                                ui.horizontal(|ui| {
-                                    ui.label(tr.menu_lbl_accel);
-                                    if ui.text_edit_singleline(&mut modal.accel_buf).lost_focus() {
-                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                            it.accelerator = if modal.accel_buf.trim().is_empty() { None } else { Some(modal.accel_buf.clone()) };
+                                        let display = if parts.is_empty() {
+                                            "Press keys...".to_string()
+                                        } else {
+                                            parts.iter().map(|p| format!("[{p}]")).collect::<Vec<_>>().join(" + ")
+                                        };
+
+                                        ui.label(egui::RichText::new(&display).monospace().color(Color32::YELLOW));
+
+                                        if let Some(key) = final_key {
+                                            if key == "__ESC__" {
+                                                ui.data_mut(|d| d.insert_temp(accel_id, false));
+                                            } else if !parts.is_empty() {
+                                                parts.push(key);
+                                                modal.accel_buf = parts.join("+");
+                                                if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                                    it.accelerator = Some(modal.accel_buf.clone());
+                                                }
+                                                ui.data_mut(|d| d.insert_temp(accel_id, false));
+                                            }
+                                        }
+                                    } else {
+                                        let display = if modal.accel_buf.is_empty() { "(none)".to_string() } else { modal.accel_buf.clone() };
+                                        if ui.button(&display).clicked() {
+                                            ui.data_mut(|d| d.insert_temp(accel_id, true));
+                                        }
+                                        if !modal.accel_buf.is_empty() {
+                                            if ui.small_button("✕").clicked() {
+                                                modal.accel_buf.clear();
+                                                if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                                    it.accelerator = None;
+                                                }
+                                            }
                                         }
                                     }
                                 });
@@ -2988,7 +3045,6 @@ impl DesignerPanel {
                                         .selected_text(match action_sel.as_str() {
                                             "event" => tr.menu_action_event,
                                             "open-form" => tr.menu_action_open_form,
-                                            "property" => tr.menu_action_property,
                                             "close" => tr.menu_action_close,
                                             _ => tr.menu_action_event,
                                         })
@@ -2997,7 +3053,6 @@ impl DesignerPanel {
                                             for (key, label) in [
                                                 ("event", tr.menu_action_event),
                                                 ("open-form", tr.menu_action_open_form),
-                                                ("property", tr.menu_action_property),
                                                 ("close", tr.menu_action_close),
                                             ] {
                                                 if ui.selectable_label(action_sel == key, label).clicked() {
@@ -3007,7 +3062,6 @@ impl DesignerPanel {
                                                             "close" => "close-application".to_string(),
                                                             "event" => "event".to_string(),
                                                             "open-form" => format!("open-form:{}", modal.target_buf),
-                                                            "property" => format!("property:{}", modal.target_buf),
                                                             _ => "event".to_string(),
                                                         });
                                                     }
@@ -3016,19 +3070,37 @@ impl DesignerPanel {
                                         });
                                 });
 
-                                // Action target (for open-form and property)
-                                if cur_action_type == "open-form" || cur_action_type == "property" {
+                                // Form selector (for open-form action)
+                                if cur_action_type == "open-form" {
                                     ui.horizontal(|ui| {
                                         ui.label(tr.menu_lbl_target);
-                                        if ui.text_edit_singleline(&mut modal.target_buf).lost_focus() {
-                                            if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                                it.action = Some(match cur_action_type.as_str() {
-                                                    "open-form" => format!("open-form:{}", modal.target_buf),
-                                                    "property" => format!("property:{}", modal.target_buf),
-                                                    _ => "event".to_string(),
-                                                });
-                                            }
-                                        }
+                                        // List all forms in the project by scanning .cfrm files
+                                        let forms: Vec<String> = self.cfrm_dir.as_ref()
+                                            .and_then(|dir| std::fs::read_dir(dir).ok())
+                                            .map(|entries| {
+                                                entries.filter_map(|e| {
+                                                    let e = e.ok()?;
+                                                    let name = e.file_name().to_string_lossy().to_string();
+                                                    if name.ends_with(".cfrm") {
+                                                        Some(name.trim_end_matches(".cfrm").to_string())
+                                                    } else { None }
+                                                }).collect()
+                                            })
+                                            .unwrap_or_default();
+                                        let cur_form = modal.target_buf.clone();
+                                        egui::ComboBox::from_id_salt("menu_form_select")
+                                            .selected_text(if cur_form.is_empty() { "(select form)" } else { &cur_form })
+                                            .width(180.0)
+                                            .show_ui(ui, |ui| {
+                                                for form_name in &forms {
+                                                    if ui.selectable_label(cur_form == *form_name, form_name).clicked() {
+                                                        modal.target_buf = form_name.clone();
+                                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                                            it.action = Some(format!("open-form:{}", form_name));
+                                                        }
+                                                    }
+                                                }
+                                            });
                                     });
                                 }
 
@@ -3057,6 +3129,102 @@ impl DesignerPanel {
                     if ui.button(tr.me_cancel).clicked() { cancel_clicked = true; }
                 });
             });
+
+        // ── Icon picker modal ─────────────────────────────────────────────
+        if let Some(modal) = self.menu_modal.as_mut() {
+            if modal.icon_picker_open {
+                let mut icon_picked: Option<Option<String>> = None;
+
+                let screen = ui.ctx().screen_rect();
+                egui::Window::new("Select Icon")
+                    .id(egui::Id::new("icon_picker_modal"))
+                    .collapsible(false)
+                    .resizable(true)
+                    .default_width((screen.width() * 0.5).max(400.0))
+                    .default_height((screen.height() * 0.5).max(350.0))
+                    .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                    .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
+                    .show(ui.ctx(), |ui| {
+                        // Search field
+                        ui.horizontal(|ui| {
+                            ui.label("🔍");
+                            ui.text_edit_singleline(&mut modal.icon_search);
+                        });
+                        ui.separator();
+
+                        let search = modal.icon_search.to_ascii_lowercase();
+                        let categories: &[(&str, &[&str])] = &[
+                            ("Document", &["doc-new","doc-open","doc-save","doc-save-as","doc-copy","doc-blank","doc-text","doc-pdf","doc-spreadsheet","doc-stack"]),
+                            ("Edit", &["scissors","clipboard-copy","clipboard-paste","pencil","eraser","pen","brush","type-text","bold","italic","underline","strikethrough"]),
+                            ("Navigation", &["arrow-left","arrow-right","arrow-up","arrow-down","chevron-left","chevron-right","chevron-up","chevron-down","home","external-link"]),
+                            ("Action", &["plus","minus","check","x-mark","refresh","sync","download","upload","share","export","import","link"]),
+                            ("UI/View", &["eye","eye-off","magnifier","zoom-in","zoom-out","fullscreen","collapse","expand","grid-view","list-view"]),
+                            ("Communication", &["mail","mail-open","send","inbox","chat","phone","video","bell","bell-off","at-sign"]),
+                            ("Social", &["heart","star","thumbs-up","thumbs-down","bookmark","flag"]),
+                            ("People", &["user","users","user-plus","user-minus","user-check","user-circle"]),
+                            ("Media", &["play","pause","stop","skip-forward","skip-back","volume","volume-off","music"]),
+                            ("Data", &["database","chart-bar","chart-line","chart-pie","table","filter","sort-asc","sort-desc"]),
+                            ("System", &["gear","wrench","shield","lock","unlock","key","terminal","code","bug","cpu"]),
+                            ("Status", &["info-circle","warning-triangle","error-circle","help-circle","check-circle","x-circle","clock","calendar"]),
+                            ("Commerce", &["cart","credit-card","wallet","receipt","tag","percent"]),
+                            ("File/Folder", &["folder","folder-open","folder-plus","archive","trash","printer"]),
+                            ("Payroll", &["payroll-check","payroll-schedule","payroll-deduction","payroll-bonus","payroll-overtime","payroll-tax","payroll-slip","payroll-direct-deposit","payroll-timesheet","payroll-hours","payroll-employee","payroll-benefits","payroll-pension","payroll-vacation","payroll-sick-leave","payroll-commission","payroll-garnishment","payroll-reimbursement","payroll-w2","payroll-1099","payroll-ytd","payroll-net-pay","payroll-gross-pay","payroll-withholding","payroll-frequency"]),
+                            ("Receivables", &["invoice","invoice-paid","invoice-overdue","invoice-draft","invoice-send","credit-memo","debit-memo","aging-report","collection","dunning-letter","payment-received","partial-payment","advance-payment","refund","write-off","bad-debt","interest-charge","statement","customer-balance","account-receivable","open-items","clearing","remittance","factoring","credit-limit"]),
+                            ("Payments", &["payment-check","payment-wire","payment-ach","payment-cash","payment-pending","payment-approved","payment-rejected","payment-recurring","payment-split","payment-batch","payment-void","payment-reversal","vendor-payment","bill-pay","purchase-order","expense-report","petty-cash","bank-transfer","payment-gateway","payment-terms","early-discount","payment-plan","installment","escrow","disbursement"]),
+                            ("Stock Control", &["inventory","warehouse","stock-in","stock-out","stock-count","stock-transfer","stock-adjust","stock-reserve","stock-alert","stock-reorder","barcode","qr-code","pallet","shelf","bin-location","lot-number","serial-number","expiry-date","fifo","lifo","cycle-count","physical-count","stock-valuation","safety-stock","dead-stock"]),
+                            ("Transportation", &["truck","truck-loading","truck-delivery","van","ship","ship-cargo","airplane","airplane-landing","helicopter","train","railway","container","forklift","crane","anchor","compass","route","highway","bridge","toll","fuel-pump","tire","engine","speedometer","odometer"]),
+                            ("Logistics", &["package","package-open","package-check","package-x","package-search","conveyor","loading-dock","dispatch","tracking","tracking-number","delivery-time","express","fragile","hazmat","temperature","weight-scale","dimensions","customs","manifest","bill-of-lading","cross-dock","last-mile","return-shipment","consolidation","deconsolidation"]),
+                            ("Financial", &["dollar","euro","yen","pound","bitcoin","coins","money-bag","piggy-bank","vault","safe","bank","atm","exchange-rate","stock-market","bull-market","bear-market","dividend","interest-rate","mortgage","loan","audit","ledger","balance-sheet","profit-loss","cash-flow"]),
+                            ("Social Media", &["like","dislike","comment","repost","mention","hashtag","trending","viral","follower","following","profile","bio","story","reel","live-stream","notification-dot","verified","influencer","engagement","reach","post","feed","timeline","dm","group-chat"]),
+                        ];
+
+                        let cur_icon = MenuEditorModal::item_at(&modal.def.menu, &modal.selected)
+                            .and_then(|i| i.icon.clone()).unwrap_or_default();
+
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            for (cat_name, icons) in categories {
+                                let filtered: Vec<&&str> = icons.iter()
+                                    .filter(|n| search.is_empty() || n.contains(&search) || cat_name.to_ascii_lowercase().contains(&search))
+                                    .collect();
+                                if filtered.is_empty() { continue; }
+
+                                ui.label(egui::RichText::new(*cat_name).strong().size(12.0));
+                                ui.horizontal_wrapped(|ui| {
+                                    for &&name in &filtered {
+                                        let is_sel = cur_icon == name;
+                                        let (rect, resp) = ui.allocate_exact_size(
+                                            egui::Vec2::splat(48.0), egui::Sense::click());
+                                        if is_sel {
+                                            ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(60, 100, 200));
+                                        } else if resp.hovered() {
+                                            ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(60, 60, 80));
+                                        }
+                                        let icon_rect = rect.shrink(4.0);
+                                        let icon_color = if is_sel { Color32::WHITE } else { Color32::from_rgb(200, 210, 230) };
+                                        cobolt_forms::icons::draw_menu_icon(ui.painter(), icon_rect, name, icon_color);
+                                        if resp.clicked() {
+                                            icon_picked = Some(Some(name.to_string()));
+                                        }
+                                        resp.on_hover_text(name);
+                                    }
+                                });
+                                ui.add_space(4.0);
+                            }
+                        });
+                    });
+
+                // ESC or click outside closes
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    modal.icon_picker_open = false;
+                }
+                if let Some(picked) = icon_picked {
+                    if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                        it.icon = picked;
+                    }
+                    modal.icon_picker_open = false;
+                }
+            }
+        }
 
         if save_clicked {
             if let Some(modal) = self.menu_modal.take() {

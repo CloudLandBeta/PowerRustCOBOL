@@ -1975,7 +1975,10 @@ pub fn draw_control(
     if matches!(ctrl.control_type, CT::MenuBar) {
         if let Some(def) = get_menu_cache(painter.ctx(), &ctrl.id) {
             if !def.menu.is_empty() {
-                let fg = Color32::from_rgba_premultiplied(225, 230, 250, a);
+                let fg_base = ctrl.get_prop("ForegroundColor")
+                    .map(|v| parse_color(v.as_str()))
+                    .unwrap_or(Color32::from_rgb(225, 230, 250));
+                let fg = Color32::from_rgba_premultiplied(fg_base.r(), fg_base.g(), fg_base.b(), a);
                 let fsize = ctrl_font_size(ctrl);
                 let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
                 let fid = crate::fonts::font_id(painter.ctx(), &font_name, fsize);

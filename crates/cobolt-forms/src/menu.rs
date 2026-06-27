@@ -101,6 +101,19 @@ impl MenuDefinition {
     pub fn get_item_enabled(&self, item_id: &str) -> Option<bool> {
         self.find_item(item_id).map(|i| i.enabled)
     }
+
+    /// Build the `/Label/SubLabel/…` path to an item by its id.
+    pub fn item_path(&self, item_id: &str) -> Option<String> {
+        fn find_path(items: &[MenuItem], id: &str, prefix: &str) -> Option<String> {
+            for item in items {
+                let cur = format!("{}/{}", prefix, item.label);
+                if item.id == id { return Some(cur); }
+                if let Some(p) = find_path(&item.items, id, &cur) { return Some(p); }
+            }
+            None
+        }
+        find_path(&self.menu, item_id, "")
+    }
 }
 
 impl Default for MenuDefinition {
