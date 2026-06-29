@@ -155,7 +155,9 @@ mod tests {
     fn incompressible_data_falls_back_to_raw() {
         // A pseudo-random, high-entropy block: RLE must not be chosen, so the
         // output is the raw payload plus the single tag byte.
-        let data: Vec<u8> = (0..256u32).map(|i| (i.wrapping_mul(167) ^ 0x5A) as u8).collect();
+        let data: Vec<u8> = (0..256u32)
+            .map(|i| (i.wrapping_mul(167) ^ 0x5A) as u8)
+            .collect();
         let enc = compress(&data);
         assert_eq!(decompress(&enc), data);
         assert_eq!(enc.len(), data.len() + 1, "should be raw + 1 tag byte");

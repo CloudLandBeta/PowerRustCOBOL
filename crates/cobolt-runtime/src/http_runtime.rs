@@ -49,7 +49,9 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Add / overwrite a persistent request header.
     pub fn set_header(&mut self, name: impl Into<String>, value: impl Into<String>) {
@@ -72,9 +74,9 @@ impl HttpClient {
             req = req.set(k.as_str(), v.as_str());
         }
         match req.call() {
-            Ok(resp)  => {
+            Ok(resp) => {
                 let status = resp.status();
-                let body   = resp.into_string().unwrap_or_default();
+                let body = resp.into_string().unwrap_or_default();
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
@@ -108,7 +110,7 @@ impl HttpClient {
         match req.call() {
             Ok(resp) => {
                 let status = resp.status();
-                let body   = resp.into_string().unwrap_or_default();
+                let body = resp.into_string().unwrap_or_default();
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
@@ -125,7 +127,8 @@ impl HttpClient {
         let url = url.trim();
 
         // Default content-type unless overridden.
-        let content_type = self.headers
+        let content_type = self
+            .headers
             .iter()
             .find(|(k, _)| k.to_ascii_lowercase() == "content-type")
             .map(|(_, v)| v.as_str())
@@ -133,8 +136,8 @@ impl HttpClient {
 
         let mut req = match method {
             "POST" => ureq::post(url),
-            "PUT"  => ureq::put(url),
-            _      => ureq::post(url),
+            "PUT" => ureq::put(url),
+            _ => ureq::post(url),
         };
 
         for (k, v) in &self.headers {
@@ -146,7 +149,7 @@ impl HttpClient {
         match req.set("Content-Type", content_type).send_string(body) {
             Ok(resp) => {
                 let status = resp.status();
-                let body   = resp.into_string().unwrap_or_default();
+                let body = resp.into_string().unwrap_or_default();
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {

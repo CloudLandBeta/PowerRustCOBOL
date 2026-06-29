@@ -35,7 +35,10 @@ fn run_capture_fmt(src: &str, fmt: SourceFormat) -> Vec<String> {
     let tokens = tokenize(src, fmt);
     let result = parse(tokens);
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -157,7 +160,11 @@ fn disk_mode_persists_writes_random_and_sequential() {
     assert!(out.contains("GOT BOB"), "random read failed:\n{out}");
     // Ascending primary-key order, regardless of write order.
     let seqs: Vec<&str> = out.lines().filter(|l| l.starts_with("SEQ ")).collect();
-    assert_eq!(seqs, ["SEQ 00100", "SEQ 00200", "SEQ 00300"], "scan order:\n{out}");
+    assert_eq!(
+        seqs,
+        ["SEQ 00100", "SEQ 00200", "SEQ 00300"],
+        "scan order:\n{out}"
+    );
 }
 
 #[test]
@@ -181,7 +188,10 @@ fn disk_mode_with_data_compressing_round_trips() {
     ))
     .join("\n");
     let _ = std::fs::remove_file(&path);
-    assert!(out.contains("GOT ZIGGY"), "compressed disk round-trip failed:\n{out}");
+    assert!(
+        out.contains("GOT ZIGGY"),
+        "compressed disk round-trip failed:\n{out}"
+    );
 }
 
 #[test]

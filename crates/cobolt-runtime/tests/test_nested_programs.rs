@@ -21,7 +21,10 @@ fn interp(src: &str) -> Interpreter {
     let tokens = tokenize(src, SourceFormat::Free);
     let result = parse(tokens);
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "Parse errors: {:?}",
         result.diagnostics
     );

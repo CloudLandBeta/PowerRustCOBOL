@@ -35,7 +35,7 @@ pub trait IoBackend: Send {
 
 /// `IoBackend` that uses the real stdin / stdout / stderr.
 pub struct ConsoleIo {
-    stdin:  io::Stdin,
+    stdin: io::Stdin,
     stdout: io::Stdout,
     stderr: io::Stderr,
 }
@@ -43,7 +43,7 @@ pub struct ConsoleIo {
 impl ConsoleIo {
     pub fn new() -> Self {
         Self {
-            stdin:  io::stdin(),
+            stdin: io::stdin(),
             stdout: io::stdout(),
             stderr: io::stderr(),
         }
@@ -51,7 +51,9 @@ impl ConsoleIo {
 }
 
 impl Default for ConsoleIo {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IoBackend for ConsoleIo {
@@ -92,7 +94,9 @@ pub struct NullIo;
 impl IoBackend for NullIo {
     fn write_line(&mut self, _text: &str) {}
     fn write(&mut self, _text: &str) {}
-    fn read_line(&mut self) -> Option<String> { Some(String::new()) }
+    fn read_line(&mut self) -> Option<String> {
+        Some(String::new())
+    }
     fn write_err(&mut self, _text: &str) {}
 }
 
@@ -111,7 +115,9 @@ pub struct CapturingIo {
 }
 
 impl CapturingIo {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Pre-load lines to be returned by `read_line`.
     pub fn with_stdin(mut self, lines: impl IntoIterator<Item = impl Into<String>>) -> Self {

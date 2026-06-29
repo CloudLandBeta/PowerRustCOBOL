@@ -623,6 +623,48 @@ pub enum ControlType {
     },
 }
 
+pub const BASE_MOUSE: &[&str] = &[
+    "onClick",
+    "onDblClick",
+    "onDoubleClick",
+    "onRightClick",
+    "onMiddleClick",
+    "onMouseDown",
+    "onMouseUp",
+    "onMouseMove",
+    "onMouseEnter",
+    "onMouseLeave",
+    "onMouseWheel",
+    "onContextMenu",
+];
+pub const BASE_FOCUS: &[&str] = &["onGotFocus", "onLostFocus"];
+pub const BASE_KEYBOARD: &[&str] = &[
+    "onKeyDown",
+    "onKeyUp",
+    "onKeyPress",
+    "onEnterPressed",
+    "onEscapePressed",
+];
+pub const BASE_HOVER: &[&str] = &["onHoverEnter", "onHoverLeave", "onTooltipShow"];
+pub const BASE_GEOMETRY: &[&str] = &[
+    "onResize",
+    "onResized",
+    "onMove",
+    "onMoved",
+    "onVisibleChanged",
+    "onEnabledChanged",
+];
+pub const BASE_DRAG: &[&str] = &[
+    "onDragStart",
+    "onDrag",
+    "onDragEnd",
+    "onDragEnter",
+    "onDragLeave",
+    "onDragOver",
+    "onDrop",
+];
+pub const BASE_LIFECYCLE: &[&str] = &["onLoad", "onPropertyChanged"];
+
 impl ControlType {
     pub fn as_str(&self) -> &str {
         match self {
@@ -790,54 +832,456 @@ impl ControlType {
             ControlType::Button => &[
                 "onClick",
                 "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
                 "onMouseEnter",
                 "onMouseLeave",
                 "onMouseDown",
                 "onMouseUp",
+                "onMouseMove",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
             ],
             ControlType::TextBox => &[
                 "onChange",
+                "onTextChanged",
+                "onSelectionChanged",
                 "onKeyPress",
                 "onKeyDown",
                 "onKeyUp",
+                "onEnterPressed",
+                "onEscapePressed",
                 "onGotFocus",
                 "onLostFocus",
                 "onEnter",
                 "onLeave",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
             ],
-            ControlType::Label => &["onClick", "onDblClick", "onMouseEnter", "onMouseLeave"],
-            ControlType::CheckBox => &["onClick", "onCheckedChanged"],
-            ControlType::RadioButton => &["onClick", "onCheckedChanged"],
+            ControlType::Label => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+            ],
+            ControlType::CheckBox | ControlType::RadioButton => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+                "onCheckedChanged",
+                "onValueChanged",
+            ],
             ControlType::ListBox => &[
                 "onClick",
                 "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
                 "onChange",
                 "onSelectedIndexChanged",
+                "onItemDoubleClick",
+                "onSelectionChanged",
+                "onScroll",
             ],
             ControlType::ComboBox => &[
                 "onChange",
                 "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
                 "onSelectedIndexChanged",
                 "onDropDown",
+                "onDropDownClosed",
             ],
-            ControlType::DateTimePicker => &["onChange", "onGotFocus", "onLostFocus"],
-            ControlType::NumericUpDown => &["onChange", "onGotFocus", "onLostFocus"],
+            ControlType::DateTimePicker | ControlType::NumericUpDown | ControlType::Slider => &[
+                "onChange",
+                "onValueChanged",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+            ],
             ControlType::TreeView => &[
                 "onNodeClick",
                 "onNodeDblClick",
+                "onNodeDoubleClick",
                 "onNodeExpand",
                 "onNodeCollapse",
                 "onNodeChecked",
+                "onNodeSelect",
+                "onNodeDrag",
+                "onNodeDrop",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
             ],
             ControlType::Timer => &["onTick"],
-            ControlType::PictureBox => &["onClick", "onDblClick", "onMouseEnter", "onMouseLeave"],
-            ControlType::Animator => &["onClick", "onDblClick", "onStarted", "onEnded"],
+            ControlType::PictureBox => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+                "onImageLoaded",
+                "onImageError",
+            ],
+            ControlType::Animator => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+                "onStarted",
+                "onEnded",
+                "onFrameChanged",
+                "onLooped",
+            ],
             ControlType::DataGrid => &[
                 "onCellClick",
+                "onCellDoubleClick",
                 "onCellChange",
                 "onRowSelect",
+                "onRowDoubleClick",
                 "onColumnClick",
+                "onColumnResize",
+                "onColumnResized",
+                "onSelectionChanged",
+                "onScroll",
                 "onExportCSV",
+                "onSort",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
             ],
             ControlType::AgentObject => &["onResponse", "onError", "onStreamChunk", "onThinking"],
             ControlType::RestClient => {
@@ -850,17 +1294,216 @@ impl ControlType {
                 "onQueryError",
                 "onRowFetched",
             ],
-            ControlType::Slider => &["onChange", "onMouseUp", "onGotFocus", "onLostFocus"],
+            ControlType::GroupBox | ControlType::Panel => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+                "onScroll",
+                "onChildAdded",
+                "onChildRemoved",
+            ],
+            ControlType::TabControl => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+                "onTabChanged",
+                "onTabClick",
+                "onTabClosing",
+            ],
+            ControlType::ProgressBar => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+                "onPropertyChanged",
+                "onValueChanged",
+                "onCompleted",
+            ],
             ControlType::BarChart
             | ControlType::LineChart
             | ControlType::PieChart
             | ControlType::AreaChart
             | ControlType::ScatterChart
-            | ControlType::DonutChart => {
-                &["onDataChanged", "onClick", "onSeriesClick", "onTooltipShow"]
-            }
-            ControlType::MenuBar => &["onMenuClick", "onMenuItemClick", "onMenuOpen", "onMenuClose"],
-            _ => &["onClick"],
+            | ControlType::DonutChart => &[
+                "onDataChanged",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+                "onPropertyChanged",
+                "onSeriesClick",
+                "onZoom",
+            ],
+            ControlType::MenuBar => &[
+                "onMenuClick",
+                "onMenuItemClick",
+                "onMenuOpen",
+                "onMenuClose",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+                "onPropertyChanged",
+            ],
+            ControlType::ToolBar
+            | ControlType::StatusBar
+            | ControlType::Line
+            | ControlType::Splitter
+            | ControlType::Shape => &[
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onTooltipShow",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onDragStart",
+                "onDrag",
+                "onDragEnd",
+                "onDragEnter",
+                "onDragLeave",
+                "onDragOver",
+                "onDrop",
+                "onLoad",
+                "onPropertyChanged",
+            ],
+            ControlType::Custom { .. } => &["onClick"],
         }
     }
 
@@ -1208,6 +1851,10 @@ impl Control {
                 props.insert("BorderWidth".into(), PropValue::Int(1));
                 // Container behaviour (spec 012).
                 props.insert("AutoScroll".into(), PropValue::Bool(false));
+                // Project-scoped composite-control marker (spec 020). Empty for
+                // normal GroupBoxes; deployed User Controls store the definition
+                // name here.
+                props.insert("UserControl".into(), PropValue::String("".into()));
 
                 // ── Visual appearance (spec 015, Phase 1) ──────────────────────
                 // Hide the caption text but stay a container; hide the box
@@ -1285,12 +1932,30 @@ impl Control {
                 props.insert("AutoScroll".into(), PropValue::Bool(false));
             }
             ControlType::MenuBar => {
-                props.insert("BackgroundColor".into(), PropValue::String("#00000000".into()));
-                props.insert("ForegroundColor".into(), PropValue::String("#E1E6FA".into()));
-                props.insert("HighlightBgColor".into(), PropValue::String("#4488FF".into()));
-                props.insert("HighlightFgColor".into(), PropValue::String("#FFFFFF".into()));
-                props.insert("SelectedBgColor".into(), PropValue::String("#3366CC".into()));
-                props.insert("SelectedFgColor".into(), PropValue::String("#FFFFFF".into()));
+                props.insert(
+                    "BackgroundColor".into(),
+                    PropValue::String("#00000000".into()),
+                );
+                props.insert(
+                    "ForegroundColor".into(),
+                    PropValue::String("#E1E6FA".into()),
+                );
+                props.insert(
+                    "HighlightBgColor".into(),
+                    PropValue::String("#4488FF".into()),
+                );
+                props.insert(
+                    "HighlightFgColor".into(),
+                    PropValue::String("#FFFFFF".into()),
+                );
+                props.insert(
+                    "SelectedBgColor".into(),
+                    PropValue::String("#3366CC".into()),
+                );
+                props.insert(
+                    "SelectedFgColor".into(),
+                    PropValue::String("#FFFFFF".into()),
+                );
             }
             ControlType::ToolBar | ControlType::StatusBar => {
                 props.insert("Items".into(), PropValue::String("".into()));
@@ -1409,7 +2074,8 @@ impl Control {
                 // COBOL data items
                 props.insert("RequestDataItem".into(), PropValue::String("".into())); // JSON body source
                 props.insert("ResponseDataItem".into(), PropValue::String("".into())); // where response goes
-                props.insert("StatusDataItem".into(), PropValue::String("".into())); // HTTP status code
+                props.insert("StatusDataItem".into(), PropValue::String("".into()));
+                // HTTP status code
             }
             ControlType::SqlDatabase => {
                 // Connection
@@ -1422,8 +2088,9 @@ impl Control {
                 props.insert("MaximumConnections".into(), PropValue::Int(5));
                 // COBOL object data items generated in WORKING-STORAGE
                 props.insert("ConnectionDataItem".into(), PropValue::String("".into())); // e.g. conn1
-                props.insert("ResultSetDataItem".into(), PropValue::String("".into())); // e.g. resultset1
-                                                                                        // COBOL paragraphs
+                props.insert("ResultSetDataItem".into(), PropValue::String("".into()));
+                // e.g. resultset1
+                // COBOL paragraphs
             }
 
             // ── Charts ────────────────────────────────────────────────────────
@@ -1470,7 +2137,7 @@ impl Control {
                 props.insert("ValueFields".into(), PropValue::String("".into())); // comma-sep sub-fields for Y series
                 props.insert("SeriesLabels".into(), PropValue::String("".into())); // display names for series
                                                                                    // COBOL paragraphs
-                // Bar/Line/Area specifics
+                                                                                   // Bar/Line/Area specifics
                 if matches!(control_type, ControlType::BarChart) {
                     props.insert("Horizontal".into(), PropValue::Bool(false));
                     props.insert("Stacked".into(), PropValue::Bool(false));
@@ -1602,7 +2269,18 @@ impl Control {
     }
 
     pub fn set_prop(&mut self, name: impl Into<String>, value: impl Into<PropValue>) {
-        self.properties.insert(name.into(), value.into());
+        let name = name.into();
+        if !self.properties.contains_key(&name) {
+            if let Some(existing) = self
+                .properties
+                .keys()
+                .find(|k| k.eq_ignore_ascii_case(&name))
+                .cloned()
+            {
+                self.properties.shift_remove(&existing);
+            }
+        }
+        self.properties.insert(name, value.into());
     }
 
     pub fn display_text(&self) -> String {
@@ -2230,6 +2908,7 @@ mod tests {
             "Vertical"
         );
         // Repeating (Phase 2)
+        assert_eq!(g.get_prop("UserControl").unwrap().as_str(), "");
         assert_eq!(g.get_prop("IsRepeatingGroup").unwrap().as_bool(), false);
         assert_eq!(g.get_prop("ArrayName").unwrap().as_str(), "");
         assert_eq!(g.get_prop("ItemCount").unwrap().as_i64(), 0);
@@ -2245,6 +2924,18 @@ mod tests {
         assert!(p.get_prop("HideCaption").is_none());
         let b = Control::new("B", ControlType::Button, 0, 0);
         assert!(b.get_prop("PreviewItemCount").is_none());
+    }
+
+    #[test]
+    fn set_prop_replaces_existing_key_case_insensitively() {
+        let mut c = Control::new("Label-5", ControlType::Label, 0, 0);
+        c.set_prop("CAPTION", PropValue::String("42".into()));
+
+        assert_eq!(c.get_prop("Caption").unwrap().as_str(), "42");
+        assert!(
+            !c.properties.contains_key("Caption"),
+            "runtime uppercase update must not leave stale designed Caption"
+        );
     }
 
     #[cfg(feature = "render")]
@@ -2281,6 +2972,87 @@ mod tests {
             assert!(all.contains(&ev), "missing form event: {ev}");
         }
         assert_eq!(all.len(), 66, "expected 66 form events");
+    }
+
+    #[test]
+    fn button_supported_events_include_expanded_visual_events() {
+        let events = ControlType::Button.supported_events();
+        for ev in [
+            "onClick",
+            "onDblClick",
+            "onDoubleClick",
+            "onRightClick",
+            "onContextMenu",
+            "onMouseMove",
+            "onKeyDown",
+            "onEnterPressed",
+            "onHoverEnter",
+            "onResize",
+            "onResized",
+            "onVisibleChanged",
+            "onDragStart",
+            "onDrop",
+            "onLoad",
+            "onPropertyChanged",
+        ] {
+            assert!(events.contains(&ev), "missing Button event: {ev}");
+        }
+        assert!(
+            events.len() >= 30,
+            "Button Events panel should expose the expanded event list"
+        );
+    }
+
+    #[test]
+    fn textbox_supported_events_include_keyboard_and_text_events() {
+        let events = ControlType::TextBox.supported_events();
+        for ev in [
+            "onChange",
+            "onTextChanged",
+            "onSelectionChanged",
+            "onKeyDown",
+            "onKeyUp",
+            "onKeyPress",
+            "onEnterPressed",
+            "onEscapePressed",
+            "onGotFocus",
+            "onLostFocus",
+            "onHoverEnter",
+        ] {
+            assert!(events.contains(&ev), "missing TextBox event: {ev}");
+        }
+    }
+
+    #[test]
+    fn non_visual_supported_events_stay_unchanged() {
+        assert_eq!(ControlType::Timer.supported_events(), &["onTick"]);
+        assert_eq!(
+            ControlType::AgentObject.supported_events(),
+            &["onResponse", "onError", "onStreamChunk", "onThinking"]
+        );
+        assert_eq!(
+            ControlType::RestClient.supported_events(),
+            &["onResponseReceived", "onError", "onTimeout", "onProgress"]
+        );
+        assert_eq!(
+            ControlType::SqlDatabase.supported_events(),
+            &[
+                "onQueryComplete",
+                "onConnectOk",
+                "onConnectError",
+                "onQueryError",
+                "onRowFetched"
+            ]
+        );
+    }
+
+    #[test]
+    fn picturebox_supported_events_do_not_include_keyboard_events() {
+        let events = ControlType::PictureBox.supported_events();
+        assert!(events.contains(&"onImageLoaded"));
+        assert!(events.contains(&"onHoverEnter"));
+        assert!(!events.contains(&"onKeyDown"));
+        assert!(!events.contains(&"onEnterPressed"));
     }
 
     #[test]

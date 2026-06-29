@@ -11,18 +11,18 @@
 
 use std::path::{Path, PathBuf};
 
-use egui::{Color32, RichText, ScrollArea, Ui};
 use crate::i18n::Tr;
+use egui::{Color32, RichText, ScrollArea, Ui};
 
 // ── FormsListPanel ────────────────────────────────────────────────────────────
 
 pub struct FormsListPanel {
     /// Project root to scan.
-    root:         Option<PathBuf>,
+    root: Option<PathBuf>,
     /// Cached list of discovered .cfrm paths.
-    found:        Vec<PathBuf>,
+    found: Vec<PathBuf>,
     /// Selected entry (for single-click highlight).
-    selected:     Option<PathBuf>,
+    selected: Option<PathBuf>,
     /// True when we need to re-scan (root changed or Refresh pressed).
     needs_rescan: bool,
 }
@@ -30,9 +30,9 @@ pub struct FormsListPanel {
 impl FormsListPanel {
     pub fn new() -> Self {
         Self {
-            root:         None,
-            found:        Vec::new(),
-            selected:     None,
+            root: None,
+            found: Vec::new(),
+            selected: None,
             needs_rescan: false,
         }
     }
@@ -40,7 +40,7 @@ impl FormsListPanel {
     /// Notify the panel that the project root has changed.
     pub fn set_root(&mut self, root: &Path) {
         if self.root.as_deref() != Some(root) {
-            self.root         = Some(root.to_owned());
+            self.root = Some(root.to_owned());
             self.needs_rescan = true;
         }
     }
@@ -52,8 +52,8 @@ impl FormsListPanel {
 
     /// Clear the project root (no project open).
     pub fn clear_root(&mut self) {
-        self.root         = None;
-        self.found        = Vec::new();
+        self.root = None;
+        self.found = Vec::new();
         self.needs_rescan = false;
     }
 
@@ -74,7 +74,11 @@ impl FormsListPanel {
         ui.horizontal(|ui| {
             ui.strong(tr.forms_list_title);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("⟳").on_hover_text("Refresh form list").clicked() {
+                if ui
+                    .small_button("⟳")
+                    .on_hover_text("Refresh form list")
+                    .clicked()
+                {
                     self.needs_rescan = true;
                 }
             });
@@ -89,11 +93,7 @@ impl FormsListPanel {
                         .small(),
                 );
             } else {
-                ui.label(
-                    RichText::new(tr.forms_no_cfrm)
-                        .color(Color32::GRAY)
-                        .small(),
-                );
+                ui.label(RichText::new(tr.forms_no_cfrm).color(Color32::GRAY).small());
             }
             return None;
         }
@@ -103,23 +103,19 @@ impl FormsListPanel {
             .max_height(200.0)
             .show(ui, |ui| {
                 for path in &self.found {
-                    let stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("?");
+                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
 
-                    let is_open    = open_paths.iter().any(|p| *p == path.as_path());
+                    let is_open = open_paths.iter().any(|p| *p == path.as_path());
                     let is_selected = self.selected.as_deref() == Some(path.as_path());
 
                     // Icon: open tab marker vs plain form icon
                     let icon = if is_open { "🖊" } else { "🗔" };
 
-                    let label = RichText::new(format!("{icon} {stem}"))
-                        .color(if is_open {
-                            Color32::from_rgb(100, 200, 100)
-                        } else {
-                            crate::theme::active().text_bright
-                        });
+                    let label = RichText::new(format!("{icon} {stem}")).color(if is_open {
+                        Color32::from_rgb(100, 200, 100)
+                    } else {
+                        crate::theme::active().text_bright
+                    });
 
                     let resp = ui.selectable_label(is_selected, label);
 
@@ -142,7 +138,7 @@ impl FormsListPanel {
     // ── Directory scan ────────────────────────────────────────────────────────
 
     fn rescan(&mut self) {
-        self.found        = Vec::new();
+        self.found = Vec::new();
         self.needs_rescan = false;
 
         let Some(ref root) = self.root else { return };
@@ -154,7 +150,9 @@ impl FormsListPanel {
 
 /// Recursively collect .cfrm files under `dir`.
 fn scan_dir(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_dir() {

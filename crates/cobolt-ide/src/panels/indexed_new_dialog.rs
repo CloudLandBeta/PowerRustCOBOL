@@ -222,16 +222,25 @@ impl NewIndexedDialog {
         let record_format = if self.variable {
             let min = self.min_length.parse().ok()?;
             let max = self.max_length.parse().ok()?;
-            if min == 0 || max < min { return None; }
-            RecordFormatDef::Variable { min_length: min, max_length: max }
+            if min == 0 || max < min {
+                return None;
+            }
+            RecordFormatDef::Variable {
+                min_length: min,
+                max_length: max,
+            }
         } else {
             let len = self.record_length.parse().ok()?;
-            if len == 0 { return None; }
+            if len == 0 {
+                return None;
+            }
             RecordFormatDef::Fixed { length: len }
         };
         let key_off = self.key_offset.parse().ok()?;
         let key_len = self.key_length.parse().ok()?;
-        if key_len == 0 { return None; }
+        if key_len == 0 {
+            return None;
+        }
         let key_name = if self.key_field.trim().is_empty() {
             "RECORD-KEY".into()
         } else {
@@ -283,8 +292,12 @@ impl NewIndexedDialog {
         // Ensure the declared key field actually exists in the record layout
         // (by name, as is conventional for RECORD KEY).
         let key_exists = def.keys.primary.name.as_ref().map_or(false, |kn| {
-            def.fields.iter().any(|f| f.name.eq_ignore_ascii_case(kn)) ||
-            def.fields.iter().flat_map(|f| &f.children).any(|c| c.name.eq_ignore_ascii_case(kn))
+            def.fields.iter().any(|f| f.name.eq_ignore_ascii_case(kn))
+                || def
+                    .fields
+                    .iter()
+                    .flat_map(|f| &f.children)
+                    .any(|c| c.name.eq_ignore_ascii_case(kn))
         });
         if !key_exists {
             return None;
@@ -310,7 +323,10 @@ impl NewIndexedDialog {
                 assign_path: String::new(),
                 access_mode: self.access_mode,
                 record_format: if self.variable {
-                    RecordFormatDef::Variable { min_length: 1, max_length: 256 }
+                    RecordFormatDef::Variable {
+                        min_length: 1,
+                        max_length: 256,
+                    }
                 } else {
                     RecordFormatDef::Fixed { length: 80 }
                 },
@@ -318,7 +334,15 @@ impl NewIndexedDialog {
                 compression: self.compression,
                 persistence: self.persistence,
                 comment: String::new(),
-                keys: KeySchema { primary: KeyDef { name: Some(self.key_field.clone()), parts: vec![], duplicates_allowed: false, ordering: KeyOrderingDef::Ascending }, alternates: vec![] },
+                keys: KeySchema {
+                    primary: KeyDef {
+                        name: Some(self.key_field.clone()),
+                        parts: vec![],
+                        duplicates_allowed: false,
+                        ordering: KeyOrderingDef::Ascending,
+                    },
+                    alternates: vec![],
+                },
                 fields: vec![],
                 finalized: false,
             };
@@ -330,7 +354,9 @@ impl NewIndexedDialog {
                         self.raw_error = Some("Definition parsed but is missing a record group (01) or compliant RECORD KEY.".into());
                     }
                 }
-                Err(e) => { self.raw_error = Some(e); }
+                Err(e) => {
+                    self.raw_error = Some(e);
+                }
             }
         }
     }
@@ -357,10 +383,18 @@ impl NewIndexedDialog {
         // We enforce it in the dialog by removing the "back" option after switch.
         ui.horizontal(|ui| {
             ui.label("Definition:");
-            if ui.add_enabled(!self.raw_mode, egui::Button::new("Properties form")).clicked() {
+            if ui
+                .add_enabled(!self.raw_mode, egui::Button::new("Properties form"))
+                .clicked()
+            {
                 self.raw_mode = false;
             }
-            let to_code = ui.add_enabled(!self.raw_mode, egui::Button::new("COBOL text editor (COBOL-85)")).clicked();
+            let to_code = ui
+                .add_enabled(
+                    !self.raw_mode,
+                    egui::Button::new("COBOL text editor (COBOL-85)"),
+                )
+                .clicked();
             if to_code {
                 self.raw_mode = true;
                 // Populate initial text from current form state (so user can refine).
@@ -368,7 +402,11 @@ impl NewIndexedDialog {
                     self.raw_text = cobolt_indexed::raw_text::record_to_text(&d);
                 } else if self.raw_text.trim().is_empty() {
                     // Fallback minimal valid skeleton the user can edit.
-                    let kname = if self.key_field.trim().is_empty() { "RECORD-KEY" } else { &self.key_field };
+                    let kname = if self.key_field.trim().is_empty() {
+                        "RECORD-KEY"
+                    } else {
+                        &self.key_field
+                    };
                     let klen = self.key_length.parse().unwrap_or(8);
                     self.raw_text = format!(
                         "01 {}-RECORD.\n    05 {} PIC X({}).\n",
@@ -380,8 +418,10 @@ impl NewIndexedDialog {
                 self.validate_raw();
             }
             if self.raw_mode {
-                ui.colored_label(egui::Color32::from_rgb(200, 160, 60),
-                    "COBOL editor active — properties form locked for this file.");
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 160, 60),
+                    "COBOL editor active — properties form locked for this file.",
+                );
             }
         });
 
@@ -399,10 +439,16 @@ impl NewIndexedDialog {
                 self.validate_raw();
             }
             if let Some(e) = &self.raw_error {
-                ui.colored_label(egui::Color32::from_rgb(220, 80, 80), format!("Parse / validation error: {}", e));
+                ui.colored_label(
+                    egui::Color32::from_rgb(220, 80, 80),
+                    format!("Parse / validation error: {}", e),
+                );
                 ui.label("Fix the COBOL-85 record description before creating the file.");
             } else if !self.raw_text.trim().is_empty() {
-                ui.colored_label(egui::Color32::from_rgb(80, 180, 80), "Valid COBOL-85 record definition (group + RECORD KEY present).");
+                ui.colored_label(
+                    egui::Color32::from_rgb(80, 180, 80),
+                    "Valid COBOL-85 record definition (group + RECORD KEY present).",
+                );
             }
         } else {
             // Original properties form (form mode)
@@ -414,7 +460,11 @@ impl NewIndexedDialog {
             egui::ComboBox::from_id_salt("idx_access")
                 .selected_text(access_label(self.access_mode, tr))
                 .show_ui(ui, |ui| {
-                    for mode in [AccessMode::Dynamic, AccessMode::Sequential, AccessMode::Random] {
+                    for mode in [
+                        AccessMode::Dynamic,
+                        AccessMode::Sequential,
+                        AccessMode::Random,
+                    ] {
                         ui.selectable_value(&mut self.access_mode, mode, access_label(mode, tr));
                     }
                 });
@@ -439,7 +489,11 @@ impl NewIndexedDialog {
             ui.label(tr.dlg_storage_mode);
             ui.horizontal(|ui| {
                 ui.radio_value(&mut self.storage, StorageMode::Disk, tr.dlg_storage_disk);
-                ui.radio_value(&mut self.storage, StorageMode::Memory, tr.dlg_storage_memory);
+                ui.radio_value(
+                    &mut self.storage,
+                    StorageMode::Memory,
+                    tr.dlg_storage_memory,
+                );
             });
             ui.checkbox(&mut self.compression, tr.dlg_compression);
             if self.storage == StorageMode::Memory {
@@ -466,16 +520,25 @@ impl NewIndexedDialog {
         if !can {
             let p = std::path::Path::new(self.assign_path.trim());
             if p.exists() {
-                ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "The file already exists at the informed path. Choose a different assign path.");
+                ui.colored_label(
+                    egui::Color32::from_rgb(220, 80, 80),
+                    "The file already exists at the informed path. Choose a different assign path.",
+                );
             } else if self.raw_mode && self.raw_error.is_some() {
                 ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "Fix COBOL-85 errors in the record text (must define at least one 01 group and a compliant RECORD KEY).");
             } else {
-                ui.colored_label(egui::Color32::from_rgb(200, 160, 60), "Complete the definition (valid group + key) to enable Create.");
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 160, 60),
+                    "Complete the definition (valid group + key) to enable Create.",
+                );
             }
         }
 
         ui.horizontal(|ui| {
-            if ui.add_enabled(can, egui::Button::new(tr.dlg_create)).clicked() {
+            if ui
+                .add_enabled(can, egui::Button::new(tr.dlg_create))
+                .clicked()
+            {
                 action = NewIndexedAction::Create;
             }
             if ui.button(tr.dlg_cancel).clicked() {

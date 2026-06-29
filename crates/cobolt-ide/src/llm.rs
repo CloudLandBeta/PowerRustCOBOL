@@ -77,9 +77,15 @@ pub struct LlmConfig {
     pub max_tokens: u32,
 }
 
-fn default_system_prompt() -> String { DEFAULT_SYSTEM_PROMPT.to_string() }
-fn default_temperature() -> f32 { 0.2 }
-fn default_max_tokens() -> u32 { 4096 }
+fn default_system_prompt() -> String {
+    DEFAULT_SYSTEM_PROMPT.to_string()
+}
+fn default_temperature() -> f32 {
+    0.2
+}
+fn default_max_tokens() -> u32 {
+    4096
+}
 
 impl Default for LlmConfig {
     fn default() -> Self {
@@ -133,10 +139,16 @@ pub struct ChatTurn {
 
 impl ChatTurn {
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: "user".into(), content: content.into() }
+        Self {
+            role: "user".into(),
+            content: content.into(),
+        }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: "assistant".into(), content: content.into() }
+        Self {
+            role: "assistant".into(),
+            content: content.into(),
+        }
     }
 }
 
@@ -171,7 +183,11 @@ const RECORD_LEN: usize = KEY_LEN + PAYLOAD_LEN;
 /// Build (but do not open) the conversations indexed file for a `data/` dir.
 fn build_store(data_dir: &Path) -> IndexedFile {
     let path = data_dir.join(CONVERSATIONS_FILE);
-    let primary = KeySpec { offset: 0, len: KEY_LEN, duplicates: false };
+    let primary = KeySpec {
+        offset: 0,
+        len: KEY_LEN,
+        duplicates: false,
+    };
     let mut f = IndexedFile::new(path, RECORD_LEN, primary, Vec::new());
     f.set_strict_metadata(false);
     f.set_compressing(true);
@@ -247,12 +263,15 @@ pub fn load_history(data_dir: &Path, key: &str) -> Vec<ChatTurn> {
     if st != status::OK {
         return Vec::new();
     }
-    let Some(rec) = rec else { return Vec::new(); };
+    let Some(rec) = rec else {
+        return Vec::new();
+    };
     if rec.len() <= KEY_LEN {
         return Vec::new();
     }
     let payload = &rec[KEY_LEN..];
-    let end = payload.iter()
+    let end = payload
+        .iter()
         .rposition(|&b| b != b' ' && b != 0)
         .map(|i| i + 1)
         .unwrap_or(0);
@@ -263,7 +282,9 @@ pub fn load_history(data_dir: &Path, key: &str) -> Vec<ChatTurn> {
 /// Persist the conversation for one source file, replacing any previous turns.
 /// An empty `turns` deletes the record.
 pub fn save_history(data_dir: &Path, key: &str, turns: &[ChatTurn]) {
-    let Some(mut f) = open_io_create(data_dir) else { return; };
+    let Some(mut f) = open_io_create(data_dir) else {
+        return;
+    };
     let kb = key_bytes(key);
 
     if turns.is_empty() {
@@ -290,7 +311,11 @@ pub fn save_history(data_dir: &Path, key: &str, turns: &[ChatTurn]) {
 
 fn build_ide_state_store(data_dir: &Path) -> IndexedFile {
     let path = data_dir.join(IDE_STATE_FILE);
-    let primary = KeySpec { offset: 0, len: KEY_LEN, duplicates: false };
+    let primary = KeySpec {
+        offset: 0,
+        len: KEY_LEN,
+        duplicates: false,
+    };
     let mut f = IndexedFile::new(path, RECORD_LEN, primary, Vec::new());
     f.set_strict_metadata(false);
     f.set_compressing(true);
@@ -338,7 +363,8 @@ pub fn load_raw_preferred_indexed(data_dir: &Path) -> std::collections::HashSet<
         return std::collections::HashSet::new();
     }
     let payload = &rec[KEY_LEN..];
-    let end = payload.iter()
+    let end = payload
+        .iter()
         .rposition(|&b| b != b' ' && b != 0)
         .map(|i| i + 1)
         .unwrap_or(0);
@@ -348,7 +374,9 @@ pub fn load_raw_preferred_indexed(data_dir: &Path) -> std::collections::HashSet<
 
 /// Persist the set (as relative paths). Pass empty set to clear the record.
 pub fn save_raw_preferred_indexed(data_dir: &Path, prefs: &std::collections::HashSet<String>) {
-    let Some(mut f) = open_ide_state_create(data_dir) else { return; };
+    let Some(mut f) = open_ide_state_create(data_dir) else {
+        return;
+    };
     let kb = key_bytes("__RAW_PREFERRED_INDEXED");
 
     if prefs.is_empty() {
@@ -357,7 +385,8 @@ pub fn save_raw_preferred_indexed(data_dir: &Path, prefs: &std::collections::Has
             f.delete(Some(&kb));
         }
     } else {
-        let json = serde_json::to_string(&prefs.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
+        let json =
+            serde_json::to_string(&prefs.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
         let rec = make_record("__RAW_PREFERRED_INDEXED", &json);
         let (existing, _) = f.read_key(&kb);
         if existing.is_some() {
@@ -428,7 +457,8 @@ pub fn spawn_request(
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(120))
             .build();
-        let mut req = agent.post(&endpoint)
+        let mut req = agent
+            .post(&endpoint)
             .set("Content-Type", "application/json");
         if !api_key.is_empty() {
             req = req.set("Authorization", &format!("Bearer {api_key}"));
@@ -458,7 +488,13 @@ pub fn spawn_request(
 /// Fire a tiny request just to validate connectivity, authentication, and the
 /// model name — used by the settings dialog's **Test connection** button.
 pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
-    spawn_request(cfg, &[], "Reply with the single word: OK.", "", "connection-test")
+    spawn_request(
+        cfg,
+        &[],
+        "Reply with the single word: OK.",
+        "",
+        "connection-test",
+    )
 }
 
 /// Combine the developer's prompt with the current source into one user turn.
@@ -595,7 +631,9 @@ mod tests {
     fn conversation_round_trip_via_indexed_file() {
         // Persist + reload a conversation through PowerRustCOBOL's own ISAM file.
         let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("prc-conv-{nanos}"));
         let _ = std::fs::remove_dir_all(&dir);
 

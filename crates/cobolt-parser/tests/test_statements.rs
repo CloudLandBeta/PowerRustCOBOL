@@ -6,8 +6,8 @@
 
 //! Tests for PROCEDURE DIVISION statement parsing.
 
-use cobolt_ast::stmt::Stmt;
 use cobolt_ast::program::ProcedureBody;
+use cobolt_ast::stmt::Stmt;
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 
@@ -23,18 +23,19 @@ fn prog(stmts_src: &str) -> String {
 /// Parse and return the statements from the first paragraph.
 fn parse_stmts(code: &str) -> Vec<Stmt> {
     let result = parse(tokenize(code, SourceFormat::Free));
-    assert!(result.diagnostics.is_empty(), "Diagnostics: {:?}", result.diagnostics);
+    assert!(
+        result.diagnostics.is_empty(),
+        "Diagnostics: {:?}",
+        result.diagnostics
+    );
     let proc = result.program.unwrap().procedure;
     match proc.body {
-        ProcedureBody::Paragraphs(mut paras) => {
-            paras.pop().map(|p| p.stmts).unwrap_or_default()
-        }
-        ProcedureBody::Sections(secs) => {
-            secs.into_iter()
-                .flat_map(|s| s.paragraphs)
-                .flat_map(|p| p.stmts)
-                .collect()
-        }
+        ProcedureBody::Paragraphs(mut paras) => paras.pop().map(|p| p.stmts).unwrap_or_default(),
+        ProcedureBody::Sections(secs) => secs
+            .into_iter()
+            .flat_map(|s| s.paragraphs)
+            .flat_map(|p| p.stmts)
+            .collect(),
     }
 }
 
@@ -104,7 +105,10 @@ fn divide_giving_remainder_and_per_receiver_rounded() {
     let stmts = parse_stmts(&prog(
         "    DIVIDE A BY B GIVING Q1 ROUNDED Q2 REMAINDER R.\n    STOP RUN.\n",
     ));
-    if let Stmt::Divide { giving, remainder, .. } = &stmts[0] {
+    if let Stmt::Divide {
+        giving, remainder, ..
+    } = &stmts[0]
+    {
         assert_eq!(giving.len(), 2);
         assert!(giving[0].1, "Q1 should be ROUNDED");
         assert!(!giving[1].1, "Q2 should not be ROUNDED");
@@ -130,7 +134,9 @@ fn add_per_receiver_rounded() {
 
 #[test]
 fn compute_expression() {
-    let stmts = parse_stmts(&prog("    COMPUTE WS-R = WS-A + WS-B * 2.\n    STOP RUN.\n"));
+    let stmts = parse_stmts(&prog(
+        "    COMPUTE WS-R = WS-A + WS-B * 2.\n    STOP RUN.\n",
+    ));
     assert!(matches!(stmts[0], Stmt::Compute { .. }));
 }
 
@@ -138,12 +144,16 @@ fn compute_expression() {
 
 #[test]
 fn if_simple() {
-    let code = prog(
-        "    IF WS-CNT > 0\n       MOVE 'POS' TO WS-SIGN\n    END-IF.\n    STOP RUN.\n",
-    );
+    let code =
+        prog("    IF WS-CNT > 0\n       MOVE 'POS' TO WS-SIGN\n    END-IF.\n    STOP RUN.\n");
     let stmts = parse_stmts(&code);
     assert!(matches!(stmts[0], Stmt::If { .. }));
-    if let Stmt::If { then_stmts, else_stmts, .. } = &stmts[0] {
+    if let Stmt::If {
+        then_stmts,
+        else_stmts,
+        ..
+    } = &stmts[0]
+    {
         assert_eq!(then_stmts.len(), 1);
         assert!(else_stmts.is_empty());
     }
@@ -155,7 +165,12 @@ fn if_else() {
         "    IF WS-FLAG = 'Y'\n       MOVE 1 TO WS-OK\n    ELSE\n       MOVE 0 TO WS-OK\n    END-IF.\n    STOP RUN.\n",
     );
     let stmts = parse_stmts(&code);
-    if let Stmt::If { then_stmts, else_stmts, .. } = &stmts[0] {
+    if let Stmt::If {
+        then_stmts,
+        else_stmts,
+        ..
+    } = &stmts[0]
+    {
         assert_eq!(then_stmts.len(), 1);
         assert_eq!(else_stmts.len(), 1);
     } else {
@@ -226,7 +241,10 @@ fn display_multiple() {
 fn display_at_with_screen_phrase() {
     let code = prog("    DISPLAY 'X' AT LINE 5 COLUMN 10 WITH HIGHLIGHT.\n    STOP RUN.\n");
     let stmts = parse_stmts(&code);
-    if let Stmt::Display { operands, screen, .. } = &stmts[0] {
+    if let Stmt::Display {
+        operands, screen, ..
+    } = &stmts[0]
+    {
         assert_eq!(operands.len(), 1);
         let sc = screen.as_ref().expect("expected a screen phrase");
         assert!(sc.line.is_some());
@@ -274,7 +292,10 @@ fn evaluate_when() {
         "    EVALUATE WS-CODE\n      WHEN 1 MOVE 'ONE' TO WS-TEXT\n      WHEN 2 MOVE 'TWO' TO WS-TEXT\n      WHEN OTHER MOVE 'UNK' TO WS-TEXT\n    END-EVALUATE.\n    STOP RUN.\n",
     );
     let stmts = parse_stmts(&code);
-    if let Stmt::Evaluate { whens, other_stmts, .. } = &stmts[0] {
+    if let Stmt::Evaluate {
+        whens, other_stmts, ..
+    } = &stmts[0]
+    {
         assert_eq!(whens.len(), 2);
         assert!(!other_stmts.is_empty());
     } else {
@@ -319,7 +340,13 @@ fn open_sharing_and_with_lock() {
     let stmts = parse_stmts(&prog(
         "    OPEN I-O MY-FILE SHARING WITH ALL OTHER WITH LOCK.\n    STOP RUN.\n",
     ));
-    if let Stmt::Open { sharing, lock, files, .. } = &stmts[0] {
+    if let Stmt::Open {
+        sharing,
+        lock,
+        files,
+        ..
+    } = &stmts[0]
+    {
         assert_eq!(files, &vec!["MY-FILE".to_string()]);
         assert!(lock, "WITH LOCK should set lock");
         assert!(sharing.is_some(), "SHARING should be captured");
@@ -336,7 +363,12 @@ fn open_with_registered_user_literal_and_data_item() {
     let stmts = parse_stmts(&prog(
         "    OPEN I-O MY-FILE WITH REGISTERED USER \"ALICE\".\n    STOP RUN.\n",
     ));
-    if let Stmt::Open { files, registered_user, .. } = &stmts[0] {
+    if let Stmt::Open {
+        files,
+        registered_user,
+        ..
+    } = &stmts[0]
+    {
         assert_eq!(files, &vec!["MY-FILE".to_string()]);
         match registered_user {
             Some(Expr::Literal(Literal::String(s), _)) => assert_eq!(s, "ALICE"),
@@ -350,7 +382,10 @@ fn open_with_registered_user_literal_and_data_item() {
     let stmts = parse_stmts(&prog(
         "    OPEN OUTPUT MY-FILE WITH REGISTERED WS-USER.\n    STOP RUN.\n",
     ));
-    if let Stmt::Open { registered_user, .. } = &stmts[0] {
+    if let Stmt::Open {
+        registered_user, ..
+    } = &stmts[0]
+    {
         match registered_user {
             Some(Expr::Identifier(name, _)) => assert_eq!(name, "WS-USER"),
             other => panic!("expected identifier user, got {other:?}"),
@@ -375,7 +410,11 @@ fn read_with_no_lock() {
 #[test]
 fn cancel_is_a_real_statement() {
     let stmts = parse_stmts(&prog("    CANCEL \"SUBP\".\n    STOP RUN.\n"));
-    assert!(matches!(stmts[0], Stmt::Cancel { .. }), "expected CANCEL, got {:?}", stmts[0]);
+    assert!(
+        matches!(stmts[0], Stmt::Cancel { .. }),
+        "expected CANCEL, got {:?}",
+        stmts[0]
+    );
 }
 
 // ── Property access syntax (spec 010): only `ctrl::member` / INVOKE ──────────
@@ -385,13 +424,20 @@ fn inline_property_access_parses_as_member() {
     use cobolt_ast::expr::Expr;
     // GET in operand position and SET as a MOVE target both parse to Member
     // (spec 011 — the chainable node replaces the old MethodCall).
-    let stmts = parse_stmts(&prog("    MOVE BTN::Caption TO LBL::Text.\n    STOP RUN.\n"));
+    let stmts = parse_stmts(&prog(
+        "    MOVE BTN::Caption TO LBL::Text.\n    STOP RUN.\n",
+    ));
     match &stmts[0] {
         Stmt::Move { from, to, .. } => {
-            assert!(matches!(from, Expr::Member { parens: false, .. }),
-                "source `BTN::Caption` must be a bare-property Member: {from:?}");
-            assert!(matches!(to[0], Expr::Member { parens: false, .. }),
-                "target `LBL::Text` must be a bare-property Member: {:?}", to[0]);
+            assert!(
+                matches!(from, Expr::Member { parens: false, .. }),
+                "source `BTN::Caption` must be a bare-property Member: {from:?}"
+            );
+            assert!(
+                matches!(to[0], Expr::Member { parens: false, .. }),
+                "target `LBL::Text` must be a bare-property Member: {:?}",
+                to[0]
+            );
         }
         other => panic!("expected MOVE, got {other:?}"),
     }
@@ -404,15 +450,26 @@ fn member_access_chain_parses_nested_with_subscripts_and_calls() {
     let stmts = parse_stmts(&prog(
         "    DISPLAY Grid::Rows(I)::Columns(2)::Value::toUpperCase().\n    STOP RUN.\n",
     ));
-    let Stmt::Display { operands, .. } = &stmts[0] else { panic!("expected DISPLAY") };
+    let Stmt::Display { operands, .. } = &stmts[0] else {
+        panic!("expected DISPLAY")
+    };
     // Outermost segment is the trailing call `toUpperCase()` (parens, no args).
-    let Expr::Member { member, parens, args, recv, .. } = &operands[0] else {
+    let Expr::Member {
+        member,
+        parens,
+        args,
+        recv,
+        ..
+    } = &operands[0]
+    else {
         panic!("expected Member chain, got {:?}", operands[0]);
     };
     assert_eq!(member.to_ascii_uppercase(), "TOUPPERCASE");
     assert!(*parens && args.is_empty(), "tail must be a no-arg call");
     // Next inward: `::Value` (bare property).
-    let Expr::Member { member, parens, .. } = recv.as_ref() else { panic!("expected ::Value") };
+    let Expr::Member { member, parens, .. } = recv.as_ref() else {
+        panic!("expected ::Value")
+    };
     assert_eq!(member.to_ascii_uppercase(), "VALUE");
     assert!(!*parens, "Value is a bare property");
 }
@@ -425,7 +482,10 @@ fn inline_chain_statement_is_invoke_expr() {
     let Stmt::InvokeExpr { expr, .. } = &stmts[0] else {
         panic!("expected InvokeExpr, got {:?}", stmts[0]);
     };
-    assert!(matches!(expr, Expr::Member { parens: true, .. }), "tail Delete() has parens");
+    assert!(
+        matches!(expr, Expr::Member { parens: true, .. }),
+        "tail Delete() has parens"
+    );
 }
 
 #[test]
@@ -437,8 +497,10 @@ fn quoted_string_of_name_is_not_a_property_ref() {
     use cobolt_ast::expr::Expr;
     let stmts = parse_stmts(&prog("    DISPLAY \"X\".\n    STOP RUN.\n"));
     match &stmts[0] {
-        Stmt::Display { operands, .. } =>
-            assert!(matches!(operands[0], Expr::Literal(..)), "expected a literal operand"),
+        Stmt::Display { operands, .. } => assert!(
+            matches!(operands[0], Expr::Literal(..)),
+            "expected a literal operand"
+        ),
         other => panic!("expected DISPLAY, got {other:?}"),
     }
 }

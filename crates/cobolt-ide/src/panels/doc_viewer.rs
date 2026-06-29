@@ -27,7 +27,10 @@ use crate::version::VERSION;
 
 /// A rendered Mermaid diagram (or the error that prevented it).
 enum MermaidTex {
-    Ok { tex: egui::TextureHandle, size: egui::Vec2 },
+    Ok {
+        tex: egui::TextureHandle,
+        size: egui::Vec2,
+    },
     Err(String),
 }
 
@@ -121,7 +124,9 @@ struct DocPrefs {
 
 impl Default for DocPrefs {
     fn default() -> Self {
-        Self { font_pt: default_font_pt() }
+        Self {
+            font_pt: default_font_pt(),
+        }
     }
 }
 
@@ -179,7 +184,9 @@ impl DocViewer {
 
     /// Write the current preferences to disk (best-effort).
     fn save_prefs(&self) {
-        let prefs = DocPrefs { font_pt: self.font_pt };
+        let prefs = DocPrefs {
+            font_pt: self.font_pt,
+        };
         if let Ok(text) = toml::to_string_pretty(&prefs) {
             let path = prefs_path();
             if let Some(parent) = path.parent() {
@@ -217,7 +224,10 @@ impl DocViewer {
     fn ensure_lang(&mut self, lang: Language) {
         if self.docs.is_empty() || self.lang != lang {
             self.lang = lang;
-            let prev_id = self.selected.and_then(|i| self.docs.get(i)).map(|d| d.id.clone());
+            let prev_id = self
+                .selected
+                .and_then(|i| self.docs.get(i))
+                .map(|d| d.id.clone());
             self.docs = docs_embed::doc_list(lang);
             self.docs.extend(self.extra.iter().cloned());
             self.selected = prev_id.and_then(|id| self.docs.iter().position(|d| d.id == id));
@@ -302,8 +312,7 @@ impl DocViewer {
                     let mut s = (*ctx.style()).clone();
                     s.visuals.panel_fill = egui::Color32::TRANSPARENT;
                     s.visuals.window_fill = fog_rgb.gamma_multiply(0.92);
-                    s.visuals.extreme_bg_color =
-                        egui::Color32::from_rgba_unmultiplied(0, 0, 0, 70);
+                    s.visuals.extreme_bg_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, 70);
                     ctx.set_style(s);
                 }
 
@@ -401,7 +410,10 @@ impl DocViewer {
                         ui.close_menu();
                     }
                     ui.separator();
-                    if ui.checkbox(&mut self.fullscreen, tr.doc_fullscreen).changed() {
+                    if ui
+                        .checkbox(&mut self.fullscreen, tr.doc_fullscreen)
+                        .changed()
+                    {
                         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(self.fullscreen));
                     }
                     ui.checkbox(&mut self.show_outline, tr.doc_miniatures);
@@ -424,7 +436,12 @@ impl DocViewer {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 ui.add_space(2.0);
-                if icon_button(ui, Icon::Open, false, &format!("{}  (⌘O)", tr.doc_open_file)) {
+                if icon_button(
+                    ui,
+                    Icon::Open,
+                    false,
+                    &format!("{}  (⌘O)", tr.doc_open_file),
+                ) {
                     self.open_external();
                 }
                 if icon_button(
@@ -435,7 +452,12 @@ impl DocViewer {
                 ) {
                     self.show_source = !self.show_source;
                 }
-                if icon_button(ui, Icon::Pin, self.on_top, &format!("{}  (⌘T)", tr.doc_on_top)) {
+                if icon_button(
+                    ui,
+                    Icon::Pin,
+                    self.on_top,
+                    &format!("{}  (⌘T)", tr.doc_on_top),
+                ) {
                     self.on_top = !self.on_top;
                     ctx.send_viewport_cmd(ViewportCommand::WindowLevel(if self.on_top {
                         egui::WindowLevel::AlwaysOnTop
@@ -468,20 +490,25 @@ impl DocViewer {
                 });
                 ui.separator();
                 let filter = self.list_filter.trim().to_lowercase();
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    let mut to_select = None;
-                    for (i, doc) in self.docs.iter().enumerate() {
-                        if !filter.is_empty() && !doc.title.to_lowercase().contains(&filter) {
-                            continue;
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let mut to_select = None;
+                        for (i, doc) in self.docs.iter().enumerate() {
+                            if !filter.is_empty() && !doc.title.to_lowercase().contains(&filter) {
+                                continue;
+                            }
+                            if ui
+                                .selectable_label(self.selected == Some(i), &doc.title)
+                                .clicked()
+                            {
+                                to_select = Some(i);
+                            }
                         }
-                        if ui.selectable_label(self.selected == Some(i), &doc.title).clicked() {
-                            to_select = Some(i);
+                        if let Some(i) = to_select {
+                            self.select(i);
                         }
-                    }
-                    if let Some(i) = to_select {
-                        self.select(i);
-                    }
-                });
+                    });
             });
     }
 
@@ -493,21 +520,23 @@ impl DocViewer {
             .show(ctx, |ui| {
                 ui.label(egui::RichText::new("☰").size(self.font_pt + 2.0));
                 ui.separator();
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    let mut jump = None;
-                    for (idx, (level, title, _off)) in self.outline.iter().enumerate() {
-                        let indent = (level.saturating_sub(1)) as f32 * 12.0;
-                        ui.horizontal(|ui| {
-                            ui.add_space(indent);
-                            if ui.link(title).clicked() {
-                                jump = Some(idx);
-                            }
-                        });
-                    }
-                    if let Some(idx) = jump {
-                        self.scroll_to_heading = Some(idx);
-                    }
-                });
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let mut jump = None;
+                        for (idx, (level, title, _off)) in self.outline.iter().enumerate() {
+                            let indent = (level.saturating_sub(1)) as f32 * 12.0;
+                            ui.horizontal(|ui| {
+                                ui.add_space(indent);
+                                if ui.link(title).clicked() {
+                                    jump = Some(idx);
+                                }
+                            });
+                        }
+                        if let Some(idx) = jump {
+                            self.scroll_to_heading = Some(idx);
+                        }
+                    });
             });
     }
 
@@ -525,8 +554,7 @@ impl DocViewer {
                     // New query: restart at the first match (commit on Go/Enter).
                     self.find_idx = 0;
                 }
-                let entered =
-                    resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
                 // Go runs the search (jump to the current match); Enter does too.
                 if ui.button(tr.doc_find_go).clicked() || entered {
@@ -535,10 +563,16 @@ impl DocViewer {
 
                 // Previous / next match controls + counter.
                 let has = self.find_total > 0;
-                if ui.add_enabled(has, egui::Button::new("◀").small()).clicked() {
+                if ui
+                    .add_enabled(has, egui::Button::new("◀").small())
+                    .clicked()
+                {
                     self.find_prev();
                 }
-                if ui.add_enabled(has, egui::Button::new("▶").small()).clicked() {
+                if ui
+                    .add_enabled(has, egui::Button::new("▶").small())
+                    .clicked()
+                {
                     self.find_next();
                 }
                 let counter = if has {
@@ -679,13 +713,15 @@ impl DocViewer {
                         ("⌘P", tr.doc_print),
                         ("⌘+ / ⌘-", tr.doc_font_size),
                     ];
-                    egui::Grid::new("doc_shortcuts_grid").striped(true).show(ui, |ui| {
-                        for (k, d) in rows {
-                            ui.strong(k);
-                            ui.label(d);
-                            ui.end_row();
-                        }
-                    });
+                    egui::Grid::new("doc_shortcuts_grid")
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for (k, d) in rows {
+                                ui.strong(k);
+                                ui.label(d);
+                                ui.end_row();
+                            }
+                        });
                 });
             self.show_shortcuts = open;
         }
@@ -711,12 +747,18 @@ fn draw_mermaid(
     err_label: &str,
 ) {
     let key = fnv1a(code);
-    let entry = cache.entry(key).or_insert_with(|| render_mermaid(ui.ctx(), code));
+    let entry = cache
+        .entry(key)
+        .or_insert_with(|| render_mermaid(ui.ctx(), code));
     match entry {
         MermaidTex::Ok { tex, size } => {
             let avail = ui.available_width().max(1.0);
             let w = size.x.min(avail);
-            let h = if size.x > 0.0 { w * size.y / size.x } else { size.y };
+            let h = if size.x > 0.0 {
+                w * size.y / size.x
+            } else {
+                size.y
+            };
             ui.add_space(6.0);
             ui.add(egui::Image::new((tex.id(), egui::vec2(w, h))));
             ui.add_space(6.0);
@@ -801,7 +843,10 @@ fn render_mermaid_image(code: &str) -> Result<(egui::ColorImage, egui::Vec2), St
         .iter()
         .map(|p| egui::Color32::from_rgba_premultiplied(p.red(), p.green(), p.blue(), p.alpha()))
         .collect();
-    let image = egui::ColorImage { size: [w as usize, h as usize], pixels };
+    let image = egui::ColorImage {
+        size: [w as usize, h as usize],
+        pixels,
+    };
     let logical = egui::vec2(w as f32 / 2.0, h as f32 / 2.0);
     Ok((image, logical))
 }
@@ -813,7 +858,10 @@ pub(crate) fn render_mermaid_pixmap(
     scale: f32,
 ) -> Result<resvg::tiny_skia::Pixmap, String> {
     let svg = mermaid_rs_renderer::render(code).map_err(|e| e.to_string())?;
-    let opt = resvg::usvg::Options { fontdb: mermaid_fontdb(), ..Default::default() };
+    let opt = resvg::usvg::Options {
+        fontdb: mermaid_fontdb(),
+        ..Default::default()
+    };
     let tree = resvg::usvg::Tree::from_str(&svg, &opt).map_err(|e| e.to_string())?;
     let isize = tree.size().to_int_size();
     let w = ((isize.width() as f32) * scale).ceil().max(1.0) as u32;
@@ -840,10 +888,20 @@ fn fnv1a(s: &str) -> u64 {
 fn sanitize_filename(name: &str) -> String {
     let s: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let s = s.trim_matches('-').to_string();
-    if s.is_empty() { "document".into() } else { s }
+    if s.is_empty() {
+        "document".into()
+    } else {
+        s
+    }
 }
 
 fn open_in_os(path: &std::path::Path) {
@@ -875,8 +933,12 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, selected: bool, tip: &str) -> bool
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(30.0, 26.0), egui::Sense::click());
     let v = ui.style().interact_selectable(&resp, selected);
     if selected || resp.hovered() {
-        ui.painter()
-            .rect(rect.shrink(1.0), egui::Rounding::same(4.0), v.bg_fill, egui::Stroke::NONE);
+        ui.painter().rect(
+            rect.shrink(1.0),
+            egui::Rounding::same(4.0),
+            v.bg_fill,
+            egui::Stroke::NONE,
+        );
     }
     paint_icon(ui.painter(), rect, v.fg_stroke.color, icon);
     resp.on_hover_text(tip).clicked()
@@ -923,7 +985,10 @@ fn paint_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, i
                 s,
             ));
             painter.line_segment(
-                [pos2(cx + w * 0.07, t + h * 0.14), pos2(cx - w * 0.07, t + h * 0.86)],
+                [
+                    pos2(cx + w * 0.07, t + h * 0.14),
+                    pos2(cx - w * 0.07, t + h * 0.86),
+                ],
                 s,
             );
         }
@@ -931,7 +996,10 @@ fn paint_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, i
             // A thumbtack: round head, cap line, and needle.
             painter.circle_stroke(pos2(cx, t + h * 0.30), w * 0.22, s);
             painter.line_segment(
-                [pos2(cx - w * 0.30, t + h * 0.52), pos2(cx + w * 0.30, t + h * 0.52)],
+                [
+                    pos2(cx - w * 0.30, t + h * 0.52),
+                    pos2(cx + w * 0.30, t + h * 0.52),
+                ],
                 s,
             );
             painter.line_segment([pos2(cx, t + h * 0.52), pos2(cx, t + h * 0.95)], s);
@@ -997,13 +1065,18 @@ fn build_fog_texture(ctx: &Context, rgb: egui::Color32) -> egui::TextureHandle {
             ));
         }
     }
-    let img = egui::ColorImage { size: [W, H], pixels };
+    let img = egui::ColorImage {
+        size: [W, H],
+        pixels,
+    };
     ctx.load_texture("doc_frost", img, egui::TextureOptions::LINEAR)
 }
 
 /// Deterministic 0..1 hash for integer lattice points.
 fn hash01(x: i32, y: i32) -> f32 {
-    let mut h = (x.wrapping_mul(374_761_393).wrapping_add(y.wrapping_mul(668_265_263))) as u32;
+    let mut h = (x
+        .wrapping_mul(374_761_393)
+        .wrapping_add(y.wrapping_mul(668_265_263))) as u32;
     h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
     ((h ^ (h >> 16)) & 0xffff) as f32 / 65535.0
 }

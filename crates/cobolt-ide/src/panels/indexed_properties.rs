@@ -7,9 +7,7 @@
 //! Properties pane for the Indexed File Editor (R7, R10, R11).
 
 use cobolt_forms::ControlType;
-use cobolt_indexed::{
-    AccessMode, FieldUsage, IndexedDefinition, IndexedField, RecordFormatDef,
-};
+use cobolt_indexed::{AccessMode, FieldUsage, IndexedDefinition, IndexedField, RecordFormatDef};
 
 use crate::i18n::Tr;
 
@@ -37,8 +35,6 @@ fn label_row(ui: &mut egui::Ui, text: &str) {
         },
     );
 }
-
-
 
 /// Result of an edit in the properties pane.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,9 +148,7 @@ impl IndexedPropertiesPanel {
         value_row(ui, PROP_ROW_H, |ui| {
             ui.add_enabled_ui(!locked, |ui| {
                 changed |= ui
-                    .add(
-                        egui::TextEdit::singleline(&mut def.assign_path).desired_width(name_w),
-                    )
+                    .add(egui::TextEdit::singleline(&mut def.assign_path).desired_width(name_w))
                     .changed();
             });
         });
@@ -164,9 +158,11 @@ impl IndexedPropertiesPanel {
                     .width(name_w)
                     .selected_text(access_label(def.access_mode, tr))
                     .show_ui(ui, |ui| {
-                        for mode in
-                            [AccessMode::Dynamic, AccessMode::Sequential, AccessMode::Random]
-                        {
+                        for mode in [
+                            AccessMode::Dynamic,
+                            AccessMode::Sequential,
+                            AccessMode::Random,
+                        ] {
                             if ui
                                 .selectable_value(
                                     &mut def.access_mode,
@@ -213,12 +209,7 @@ impl IndexedPropertiesPanel {
         }
     }
 
-    pub fn show_field_labels(
-        ui: &mut egui::Ui,
-        def: &IndexedDefinition,
-        field_id: &str,
-        tr: &Tr,
-    ) {
+    pub fn show_field_labels(ui: &mut egui::Ui, def: &IndexedDefinition, field_id: &str, tr: &Tr) {
         let is_leaf = find_field(def, field_id)
             .map(|f| f.is_leaf())
             .unwrap_or(false);
@@ -400,7 +391,12 @@ fn show_leaf_values(
                                     force_custom_entry = true;
                                     // Copy current (clean) PIC value into the edit buffer so user
                                     // can see/adjust the exact definition they are taking over.
-                                    let effective = if field.pic.trim_start_matches('\u{200B}').trim().is_empty() {
+                                    let effective = if field
+                                        .pic
+                                        .trim_start_matches('\u{200B}')
+                                        .trim()
+                                        .is_empty()
+                                    {
                                         "X(1)".to_string()
                                     } else {
                                         field.pic.trim_start_matches('\u{200B}').to_string()
@@ -577,7 +573,11 @@ fn show_group_values(
     value_row(ui, PROP_ROW_H, |ui| {
         ui.add_enabled_ui(!locked, |ui| {
             let occ = field.occurs.unwrap_or(0);
-            let mut n_s = if occ == 0 { String::new() } else { format!("{:05}", occ) };
+            let mut n_s = if occ == 0 {
+                String::new()
+            } else {
+                format!("{:05}", occ)
+            };
             if ui
                 .add(
                     egui::TextEdit::singleline(&mut n_s)
@@ -686,7 +686,9 @@ fn field_width(ui: &egui::Ui, max_chars: usize) -> f32 {
 fn sibling_field_names(def: &IndexedDefinition, field_id: &str) -> Vec<String> {
     let flat = cobolt_indexed::flatten_record(def);
     let current_idx = flat.iter().position(|e| e.field.name == field_id);
-    let current_depth = current_idx.and_then(|i| flat.get(i).map(|e| e.depth)).unwrap_or(0);
+    let current_depth = current_idx
+        .and_then(|i| flat.get(i).map(|e| e.depth))
+        .unwrap_or(0);
     let mut names = Vec::new();
     if let Some(idx) = current_idx {
         for (i, e) in flat.iter().enumerate() {
@@ -764,7 +766,10 @@ fn show_record_format_values(ui: &mut egui::Ui, def: &mut IndexedDefinition, tr:
                 }
             });
         }
-        RecordFormatDef::Variable { min_length, max_length } => {
+        RecordFormatDef::Variable {
+            min_length,
+            max_length,
+        } => {
             ui.horizontal(|ui| {
                 ui.label(tr.dlg_record_variable);
                 let mut min_s = min_length.to_string();

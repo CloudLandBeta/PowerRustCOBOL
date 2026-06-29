@@ -68,7 +68,9 @@ impl ThemeCatalog {
     /// A catalog containing only the built-in procedural theme. Asset packs are
     /// added by discovery (Phase 3) via [`ThemeCatalog::with_packs`].
     pub fn builtin() -> Self {
-        ThemeCatalog { themes: vec![FormTheme::liquid_glass()] }
+        ThemeCatalog {
+            themes: vec![FormTheme::liquid_glass()],
+        }
     }
 
     /// Append discovered asset-pack themes to the built-in catalog, skipping any
@@ -115,7 +117,11 @@ impl ThemeCatalog {
 
     /// Resolve a (possibly absent) selection to a concrete theme, falling back to
     /// Liquid Glass when the id is empty/unknown (R9, R11).
-    pub fn resolve<'a>(&'a self, form: Option<&str>, project_default: Option<&str>) -> &'a FormTheme {
+    pub fn resolve<'a>(
+        &'a self,
+        form: Option<&str>,
+        project_default: Option<&str>,
+    ) -> &'a FormTheme {
         let id = resolve_theme_id(form, project_default);
         self.get(&id)
             .or_else(|| self.get(LIQUID_GLASS))
@@ -156,9 +162,15 @@ mod tests {
     #[test]
     fn resolution_precedence_form_then_project_then_glass() {
         // form override wins
-        assert_eq!(resolve_theme_id(Some("dark-wood"), Some("stainless-steel")), "dark-wood");
+        assert_eq!(
+            resolve_theme_id(Some("dark-wood"), Some("stainless-steel")),
+            "dark-wood"
+        );
         // project default when no form override
-        assert_eq!(resolve_theme_id(None, Some("stainless-steel")), "stainless-steel");
+        assert_eq!(
+            resolve_theme_id(None, Some("stainless-steel")),
+            "stainless-steel"
+        );
         // empty strings are unset → fall through to glass
         assert_eq!(resolve_theme_id(Some("  "), Some("")), LIQUID_GLASS);
         // nothing set → glass

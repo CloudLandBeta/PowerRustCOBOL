@@ -7,15 +7,15 @@
 //! Indexed structure tree + properties (used by the inline inspector in the main IDE pane).
 //! The separate pop-up editor window has been removed.
 
+use crate::theme;
 use cobolt_forms::ControlType;
 use cobolt_indexed::{
     apply_flat, flatten_record, indent_entry, outdent_entry, record_to_text, text_to_record,
     FieldUsage, FlatEntry, IndexedDefinition, IndexedField,
 };
-use crate::theme;
 
-use crate::i18n::Tr;
 use super::indexed_properties::{IndexedPropertiesPanel, PropertyEdit};
+use crate::i18n::Tr;
 
 const INDENT_PX: f32 = 18.0;
 
@@ -66,8 +66,6 @@ impl IndexedEditorPanel {
         }
     }
 
-
-
     /// Left pane — indexed file root + record structure tree.
     pub fn show_structure(
         &mut self,
@@ -106,9 +104,18 @@ impl IndexedEditorPanel {
                 // so it stays visible and consistent whether the active theme is lighter or darker.
                 let th = theme::active();
                 let is_key = def.keys.primary.name.as_deref() == Some(entry.field.name.as_str())
-                    || def.keys.primary.parts.iter().any(|p| p.field_name == entry.field.name)
-                    || def.keys.alternates.iter().any(|a| a.name.as_deref() == Some(entry.field.name.as_str()));
-                let mut item_color = th.ed_keyword;  // blue (replaces the previous green ed_data for data-items)
+                    || def
+                        .keys
+                        .primary
+                        .parts
+                        .iter()
+                        .any(|p| p.field_name == entry.field.name)
+                    || def
+                        .keys
+                        .alternates
+                        .iter()
+                        .any(|a| a.name.as_deref() == Some(entry.field.name.as_str()));
+                let mut item_color = th.ed_keyword; // blue (replaces the previous green ed_data for data-items)
                 if is_key {
                     // Keys pop a bit more but remain theme-visible (use a warmer tint on dark themes).
                     if th.dark {
@@ -166,14 +173,17 @@ impl IndexedEditorPanel {
         action
     }
 
-
-
     pub fn open_raw_dialog(&mut self, def: &IndexedDefinition) {
         self.raw_text = record_to_text(def);
         self.show_raw_dialog = true;
     }
 
-    pub fn show_raw_dialog(&mut self, ctx: &egui::Context, def: &mut IndexedDefinition, tr: &Tr) -> RawDialogResult {
+    pub fn show_raw_dialog(
+        &mut self,
+        ctx: &egui::Context,
+        def: &mut IndexedDefinition,
+        tr: &Tr,
+    ) -> RawDialogResult {
         let mut result = RawDialogResult::None;
         if !self.show_raw_dialog {
             return result;
@@ -270,19 +280,17 @@ impl IndexedEditorPanel {
         });
 
         if let Some(e) = &self.indent_error {
-            ui.colored_label(egui::Color32::from_rgb(220, 80, 80), format!("COBOL-85 validation error: {}", e));
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 80, 80),
+                format!("COBOL-85 validation error: {}", e),
+            );
         }
 
         applied
     }
 
     /// Middle pane — property labels for the current selection.
-    pub fn show_property_labels(
-        &self,
-        ui: &mut egui::Ui,
-        def: &IndexedDefinition,
-        tr: &Tr,
-    ) {
+    pub fn show_property_labels(&self, ui: &mut egui::Ui, def: &IndexedDefinition, tr: &Tr) {
         match &self.selection {
             IndexedSelection::File => IndexedPropertiesPanel::show_file_labels(ui, tr),
             IndexedSelection::Field(id) => {

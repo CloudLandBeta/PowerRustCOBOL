@@ -6,12 +6,10 @@
 
 //! Output / console panel — displays program output and diagnostic messages.
 
-use egui::{
-    Color32, Context, RichText, ScrollArea, TopBottomPanel,
-};
+use egui::{Color32, Context, RichText, ScrollArea, TopBottomPanel};
 
-use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
 use crate::i18n::Tr;
+use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
 
 // ── OutputLine ────────────────────────────────────────────────────────────────
 
@@ -34,13 +32,15 @@ pub enum OutputLine {
 #[derive(Default)]
 pub struct OutputPanel {
     /// All lines accumulated in this session.
-    lines:           Vec<OutputLine>,
+    lines: Vec<OutputLine>,
     /// If true the view scrolls to the bottom on next frame.
     scroll_to_bottom: bool,
 }
 
 impl OutputPanel {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Push a new line from the runner.
     pub fn push_msg(&mut self, msg: &RunMsg) {
@@ -52,14 +52,12 @@ impl OutputPanel {
                 self.lines.push(OutputLine::Diagnostic(d.clone()));
             }
             RunMsg::Finished => {
-                self.lines.push(OutputLine::Status(
-                    "── Program finished ──".to_owned(),
-                ));
+                self.lines
+                    .push(OutputLine::Status("── Program finished ──".to_owned()));
             }
             RunMsg::Stopped => {
-                self.lines.push(OutputLine::Status(
-                    "── Stopped by user ──".to_owned(),
-                ));
+                self.lines
+                    .push(OutputLine::Status("── Stopped by user ──".to_owned()));
             }
             RunMsg::Error(e) => {
                 self.lines.push(OutputLine::Error(e.clone()));
@@ -89,7 +87,9 @@ impl OutputPanel {
     /// Render the output panel at the bottom.
     pub fn show(&mut self, ctx: &Context, tr: &Tr) {
         let frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill, &crate::theme::active());
+            ctx.style().visuals.panel_fill,
+            &crate::theme::active(),
+        );
         TopBottomPanel::bottom("output_panel")
             .resizable(true)
             .default_height(160.0)
@@ -123,28 +123,25 @@ impl OutputPanel {
                             }
                             OutputLine::Diagnostic(d) => {
                                 let (color, prefix) = match d.severity {
-                                    DiagSeverity::Error   =>
-                                        (Color32::from_rgb(240, 80, 80), "✖ error"),
-                                    DiagSeverity::Warning =>
-                                        (Color32::from_rgb(255, 200, 50), "⚠ warning"),
-                                    DiagSeverity::Info    =>
-                                        (Color32::from_gray(180), "ℹ note"),
+                                    DiagSeverity::Error => {
+                                        (Color32::from_rgb(240, 80, 80), "✖ error")
+                                    }
+                                    DiagSeverity::Warning => {
+                                        (Color32::from_rgb(255, 200, 50), "⚠ warning")
+                                    }
+                                    DiagSeverity::Info => (Color32::from_gray(180), "ℹ note"),
                                 };
                                 ui.label(
-                                    RichText::new(
-                                        format!("{}:{}: {}: {}",
-                                            d.line, d.col, prefix, d.message)
-                                    )
+                                    RichText::new(format!(
+                                        "{}:{}: {}: {}",
+                                        d.line, d.col, prefix, d.message
+                                    ))
                                     .monospace()
                                     .color(color),
                                 );
                             }
                             OutputLine::Status(s) => {
-                                ui.label(
-                                    RichText::new(s)
-                                        .color(Color32::from_gray(130))
-                                        .italics(),
-                                );
+                                ui.label(RichText::new(s).color(Color32::from_gray(130)).italics());
                             }
                             OutputLine::Error(e) => {
                                 ui.label(

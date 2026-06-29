@@ -8,8 +8,8 @@
 
 use cobolt_forms::ControlType;
 use cobolt_indexed::{
-    encode_field_display, encode_indicator_bool, format_field_display, indicator_bool,
-    parse_pic, PicCategory, IndexedField,
+    encode_field_display, encode_indicator_bool, format_field_display, indicator_bool, parse_pic,
+    IndexedField, PicCategory,
 };
 
 use crate::i18n::Tr;
@@ -170,13 +170,11 @@ pub fn build_record(
             }
             EditCell::Number(n) => {
                 let s = n.to_string();
-                encode_field_display(field, &s, len).map_err(|e| {
-                    format!("{}: {}", field.name, e.as_str())
-                })
+                encode_field_display(field, &s, len)
+                    .map_err(|e| format!("{}: {}", field.name, e.as_str()))
             }
-            EditCell::Text(s) => encode_field_display(field, s, len).map_err(|e| {
-                format!("{}: {}", field.name, e.as_str())
-            }),
+            EditCell::Text(s) => encode_field_display(field, s, len)
+                .map_err(|e| format!("{}: {}", field.name, e.as_str())),
         }?;
         rec[off..off + len].copy_from_slice(&encoded);
     }

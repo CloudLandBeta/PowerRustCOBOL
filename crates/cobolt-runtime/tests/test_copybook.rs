@@ -26,7 +26,11 @@ fn detect_format(src: &str) -> SourceFormat {
         let b = line.as_bytes();
         b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
     });
-    if looks_fixed { SourceFormat::Fixed } else { SourceFormat::Free }
+    if looks_fixed {
+        SourceFormat::Fixed
+    } else {
+        SourceFormat::Free
+    }
 }
 
 /// Read a `.cbl` from tests/cobol, expand copybooks (resolved from that dir),
@@ -39,12 +43,19 @@ fn run_file(name: &str) -> Vec<String> {
     // strings) while a fixed-form file's `*` comments still flatten to `*>`.
     let fmt = detect_format(&src);
     let expanded = expand_copybooks(&src, &dir, fmt);
-    assert!(expanded.errors.is_empty(), "copybook errors: {:?}", expanded.errors);
+    assert!(
+        expanded.errors.is_empty(),
+        "copybook errors: {:?}",
+        expanded.errors
+    );
 
     let tokens = tokenize(&expanded.text, SourceFormat::Free);
     let result = parse(tokens);
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -61,8 +72,15 @@ fn run_file(name: &str) -> Vec<String> {
 #[test]
 fn copytest_suite_reports_pass() {
     let out = run_file("copytest.cbl").join("\n");
-    assert!(out.contains("RESULT       : PASS"), "copytest failed:\n{out}");
-    assert_eq!(out.matches("PASS T0").count(), 3, "expected 3 PASS lines:\n{out}");
+    assert!(
+        out.contains("RESULT       : PASS"),
+        "copytest failed:\n{out}"
+    );
+    assert_eq!(
+        out.matches("PASS T0").count(),
+        3,
+        "expected 3 PASS lines:\n{out}"
+    );
 }
 
 #[test]
@@ -71,9 +89,16 @@ fn tcpyrep_suite_reports_pass() {
     // pseudo-text (incl. PIC/VALUE/quoted-literal), repeated COPY of one
     // template, partial-word non-replacement, and COPY REPLACING arithmetic.
     let out = run_file("tcpyrep.cbl").join("\n");
-    assert!(out.contains("RESULT       : PASS"), "tcpyrep suite failed:\n{out}");
+    assert!(
+        out.contains("RESULT       : PASS"),
+        "tcpyrep suite failed:\n{out}"
+    );
     assert!(!out.contains("FAIL T"), "tcpyrep reported failures:\n{out}");
-    assert_eq!(out.matches("PASS T").count(), 11, "expected 11 PASS lines:\n{out}");
+    assert_eq!(
+        out.matches("PASS T").count(),
+        11,
+        "expected 11 PASS lines:\n{out}"
+    );
 }
 
 #[test]
@@ -82,5 +107,8 @@ fn copy_replacing_and_nesting_resolve_fields() {
     // CUSTREC via REPLACING; INNER-CODE via the nested OUTER->INNER copy).
     let out = run_file("copytest.cbl").join("\n");
     assert!(out.contains("PASS T001"), "REPLACING field missing:\n{out}");
-    assert!(out.contains("PASS T003"), "nested COPY field missing:\n{out}");
+    assert!(
+        out.contains("PASS T003"),
+        "nested COPY field missing:\n{out}"
+    );
 }

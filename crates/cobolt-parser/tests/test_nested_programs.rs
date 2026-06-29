@@ -19,7 +19,10 @@ use cobolt_parser::{parse, Severity};
 fn parse_ok(src: &str) -> cobolt_ast::program::Program {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "unexpected parse errors: {:?}",
         result.diagnostics
     );
@@ -46,8 +49,15 @@ fn sequential_sibling_programs_are_collected() {
     "#;
     let prog = parse_ok(src);
     assert_eq!(prog.identification.program_id, "OUTER");
-    assert_eq!(prog.nested_programs.len(), 1, "sibling SET-RESULT must be collected");
-    assert_eq!(prog.nested_programs[0].identification.program_id, "SET-RESULT");
+    assert_eq!(
+        prog.nested_programs.len(),
+        1,
+        "sibling SET-RESULT must be collected"
+    );
+    assert_eq!(
+        prog.nested_programs[0].identification.program_id,
+        "SET-RESULT"
+    );
 }
 
 #[test]
@@ -73,8 +83,11 @@ fn three_sequential_siblings_are_all_collected() {
        END PROGRAM B.
     "#;
     let prog = parse_ok(src);
-    let ids: Vec<&str> = prog.nested_programs.iter()
-        .map(|p| p.identification.program_id.as_str()).collect();
+    let ids: Vec<&str> = prog
+        .nested_programs
+        .iter()
+        .map(|p| p.identification.program_id.as_str())
+        .collect();
     assert_eq!(ids, vec!["A", "B"]);
 }
 

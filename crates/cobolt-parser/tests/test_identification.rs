@@ -10,10 +10,7 @@ use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 
 fn src(s: &str) -> String {
-    format!(
-        "{}\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n",
-        s
-    )
+    format!("{}\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n", s)
 }
 
 #[test]
@@ -28,9 +25,7 @@ fn minimal_identification() {
 
 #[test]
 fn identification_with_author() {
-    let code = src(
-        "IDENTIFICATION DIVISION.\nPROGRAM-ID. MYAPP.\nAUTHOR. EMERSON.",
-    );
+    let code = src("IDENTIFICATION DIVISION.\nPROGRAM-ID. MYAPP.\nAUTHOR. EMERSON.");
     let result = parse(tokenize(&code, SourceFormat::Free));
     assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     let id = result.program.unwrap().identification;
@@ -40,9 +35,7 @@ fn identification_with_author() {
 
 #[test]
 fn identification_with_date_written() {
-    let code = src(
-        "IDENTIFICATION DIVISION.\nPROGRAM-ID. DATEPROG.\nDATE-WRITTEN. 2024-01-15.",
-    );
+    let code = src("IDENTIFICATION DIVISION.\nPROGRAM-ID. DATEPROG.\nDATE-WRITTEN. 2024-01-15.");
     let result = parse(tokenize(&code, SourceFormat::Free));
     assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     let id = result.program.unwrap().identification;

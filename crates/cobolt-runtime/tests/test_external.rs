@@ -17,7 +17,10 @@ use cobolt_runtime::{new_external_store, Interpreter};
 fn parse_prog(src: &str) -> Program {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -54,8 +57,14 @@ const SRC_B: &str = r#"
 fn external_item_is_registered() {
     let interp = Interpreter::new(parse_prog(SRC_A));
     let names = interp.env.external_names();
-    assert!(names.contains("WS-SHARED"), "EXTERNAL item not registered: {names:?}");
-    assert!(!names.contains("WS-LOCAL"), "non-EXTERNAL item wrongly registered");
+    assert!(
+        names.contains("WS-SHARED"),
+        "EXTERNAL item not registered: {names:?}"
+    );
+    assert!(
+        !names.contains("WS-LOCAL"),
+        "non-EXTERNAL item wrongly registered"
+    );
 }
 
 #[test]
@@ -68,9 +77,17 @@ fn external_value_is_shared_across_run_unit() {
 
     // Program B joins the same run unit: it adopts the EXTERNAL value A wrote…
     let mut b = Interpreter::with_external_store(parse_prog(SRC_B), store.clone());
-    assert_eq!(b.env.get_i64("WS-SHARED"), Some(1234), "EXTERNAL not shared into B");
+    assert_eq!(
+        b.env.get_i64("WS-SHARED"),
+        Some(1234),
+        "EXTERNAL not shared into B"
+    );
     // …but the plain item is private — B keeps its own default, not A's 5678.
-    assert_eq!(b.env.get_i64("WS-LOCAL"), Some(0), "non-EXTERNAL leaked across programs");
+    assert_eq!(
+        b.env.get_i64("WS-LOCAL"),
+        Some(0),
+        "non-EXTERNAL leaked across programs"
+    );
 
     // Running B keeps the shared value (load at run start).
     b.run().expect("B run failed");
@@ -86,5 +103,9 @@ fn separate_run_units_do_not_share() {
     // A different store = a different run unit: B sees its own fresh default.
     let store_b = new_external_store();
     let b = Interpreter::with_external_store(parse_prog(SRC_B), store_b);
-    assert_eq!(b.env.get_i64("WS-SHARED"), Some(0), "EXTERNAL leaked across run units");
+    assert_eq!(
+        b.env.get_i64("WS-SHARED"),
+        Some(0),
+        "EXTERNAL leaked across run units"
+    );
 }

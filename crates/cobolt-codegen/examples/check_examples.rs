@@ -17,11 +17,40 @@ use std::path::Path;
 fn all_controls() -> Vec<ControlType> {
     use ControlType::*;
     vec![
-        Button, Label, TextBox, CheckBox, RadioButton, ComboBox, ListBox, NumericUpDown,
-        DateTimePicker, GroupBox, Panel, TabControl, Splitter, DataGrid, TreeView, PictureBox,
-        Animator, ProgressBar, Slider, Line, Shape, MenuBar, ToolBar, StatusBar, Timer,
-        AgentObject, RestClient, SqlDatabase, BarChart, LineChart, PieChart, AreaChart,
-        ScatterChart, DonutChart,
+        Button,
+        Label,
+        TextBox,
+        CheckBox,
+        RadioButton,
+        ComboBox,
+        ListBox,
+        NumericUpDown,
+        DateTimePicker,
+        GroupBox,
+        Panel,
+        TabControl,
+        Splitter,
+        DataGrid,
+        TreeView,
+        PictureBox,
+        Animator,
+        ProgressBar,
+        Slider,
+        Line,
+        Shape,
+        MenuBar,
+        ToolBar,
+        StatusBar,
+        Timer,
+        AgentObject,
+        RestClient,
+        SqlDatabase,
+        BarChart,
+        LineChart,
+        PieChart,
+        AreaChart,
+        ScatterChart,
+        DonutChart,
     ]
 }
 
@@ -71,7 +100,10 @@ fn main() {
         println!(
             "{} {folder}: events {}/{}  buttons {}/{}",
             if ev_ok && btn_ok { "ok " } else { "GAP" },
-            got_events, want_events, buttons, expected_btns
+            got_events,
+            want_events,
+            buttons,
+            expected_btns
         );
     }
     println!("\n{} gap(s)", gaps);

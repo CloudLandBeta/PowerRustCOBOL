@@ -58,7 +58,12 @@ struct RecLoc {
 }
 
 impl RecLoc {
-    const FREE: RecLoc = RecLoc { kind: 0, page: 0, slot: 0, len: 0 };
+    const FREE: RecLoc = RecLoc {
+        kind: 0,
+        page: 0,
+        slot: 0,
+        len: 0,
+    };
     fn is_live(&self) -> bool {
         self.kind != 0
     }
@@ -67,8 +72,15 @@ impl RecLoc {
 // ── On-disk B+tree node (loaded into memory for an operation) ────────────────
 
 enum Node {
-    Leaf { next: u64, prev: u64, entries: Vec<(Bytes, u64)> },
-    Internal { child0: u64, entries: Vec<(Bytes, u64)> },
+    Leaf {
+        next: u64,
+        prev: u64,
+        entries: Vec<(Bytes, u64)>,
+    },
+    Internal {
+        child0: u64,
+        entries: Vec<(Bytes, u64)>,
+    },
 }
 
 impl Node {
@@ -108,10 +120,10 @@ pub struct DiskIndexedFile {
     next_page_id: u64,
     free_list_head: u64,
     record_count: u64,
-    data_tail: u64,        // current slotted page accepting inline records (0 = none)
+    data_tail: u64, // current slotted page accepting inline records (0 = none)
     primary_root: u64,
     alt_roots: Vec<u64>,
-    dir_head: u64,         // first RecordId-directory page (0 = none yet)
+    dir_head: u64, // first RecordId-directory page (0 = none yet)
 
     // RecordId directory, held in memory while open, persisted on close.
     directory: Vec<RecLoc>,
@@ -259,7 +271,11 @@ impl DiskIndexedFile {
                     i += 8;
                     entries.push((k, v));
                 }
-                Ok(Node::Leaf { next, prev, entries })
+                Ok(Node::Leaf {
+                    next,
+                    prev,
+                    entries,
+                })
             }
             PT_INTERNAL => {
                 let count = u16::from_le_bytes([p[1], p[2]]) as usize;
@@ -284,7 +300,11 @@ impl DiskIndexedFile {
     fn store_node(&mut self, id: u64, node: &Node) -> R<()> {
         let mut buf = Vec::with_capacity(PAGE_SIZE);
         match node {
-            Node::Leaf { next, prev, entries } => {
+            Node::Leaf {
+                next,
+                prev,
+                entries,
+            } => {
                 buf.push(PT_LEAF);
                 buf.extend_from_slice(&(entries.len() as u16).to_le_bytes());
                 buf.extend_from_slice(&next.to_le_bytes());
@@ -311,7 +331,14 @@ impl DiskIndexedFile {
 
     fn new_leaf(&mut self, next: u64, prev: u64) -> R<u64> {
         let id = self.alloc_page()?;
-        self.store_node(id, &Node::Leaf { next, prev, entries: Vec::new() })?;
+        self.store_node(
+            id,
+            &Node::Leaf {
+                next,
+                prev,
+                entries: Vec::new(),
+            },
+        )?;
         Ok(id)
     }
 
@@ -322,7 +349,13 @@ impl DiskIndexedFile {
         if let Some((sep, right)) = self.insert_rec(root, key, val)? {
             // Root split — grow a new internal root.
             let id = self.alloc_page()?;
-            self.store_node(id, &Node::Internal { child0: root, entries: vec![(sep, right)] })?;
+            self.store_node(
+                id,
+                &Node::Internal {
+                    child0: root,
+                    entries: vec![(sep, right)],
+                },
+            )?;
             Ok(id)
         } else {
             Ok(root)
@@ -331,37 +364,78 @@ impl DiskIndexedFile {
 
     fn insert_rec(&mut self, id: u64, key: &[u8], val: u64) -> R<Option<(Bytes, u64)>> {
         match self.load_node(id)? {
-            Node::Leaf { next, prev, mut entries } => {
+            Node::Leaf {
+                next,
+                prev,
+                mut entries,
+            } => {
                 match entries.binary_search_by(|(k, _)| k.as_slice().cmp(key)) {
                     Ok(pos) => entries[pos].1 = val, // replace
                     Err(pos) => entries.insert(pos, (key.to_vec(), val)),
                 }
-                let node = Node::Leaf { next, prev, entries };
+                let node = Node::Leaf {
+                    next,
+                    prev,
+                    entries,
+                };
                 if node.fits() {
                     self.store_node(id, &node)?;
                     return Ok(None);
                 }
                 // Split leaf.
-                let Node::Leaf { next, prev, entries } = node else { unreachable!() };
+                let Node::Leaf {
+                    next,
+                    prev,
+                    entries,
+                } = node
+                else {
+                    unreachable!()
+                };
                 let mid = entries.len() / 2;
                 let right_entries = entries[mid..].to_vec();
                 let left_entries = entries[..mid].to_vec();
                 let sep = right_entries[0].0.clone();
                 let right_id = self.alloc_page()?;
                 // left.next = right ; right.next = old next ; fix prev links.
-                self.store_node(id, &Node::Leaf { next: right_id, prev, entries: left_entries })?;
+                self.store_node(
+                    id,
+                    &Node::Leaf {
+                        next: right_id,
+                        prev,
+                        entries: left_entries,
+                    },
+                )?;
                 self.store_node(
                     right_id,
-                    &Node::Leaf { next, prev: id, entries: right_entries },
+                    &Node::Leaf {
+                        next,
+                        prev: id,
+                        entries: right_entries,
+                    },
                 )?;
                 if next != 0 {
-                    if let Node::Leaf { next: nn, entries: ne, .. } = self.load_node(next)? {
-                        self.store_node(next, &Node::Leaf { next: nn, prev: right_id, entries: ne })?;
+                    if let Node::Leaf {
+                        next: nn,
+                        entries: ne,
+                        ..
+                    } = self.load_node(next)?
+                    {
+                        self.store_node(
+                            next,
+                            &Node::Leaf {
+                                next: nn,
+                                prev: right_id,
+                                entries: ne,
+                            },
+                        )?;
                     }
                 }
                 Ok(Some((sep, right_id)))
             }
-            Node::Internal { child0, mut entries } => {
+            Node::Internal {
+                child0,
+                mut entries,
+            } => {
                 // Choose child: largest separator <= key.
                 let pos = entries.partition_point(|(k, _)| k.as_slice() <= key);
                 let child = if pos == 0 { child0 } else { entries[pos - 1].1 };
@@ -374,16 +448,27 @@ impl DiskIndexedFile {
                         return Ok(None);
                     }
                     // Split internal — promote the median key.
-                    let Node::Internal { child0, entries } = node else { unreachable!() };
+                    let Node::Internal { child0, entries } = node else {
+                        unreachable!()
+                    };
                     let mid = entries.len() / 2;
                     let median = entries[mid].clone();
                     let left_entries = entries[..mid].to_vec();
                     let right_entries = entries[mid + 1..].to_vec();
                     let right_id = self.alloc_page()?;
-                    self.store_node(id, &Node::Internal { child0, entries: left_entries })?;
+                    self.store_node(
+                        id,
+                        &Node::Internal {
+                            child0,
+                            entries: left_entries,
+                        },
+                    )?;
                     self.store_node(
                         right_id,
-                        &Node::Internal { child0: median.1, entries: right_entries },
+                        &Node::Internal {
+                            child0: median.1,
+                            entries: right_entries,
+                        },
                     )?;
                     Ok(Some((median.0, right_id)))
                 } else {
@@ -422,10 +507,21 @@ impl DiskIndexedFile {
         let mut id = root;
         loop {
             match self.load_node(id)? {
-                Node::Leaf { next, prev, mut entries } => {
+                Node::Leaf {
+                    next,
+                    prev,
+                    mut entries,
+                } => {
                     if let Ok(pos) = entries.binary_search_by(|(k, _)| k.as_slice().cmp(key)) {
                         entries.remove(pos);
-                        self.store_node(id, &Node::Leaf { next, prev, entries })?;
+                        self.store_node(
+                            id,
+                            &Node::Leaf {
+                                next,
+                                prev,
+                                entries,
+                            },
+                        )?;
                         return Ok(true);
                     }
                     return Ok(false);
@@ -478,7 +574,9 @@ impl DiskIndexedFile {
         // Scan forward across leaves to the first entry >= key.
         let mut lid = leaf;
         loop {
-            let Node::Leaf { next, entries, .. } = self.load_node(lid)? else { unreachable!() };
+            let Node::Leaf { next, entries, .. } = self.load_node(lid)? else {
+                unreachable!()
+            };
             let idx = entries.partition_point(|(k, _)| k.as_slice() < key);
             if idx < entries.len() {
                 return Ok(Some((lid, idx)));
@@ -492,19 +590,25 @@ impl DiskIndexedFile {
 
     /// Entry at a cursor position, or `None` if the leaf is exhausted there.
     fn entry_at(&mut self, leaf: u64, idx: usize) -> R<Option<(Bytes, u64)>> {
-        let Node::Leaf { entries, .. } = self.load_node(leaf)? else { return Ok(None) };
+        let Node::Leaf { entries, .. } = self.load_node(leaf)? else {
+            return Ok(None);
+        };
         Ok(entries.get(idx).cloned())
     }
 
     /// Advance a cursor one entry forward, skipping empty leaves.
     fn step_forward(&mut self, leaf: u64, idx: usize) -> R<Option<(u64, usize)>> {
-        let Node::Leaf { next, entries, .. } = self.load_node(leaf)? else { return Ok(None) };
+        let Node::Leaf { next, entries, .. } = self.load_node(leaf)? else {
+            return Ok(None);
+        };
         if idx + 1 < entries.len() {
             return Ok(Some((leaf, idx + 1)));
         }
         let mut nid = next;
         while nid != 0 {
-            let Node::Leaf { next, entries, .. } = self.load_node(nid)? else { break };
+            let Node::Leaf { next, entries, .. } = self.load_node(nid)? else {
+                break;
+            };
             if !entries.is_empty() {
                 return Ok(Some((nid, 0)));
             }
@@ -518,10 +622,14 @@ impl DiskIndexedFile {
         if idx > 0 {
             return Ok(Some((leaf, idx - 1)));
         }
-        let Node::Leaf { prev, .. } = self.load_node(leaf)? else { return Ok(None) };
+        let Node::Leaf { prev, .. } = self.load_node(leaf)? else {
+            return Ok(None);
+        };
         let mut pid = prev;
         while pid != 0 {
-            let Node::Leaf { prev, entries, .. } = self.load_node(pid)? else { break };
+            let Node::Leaf { prev, entries, .. } = self.load_node(pid)? else {
+                break;
+            };
             if !entries.is_empty() {
                 return Ok(Some((pid, entries.len() - 1)));
             }
@@ -533,7 +641,11 @@ impl DiskIndexedFile {
     // ── Record storage (slotted pages + overflow chain) ──────────────────────
 
     fn store_record_bytes(&mut self, raw: &[u8]) -> R<RecLoc> {
-        let payload = if self.compressing { compress::compress(raw) } else { raw.to_vec() };
+        let payload = if self.compressing {
+            compress::compress(raw)
+        } else {
+            raw.to_vec()
+        };
         let max_inline = PAGE_SIZE - 5 /*hdr*/ - 4 /*one slot*/;
         if payload.len() <= max_inline {
             self.store_inline(&payload)
@@ -567,7 +679,12 @@ impl DiskIndexedFile {
         p[1..3].copy_from_slice(&((slot_count + 1) as u16).to_le_bytes());
         p[3..5].copy_from_slice(&((free_top + payload.len()) as u16).to_le_bytes());
         self.write_page(page_id, &p)?;
-        Ok(RecLoc { kind: 1, page: page_id, slot: slot_count as u16, len: payload.len() as u32 })
+        Ok(RecLoc {
+            kind: 1,
+            page: page_id,
+            slot: slot_count as u16,
+            len: payload.len() as u32,
+        })
     }
 
     fn inline_fits(&mut self, page_id: u64, need: usize) -> R<bool> {
@@ -591,7 +708,11 @@ impl DiskIndexedFile {
             page_ids.push(self.alloc_page()?);
         }
         for (i, chunk) in chunks.iter().enumerate() {
-            let next = if i + 1 < page_ids.len() { page_ids[i + 1] } else { 0 };
+            let next = if i + 1 < page_ids.len() {
+                page_ids[i + 1]
+            } else {
+                0
+            };
             let mut buf = vec![0u8; 13 + chunk.len()];
             buf[0] = PT_OVERFLOW;
             buf[1..9].copy_from_slice(&next.to_le_bytes());
@@ -599,7 +720,12 @@ impl DiskIndexedFile {
             buf[13..].copy_from_slice(chunk);
             self.write_page(page_ids[i], &buf)?;
         }
-        Ok(RecLoc { kind: 2, page: page_ids[0], slot: 0, len: payload.len() as u32 })
+        Ok(RecLoc {
+            kind: 2,
+            page: page_ids[0],
+            slot: 0,
+            len: payload.len() as u32,
+        })
     }
 
     fn load_record_bytes(&mut self, loc: RecLoc) -> R<Bytes> {
@@ -625,7 +751,11 @@ impl DiskIndexedFile {
             }
             _ => return Ok(Vec::new()),
         };
-        Ok(if self.compressing { compress::decompress(&payload) } else { payload })
+        Ok(if self.compressing {
+            compress::decompress(&payload)
+        } else {
+            payload
+        })
     }
 
     fn free_record_storage(&mut self, loc: RecLoc) -> R<()> {
@@ -692,7 +822,11 @@ impl DiskIndexedFile {
         match mode {
             OpenMode::Output => {
                 let f = match OpenOptions::new()
-                    .read(true).write(true).create(true).truncate(true).open(&self.path)
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&self.path)
                 {
                     Ok(f) => f,
                     Err(_) => return status::IO_ERROR,
@@ -709,7 +843,11 @@ impl DiskIndexedFile {
                     }
                     // I-O / EXTEND create an empty file.
                     let f = match OpenOptions::new()
-                        .read(true).write(true).create(true).truncate(true).open(&self.path)
+                        .read(true)
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open(&self.path)
                     {
                         Ok(f) => f,
                         Err(_) => return status::IO_ERROR,
@@ -773,7 +911,10 @@ impl DiskIndexedFile {
         if self.open.is_none() {
             return status::LOGIC_ERROR;
         }
-        let writable = matches!(self.open, Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend));
+        let writable = matches!(
+            self.open,
+            Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)
+        );
         let mut code = status::OK;
         if writable {
             if self.persist_directory().is_err() || self.write_header().is_err() {
@@ -794,7 +935,10 @@ impl DiskIndexedFile {
     // ── WRITE ────────────────────────────────────────────────────────────────
 
     pub fn write(&mut self, rec: &[u8]) -> &'static str {
-        if !matches!(self.open, Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)) {
+        if !matches!(
+            self.open,
+            Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)
+        ) {
             return status::NOT_OPEN_OUTPUT;
         }
         let rec = self.fit(rec);
@@ -868,7 +1012,10 @@ impl DiskIndexedFile {
         let (root, prefixed) = if self.kor == 0 {
             (self.primary_root, false)
         } else {
-            (self.alt_roots[self.kor - 1], self.alternates[self.kor - 1].duplicates)
+            (
+                self.alt_roots[self.kor - 1],
+                self.alternates[self.kor - 1].duplicates,
+            )
         };
         let found = if prefixed {
             // duplicates alt: first entry whose prefix == key
@@ -926,7 +1073,9 @@ impl DiskIndexedFile {
                 ReadDir::Previous => self.step_back(leaf, idx).unwrap_or(None),
             },
         };
-        let Some((leaf, idx)) = next_pos else { return (None, status::EOF) };
+        let Some((leaf, idx)) = next_pos else {
+            return (None, status::EOF);
+        };
         match self.entry_at(leaf, idx) {
             Ok(Some((_, recid))) => {
                 self.cursor = Some((leaf, idx));
@@ -946,7 +1095,9 @@ impl DiskIndexedFile {
     fn first_nonempty_from(&mut self, leaf: u64) -> Option<(u64, usize)> {
         let mut lid = leaf;
         loop {
-            let Node::Leaf { next, entries, .. } = self.load_node(lid).ok()? else { return None };
+            let Node::Leaf { next, entries, .. } = self.load_node(lid).ok()? else {
+                return None;
+            };
             if !entries.is_empty() {
                 return Some((lid, 0));
             }
@@ -960,7 +1111,9 @@ impl DiskIndexedFile {
     fn last_nonempty_from(&mut self, leaf: u64) -> Option<(u64, usize)> {
         let mut lid = leaf;
         loop {
-            let Node::Leaf { prev, entries, .. } = self.load_node(lid).ok()? else { return None };
+            let Node::Leaf { prev, entries, .. } = self.load_node(lid).ok()? else {
+                return None;
+            };
             if !entries.is_empty() {
                 return Some((lid, entries.len() - 1));
             }
@@ -1178,12 +1331,16 @@ impl DiskIndexedFile {
         self.tx_replay = true;
         for entry in std::mem::take(&mut self.undo).into_iter().rev() {
             match entry {
-                DiskUndo::Insert(pkey) => { self.delete(Some(&pkey)); }
+                DiskUndo::Insert(pkey) => {
+                    self.delete(Some(&pkey));
+                }
                 DiskUndo::Update(old) => {
                     let pk = Self::extract(&self.primary, &old);
                     self.rewrite(&old, Some(&pk));
                 }
-                DiskUndo::Delete(old) => { self.write(&old); }
+                DiskUndo::Delete(old) => {
+                    self.write(&old);
+                }
             }
         }
         self.tx_replay = false;
@@ -1206,11 +1363,19 @@ impl DiskIndexedFile {
     }
 
     fn active_root(&self) -> u64 {
-        if self.kor == 0 { self.primary_root } else { self.alt_roots[self.kor - 1] }
+        if self.kor == 0 {
+            self.primary_root
+        } else {
+            self.alt_roots[self.kor - 1]
+        }
     }
 
     fn kor_key_len(&self) -> usize {
-        if self.kor == 0 { self.primary.len } else { self.alternates[self.kor - 1].len }
+        if self.kor == 0 {
+            self.primary.len
+        } else {
+            self.alternates[self.kor - 1].len
+        }
     }
 
     // ── Schema / inspect ─────────────────────────────────────────────────────
@@ -1223,7 +1388,11 @@ impl DiskIndexedFile {
         KeyDescriptor {
             key_number,
             name: self.key_name(name_idx),
-            parts: vec![KeyPart { offset: spec.offset as u32, length: spec.len as u32, encoding: KeyEncoding::Bytes }],
+            parts: vec![KeyPart {
+                offset: spec.offset as u32,
+                length: spec.len as u32,
+                encoding: KeyEncoding::Bytes,
+            }],
             duplicates_allowed: spec.duplicates,
             ordering: KeyOrdering::Ascending,
         }
@@ -1237,9 +1406,12 @@ impl DiskIndexedFile {
             .enumerate()
             .map(|(i, ks)| self.descriptor((i + 2) as u16, ks, i + 1))
             .collect();
-        let total = primary.total_length() + alternates.iter().map(|d| d.total_length()).sum::<u32>();
+        let total =
+            primary.total_length() + alternates.iter().map(|d| d.total_length()).sum::<u32>();
         IndexedFileInfo {
-            record_format: RecordFormat::Fixed { length: self.record_len as u32 },
+            record_format: RecordFormat::Fixed {
+                length: self.record_len as u32,
+            },
             key_count: 1 + alternates.len() as u16,
             total_key_length: total,
             primary,
@@ -1252,13 +1424,20 @@ impl DiskIndexedFile {
         fn key_eq(a: &KeyDescriptor, b: &KeyDescriptor) -> bool {
             a.duplicates_allowed == b.duplicates_allowed
                 && a.parts.len() == b.parts.len()
-                && a.parts.iter().zip(&b.parts).all(|(x, y)| x.offset == y.offset && x.length == y.length)
+                && a.parts
+                    .iter()
+                    .zip(&b.parts)
+                    .all(|(x, y)| x.offset == y.offset && x.length == y.length)
         }
         decl.record_format == stored.record_format
             && decl.key_count == stored.key_count
             && key_eq(&decl.primary, &stored.primary)
             && decl.alternates.len() == stored.alternates.len()
-            && decl.alternates.iter().zip(&stored.alternates).all(|(a, b)| key_eq(a, b))
+            && decl
+                .alternates
+                .iter()
+                .zip(&stored.alternates)
+                .all(|(a, b)| key_eq(a, b))
     }
 
     // ── Header + directory persistence (page 0 / dir chain) ──────────────────
@@ -1349,7 +1528,11 @@ impl DiskIndexedFile {
                 i += 4;
                 let len = read_u32(&p, i);
                 i += 4;
-                parts.push(KeyPart { offset: off, length: len, encoding: KeyEncoding::Bytes });
+                parts.push(KeyPart {
+                    offset: off,
+                    length: len,
+                    encoding: KeyEncoding::Bytes,
+                });
             }
             descs.push(KeyDescriptor {
                 key_number: (kn + 1) as u16,
@@ -1363,12 +1546,23 @@ impl DiskIndexedFile {
         self.load_directory(dir_len)?;
 
         let primary = descs.first().cloned().unwrap_or(KeyDescriptor {
-            key_number: 1, name: None, parts: vec![], duplicates_allowed: false, ordering: KeyOrdering::Ascending,
+            key_number: 1,
+            name: None,
+            parts: vec![],
+            duplicates_allowed: false,
+            ordering: KeyOrdering::Ascending,
         });
-        let alternates = if descs.len() > 1 { descs[1..].to_vec() } else { Vec::new() };
-        let total = primary.total_length() + alternates.iter().map(|d| d.total_length()).sum::<u32>();
+        let alternates = if descs.len() > 1 {
+            descs[1..].to_vec()
+        } else {
+            Vec::new()
+        };
+        let total =
+            primary.total_length() + alternates.iter().map(|d| d.total_length()).sum::<u32>();
         Ok(Some(IndexedFileInfo {
-            record_format: RecordFormat::Fixed { length: self.record_len as u32 },
+            record_format: RecordFormat::Fixed {
+                length: self.record_len as u32,
+            },
             key_count: key_count as u16,
             total_key_length: total,
             primary,
@@ -1392,8 +1586,11 @@ impl DiskIndexedFile {
         const ENTRY: usize = 15; // kind(1) + page(8) + slot(2) + len(4)
         let per_page = (PAGE_SIZE - 11) / ENTRY;
         // Snapshot into owned chunks so we can allocate pages while iterating.
-        let chunks: Vec<Vec<RecLoc>> =
-            self.directory.chunks(per_page).map(|c| c.to_vec()).collect();
+        let chunks: Vec<Vec<RecLoc>> = self
+            .directory
+            .chunks(per_page)
+            .map(|c| c.to_vec())
+            .collect();
         let mut ids = Vec::with_capacity(chunks.len());
         for _ in 0..chunks.len() {
             ids.push(self.alloc_page()?);
@@ -1430,7 +1627,12 @@ impl DiskIndexedFile {
                 let slot = u16::from_le_bytes([p[i + 9], p[i + 10]]);
                 let len = u32::from_le_bytes(p[i + 11..i + 15].try_into().unwrap());
                 i += 15;
-                self.directory.push(RecLoc { kind, page, slot, len });
+                self.directory.push(RecLoc {
+                    kind,
+                    page,
+                    slot,
+                    len,
+                });
             }
             pid = next;
         }
@@ -1443,7 +1645,11 @@ impl DiskIndexedFile {
         let mut probe = DiskIndexedFile::new(
             path.as_ref(),
             0,
-            KeySpec { offset: 0, len: 0, duplicates: false },
+            KeySpec {
+                offset: 0,
+                len: 0,
+                duplicates: false,
+            },
             Vec::new(),
         );
         if !path.as_ref().exists() {
@@ -1458,20 +1664,42 @@ impl DiskIndexedFile {
 }
 
 impl crate::indexed::IndexedStore for DiskIndexedFile {
-    fn open(&mut self, mode: OpenMode) -> &'static str { self.open(mode) }
-    fn close(&mut self) -> &'static str { self.close() }
-    fn write(&mut self, rec: &[u8]) -> &'static str { self.write(rec) }
-    fn read_key(&mut self, key: &[u8]) -> (Option<Bytes>, &'static str) { self.read_key(key) }
-    fn read_seq(&mut self, dir: ReadDir) -> (Option<Bytes>, &'static str) { self.read_seq(dir) }
-    fn start(&mut self, op: StartOp, key: &[u8]) -> &'static str { self.start(op, key) }
+    fn open(&mut self, mode: OpenMode) -> &'static str {
+        self.open(mode)
+    }
+    fn close(&mut self) -> &'static str {
+        self.close()
+    }
+    fn write(&mut self, rec: &[u8]) -> &'static str {
+        self.write(rec)
+    }
+    fn read_key(&mut self, key: &[u8]) -> (Option<Bytes>, &'static str) {
+        self.read_key(key)
+    }
+    fn read_seq(&mut self, dir: ReadDir) -> (Option<Bytes>, &'static str) {
+        self.read_seq(dir)
+    }
+    fn start(&mut self, op: StartOp, key: &[u8]) -> &'static str {
+        self.start(op, key)
+    }
     fn rewrite(&mut self, rec: &[u8], random_key: Option<&[u8]>) -> &'static str {
         self.rewrite(rec, random_key)
     }
-    fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str { self.delete(random_key) }
-    fn set_key_of_reference(&mut self, kor: usize) { self.set_key_of_reference(kor) }
-    fn is_open(&self) -> bool { self.is_open() }
-    fn commit(&mut self) { self.commit() }
-    fn rollback(&mut self) { self.rollback() }
+    fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str {
+        self.delete(random_key)
+    }
+    fn set_key_of_reference(&mut self, kor: usize) {
+        self.set_key_of_reference(kor)
+    }
+    fn is_open(&self) -> bool {
+        self.is_open()
+    }
+    fn commit(&mut self) {
+        self.commit()
+    }
+    fn rollback(&mut self) {
+        self.rollback()
+    }
 }
 
 // ── Free helpers ─────────────────────────────────────────────────────────────
@@ -1515,15 +1743,32 @@ mod tests {
         let mut f = DiskIndexedFile::new(
             p,
             15,
-            KeySpec { offset: 0, len: 5, duplicates: false },
-            vec![KeySpec { offset: 5, len: 10, duplicates: dup }],
+            KeySpec {
+                offset: 0,
+                len: 5,
+                duplicates: false,
+            },
+            vec![KeySpec {
+                offset: 5,
+                len: 10,
+                duplicates: dup,
+            }],
         );
         f.set_compressing(compress);
         f
     }
     /// Primary-key-only file (no alternate) for tests that reuse the NAME field.
     fn newfile_pk(p: PathBuf) -> DiskIndexedFile {
-        DiskIndexedFile::new(p, 15, KeySpec { offset: 0, len: 5, duplicates: false }, Vec::new())
+        DiskIndexedFile::new(
+            p,
+            15,
+            KeySpec {
+                offset: 0,
+                len: 5,
+                duplicates: false,
+            },
+            Vec::new(),
+        )
     }
 
     #[test]
@@ -1750,7 +1995,11 @@ mod tests {
         let mut f = DiskIndexedFile::new(
             p.clone(),
             600,
-            KeySpec { offset: 0, len: 5, duplicates: false },
+            KeySpec {
+                offset: 0,
+                len: 5,
+                duplicates: false,
+            },
             Vec::new(),
         );
         f.set_compressing(true);
@@ -1763,12 +2012,19 @@ mod tests {
         f.close();
         // The file must be far smaller than 50 records × 600 bytes uncompressed.
         let file_len = std::fs::metadata(&p).unwrap().len();
-        assert!(file_len < 50 * 600 / 2 + 4096 * 4, "compression ineffective: {file_len} bytes");
+        assert!(
+            file_len < 50 * 600 / 2 + 4096 * 4,
+            "compression ineffective: {file_len} bytes"
+        );
 
         let mut g = DiskIndexedFile::new(
             p.clone(),
             600,
-            KeySpec { offset: 0, len: 5, duplicates: false },
+            KeySpec {
+                offset: 0,
+                len: 5,
+                duplicates: false,
+            },
             Vec::new(),
         );
         // compressing flag is read back from the header.
@@ -1808,7 +2064,10 @@ mod tests {
         let info = DiskIndexedFile::inspect_path(&p).unwrap().expect("schema");
         assert_eq!(info.key_count, 2);
         assert_eq!(info.record_format, RecordFormat::Fixed { length: 15 });
-        assert_eq!((info.primary.parts[0].offset, info.primary.parts[0].length), (0, 5));
+        assert_eq!(
+            (info.primary.parts[0].offset, info.primary.parts[0].length),
+            (0, 5)
+        );
         assert!(info.alternates[0].duplicates_allowed);
         let _ = std::fs::remove_file(&p);
     }

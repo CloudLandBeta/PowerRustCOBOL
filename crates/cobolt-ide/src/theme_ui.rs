@@ -32,7 +32,10 @@ pub fn choices(ctx: &egui::Context) -> Vec<(String, String)> {
         .map(|c| c.0)
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| {
-            vec![(cobolt_forms::theme::LIQUID_GLASS.to_owned(), "Liquid Glass".to_owned())]
+            vec![(
+                cobolt_forms::theme::LIQUID_GLASS.to_owned(),
+                "Liquid Glass".to_owned(),
+            )]
         })
 }
 
@@ -43,6 +46,10 @@ pub fn display_name(ctx: &egui::Context, theme_id: &str) -> String {
         .find(|(id, _)| id == theme_id)
         .map(|(_, n)| n.clone())
         .unwrap_or_else(|| {
-            if theme_id.is_empty() { "Liquid Glass".to_owned() } else { theme_id.to_owned() }
+            if theme_id.is_empty() {
+                "Liquid Glass".to_owned()
+            } else {
+                theme_id.to_owned()
+            }
         })
 }

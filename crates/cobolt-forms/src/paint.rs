@@ -306,7 +306,9 @@ pub fn draw_glass(
     {
         let arc_inset = |y: f32, r: f32, edge: f32| -> f32 {
             let dy = (y - edge).abs();
-            if dy >= r || r < 0.5 { return 0.0; }
+            if dy >= r || r < 0.5 {
+                return 0.0;
+            }
             // Extra 0.5px so the fill sits under the border stroke's inner edge
             (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
         };
@@ -315,20 +317,20 @@ pub fn draw_glass(
             let t = i as f32 / (band_count as f32 - 1.0).max(1.0);
             let y_top = y0 + i as f32;
             let y_bot = (y_top + 1.0).min(y1);
-            if y_bot <= y_top { continue; }
+            if y_bot <= y_top {
+                continue;
+            }
 
             // Use the y closest to each corner edge for tightest inset
-            let left_inset = arc_inset(y_top, rnd.nw, y0)
-                .max(arc_inset(y_bot, rnd.sw, y1));
-            let right_inset = arc_inset(y_top, rnd.ne, y0)
-                .max(arc_inset(y_bot, rnd.se, y1));
+            let left_inset = arc_inset(y_top, rnd.nw, y0).max(arc_inset(y_bot, rnd.sw, y1));
+            let right_inset = arc_inset(y_top, rnd.ne, y0).max(arc_inset(y_bot, rnd.se, y1));
             let bx0 = x0 + left_inset;
             let bx1 = x1 - right_inset;
-            if bx1 <= bx0 { continue; }
+            if bx1 <= bx0 {
+                continue;
+            }
 
-            let band_rect = egui::Rect::from_min_max(
-                Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot),
-            );
+            let band_rect = egui::Rect::from_min_max(Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot));
 
             let u = t.clamp(0.0, 1.0);
             let smooth = u * u * (3.0 - 2.0 * u);
@@ -349,7 +351,11 @@ pub fn draw_glass(
             let fb = (gb * ga / 255.0 + db).clamp(0.0, 255.0) as u8;
             let fa = (ga + d_alpha).clamp(0.0, 255.0) as u8;
 
-            painter.rect_filled(band_rect, 0.0, Color32::from_rgba_premultiplied(fr, fg, fb, fa));
+            painter.rect_filled(
+                band_rect,
+                0.0,
+                Color32::from_rgba_premultiplied(fr, fg, fb, fa),
+            );
         }
     }
 
@@ -448,7 +454,9 @@ pub fn draw_glass_enhanced(
     {
         let arc_inset = |y: f32, r: f32, edge: f32| -> f32 {
             let dy = (y - edge).abs();
-            if dy >= r || r < 0.5 { return 0.0; }
+            if dy >= r || r < 0.5 {
+                return 0.0;
+            }
             (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
         };
         let band_count = h.ceil() as usize;
@@ -456,17 +464,17 @@ pub fn draw_glass_enhanced(
             let t = i as f32 / (band_count as f32 - 1.0).max(1.0);
             let y_top = y0 + i as f32;
             let y_bot = (y_top + 1.0).min(y1);
-            if y_bot <= y_top { continue; }
-            let left_inset = arc_inset(y_top, rnd.nw, y0)
-                .max(arc_inset(y_bot, rnd.sw, y1));
-            let right_inset = arc_inset(y_top, rnd.ne, y0)
-                .max(arc_inset(y_bot, rnd.se, y1));
+            if y_bot <= y_top {
+                continue;
+            }
+            let left_inset = arc_inset(y_top, rnd.nw, y0).max(arc_inset(y_bot, rnd.sw, y1));
+            let right_inset = arc_inset(y_top, rnd.ne, y0).max(arc_inset(y_bot, rnd.se, y1));
             let bx0 = x0 + left_inset;
             let bx1 = x1 - right_inset;
-            if bx1 <= bx0 { continue; }
-            let band_rect = egui::Rect::from_min_max(
-                Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot),
-            );
+            if bx1 <= bx0 {
+                continue;
+            }
+            let band_rect = egui::Rect::from_min_max(Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot));
             let u = t.clamp(0.0, 1.0);
             let smooth = u * u * (3.0 - 2.0 * u);
             let glass_alpha = 30.0 + 82.0 * (1.0 - smooth).powf(1.18);
@@ -485,7 +493,11 @@ pub fn draw_glass_enhanced(
             let fg = (gg * ga / 255.0 + dg).clamp(0.0, 255.0) as u8;
             let fb = (gb * ga / 255.0 + db).clamp(0.0, 255.0) as u8;
             let fa = (ga + d_alpha).clamp(0.0, 255.0) as u8;
-            painter.rect_filled(band_rect, 0.0, Color32::from_rgba_premultiplied(fr, fg, fb, fa));
+            painter.rect_filled(
+                band_rect,
+                0.0,
+                Color32::from_rgba_premultiplied(fr, fg, fb, fa),
+            );
         }
     }
 
@@ -496,7 +508,9 @@ pub fn draw_glass_enhanced(
     {
         let arc_hi = |y: f32, r: f32, edge: f32| -> f32 {
             let dy = (y - edge).abs();
-            if dy >= r || r < 0.5 { return 0.0; }
+            if dy >= r || r < 0.5 {
+                return 0.0;
+            }
             (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
         };
         let band_rows = band_h.ceil() as usize;
@@ -504,17 +518,22 @@ pub fn draw_glass_enhanced(
             let t = i as f32 / (band_rows as f32 - 1.0).max(1.0);
             let yt = y0 + i as f32;
             let yb = (yt + 1.0).min(y0 + band_h);
-            if yb <= yt { continue; }
+            if yb <= yt {
+                continue;
+            }
             let li = arc_hi(yt, rnd.nw, y0);
             let ri = arc_hi(yt, rnd.ne, y0);
             let bx0 = x0 + li;
             let bx1 = x1 - ri;
-            if bx1 <= bx0 { continue; }
+            if bx1 <= bx0 {
+                continue;
+            }
             let fade = (1.0 - t).powf(1.8);
             let c = white((38.0 * fade) as u8);
             painter.rect_filled(
                 egui::Rect::from_min_max(Pos2::new(bx0, yt), Pos2::new(bx1, yb)),
-                0.0, c,
+                0.0,
+                c,
             );
         }
     }
@@ -526,7 +545,11 @@ pub fn draw_glass_enhanced(
     let inner_inset = 2.4_f32.min(w * 0.1).min(h * 0.1);
     let inner_rect = rect.shrink(inner_inset);
     let inner_round = round_map(rnd, |c| {
-        if c <= 0.0 { 0.0 } else { (c - inner_inset).max(1.0) }
+        if c <= 0.0 {
+            0.0
+        } else {
+            (c - inner_inset).max(1.0)
+        }
     });
     painter.rect_stroke(inner_rect, inner_round, Stroke::new(0.6, white(55)));
 
@@ -1625,7 +1648,11 @@ pub fn draw_control(
         // user border on top of the glass frame so containers (Panel, GroupBox)
         // honour the same border properties as non-glass controls.
         if border_style != "None" && user_border_width > 0.5 {
-            let bw = if selected { 2.0_f32.max(user_border_width) } else { user_border_width };
+            let bw = if selected {
+                2.0_f32.max(user_border_width)
+            } else {
+                user_border_width
+            };
             let bc = if selected {
                 Color32::from_rgba_premultiplied(60, 120, 230, a)
             } else {
@@ -1634,7 +1661,13 @@ pub fn draw_control(
             let half = bw * 0.5;
             painter.rect_stroke(
                 rect.shrink(half),
-                round_map(frame_round, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
+                round_map(frame_round, |c| {
+                    if c <= 0.0 {
+                        0.0
+                    } else {
+                        (c - half).max(1.0)
+                    }
+                }),
                 Stroke::new(bw, bc),
             );
         }
@@ -1661,7 +1694,11 @@ pub fn draw_control(
     } else {
         painter.rect_filled(rect, frame_round, alpha_color(fill));
         if border_style != "None" {
-            let bw = if selected { 2.0_f32.max(user_border_width) } else { user_border_width };
+            let bw = if selected {
+                2.0_f32.max(user_border_width)
+            } else {
+                user_border_width
+            };
             let bc = if selected {
                 Color32::from_rgba_premultiplied(60, 120, 230, a)
             } else {
@@ -1670,7 +1707,8 @@ pub fn draw_control(
             painter.rect_stroke(rect, frame_round, Stroke::new(bw, bc));
         } else if selected {
             painter.rect_stroke(
-                rect, frame_round,
+                rect,
+                frame_round,
                 Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
             );
         }
@@ -1975,21 +2013,28 @@ pub fn draw_control(
     if matches!(ctrl.control_type, CT::MenuBar) {
         if let Some(def) = get_menu_cache(painter.ctx(), &ctrl.id) {
             if !def.menu.is_empty() {
-                let fg_base = ctrl.get_prop("ForegroundColor")
+                let fg_base = ctrl
+                    .get_prop("ForegroundColor")
                     .map(|v| parse_color(v.as_str()))
                     .unwrap_or(Color32::from_rgb(225, 230, 250));
                 let fg = Color32::from_rgba_premultiplied(fg_base.r(), fg_base.g(), fg_base.b(), a);
                 let fsize = ctrl_font_size(ctrl);
-                let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
+                let font_name = ctrl
+                    .get_prop("FontName")
+                    .map(|v| v.as_str())
+                    .unwrap_or_default();
                 let fid = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
                 let mut x = rect.min.x + 10.0;
                 for entry in &def.menu {
-                    if entry.item_type == crate::menu::MenuItemType::Separator { continue; }
+                    if entry.item_type == crate::menu::MenuItemType::Separator {
+                        continue;
+                    }
                     let galley = painter.layout_no_wrap(entry.label.clone(), fid.clone(), fg);
                     let w = galley.size().x;
                     painter.galley(
                         Pos2::new(x, rect.center().y - galley.size().y * 0.5),
-                        galley, fg,
+                        galley,
+                        fg,
                     );
                     x += w + 18.0;
                 }
@@ -2140,7 +2185,10 @@ pub fn draw_groupbox_caption(
                 egui::Vec2::new(galley.size().x + pad * 2.0, galley.size().y + 2.0),
             );
             let bg_color = Color32::from_rgba_premultiplied(
-                bg.r(), bg.g(), bg.b(), ((bg.a() as f32) * a) as u8,
+                bg.r(),
+                bg.g(),
+                bg.b(),
+                ((bg.a() as f32) * a) as u8,
             );
             painter.rect_filled(bg_rect, 2.0, bg_color);
         }
@@ -4002,7 +4050,13 @@ pub fn set_glass_style(ctx: &egui::Context, style: crate::model::GlassStyle) {
 /// Read the active glass style (defaults to Classic).
 fn active_glass_style(ctx: &egui::Context) -> crate::model::GlassStyle {
     ctx.data(|d| d.get_temp::<u8>(glass_style_id()))
-        .map(|v| if v == 1 { crate::model::GlassStyle::Enhanced } else { crate::model::GlassStyle::Classic })
+        .map(|v| {
+            if v == 1 {
+                crate::model::GlassStyle::Enhanced
+            } else {
+                crate::model::GlassStyle::Classic
+            }
+        })
         .unwrap_or(crate::model::GlassStyle::Classic)
 }
 
@@ -4028,13 +4082,20 @@ pub fn draw_glass_auto(
 // ── Menu definition cache (per control ID, set by the designer) ──────────────
 
 /// Store a loaded MenuDefinition in egui temp data so `draw_control` can read it.
-pub fn set_menu_cache(ctx: &egui::Context, ctrl_id: &str, def: std::sync::Arc<crate::menu::MenuDefinition>) {
+pub fn set_menu_cache(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+    def: std::sync::Arc<crate::menu::MenuDefinition>,
+) {
     let key = egui::Id::new("cobolt-menu-def").with(ctrl_id);
     ctx.data_mut(|d| d.insert_temp(key, def));
 }
 
 /// Retrieve the cached MenuDefinition for a control (if any).
-pub fn get_menu_cache(ctx: &egui::Context, ctrl_id: &str) -> Option<std::sync::Arc<crate::menu::MenuDefinition>> {
+pub fn get_menu_cache(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+) -> Option<std::sync::Arc<crate::menu::MenuDefinition>> {
     let key = egui::Id::new("cobolt-menu-def").with(ctrl_id);
     ctx.data(|d| d.get_temp::<std::sync::Arc<crate::menu::MenuDefinition>>(key))
 }

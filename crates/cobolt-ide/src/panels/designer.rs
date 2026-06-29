@@ -18,14 +18,17 @@
 //! - Undo / Redo command stack
 
 use cobolt_forms::model::{
-    AnimKind, AnimRepeat, AnimTrigger, AnimationDef, BgImageMode, EasingKind, PropValue,
+    derive_paragraph_name, AnimKind, AnimRepeat, AnimTrigger, AnimationDef, BgImageMode,
+    EasingKind, PropValue,
 };
 use cobolt_forms::{Control, ControlType, Form};
 use egui::{Color32, CursorIcon, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::properties::PropertiesPanel;
 use super::toolbox::ToolboxPanel;
+use crate::app::DesignerClipboard;
+use crate::project_model::{UserControlDef, UserControlEntry};
 
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
 // designer, preview, run form and compiled binaries all draw identically.
@@ -56,6 +59,28 @@ impl cobolt_forms::render::FormState for DesignerState<'_> {
             .copied()
             .unwrap_or(cobolt_forms::render::RenderTransform::IDENTITY)
     }
+}
+
+#[derive(Default)]
+pub(crate) struct DesignerShowResult {
+    pub(crate) selection_changed: bool,
+    pub(crate) user_control_created: Option<UserControlDef>,
+    pub(crate) user_control_delete_requested: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct UserControlCreateDialog {
+    group_id: String,
+    name: String,
+    error: Option<UserControlNameError>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum UserControlNameError {
+    Empty,
+    Invalid,
+    Duplicate,
+    Circular,
 }
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
@@ -198,6 +223,7 @@ enum Cmd {
     DeleteControl {
         index: usize,
         ctrl: Control,
+        deleted_at: String,
     },
     MoveControl {
         id: String,
@@ -389,6 +415,13 @@ enum FormEdge {
     Corner,
 }
 
+#[derive(Clone, Debug)]
+struct DeleteConfirmation {
+    control_ids: Vec<String>,
+    control_count: usize,
+    event_count: usize,
+}
+
 /// Half-width (px) of the grab band along the form's right/bottom border.
 const FORM_EDGE_GRAB: f32 = 7.0;
 
@@ -508,20 +541,43 @@ impl MenuEditorModal {
         Self::item_at_mut(&mut self.def.menu, &self.selected)
     }
 
-    fn item_at<'a>(items: &'a [cobolt_forms::menu::MenuItem], path: &[usize]) -> Option<&'a cobolt_forms::menu::MenuItem> {
-        if path.is_empty() { return None; }
+    fn item_at<'a>(
+        items: &'a [cobolt_forms::menu::MenuItem],
+        path: &[usize],
+    ) -> Option<&'a cobolt_forms::menu::MenuItem> {
+        if path.is_empty() {
+            return None;
+        }
         let item = items.get(path[0])?;
-        if path.len() == 1 { Some(item) } else { Self::item_at(&item.items, &path[1..]) }
+        if path.len() == 1 {
+            Some(item)
+        } else {
+            Self::item_at(&item.items, &path[1..])
+        }
     }
 
-    fn item_at_mut<'a>(items: &'a mut [cobolt_forms::menu::MenuItem], path: &[usize]) -> Option<&'a mut cobolt_forms::menu::MenuItem> {
-        if path.is_empty() { return None; }
+    fn item_at_mut<'a>(
+        items: &'a mut [cobolt_forms::menu::MenuItem],
+        path: &[usize],
+    ) -> Option<&'a mut cobolt_forms::menu::MenuItem> {
+        if path.is_empty() {
+            return None;
+        }
         let item = items.get_mut(path[0])?;
-        if path.len() == 1 { Some(item) } else { Self::item_at_mut(&mut item.items, &path[1..]) }
+        if path.len() == 1 {
+            Some(item)
+        } else {
+            Self::item_at_mut(&mut item.items, &path[1..])
+        }
     }
 
-    fn parent_list_mut<'a>(def: &'a mut cobolt_forms::menu::MenuDefinition, path: &[usize]) -> &'a mut Vec<cobolt_forms::menu::MenuItem> {
-        if path.len() <= 1 { return &mut def.menu; }
+    fn parent_list_mut<'a>(
+        def: &'a mut cobolt_forms::menu::MenuDefinition,
+        path: &[usize],
+    ) -> &'a mut Vec<cobolt_forms::menu::MenuItem> {
+        if path.len() <= 1 {
+            return &mut def.menu;
+        }
         let mut items = &mut def.menu;
         for &idx in &path[..path.len() - 1] {
             items = &mut items[idx].items;
@@ -547,9 +603,13 @@ impl MenuEditorModal {
             self.accel_buf = item.accelerator.clone().unwrap_or_default();
             self.target_buf = match &item.action {
                 Some(a) => {
-                    if let Some(rest) = a.strip_prefix("open-form:") { rest.to_string() }
-                    else if let Some(rest) = a.strip_prefix("property:") { rest.to_string() }
-                    else { String::new() }
+                    if let Some(rest) = a.strip_prefix("open-form:") {
+                        rest.to_string()
+                    } else if let Some(rest) = a.strip_prefix("property:") {
+                        rest.to_string()
+                    } else {
+                        String::new()
+                    }
                 }
                 None => String::new(),
             };
@@ -629,6 +689,8 @@ pub struct DesignerPanel {
     pub close_requested: bool,
     /// Set when the user tries to close a dirty designer — shows the Save/Discard/Cancel dialog.
     pub close_confirm: bool,
+    pending_delete: Option<DeleteConfirmation>,
+    create_user_control: Option<UserControlCreateDialog>,
 
     /// Format-painter (copy-style) state.
     pub(crate) format_painter: FormatPainter,
@@ -715,6 +777,8 @@ impl DesignerPanel {
             dirty: false,
             close_requested: false,
             close_confirm: false,
+            pending_delete: None,
+            create_user_control: None,
             toolbox: ToolboxPanel::new(),
             properties: PropertiesPanel::new(),
             show_grid: true,
@@ -837,9 +901,12 @@ impl DesignerPanel {
                 let idx = (*index).min(self.form.controls.len());
                 self.form.controls.insert(idx, ctrl.clone());
             }
-            Cmd::DeleteControl { index, .. } => {
+            Cmd::DeleteControl {
+                index, deleted_at, ..
+            } => {
                 if *index < self.form.controls.len() {
-                    self.form.controls.remove(*index);
+                    let id = self.form.controls[*index].id.clone();
+                    self.form.recycle_control(&id, deleted_at.clone());
                 }
             }
             Cmd::MoveControl {
@@ -901,7 +968,15 @@ impl DesignerPanel {
                     self.form.controls.remove(*index);
                 }
             }
-            Cmd::DeleteControl { index, ctrl } => {
+            Cmd::DeleteControl {
+                index,
+                ctrl,
+                deleted_at,
+            } => {
+                self.form.deleted_code.retain(|deleted| {
+                    !(deleted.control_id.eq_ignore_ascii_case(&ctrl.id)
+                        && deleted.deleted_at == *deleted_at)
+                });
                 let idx = (*index).min(self.form.controls.len());
                 self.form.controls.insert(idx, ctrl.clone());
             }
@@ -982,6 +1057,26 @@ impl DesignerPanel {
         }
         let mut max_n = 0u32;
         scan(&self.form.controls, prefix, &mut max_n);
+        format!("{prefix}-{}", max_n + 1)
+    }
+
+    fn next_unique_id_reserved(&self, ct: &ControlType, reserved: &HashSet<String>) -> String {
+        let prefix = control_type_name(ct);
+        let mut max_n = 0u32;
+        for c in &self.form.controls {
+            if let Some(num) = c.id.strip_prefix(prefix).and_then(|r| r.strip_prefix('-')) {
+                if let Ok(n) = num.parse::<u32>() {
+                    max_n = max_n.max(n);
+                }
+            }
+        }
+        for id in reserved {
+            if let Some(num) = id.strip_prefix(prefix).and_then(|r| r.strip_prefix('-')) {
+                if let Ok(n) = num.parse::<u32>() {
+                    max_n = max_n.max(n);
+                }
+            }
+        }
         format!("{prefix}-{}", max_n + 1)
     }
 
@@ -1143,12 +1238,9 @@ impl DesignerPanel {
         self.reparent_to_drop(&id);
     }
 
-    pub fn delete_selected(&mut self) {
-        // Delete all selected controls AND the descendants of any selected
-        // container (cascade — spec 012 R13), highest index first so indices
-        // don't shift mid-loop.
-        let mut id_set: Vec<String> = self.selected_ids.clone();
-        for sid in &self.selected_ids {
+    fn cascade_ids_for(&self, ids: &[String]) -> Vec<String> {
+        let mut id_set: Vec<String> = ids.to_vec();
+        for sid in ids {
             if let Some(i) = self.form.controls.iter().position(|c| &c.id == sid) {
                 for d in super::containers::collect_descendants(&self.form.controls, i) {
                     let did = self.form.controls[d].id.clone();
@@ -1158,18 +1250,446 @@ impl DesignerPanel {
                 }
             }
         }
-        let mut indices: Vec<usize> = id_set
+        id_set
+    }
+
+    fn delete_event_count(&self, ids: &[String]) -> usize {
+        ids.iter()
+            .filter_map(|id| self.form.find_control(id))
+            .flat_map(|ctrl| ctrl.events.iter())
+            .filter(|event| event.has_code())
+            .count()
+    }
+
+    fn delete_ids_now(&mut self, ids: &[String]) {
+        let mut indices: Vec<usize> = ids
             .iter()
-            .filter_map(|sid| self.form.controls.iter().position(|c| &c.id == sid))
+            .filter_map(|id| self.form.controls.iter().position(|c| &c.id == id))
             .collect();
         indices.sort_unstable();
         indices.dedup();
         // Apply deletes from highest index down
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         for idx in indices.into_iter().rev() {
             let ctrl = self.form.controls[idx].clone();
-            self.apply(Cmd::DeleteControl { index: idx, ctrl });
+            self.apply(Cmd::DeleteControl {
+                index: idx,
+                ctrl,
+                deleted_at: format!("designer-delete-{secs}-{idx}"),
+            });
         }
         self.selected_ids.clear();
+    }
+
+    pub fn delete_selected(&mut self) {
+        // Delete all selected controls AND the descendants of any selected
+        // container (cascade — spec 012 R13), highest index first so indices
+        // don't shift mid-loop.
+        let ids = self.cascade_ids_for(&self.selected_ids);
+        let event_count = self.delete_event_count(&ids);
+        if event_count > 0 {
+            self.pending_delete = Some(DeleteConfirmation {
+                control_ids: ids.clone(),
+                control_count: ids.len(),
+                event_count,
+            });
+            return;
+        }
+        self.delete_ids_now(&ids);
+    }
+
+    pub fn copy_selected(&self, clipboard: &mut Option<DesignerClipboard>) {
+        if self.selected_ids.is_empty() {
+            return;
+        }
+        let ids = self.cascade_ids_for(&self.selected_ids);
+        let mut indices: Vec<usize> = ids
+            .iter()
+            .filter_map(|id| self.form.controls.iter().position(|c| &c.id == id))
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        if indices.is_empty() {
+            return;
+        }
+
+        let min_x = indices
+            .iter()
+            .map(|&idx| self.form.controls[idx].rect.x)
+            .min()
+            .unwrap_or(0);
+        let min_y = indices
+            .iter()
+            .map(|&idx| self.form.controls[idx].rect.y)
+            .min()
+            .unwrap_or(0);
+
+        let controls = indices
+            .into_iter()
+            .map(|idx| {
+                let mut ctrl = self.form.controls[idx].clone();
+                ctrl.rect.x -= min_x;
+                ctrl.rect.y -= min_y;
+                for event in &mut ctrl.events {
+                    event.code.clear();
+                }
+                ctrl
+            })
+            .collect();
+
+        *clipboard = Some(DesignerClipboard {
+            controls,
+            source_form: self.form.name.clone(),
+            origin_x: min_x,
+            origin_y: min_y,
+        });
+    }
+
+    fn selected_groupbox_id(&self) -> Option<String> {
+        if self.selected_ids.len() != 1 {
+            return None;
+        }
+        let id = self.selected_ids[0].clone();
+        self.form
+            .find_control(&id)
+            .filter(|ctrl| matches!(ctrl.control_type, ControlType::GroupBox))
+            .map(|_| id)
+    }
+
+    fn validate_user_control_name(
+        name: &str,
+        existing_names: &[String],
+    ) -> Result<(), UserControlNameError> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(UserControlNameError::Empty);
+        }
+        let mut chars = trimmed.chars();
+        let Some(first) = chars.next() else {
+            return Err(UserControlNameError::Empty);
+        };
+        if !first.is_ascii_alphabetic() {
+            return Err(UserControlNameError::Invalid);
+        }
+        let mut previous_hyphen = false;
+        for ch in trimmed.chars() {
+            let ok = ch.is_ascii_alphanumeric() || ch == '-';
+            if !ok || (ch == '-' && previous_hyphen) {
+                return Err(UserControlNameError::Invalid);
+            }
+            previous_hyphen = ch == '-';
+        }
+        if trimmed.ends_with('-') {
+            return Err(UserControlNameError::Invalid);
+        }
+        if existing_names
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(trimmed))
+        {
+            return Err(UserControlNameError::Duplicate);
+        }
+        Ok(())
+    }
+
+    fn has_circular_user_control_reference(
+        new_name: &str,
+        controls: &[UserControlEntry],
+        definitions: &[UserControlDef],
+    ) -> bool {
+        fn definition_refs_name(
+            target: &str,
+            def_name: &str,
+            definitions: &[UserControlDef],
+            visiting: &mut HashSet<String>,
+        ) -> bool {
+            if def_name.eq_ignore_ascii_case(target) {
+                return true;
+            }
+            let key = def_name.to_ascii_lowercase();
+            if !visiting.insert(key) {
+                return false;
+            }
+            let Some(def) = definitions
+                .iter()
+                .find(|def| def.name.eq_ignore_ascii_case(def_name))
+            else {
+                return false;
+            };
+            def.controls
+                .iter()
+                .filter_map(|entry| entry.properties.get("UserControl"))
+                .any(|nested| definition_refs_name(target, nested, definitions, visiting))
+        }
+
+        controls
+            .iter()
+            .filter_map(|entry| entry.properties.get("UserControl"))
+            .any(|nested| definition_refs_name(new_name, nested, definitions, &mut HashSet::new()))
+    }
+
+    fn capture_user_control_def(&self, group_id: &str, name: String) -> Option<UserControlDef> {
+        let ids = self.cascade_ids_for(&[group_id.to_owned()]);
+        let group = self.form.find_control(group_id)?;
+        let origin_x = group.rect.x;
+        let origin_y = group.rect.y;
+
+        let mut controls = Vec::new();
+        for ctrl_id in ids {
+            let ctrl = self.form.find_control(&ctrl_id)?;
+            let properties = ctrl
+                .properties
+                .iter()
+                .map(|(key, value)| (key.clone(), value.to_xml_string()))
+                .collect();
+            controls.push(UserControlEntry {
+                id: ctrl.id.clone(),
+                control_type: ctrl.control_type.as_str().to_string(),
+                parent: ctrl.parent.clone(),
+                x: ctrl.rect.x - origin_x,
+                y: ctrl.rect.y - origin_y,
+                w: ctrl.rect.w,
+                h: ctrl.rect.h,
+                z_order: ctrl.z_order,
+                properties,
+            });
+        }
+
+        Some(UserControlDef {
+            name,
+            width: group.rect.w,
+            height: group.rect.h,
+            controls,
+        })
+    }
+
+    fn next_user_control_instance_id(&self, name: &str) -> String {
+        let prefix = format!("{name}-");
+        let max_n = self
+            .form
+            .controls
+            .iter()
+            .filter_map(|ctrl| ctrl.id.strip_prefix(&prefix))
+            .filter_map(|suffix| suffix.parse::<usize>().ok())
+            .max()
+            .unwrap_or(0);
+        format!("{name}-{}", max_n + 1)
+    }
+
+    pub fn deploy_user_control(
+        &mut self,
+        def: &UserControlDef,
+        x: i32,
+        y: i32,
+        definitions: &[UserControlDef],
+    ) {
+        let Some(root_entry) = def.controls.first() else {
+            return;
+        };
+
+        let gp = self.form.grid_size as i32;
+        let sn = self.form.snap_to_grid;
+        let origin_x = snap(x.max(0), gp, sn);
+        let origin_y = snap(y.max(0), gp, sn);
+        let instance_id = self.next_user_control_instance_id(&def.name);
+        let base_z = self
+            .form
+            .controls
+            .iter()
+            .map(|ctrl| ctrl.z_order)
+            .max()
+            .unwrap_or(-1)
+            + 1;
+        let min_z = def
+            .controls
+            .iter()
+            .map(|entry| entry.z_order)
+            .min()
+            .unwrap_or(0);
+
+        let mut id_map = HashMap::new();
+        id_map.insert(root_entry.id.clone(), instance_id.clone());
+
+        let mut root = Control::new(
+            instance_id.clone(),
+            ControlType::GroupBox,
+            origin_x,
+            origin_y,
+        );
+        root.rect.w = def.width;
+        root.rect.h = def.height;
+        root.z_order = base_z + (root_entry.z_order - min_z);
+        for (key, value) in &root_entry.properties {
+            root.set_prop(key.clone(), PropValue::String(value.clone()));
+        }
+        root.set_prop("UserControl", PropValue::String(def.name.clone()));
+
+        let mut deployed = vec![root];
+        for entry in def.controls.iter().skip(1) {
+            let new_id = format!("{instance_id}-{}", entry.id);
+            id_map.insert(entry.id.clone(), new_id.clone());
+            let mut ctrl = Control::new(
+                new_id,
+                ControlType::from_str(&entry.control_type),
+                origin_x + entry.x,
+                origin_y + entry.y,
+            );
+            ctrl.rect.w = entry.w;
+            ctrl.rect.h = entry.h;
+            ctrl.z_order = base_z + (entry.z_order - min_z);
+            for (key, value) in &entry.properties {
+                ctrl.set_prop(key.clone(), PropValue::String(value.clone()));
+            }
+            deployed.push(ctrl);
+        }
+
+        let mut extra = Vec::new();
+        for entry in def.controls.iter().skip(1) {
+            let Some(nested_name) = entry.properties.get("UserControl") else {
+                continue;
+            };
+            if def
+                .controls
+                .iter()
+                .any(|candidate| candidate.parent.as_deref() == Some(entry.id.as_str()))
+            {
+                continue;
+            }
+            let Some(nested_def) = definitions
+                .iter()
+                .find(|nested| nested.name.eq_ignore_ascii_case(nested_name))
+            else {
+                continue;
+            };
+            let Some(nested_root_id) = id_map.get(&entry.id).cloned() else {
+                continue;
+            };
+            for nested_entry in nested_def.controls.iter().skip(1) {
+                let child_id = format!("{nested_root_id}-{}", nested_entry.id);
+                id_map.insert(
+                    format!("{}:{}", entry.id, nested_entry.id),
+                    child_id.clone(),
+                );
+                let mut ctrl = Control::new(
+                    child_id,
+                    ControlType::from_str(&nested_entry.control_type),
+                    origin_x + entry.x + nested_entry.x,
+                    origin_y + entry.y + nested_entry.y,
+                );
+                ctrl.rect.w = nested_entry.w;
+                ctrl.rect.h = nested_entry.h;
+                ctrl.z_order = base_z + (entry.z_order - min_z) + nested_entry.z_order + 1;
+                for (key, value) in &nested_entry.properties {
+                    ctrl.set_prop(key.clone(), PropValue::String(value.clone()));
+                }
+                ctrl.parent = nested_entry
+                    .parent
+                    .as_ref()
+                    .and_then(|parent| {
+                        if parent == &nested_def.controls[0].id {
+                            Some(nested_root_id.clone())
+                        } else {
+                            id_map.get(&format!("{}:{parent}", entry.id)).cloned()
+                        }
+                    })
+                    .or_else(|| Some(nested_root_id.clone()));
+                extra.push(ctrl);
+            }
+        }
+        deployed.extend(extra);
+
+        for (entry, ctrl) in def.controls.iter().zip(deployed.iter_mut()) {
+            ctrl.parent = entry
+                .parent
+                .as_ref()
+                .and_then(|parent| id_map.get(parent).cloned());
+        }
+        if let Some(root) = deployed.first_mut() {
+            root.parent = None;
+        }
+
+        let selected_ids: Vec<String> = deployed.iter().map(|ctrl| ctrl.id.clone()).collect();
+        for ctrl in deployed {
+            let index = self.form.controls.len();
+            self.apply(Cmd::AddControl { index, ctrl });
+        }
+        self.selected_ids = selected_ids;
+    }
+
+    pub fn paste_from_clipboard(&mut self, clipboard: &Option<DesignerClipboard>) {
+        let Some(clipboard) = clipboard else {
+            return;
+        };
+        if clipboard.controls.is_empty() {
+            return;
+        }
+
+        let mut reserved = HashSet::new();
+        let mut id_map = HashMap::new();
+        let min_z = clipboard
+            .controls
+            .iter()
+            .map(|ctrl| ctrl.z_order)
+            .min()
+            .unwrap_or(0);
+        let base_z = self
+            .form
+            .controls
+            .iter()
+            .map(|ctrl| ctrl.z_order)
+            .max()
+            .unwrap_or(-1)
+            + 1;
+
+        let mut pasted = Vec::with_capacity(clipboard.controls.len());
+        for source in &clipboard.controls {
+            let new_id = self.next_unique_id_reserved(&source.control_type, &reserved);
+            reserved.insert(new_id.clone());
+            id_map.insert(source.id.clone(), new_id.clone());
+
+            let mut ctrl = source.clone();
+            ctrl.id = new_id.clone();
+            ctrl.rect.x = clipboard.origin_x + 20 + source.rect.x;
+            ctrl.rect.y = clipboard.origin_y + 20 + source.rect.y;
+            ctrl.z_order = base_z + (source.z_order - min_z);
+            for event in &mut ctrl.events {
+                event.code.clear();
+                event.paragraph = derive_paragraph_name(&new_id, &event.event);
+            }
+            pasted.push(ctrl);
+        }
+
+        for ctrl in &mut pasted {
+            ctrl.parent = ctrl
+                .parent
+                .as_ref()
+                .and_then(|old_parent| id_map.get(old_parent).cloned());
+        }
+
+        let selected_ids: Vec<String> = pasted.iter().map(|ctrl| ctrl.id.clone()).collect();
+        for ctrl in pasted {
+            let index = self.form.controls.len();
+            self.apply(Cmd::AddControl { index, ctrl });
+        }
+        self.selected_ids = selected_ids;
+    }
+
+    pub fn cut_selected(&mut self, clipboard: &mut Option<DesignerClipboard>) {
+        if self.selected_ids.is_empty() {
+            return;
+        }
+        self.copy_selected(clipboard);
+        self.delete_selected();
+    }
+
+    pub fn duplicate_selected(&mut self, clipboard: &mut Option<DesignerClipboard>) {
+        if self.selected_ids.is_empty() {
+            return;
+        }
+        self.copy_selected(clipboard);
+        self.paste_from_clipboard(clipboard);
     }
 
     pub fn bring_to_front(&mut self) {
@@ -1923,7 +2443,13 @@ impl DesignerPanel {
 
     // ── Rendering ─────────────────────────────────────────────────────────────
 
-    pub fn show(&mut self, ui: &mut Ui) -> bool {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        clipboard: &mut Option<DesignerClipboard>,
+        user_controls: &[UserControlDef],
+    ) -> DesignerShowResult {
+        let mut result = DesignerShowResult::default();
         let mut selection_changed = false;
 
         // 007 Form themes — publish the resolved asset-pack theme for this frame
@@ -1941,7 +2467,10 @@ impl DesignerPanel {
                         if cobolt_forms::paint::get_menu_cache(ui.ctx(), &ctrl.id).is_none() {
                             if let Ok(def) = cobolt_forms::menu::load_menu(&yaml_path) {
                                 cobolt_forms::paint::set_menu_cache(
-                                    ui.ctx(), &ctrl.id, std::sync::Arc::new(def));
+                                    ui.ctx(),
+                                    &ctrl.id,
+                                    std::sync::Arc::new(def),
+                                );
                             }
                         }
                     }
@@ -2242,7 +2771,7 @@ impl DesignerPanel {
 
                 // A control dragged out of the toolbox: show a ghost at the cursor
                 // and drop it where released (see `handle_toolbox_dnd`).
-                self.handle_toolbox_dnd(ui, resp.rect, origin, ptr_canvas);
+                self.handle_toolbox_dnd(ui, resp.rect, origin, ptr_canvas, user_controls);
 
                 // Draw controls sorted by z_order
                 let selected_ids = self.selected_ids.clone();
@@ -2574,6 +3103,78 @@ impl DesignerPanel {
 
                 // Right-click context menu
                 resp.context_menu(|ui| {
+                    let tr = crate::i18n::current_tr(ui.ctx());
+                    if let Some(group_id) = self.selected_groupbox_id() {
+                        if ui.button(tr.uc_create).clicked() {
+                            self.create_user_control = Some(UserControlCreateDialog {
+                                group_id,
+                                name: String::new(),
+                                error: None,
+                            });
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                    }
+                    if !user_controls.is_empty() {
+                        ui.menu_button(tr.uc_delete, |ui| {
+                            for def in user_controls {
+                                if ui.button(&def.name).clicked() {
+                                    result.user_control_delete_requested = Some(def.name.clone());
+                                    ui.close_menu();
+                                }
+                            }
+                        });
+                        ui.separator();
+                    }
+                    let has_selection = !self.selected_ids.is_empty();
+                    let has_clipboard = clipboard
+                        .as_ref()
+                        .map(|clip| !clip.controls.is_empty())
+                        .unwrap_or(false);
+                    if ui
+                        .add_enabled(
+                            has_selection,
+                            egui::Button::new(format!("{}  ⌘X", tr.clipboard_cut)),
+                        )
+                        .clicked()
+                    {
+                        self.cut_selected(clipboard);
+                        selection_changed = true;
+                        ui.close_menu();
+                    }
+                    if ui
+                        .add_enabled(
+                            has_selection,
+                            egui::Button::new(format!("{}  ⌘C", tr.clipboard_copy)),
+                        )
+                        .clicked()
+                    {
+                        self.copy_selected(clipboard);
+                        ui.close_menu();
+                    }
+                    if ui
+                        .add_enabled(
+                            has_clipboard,
+                            egui::Button::new(format!("{}  ⌘V", tr.clipboard_paste)),
+                        )
+                        .clicked()
+                    {
+                        self.paste_from_clipboard(clipboard);
+                        selection_changed = true;
+                        ui.close_menu();
+                    }
+                    if ui
+                        .add_enabled(
+                            has_selection,
+                            egui::Button::new(format!("{}  ⌘D", tr.clipboard_duplicate)),
+                        )
+                        .clicked()
+                    {
+                        self.duplicate_selected(clipboard);
+                        selection_changed = true;
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button("🗑 Delete").clicked() {
                         self.delete_selected();
                         ui.close_menu();
@@ -2774,6 +3375,36 @@ impl DesignerPanel {
             self.selected_ids = self.form.controls.iter().map(|c| c.id.clone()).collect();
             selection_changed = true;
         }
+        if no_text_focus
+            && !self.selected_ids.is_empty()
+            && ctx.input(|i| i.key_pressed(egui::Key::C) && i.modifiers.command)
+        {
+            self.copy_selected(clipboard);
+        }
+        if no_text_focus
+            && !self.selected_ids.is_empty()
+            && ctx.input(|i| i.key_pressed(egui::Key::X) && i.modifiers.command)
+        {
+            self.cut_selected(clipboard);
+            selection_changed = true;
+        }
+        if no_text_focus
+            && !self.selected_ids.is_empty()
+            && ctx.input(|i| i.key_pressed(egui::Key::D) && i.modifiers.command)
+        {
+            self.duplicate_selected(clipboard);
+            selection_changed = true;
+        }
+        if no_text_focus && ctx.input(|i| i.key_pressed(egui::Key::V) && i.modifiers.command) {
+            self.paste_from_clipboard(clipboard);
+            selection_changed = true;
+        }
+
+        // ── Deletion confirmation (spec 020) ─────────────────────────────────
+        self.show_delete_confirmation(ui);
+
+        // ── User Control creation (spec 020) ─────────────────────────────────
+        result.user_control_created = self.show_user_control_create_dialog(ui, user_controls);
 
         // ── Menu Editor Modal (spec 018) ──────────────────────────────────────
         self.show_menu_editor(ui);
@@ -2781,15 +3412,133 @@ impl DesignerPanel {
         // ── Event Editor Modal ──────────────────────────────────────────────────
         self.show_event_modal(ui);
 
-        selection_changed
+        result.selection_changed |= selection_changed;
+        result
+    }
+
+    fn show_delete_confirmation(&mut self, ui: &mut Ui) {
+        let Some(pending) = self.pending_delete.clone() else {
+            return;
+        };
+        let tr = crate::i18n::current_tr(ui.ctx());
+        let message = tr
+            .delete_confirm_message
+            .replace("{controls}", &pending.control_count.to_string())
+            .replace("{handlers}", &pending.event_count.to_string());
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new(tr.delete_confirm_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ui.ctx(), |ui| {
+                ui.label(message);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.delete_confirm_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_delete = None;
+        }
+        if confirm {
+            self.pending_delete = None;
+            self.delete_ids_now(&pending.control_ids);
+        }
+    }
+
+    fn show_user_control_create_dialog(
+        &mut self,
+        ui: &mut Ui,
+        user_controls: &[UserControlDef],
+    ) -> Option<UserControlDef> {
+        let mut dialog = self.create_user_control.take()?;
+        let tr = crate::i18n::current_tr(ui.ctx());
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new(tr.uc_create)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ui.ctx(), |ui| {
+                ui.label(tr.uc_name_prompt);
+                ui.text_edit_singleline(&mut dialog.name);
+                if let Some(error) = dialog.error {
+                    let text = match error {
+                        UserControlNameError::Empty | UserControlNameError::Invalid => {
+                            tr.uc_name_invalid
+                        }
+                        UserControlNameError::Duplicate => tr.uc_name_duplicate,
+                        UserControlNameError::Circular => tr.uc_circular_ref,
+                    };
+                    ui.colored_label(ui.visuals().error_fg_color, text);
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.btn_save).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            return None;
+        }
+
+        if !confirm {
+            self.create_user_control = Some(dialog);
+            return None;
+        }
+
+        let group_id = dialog.group_id.clone();
+        let name = dialog.name.trim().to_string();
+        let existing_names: Vec<String> =
+            user_controls.iter().map(|def| def.name.clone()).collect();
+        match Self::validate_user_control_name(&name, &existing_names) {
+            Ok(()) => {
+                let Some(def) = self.capture_user_control_def(&group_id, name) else {
+                    return None;
+                };
+                if Self::has_circular_user_control_reference(
+                    &def.name,
+                    &def.controls,
+                    user_controls,
+                ) {
+                    dialog.error = Some(UserControlNameError::Circular);
+                    self.create_user_control = Some(dialog);
+                    None
+                } else {
+                    Some(def)
+                }
+            }
+            Err(error) => {
+                dialog.error = Some(error);
+                self.create_user_control = Some(dialog);
+                None
+            }
+        }
     }
 
     /// Render the menu tree editor modal (spec 018).
     fn show_menu_editor(&mut self, ui: &mut Ui) {
-        if self.menu_modal.is_none() { return; }
+        if self.menu_modal.is_none() {
+            return;
+        }
 
         let overlay = ui.ctx().screen_rect();
-        ui.painter().rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
+        ui.painter()
+            .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
 
         let mut save_clicked = false;
         let mut cancel_clicked = false;
@@ -2817,7 +3566,8 @@ impl DesignerPanel {
                     if ui.small_button(tr.menu_add_item).clicked() {
                         let id = modal.next_id();
                         let item = cobolt_forms::menu::MenuItem::new_action(&id, "New Item");
-                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        let list =
+                            MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
                         let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
                         list.insert(idx.min(list.len()), item);
                         if modal.selected.is_empty() {
@@ -2830,29 +3580,36 @@ impl DesignerPanel {
                     if ui.small_button(tr.menu_add_submenu).clicked() {
                         if MenuEditorModal::depth_of(&modal.selected) < 2 {
                             let id = modal.next_id();
-                            if let Some(parent) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                parent.items.push(cobolt_forms::menu::MenuItem::new_action(&id, "Sub Item"));
+                            if let Some(parent) =
+                                MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected)
+                            {
+                                parent.items.push(cobolt_forms::menu::MenuItem::new_action(
+                                    &id, "Sub Item",
+                                ));
                             }
                         }
                     }
                     if ui.small_button(tr.menu_add_separator).clicked() {
                         let id = modal.next_id();
                         let item = cobolt_forms::menu::MenuItem::new_separator(&id);
-                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        let list =
+                            MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
                         let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
                         list.insert(idx.min(list.len()), item);
                     }
                     if ui.small_button(tr.menu_move_up).clicked() && !modal.selected.is_empty() {
                         let idx = *modal.selected.last().unwrap();
                         if idx > 0 {
-                            let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                            let list =
+                                MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
                             list.swap(idx, idx - 1);
                             *modal.selected.last_mut().unwrap() = idx - 1;
                         }
                     }
                     if ui.small_button(tr.menu_move_down).clicked() && !modal.selected.is_empty() {
                         let idx = *modal.selected.last().unwrap();
-                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        let list =
+                            MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
                         if idx + 1 < list.len() {
                             list.swap(idx, idx + 1);
                             *modal.selected.last_mut().unwrap() = idx + 1;
@@ -2860,7 +3617,8 @@ impl DesignerPanel {
                     }
                     if ui.small_button(tr.menu_delete).clicked() && !modal.selected.is_empty() {
                         let idx = *modal.selected.last().unwrap();
-                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        let list =
+                            MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
                         if idx < list.len() {
                             list.remove(idx);
                             if list.is_empty() {
@@ -2887,60 +3645,81 @@ impl DesignerPanel {
                         egui::Vec2::new(left_w, pane_h),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
-                        ui.label(egui::RichText::new("Menu treeview").strong());
-                        ui.separator();
+                            ui.label(egui::RichText::new("Menu treeview").strong());
+                            ui.separator();
 
-                        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                            fn draw_tree(
-                                ui: &mut egui::Ui,
-                                items: &[cobolt_forms::menu::MenuItem],
-                                path: &mut Vec<usize>,
-                                selected: &[usize],
-                                depth: usize,
-                            ) -> Option<Vec<usize>> {
-                                let mut clicked = None;
-                                for (i, item) in items.iter().enumerate() {
-                                    path.push(i);
-                                    let is_sel = *path == selected;
-                                    let indent = depth as f32 * 16.0;
-                                    ui.horizontal(|ui| {
-                                        ui.add_space(indent);
-                                        let label = if item.item_type == cobolt_forms::menu::MenuItemType::Separator {
-                                            "── separator ──".to_string()
-                                        } else {
-                                            let icon_str = item.icon.as_deref().unwrap_or("");
-                                            let _accel = item.accelerator.as_deref().unwrap_or("");
-                                            let en = if item.enabled { "" } else { " [off]" };
-                                            if icon_str.is_empty() {
-                                                format!("{}{}", item.label, en)
-                                            } else {
-                                                format!("[{}] {}{}", icon_str, item.label, en)
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    fn draw_tree(
+                                        ui: &mut egui::Ui,
+                                        items: &[cobolt_forms::menu::MenuItem],
+                                        path: &mut Vec<usize>,
+                                        selected: &[usize],
+                                        depth: usize,
+                                    ) -> Option<Vec<usize>> {
+                                        let mut clicked = None;
+                                        for (i, item) in items.iter().enumerate() {
+                                            path.push(i);
+                                            let is_sel = *path == selected;
+                                            let indent = depth as f32 * 16.0;
+                                            ui.horizontal(|ui| {
+                                                ui.add_space(indent);
+                                                let label = if item.item_type
+                                                    == cobolt_forms::menu::MenuItemType::Separator
+                                                {
+                                                    "── separator ──".to_string()
+                                                } else {
+                                                    let icon_str =
+                                                        item.icon.as_deref().unwrap_or("");
+                                                    let _accel =
+                                                        item.accelerator.as_deref().unwrap_or("");
+                                                    let en =
+                                                        if item.enabled { "" } else { " [off]" };
+                                                    if icon_str.is_empty() {
+                                                        format!("{}{}", item.label, en)
+                                                    } else {
+                                                        format!(
+                                                            "[{}] {}{}",
+                                                            icon_str, item.label, en
+                                                        )
+                                                    }
+                                                };
+                                                let resp = ui.selectable_label(
+                                                    is_sel,
+                                                    egui::RichText::new(&label).monospace(),
+                                                );
+                                                if resp.clicked() {
+                                                    clicked = Some(path.clone());
+                                                }
+                                            });
+                                            if !item.items.is_empty() {
+                                                if let Some(c) = draw_tree(
+                                                    ui,
+                                                    &item.items,
+                                                    path,
+                                                    selected,
+                                                    depth + 1,
+                                                ) {
+                                                    clicked = Some(c);
+                                                }
                                             }
-                                        };
-                                        let resp = ui.selectable_label(is_sel,
-                                            egui::RichText::new(&label).monospace());
-                                        if resp.clicked() {
-                                            clicked = Some(path.clone());
+                                            path.pop();
                                         }
-                                    });
-                                    if !item.items.is_empty() {
-                                        if let Some(c) = draw_tree(ui, &item.items, path, selected, depth + 1) {
-                                            clicked = Some(c);
-                                        }
+                                        clicked
                                     }
-                                    path.pop();
-                                }
-                                clicked
-                            }
 
-                            let mut path = Vec::new();
-                            let selected = modal.selected.clone();
-                            if let Some(clicked) = draw_tree(ui, &modal.def.menu, &mut path, &selected, 0) {
-                                modal.selected = clicked;
-                                modal.sync_bufs_from_selection();
-                            }
-                        });
-                    });
+                                    let mut path = Vec::new();
+                                    let selected = modal.selected.clone();
+                                    if let Some(clicked) =
+                                        draw_tree(ui, &modal.def.menu, &mut path, &selected, 0)
+                                    {
+                                        modal.selected = clicked;
+                                        modal.sync_bufs_from_selection();
+                                    }
+                                });
+                        },
+                    );
 
                     // ── Draggable splitter ────────────────────────────────
                     {
@@ -2957,11 +3736,17 @@ impl DesignerPanel {
                             Color32::from_rgb(80, 80, 100)
                         };
                         ui.painter().rect_filled(
-                            egui::Rect::from_center_size(splitter_rect.center(), egui::Vec2::new(2.0, splitter_rect.height())),
-                            1.0, color);
+                            egui::Rect::from_center_size(
+                                splitter_rect.center(),
+                                egui::Vec2::new(2.0, splitter_rect.height()),
+                            ),
+                            1.0,
+                            color,
+                        );
                         if resp.dragged() {
                             let delta = resp.drag_delta().x;
-                            modal.split_ratio = (modal.split_ratio + delta / content_w).clamp(0.2, 0.8);
+                            modal.split_ratio =
+                                (modal.split_ratio + delta / content_w).clamp(0.2, 0.8);
                         }
                         if resp.hovered() || resp.dragged() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
@@ -2973,197 +3758,312 @@ impl DesignerPanel {
                         egui::Vec2::new(right_w, pane_h),
                         egui::Layout::top_down(egui::Align::LEFT),
                         |ui| {
-                        ui.label(egui::RichText::new("Item properties").strong());
-                        ui.separator();
-                        if let Some(item) = MenuEditorModal::item_at(&modal.def.menu, &modal.selected) {
-                            let is_sep = item.item_type == cobolt_forms::menu::MenuItemType::Separator;
-                            let cur_action_type = MenuEditorModal::action_type_of(item).to_string();
-                            let cur_icon = item.icon.clone().unwrap_or_default();
-                            let cur_enabled = item.enabled;
+                            ui.label(egui::RichText::new("Item properties").strong());
+                            ui.separator();
+                            if let Some(item) =
+                                MenuEditorModal::item_at(&modal.def.menu, &modal.selected)
+                            {
+                                let is_sep =
+                                    item.item_type == cobolt_forms::menu::MenuItemType::Separator;
+                                let cur_action_type =
+                                    MenuEditorModal::action_type_of(item).to_string();
+                                let cur_icon = item.icon.clone().unwrap_or_default();
+                                let cur_enabled = item.enabled;
 
-                            if !is_sep {
-                                // Label
-                                ui.horizontal(|ui| {
-                                    ui.label(tr.menu_lbl_label);
-                                    if ui.text_edit_singleline(&mut modal.label_buf).lost_focus() {
-                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                            it.label = modal.label_buf.clone();
-                                        }
-                                    }
-                                });
-
-                                // Icon — click to open picker, Delete to clear
-                                ui.horizontal(|ui| {
-                                    ui.label(tr.menu_lbl_icon);
-                                    if !cur_icon.is_empty() {
-                                        let icon_rect = ui.allocate_space(egui::Vec2::splat(24.0)).1;
-                                        cobolt_forms::icons::draw_menu_icon(
-                                            ui.painter(), icon_rect, &cur_icon, Color32::WHITE);
-                                    }
-                                    let display = if cur_icon.is_empty() { tr.menu_no_icon.to_string() } else { cur_icon.clone() };
-                                    let resp = ui.button(&display);
-                                    if resp.clicked() || (resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Tab))) {
-                                        modal.icon_picker_open = true;
-                                        modal.icon_picker_gen += 1;
-                                        modal.icon_search.clear();
-                                    }
-                                    if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
-                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                            it.icon = None;
-                                        }
-                                    }
-                                });
-
-                                // Accelerator — key capture widget
-                                ui.horizontal(|ui| {
-                                    ui.label(tr.menu_lbl_accel);
-                                    let accel_id = egui::Id::new("menu_accel_capture");
-                                    let is_capturing = ui.data(|d| d.get_temp::<bool>(accel_id)).unwrap_or(false);
-
-                                    if is_capturing {
-                                        let mut parts: Vec<String> = Vec::new();
-                                        let mut final_key: Option<String> = None;
-                                        ui.input(|i| {
-                                            if i.modifiers.shift { parts.push("Shift".into()); }
-                                            if i.modifiers.ctrl { parts.push("Ctrl".into()); }
-                                            if i.modifiers.alt { parts.push("Alt".into()); }
-                                            if i.modifiers.command { parts.push("Cmd".into()); }
-                                            for ev in &i.events {
-                                                if let egui::Event::Key { key, pressed: true, .. } = ev {
-                                                    if *key == egui::Key::Escape {
-                                                        final_key = Some("__ESC__".into());
-                                                    } else {
-                                                        final_key = Some(format!("{key:?}"));
-                                                    }
-                                                }
-                                            }
-                                        });
-
-                                        let display = if parts.is_empty() {
-                                            "Press keys...".to_string()
-                                        } else {
-                                            parts.iter().map(|p| format!("[{p}]")).collect::<Vec<_>>().join(" + ")
-                                        };
-
-                                        ui.label(egui::RichText::new(&display).monospace().color(Color32::YELLOW));
-
-                                        if let Some(key) = final_key {
-                                            if key == "__ESC__" {
-                                                ui.data_mut(|d| d.insert_temp(accel_id, false));
-                                            } else if !parts.is_empty() {
-                                                parts.push(key);
-                                                modal.accel_buf = parts.join("+");
-                                                if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                                    it.accelerator = Some(modal.accel_buf.clone());
-                                                }
-                                                ui.data_mut(|d| d.insert_temp(accel_id, false));
-                                            }
-                                        }
-                                    } else {
-                                        let display = if modal.accel_buf.is_empty() { "(none)".to_string() } else { modal.accel_buf.clone() };
-                                        if ui.button(&display).clicked() {
-                                            ui.data_mut(|d| d.insert_temp(accel_id, true));
-                                        }
-                                        if !modal.accel_buf.is_empty() {
-                                            if ui.small_button("✕").clicked() {
-                                                modal.accel_buf.clear();
-                                                if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                                    it.accelerator = None;
-                                                }
-                                            }
-                                        }
-                                    }
-                                });
-
-                                // Action type
-                                ui.horizontal(|ui| {
-                                    ui.label(tr.menu_lbl_action);
-                                    let mut action_sel = cur_action_type.clone();
-                                    egui::ComboBox::from_id_salt("menu_action_type")
-                                        .selected_text(match action_sel.as_str() {
-                                            "event" => tr.menu_action_event,
-                                            "open-form" => tr.menu_action_open_form,
-                                            "close" => tr.menu_action_close,
-                                            _ => tr.menu_action_event,
-                                        })
-                                        .width(140.0)
-                                        .show_ui(ui, |ui| {
-                                            for (key, label) in [
-                                                ("event", tr.menu_action_event),
-                                                ("open-form", tr.menu_action_open_form),
-                                                ("close", tr.menu_action_close),
-                                            ] {
-                                                if ui.selectable_label(action_sel == key, label).clicked() {
-                                                    action_sel = key.to_string();
-                                                    if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                                        it.action = Some(match key {
-                                                            "close" => "close-application".to_string(),
-                                                            "event" => "event".to_string(),
-                                                            "open-form" => format!("open-form:{}", modal.target_buf),
-                                                            _ => "event".to_string(),
-                                                        });
-                                                    }
-                                                }
-                                            }
-                                        });
-                                });
-
-                                // Form selector (for open-form action)
-                                if cur_action_type == "open-form" {
+                                if !is_sep {
+                                    // Label
                                     ui.horizontal(|ui| {
-                                        ui.label(tr.menu_lbl_target);
-                                        let forms: Vec<String> = self.cfrm_dir.as_ref()
-                                            .and_then(|dir| std::fs::read_dir(dir).ok())
-                                            .map(|entries| {
-                                                entries.filter_map(|e| {
-                                                    let e = e.ok()?;
-                                                    let name = e.file_name().to_string_lossy().to_string();
-                                                    if name.ends_with(".cfrm") {
-                                                        Some(name.trim_end_matches(".cfrm").to_string())
-                                                    } else { None }
-                                                }).collect()
+                                        ui.label(tr.menu_lbl_label);
+                                        if ui
+                                            .text_edit_singleline(&mut modal.label_buf)
+                                            .lost_focus()
+                                        {
+                                            if let Some(it) = MenuEditorModal::item_at_mut(
+                                                &mut modal.def.menu,
+                                                &modal.selected,
+                                            ) {
+                                                it.label = modal.label_buf.clone();
+                                            }
+                                        }
+                                    });
+
+                                    // Icon — click to open picker, Delete to clear
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.menu_lbl_icon);
+                                        if !cur_icon.is_empty() {
+                                            let icon_rect =
+                                                ui.allocate_space(egui::Vec2::splat(24.0)).1;
+                                            cobolt_forms::icons::draw_menu_icon(
+                                                ui.painter(),
+                                                icon_rect,
+                                                &cur_icon,
+                                                Color32::WHITE,
+                                            );
+                                        }
+                                        let display = if cur_icon.is_empty() {
+                                            tr.menu_no_icon.to_string()
+                                        } else {
+                                            cur_icon.clone()
+                                        };
+                                        let resp = ui.button(&display);
+                                        if resp.clicked()
+                                            || (resp.has_focus()
+                                                && ui.input(|i| i.key_pressed(egui::Key::Tab)))
+                                        {
+                                            modal.icon_picker_open = true;
+                                            modal.icon_picker_gen += 1;
+                                            modal.icon_search.clear();
+                                        }
+                                        if resp.has_focus()
+                                            && ui.input(|i| {
+                                                i.key_pressed(egui::Key::Delete)
+                                                    || i.key_pressed(egui::Key::Backspace)
                                             })
-                                            .unwrap_or_default();
-                                        let cur_form = modal.target_buf.clone();
-                                        egui::ComboBox::from_id_salt("menu_form_select")
-                                            .selected_text(if cur_form.is_empty() { "(select form)" } else { &cur_form })
-                                            .width(180.0)
+                                        {
+                                            if let Some(it) = MenuEditorModal::item_at_mut(
+                                                &mut modal.def.menu,
+                                                &modal.selected,
+                                            ) {
+                                                it.icon = None;
+                                            }
+                                        }
+                                    });
+
+                                    // Accelerator — key capture widget
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.menu_lbl_accel);
+                                        let accel_id = egui::Id::new("menu_accel_capture");
+                                        let is_capturing = ui
+                                            .data(|d| d.get_temp::<bool>(accel_id))
+                                            .unwrap_or(false);
+
+                                        if is_capturing {
+                                            let mut parts: Vec<String> = Vec::new();
+                                            let mut final_key: Option<String> = None;
+                                            ui.input(|i| {
+                                                if i.modifiers.shift {
+                                                    parts.push("Shift".into());
+                                                }
+                                                if i.modifiers.ctrl {
+                                                    parts.push("Ctrl".into());
+                                                }
+                                                if i.modifiers.alt {
+                                                    parts.push("Alt".into());
+                                                }
+                                                if i.modifiers.command {
+                                                    parts.push("Cmd".into());
+                                                }
+                                                for ev in &i.events {
+                                                    if let egui::Event::Key {
+                                                        key,
+                                                        pressed: true,
+                                                        ..
+                                                    } = ev
+                                                    {
+                                                        if *key == egui::Key::Escape {
+                                                            final_key = Some("__ESC__".into());
+                                                        } else {
+                                                            final_key = Some(format!("{key:?}"));
+                                                        }
+                                                    }
+                                                }
+                                            });
+
+                                            let display = if parts.is_empty() {
+                                                "Press keys...".to_string()
+                                            } else {
+                                                parts
+                                                    .iter()
+                                                    .map(|p| format!("[{p}]"))
+                                                    .collect::<Vec<_>>()
+                                                    .join(" + ")
+                                            };
+
+                                            ui.label(
+                                                egui::RichText::new(&display)
+                                                    .monospace()
+                                                    .color(Color32::YELLOW),
+                                            );
+
+                                            if let Some(key) = final_key {
+                                                if key == "__ESC__" {
+                                                    ui.data_mut(|d| d.insert_temp(accel_id, false));
+                                                } else if !parts.is_empty() {
+                                                    parts.push(key);
+                                                    modal.accel_buf = parts.join("+");
+                                                    if let Some(it) = MenuEditorModal::item_at_mut(
+                                                        &mut modal.def.menu,
+                                                        &modal.selected,
+                                                    ) {
+                                                        it.accelerator =
+                                                            Some(modal.accel_buf.clone());
+                                                    }
+                                                    ui.data_mut(|d| d.insert_temp(accel_id, false));
+                                                }
+                                            }
+                                        } else {
+                                            let display = if modal.accel_buf.is_empty() {
+                                                "(none)".to_string()
+                                            } else {
+                                                modal.accel_buf.clone()
+                                            };
+                                            if ui.button(&display).clicked() {
+                                                ui.data_mut(|d| d.insert_temp(accel_id, true));
+                                            }
+                                            if !modal.accel_buf.is_empty() {
+                                                if ui.small_button("✕").clicked() {
+                                                    modal.accel_buf.clear();
+                                                    if let Some(it) = MenuEditorModal::item_at_mut(
+                                                        &mut modal.def.menu,
+                                                        &modal.selected,
+                                                    ) {
+                                                        it.accelerator = None;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    });
+
+                                    // Action type
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.menu_lbl_action);
+                                        let mut action_sel = cur_action_type.clone();
+                                        egui::ComboBox::from_id_salt("menu_action_type")
+                                            .selected_text(match action_sel.as_str() {
+                                                "event" => tr.menu_action_event,
+                                                "open-form" => tr.menu_action_open_form,
+                                                "close" => tr.menu_action_close,
+                                                _ => tr.menu_action_event,
+                                            })
+                                            .width(140.0)
                                             .show_ui(ui, |ui| {
-                                                for form_name in &forms {
-                                                    if ui.selectable_label(cur_form == *form_name, form_name).clicked() {
-                                                        modal.target_buf = form_name.clone();
-                                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                                            it.action = Some(format!("open-form:{}", form_name));
+                                                for (key, label) in [
+                                                    ("event", tr.menu_action_event),
+                                                    ("open-form", tr.menu_action_open_form),
+                                                    ("close", tr.menu_action_close),
+                                                ] {
+                                                    if ui
+                                                        .selectable_label(action_sel == key, label)
+                                                        .clicked()
+                                                    {
+                                                        action_sel = key.to_string();
+                                                        if let Some(it) =
+                                                            MenuEditorModal::item_at_mut(
+                                                                &mut modal.def.menu,
+                                                                &modal.selected,
+                                                            )
+                                                        {
+                                                            it.action = Some(match key {
+                                                                "close" => {
+                                                                    "close-application".to_string()
+                                                                }
+                                                                "event" => "event".to_string(),
+                                                                "open-form" => format!(
+                                                                    "open-form:{}",
+                                                                    modal.target_buf
+                                                                ),
+                                                                _ => "event".to_string(),
+                                                            });
                                                         }
                                                     }
                                                 }
                                             });
                                     });
-                                }
 
-                                // Enabled
-                                ui.horizontal(|ui| {
-                                    let mut en = cur_enabled;
-                                    if ui.checkbox(&mut en, tr.menu_lbl_enabled).changed() {
-                                        if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                            it.enabled = en;
-                                        }
+                                    // Form selector (for open-form action)
+                                    if cur_action_type == "open-form" {
+                                        ui.horizontal(|ui| {
+                                            ui.label(tr.menu_lbl_target);
+                                            let forms: Vec<String> = self
+                                                .cfrm_dir
+                                                .as_ref()
+                                                .and_then(|dir| std::fs::read_dir(dir).ok())
+                                                .map(|entries| {
+                                                    entries
+                                                        .filter_map(|e| {
+                                                            let e = e.ok()?;
+                                                            let name = e
+                                                                .file_name()
+                                                                .to_string_lossy()
+                                                                .to_string();
+                                                            if name.ends_with(".cfrm") {
+                                                                Some(
+                                                                    name.trim_end_matches(".cfrm")
+                                                                        .to_string(),
+                                                                )
+                                                            } else {
+                                                                None
+                                                            }
+                                                        })
+                                                        .collect()
+                                                })
+                                                .unwrap_or_default();
+                                            let cur_form = modal.target_buf.clone();
+                                            egui::ComboBox::from_id_salt("menu_form_select")
+                                                .selected_text(if cur_form.is_empty() {
+                                                    "(select form)"
+                                                } else {
+                                                    &cur_form
+                                                })
+                                                .width(180.0)
+                                                .show_ui(ui, |ui| {
+                                                    for form_name in &forms {
+                                                        if ui
+                                                            .selectable_label(
+                                                                cur_form == *form_name,
+                                                                form_name,
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            modal.target_buf = form_name.clone();
+                                                            if let Some(it) =
+                                                                MenuEditorModal::item_at_mut(
+                                                                    &mut modal.def.menu,
+                                                                    &modal.selected,
+                                                                )
+                                                            {
+                                                                it.action = Some(format!(
+                                                                    "open-form:{}",
+                                                                    form_name
+                                                                ));
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                        });
                                     }
-                                });
+
+                                    // Enabled
+                                    ui.horizontal(|ui| {
+                                        let mut en = cur_enabled;
+                                        if ui.checkbox(&mut en, tr.menu_lbl_enabled).changed() {
+                                            if let Some(it) = MenuEditorModal::item_at_mut(
+                                                &mut modal.def.menu,
+                                                &modal.selected,
+                                            ) {
+                                                it.enabled = en;
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    ui.label("── separator ──");
+                                }
                             } else {
-                                ui.label("── separator ──");
+                                ui.colored_label(Color32::GRAY, "Select an item to edit");
                             }
-                        } else {
-                            ui.colored_label(Color32::GRAY, "Select an item to edit");
-                        }
-                    });
+                        },
+                    );
                 });
 
                 ui.separator();
                 // Save / Cancel
                 ui.horizontal(|ui| {
-                    if ui.button(tr.me_cancel).clicked() { cancel_clicked = true; }
-                    if ui.button(tr.me_save).clicked() { save_clicked = true; }
+                    if ui.button(tr.me_cancel).clicked() {
+                        cancel_clicked = true;
+                    }
+                    if ui.button(tr.me_save).clicked() {
+                        save_clicked = true;
+                    }
                 });
             });
 
@@ -3180,7 +4080,10 @@ impl DesignerPanel {
                     .resizable(true)
                     .default_size([600.0, 500.0])
                     .default_pos([screen.center().x - 300.0, screen.center().y - 250.0])
-                    .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
+                    .frame(
+                        egui::Frame::window(&ui.ctx().style())
+                            .inner_margin(egui::Margin::same(12.0)),
+                    )
                     .show(ui.ctx(), |ui| {
                         // Search field
                         ui.horizontal(|ui| {
@@ -3191,63 +4094,477 @@ impl DesignerPanel {
 
                         let search = modal.icon_search.to_ascii_lowercase();
                         let categories: &[(&str, &[&str])] = &[
-                            ("Document", &["doc-new","doc-open","doc-save","doc-save-as","doc-copy","doc-blank","doc-text","doc-pdf","doc-spreadsheet","doc-stack"]),
-                            ("Edit", &["scissors","clipboard-copy","clipboard-paste","pencil","eraser","pen","brush","type-text","bold","italic","underline","strikethrough"]),
-                            ("Navigation", &["arrow-left","arrow-right","arrow-up","arrow-down","chevron-left","chevron-right","chevron-up","chevron-down","home","external-link"]),
-                            ("Action", &["plus","minus","check","x-mark","refresh","sync","download","upload","share","export","import","link"]),
-                            ("UI/View", &["eye","eye-off","magnifier","zoom-in","zoom-out","fullscreen","collapse","expand","grid-view","list-view"]),
-                            ("Communication", &["mail","mail-open","send","inbox","chat","phone","video","bell","bell-off","at-sign"]),
-                            ("Social", &["heart","star","thumbs-up","thumbs-down","bookmark","flag"]),
-                            ("People", &["user","users","user-plus","user-minus","user-check","user-circle"]),
-                            ("Media", &["play","pause","stop","skip-forward","skip-back","volume","volume-off","music"]),
-                            ("Data", &["database","chart-bar","chart-line","chart-pie","table","filter","sort-asc","sort-desc"]),
-                            ("System", &["gear","wrench","shield","lock","unlock","key","terminal","code","bug","cpu"]),
-                            ("Status", &["info-circle","warning-triangle","error-circle","help-circle","check-circle","x-circle","clock","calendar"]),
-                            ("Commerce", &["cart","credit-card","wallet","receipt","tag","percent"]),
-                            ("File/Folder", &["folder","folder-open","folder-plus","archive","trash","printer"]),
-                            ("Payroll", &["payroll-check","payroll-schedule","payroll-deduction","payroll-bonus","payroll-overtime","payroll-tax","payroll-slip","payroll-direct-deposit","payroll-timesheet","payroll-hours","payroll-employee","payroll-benefits","payroll-pension","payroll-vacation","payroll-sick-leave","payroll-commission","payroll-garnishment","payroll-reimbursement","payroll-w2","payroll-1099","payroll-ytd","payroll-net-pay","payroll-gross-pay","payroll-withholding","payroll-frequency"]),
-                            ("Receivables", &["invoice","invoice-paid","invoice-overdue","invoice-draft","invoice-send","credit-memo","debit-memo","aging-report","collection","dunning-letter","payment-received","partial-payment","advance-payment","refund","write-off","bad-debt","interest-charge","statement","customer-balance","account-receivable","open-items","clearing","remittance","factoring","credit-limit"]),
-                            ("Payments", &["payment-check","payment-wire","payment-ach","payment-cash","payment-pending","payment-approved","payment-rejected","payment-recurring","payment-split","payment-batch","payment-void","payment-reversal","vendor-payment","bill-pay","purchase-order","expense-report","petty-cash","bank-transfer","payment-gateway","payment-terms","early-discount","payment-plan","installment","escrow","disbursement"]),
-                            ("Stock Control", &["inventory","warehouse","stock-in","stock-out","stock-count","stock-transfer","stock-adjust","stock-reserve","stock-alert","stock-reorder","barcode","qr-code","pallet","shelf","bin-location","lot-number","serial-number","expiry-date","fifo","lifo","cycle-count","physical-count","stock-valuation","safety-stock","dead-stock"]),
-                            ("Transportation", &["truck","truck-loading","truck-delivery","van","ship","ship-cargo","airplane","airplane-landing","helicopter","train","railway","container","forklift","crane","anchor","compass","route","highway","bridge","toll","fuel-pump","tire","engine","speedometer","odometer"]),
-                            ("Logistics", &["package","package-open","package-check","package-x","package-search","conveyor","loading-dock","dispatch","tracking","tracking-number","delivery-time","express","fragile","hazmat","temperature","weight-scale","dimensions","customs","manifest","bill-of-lading","cross-dock","last-mile","return-shipment","consolidation","deconsolidation"]),
-                            ("Financial", &["dollar","euro","yen","pound","bitcoin","coins","money-bag","piggy-bank","vault","safe","bank","atm","exchange-rate","stock-market","bull-market","bear-market","dividend","interest-rate","mortgage","loan","audit","ledger","balance-sheet","profit-loss","cash-flow"]),
-                            ("Social Media", &["like","dislike","comment","repost","mention","hashtag","trending","viral","follower","following","profile","bio","story","reel","live-stream","notification-dot","verified","influencer","engagement","reach","post","feed","timeline","dm","group-chat"]),
+                            (
+                                "Document",
+                                &[
+                                    "doc-new",
+                                    "doc-open",
+                                    "doc-save",
+                                    "doc-save-as",
+                                    "doc-copy",
+                                    "doc-blank",
+                                    "doc-text",
+                                    "doc-pdf",
+                                    "doc-spreadsheet",
+                                    "doc-stack",
+                                ],
+                            ),
+                            (
+                                "Edit",
+                                &[
+                                    "scissors",
+                                    "clipboard-copy",
+                                    "clipboard-paste",
+                                    "pencil",
+                                    "eraser",
+                                    "pen",
+                                    "brush",
+                                    "type-text",
+                                    "bold",
+                                    "italic",
+                                    "underline",
+                                    "strikethrough",
+                                ],
+                            ),
+                            (
+                                "Navigation",
+                                &[
+                                    "arrow-left",
+                                    "arrow-right",
+                                    "arrow-up",
+                                    "arrow-down",
+                                    "chevron-left",
+                                    "chevron-right",
+                                    "chevron-up",
+                                    "chevron-down",
+                                    "home",
+                                    "external-link",
+                                ],
+                            ),
+                            (
+                                "Action",
+                                &[
+                                    "plus", "minus", "check", "x-mark", "refresh", "sync",
+                                    "download", "upload", "share", "export", "import", "link",
+                                ],
+                            ),
+                            (
+                                "UI/View",
+                                &[
+                                    "eye",
+                                    "eye-off",
+                                    "magnifier",
+                                    "zoom-in",
+                                    "zoom-out",
+                                    "fullscreen",
+                                    "collapse",
+                                    "expand",
+                                    "grid-view",
+                                    "list-view",
+                                ],
+                            ),
+                            (
+                                "Communication",
+                                &[
+                                    "mail",
+                                    "mail-open",
+                                    "send",
+                                    "inbox",
+                                    "chat",
+                                    "phone",
+                                    "video",
+                                    "bell",
+                                    "bell-off",
+                                    "at-sign",
+                                ],
+                            ),
+                            (
+                                "Social",
+                                &[
+                                    "heart",
+                                    "star",
+                                    "thumbs-up",
+                                    "thumbs-down",
+                                    "bookmark",
+                                    "flag",
+                                ],
+                            ),
+                            (
+                                "People",
+                                &[
+                                    "user",
+                                    "users",
+                                    "user-plus",
+                                    "user-minus",
+                                    "user-check",
+                                    "user-circle",
+                                ],
+                            ),
+                            (
+                                "Media",
+                                &[
+                                    "play",
+                                    "pause",
+                                    "stop",
+                                    "skip-forward",
+                                    "skip-back",
+                                    "volume",
+                                    "volume-off",
+                                    "music",
+                                ],
+                            ),
+                            (
+                                "Data",
+                                &[
+                                    "database",
+                                    "chart-bar",
+                                    "chart-line",
+                                    "chart-pie",
+                                    "table",
+                                    "filter",
+                                    "sort-asc",
+                                    "sort-desc",
+                                ],
+                            ),
+                            (
+                                "System",
+                                &[
+                                    "gear", "wrench", "shield", "lock", "unlock", "key",
+                                    "terminal", "code", "bug", "cpu",
+                                ],
+                            ),
+                            (
+                                "Status",
+                                &[
+                                    "info-circle",
+                                    "warning-triangle",
+                                    "error-circle",
+                                    "help-circle",
+                                    "check-circle",
+                                    "x-circle",
+                                    "clock",
+                                    "calendar",
+                                ],
+                            ),
+                            (
+                                "Commerce",
+                                &["cart", "credit-card", "wallet", "receipt", "tag", "percent"],
+                            ),
+                            (
+                                "File/Folder",
+                                &[
+                                    "folder",
+                                    "folder-open",
+                                    "folder-plus",
+                                    "archive",
+                                    "trash",
+                                    "printer",
+                                ],
+                            ),
+                            (
+                                "Payroll",
+                                &[
+                                    "payroll-check",
+                                    "payroll-schedule",
+                                    "payroll-deduction",
+                                    "payroll-bonus",
+                                    "payroll-overtime",
+                                    "payroll-tax",
+                                    "payroll-slip",
+                                    "payroll-direct-deposit",
+                                    "payroll-timesheet",
+                                    "payroll-hours",
+                                    "payroll-employee",
+                                    "payroll-benefits",
+                                    "payroll-pension",
+                                    "payroll-vacation",
+                                    "payroll-sick-leave",
+                                    "payroll-commission",
+                                    "payroll-garnishment",
+                                    "payroll-reimbursement",
+                                    "payroll-w2",
+                                    "payroll-1099",
+                                    "payroll-ytd",
+                                    "payroll-net-pay",
+                                    "payroll-gross-pay",
+                                    "payroll-withholding",
+                                    "payroll-frequency",
+                                ],
+                            ),
+                            (
+                                "Receivables",
+                                &[
+                                    "invoice",
+                                    "invoice-paid",
+                                    "invoice-overdue",
+                                    "invoice-draft",
+                                    "invoice-send",
+                                    "credit-memo",
+                                    "debit-memo",
+                                    "aging-report",
+                                    "collection",
+                                    "dunning-letter",
+                                    "payment-received",
+                                    "partial-payment",
+                                    "advance-payment",
+                                    "refund",
+                                    "write-off",
+                                    "bad-debt",
+                                    "interest-charge",
+                                    "statement",
+                                    "customer-balance",
+                                    "account-receivable",
+                                    "open-items",
+                                    "clearing",
+                                    "remittance",
+                                    "factoring",
+                                    "credit-limit",
+                                ],
+                            ),
+                            (
+                                "Payments",
+                                &[
+                                    "payment-check",
+                                    "payment-wire",
+                                    "payment-ach",
+                                    "payment-cash",
+                                    "payment-pending",
+                                    "payment-approved",
+                                    "payment-rejected",
+                                    "payment-recurring",
+                                    "payment-split",
+                                    "payment-batch",
+                                    "payment-void",
+                                    "payment-reversal",
+                                    "vendor-payment",
+                                    "bill-pay",
+                                    "purchase-order",
+                                    "expense-report",
+                                    "petty-cash",
+                                    "bank-transfer",
+                                    "payment-gateway",
+                                    "payment-terms",
+                                    "early-discount",
+                                    "payment-plan",
+                                    "installment",
+                                    "escrow",
+                                    "disbursement",
+                                ],
+                            ),
+                            (
+                                "Stock Control",
+                                &[
+                                    "inventory",
+                                    "warehouse",
+                                    "stock-in",
+                                    "stock-out",
+                                    "stock-count",
+                                    "stock-transfer",
+                                    "stock-adjust",
+                                    "stock-reserve",
+                                    "stock-alert",
+                                    "stock-reorder",
+                                    "barcode",
+                                    "qr-code",
+                                    "pallet",
+                                    "shelf",
+                                    "bin-location",
+                                    "lot-number",
+                                    "serial-number",
+                                    "expiry-date",
+                                    "fifo",
+                                    "lifo",
+                                    "cycle-count",
+                                    "physical-count",
+                                    "stock-valuation",
+                                    "safety-stock",
+                                    "dead-stock",
+                                ],
+                            ),
+                            (
+                                "Transportation",
+                                &[
+                                    "truck",
+                                    "truck-loading",
+                                    "truck-delivery",
+                                    "van",
+                                    "ship",
+                                    "ship-cargo",
+                                    "airplane",
+                                    "airplane-landing",
+                                    "helicopter",
+                                    "train",
+                                    "railway",
+                                    "container",
+                                    "forklift",
+                                    "crane",
+                                    "anchor",
+                                    "compass",
+                                    "route",
+                                    "highway",
+                                    "bridge",
+                                    "toll",
+                                    "fuel-pump",
+                                    "tire",
+                                    "engine",
+                                    "speedometer",
+                                    "odometer",
+                                ],
+                            ),
+                            (
+                                "Logistics",
+                                &[
+                                    "package",
+                                    "package-open",
+                                    "package-check",
+                                    "package-x",
+                                    "package-search",
+                                    "conveyor",
+                                    "loading-dock",
+                                    "dispatch",
+                                    "tracking",
+                                    "tracking-number",
+                                    "delivery-time",
+                                    "express",
+                                    "fragile",
+                                    "hazmat",
+                                    "temperature",
+                                    "weight-scale",
+                                    "dimensions",
+                                    "customs",
+                                    "manifest",
+                                    "bill-of-lading",
+                                    "cross-dock",
+                                    "last-mile",
+                                    "return-shipment",
+                                    "consolidation",
+                                    "deconsolidation",
+                                ],
+                            ),
+                            (
+                                "Financial",
+                                &[
+                                    "dollar",
+                                    "euro",
+                                    "yen",
+                                    "pound",
+                                    "bitcoin",
+                                    "coins",
+                                    "money-bag",
+                                    "piggy-bank",
+                                    "vault",
+                                    "safe",
+                                    "bank",
+                                    "atm",
+                                    "exchange-rate",
+                                    "stock-market",
+                                    "bull-market",
+                                    "bear-market",
+                                    "dividend",
+                                    "interest-rate",
+                                    "mortgage",
+                                    "loan",
+                                    "audit",
+                                    "ledger",
+                                    "balance-sheet",
+                                    "profit-loss",
+                                    "cash-flow",
+                                ],
+                            ),
+                            (
+                                "Social Media",
+                                &[
+                                    "like",
+                                    "dislike",
+                                    "comment",
+                                    "repost",
+                                    "mention",
+                                    "hashtag",
+                                    "trending",
+                                    "viral",
+                                    "follower",
+                                    "following",
+                                    "profile",
+                                    "bio",
+                                    "story",
+                                    "reel",
+                                    "live-stream",
+                                    "notification-dot",
+                                    "verified",
+                                    "influencer",
+                                    "engagement",
+                                    "reach",
+                                    "post",
+                                    "feed",
+                                    "timeline",
+                                    "dm",
+                                    "group-chat",
+                                ],
+                            ),
                         ];
 
                         let cur_icon = MenuEditorModal::item_at(&modal.def.menu, &modal.selected)
-                            .and_then(|i| i.icon.clone()).unwrap_or_default();
+                            .and_then(|i| i.icon.clone())
+                            .unwrap_or_default();
 
-                        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
-                            for (cat_name, icons) in categories {
-                                let filtered: Vec<&&str> = icons.iter()
-                                    .filter(|n| search.is_empty() || n.contains(&search) || cat_name.to_ascii_lowercase().contains(&search))
-                                    .collect();
-                                if filtered.is_empty() { continue; }
-
-                                ui.label(egui::RichText::new(*cat_name).strong().size(12.0));
-                                ui.horizontal_wrapped(|ui| {
-                                    for &&name in &filtered {
-                                        let is_sel = cur_icon == name;
-                                        let (rect, resp) = ui.allocate_exact_size(
-                                            egui::Vec2::splat(48.0), egui::Sense::click());
-                                        if is_sel {
-                                            ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(60, 100, 200));
-                                        } else if resp.hovered() {
-                                            ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(60, 60, 80));
-                                        }
-                                        let icon_rect = rect.shrink(4.0);
-                                        let icon_color = if is_sel { Color32::WHITE } else { Color32::from_rgb(200, 210, 230) };
-                                        cobolt_forms::icons::draw_menu_icon(ui.painter(), icon_rect, name, icon_color);
-                                        if resp.clicked() {
-                                            icon_picked = Some(Some(name.to_string()));
-                                        }
-                                        resp.on_hover_text(name);
+                        egui::ScrollArea::vertical()
+                            .max_height(400.0)
+                            .show(ui, |ui| {
+                                for (cat_name, icons) in categories {
+                                    let filtered: Vec<&&str> = icons
+                                        .iter()
+                                        .filter(|n| {
+                                            search.is_empty()
+                                                || n.contains(&search)
+                                                || cat_name.to_ascii_lowercase().contains(&search)
+                                        })
+                                        .collect();
+                                    if filtered.is_empty() {
+                                        continue;
                                     }
-                                });
-                                ui.add_space(4.0);
-                            }
-                        });
+
+                                    ui.label(egui::RichText::new(*cat_name).strong().size(12.0));
+                                    ui.horizontal_wrapped(|ui| {
+                                        for &&name in &filtered {
+                                            let is_sel = cur_icon == name;
+                                            let (rect, resp) = ui.allocate_exact_size(
+                                                egui::Vec2::splat(48.0),
+                                                egui::Sense::click(),
+                                            );
+                                            if is_sel {
+                                                ui.painter().rect_filled(
+                                                    rect,
+                                                    4.0,
+                                                    Color32::from_rgb(60, 100, 200),
+                                                );
+                                            } else if resp.hovered() {
+                                                ui.painter().rect_filled(
+                                                    rect,
+                                                    4.0,
+                                                    Color32::from_rgb(60, 60, 80),
+                                                );
+                                            }
+                                            let icon_rect = rect.shrink(4.0);
+                                            let icon_color = if is_sel {
+                                                Color32::WHITE
+                                            } else {
+                                                Color32::from_rgb(200, 210, 230)
+                                            };
+                                            cobolt_forms::icons::draw_menu_icon(
+                                                ui.painter(),
+                                                icon_rect,
+                                                name,
+                                                icon_color,
+                                            );
+                                            if resp.clicked() {
+                                                icon_picked = Some(Some(name.to_string()));
+                                            }
+                                            resp.on_hover_text(name);
+                                        }
+                                    });
+                                    ui.add_space(4.0);
+                                }
+                            });
 
                         ui.separator();
                         ui.horizontal(|ui| {
@@ -3265,7 +4582,9 @@ impl DesignerPanel {
                     modal.icon_picker_open = false;
                 }
                 if let Some(picked) = icon_picked {
-                    if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                    if let Some(it) =
+                        MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected)
+                    {
                         it.icon = picked;
                     }
                     modal.icon_picker_open = false;
@@ -3281,8 +4600,12 @@ impl DesignerPanel {
                         eprintln!("Failed to save menu: {e}");
                     } else {
                         cobolt_forms::paint::set_menu_cache(
-                            ui.ctx(), &modal.ctrl_id,
-                            std::sync::Arc::new(cobolt_forms::menu::load_menu(&path).unwrap_or_default()));
+                            ui.ctx(),
+                            &modal.ctrl_id,
+                            std::sync::Arc::new(
+                                cobolt_forms::menu::load_menu(&path).unwrap_or_default(),
+                            ),
+                        );
                         self.dirty = true;
                     }
                 }
@@ -3986,9 +5309,40 @@ impl DesignerPanel {
         canvas_rect: Rect,
         origin: Pos2,
         ptr_canvas: Option<(i32, i32)>,
+        user_controls: &[UserControlDef],
     ) {
+        enum ToolboxPayload {
+            BuiltIn(ControlType),
+            UserControl(UserControlDef),
+        }
+
         let ctx = ui.ctx();
-        let Some(ct) = egui::DragAndDrop::payload::<ControlType>(ctx).map(|p| (*p).clone()) else {
+        let payload = if let Some(ct) =
+            egui::DragAndDrop::payload::<ControlType>(ctx).map(|p| (*p).clone())
+        {
+            ToolboxPayload::BuiltIn(ct)
+        } else if let Some(name) = egui::DragAndDrop::payload::<String>(ctx).map(|p| (*p).clone()) {
+            let Some(def) = user_controls
+                .iter()
+                .find(|def| def.name.eq_ignore_ascii_case(&name))
+                .cloned()
+            else {
+                return;
+            };
+            ToolboxPayload::UserControl(def)
+        } else {
+            return;
+        };
+
+        let (dw, dh, label) = match &payload {
+            ToolboxPayload::BuiltIn(ct) => {
+                let (w, h) = ct.default_size();
+                (w, h, ct.as_str().to_string())
+            }
+            ToolboxPayload::UserControl(def) => (def.width, def.height, def.name.clone()),
+        };
+
+        if dw <= 0 || dh <= 0 {
             return;
         };
         // Repaint each frame so the ghost tracks the cursor smoothly.
@@ -4011,7 +5365,6 @@ impl DesignerPanel {
 
         ctx.set_cursor_icon(CursorIcon::Grabbing);
 
-        let (dw, dh) = ct.default_size();
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         // Centre the control under the cursor, clamp into the form, then snap.
@@ -4019,8 +5372,16 @@ impl DesignerPanel {
         let y = snap((py - dh / 2).max(0), gp, sn);
 
         if released {
-            let _ = egui::DragAndDrop::take_payload::<ControlType>(ctx);
-            self.add_control(ct, x, y);
+            match payload {
+                ToolboxPayload::BuiltIn(ct) => {
+                    let _ = egui::DragAndDrop::take_payload::<ControlType>(ctx);
+                    self.add_control(ct, x, y);
+                }
+                ToolboxPayload::UserControl(def) => {
+                    let _ = egui::DragAndDrop::take_payload::<String>(ctx);
+                    self.deploy_user_control(&def, x, y, user_controls);
+                }
+            }
             self.dirty = true;
             return;
         }
@@ -4047,7 +5408,7 @@ impl DesignerPanel {
         painter.text(
             ghost.center(),
             egui::Align2::CENTER_CENTER,
-            ct.as_str(),
+            label,
             egui::FontId::proportional(11.0),
             Color32::WHITE,
         );
@@ -4357,6 +5718,10 @@ pub(crate) enum DesignerToolbarAction {
     RunForm,
     StopForm,
     // Edit
+    Cut,
+    Copy,
+    Paste,
+    Duplicate,
     Delete,
     BringToFront,
     SendToBack,
@@ -4392,6 +5757,11 @@ pub(crate) fn draw_icon_toolbar(
     can_redo: bool,
     has_sel: bool,
     has_multi: bool,
+    has_clipboard: bool,
+    clipboard_cut: &str,
+    clipboard_copy: &str,
+    clipboard_paste: &str,
+    clipboard_duplicate: &str,
     preview_on: bool,
     grid_on: bool,
     glass_on: bool,
@@ -4446,11 +5816,11 @@ pub(crate) fn draw_icon_toolbar(
 
     // Closure: allocate a button rect, draw the icon (collected as shapes and
     // uniformly resized to the reference extent), return whether it was clicked.
-    let mut icon_btn = |ui: &mut egui::Ui,
-                        enabled: bool,
-                        toggled: bool,
-                        tooltip: &str,
-                        draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32)|
+    let icon_btn = |ui: &mut egui::Ui,
+                    enabled: bool,
+                    toggled: bool,
+                    tooltip: &str,
+                    draw_fn: &dyn Fn(&mut Vec<Shape>, Rect, Color32)|
      -> bool {
         let (resp, painter) = ui.allocate_painter(Vec2::splat(btn_size), egui::Sense::click());
         let icon_rect = Rect::from_center_size(resp.rect.center(), Vec2::splat(icon_size));
@@ -4555,6 +5925,22 @@ pub(crate) fn draw_icon_toolbar(
         group_separator(ui, group_gap);
 
         // ── Group 5: Edit Controls ───────────────────────────────────────────
+        let cut_tip = format!("{clipboard_cut}  (⌘X)");
+        let copy_tip = format!("{clipboard_copy}  (⌘C)");
+        let paste_tip = format!("{clipboard_paste}  (⌘V)");
+        let duplicate_tip = format!("{clipboard_duplicate}  (⌘D)");
+        if icon_btn(ui, has_sel, false, &cut_tip, &icon_cut) {
+            action = DesignerToolbarAction::Cut;
+        }
+        if icon_btn(ui, has_sel, false, &copy_tip, &icon_copy) {
+            action = DesignerToolbarAction::Copy;
+        }
+        if icon_btn(ui, has_clipboard, false, &paste_tip, &icon_paste) {
+            action = DesignerToolbarAction::Paste;
+        }
+        if icon_btn(ui, has_sel, false, &duplicate_tip, &icon_duplicate) {
+            action = DesignerToolbarAction::Duplicate;
+        }
         if icon_btn(ui, has_sel, false, "Delete selected  (Del)", &icon_delete) {
             action = DesignerToolbarAction::Delete;
         }
@@ -4902,6 +6288,83 @@ fn icon_run(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 
 fn icon_stop(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_filled(r.shrink(r.width() * 0.22), 2.0, c));
+}
+
+fn icon_cut(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.7, c);
+    let left = Pos2::new(r.min.x + r.width() * 0.25, r.max.y - r.height() * 0.25);
+    let right = Pos2::new(r.max.x - r.width() * 0.25, r.max.y - r.height() * 0.25);
+    let pivot = r.center();
+    let top_left = Pos2::new(r.min.x + r.width() * 0.25, r.min.y + r.height() * 0.24);
+    let top_right = Pos2::new(r.max.x - r.width() * 0.25, r.min.y + r.height() * 0.24);
+    out.push(Shape::line_segment([top_left, pivot], s));
+    out.push(Shape::line_segment([top_right, pivot], s));
+    out.push(Shape::line_segment([pivot, left], s));
+    out.push(Shape::line_segment([pivot, right], s));
+    out.push(Shape::circle_stroke(left, r.width() * 0.10, s));
+    out.push(Shape::circle_stroke(right, r.width() * 0.10, s));
+}
+
+fn icon_copy(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.6, c);
+    let back = Rect::from_min_max(r.min + egui::vec2(4.0, 3.0), r.max - egui::vec2(7.0, 8.0));
+    let front = Rect::from_min_max(r.min + egui::vec2(8.0, 8.0), r.max - egui::vec2(3.0, 3.0));
+    out.push(Shape::rect_stroke(
+        back,
+        1.5,
+        Stroke::new(1.2, c.linear_multiply(0.75)),
+    ));
+    out.push(Shape::rect_stroke(front, 1.5, s));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(front.min.x + 3.0, front.min.y + 5.0),
+            Pos2::new(front.max.x - 3.0, front.min.y + 5.0),
+        ],
+        Stroke::new(1.1, c),
+    ));
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(front.min.x + 3.0, front.min.y + 10.0),
+            Pos2::new(front.max.x - 5.0, front.min.y + 10.0),
+        ],
+        Stroke::new(1.1, c),
+    ));
+}
+
+fn icon_paste(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.6, c);
+    let board = Rect::from_min_max(r.min + egui::vec2(5.0, 6.0), r.max - egui::vec2(5.0, 3.0));
+    let clip = Rect::from_center_size(
+        Pos2::new(r.center().x, board.min.y),
+        Vec2::new(r.width() * 0.34, r.height() * 0.18),
+    );
+    out.push(Shape::rect_stroke(board, 2.0, s));
+    out.push(Shape::rect_filled(
+        clip,
+        2.0,
+        Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 35),
+    ));
+    out.push(Shape::rect_stroke(clip, 2.0, Stroke::new(1.4, c)));
+    let page = Rect::from_min_max(
+        board.min + egui::vec2(5.0, 7.0),
+        board.max - egui::vec2(5.0, 4.0),
+    );
+    out.push(Shape::rect_stroke(page, 1.0, Stroke::new(1.2, c)));
+}
+
+fn icon_duplicate(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    icon_copy(out, r, c);
+    let s = Stroke::new(1.7, c);
+    let cx = r.max.x - r.width() * 0.22;
+    let cy = r.min.y + r.height() * 0.24;
+    out.push(Shape::line_segment(
+        [Pos2::new(cx - 4.0, cy), Pos2::new(cx + 4.0, cy)],
+        s,
+    ));
+    out.push(Shape::line_segment(
+        [Pos2::new(cx, cy - 4.0), Pos2::new(cx, cy + 4.0)],
+        s,
+    ));
 }
 
 fn icon_delete(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -5455,6 +6918,9 @@ mod animator_tests {
         });
         out.shapes.into_iter().find_map(|cs| match cs.shape {
             egui::Shape::Mesh(m) => Some(m.texture_id),
+            egui::Shape::Rect(r) if r.fill_texture_id != egui::TextureId::default() => {
+                Some(r.fill_texture_id)
+            }
             _ => None,
         })
     }
@@ -5923,6 +7389,158 @@ mod sticky_font_tests {
         d.add_control(ControlType::Label, 10, 10);
         let first = d.form.controls[0].id.clone();
         assert_eq!(font_of(&d, &first), ("Arial".to_string(), 10));
+    }
+}
+
+#[cfg(test)]
+mod user_control_tests {
+    use super::*;
+
+    fn entry(id: &str, user_control: Option<&str>) -> UserControlEntry {
+        let mut properties = HashMap::new();
+        if let Some(name) = user_control {
+            properties.insert("UserControl".to_string(), name.to_string());
+        }
+        UserControlEntry {
+            id: id.to_string(),
+            control_type: "GroupBox".to_string(),
+            parent: None,
+            x: 0,
+            y: 0,
+            w: 100,
+            h: 50,
+            z_order: 0,
+            properties,
+        }
+    }
+
+    fn child_entry(id: &str, parent: &str) -> UserControlEntry {
+        let mut properties = HashMap::new();
+        properties.insert("Caption".to_string(), "Save".to_string());
+        UserControlEntry {
+            id: id.to_string(),
+            control_type: "Button".to_string(),
+            parent: Some(parent.to_string()),
+            x: 20,
+            y: 30,
+            w: 80,
+            h: 28,
+            z_order: 1,
+            properties,
+        }
+    }
+
+    #[test]
+    fn circular_reference_detected_through_nested_definition() {
+        let existing = vec![
+            UserControlDef {
+                name: "AddressBlock".to_string(),
+                width: 200,
+                height: 100,
+                controls: vec![entry("PhoneEntry-1", Some("PhoneEntry"))],
+            },
+            UserControlDef {
+                name: "PhoneEntry".to_string(),
+                width: 120,
+                height: 40,
+                controls: vec![entry("CustomerCard-1", Some("CustomerCard"))],
+            },
+        ];
+        let new_controls = vec![entry("AddressBlock-1", Some("AddressBlock"))];
+
+        assert!(DesignerPanel::has_circular_user_control_reference(
+            "CustomerCard",
+            &new_controls,
+            &existing,
+        ));
+    }
+
+    #[test]
+    fn deploy_user_control_qualifies_ids_and_remaps_parent() {
+        let def = UserControlDef {
+            name: "CustomerCard".to_string(),
+            width: 240,
+            height: 120,
+            controls: vec![
+                entry("GroupBox-1", None),
+                child_entry("Button-1", "GroupBox-1"),
+            ],
+        };
+        let mut designer = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        designer.form.snap_to_grid = false;
+
+        designer.deploy_user_control(&def, 50, 60, &[def.clone()]);
+
+        let root = designer
+            .form
+            .find_control("CustomerCard-1")
+            .expect("root deployed");
+        assert_eq!(root.control_type, ControlType::GroupBox);
+        assert_eq!(
+            root.get_prop("UserControl").unwrap().as_str(),
+            "CustomerCard"
+        );
+        assert_eq!(
+            (root.rect.x, root.rect.y, root.rect.w, root.rect.h),
+            (50, 60, 240, 120)
+        );
+        let child = designer
+            .form
+            .find_control("CustomerCard-1-Button-1")
+            .expect("child deployed");
+        assert_eq!(child.parent.as_deref(), Some("CustomerCard-1"));
+        assert_eq!(
+            (child.rect.x, child.rect.y, child.rect.w, child.rect.h),
+            (70, 90, 80, 28)
+        );
+    }
+
+    #[test]
+    fn deploy_user_control_expands_uncaptured_nested_definition() {
+        let phone_def = UserControlDef {
+            name: "PhoneEntry".to_string(),
+            width: 120,
+            height: 40,
+            controls: vec![
+                entry("PhoneRoot", None),
+                child_entry("PhoneButton", "PhoneRoot"),
+            ],
+        };
+        let mut nested_root = entry("PhoneSlot", Some("PhoneEntry"));
+        nested_root.parent = Some("AddressRoot".to_string());
+        nested_root.x = 10;
+        nested_root.y = 12;
+        nested_root.w = 120;
+        nested_root.h = 40;
+        let address_def = UserControlDef {
+            name: "AddressBlock".to_string(),
+            width: 300,
+            height: 160,
+            controls: vec![entry("AddressRoot", None), nested_root],
+        };
+        let defs = vec![address_def.clone(), phone_def];
+        let mut designer = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        designer.form.snap_to_grid = false;
+
+        designer.deploy_user_control(&address_def, 100, 100, &defs);
+
+        let nested_child = designer
+            .form
+            .find_control("AddressBlock-1-PhoneSlot-PhoneButton")
+            .expect("nested child expanded");
+        assert_eq!(
+            nested_child.parent.as_deref(),
+            Some("AddressBlock-1-PhoneSlot")
+        );
+        assert_eq!(
+            (
+                nested_child.rect.x,
+                nested_child.rect.y,
+                nested_child.rect.w,
+                nested_child.rect.h
+            ),
+            (130, 142, 80, 28)
+        );
     }
 }
 

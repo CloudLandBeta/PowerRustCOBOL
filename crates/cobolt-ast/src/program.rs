@@ -236,13 +236,13 @@ pub struct Paragraph {
 /// in the run unit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Program {
-    pub identification:   IdentificationDivision,
-    pub environment:      Option<EnvironmentDivision>,
-    pub data:             Option<DataDivision>,
-    pub procedure:        ProcedureDivision,
+    pub identification: IdentificationDivision,
+    pub environment: Option<EnvironmentDivision>,
+    pub data: Option<DataDivision>,
+    pub procedure: ProcedureDivision,
     /// COBOL-85 nested programs contained within this program's scope.
     /// Parsed from the region between the last paragraph and `END PROGRAM`.
-    pub nested_programs:  Vec<Program>,
+    pub nested_programs: Vec<Program>,
     /// The name from `END PROGRAM name.` — `None` for a top-level program
     /// that has no closing `END PROGRAM` statement.
     pub end_program_name: Option<String>,

@@ -16,11 +16,11 @@ use crate::expr::{Expr, Literal};
 /// The category of a PICTURE clause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PicKind {
-    Alphabetic,           // PIC A(n)
-    Numeric,              // PIC 9(n)
-    Alphanumeric,         // PIC X(n)
-    NumericEdited,        // PIC Z,9 / $,Z.99 / etc.
-    AlphanumericEdited,   // PIC X(n)B / etc.
+    Alphabetic,         // PIC A(n)
+    Numeric,            // PIC 9(n)
+    Alphanumeric,       // PIC X(n)
+    NumericEdited,      // PIC Z,9 / $,Z.99 / etc.
+    AlphanumericEdited, // PIC X(n)B / etc.
 }
 
 /// A parsed PICTURE clause.
@@ -134,7 +134,7 @@ pub struct DataDecl {
     /// For 88-level condition names: the list of values that make it TRUE.
     pub condition_values: Vec<ConditionValue>,
     /// GLOBAL clause — item is visible to all nested programs in this compilation unit.
-    pub is_global:   bool,
+    pub is_global: bool,
     /// EXTERNAL clause — item is shared across all programs in the run unit.
     pub is_external: bool,
     /// BLANK WHEN ZERO — an edited field is blanked when its value is zero.

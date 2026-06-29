@@ -83,7 +83,13 @@ fn decimal_literal_is_exact() {
 fn decimal_literal_zero_fraction() {
     let t = toks("MOVE 1.0 TO WS-X.");
     let tok = t.iter().find(|t| matches!(t, Token::DecimalLiteral { .. }));
-    assert!(matches!(tok, Some(Token::DecimalLiteral { mantissa: 10, scale: 1 })));
+    assert!(matches!(
+        tok,
+        Some(Token::DecimalLiteral {
+            mantissa: 10,
+            scale: 1
+        })
+    ));
 }
 
 #[test]
@@ -198,7 +204,9 @@ fn comments_included_when_requested() {
 fn pic_clause_tokenizes() {
     let t = toks("05 WS-NAME PIC X(30) VALUE SPACES.");
     assert!(t.contains(&Token::Pic));
-    assert!(t.iter().any(|t| matches!(t, Token::Identifier(s) if s.starts_with('X'))));
+    assert!(t
+        .iter()
+        .any(|t| matches!(t, Token::Identifier(s) if s.starts_with('X'))));
 }
 
 #[test]

@@ -89,7 +89,9 @@ pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<
         // SENTENCE) between two sentences of the same list.
         let mut saw_period = false;
         let period_span = p.peek_span();
-        while p.eat(&Token::Period) { saw_period = true; }
+        while p.eat(&Token::Period) {
+            saw_period = true;
+        }
 
         let tok = p.peek().clone();
 
@@ -148,9 +150,10 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
     if let Token::Identifier(w) = p.peek() {
         match w.to_ascii_uppercase().as_str() {
             "SEARCH" => return Some(parse_search(p)),
-            "ALTER"  => return Some(parse_alter(p)),
+            "ALTER" => return Some(parse_alter(p)),
             "UNLOCK" => return Some(parse_unlock(p)),
-            "NEXT" if matches!(p.peek_at(1), Token::Identifier(s) if s.eq_ignore_ascii_case("SENTENCE")) => {
+            "NEXT" if matches!(p.peek_at(1), Token::Identifier(s) if s.eq_ignore_ascii_case("SENTENCE")) =>
+            {
                 let span = p.peek_span();
                 p.advance(); // NEXT
                 p.advance(); // SENTENCE
@@ -164,60 +167,83 @@ pub(crate) fn parse_stmt(p: &mut Parser) -> Option<Stmt> {
         Token::Release => Some(parse_release(p)),
         Token::Return_ => Some(parse_return(p)),
         // Indexed-file transaction verbs (no operands).
-        Token::Commit   => { let span = p.peek_span(); p.advance(); Some(Stmt::Commit { span }) }
-        Token::Rollback => { let span = p.peek_span(); p.advance(); Some(Stmt::Rollback { span }) }
-        Token::Move       => Some(parse_move(p)),
-        Token::Add        => Some(parse_add(p)),
-        Token::Subtract   => Some(parse_subtract(p)),
-        Token::Multiply   => Some(parse_multiply(p)),
-        Token::Divide     => Some(parse_divide(p)),
-        Token::Compute    => Some(parse_compute(p)),
-        Token::If         => Some(parse_if(p)),
-        Token::Evaluate   => Some(parse_evaluate(p)),
-        Token::Perform    => Some(parse_perform(p)),
+        Token::Commit => {
+            let span = p.peek_span();
+            p.advance();
+            Some(Stmt::Commit { span })
+        }
+        Token::Rollback => {
+            let span = p.peek_span();
+            p.advance();
+            Some(Stmt::Rollback { span })
+        }
+        Token::Move => Some(parse_move(p)),
+        Token::Add => Some(parse_add(p)),
+        Token::Subtract => Some(parse_subtract(p)),
+        Token::Multiply => Some(parse_multiply(p)),
+        Token::Divide => Some(parse_divide(p)),
+        Token::Compute => Some(parse_compute(p)),
+        Token::If => Some(parse_if(p)),
+        Token::Evaluate => Some(parse_evaluate(p)),
+        Token::Perform => Some(parse_perform(p)),
         Token::Go | Token::GoTo | Token::GoBack => Some(parse_go(p)),
-        Token::Continue   => Some(parse_continue(p)),
-        Token::Stop       => Some(parse_stop(p)),
-        Token::Exit       => Some(parse_exit(p)),
-        Token::Open       => Some(parse_open(p)),
-        Token::Close      => Some(parse_close(p)),
-        Token::Read       => Some(parse_read(p)),
-        Token::Write      => Some(parse_write(p)),
-        Token::Rewrite    => Some(parse_rewrite(p)),
-        Token::Delete     => Some(parse_delete(p)),
-        Token::Start      => Some(parse_start(p)),
-        Token::Accept     => Some(parse_accept(p)),
-        Token::Display    => Some(parse_display(p)),
+        Token::Continue => Some(parse_continue(p)),
+        Token::Stop => Some(parse_stop(p)),
+        Token::Exit => Some(parse_exit(p)),
+        Token::Open => Some(parse_open(p)),
+        Token::Close => Some(parse_close(p)),
+        Token::Read => Some(parse_read(p)),
+        Token::Write => Some(parse_write(p)),
+        Token::Rewrite => Some(parse_rewrite(p)),
+        Token::Delete => Some(parse_delete(p)),
+        Token::Start => Some(parse_start(p)),
+        Token::Accept => Some(parse_accept(p)),
+        Token::Display => Some(parse_display(p)),
         Token::StringVerb => Some(parse_string_verb(p)),
-        Token::Unstring   => Some(parse_unstring(p)),
-        Token::Inspect    => Some(parse_inspect(p)),
-        Token::Sort       => Some(parse_sort(p)),
-        Token::Merge      => Some(parse_merge(p)),
-        Token::Call       => Some(parse_call(p)),
-        Token::Invoke     => Some(parse_invoke(p)),
+        Token::Unstring => Some(parse_unstring(p)),
+        Token::Inspect => Some(parse_inspect(p)),
+        Token::Sort => Some(parse_sort(p)),
+        Token::Merge => Some(parse_merge(p)),
+        Token::Call => Some(parse_call(p)),
+        Token::Invoke => Some(parse_invoke(p)),
         Token::Initialize => Some(parse_initialize(p)),
-        Token::Set        => Some(parse_set(p)),
-        Token::Cancel              => Some(parse_cancel(p)),
+        Token::Set => Some(parse_set(p)),
+        Token::Cancel => Some(parse_cancel(p)),
         // CoBolt animation verbs — parse as a no-op skip to end of sentence
         Token::Play | Token::StopAnim => {
             p.advance(); // consume PLAY / STOP-ANIMATION
-            // skip everything until period or start of next statement
-            while !matches!(p.peek(),
-                Token::Period | Token::Eof |
-                Token::Move | Token::If | Token::Perform | Token::Evaluate |
-                Token::Add  | Token::Subtract | Token::Compute | Token::Call |
-                Token::Invoke | Token::Stop | Token::GoBack | Token::Exit |
-                Token::Display | Token::Accept | Token::Read | Token::Write |
-                Token::Play | Token::StopAnim
+                         // skip everything until period or start of next statement
+            while !matches!(
+                p.peek(),
+                Token::Period
+                    | Token::Eof
+                    | Token::Move
+                    | Token::If
+                    | Token::Perform
+                    | Token::Evaluate
+                    | Token::Add
+                    | Token::Subtract
+                    | Token::Compute
+                    | Token::Call
+                    | Token::Invoke
+                    | Token::Stop
+                    | Token::GoBack
+                    | Token::Exit
+                    | Token::Display
+                    | Token::Accept
+                    | Token::Read
+                    | Token::Write
+                    | Token::Play
+                    | Token::StopAnim
             ) {
                 p.advance();
             }
             None
         }
-        Token::ExecRustBlock(_)   => Some(parse_exec_rust(p)),
-        Token::Try                => Some(parse_try_catch(p)),
-        Token::Throw              => Some(parse_throw(p)),
-        _                          => None,
+        Token::ExecRustBlock(_) => Some(parse_exec_rust(p)),
+        Token::Try => Some(parse_try_catch(p)),
+        Token::Throw => Some(parse_throw(p)),
+        _ => None,
     }
 }
 
@@ -262,11 +288,7 @@ fn parse_move(p: &mut Parser) -> Stmt {
 /// `id1 [ROUNDED] id2 [ROUNDED] …`. Stops at `stop` tokens / end of sentence.
 fn parse_receivers(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<(Expr, bool)> {
     let mut out = Vec::new();
-    while !stop(p.peek())
-        && !p.at_end_of_sentence()
-        && !p.at(&Token::Eof)
-        && is_expr_start(p)
-    {
+    while !stop(p.peek()) && !p.at_end_of_sentence() && !p.at(&Token::Eof) && is_expr_start(p) {
         let e = parse_expr(p);
         let rounded = p.eat(&Token::Rounded);
         out.push((e, rounded));
@@ -287,15 +309,17 @@ fn parse_add(p: &mut Parser) -> Stmt {
         let rounded = p.eat(&Token::Rounded);
         let (_se, _nse) = parse_size_error(p, &Token::EndAdd);
         p.eat(&Token::EndAdd);
-        return Stmt::AddCorresponding { from, to, rounded, span };
+        return Stmt::AddCorresponding {
+            from,
+            to,
+            rounded,
+            span,
+        };
     }
 
     let mut operands = Vec::new();
     // Collect sending operands until TO or GIVING (ADD a b GIVING c has no TO)
-    while !p.at(&Token::To)
-        && !p.at(&Token::Giving)
-        && !p.at(&Token::Eof)
-        && !p.at(&Token::Period)
+    while !p.at(&Token::To) && !p.at(&Token::Giving) && !p.at(&Token::Eof) && !p.at(&Token::Period)
     {
         if is_expr_start(p) {
             operands.push(parse_expr(p));
@@ -315,7 +339,14 @@ fn parse_add(p: &mut Parser) -> Stmt {
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndAdd);
     p.eat(&Token::EndAdd);
 
-    Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, span }
+    Stmt::Add {
+        operands,
+        to,
+        giving,
+        on_size_error,
+        not_on_size_error,
+        span,
+    }
 }
 
 /// Parse the optional `[ON] SIZE ERROR imp … [NOT ON SIZE ERROR imp …]` tail of an
@@ -336,8 +367,7 @@ fn parse_size_error(p: &mut Parser, end: &Token) -> (Vec<Stmt>, Vec<Stmt>) {
     // the next words are `NOT INVALID KEY` / `NOT AT END` / `NOT ON EXCEPTION`).
     let not_is_size_error = p.at(&Token::Not)
         && (matches!(p.peek_at(1), Token::SizeError)
-            || (matches!(p.peek_at(1), Token::On)
-                && matches!(p.peek_at(2), Token::SizeError)));
+            || (matches!(p.peek_at(1), Token::On) && matches!(p.peek_at(2), Token::SizeError)));
     if not_is_size_error {
         p.eat(&Token::Not);
         try_eat_size_error_phrase(p);
@@ -350,8 +380,7 @@ fn parse_size_error(p: &mut Parser, end: &Token) -> (Vec<Stmt>, Vec<Stmt>) {
 /// Consume `[ON] SIZE ERROR`. The lexer emits `SIZE` as the `SizeError` token and
 /// `ERROR` as a separate word, so both are eaten here. Returns whether it matched.
 fn try_eat_size_error_phrase(p: &mut Parser) -> bool {
-    let has = p.at(&Token::SizeError)
-        || (p.at(&Token::On) && *p.peek_at(1) == Token::SizeError);
+    let has = p.at(&Token::SizeError) || (p.at(&Token::On) && *p.peek_at(1) == Token::SizeError);
     if !has {
         return false;
     }
@@ -380,7 +409,12 @@ fn parse_subtract(p: &mut Parser) -> Stmt {
         let rounded = p.eat(&Token::Rounded);
         let (_se, _nse) = parse_size_error(p, &Token::EndSubtract);
         p.eat(&Token::EndSubtract);
-        return Stmt::SubtractCorresponding { from, to, rounded, span };
+        return Stmt::SubtractCorresponding {
+            from,
+            to,
+            rounded,
+            span,
+        };
     }
 
     let mut operands = Vec::new();
@@ -406,7 +440,14 @@ fn parse_subtract(p: &mut Parser) -> Stmt {
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndSubtract);
     p.eat(&Token::EndSubtract);
 
-    Stmt::Subtract { operands, from, giving, on_size_error, not_on_size_error, span }
+    Stmt::Subtract {
+        operands,
+        from,
+        giving,
+        on_size_error,
+        not_on_size_error,
+        span,
+    }
 }
 
 // ── MULTIPLY ──────────────────────────────────────────────────────────────────
@@ -426,7 +467,15 @@ fn parse_multiply(p: &mut Parser) -> Stmt {
     };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndMultiply);
     p.eat(&Token::EndMultiply);
-    Stmt::Multiply { lhs, by, giving, rounded, on_size_error, not_on_size_error, span }
+    Stmt::Multiply {
+        lhs,
+        by,
+        giving,
+        rounded,
+        on_size_error,
+        not_on_size_error,
+        span,
+    }
 }
 
 // ── DIVIDE ────────────────────────────────────────────────────────────────────
@@ -447,10 +496,23 @@ fn parse_divide(p: &mut Parser) -> Stmt {
     } else {
         Vec::new()
     };
-    let remainder = if p.eat(&Token::Remainder) { Some(parse_expr(p)) } else { None };
+    let remainder = if p.eat(&Token::Remainder) {
+        Some(parse_expr(p))
+    } else {
+        None
+    };
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndDivide);
     p.eat(&Token::EndDivide);
-    Stmt::Divide { lhs, by, giving, remainder, rounded, on_size_error, not_on_size_error, span }
+    Stmt::Divide {
+        lhs,
+        by,
+        giving,
+        remainder,
+        rounded,
+        on_size_error,
+        not_on_size_error,
+        span,
+    }
 }
 
 // ── COMPUTE ───────────────────────────────────────────────────────────────────
@@ -458,7 +520,7 @@ fn parse_divide(p: &mut Parser) -> Stmt {
 fn parse_compute(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // COMPUTE
-    // `COMPUTE r1 [ROUNDED] [r2 [ROUNDED] …] = expression`.
+                 // `COMPUTE r1 [ROUNDED] [r2 [ROUNDED] …] = expression`.
     let mut targets = Vec::new();
     while !p.at(&Token::Eq) && !p.at(&Token::Eof) && !p.at(&Token::Period) {
         let t = parse_expr(p);
@@ -472,7 +534,13 @@ fn parse_compute(p: &mut Parser) -> Stmt {
     let expr = parse_expr(p);
     let (on_size_error, not_on_size_error) = parse_size_error(p, &Token::EndCompute);
     p.eat(&Token::EndCompute);
-    Stmt::Compute { targets, expr, on_size_error, not_on_size_error, span }
+    Stmt::Compute {
+        targets,
+        expr,
+        on_size_error,
+        not_on_size_error,
+        span,
+    }
 }
 
 // ── IF ────────────────────────────────────────────────────────────────────────
@@ -485,7 +553,9 @@ fn parse_if(p: &mut Parser) -> Stmt {
 
     // Optional THEN
     if let Token::Identifier(ref s) = p.peek().clone() {
-        if s.to_uppercase() == "THEN" { p.advance(); }
+        if s.to_uppercase() == "THEN" {
+            p.advance();
+        }
     }
 
     // A branch ends at ELSE / END-IF, or at a period (which terminates the whole
@@ -503,7 +573,12 @@ fn parse_if(p: &mut Parser) -> Stmt {
 
     p.eat(&Token::EndIf);
 
-    Stmt::If { condition, then_stmts, else_stmts, span }
+    Stmt::If {
+        condition,
+        then_stmts,
+        else_stmts,
+        span,
+    }
 }
 
 // ── EVALUATE ──────────────────────────────────────────────────────────────────
@@ -516,12 +591,20 @@ fn parse_evaluate(p: &mut Parser) -> Stmt {
     let mut subjects = Vec::new();
     loop {
         let subj = match p.peek().clone() {
-            Token::True_  => { p.advance(); EvalSubject::True_ }
-            Token::False_ => { p.advance(); EvalSubject::False_ }
-            _             => EvalSubject::Expr(parse_expr(p)),
+            Token::True_ => {
+                p.advance();
+                EvalSubject::True_
+            }
+            Token::False_ => {
+                p.advance();
+                EvalSubject::False_
+            }
+            _ => EvalSubject::Expr(parse_expr(p)),
         };
         subjects.push(subj);
-        if !p.at(&Token::Also) { break; }
+        if !p.at(&Token::Also) {
+            break;
+        }
         p.advance(); // ALSO
     }
 
@@ -534,9 +617,7 @@ fn parse_evaluate(p: &mut Parser) -> Stmt {
 
         if p.at(&Token::Other) {
             p.advance();
-            other_stmts = parse_stmts(p, &|tok| {
-                matches!(tok, Token::EndEvaluate | Token::When)
-            });
+            other_stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndEvaluate | Token::When));
             break;
         }
 
@@ -545,21 +626,30 @@ fn parse_evaluate(p: &mut Parser) -> Stmt {
         loop {
             let wv = parse_when_value(p);
             values.push(wv);
-            if !p.at(&Token::Also) { break; }
+            if !p.at(&Token::Also) {
+                break;
+            }
             p.advance(); // ALSO — for multiple subjects (simplified: collect more values)
         }
 
-        let stmts = parse_stmts(p, &|tok| {
-            matches!(tok, Token::When | Token::EndEvaluate)
-        });
+        let stmts = parse_stmts(p, &|tok| matches!(tok, Token::When | Token::EndEvaluate));
 
         let ws = when_span.merge(p.peek_span());
-        whens.push(WhenClause { values, stmts, span: ws });
+        whens.push(WhenClause {
+            values,
+            stmts,
+            span: ws,
+        });
     }
 
     p.eat(&Token::EndEvaluate);
 
-    Stmt::Evaluate { subjects, whens, other_stmts, span }
+    Stmt::Evaluate {
+        subjects,
+        whens,
+        other_stmts,
+        span,
+    }
 }
 
 fn parse_when_value(p: &mut Parser) -> WhenValue {
@@ -612,7 +702,11 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         let condition = parse_condition(p);
         let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
         p.eat(&Token::EndPerform);
-        let target = PerformTarget::Until { condition, test_before: true, stmts };
+        let target = PerformTarget::Until {
+            condition,
+            test_before: true,
+            stmts,
+        };
         return Stmt::Perform { target, span };
     }
 
@@ -620,12 +714,21 @@ fn parse_perform(p: &mut Parser) -> Stmt {
     if p.at(&Token::With) || p.at(&Token::Test) {
         p.eat(&Token::With);
         p.eat(&Token::Test);
-        let test_before = if p.eat(&Token::After) { false } else { p.eat(&Token::Before); true };
+        let test_before = if p.eat(&Token::After) {
+            false
+        } else {
+            p.eat(&Token::Before);
+            true
+        };
         p.expect(&Token::Until);
         let condition = parse_condition(p);
         let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
         p.eat(&Token::EndPerform);
-        let target = PerformTarget::Until { condition, test_before, stmts };
+        let target = PerformTarget::Until {
+            condition,
+            test_before,
+            stmts,
+        };
         return Stmt::Perform { target, span };
     }
 
@@ -637,7 +740,10 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         p.eat(&Token::Times);
         let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
         p.eat(&Token::EndPerform);
-        return Stmt::Perform { target: PerformTarget::Times { count, stmts }, span };
+        return Stmt::Perform {
+            target: PerformTarget::Times { count, stmts },
+            span,
+        };
     }
 
     // Must have a paragraph/section name next
@@ -682,20 +788,30 @@ fn parse_perform(p: &mut Parser) -> Stmt {
             },
             span,
         };
-        let target = PerformTarget::Times { count: count_expr, stmts: vec![para_stmt] };
+        let target = PerformTarget::Times {
+            count: count_expr,
+            stmts: vec![para_stmt],
+        };
         return Stmt::Perform { target, span };
     }
 
     // PERFORM name UNTIL cond [WITH TEST BEFORE/AFTER]
-    if p.at(&Token::Until)
-        || p.at(&Token::With)
-        || p.at(&Token::Test)
-    {
+    if p.at(&Token::Until) || p.at(&Token::With) || p.at(&Token::Test) {
         let test_before = if p.eat(&Token::With) {
             p.eat(&Token::Test);
-            if p.eat(&Token::After) { false } else { p.eat(&Token::Before); true }
+            if p.eat(&Token::After) {
+                false
+            } else {
+                p.eat(&Token::Before);
+                true
+            }
         } else if p.eat(&Token::Test) {
-            if p.eat(&Token::After) { false } else { p.eat(&Token::Before); true }
+            if p.eat(&Token::After) {
+                false
+            } else {
+                p.eat(&Token::Before);
+                true
+            }
         } else {
             true
         };
@@ -703,13 +819,21 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         let condition = parse_condition(p);
         let para_stmt = Stmt::Perform {
             target: if let Some(ref t) = to_name {
-                PerformTarget::Thru { from: name.clone(), to: t.clone(), span }
+                PerformTarget::Thru {
+                    from: name.clone(),
+                    to: t.clone(),
+                    span,
+                }
             } else {
                 PerformTarget::Paragraph(name, span)
             },
             span,
         };
-        let target = PerformTarget::Until { condition, test_before, stmts: vec![para_stmt] };
+        let target = PerformTarget::Until {
+            condition,
+            test_before,
+            stmts: vec![para_stmt],
+        };
         return Stmt::Perform { target, span };
     }
 
@@ -719,21 +843,34 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         let (var, from, by, until, after) = parse_varying_clauses(p);
         let para_stmt = Stmt::Perform {
             target: if let Some(ref t) = to_name {
-                PerformTarget::Thru { from: name.clone(), to: t.clone(), span }
+                PerformTarget::Thru {
+                    from: name.clone(),
+                    to: t.clone(),
+                    span,
+                }
             } else {
                 PerformTarget::Paragraph(name, span)
             },
             span,
         };
         let target = PerformTarget::Varying {
-            var, from, by, until, stmts: vec![para_stmt], after,
+            var,
+            from,
+            by,
+            until,
+            stmts: vec![para_stmt],
+            after,
         };
         return Stmt::Perform { target, span };
     }
 
     // Simple PERFORM name [THRU name]
     let target = if let Some(t) = to_name {
-        PerformTarget::Thru { from: name, to: t, span }
+        PerformTarget::Thru {
+            from: name,
+            to: t,
+            span,
+        }
     } else {
         PerformTarget::Paragraph(name, span)
     };
@@ -741,7 +878,13 @@ fn parse_perform(p: &mut Parser) -> Stmt {
 }
 
 /// Parse the `VARYING v FROM a BY b UNTIL c [AFTER …]` header (no loop body).
-type VaryingHeader = (Expr, Expr, Expr, cobolt_ast::expr::Condition, Vec<VaryingAfter>);
+type VaryingHeader = (
+    Expr,
+    Expr,
+    Expr,
+    cobolt_ast::expr::Condition,
+    Vec<VaryingAfter>,
+);
 fn parse_varying_clauses(p: &mut Parser) -> VaryingHeader {
     p.advance(); // VARYING
     let var = parse_expr(p);
@@ -763,7 +906,12 @@ fn parse_varying_clauses(p: &mut Parser) -> VaryingHeader {
         let ab = parse_expr(p);
         p.eat(&Token::Until);
         let au = parse_condition(p);
-        after.push(VaryingAfter { var: av, from: af, by: ab, until: au });
+        after.push(VaryingAfter {
+            var: av,
+            from: af,
+            by: ab,
+            until: au,
+        });
     }
     (var, from, by, until, after)
 }
@@ -773,7 +921,14 @@ fn parse_perform_varying(p: &mut Parser) -> PerformTarget {
     let (var, from, by, until, after) = parse_varying_clauses(p);
     let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
     p.eat(&Token::EndPerform);
-    PerformTarget::Varying { var, from, by, until, stmts, after }
+    PerformTarget::Varying {
+        var,
+        from,
+        by,
+        until,
+        stmts,
+        after,
+    }
 }
 
 // ── GO TO / GO BACK ───────────────────────────────────────────────────────────
@@ -805,14 +960,20 @@ fn parse_go(p: &mut Parser) -> Stmt {
         let (name, _) = p.eat_identifier().unwrap();
         targets.push(name);
         // Stop before DEPENDING
-        if p.at(&Token::Depending) { break; }
+        if p.at(&Token::Depending) {
+            break;
+        }
     }
 
     if p.at(&Token::Depending) {
         p.advance();
         p.eat(&Token::On);
         let depending = parse_expr(p);
-        return Stmt::GoToDepending { targets, depending, span };
+        return Stmt::GoToDepending {
+            targets,
+            depending,
+            span,
+        };
     }
 
     let target = targets.into_iter().next().unwrap_or_else(|| {
@@ -862,7 +1023,9 @@ fn parse_unlock(p: &mut Parser) -> Stmt {
     p.advance(); // UNLOCK
     let file = p.expect_identifier("UNLOCK file name");
     p.eat(&Token::Record); // optional RECORD / RECORDS
-    if matches!(ident_upper(p).as_deref(), Some("RECORDS")) { p.advance(); }
+    if matches!(ident_upper(p).as_deref(), Some("RECORDS")) {
+        p.advance();
+    }
     Stmt::Unlock { file, span }
 }
 
@@ -871,10 +1034,12 @@ fn parse_unlock(p: &mut Parser) -> Stmt {
 fn parse_search(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // SEARCH (an identifier)
-    // `ALL` is the reserved figurative-constant token (`Token::All`) as well as
-    // a plain word in some contexts — accept either before the table name.
-    let all = (matches!(p.peek(), Token::All) || is_word(p.peek(), "ALL"))
-        && { p.advance(); true };
+                 // `ALL` is the reserved figurative-constant token (`Token::All`) as well as
+                 // a plain word in some contexts — accept either before the table name.
+    let all = (matches!(p.peek(), Token::All) || is_word(p.peek(), "ALL")) && {
+        p.advance();
+        true
+    };
     let table = parse_expr(p);
 
     let varying = if p.at(&Token::Varying) {
@@ -886,7 +1051,11 @@ fn parse_search(p: &mut Parser) -> Stmt {
 
     // AT END imperative
     let stop = |t: &Token| matches!(t, Token::When | Token::EndSearch);
-    let at_end = if eat_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let at_end = if eat_at_end(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
 
     // WHEN condition imperative …
     let mut whens = Vec::new();
@@ -898,7 +1067,14 @@ fn parse_search(p: &mut Parser) -> Stmt {
     }
 
     p.eat(&Token::EndSearch);
-    Stmt::Search { all, table, varying, at_end, whens, span }
+    Stmt::Search {
+        all,
+        table,
+        varying,
+        at_end,
+        whens,
+        span,
+    }
 }
 
 // ── STOP ──────────────────────────────────────────────────────────────────────
@@ -920,8 +1096,8 @@ fn parse_stop(p: &mut Parser) -> Stmt {
 fn parse_exit(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // EXIT
-    // EXIT [PROGRAM | PERFORM [CYCLE] | PARAGRAPH | SECTION] — the qualifier
-    // words PERFORM / PARAGRAPH / SECTION / CYCLE arrive as identifier tokens.
+                 // EXIT [PROGRAM | PERFORM [CYCLE] | PARAGRAPH | SECTION] — the qualifier
+                 // words PERFORM / PARAGRAPH / SECTION / CYCLE arrive as identifier tokens.
     let kind = if p.eat(&Token::Program) {
         ExitKind::Program
     } else if p.at(&Token::Perform) {
@@ -934,8 +1110,14 @@ fn parse_exit(p: &mut Parser) -> Stmt {
         }
     } else {
         match ident_upper(p).as_deref() {
-            Some("PARAGRAPH") => { p.advance(); ExitKind::Paragraph }
-            Some("SECTION")   => { p.advance(); ExitKind::Section }
+            Some("PARAGRAPH") => {
+                p.advance();
+                ExitKind::Paragraph
+            }
+            Some("SECTION") => {
+                p.advance();
+                ExitKind::Section
+            }
             _ => ExitKind::Point,
         }
     };
@@ -949,12 +1131,27 @@ fn parse_open(p: &mut Parser) -> Stmt {
     p.advance(); // OPEN
 
     let mode = match p.peek().clone() {
-        Token::Input  => { p.advance(); OpenMode::Input }
-        Token::Output => { p.advance(); OpenMode::Output }
-        Token::IoMode => { p.advance(); OpenMode::InputOutput }
-        Token::Extend => { p.advance(); OpenMode::Extend }
+        Token::Input => {
+            p.advance();
+            OpenMode::Input
+        }
+        Token::Output => {
+            p.advance();
+            OpenMode::Output
+        }
+        Token::IoMode => {
+            p.advance();
+            OpenMode::InputOutput
+        }
+        Token::Extend => {
+            p.advance();
+            OpenMode::Extend
+        }
         _ => {
-            p.emit_error(format!("expected INPUT/OUTPUT/I-O/EXTEND, found {:?}", p.peek()));
+            p.emit_error(format!(
+                "expected INPUT/OUTPUT/I-O/EXTEND, found {:?}",
+                p.peek()
+            ));
             OpenMode::Input
         }
     };
@@ -972,10 +1169,19 @@ fn parse_open(p: &mut Parser) -> Stmt {
         // Per-file/trailing WITH {LOCK | [NO] REWIND | REGISTERED USER …}
         if p.at(&Token::With) {
             p.advance();
-            if is_word(p.peek(), "LOCK") { p.advance(); lock = true; }
-            else if is_word(p.peek(), "REGISTERED") { registered_user = parse_registered_user(p); }
-            else if p.at(&Token::No) { p.advance(); if is_word(p.peek(), "REWIND") { p.advance(); } }
-            else if is_word(p.peek(), "REWIND") { p.advance(); }
+            if is_word(p.peek(), "LOCK") {
+                p.advance();
+                lock = true;
+            } else if is_word(p.peek(), "REGISTERED") {
+                registered_user = parse_registered_user(p);
+            } else if p.at(&Token::No) {
+                p.advance();
+                if is_word(p.peek(), "REWIND") {
+                    p.advance();
+                }
+            } else if is_word(p.peek(), "REWIND") {
+                p.advance();
+            }
             continue;
         }
         // `REGISTERED USER …` without a leading WITH.
@@ -991,7 +1197,14 @@ fn parse_open(p: &mut Parser) -> Stmt {
         break;
     }
 
-    Stmt::Open { mode, files, sharing, lock, registered_user, span }
+    Stmt::Open {
+        mode,
+        files,
+        sharing,
+        lock,
+        registered_user,
+        span,
+    }
 }
 
 /// Parse `REGISTERED [USER] {literal | data-item}` (leading `WITH` already eaten
@@ -1007,20 +1220,30 @@ fn parse_registered_user(p: &mut Parser) -> Option<cobolt_ast::expr::Expr> {
 /// Parse `SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}` into `out`.
 fn parse_sharing(p: &mut Parser, out: &mut Option<cobolt_ast::stmt::ShareMode>) {
     use cobolt_ast::stmt::ShareMode;
-    if !is_word(p.peek(), "SHARING") { return; }
+    if !is_word(p.peek(), "SHARING") {
+        return;
+    }
     p.advance(); // SHARING
     p.eat(&Token::With); // optional WITH
     let mode = if p.at(&Token::No) {
         p.advance();
-        if p.at(&Token::Other) { p.advance(); }
+        if p.at(&Token::Other) {
+            p.advance();
+        }
         ShareMode::NoOther
     } else if p.at(&Token::Read) {
         p.advance();
-        if is_word(p.peek(), "ONLY") { p.advance(); }
+        if is_word(p.peek(), "ONLY") {
+            p.advance();
+        }
         ShareMode::ReadOnly
     } else {
-        if p.at(&Token::All) || is_word(p.peek(), "ALL") { p.advance(); }
-        if p.at(&Token::Other) { p.advance(); }
+        if p.at(&Token::All) || is_word(p.peek(), "ALL") {
+            p.advance();
+        }
+        if p.at(&Token::Other) {
+            p.advance();
+        }
         ShareMode::AllOther
     };
     *out = Some(mode);
@@ -1098,7 +1321,9 @@ fn eat_not_at_end(p: &mut Parser) -> bool {
             || (is_word(n1, "AT") && matches!(n2, Token::End | Token::AtEnd));
         if is_not_at_end {
             p.advance(); // NOT
-            if is_word(p.peek(), "AT") { p.advance(); }
+            if is_word(p.peek(), "AT") {
+                p.advance();
+            }
             p.eat(&Token::AtEnd);
             p.eat(&Token::End);
             return true;
@@ -1147,18 +1372,24 @@ fn parse_read(p: &mut Parser) -> Stmt {
         p.advance();
         if p.at(&Token::No) {
             p.advance();
-            if is_word(p.peek(), "LOCK") { p.advance(); }
+            if is_word(p.peek(), "LOCK") {
+                p.advance();
+            }
             Some(false)
         } else if is_word(p.peek(), "KEPT") {
             p.advance();
-            if is_word(p.peek(), "LOCK") { p.advance(); }
+            if is_word(p.peek(), "LOCK") {
+                p.advance();
+            }
             Some(true)
         } else if is_word(p.peek(), "LOCK") {
             p.advance();
             Some(true)
         } else {
             // some other WITH phrase we don't model — ignore the word
-            if p.at_identifier() { p.advance(); }
+            if p.at_identifier() {
+                p.advance();
+            }
             None
         }
     } else {
@@ -1167,21 +1398,51 @@ fn parse_read(p: &mut Parser) -> Stmt {
 
     // AT END … [NOT AT END …]. `AT END` may arrive as the single `AtEnd` token
     // or as the two words `AT` + `END`; likewise `NOT AT END`.
-    let stop = |tok: &Token| matches!(
-        tok,
-        Token::Not | Token::NotAtEnd | Token::NotInvalidKey | Token::InvalidKey | Token::EndRead
-    );
-    let at_end = if eat_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
-    let not_at_end = if eat_not_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let stop = |tok: &Token| {
+        matches!(
+            tok,
+            Token::Not
+                | Token::NotAtEnd
+                | Token::NotInvalidKey
+                | Token::InvalidKey
+                | Token::EndRead
+        )
+    };
+    let at_end = if eat_at_end(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
+    let not_at_end = if eat_not_at_end(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
     // INVALID KEY / NOT INVALID KEY (random reads use these instead of AT END).
-    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
-    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let invalid_key = if eat_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
+    let not_invalid_key = if eat_not_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
 
     p.eat(&Token::EndRead);
 
     Stmt::Read {
-        file, into, key, direction, lock,
-        at_end, not_at_end, invalid_key, not_invalid_key, span,
+        file,
+        into,
+        key,
+        direction,
+        lock,
+        at_end,
+        not_at_end,
+        invalid_key,
+        not_invalid_key,
+        span,
     }
 }
 
@@ -1202,7 +1463,9 @@ fn parse_write(p: &mut Parser) -> Stmt {
     // BEFORE/AFTER ADVANCING lines LINES
     let advancing = if p.at(&Token::Before) || p.at(&Token::After) || p.at(&Token::Advancing) {
         let before = p.eat(&Token::Before);
-        if !before { p.eat(&Token::After); }
+        if !before {
+            p.eat(&Token::After);
+        }
         p.eat(&Token::Advancing);
         let lines = parse_expr(p);
         p.eat(&Token::Line);
@@ -1212,13 +1475,33 @@ fn parse_write(p: &mut Parser) -> Stmt {
         None
     };
 
-    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndWrite);
-    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
-    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let stop = |tok: &Token| {
+        matches!(
+            tok,
+            Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndWrite
+        )
+    };
+    let invalid_key = if eat_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
+    let not_invalid_key = if eat_not_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
 
     p.eat(&Token::EndWrite);
 
-    Stmt::Write { record, from, advancing, invalid_key, not_invalid_key, span }
+    Stmt::Write {
+        record,
+        from,
+        advancing,
+        invalid_key,
+        not_invalid_key,
+        span,
+    }
 }
 
 // ── REWRITE ───────────────────────────────────────────────────────────────────
@@ -1227,12 +1510,36 @@ fn parse_rewrite(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // REWRITE
     let record = parse_expr(p);
-    let from = if p.at(&Token::From) { p.advance(); Some(parse_expr(p)) } else { None };
-    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndRewrite);
-    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
-    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let from = if p.at(&Token::From) {
+        p.advance();
+        Some(parse_expr(p))
+    } else {
+        None
+    };
+    let stop = |tok: &Token| {
+        matches!(
+            tok,
+            Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndRewrite
+        )
+    };
+    let invalid_key = if eat_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
+    let not_invalid_key = if eat_not_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
     p.eat(&Token::EndRewrite);
-    Stmt::Rewrite { record, from, invalid_key, not_invalid_key, span }
+    Stmt::Rewrite {
+        record,
+        from,
+        invalid_key,
+        not_invalid_key,
+        span,
+    }
 }
 
 // ── DELETE ────────────────────────────────────────────────────────────────────
@@ -1242,11 +1549,29 @@ fn parse_delete(p: &mut Parser) -> Stmt {
     p.advance(); // DELETE
     let file = p.expect_identifier("DELETE file name");
     p.eat(&Token::Record);
-    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndDelete);
-    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
-    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let stop = |tok: &Token| {
+        matches!(
+            tok,
+            Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndDelete
+        )
+    };
+    let invalid_key = if eat_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
+    let not_invalid_key = if eat_not_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
     p.eat(&Token::EndDelete);
-    Stmt::Delete { file, invalid_key, not_invalid_key, span }
+    Stmt::Delete {
+        file,
+        invalid_key,
+        not_invalid_key,
+        span,
+    }
 }
 
 // ── START ─────────────────────────────────────────────────────────────────────
@@ -1266,11 +1591,30 @@ fn parse_start(p: &mut Parser) -> Stmt {
         None
     };
 
-    let stop = |tok: &Token| matches!(tok, Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndStart);
-    let invalid_key = if eat_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
-    let not_invalid_key = if eat_not_invalid_key(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let stop = |tok: &Token| {
+        matches!(
+            tok,
+            Token::Not | Token::NotInvalidKey | Token::InvalidKey | Token::EndStart
+        )
+    };
+    let invalid_key = if eat_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
+    let not_invalid_key = if eat_not_invalid_key(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
     p.eat(&Token::EndStart);
-    Stmt::Start { file, key, invalid_key, not_invalid_key, span }
+    Stmt::Start {
+        file,
+        key,
+        invalid_key,
+        not_invalid_key,
+        span,
+    }
 }
 
 fn parse_start_key_op(p: &mut Parser) -> CmpOp {
@@ -1278,38 +1622,78 @@ fn parse_start_key_op(p: &mut Parser) -> CmpOp {
     let negated = p.eat(&Token::Not);
     if p.eat(&Token::Equal) {
         p.eat(&Token::To);
-        if negated { CmpOp::Ne } else { CmpOp::Eq }
+        if negated {
+            CmpOp::Ne
+        } else {
+            CmpOp::Eq
+        }
     } else if p.eat(&Token::Greater) {
         p.eat(&Token::Than);
         // GREATER THAN OR EQUAL TO → ≥
         if p.eat(&Token::Or) {
             p.eat(&Token::Equal);
             p.eat(&Token::To);
-            if negated { CmpOp::Lt } else { CmpOp::Ge }
-        } else if negated { CmpOp::Le } else { CmpOp::Gt }
+            if negated {
+                CmpOp::Lt
+            } else {
+                CmpOp::Ge
+            }
+        } else if negated {
+            CmpOp::Le
+        } else {
+            CmpOp::Gt
+        }
     } else if p.eat(&Token::Less) {
         p.eat(&Token::Than);
         // LESS THAN OR EQUAL TO → ≤
         if p.eat(&Token::Or) {
             p.eat(&Token::Equal);
             p.eat(&Token::To);
-            if negated { CmpOp::Gt } else { CmpOp::Le }
-        } else if negated { CmpOp::Ge } else { CmpOp::Lt }
+            if negated {
+                CmpOp::Gt
+            } else {
+                CmpOp::Le
+            }
+        } else if negated {
+            CmpOp::Ge
+        } else {
+            CmpOp::Lt
+        }
     } else if p.at(&Token::Eq) {
         p.advance();
-        if negated { CmpOp::Ne } else { CmpOp::Eq }
+        if negated {
+            CmpOp::Ne
+        } else {
+            CmpOp::Eq
+        }
     } else if p.at(&Token::Gt) {
         p.advance();
-        if negated { CmpOp::Le } else { CmpOp::Gt }
+        if negated {
+            CmpOp::Le
+        } else {
+            CmpOp::Gt
+        }
     } else if p.at(&Token::Lt) {
         p.advance();
-        if negated { CmpOp::Ge } else { CmpOp::Lt }
+        if negated {
+            CmpOp::Ge
+        } else {
+            CmpOp::Lt
+        }
     } else if p.at(&Token::GtEq) {
         p.advance();
-        if negated { CmpOp::Lt } else { CmpOp::Ge }
+        if negated {
+            CmpOp::Lt
+        } else {
+            CmpOp::Ge
+        }
     } else if p.at(&Token::LtEq) {
         p.advance();
-        if negated { CmpOp::Gt } else { CmpOp::Le }
+        if negated {
+            CmpOp::Gt
+        } else {
+            CmpOp::Le
+        }
     } else {
         CmpOp::Eq
     }
@@ -1336,7 +1720,12 @@ fn parse_accept(p: &mut Parser) -> Stmt {
         screen = Some(merge_screen(screen, more));
     }
 
-    Stmt::Accept { target, from, screen, span }
+    Stmt::Accept {
+        target,
+        from,
+        screen,
+        span,
+    }
 }
 
 /// Parse the screen-handling phrases of an extended ACCEPT/DISPLAY — `AT {nnnn |
@@ -1344,8 +1733,10 @@ fn parse_accept(p: &mut Parser) -> Stmt {
 fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase> {
     use cobolt_ast::stmt::ScreenPhrase;
     let stop = |p: &Parser| {
-        p.at(&Token::From) || p.at(&Token::Upon)
-            || p.at(&Token::Eof) || p.at(&Token::Period)
+        p.at(&Token::From)
+            || p.at(&Token::Upon)
+            || p.at(&Token::Eof)
+            || p.at(&Token::Period)
             || is_stmt_start(p.peek())
     };
     let mut sp = ScreenPhrase::default();
@@ -1370,9 +1761,9 @@ fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase>
             got = true;
             while !stop(p) && !p.at(&Token::With) && !is_word(p.peek(), "AT") {
                 match ident_upper(p).as_deref() {
-                    Some("HIGHLIGHT") | Some("BOLD")  => sp.highlight = true,
+                    Some("HIGHLIGHT") | Some("BOLD") => sp.highlight = true,
                     Some("REVERSE-VIDEO") | Some("REVERSE") => sp.reverse = true,
-                    Some("UNDERLINE")     => sp.underline = true,
+                    Some("UNDERLINE") => sp.underline = true,
                     _ => {}
                 }
                 p.advance();
@@ -1381,7 +1772,11 @@ fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase>
             break;
         }
     }
-    if got { Some(sp) } else { None }
+    if got {
+        Some(sp)
+    } else {
+        None
+    }
 }
 
 /// Combine two screen phrases (the second overrides set fields of the first).
@@ -1390,11 +1785,17 @@ fn merge_screen(
     b: cobolt_ast::stmt::ScreenPhrase,
 ) -> cobolt_ast::stmt::ScreenPhrase {
     let mut r = a.unwrap_or_default();
-    if b.line.is_some() { r.line = b.line; }
-    if b.col.is_some()  { r.col = b.col; }
-    if b.at.is_some()   { r.at = b.at; }
+    if b.line.is_some() {
+        r.line = b.line;
+    }
+    if b.col.is_some() {
+        r.col = b.col;
+    }
+    if b.at.is_some() {
+        r.at = b.at;
+    }
     r.highlight |= b.highlight;
-    r.reverse  |= b.reverse;
+    r.reverse |= b.reverse;
     r.underline |= b.underline;
     r
 }
@@ -1402,13 +1803,13 @@ fn merge_screen(
 fn parse_accept_source(p: &mut Parser) -> AcceptSource {
     if let Some(name) = ident_upper(p) {
         let src = match name.as_str() {
-            "DATE"        => Some(AcceptSource::Date),
-            "TIME"        => Some(AcceptSource::Time),
-            "DAY"         => Some(AcceptSource::Day),
+            "DATE" => Some(AcceptSource::Date),
+            "TIME" => Some(AcceptSource::Time),
+            "DAY" => Some(AcceptSource::Day),
             "DAY-OF-WEEK" => Some(AcceptSource::DayOfWeek),
-            "COMMAND-LINE"      => Some(AcceptSource::CommandLine),
-            "ARGUMENT-NUMBER"   => Some(AcceptSource::ArgumentNumber),
-            "ARGUMENT-VALUE"    => Some(AcceptSource::ArgumentValue),
+            "COMMAND-LINE" => Some(AcceptSource::CommandLine),
+            "ARGUMENT-NUMBER" => Some(AcceptSource::ArgumentNumber),
+            "ARGUMENT-VALUE" => Some(AcceptSource::ArgumentValue),
             "ENVIRONMENT-VALUE" => Some(AcceptSource::EnvironmentValue),
             _ => None,
         };
@@ -1471,9 +1872,18 @@ fn parse_display(p: &mut Parser) -> Stmt {
 
     // WITH NO ADVANCING  or  NO ADVANCING
     p.eat(&Token::With); // optional WITH
-    let no_advancing = p.eat(&Token::No) && { p.eat(&Token::Advancing); true };
+    let no_advancing = p.eat(&Token::No) && {
+        p.eat(&Token::Advancing);
+        true
+    };
 
-    Stmt::Display { operands, upon, no_advancing, screen, span }
+    Stmt::Display {
+        operands,
+        upon,
+        no_advancing,
+        screen,
+        span,
+    }
 }
 
 // ── STRING verb ───────────────────────────────────────────────────────────────
@@ -1485,10 +1895,7 @@ fn parse_string_verb(p: &mut Parser) -> Stmt {
     let mut operands: Vec<(Expr, Option<Expr>)> = Vec::new();
 
     // Collect (source DELIMITED BY delimiter) pairs
-    while is_expr_start(p)
-        && !p.at(&Token::Into)
-        && !p.at(&Token::Eof)
-    {
+    while is_expr_start(p) && !p.at(&Token::Into) && !p.at(&Token::Eof) {
         let src = parse_expr(p);
         let delim = if p.at(&Token::Delimited) {
             p.advance();
@@ -1525,7 +1932,11 @@ fn parse_string_verb(p: &mut Parser) -> Stmt {
 
     // [ON OVERFLOW imp] [NOT ON OVERFLOW imp] [END-STRING]
     let stop = |t: &Token| matches!(t, Token::Not) || matches!(t, Token::EndString);
-    let on_overflow = if eat_on_overflow(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let on_overflow = if eat_on_overflow(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
     let not_on_overflow = if p.at(&Token::Not) {
         p.advance();
         eat_on_overflow(p);
@@ -1533,21 +1944,32 @@ fn parse_string_verb(p: &mut Parser) -> Stmt {
     } else {
         Vec::new()
     };
-    if p.at(&Token::EndString) { p.advance(); }
+    if p.at(&Token::EndString) {
+        p.advance();
+    }
     p.eat(&Token::EndCall);
 
-    Stmt::String_ { operands, into, pointer, on_overflow, not_on_overflow, span }
+    Stmt::String_ {
+        operands,
+        into,
+        pointer,
+        on_overflow,
+        not_on_overflow,
+        span,
+    }
 }
 
 /// Consume `[ON] OVERFLOW` of a STRING/UNSTRING. Returns whether it matched.
 fn eat_on_overflow(p: &mut Parser) -> bool {
-    let has = is_word(p.peek(), "OVERFLOW")
-        || (p.at(&Token::On) && is_word(p.peek_at(1), "OVERFLOW"));
+    let has =
+        is_word(p.peek(), "OVERFLOW") || (p.at(&Token::On) && is_word(p.peek_at(1), "OVERFLOW"));
     if !has {
         return false;
     }
     p.eat(&Token::On);
-    if is_word(p.peek(), "OVERFLOW") { p.advance(); }
+    if is_word(p.peek(), "OVERFLOW") {
+        p.advance();
+    }
     true
 }
 
@@ -1576,7 +1998,9 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
 
     let mut into: Vec<UnstringTarget> = Vec::new();
     loop {
-        if !is_expr_start(p) { break; }
+        if !is_expr_start(p) {
+            break;
+        }
         let tgt = parse_expr(p);
         let delimiter = if p.at(&Token::Delimited) {
             p.advance();
@@ -1592,7 +2016,11 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
         } else {
             None
         };
-        into.push(UnstringTarget { target: tgt, delimiter, count });
+        into.push(UnstringTarget {
+            target: tgt,
+            delimiter,
+            count,
+        });
         p.eat(&Token::Comma);
     }
 
@@ -1614,7 +2042,11 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
 
     // [ON OVERFLOW imp] [NOT ON OVERFLOW imp] [END-UNSTRING]
     let stop = |t: &Token| matches!(t, Token::Not) || matches!(t, Token::EndUnstring);
-    let on_overflow = if eat_on_overflow(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let on_overflow = if eat_on_overflow(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
     let not_on_overflow = if p.at(&Token::Not) {
         p.advance();
         eat_on_overflow(p);
@@ -1622,10 +2054,20 @@ fn parse_unstring(p: &mut Parser) -> Stmt {
     } else {
         Vec::new()
     };
-    if p.at(&Token::EndUnstring) { p.advance(); }
+    if p.at(&Token::EndUnstring) {
+        p.advance();
+    }
 
     Stmt::Unstring {
-        from, delimited_by, all, into, pointer, tallying, on_overflow, not_on_overflow, span,
+        from,
+        delimited_by,
+        all,
+        into,
+        pointer,
+        tallying,
+        on_overflow,
+        not_on_overflow,
+        span,
     }
 }
 
@@ -1644,7 +2086,11 @@ fn parse_inspect(p: &mut Parser) -> Stmt {
         let from = parse_expr(p);
         p.expect(&Token::To);
         let to = parse_expr(p);
-        return Stmt::Inspect { target, spec: InspectSpec::Converting { from, to }, span };
+        return Stmt::Inspect {
+            target,
+            spec: InspectSpec::Converting { from, to },
+            span,
+        };
     }
 
     // TALLYING … [REPLACING …]
@@ -1660,18 +2106,30 @@ fn parse_inspect(p: &mut Parser) -> Stmt {
                 span,
             };
         }
-        return Stmt::Inspect { target, spec: InspectSpec::Tallying(tallies), span };
+        return Stmt::Inspect {
+            target,
+            spec: InspectSpec::Tallying(tallies),
+            span,
+        };
     }
 
     // REPLACING …
     if p.at(&Token::Replacing) {
         p.advance();
         let specs = parse_replace_specs(p);
-        return Stmt::Inspect { target, spec: InspectSpec::Replacing(specs), span };
+        return Stmt::Inspect {
+            target,
+            spec: InspectSpec::Replacing(specs),
+            span,
+        };
     }
 
     // Fallback: empty tallying
-    Stmt::Inspect { target, spec: InspectSpec::Tallying(Vec::new()), span }
+    Stmt::Inspect {
+        target,
+        spec: InspectSpec::Tallying(Vec::new()),
+        span,
+    }
 }
 
 /// Parse an optional `[BEFORE|AFTER] INITIAL delimiter` region qualifier.
@@ -1681,12 +2139,20 @@ fn parse_inspect_region(p: &mut Parser) -> cobolt_ast::stmt::InspectRegion {
     loop {
         let before = p.at(&Token::Before);
         let after = p.at(&Token::After);
-        if !before && !after { break; }
+        if !before && !after {
+            break;
+        }
         p.advance(); // BEFORE / AFTER
-        // optional INITIAL
-        if matches!(ident_upper(p).as_deref(), Some("INITIAL")) { p.advance(); }
+                     // optional INITIAL
+        if matches!(ident_upper(p).as_deref(), Some("INITIAL")) {
+            p.advance();
+        }
         let delim = parse_expr(p);
-        if before { region.before = Some(delim); } else { region.after = Some(delim); }
+        if before {
+            region.before = Some(delim);
+        } else {
+            region.after = Some(delim);
+        }
     }
     region
 }
@@ -1699,11 +2165,21 @@ fn parse_tally_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::TallySpec> {
         p.eat_for_kw(); // FOR keyword
         let mut for_ = Vec::new();
         loop {
-            let kind = if p.at(&Token::Characters) { p.advance(); TallyFor::Characters }
-                else if p.at(&Token::All)      { p.advance(); TallyFor::All(parse_expr(p)) }
-                else if p.at(&Token::Leading)  { p.advance(); TallyFor::Leading(parse_expr(p)) }
-                else if p.at(&Token::Trailing) { p.advance(); TallyFor::Trailing(parse_expr(p)) }
-                else { break; };
+            let kind = if p.at(&Token::Characters) {
+                p.advance();
+                TallyFor::Characters
+            } else if p.at(&Token::All) {
+                p.advance();
+                TallyFor::All(parse_expr(p))
+            } else if p.at(&Token::Leading) {
+                p.advance();
+                TallyFor::Leading(parse_expr(p))
+            } else if p.at(&Token::Trailing) {
+                p.advance();
+                TallyFor::Trailing(parse_expr(p))
+            } else {
+                break;
+            };
             let region = parse_inspect_region(p);
             for_.push((kind, region));
         }
@@ -1716,14 +2192,24 @@ fn parse_replace_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::ReplaceSpec> {
     use cobolt_ast::stmt::{ReplaceSpec, ReplaceWhat};
     let mut specs: Vec<ReplaceSpec> = Vec::new();
     loop {
-        let what = if p.at(&Token::Characters) { p.advance(); ReplaceWhat::Characters }
-            else if p.at(&Token::All)     { p.advance(); ReplaceWhat::All(parse_expr(p)) }
-            else if p.at(&Token::Leading) { p.advance(); ReplaceWhat::Leading(parse_expr(p)) }
-            else if p.at(&Token::Trailing){ p.advance(); ReplaceWhat::Trailing(parse_expr(p)) }
-            else if p.at_identifier() && ident_upper(p).as_deref() == Some("FIRST") {
-                p.advance(); ReplaceWhat::First(parse_expr(p))
-            }
-            else { break; };
+        let what = if p.at(&Token::Characters) {
+            p.advance();
+            ReplaceWhat::Characters
+        } else if p.at(&Token::All) {
+            p.advance();
+            ReplaceWhat::All(parse_expr(p))
+        } else if p.at(&Token::Leading) {
+            p.advance();
+            ReplaceWhat::Leading(parse_expr(p))
+        } else if p.at(&Token::Trailing) {
+            p.advance();
+            ReplaceWhat::Trailing(parse_expr(p))
+        } else if p.at_identifier() && ident_upper(p).as_deref() == Some("FIRST") {
+            p.advance();
+            ReplaceWhat::First(parse_expr(p))
+        } else {
+            break;
+        };
         // CHARACTERS BY x   /   {ALL|LEADING|…} x BY y
         p.eat(&Token::By);
         let by = parse_expr(p);
@@ -1744,14 +2230,18 @@ fn parse_sort(p: &mut Parser) -> Stmt {
     let mut keys = Vec::new();
     loop {
         p.eat(&Token::On); // optional ON before {ASCENDING|DESCENDING} KEY
-        if !p.at(&Token::Ascending) && !p.at(&Token::Descending) { break; }
+        if !p.at(&Token::Ascending) && !p.at(&Token::Descending) {
+            break;
+        }
         let ascending = p.eat(&Token::Ascending);
         p.eat(&Token::Descending);
         p.eat(&Token::Key);
         p.eat(&Token::Is);
         let mut fields = Vec::new();
         while is_expr_start(p)
-            && !p.at(&Token::Ascending) && !p.at(&Token::Descending) && !p.at(&Token::On)
+            && !p.at(&Token::Ascending)
+            && !p.at(&Token::Descending)
+            && !p.at(&Token::On)
         {
             fields.push(parse_expr(p));
         }
@@ -1763,8 +2253,16 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         p.advance();
         let d = if let Token::Identifier(ref s) = p.peek().clone() {
             s.to_uppercase() == "DUPLICATES"
-        } else { false };
-        if d { p.advance(); p.eat(&Token::In); if p.at_identifier() { p.advance(); } }
+        } else {
+            false
+        };
+        if d {
+            p.advance();
+            p.eat(&Token::In);
+            if p.at_identifier() {
+                p.advance();
+            }
+        }
         d
     } else {
         false
@@ -1777,7 +2275,10 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("INPUT PROCEDURE name");
-        if p.at(&Token::Through) { p.advance(); p.eat_identifier(); }
+        if p.at(&Token::Through) {
+            p.advance();
+            p.eat_identifier();
+        }
         Some(name)
     } else if p.eat(&Token::Using) {
         using = parse_file_name_list(p);
@@ -1793,7 +2294,10 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
-        if p.at(&Token::Through) { p.advance(); p.eat_identifier(); }
+        if p.at(&Token::Through) {
+            p.advance();
+            p.eat_identifier();
+        }
         Some(name)
     } else if p.eat(&Token::Giving) {
         giving = parse_file_name_list(p);
@@ -1804,7 +2308,16 @@ fn parse_sort(p: &mut Parser) -> Stmt {
 
     p.eat(&Token::EndSort);
 
-    Stmt::Sort { file, keys, duplicates, using, giving, input_proc, output_proc, span }
+    Stmt::Sort {
+        file,
+        keys,
+        duplicates,
+        using,
+        giving,
+        input_proc,
+        output_proc,
+        span,
+    }
 }
 
 /// Parse a whitespace-separated list of file-name identifiers (USING / GIVING).
@@ -1831,19 +2344,29 @@ fn parse_merge(p: &mut Parser) -> Stmt {
     let mut keys = Vec::new();
     loop {
         p.eat(&Token::On); // optional ON
-        if !p.at(&Token::Ascending) && !p.at(&Token::Descending) { break; }
+        if !p.at(&Token::Ascending) && !p.at(&Token::Descending) {
+            break;
+        }
         let ascending = p.eat(&Token::Ascending);
         p.eat(&Token::Descending);
         p.eat(&Token::Key);
         p.eat(&Token::Is);
         let mut fields = Vec::new();
-        while is_expr_start(p) && !p.at(&Token::Ascending) && !p.at(&Token::Descending) && !p.at(&Token::On) {
+        while is_expr_start(p)
+            && !p.at(&Token::Ascending)
+            && !p.at(&Token::Descending)
+            && !p.at(&Token::On)
+        {
             fields.push(parse_expr(p));
         }
         keys.push(SortKey { ascending, fields });
     }
 
-    let using = if p.eat(&Token::Using) { parse_file_name_list(p) } else { Vec::new() };
+    let using = if p.eat(&Token::Using) {
+        parse_file_name_list(p)
+    } else {
+        Vec::new()
+    };
 
     let mut giving = Vec::new();
     let output_proc = if p.at(&Token::Output) {
@@ -1851,7 +2374,10 @@ fn parse_merge(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
-        if p.at(&Token::Through) { p.advance(); p.eat_identifier(); }
+        if p.at(&Token::Through) {
+            p.advance();
+            p.eat_identifier();
+        }
         Some(name)
     } else if p.eat(&Token::Giving) {
         giving = parse_file_name_list(p);
@@ -1861,7 +2387,14 @@ fn parse_merge(p: &mut Parser) -> Stmt {
     };
 
     p.eat(&Token::EndMerge);
-    Stmt::Merge { file, keys, using, giving, output_proc, span }
+    Stmt::Merge {
+        file,
+        keys,
+        using,
+        giving,
+        output_proc,
+        span,
+    }
 }
 
 // ── RELEASE / RETURN ───────────────────────────────────────────────────────────
@@ -1870,7 +2403,11 @@ fn parse_release(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // RELEASE
     let record = parse_expr(p);
-    let from = if p.eat(&Token::From) { Some(parse_expr(p)) } else { None };
+    let from = if p.eat(&Token::From) {
+        Some(parse_expr(p))
+    } else {
+        None
+    };
     Stmt::Release { record, from, span }
 }
 
@@ -1879,12 +2416,30 @@ fn parse_return(p: &mut Parser) -> Stmt {
     p.advance(); // RETURN
     let file = p.expect_identifier("RETURN file name");
     p.eat(&Token::Record);
-    let into = if p.eat(&Token::Into) { Some(parse_expr(p)) } else { None };
+    let into = if p.eat(&Token::Into) {
+        Some(parse_expr(p))
+    } else {
+        None
+    };
     let stop = |t: &Token| matches!(t, Token::Not | Token::NotAtEnd | Token::EndReturn);
-    let at_end = if eat_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
-    let not_at_end = if eat_not_at_end(p) { parse_stmts(p, &stop) } else { Vec::new() };
+    let at_end = if eat_at_end(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
+    let not_at_end = if eat_not_at_end(p) {
+        parse_stmts(p, &stop)
+    } else {
+        Vec::new()
+    };
     p.eat(&Token::EndReturn);
-    Stmt::Return { file, into, at_end, not_at_end, span }
+    Stmt::Return {
+        file,
+        into,
+        at_end,
+        not_at_end,
+        span,
+    }
 }
 
 // ── CALL ──────────────────────────────────────────────────────────────────────
@@ -1905,20 +2460,32 @@ fn parse_call(p: &mut Parser) -> Stmt {
             let by_val = !by_ref && p.eat(&Token::Value);
             let by_cont = !by_ref && !by_val && {
                 let is_content = matches!(ident_upper(p).as_deref(), Some("CONTENT"));
-                if is_content { p.advance(); }
+                if is_content {
+                    p.advance();
+                }
                 is_content
             };
 
-            if !is_expr_start(p) { break; }
+            if !is_expr_start(p) {
+                break;
+            }
             let arg = parse_expr(p);
-            let call_arg = if by_val      { CallArg::ByValue(arg)     }
-                else if by_cont           { CallArg::ByContent(arg)    }
-                else                      { CallArg::ByReference(arg)  };
+            let call_arg = if by_val {
+                CallArg::ByValue(arg)
+            } else if by_cont {
+                CallArg::ByContent(arg)
+            } else {
+                CallArg::ByReference(arg)
+            };
             using.push(call_arg);
         }
     }
 
-    let returning = if p.eat(&Token::Returning) { Some(parse_expr(p)) } else { None };
+    let returning = if p.eat(&Token::Returning) {
+        Some(parse_expr(p))
+    } else {
+        None
+    };
 
     // [ON] {EXCEPTION | OVERFLOW} imperative … [NOT [ON] {EXCEPTION|OVERFLOW} …]
     let stop = |t: &Token| matches!(t, Token::Not | Token::EndCall);
@@ -1935,7 +2502,14 @@ fn parse_call(p: &mut Parser) -> Stmt {
     }
     p.eat(&Token::EndCall);
 
-    Stmt::Call { program, using, returning, on_exception, not_on_exception, span }
+    Stmt::Call {
+        program,
+        using,
+        returning,
+        on_exception,
+        not_on_exception,
+        span,
+    }
 }
 
 /// Consume `[ON] {EXCEPTION | OVERFLOW}` of a CALL. Returns whether it matched.
@@ -1978,16 +2552,32 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
             // BY {REFERENCE|CONTENT|VALUE} are accepted and ignored (methods take
             // their operands the same way regardless).
             p.eat(&Token::By);
-            let _ = p.eat(&Token::Reference) || p.eat(&Token::Value)
-                || (matches!(ident_upper(p).as_deref(), Some("CONTENT")) && { p.advance(); true });
-            if !is_expr_start(p) { break; }
+            let _ = p.eat(&Token::Reference)
+                || p.eat(&Token::Value)
+                || (matches!(ident_upper(p).as_deref(), Some("CONTENT")) && {
+                    p.advance();
+                    true
+                });
+            if !is_expr_start(p) {
+                break;
+            }
             args.push(parse_expr(p));
         }
     }
-    let returning = if p.eat(&Token::Returning) { Some(parse_expr(p)) } else { None };
+    let returning = if p.eat(&Token::Returning) {
+        Some(parse_expr(p))
+    } else {
+        None
+    };
     p.eat(&Token::Period);
 
-    Stmt::Invoke { object, method, args, returning, span }
+    Stmt::Invoke {
+        object,
+        method,
+        args,
+        returning,
+        span,
+    }
 }
 
 /// Inline OO call as a statement: `object::member(arg, …)` and chains thereof
@@ -2020,11 +2610,11 @@ fn parse_initialize(p: &mut Parser) -> Stmt {
     if p.eat(&Token::Replacing) {
         loop {
             let cat = match ident_upper(p).as_deref() {
-                Some("ALPHABETIC")          => InitCategory::Alphabetic,
-                Some("ALPHANUMERIC")        => InitCategory::Alphanumeric,
-                Some("NUMERIC")             => InitCategory::Numeric,
+                Some("ALPHABETIC") => InitCategory::Alphabetic,
+                Some("ALPHANUMERIC") => InitCategory::Alphanumeric,
+                Some("NUMERIC") => InitCategory::Numeric,
                 Some("ALPHANUMERIC-EDITED") => InitCategory::AlphanumericEdited,
-                Some("NUMERIC-EDITED")      => InitCategory::NumericEdited,
+                Some("NUMERIC-EDITED") => InitCategory::NumericEdited,
                 _ => break,
             };
             p.advance(); // category word
@@ -2034,7 +2624,11 @@ fn parse_initialize(p: &mut Parser) -> Stmt {
             replacing.push((cat, val));
         }
     }
-    Stmt::Initialize { items, replacing, span }
+    Stmt::Initialize {
+        items,
+        replacing,
+        span,
+    }
 }
 
 // ── SET ───────────────────────────────────────────────────────────────────────
@@ -2050,7 +2644,12 @@ fn parse_set(p: &mut Parser) -> Stmt {
         let item = parse_expr(p);
         p.eat(&Token::To);
         let source = parse_pointer_source(p);
-        return Stmt::SetPointer { address_of: Some(item), targets: vec![], source, span };
+        return Stmt::SetPointer {
+            address_of: Some(item),
+            targets: vec![],
+            source,
+            span,
+        };
     }
 
     let mut targets = Vec::new();
@@ -2071,13 +2670,21 @@ fn parse_set(p: &mut Parser) -> Stmt {
             let recvs: Vec<(Expr, bool)> = targets.into_iter().map(|t| (t, false)).collect();
             return if dir == "DOWN" {
                 Stmt::Subtract {
-                    operands: vec![amount], from: recvs, giving: Vec::new(),
-                    on_size_error: Vec::new(), not_on_size_error: Vec::new(), span,
+                    operands: vec![amount],
+                    from: recvs,
+                    giving: Vec::new(),
+                    on_size_error: Vec::new(),
+                    not_on_size_error: Vec::new(),
+                    span,
                 }
             } else {
                 Stmt::Add {
-                    operands: vec![amount], to: recvs, giving: Vec::new(),
-                    on_size_error: Vec::new(), not_on_size_error: Vec::new(), span,
+                    operands: vec![amount],
+                    to: recvs,
+                    giving: Vec::new(),
+                    on_size_error: Vec::new(),
+                    not_on_size_error: Vec::new(),
+                    span,
                 }
             };
         }
@@ -2090,20 +2697,32 @@ fn parse_set(p: &mut Parser) -> Stmt {
         eat_address_of(p);
         let of = parse_expr(p);
         return Stmt::SetPointer {
-            address_of: None, targets,
-            source: PointerSource::AddressOf(of), span,
+            address_of: None,
+            targets,
+            source: PointerSource::AddressOf(of),
+            span,
         };
     }
 
     // TO TRUE / FALSE / expression (NULL → 0, handled as a plain MOVE)
     let from = match p.peek().clone() {
-        Token::True_  => { p.advance(); Expr::Literal(Literal::Integer(1), span) }
-        Token::False_ => { p.advance(); Expr::Literal(Literal::Integer(0), span) }
-        _             => parse_expr(p),
+        Token::True_ => {
+            p.advance();
+            Expr::Literal(Literal::Integer(1), span)
+        }
+        Token::False_ => {
+            p.advance();
+            Expr::Literal(Literal::Integer(0), span)
+        }
+        _ => parse_expr(p),
     };
 
     // Encode as MOVE
-    Stmt::Move { from, to: targets, span }
+    Stmt::Move {
+        from,
+        to: targets,
+        span,
+    }
 }
 
 /// Parse the source of a pointer SET: `ADDRESS OF x | NULL | ptr`.
@@ -2191,15 +2810,18 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
 
     // TRY body
     let try_stmts = parse_stmts(p, &|t| {
-        matches!(t, Token::Catch | Token::Finally | Token::EndTry | Token::Eof)
+        matches!(
+            t,
+            Token::Catch | Token::Finally | Token::EndTry | Token::Eof
+        )
     });
 
     // CATCH EXCEPTION <name>  (optional)
-    let mut exception_var  = None;
-    let mut catch_stmts    = Vec::new();
+    let mut exception_var = None;
+    let mut catch_stmts = Vec::new();
     if p.eat(&Token::Catch) {
         p.eat(&Token::Exception); // optional EXCEPTION keyword
-        // next token should be the variable name
+                                  // next token should be the variable name
         if let Token::Identifier(name) = p.peek().clone() {
             exception_var = Some(name.clone());
             p.advance();
@@ -2212,15 +2834,19 @@ fn parse_try_catch(p: &mut Parser) -> Stmt {
     // FINALLY (optional)
     let mut finally_stmts = Vec::new();
     if p.eat(&Token::Finally) {
-        finally_stmts = parse_stmts(p, &|t| {
-            matches!(t, Token::EndTry | Token::Eof)
-        });
+        finally_stmts = parse_stmts(p, &|t| matches!(t, Token::EndTry | Token::Eof));
     }
 
     p.eat(&Token::EndTry);
     p.eat(&Token::Period);
 
-    Stmt::TryCatch { try_stmts, exception_var, catch_stmts, finally_stmts, span }
+    Stmt::TryCatch {
+        try_stmts,
+        exception_var,
+        catch_stmts,
+        finally_stmts,
+        span,
+    }
 }
 
 // ── THROW / RAISE ─────────────────────────────────────────────────────────────
@@ -2278,4 +2904,3 @@ impl Parser {
         false
     }
 }
-

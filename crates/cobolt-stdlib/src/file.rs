@@ -35,12 +35,22 @@ pub enum FileOrg {
 pub struct FileStatus(pub String);
 
 impl FileStatus {
-    pub fn ok()  -> Self { FileStatus("00".into()) }
-    pub fn eof() -> Self { FileStatus("10".into()) }
-    pub fn not_found() -> Self { FileStatus("35".into()) }
+    pub fn ok() -> Self {
+        FileStatus("00".into())
+    }
+    pub fn eof() -> Self {
+        FileStatus("10".into())
+    }
+    pub fn not_found() -> Self {
+        FileStatus("35".into())
+    }
 
-    pub fn is_ok(&self) -> bool { self.0 == "00" }
-    pub fn is_eof(&self) -> bool { self.0 == "10" }
+    pub fn is_ok(&self) -> bool {
+        self.0 == "00"
+    }
+    pub fn is_eof(&self) -> bool {
+        self.0 == "10"
+    }
 }
 
 impl std::fmt::Display for FileStatus {

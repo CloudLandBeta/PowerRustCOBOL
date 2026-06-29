@@ -21,24 +21,27 @@ use std::path::{Path, PathBuf};
 
 use egui::{Context, Key, KeyboardShortcut, Modifiers, Vec2, ViewportBuilder, ViewportId};
 
-use cobolt_forms::{Form, load_form, save_form};
+use cobolt_forms::{load_form, save_form, Form};
 // The run/preview per-control draw loops are gone — the unified render engine
 // owns control rendering (spec 017) — so only the form-level background-image
 // loader remains in the IDE here.
-use cobolt_forms::paint::load_image_texture;
 use cobolt_codegen::{generate, generate_indexed};
-use cobolt_indexed::{load_indexed, record_to_text, resolve_path, save_indexed, text_to_record, IndexedDefinition};
-use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
+use cobolt_compiler::{build_project, BuildOptions};
+use cobolt_forms::paint::load_image_texture;
+use cobolt_indexed::{
+    load_indexed, record_to_text, resolve_path, save_indexed, text_to_record, IndexedDefinition,
+};
 use cobolt_runtime::indexed_ide::{compare_schema, SchemaDrift};
-use cobolt_compiler::{BuildOptions, build_project};
+use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
 
+use crate::form_runtime::FormRuntime;
+use crate::i18n::{Language, Tr};
+use crate::panels::debugger::DebuggerPanel;
 use crate::panels::{
     designer::DesignerPanel,
     editor::EditorPanel,
     forms_list::FormsListPanel,
-    indexed_editor::{
-        IndexedEditorPanel, IndexedSelection, RawDialogResult, StructureAction,
-    },
+    indexed_editor::{IndexedEditorPanel, IndexedSelection, RawDialogResult, StructureAction},
     indexed_grid::{GridAction, IndexedGridPanel},
     indexed_new_dialog::{NewIndexedAction, NewIndexedDialog},
     indexed_properties::PropertyEdit,
@@ -47,46 +50,52 @@ use crate::panels::{
     toolbar::{self, ToolbarAction},
 };
 use crate::project_model::{
-    CoboltProject, ElementStatus, FileKind,
-    load_project, save_project, package_project, relative_to,
+    load_project, package_project, relative_to, save_project, CoboltProject, ElementStatus,
+    FileKind, UserControlDef,
 };
-use crate::form_runtime::FormRuntime;
-use crate::runner::{Runner, DebugRunner, RunMsg};
-use crate::panels::debugger::DebuggerPanel;
-use cobolt_runtime::DebugCmd;
+use crate::runner::{DebugRunner, RunMsg, Runner};
 use crate::version::VERSION;
-use crate::i18n::{Language, Tr};
+use cobolt_runtime::DebugCmd;
 use rand::Rng;
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub(crate) struct DesignerClipboard {
+    pub(crate) controls: Vec<cobolt_forms::Control>,
+    pub(crate) source_form: String,
+    pub(crate) origin_x: i32,
+    pub(crate) origin_y: i32,
+}
 
 // ── Dialog state ──────────────────────────────────────────────────────────────
 
 /// State for the "Report Bug" dialog available in both the IDE and designer.
 struct ReportBugDialog {
-    open:        bool,
+    open: bool,
     /// Short one-line title of the problem.
-    title:       String,
+    title: String,
     /// Longer description (steps to reproduce, what went wrong, etc.)
     description: String,
     /// Which surface the bug was reported from (e.g. "IDE Editor", "Form Designer").
-    component:   String,
+    component: String,
     /// Feedback shown after submission ("Saved." or an error).
-    feedback:    Option<String>,
+    feedback: Option<String>,
 }
 
 impl ReportBugDialog {
     fn new() -> Self {
         Self {
-            open:        false,
-            title:       String::new(),
+            open: false,
+            title: String::new(),
             description: String::new(),
-            component:   "IDE".into(),
-            feedback:    None,
+            component: "IDE".into(),
+            feedback: None,
         }
     }
 
     /// Open the dialog pre-filled with the given component name.
     fn open_for(&mut self, component: impl Into<String>) {
-        self.open      = true;
+        self.open = true;
         self.component = component.into();
         self.title.clear();
         self.description.clear();
@@ -119,7 +128,7 @@ impl ReportBugDialog {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let days  = secs / 86400;
+            let days = secs / 86400;
             // Approximate calendar date (good enough for a bug-tracker timestamp).
             let y = 1970 + days / 365;
             let d = days % 365;
@@ -129,15 +138,21 @@ impl ReportBugDialog {
         };
 
         let component = self.component.replace('|', "∣");
-        let title     = self.title.trim().replace('|', "∣");
-        let desc      = self.description.trim().replace('|', "∣");
-        let summary   = if desc.is_empty() { title.clone() }
-                        else { format!("{title} — {desc}") };
-        let summary   = if summary.len() > 100 { format!("{}…", &summary[..97]) } else { summary };
+        let title = self.title.trim().replace('|', "∣");
+        let desc = self.description.trim().replace('|', "∣");
+        let summary = if desc.is_empty() {
+            title.clone()
+        } else {
+            format!("{title} — {desc}")
+        };
+        let summary = if summary.len() > 100 {
+            format!("{}…", &summary[..97])
+        } else {
+            summary
+        };
 
-        let new_row = format!(
-            "| BUG-{next_id:03} | {today} | `{component}` | `MANUAL` | {summary} |\n"
-        );
+        let new_row =
+            format!("| BUG-{next_id:03} | {today} | `{component}` | `MANUAL` | {summary} |\n");
 
         // Inject into the Open Bugs table.
         let placeholder = "_No open bugs — all clear! ✅_";
@@ -162,39 +177,39 @@ impl ReportBugDialog {
 }
 
 struct NewFormDialog {
-    open:      bool,
+    open: bool,
     form_name: String,
-    title:     String,
-    width:     String,
-    height:    String,
+    title: String,
+    width: String,
+    height: String,
 }
 
 impl NewFormDialog {
     fn new() -> Self {
         Self {
-            open:      false,
+            open: false,
             form_name: "MAIN-FORM".into(),
-            title:     "My Form".into(),
-            width:     "640".into(),
-            height:    "480".into(),
+            title: "My Form".into(),
+            width: "640".into(),
+            height: "480".into(),
         }
     }
 }
 
 struct NewProjectDialog {
-    open:    bool,
-    name:    String,
+    open: bool,
+    name: String,
     version: String,
-    main:    String,
+    main: String,
 }
 
 impl NewProjectDialog {
     fn new() -> Self {
         Self {
-            open:    false,
-            name:    "MyApp".into(),
+            open: false,
+            name: "MyApp".into(),
             version: "1.0.0".into(),
-            main:    "src/main.cbl".into(),
+            main: "src/main.cbl".into(),
         }
     }
 }
@@ -203,14 +218,16 @@ impl NewProjectDialog {
 
 pub struct CoboltApp {
     // Code workspace
-    project:    ProjectPanel,
-    editor:     EditorPanel,
-    output:     OutputPanel,
-    runner:     Runner,
+    project: ProjectPanel,
+    editor: EditorPanel,
+    output: OutputPanel,
+    runner: Runner,
     forms_list: FormsListPanel,
 
     // Open form designers (each lives in its own viewport window)
     designers: Vec<(PathBuf, DesignerPanel)>,
+    #[allow(dead_code)]
+    pub(crate) clipboard: Option<DesignerClipboard>,
 
     // Grid browser viewports keyed by `.cidx` path
     indexed_grids: Vec<(PathBuf, IndexedGridState)>,
@@ -234,16 +251,18 @@ pub struct CoboltApp {
     form_runtimes: Vec<FormRuntime>,
 
     // Debugger (Phase 7)
-    debug_runner:  DebugRunner,
-    debugger:      DebuggerPanel,
-    debug_active:  bool,
+    debug_runner: DebugRunner,
+    debugger: DebuggerPanel,
+    debug_active: bool,
 
     // Project model
     cobolt_project: Option<CoboltProject>,
-    project_path:   Option<PathBuf>,
+    project_path: Option<PathBuf>,
+    pending_user_control_delete: Option<String>,
 
     // 007 Form themes — discovered asset packs (id → pack), loaded once.
-    theme_packs: std::collections::HashMap<String, std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>,
+    theme_packs:
+        std::collections::HashMap<String, std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>,
     theme_packs_loaded: bool,
 
     /// The in-pane project Settings form (built when a project loads). Shown in
@@ -255,18 +274,18 @@ pub struct CoboltApp {
     /// Set while a "save unsaved settings before closing?" dialog is shown.
     settings_close_confirm: bool,
     /// Cached background-image texture, keyed by the resolved absolute path.
-    bg_texture:     Option<(PathBuf, egui::TextureHandle)>,
+    bg_texture: Option<(PathBuf, egui::TextureHandle)>,
 
     /// Global AI-assistant configuration (cloud LLM for the code editor).
     /// Stored outside the project so the API key never lands in a repo.
     llm: crate::llm::LlmConfig,
     /// In-flight "Test connection" request from the settings dialog.
-    llm_test_rx:     Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    llm_test_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
     /// Last test-connection result/status line.
     llm_test_status: Option<String>,
 
     // Dialog state
-    new_form:    NewFormDialog,
+    new_form: NewFormDialog,
     new_indexed: NewIndexedDialog,
     new_project: NewProjectDialog,
 
@@ -302,7 +321,8 @@ pub struct CoboltApp {
     save_alert_designer: Option<usize>,
 
     /// Pending binary build result channel (Phase 11).
-    pending_build_rx: Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, String>>>,
+    pending_build_rx:
+        Option<std::sync::mpsc::Receiver<Result<cobolt_compiler::BuildResult, String>>>,
     /// Streamed build-phase progress (fraction + message) for the Building modal.
     pending_build_progress: Option<std::sync::mpsc::Receiver<cobolt_compiler::BuildProgress>>,
     /// Latest build phase: (fraction 0..1, message).
@@ -339,8 +359,20 @@ const APP_FILE_KEY: &str = "app-file-dialog";
 
 /// Standard project sub-folders — one per category plus working/build folders.
 /// Created when a project is made, and back-filled (if missing) when one is opened.
-const PROJECT_FOLDERS: &[&str] =
-    &["src", "forms", "indexed", "generated", "assets", "docs", "bin", "debug", "temp", "dist", "data", "copybooks"];
+const PROJECT_FOLDERS: &[&str] = &[
+    "src",
+    "forms",
+    "indexed",
+    "generated",
+    "assets",
+    "docs",
+    "bin",
+    "debug",
+    "temp",
+    "dist",
+    "data",
+    "copybooks",
+];
 
 /// Inline indexed-file inspector in the Main Pane.
 struct IndexedInspectState {
@@ -365,13 +397,13 @@ struct IndexedGridState {
 /// Holds a transient `DesignerPanel` so it reuses the designer's property-edit
 /// machinery without opening a designer window.
 struct InspectState {
-    path:     PathBuf,
-    ctrl_id:  Option<String>,
+    path: PathBuf,
+    ctrl_id: Option<String>,
     designer: DesignerPanel,
     /// `.cfrm` modification time of the form currently held in `designer`.
     /// Used to live-refresh the Main-Pane inspector when the form is changed
     /// elsewhere (e.g. saved from the Designer window) so edits reflect back.
-    mtime:    Option<std::time::SystemTime>,
+    mtime: Option<std::time::SystemTime>,
 }
 
 impl InspectState {
@@ -381,8 +413,8 @@ impl InspectState {
         let disk = file_mtime(&self.path);
         let stale = match (disk, self.mtime) {
             (Some(d), Some(cur)) => d > cur,
-            (Some(_), None)      => true,
-            _                    => false,
+            (Some(_), None) => true,
+            _ => false,
         };
         if !stale {
             return false;
@@ -422,55 +454,57 @@ impl CoboltApp {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
         Self {
-            project:    ProjectPanel::new(),
-            editor:     EditorPanel::new(),
-            output:     OutputPanel::new(),
-            runner:     Runner::new(),
+            project: ProjectPanel::new(),
+            editor: EditorPanel::new(),
+            output: OutputPanel::new(),
+            runner: Runner::new(),
             forms_list: FormsListPanel::new(),
-            designers:     Vec::new(),
-            indexed_grids:   Vec::new(),
-            inspect:         None,
+            designers: Vec::new(),
+            clipboard: None,
+            indexed_grids: Vec::new(),
+            inspect: None,
             indexed_inspect: None,
             raw_preferred_indexed: std::collections::HashSet::new(),
-            checked:       std::collections::HashMap::new(),
+            checked: std::collections::HashMap::new(),
             form_runtimes: Vec::new(),
-            debug_runner:  DebugRunner::new(),
-            debugger:      DebuggerPanel::new(),
-            debug_active:  false,
+            debug_runner: DebugRunner::new(),
+            debugger: DebuggerPanel::new(),
+            debug_active: false,
 
             cobolt_project: None,
-            project_path:   None,
-            theme_packs:        std::collections::HashMap::new(),
+            project_path: None,
+            pending_user_control_delete: None,
+            theme_packs: std::collections::HashMap::new(),
             theme_packs_loaded: false,
 
             settings_form: None,
             show_project_settings: false,
             settings_close_confirm: false,
-            bg_texture:     None,
-            llm:            crate::llm::LlmConfig::load(),
-            llm_test_rx:     None,
+            bg_texture: None,
+            llm: crate::llm::LlmConfig::load(),
+            llm_test_rx: None,
             llm_test_status: None,
 
-            new_form:    NewFormDialog::new(),
+            new_form: NewFormDialog::new(),
             new_indexed: NewIndexedDialog::new(),
             new_project: NewProjectDialog::new(),
 
             pending_open_in_editor: None,
             pending_goto_paragraph: None,
-            glass_visuals_applied:  false,
+            glass_visuals_applied: false,
             lang: Language::English,
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
-            report_bug:      ReportBugDialog::new(),
-            about_open:      false,
-            doc_viewer:      Default::default(),
-            save_alert_msg:  None,
+            report_bug: ReportBugDialog::new(),
+            about_open: false,
+            doc_viewer: Default::default(),
+            save_alert_msg: None,
             save_alert_designer: None,
             pending_build_rx: None,
             pending_build_progress: None,
             build_phase: (0.0, String::new()),
-            pending_file:     None,
-            egui_ctx:         cc.egui_ctx.clone(),
+            pending_file: None,
+            egui_ctx: cc.egui_ctx.clone(),
         }
     }
 
@@ -479,19 +513,27 @@ impl CoboltApp {
     /// Locate the bundled `assets/themes` directory (exe-relative first, then the
     /// current working directory for `cargo run` from the repo root).
     fn themes_dir() -> PathBuf {
-        if let Some(exe_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        if let Some(exe_dir) = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        {
             let c = exe_dir.join("assets/themes");
-            if c.is_dir() { return c; }
+            if c.is_dir() {
+                return c;
+            }
         }
         PathBuf::from("assets/themes")
     }
 
     /// Discover asset-pack themes once (id → pack).
     fn ensure_theme_packs(&mut self) {
-        if self.theme_packs_loaded { return; }
+        if self.theme_packs_loaded {
+            return;
+        }
         self.theme_packs_loaded = true;
         for pack in cobolt_forms::theme_pack::discover_packs(&Self::themes_dir()) {
-            self.theme_packs.insert(pack.id.clone(), std::sync::Arc::new(pack));
+            self.theme_packs
+                .insert(pack.id.clone(), std::sync::Arc::new(pack));
         }
     }
 
@@ -499,9 +541,10 @@ impl CoboltApp {
     /// asset packs in catalog order) into egui temp storage for this frame.
     fn publish_theme_choices(&mut self, ctx: &Context) {
         self.ensure_theme_packs();
-        let mut choices = vec![
-            (cobolt_forms::theme::LIQUID_GLASS.to_owned(), "Liquid Glass".to_owned()),
-        ];
+        let mut choices = vec![(
+            cobolt_forms::theme::LIQUID_GLASS.to_owned(),
+            "Liquid Glass".to_owned(),
+        )];
         let mut packs: Vec<_> = self.theme_packs.values().collect();
         packs.sort_by(|a, b| a.id.cmp(&b.id));
         for p in packs {
@@ -512,11 +555,15 @@ impl CoboltApp {
 
     /// Resolve a form's effective theme (per-form override ?? project default ??
     /// Liquid Glass) to its asset pack. Returns `None` for Liquid Glass.
-    fn resolve_theme_pack(&mut self, form_theme: Option<&str>)
-        -> Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>>
-    {
+    fn resolve_theme_pack(
+        &mut self,
+        form_theme: Option<&str>,
+    ) -> Option<std::sync::Arc<cobolt_forms::theme_pack::ThemePack>> {
         self.ensure_theme_packs();
-        let proj_default = self.cobolt_project.as_ref().and_then(|p| p.form_theme_default());
+        let proj_default = self
+            .cobolt_project
+            .as_ref()
+            .and_then(|p| p.form_theme_default());
         let id = cobolt_forms::theme::resolve_theme_id(form_theme, proj_default);
         self.theme_packs.get(&id).cloned()
     }
@@ -528,12 +575,15 @@ impl CoboltApp {
         self.regenerate_all_indexed_files();
         // Prefer the file in the editor; otherwise fall back to the open
         // project's main program, so Run always does something visible.
-        let target = self.editor.active_source()
+        let target = self
+            .editor
+            .active_source()
             .map(|(p, s)| (p.clone(), s.to_owned()))
             .or_else(|| self.project_main_source());
         let Some((path, source)) = target else {
             self.output.clear();
-            self.output.push_status("Open a COBOL file, or open a project, to run.");
+            self.output
+                .push_status("Open a COBOL file, or open a project, to run.");
             return;
         };
         self.output.clear();
@@ -559,7 +609,9 @@ impl CoboltApp {
         let main_rel = if exists(&proj.project.main) {
             proj.project.main.clone()
         } else {
-            proj.files.generated.iter()
+            proj.files
+                .generated
+                .iter()
                 .chain(proj.files.sources.iter())
                 .find(|rel| exists(rel))
                 .cloned()?
@@ -583,8 +635,10 @@ impl CoboltApp {
     fn do_debug(&mut self) {
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
-        let Some((path, src)) = self.editor.active_source() else { return; };
-        let path   = path.clone();
+        let Some((path, src)) = self.editor.active_source() else {
+            return;
+        };
+        let path = path.clone();
         let source = src.to_owned();
 
         self.output.clear();
@@ -623,17 +677,25 @@ impl CoboltApp {
         self.do_generate_cobol(idx);
 
         let form_path = self.designers[idx].0.clone();
-        let form      = self.designers[idx].1.form.clone();
+        let form = self.designers[idx].1.form.clone();
 
         self.output.clear();
         self.output.push_status(format!(
             "── Running form {} ──",
-            form_path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+            form_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
         ));
 
         // Kill any existing runtime for this form first.
         self.form_runtimes.retain_mut(|rt| {
-            if rt.form_path == form_path { rt.stop(); false } else { true }
+            if rt.form_path == form_path {
+                rt.stop();
+                false
+            } else {
+                true
+            }
         });
 
         let glass = self.designers[idx].1.glass_mode;
@@ -643,7 +705,8 @@ impl CoboltApp {
                 self.form_runtimes.push(rt);
             }
             Err(e) => {
-                self.output.push_status(format!("Error launching form: {e}"));
+                self.output
+                    .push_status(format!("Error launching form: {e}"));
             }
         }
     }
@@ -668,8 +731,10 @@ impl CoboltApp {
     fn do_check(&mut self) {
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
-        let Some((path, src)) = self.editor.active_source() else { return; };
-        let path   = path.clone();
+        let Some((path, src)) = self.editor.active_source() else {
+            return;
+        };
+        let path = path.clone();
         let source = src.to_owned();
         self.output.clear();
         self.output.push_status(format!(
@@ -678,28 +743,35 @@ impl CoboltApp {
         ));
         self.editor.clear_diags();
 
+        use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
         use cobolt_lexer::{tokenize, SourceFormat};
         use cobolt_parser::parse;
         use cobolt_semantic::analyze;
-        use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
 
         let fmt = if source.lines().any(|l| {
             let b = l.as_bytes();
-            b.len() > 6 && b[6] != b' '
-                && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
-        }) { SourceFormat::Fixed } else { SourceFormat::Free };
+            b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
+        }) {
+            SourceFormat::Fixed
+        } else {
+            SourceFormat::Free
+        };
 
-        let tokens       = tokenize(&source, fmt);
+        let tokens = tokenize(&source, fmt);
         let parse_result = parse(tokens);
 
         for d in &parse_result.diagnostics {
             use cobolt_parser::Severity as PSev;
             let sev = match d.severity {
-                PSev::Error   => DiagSeverity::Error,
+                PSev::Error => DiagSeverity::Error,
                 PSev::Warning => DiagSeverity::Warning,
             };
-            let diag = DiagMsg { severity: sev, message: d.message.clone(),
-                                 line: d.span.line, col: d.span.col };
+            let diag = DiagMsg {
+                severity: sev,
+                message: d.message.clone(),
+                line: d.span.line,
+                col: d.span.col,
+            };
             self.output.push_msg(&RunMsg::Diagnostic(diag.clone()));
             self.editor.add_diag(&path, diag);
         }
@@ -718,12 +790,16 @@ impl CoboltApp {
                 for d in &sem.diagnostics {
                     use cobolt_semantic::Severity;
                     let sev = match d.severity {
-                        Severity::Error   => DiagSeverity::Error,
+                        Severity::Error => DiagSeverity::Error,
                         Severity::Warning => DiagSeverity::Warning,
-                        Severity::Info    => DiagSeverity::Info,
+                        Severity::Info => DiagSeverity::Info,
                     };
-                    let diag = DiagMsg { severity: sev, message: d.message.clone(),
-                                        line: d.span.line, col: d.span.col };
+                    let diag = DiagMsg {
+                        severity: sev,
+                        message: d.message.clone(),
+                        line: d.span.line,
+                        col: d.span.col,
+                    };
                     self.output.push_msg(&RunMsg::Diagnostic(diag.clone()));
                     self.editor.add_diag(&path, diag);
                 }
@@ -731,13 +807,21 @@ impl CoboltApp {
         }
 
         // ── Update the tree semaphore for the checked file ────────────────────
-        let had_error = self.editor.diags.get(&path)
+        let had_error = self
+            .editor
+            .diags
+            .get(&path)
             .map(|v| v.iter().any(|d| d.severity == DiagSeverity::Error))
             .unwrap_or(false);
-        self.checked.insert(path.clone(), Self::content_hash(&source));
+        self.checked
+            .insert(path.clone(), Self::content_hash(&source));
         self.set_element_status(
             &path,
-            if had_error { ElementStatus::Failed } else { ElementStatus::Tested },
+            if had_error {
+                ElementStatus::Failed
+            } else {
+                ElementStatus::Tested
+            },
         );
     }
 
@@ -758,7 +842,9 @@ impl CoboltApp {
 
     // ── Project actions ───────────────────────────────────────────────────────
 
-    fn do_new_project(&mut self) { self.new_project.open = true; }
+    fn do_new_project(&mut self) {
+        self.new_project.open = true;
+    }
 
     fn create_new_project(&mut self) {
         // The manifest is named after the project (e.g. "Inventory System.toml")
@@ -774,17 +860,15 @@ impl CoboltApp {
 
     /// Finish creating a new project once the user has chosen `cobolt.toml`.
     fn create_new_project_at(&mut self, path: PathBuf) {
-        let mut proj = CoboltProject::new(
-            self.new_project.name.clone(),
-            self.new_project.main.clone(),
-        );
+        let mut proj =
+            CoboltProject::new(self.new_project.name.clone(), self.new_project.main.clone());
         proj.project.version = self.new_project.version.clone();
 
         match save_project(&proj, &path) {
             Ok(()) => {
                 let dir = path.parent().map(|p| p.to_owned());
                 self.cobolt_project = Some(proj);
-                self.project_path   = Some(path);
+                self.project_path = Some(path);
                 if let Some(dir) = dir {
                     // Create the standard project sub-folders: one per category
                     // (Common Code / Forms / Generated Code / Assets / Docs) plus
@@ -793,19 +877,31 @@ impl CoboltApp {
                     // the project on a machine without PowerRustCOBOL installed).
                     for sub in PROJECT_FOLDERS {
                         if let Err(e) = std::fs::create_dir_all(dir.join(sub)) {
-                            self.output.push_status(format!("Could not create {sub}/: {e}"));
+                            self.output
+                                .push_status(format!("Could not create {sub}/: {e}"));
                         }
                     }
                     // Scaffold a runnable starter main program so the project can
                     // be Run immediately. Track it under Common Code and open it.
                     let proj_name = self.cobolt_project.as_ref().unwrap().project.name.clone();
-                    let main_rel  = self.cobolt_project.as_ref().unwrap().project.main.clone();
+                    let main_rel = self.cobolt_project.as_ref().unwrap().project.main.clone();
                     let main_path = dir.join(&main_rel);
                     if !main_path.exists() {
-                        if let Some(parent) = main_path.parent() { let _ = std::fs::create_dir_all(parent); }
-                        let prog: String = main_path.file_stem().and_then(|s| s.to_str()).unwrap_or("MAIN")
+                        if let Some(parent) = main_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        let prog: String = main_path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("MAIN")
                             .chars()
-                            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '-' })
+                            .map(|c| {
+                                if c.is_ascii_alphanumeric() {
+                                    c.to_ascii_uppercase()
+                                } else {
+                                    '-'
+                                }
+                            })
                             .collect();
                         let template = format!(
                             "       IDENTIFICATION DIVISION.\n\
@@ -814,21 +910,27 @@ impl CoboltApp {
                              \n\
                              \x20      PROCEDURE DIVISION.\n\
                              \x20          DISPLAY \"Hello from {proj_name}\".\n\
-                             \x20          GOBACK.\n");
+                             \x20          GOBACK.\n"
+                        );
                         if std::fs::write(&main_path, template).is_ok() {
                             if let Some(p) = &mut self.cobolt_project {
-                                p.add_file_to(&main_rel, crate::project_model::Category::CommonCode);
+                                p.add_file_to(
+                                    &main_rel,
+                                    crate::project_model::Category::CommonCode,
+                                );
                             }
                         }
                     }
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
-                    self.do_save_project();      // persist the tracked main
+                    self.do_save_project(); // persist the tracked main
 
                     // Initialize the project Settings form and show it immediately
                     // (fills the main work area right of the tree; no editor controls on top).
                     if let Some(p) = &self.cobolt_project {
-                        self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(p, &self.llm));
+                        self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(
+                            p, &self.llm,
+                        ));
                         self.show_project_settings = true;
                         self.inspect = None;
                     }
@@ -838,7 +940,8 @@ impl CoboltApp {
                 self.new_project.open = false;
             }
             Err(e) => {
-                self.output.push_status(format!("Failed to create project: {e}"));
+                self.output
+                    .push_status(format!("Failed to create project: {e}"));
             }
         }
     }
@@ -854,9 +957,10 @@ impl CoboltApp {
         match load_project(&path) {
             Ok(proj) => {
                 let dir = path.parent().map(|p| p.to_owned());
-                self.output.push_status(format!("Opened project '{}'", proj.project.name));
+                self.output
+                    .push_status(format!("Opened project '{}'", proj.project.name));
                 self.cobolt_project = Some(proj);
-                self.project_path   = Some(path);
+                self.project_path = Some(path);
 
                 // Load persisted "raw editor preferred" for indexed files from the
                 // IDE-managed indexed state file in the project's data/ (dog-fooding
@@ -864,20 +968,21 @@ impl CoboltApp {
                 if let Some(root) = dir.as_ref() {
                     let data_dir = root.join("data");
                     let rels = crate::llm::load_raw_preferred_indexed(&data_dir);
-                    self.raw_preferred_indexed = rels
-                        .into_iter()
-                        .map(|rel| root.join(rel))
-                        .collect();
+                    self.raw_preferred_indexed =
+                        rels.into_iter().map(|rel| root.join(rel)).collect();
                 }
                 if let Some(dir) = dir {
                     // Back-fill any standard sub-folders missing from older projects.
                     let mut created = 0;
                     for sub in PROJECT_FOLDERS {
                         let p = dir.join(sub);
-                        if !p.exists() && std::fs::create_dir_all(&p).is_ok() { created += 1; }
+                        if !p.exists() && std::fs::create_dir_all(&p).is_ok() {
+                            created += 1;
+                        }
                     }
                     if created > 0 {
-                        self.output.push_status(format!("Added {created} standard project folder(s)"));
+                        self.output
+                            .push_status(format!("Added {created} standard project folder(s)"));
                     }
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
@@ -885,7 +990,9 @@ impl CoboltApp {
                 // Initialize (or reset) the in-pane project Settings form and show it
                 // by default (fills the main area to the right of the tree, no editor chrome).
                 if let Some(p) = &self.cobolt_project {
-                    self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(p, &self.llm));
+                    self.settings_form = Some(crate::panels::settings_form::SettingsForm::new(
+                        p, &self.llm,
+                    ));
                     self.show_project_settings = true;
                     self.inspect = None;
                 }
@@ -899,7 +1006,9 @@ impl CoboltApp {
     }
 
     fn do_save_project(&mut self) {
-        if self.cobolt_project.is_none() { return; }
+        if self.cobolt_project.is_none() {
+            return;
+        }
 
         // No path yet → ask where to save (async); the result re-enters here.
         let Some(path) = self.project_path.clone() else {
@@ -915,7 +1024,8 @@ impl CoboltApp {
         let proj = self.cobolt_project.as_ref().unwrap().clone();
         match save_project(&proj, &path) {
             Ok(()) => {
-                self.output.push_status(format!("Project saved → {}", path.display()));
+                self.output
+                    .push_status(format!("Project saved → {}", path.display()));
             }
             Err(e) => {
                 self.output.push_status(format!("Save project failed: {e}"));
@@ -925,16 +1035,18 @@ impl CoboltApp {
 
     fn do_package_project(&mut self) {
         if self.cobolt_project.is_none() || self.project_path.is_none() {
-            self.output.push_status(
-                "Open or create a project first (File → New/Open Project).",
-            );
+            self.output
+                .push_status("Open or create a project first (File → New/Open Project).");
             return;
         }
 
         let zip_name = format!(
             "{}.zip",
-            self.cobolt_project.as_ref().unwrap()
-                .project.name
+            self.cobolt_project
+                .as_ref()
+                .unwrap()
+                .project
+                .name
                 .to_ascii_lowercase()
                 .replace(' ', "_")
         );
@@ -960,8 +1072,7 @@ impl CoboltApp {
                 if !crate::project_model::assign_path_is_packaged(&def.assign_path, &proj_dir) {
                     self.output.push_status(format!(
                         "{} ({})",
-                        tr.pkg_warn_external_path,
-                        def.assign_path
+                        tr.pkg_warn_external_path, def.assign_path
                     ));
                 }
             }
@@ -969,10 +1080,8 @@ impl CoboltApp {
         let proj_snap = proj.clone();
         match package_project(&proj_snap, &proj_dir, &out_zip) {
             Ok(count) => {
-                self.output.push_status(format!(
-                    "Packaged {count} files → {}",
-                    out_zip.display()
-                ));
+                self.output
+                    .push_status(format!("Packaged {count} files → {}", out_zip.display()));
             }
             Err(e) => {
                 self.output.push_status(format!("Package failed: {e}"));
@@ -988,13 +1097,15 @@ impl CoboltApp {
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
         let Some(proj_path) = &self.project_path else {
-            self.output.push_status("Open or create a project first (File → New/Open Project).");
+            self.output
+                .push_status("Open or create a project first (File → New/Open Project).");
             return;
         };
 
         let manifest = proj_path.clone();
         self.output.clear();
-        self.output.push_status("── Building binary …  (this may take a minute) ──");
+        self.output
+            .push_status("── Building binary …  (this may take a minute) ──");
 
         // Run the build on a background thread; collect result via a one-shot
         // channel, and stream phase progress via a second channel.
@@ -1006,8 +1117,7 @@ impl CoboltApp {
                 workspace_root: None,
                 progress: Some(ptx),
             };
-            let result = build_project(&manifest, &opts)
-                .map_err(|e| e.to_string());
+            let result = build_project(&manifest, &opts).map_err(|e| e.to_string());
             let _ = tx.send(result);
         });
 
@@ -1019,7 +1129,10 @@ impl CoboltApp {
 
     /// The project's root directory (where `cobolt.toml` lives), if a project is open.
     fn project_dir(&self) -> Option<PathBuf> {
-        self.project_path.as_ref().and_then(|p| p.parent()).map(|p| p.to_owned())
+        self.project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_owned())
     }
 
     /// First available `<base>.<ext>` / `<base>-N.<ext>` name in `dir`.
@@ -1041,12 +1154,12 @@ impl CoboltApp {
     fn do_create_in_category(&mut self, kind: FileKind) {
         match kind {
             // A form has a real "create" dialog.
-            FileKind::Form          => self.new_form.open = true,
-            FileKind::Indexed       => self.new_indexed_file_dialog(),
-            FileKind::Source        => self.create_new_text_file(FileKind::Source),
+            FileKind::Form => self.new_form.open = true,
+            FileKind::Indexed => self.new_indexed_file_dialog(),
+            FileKind::Source => self.create_new_text_file(FileKind::Source),
             FileKind::Documentation => self.create_new_text_file(FileKind::Documentation),
             // Assets can't be authored in the IDE — creating one means importing.
-            FileKind::Asset         => self.do_add_file_to_project(FileKind::Asset),
+            FileKind::Asset => self.do_add_file_to_project(FileKind::Asset),
         }
     }
 
@@ -1060,15 +1173,16 @@ impl CoboltApp {
         };
         let (sub, base, ext, category) = match kind {
             FileKind::Source => ("src", "new-program", "cbl", Category::CommonCode),
-            _                => ("docs", "new-document", "md", Category::Documentation),
+            _ => ("docs", "new-document", "md", Category::Documentation),
         };
         let sub_dir = dir.join(sub);
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
-            self.output.push_status(format!("Could not create {sub}/: {e}"));
+            self.output
+                .push_status(format!("Could not create {sub}/: {e}"));
             return;
         }
         let fname = Self::unique_file_name(&sub_dir, base, ext);
-        let stem  = fname.trim_end_matches(&format!(".{ext}")).to_string();
+        let stem = fname.trim_end_matches(&format!(".{ext}")).to_string();
         let content = if kind == FileKind::Source {
             let prog = stem.to_ascii_uppercase().replace('_', "-");
             format!(
@@ -1079,7 +1193,8 @@ impl CoboltApp {
         };
         let path = sub_dir.join(&fname);
         if let Err(e) = std::fs::write(&path, content) {
-            self.output.push_status(format!("Could not create file: {e}"));
+            self.output
+                .push_status(format!("Could not create file: {e}"));
             return;
         }
         let rel = format!("{sub}/{fname}");
@@ -1094,7 +1209,7 @@ impl CoboltApp {
     fn do_add_file_to_project(&mut self, kind: FileKind) {
         let proj_dir = match &self.project_path {
             Some(p) => p.parent().unwrap_or(p.as_path()).to_owned(),
-            None    => {
+            None => {
                 self.output.push_status("Save the project first.");
                 return;
             }
@@ -1107,15 +1222,13 @@ impl CoboltApp {
         // file is selectable. The other kinds keep their helpful filters.
         let spec = crate::file_dialog::DialogSpec::open().directory(proj_dir);
         let spec = match kind {
-            FileKind::Source =>
-                spec.filter("COBOL Source", &["cbl", "cob", "cpy"]),
-            FileKind::Form =>
-                spec.filter("RustCOBOL Form", &["cfrm"]),
-            FileKind::Indexed =>
-                spec.filter("Indexed data file", &["idx", "dat"]),
-            FileKind::Documentation =>
-                spec.filter("Documentation",
-                    &["md", "markdown", "txt", "rst", "adoc", "pdf", "html", "htm"]),
+            FileKind::Source => spec.filter("COBOL Source", &["cbl", "cob", "cpy"]),
+            FileKind::Form => spec.filter("RustCOBOL Form", &["cfrm"]),
+            FileKind::Indexed => spec.filter("Indexed data file", &["idx", "dat"]),
+            FileKind::Documentation => spec.filter(
+                "Documentation",
+                &["md", "markdown", "txt", "rst", "adoc", "pdf", "html", "htm"],
+            ),
             FileKind::Asset => spec, // no filter → every file selectable
         };
 
@@ -1142,10 +1255,10 @@ impl CoboltApp {
             Some(rel) => rel,
             None => {
                 let subdir = match kind {
-                    FileKind::Source        => "src",
-                    FileKind::Form          => "forms",
-                    FileKind::Indexed       => "data",
-                    FileKind::Asset         => "assets",
+                    FileKind::Source => "src",
+                    FileKind::Form => "forms",
+                    FileKind::Indexed => "data",
+                    FileKind::Asset => "assets",
                     FileKind::Documentation => "docs",
                 };
                 let Some(fname) = path.file_name() else {
@@ -1154,17 +1267,21 @@ impl CoboltApp {
                 };
                 let dest_dir = proj_dir.join(subdir);
                 if let Err(e) = std::fs::create_dir_all(&dest_dir) {
-                    self.output.push_status(format!("Could not create {subdir}/: {e}"));
+                    self.output
+                        .push_status(format!("Could not create {subdir}/: {e}"));
                     return;
                 }
                 let dest = dest_dir.join(fname);
                 if let Err(e) = std::fs::copy(&path, &dest) {
-                    self.output.push_status(format!("Could not import file: {e}"));
+                    self.output
+                        .push_status(format!("Could not import file: {e}"));
                     return;
                 }
                 self.output.push_status(format!(
                     "Imported {} → {}/{}",
-                    fname.to_string_lossy(), subdir, fname.to_string_lossy()
+                    fname.to_string_lossy(),
+                    subdir,
+                    fname.to_string_lossy()
                 ));
                 relative_to(&dest, &proj_dir)
                     .unwrap_or_else(|| format!("{subdir}/{}", fname.to_string_lossy()))
@@ -1172,10 +1289,10 @@ impl CoboltApp {
         };
 
         let category = match kind {
-            FileKind::Source        => Category::CommonCode,
-            FileKind::Form          => Category::Forms,
-            FileKind::Indexed       => Category::IndexedFiles,
-            FileKind::Asset         => Category::Assets,
+            FileKind::Source => Category::CommonCode,
+            FileKind::Form => Category::Forms,
+            FileKind::Indexed => Category::IndexedFiles,
+            FileKind::Asset => Category::Assets,
             FileKind::Documentation => Category::Documentation,
         };
         if let Some(proj) = &mut self.cobolt_project {
@@ -1193,6 +1310,42 @@ impl CoboltApp {
             proj.remove_file(&rel);
         }
         self.do_save_project();
+    }
+
+    fn add_user_control_def(&mut self, def: UserControlDef) {
+        let name = def.name.clone();
+        let Some(proj) = &mut self.cobolt_project else {
+            self.output
+                .push_status("Open or create a project before creating a User Control.");
+            return;
+        };
+        if proj
+            .user_controls
+            .iter()
+            .any(|existing| existing.name.eq_ignore_ascii_case(&name))
+        {
+            self.output
+                .push_status(format!("User Control '{name}' already exists."));
+            return;
+        }
+        proj.user_controls.push(def);
+        self.do_save_project();
+        self.output
+            .push_status(format!("User Control '{name}' saved to project."));
+    }
+
+    fn remove_user_control_def(&mut self, name: &str) {
+        let Some(proj) = &mut self.cobolt_project else {
+            return;
+        };
+        let before = proj.user_controls.len();
+        proj.user_controls
+            .retain(|def| !def.name.eq_ignore_ascii_case(name));
+        if proj.user_controls.len() != before {
+            self.do_save_project();
+            self.output
+                .push_status(format!("User Control '{name}' removed from project."));
+        }
     }
 
     // ── Designer actions ──────────────────────────────────────────────────────
@@ -1227,10 +1380,12 @@ impl CoboltApp {
     }
 
     fn do_save_designer(&mut self, idx: usize) {
-        if idx >= self.designers.len() { return; }
-        let path      = self.designers[idx].0.clone();
+        if idx >= self.designers.len() {
+            return;
+        }
+        let path = self.designers[idx].0.clone();
         let form_name = self.designers[idx].1.form.name.clone();
-        let result    = save_form(&self.designers[idx].1.form, &path);
+        let result = save_form(&self.designers[idx].1.form, &path);
         match result {
             Ok(()) => {
                 self.designers[idx].1.dirty = false;
@@ -1253,19 +1408,23 @@ impl CoboltApp {
     /// generated COBOL: (re)generate the `.cbl`, open it in the editor, and queue
     /// a scroll to the paragraph. `ctrl_id` is empty for form-level events.
     fn jump_to_event_code(&mut self, idx: usize, ctrl_id: &str, event: &str) {
-        if idx >= self.designers.len() { return; }
+        if idx >= self.designers.len() {
+            return;
+        }
 
         // Resolve the paragraph name from the binding, or derive it the same way
         // codegen does, so the lookup matches the generated source.
         let para = {
             let form = &self.designers[idx].1.form;
             if ctrl_id.is_empty() {
-                form.form_events.iter()
+                form.form_events
+                    .iter()
                     .find(|e| e.event == event)
                     .map(|e| e.paragraph.clone())
                     .unwrap_or_else(|| cobolt_forms::model::derive_paragraph_name("", event))
             } else {
-                form.controls.iter()
+                form.controls
+                    .iter()
                     .find(|c| c.id == ctrl_id)
                     .and_then(|c| c.events.iter().find(|e| e.event == event))
                     .map(|e| e.paragraph.clone())
@@ -1339,7 +1498,9 @@ impl CoboltApp {
                 inspect.panel.raw_text = raw_seed;
                 self.indexed_inspect = Some(inspect);
             }
-            Err(e) => self.output.push_status(format!("Failed to read .cidx: {e}")),
+            Err(e) => self
+                .output
+                .push_status(format!("Failed to read .cidx: {e}")),
         }
     }
 
@@ -1393,30 +1554,48 @@ impl CoboltApp {
             if let Some(form_path) = form_path {
                 let gen_path = self.generated_cbl_path(&form_path);
                 let code = std::fs::read_to_string(&gen_path).unwrap_or_default();
-                let root = self.project_path.as_ref()
+                let root = self
+                    .project_path
+                    .as_ref()
                     .and_then(|p| p.parent())
                     .map(|p| p.to_path_buf());
                 self.editor.ai_bar(
-                    ctx, &self.llm, tr, "inspector_ai",
-                    &form_path, &code, true, root.as_deref(),
+                    ctx,
+                    &self.llm,
+                    tr,
+                    "inspector_ai",
+                    &form_path,
+                    &code,
+                    true,
+                    root.as_deref(),
                 );
             }
         }
 
-        let card = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill, self.current_theme());
+        let card =
+            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
-            let Some(st) = &mut self.inspect else { return; };
+            let Some(st) = &mut self.inspect else {
+                return;
+            };
             ui.horizontal(|ui| {
                 ui.heading(format!("⚙ {}", st.designer.form.name));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr.inspect_close).clicked() { close = true; }
-                    if ui.button(tr.inspect_open_designer).clicked() { open_designer = true; }
+                    if ui.button(tr.inspect_close).clicked() {
+                        close = true;
+                    }
+                    if ui.button(tr.inspect_open_designer).clicked() {
+                        open_designer = true;
+                    }
                 });
             });
             match &st.ctrl_id {
-                Some(id) => { ui.label(egui::RichText::new(id).strong().monospace()); }
-                None     => { ui.label(egui::RichText::new(tr.inspect_form_props).italics()); }
+                Some(id) => {
+                    ui.label(egui::RichText::new(id).strong().monospace());
+                }
+                None => {
+                    ui.label(egui::RichText::new(tr.inspect_form_props).italics());
+                }
             }
             ui.separator();
 
@@ -1476,7 +1655,9 @@ impl CoboltApp {
         }
         if open_designer {
             let path = self.inspect.take().map(|s| s.path);
-            if let Some(p) = path { self.load_form_from_path(p); }
+            if let Some(p) = path {
+                self.load_form_from_path(p);
+            }
         }
         if close {
             self.inspect = None;
@@ -1489,9 +1670,13 @@ impl CoboltApp {
     /// editor tab.
     fn after_form_saved(&mut self, cfrm_path: &std::path::Path) {
         self.project.refresh_form(cfrm_path);
-        let Ok(form) = load_form(cfrm_path) else { return; };
+        let Ok(form) = load_form(cfrm_path) else {
+            return;
+        };
         let cbl = self.generated_cbl_path(cfrm_path);
-        if let Some(parent) = cbl.parent() { let _ = std::fs::create_dir_all(parent); }
+        if let Some(parent) = cbl.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         if std::fs::write(&cbl, generate(&form)).is_err() {
             return;
         }
@@ -1507,7 +1692,8 @@ impl CoboltApp {
             self.do_save_project();
         }
         self.editor.reload_file(&cbl);
-        self.output.push_status(format!("Regenerated {}", cbl.display()));
+        self.output
+            .push_status(format!("Regenerated {}", cbl.display()));
     }
 
     /// Regenerate one form's `.cbl` from `form`, keep it tracked as generated,
@@ -1596,7 +1782,10 @@ impl CoboltApp {
     }
 
     fn generated_indexed_cbl_path(&self, cidx: &std::path::Path) -> PathBuf {
-        let stem = cidx.file_stem().and_then(|s| s.to_str()).unwrap_or("indexed");
+        let stem = cidx
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("indexed");
         if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
             return dir.join("generated").join(format!("{stem}-indexed.cbl"));
         }
@@ -1608,13 +1797,18 @@ impl CoboltApp {
     /// CUSTOMER-FILE.fd.cpy). This is the file the raw COBOL editor reads/writes.
     fn indexed_fd_copybook_path(&self, indexed_name: &str) -> Option<PathBuf> {
         let dir = self.project_dir()?;
-        Some(dir.join("copybooks").join(format!("{}.fd.cpy", indexed_name)))
+        Some(
+            dir.join("copybooks")
+                .join(format!("{}.fd.cpy", indexed_name)),
+        )
     }
 
     /// Ensure copybooks/ exists and write (or overwrite) the given text as the
     /// editable COBOL descriptor for the named indexed file.
     fn write_indexed_fd_copybook(&self, indexed_name: &str, text: &str) -> bool {
-        let Some(path) = self.indexed_fd_copybook_path(indexed_name) else { return false; };
+        let Some(path) = self.indexed_fd_copybook_path(indexed_name) else {
+            return false;
+        };
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -1646,8 +1840,6 @@ impl CoboltApp {
         }
     }
 
-
-
     fn open_grid_for_indexed(&mut self, cidx_path: &Path, def: &IndexedDefinition) {
         let (drift, _) = self.check_schema_drift(def);
         let data_path = match self.resolve_assign_path(def) {
@@ -1672,7 +1864,11 @@ impl CoboltApp {
         ));
     }
 
-    fn write_generated_indexed_for(&mut self, cidx: &std::path::Path, def: &IndexedDefinition) -> bool {
+    fn write_generated_indexed_for(
+        &mut self,
+        cidx: &std::path::Path,
+        def: &IndexedDefinition,
+    ) -> bool {
         let cbl = self.generated_indexed_cbl_path(cidx);
         if let Some(parent) = cbl.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -1739,7 +1935,9 @@ impl CoboltApp {
         // Supports both the properties form and the raw COBOL-85 text editor.
         // The dialog already enforced !exists + full validity (group + RECORD KEY).
         let Some(mut def) = self.new_indexed.get_definition() else {
-            self.output.push_status("Invalid indexed file parameters (incomplete or not COBOL-85 compliant)");
+            self.output.push_status(
+                "Invalid indexed file parameters (incomplete or not COBOL-85 compliant)",
+            );
             return;
         };
         let Some(dir) = self.project_dir() else {
@@ -1748,7 +1946,8 @@ impl CoboltApp {
         };
         let sub_dir = dir.join("indexed");
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
-            self.output.push_status(format!("Could not create indexed/: {e}"));
+            self.output
+                .push_status(format!("Could not create indexed/: {e}"));
             return;
         };
         let stem = def.name.to_ascii_lowercase().replace('-', "_");
@@ -1757,7 +1956,8 @@ impl CoboltApp {
 
         // The dialog checks the assign_path; we also avoid overwriting a .cidx.
         if path.exists() {
-            self.output.push_status("Indexed definition already exists. Pick a different name.");
+            self.output
+                .push_status("Indexed definition already exists. Pick a different name.");
             return;
         }
 
@@ -1817,7 +2017,8 @@ impl CoboltApp {
             // Persist using IDE-managed indexed file in data/ (same as agent convos).
             if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()) {
                 let data_dir = root.join("data");
-                let rels: std::collections::HashSet<String> = self.raw_preferred_indexed
+                let rels: std::collections::HashSet<String> = self
+                    .raw_preferred_indexed
                     .iter()
                     .filter_map(|abs| {
                         abs.strip_prefix(root)
@@ -1839,12 +2040,14 @@ impl CoboltApp {
             Ok(Some(i)) => i,
             Ok(None) => {
                 let tr = self.lang.tr();
-                self.output.push_status(tr.warn_import_no_schema.to_string());
+                self.output
+                    .push_status(tr.warn_import_no_schema.to_string());
                 return;
             }
             Err(e) => {
                 let tr = self.lang.tr();
-                self.output.push_status(format!("{}: {e}", tr.warn_import_failed));
+                self.output
+                    .push_status(format!("{}: {e}", tr.warn_import_failed));
                 return;
             }
         };
@@ -1869,7 +2072,8 @@ impl CoboltApp {
         }
         let sub_dir = proj_dir.join("indexed");
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
-            self.output.push_status(format!("Could not create indexed/: {e}"));
+            self.output
+                .push_status(format!("Could not create indexed/: {e}"));
             return;
         }
         let base = stem.to_ascii_lowercase().replace('-', "_");
@@ -1893,7 +2097,8 @@ impl CoboltApp {
             record_to_text(&def)
         };
         let _ = self.write_indexed_fd_copybook(&def.name, &text_for_cpy);
-        self.output.push_status(format!("Imported indexed file → {rel}"));
+        self.output
+            .push_status(format!("Imported indexed file → {rel}"));
         self.open_indexed_inspect(cidx_path, None);
     }
 
@@ -1904,8 +2109,8 @@ impl CoboltApp {
         let mut structure_action = StructureAction::None;
         let mut did_add_remove = false;
 
-        let card = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill, self.current_theme());
+        let card =
+            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
 
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             let Some(st) = &mut self.indexed_inspect else { return; };
@@ -2104,7 +2309,7 @@ impl CoboltApp {
                     });
                 }
             });
-        });  // close the CentralPanel |ui| and .show(...)
+        }); // close the CentralPanel |ui| and .show(...)
 
         // Only open the raw modal if explicitly requested (e.g. the header icon
         // was clicked, or initial request after raw creation).
@@ -2141,7 +2346,8 @@ impl CoboltApp {
             // Persist using IDE-managed indexed file (like agent conversations).
             if let Some(root) = self.project_path.as_ref().and_then(|p| p.parent()) {
                 let data_dir = root.join("data");
-                let rels: std::collections::HashSet<String> = self.raw_preferred_indexed
+                let rels: std::collections::HashSet<String> = self
+                    .raw_preferred_indexed
                     .iter()
                     .filter_map(|abs| {
                         abs.strip_prefix(root)
@@ -2187,7 +2393,9 @@ impl CoboltApp {
     /// theme wins, so picking a theme previews live (and reverts on Cancel);
     /// otherwise the saved project theme (or the default) is used.
     fn current_theme(&self) -> &'static crate::theme::Theme {
-        let id = self.settings_form.as_ref()
+        let id = self
+            .settings_form
+            .as_ref()
             .map(|f| f.draft.theme_id.as_str())
             .or_else(|| self.cobolt_project.as_ref().map(|p| p.ide.theme.as_str()))
             .unwrap_or("");
@@ -2220,7 +2428,9 @@ impl CoboltApp {
         if opacity == 0 {
             return;
         }
-        let Some(abs) = self.bg_image_abs_path() else { return; };
+        let Some(abs) = self.bg_image_abs_path() else {
+            return;
+        };
 
         let need_load = match &self.bg_texture {
             Some((p, _)) => p != &abs,
@@ -2232,29 +2442,34 @@ impl CoboltApp {
                 None => return,
             }
         }
-        let Some((_, tex)) = &self.bg_texture else { return; };
+        let Some((_, tex)) = &self.bg_texture else {
+            return;
+        };
 
-        let screen   = ctx.screen_rect();
+        let screen = ctx.screen_rect();
         let tex_size = tex.size_vec2();
         if tex_size.x <= 0.0 || tex_size.y <= 0.0 {
             return;
         }
         // Cover: scale up so the image fills the window, centred.
-        let s  = (screen.width() / tex_size.x).max(screen.height() / tex_size.y);
+        let s = (screen.width() / tex_size.x).max(screen.height() / tex_size.y);
         let dw = tex_size.x * s;
         let dh = tex_size.y * s;
-        let ox = (screen.width()  - dw) * 0.5;
+        let ox = (screen.width() - dw) * 0.5;
         let oy = (screen.height() - dh) * 0.5;
         let dest = egui::Rect::from_min_size(screen.min + egui::vec2(ox, oy), egui::vec2(dw, dh));
-        let uv   = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
 
         // Draw the image (cover) over the opaque floor, scaled by
         // `background_opacity` so the texture shows through more or less.
         let img_a = (opacity as f32 / 100.0 * 255.0) as u8;
-        ctx.layer_painter(egui::LayerId::background())
-            .image(tex.id(), dest, uv, egui::Color32::from_white_alpha(img_a));
+        ctx.layer_painter(egui::LayerId::background()).image(
+            tex.id(),
+            dest,
+            uv,
+            egui::Color32::from_white_alpha(img_a),
+        );
     }
-
 
     /// Poll an in-flight "Test connection" request started from the Settings
     /// form, updating the status line shown next to the Test button.
@@ -2281,8 +2496,12 @@ impl CoboltApp {
     /// Persist the Settings form: write the draft into the project + global AI
     /// config, save both to disk, and apply the (possibly new) theme/background.
     fn save_settings_form(&mut self) {
-        let Some(form) = &mut self.settings_form else { return; };
-        let Some(proj) = &mut self.cobolt_project else { return; };
+        let Some(form) = &mut self.settings_form else {
+            return;
+        };
+        let Some(proj) = &mut self.cobolt_project else {
+            return;
+        };
         form.draft.apply(proj, &mut self.llm);
         form.mark_saved();
         if let Err(e) = self.llm.save() {
@@ -2296,12 +2515,16 @@ impl CoboltApp {
     /// "Test connection" / "Browse background" actions for the caller to run.
     fn show_settings_pane(&mut self, ctx: &Context, tr: &Tr) {
         self.poll_llm_test(tr);
-        if self.llm_test_rx.is_some() { ctx.request_repaint(); }
+        if self.llm_test_rx.is_some() {
+            ctx.request_repaint();
+        }
         let test_busy = self.llm_test_rx.is_some();
         let test_status = self.llm_test_status.clone();
 
-        let themes: Vec<(&'static str, &'static str)> =
-            crate::theme::THEMES.iter().map(|t| (t.id, t.name)).collect();
+        let themes: Vec<(&'static str, &'static str)> = crate::theme::THEMES
+            .iter()
+            .map(|t| (t.id, t.name))
+            .collect();
 
         let mut action = crate::panels::settings_form::SettingsFormAction::default();
 
@@ -2311,8 +2534,8 @@ impl CoboltApp {
         // glass strokes (right border fixed) and that the pane area conforms to
         // 100% of the available central height above the output (grows/shrinks
         // naturally on window or output splitter resize).
-        let mut card = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill, self.current_theme());
+        let mut card =
+            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
         // Moderate bottom outer margin on the frame raises the stroked glass
         // card (rounded bottom border) clearly above the output.
         // Inside the framed ui we allocate the form (scroll + buttons) in a
@@ -2320,16 +2543,19 @@ impl CoboltApp {
         // above the console (the 80px inner reservation directly lifts the
         // buttons within the glass). This fixes the clipping while keeping the
         // overall "right pane" full 100% height conforming.
-        card = card.outer_margin(egui::Margin { left: 6.0, right: 6.0, top: 6.0, bottom: 50.0 });
+        card = card.outer_margin(egui::Margin {
+            left: 6.0,
+            right: 6.0,
+            top: 6.0,
+            bottom: 50.0,
+        });
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             if let Some(form) = &mut self.settings_form {
                 let avail = ui.available_rect_before_wrap();
                 let bottom_res = 80.0; // dedicated inner lift for full button visibility
                 let content_h = (avail.height() - bottom_res).max(180.0);
-                let content_rect = egui::Rect::from_min_size(
-                    avail.min,
-                    egui::vec2(avail.width(), content_h)
-                );
+                let content_rect =
+                    egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), content_h));
                 ui.allocate_ui_at_rect(content_rect, |ui| {
                     action = form.show(ui, tr, &themes, test_busy, test_status.as_deref());
                 });
@@ -2337,13 +2563,15 @@ impl CoboltApp {
             }
         });
 
-        if action.save { self.save_settings_form(); }
+        if action.save {
+            self.save_settings_form();
+        }
         if action.test_connection {
             if let Some(form) = &self.settings_form {
                 let mut cfg = self.llm.clone();
                 cfg.endpoint = form.draft.llm_endpoint.clone();
-                cfg.api_key  = form.draft.llm_api_key.clone();
-                cfg.model    = form.draft.llm_model.clone();
+                cfg.api_key = form.draft.llm_api_key.clone();
+                cfg.model = form.draft.llm_model.clone();
                 self.llm_test_status = Some(tr.ai_testing.to_string());
                 self.llm_test_rx = Some(crate::llm::spawn_test(&cfg));
             }
@@ -2359,8 +2587,8 @@ impl CoboltApp {
 
     /// The PowerRustCOBOL mascot shown in the Main Pane when no project is open.
     fn show_mascot_pane(&mut self, ctx: &Context, tr: &Tr) {
-        let card = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill, self.current_theme());
+        let card =
+            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(ui.available_height() * 0.18);
@@ -2372,8 +2600,11 @@ impl CoboltApp {
                     ui.image((tex.id(), size * scale));
                 }
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new(tr.no_project_open)
-                    .size(15.0).color(self.current_theme().text_dim));
+                ui.label(
+                    egui::RichText::new(tr.no_project_open)
+                        .size(15.0)
+                        .color(self.current_theme().text_dim),
+                );
             });
         });
     }
@@ -2391,7 +2622,6 @@ impl CoboltApp {
         None
     }
 
-
     /// Shown on startup (or when no project is open) as a single full-width
     /// pane below the menubar/toolbar. Centered text with cycling quotes
     /// using the exact requested format and timings.
@@ -2408,7 +2638,8 @@ impl CoboltApp {
                 ui.painter().image(tex.id(), rect, uv, egui::Color32::WHITE);
                 // A gentle dark scrim keeps the white/coloured text legible over
                 // any photo.
-                ui.painter().rect_filled(rect, 0.0, egui::Color32::from_black_alpha(90));
+                ui.painter()
+                    .rect_filled(rect, 0.0, egui::Color32::from_black_alpha(90));
             }
 
             // ── Pick the current quote (from the active language's pool) ──────
@@ -2425,12 +2656,18 @@ impl CoboltApp {
                 self.welcome_quote_start_time = now;
             }
             let elapsed = now - self.welcome_quote_start_time;
-            let alpha = if elapsed < 1.0 { (elapsed / 1.0) as f32 }
-                        else if elapsed < 7.0 { 1.0 }
-                        else if elapsed < 7.5 { ((7.5 - elapsed) / 0.5) as f32 }
-                        else { 0.0 };
+            let alpha = if elapsed < 1.0 {
+                (elapsed / 1.0) as f32
+            } else if elapsed < 7.0 {
+                1.0
+            } else if elapsed < 7.5 {
+                ((7.5 - elapsed) / 0.5) as f32
+            } else {
+                0.0
+            };
 
-            let title  = tr.welcome_title
+            let title = tr
+                .welcome_title
                 .replace("{}", &format!("PowerRustCOBOL {}", crate::version::VERSION));
             let license = tr.welcome_license;
             let author_line = format!("— {}", author);
@@ -2439,23 +2676,41 @@ impl CoboltApp {
             // (the old fixed 170 px estimate drifted, especially when the quote
             // wrapped). Item spacing is zeroed and the gaps inserted explicitly,
             // so the measured height matches what is drawn exactly.
-            const TITLE_SIZE:  f32 = 42.0;  // 50 % larger than the previous 28
-            const GAP_LICENSE: f32 = 4.0;   // title → license
-            const GAP_QUOTE:   f32 = 40.0;  // license → quote (two blank lines)
-            const GAP_AUTHOR:  f32 = 10.0;  // quote → author
+            const TITLE_SIZE: f32 = 42.0; // 50 % larger than the previous 28
+            const GAP_LICENSE: f32 = 4.0; // title → license
+            const GAP_QUOTE: f32 = 40.0; // license → quote (two blank lines)
+            const GAP_AUTHOR: f32 = 10.0; // quote → author
             let avail_w = ui.available_width();
-            let line_h = |text: &str, size: f32| ui.fonts(|f|
-                f.layout_no_wrap(text.to_owned(), egui::FontId::proportional(size),
-                    egui::Color32::WHITE).size().y);
-            let quote_h = ui.fonts(|f|
-                f.layout(quote.to_owned(), egui::FontId::proportional(16.0),
-                    egui::Color32::WHITE, avail_w).size().y);
-            let block_h = line_h(&title, TITLE_SIZE) + GAP_LICENSE
-                + line_h(license, 16.0) + GAP_QUOTE
-                + quote_h + GAP_AUTHOR
+            let line_h = |text: &str, size: f32| {
+                ui.fonts(|f| {
+                    f.layout_no_wrap(
+                        text.to_owned(),
+                        egui::FontId::proportional(size),
+                        egui::Color32::WHITE,
+                    )
+                    .size()
+                    .y
+                })
+            };
+            let quote_h = ui.fonts(|f| {
+                f.layout(
+                    quote.to_owned(),
+                    egui::FontId::proportional(16.0),
+                    egui::Color32::WHITE,
+                    avail_w,
+                )
+                .size()
+                .y
+            });
+            let block_h = line_h(&title, TITLE_SIZE)
+                + GAP_LICENSE
+                + line_h(license, 16.0)
+                + GAP_QUOTE
+                + quote_h
+                + GAP_AUTHOR
                 + line_h(&author_line, 15.0);
 
-            let green      = egui::Color32::from_rgb(100, 220, 100);
+            let green = egui::Color32::from_rgb(100, 220, 100);
             let light_blue = egui::Color32::from_rgb(130, 190, 255);
 
             ui.vertical_centered(|ui| {
@@ -2463,28 +2718,42 @@ impl CoboltApp {
                 let top = ((ui.available_height() - block_h) * 0.5).max(0.0);
                 ui.add_space(top);
 
-                ui.label(egui::RichText::new(&title).size(TITLE_SIZE).strong()
-                    .color(egui::Color32::WHITE));
+                ui.label(
+                    egui::RichText::new(&title)
+                        .size(TITLE_SIZE)
+                        .strong()
+                        .color(egui::Color32::WHITE),
+                );
                 ui.add_space(GAP_LICENSE);
-                ui.label(egui::RichText::new(license).size(14.0)
-                    .color(egui::Color32::WHITE));
+                ui.label(
+                    egui::RichText::new(license)
+                        .size(14.0)
+                        .color(egui::Color32::WHITE),
+                );
                 ui.add_space(GAP_QUOTE);
-                ui.label(egui::RichText::new(quote).size(16.0)
-                    .color(green.gamma_multiply(alpha)));
+                ui.label(
+                    egui::RichText::new(quote)
+                        .size(16.0)
+                        .color(green.gamma_multiply(alpha)),
+                );
                 ui.add_space(GAP_AUTHOR);
-                ui.label(egui::RichText::new(&author_line).size(15.0).italics()
-                    .color(light_blue.gamma_multiply(alpha)));
+                ui.label(
+                    egui::RichText::new(&author_line)
+                        .size(15.0)
+                        .italics()
+                        .color(light_blue.gamma_multiply(alpha)),
+                );
             });
         });
     }
 
-
-
     /// True if the project Settings form has unsaved edits.
     fn settings_dirty(&self) -> bool {
-        self.settings_form.as_ref().map(|f| f.is_dirty()).unwrap_or(false)
+        self.settings_form
+            .as_ref()
+            .map(|f| f.is_dirty())
+            .unwrap_or(false)
     }
-
 
     /// Open a file in the editor, marking RAD-generated COBOL read-only (blue).
     fn open_in_editor(&mut self, path: PathBuf) {
@@ -2505,16 +2774,24 @@ impl CoboltApp {
     }
 
     fn do_generate_cobol(&mut self, idx: usize) {
-        if idx >= self.designers.len() { return; }
+        if idx >= self.designers.len() {
+            return;
+        }
         let cbl_path = self.generated_cbl_path(&self.designers[idx].0);
-        if let Some(parent) = cbl_path.parent() { let _ = std::fs::create_dir_all(parent); }
-        let cobol    = generate(&self.designers[idx].1.form);
+        if let Some(parent) = cbl_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let cobol = generate(&self.designers[idx].1.form);
         match std::fs::write(&cbl_path, &cobol) {
             Ok(()) => {
-                self.output.push_status(format!("Generated {}", cbl_path.display()));
+                self.output
+                    .push_status(format!("Generated {}", cbl_path.display()));
                 // Auto-add to project if applicable.
-                let proj_dir = self.project_path.as_ref()
-                    .and_then(|p| p.parent()).map(|p| p.to_owned());
+                let proj_dir = self
+                    .project_path
+                    .as_ref()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_owned());
                 if let Some(dir) = proj_dir {
                     if let Some(rel) = relative_to(&cbl_path, &dir) {
                         if let Some(proj) = &mut self.cobolt_project {
@@ -2541,7 +2818,9 @@ impl CoboltApp {
         if let Some(pp) = &self.project_path {
             if let Some(dir) = pp.parent() {
                 let p = dir.join("BUGS.md");
-                if p.exists() { return p; }
+                if p.exists() {
+                    return p;
+                }
                 // Create it alongside the project if it doesn't exist yet.
                 return p;
             }
@@ -2550,16 +2829,20 @@ impl CoboltApp {
         let mut dir = std::env::current_dir().unwrap_or_default();
         loop {
             let candidate = dir.join("BUGS.md");
-            if candidate.exists() { return candidate; }
+            if candidate.exists() {
+                return candidate;
+            }
             let toml = dir.join("Cargo.toml");
             if toml.exists() {
                 if let Ok(t) = std::fs::read_to_string(&toml) {
-                    if t.contains("[workspace]") { return candidate; }
+                    if t.contains("[workspace]") {
+                        return candidate;
+                    }
                 }
             }
             match dir.parent() {
                 Some(p) => dir = p.to_owned(),
-                None    => break,
+                None => break,
             }
         }
         std::path::PathBuf::from("BUGS.md")
@@ -2568,9 +2851,9 @@ impl CoboltApp {
     fn show_save_alert(&mut self, ctx: &Context) {
         let form_name = match &self.save_alert_msg {
             Some(n) => n.clone(),
-            None    => return,
+            None => return,
         };
-        let tr  = self.lang.tr();
+        let tr = self.lang.tr();
         let msg = tr.alert_form_saved.replacen("{}", &form_name, 1);
         let mut open = true;
 
@@ -2647,8 +2930,10 @@ impl CoboltApp {
         // Dim the rest of the IDE so the build reads as modal.
         let screen = ctx.screen_rect();
         ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Middle, egui::Id::new("building_dim")))
-            .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
+            egui::Order::Middle,
+            egui::Id::new("building_dim"),
+        ))
+        .rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
 
         // Drain any phase updates that arrived since the last frame.
         let mut latest = None;
@@ -2680,7 +2965,11 @@ impl CoboltApp {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.add(egui::Spinner::new());
-                    let label = if msg.is_empty() { "Starting…" } else { msg.as_str() };
+                    let label = if msg.is_empty() {
+                        "Starting…"
+                    } else {
+                        msg.as_str()
+                    };
                     ui.label(egui::RichText::new(label).size(13.0));
                 });
                 ui.add_space(4.0);
@@ -2688,7 +2977,9 @@ impl CoboltApp {
     }
 
     fn show_report_bug_dialog(&mut self, ctx: &Context) {
-        if !self.report_bug.open { return; }
+        if !self.report_bug.open {
+            return;
+        }
 
         let mut open = true;
         egui::Window::new("🐛 Report a Problem")
@@ -2700,28 +2991,33 @@ impl CoboltApp {
                 ui.label("Describe the problem so it can be tracked and fixed:");
                 ui.add_space(6.0);
 
-                egui::Grid::new("bug_form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                    ui.label("Component:");
-                    ui.text_edit_singleline(&mut self.report_bug.component);
-                    ui.end_row();
+                egui::Grid::new("bug_form")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label("Component:");
+                        ui.text_edit_singleline(&mut self.report_bug.component);
+                        ui.end_row();
 
-                    ui.label("Title:");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.report_bug.title)
-                            .hint_text("One-line summary of the problem")
-                            .desired_width(f32::INFINITY),
-                    );
-                    ui.end_row();
+                        ui.label("Title:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.report_bug.title)
+                                .hint_text("One-line summary of the problem")
+                                .desired_width(f32::INFINITY),
+                        );
+                        ui.end_row();
 
-                    ui.label("Description:");
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.report_bug.description)
-                            .hint_text("Steps to reproduce, what went wrong, what you expected…")
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(4),
-                    );
-                    ui.end_row();
-                });
+                        ui.label("Description:");
+                        ui.add(
+                            egui::TextEdit::multiline(&mut self.report_bug.description)
+                                .hint_text(
+                                    "Steps to reproduce, what went wrong, what you expected…",
+                                )
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(4),
+                        );
+                        ui.end_row();
+                    });
 
                 ui.add_space(4.0);
 
@@ -2740,9 +3036,10 @@ impl CoboltApp {
                         let path = self.bugs_md_path();
                         match self.report_bug.submit(&path) {
                             Ok(()) => {
-                                self.report_bug.feedback = Some(
-                                    format!("✅ Saved to {}  — next scan will pick it up.", path.display())
-                                );
+                                self.report_bug.feedback = Some(format!(
+                                    "✅ Saved to {}  — next scan will pick it up.",
+                                    path.display()
+                                ));
                             }
                             Err(e) => {
                                 self.report_bug.feedback = Some(format!("❌ {e}"));
@@ -2755,13 +3052,16 @@ impl CoboltApp {
                 });
             });
 
-        if !open { self.report_bug.open = false; }
+        if !open {
+            self.report_bug.open = false;
+        }
     }
 
     // ── Keyboard shortcuts (main window) ─────────────────────────────────────
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S))) {
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
+        {
             self.do_save();
         }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::R)))
@@ -2769,7 +3069,8 @@ impl CoboltApp {
         {
             self.do_run();
         }
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O))) {
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::O)))
+        {
             self.do_open();
         }
     }
@@ -2777,60 +3078,86 @@ impl CoboltApp {
     // ── Dialogs ───────────────────────────────────────────────────────────────
 
     fn show_new_project_dialog(&mut self, ctx: &Context) {
-        if !self.new_project.open { return; }
+        if !self.new_project.open {
+            return;
+        }
         let tr = self.lang.tr();
         let mut open = true;
         egui::Window::new(tr.dlg_new_project)
-            .collapsible(false).resizable(false).open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
             .show(ctx, |ui| {
-                egui::Grid::new("npg").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                    ui.label(tr.dlg_proj_name);
-                    ui.text_edit_singleline(&mut self.new_project.name);
-                    ui.end_row();
-                    ui.label(tr.dlg_proj_version);
-                    ui.text_edit_singleline(&mut self.new_project.version);
-                    ui.end_row();
-                    ui.label(tr.dlg_proj_main);
-                    ui.text_edit_singleline(&mut self.new_project.main);
-                    ui.end_row();
-                });
+                egui::Grid::new("npg")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(tr.dlg_proj_name);
+                        ui.text_edit_singleline(&mut self.new_project.name);
+                        ui.end_row();
+                        ui.label(tr.dlg_proj_version);
+                        ui.text_edit_singleline(&mut self.new_project.version);
+                        ui.end_row();
+                        ui.label(tr.dlg_proj_main);
+                        ui.text_edit_singleline(&mut self.new_project.main);
+                        ui.end_row();
+                    });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(tr.dlg_create_dots).clicked() { self.create_new_project(); }
-                    if ui.button(tr.dlg_cancel).clicked()      { self.new_project.open = false; }
+                    if ui.button(tr.dlg_create_dots).clicked() {
+                        self.create_new_project();
+                    }
+                    if ui.button(tr.dlg_cancel).clicked() {
+                        self.new_project.open = false;
+                    }
                 });
             });
-        if !open { self.new_project.open = false; }
+        if !open {
+            self.new_project.open = false;
+        }
     }
 
     fn show_new_form_dialog(&mut self, ctx: &Context) {
-        if !self.new_form.open { return; }
+        if !self.new_form.open {
+            return;
+        }
         let tr = self.lang.tr();
         let mut open = true;
         egui::Window::new(tr.dlg_new_form)
-            .collapsible(false).resizable(false).open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
             .show(ctx, |ui| {
-                egui::Grid::new("nfg").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                    ui.label(tr.dlg_form_id);
-                    ui.text_edit_singleline(&mut self.new_form.form_name);
-                    ui.end_row();
-                    ui.label(tr.dlg_form_title);
-                    ui.text_edit_singleline(&mut self.new_form.title);
-                    ui.end_row();
-                    ui.label(tr.dlg_form_width);
-                    ui.text_edit_singleline(&mut self.new_form.width);
-                    ui.end_row();
-                    ui.label(tr.dlg_form_height);
-                    ui.text_edit_singleline(&mut self.new_form.height);
-                    ui.end_row();
-                });
+                egui::Grid::new("nfg")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(tr.dlg_form_id);
+                        ui.text_edit_singleline(&mut self.new_form.form_name);
+                        ui.end_row();
+                        ui.label(tr.dlg_form_title);
+                        ui.text_edit_singleline(&mut self.new_form.title);
+                        ui.end_row();
+                        ui.label(tr.dlg_form_width);
+                        ui.text_edit_singleline(&mut self.new_form.width);
+                        ui.end_row();
+                        ui.label(tr.dlg_form_height);
+                        ui.text_edit_singleline(&mut self.new_form.height);
+                        ui.end_row();
+                    });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(tr.dlg_create).clicked() { self.create_new_form(); }
-                    if ui.button(tr.dlg_cancel).clicked() { self.new_form.open = false; }
+                    if ui.button(tr.dlg_create).clicked() {
+                        self.create_new_form();
+                    }
+                    if ui.button(tr.dlg_cancel).clicked() {
+                        self.new_form.open = false;
+                    }
                 });
             });
-        if !open { self.new_form.open = false; }
+        if !open {
+            self.new_form.open = false;
+        }
     }
 
     fn show_new_indexed_dialog(&mut self, ctx: &Context) {
@@ -2843,12 +3170,10 @@ impl CoboltApp {
             .collapsible(false)
             .resizable(false)
             .open(&mut open)
-            .show(ctx, |ui| {
-                match self.new_indexed.show(ui, &tr) {
-                    NewIndexedAction::Create => self.create_new_indexed_file(),
-                    NewIndexedAction::Cancel => self.new_indexed.open = false,
-                    NewIndexedAction::None => {}
-                }
+            .show(ctx, |ui| match self.new_indexed.show(ui, &tr) {
+                NewIndexedAction::Create => self.create_new_indexed_file(),
+                NewIndexedAction::Cancel => self.new_indexed.open = false,
+                NewIndexedAction::None => {}
             });
         if !open {
             self.new_indexed.open = false;
@@ -2861,7 +3186,8 @@ impl CoboltApp {
         let mut form = Form::new(
             self.new_form.form_name.clone(),
             self.new_form.title.clone(),
-            w, h,
+            w,
+            h,
         );
         form.background_color = "00000000".into(); // transparent — matches IDE glass
 
@@ -2881,19 +3207,27 @@ impl CoboltApp {
     /// Save a freshly-created form to `path`, register it, and open its designer.
     fn save_new_form_to(&mut self, form: Form, path: PathBuf) {
         if let Err(e) = save_form(&form, &path) {
-            self.output.push_status(format!("Could not save new form: {e}"));
+            self.output
+                .push_status(format!("Could not save new form: {e}"));
             return;
         }
         if let Some(parent) = path.parent() {
             self.forms_list.set_root(parent);
-            if self.cobolt_project.is_none() { self.project.set_root(parent); }
+            if self.cobolt_project.is_none() {
+                self.project.set_root(parent);
+            }
         }
         // Auto-add to project
-        let proj_dir = self.project_path.as_ref()
-            .and_then(|p| p.parent()).map(|p| p.to_owned());
+        let proj_dir = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_owned());
         if let Some(dir) = proj_dir {
             if let Some(rel) = relative_to(&path, &dir) {
-                if let Some(proj) = &mut self.cobolt_project { proj.add_file(&rel); }
+                if let Some(proj) = &mut self.cobolt_project {
+                    proj.add_file(&rel);
+                }
                 self.do_save_project();
             }
         }
@@ -2937,16 +3271,16 @@ impl CoboltApp {
                 }
                 self.open_in_editor(path);
             }
-            FileRequest::CreateProject  => self.create_new_project_at(path),
-            FileRequest::OpenProject    => self.open_project_at(path),
-            FileRequest::SaveProject    => {
+            FileRequest::CreateProject => self.create_new_project_at(path),
+            FileRequest::OpenProject => self.open_project_at(path),
+            FileRequest::SaveProject => {
                 self.project_path = Some(path);
                 self.do_save_project();
             }
             FileRequest::PackageProject => self.package_project_to(path),
-            FileRequest::AddFile(kind)  => self.add_file_to_project_path(kind, path),
-            FileRequest::OpenForm       => self.load_form_from_path(path),
-            FileRequest::NewForm(form)  => self.save_new_form_to(*form, path),
+            FileRequest::AddFile(kind) => self.add_file_to_project_path(kind, path),
+            FileRequest::OpenForm => self.load_form_from_path(path),
+            FileRequest::NewForm(form) => self.save_new_form_to(*form, path),
             FileRequest::PickBackgroundImage => self.set_background_image(path),
         }
     }
@@ -2972,42 +3306,46 @@ impl CoboltApp {
 // ── Liquid Glass visuals ──────────────────────────────────────────────────────
 
 fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
-    use egui::{Rounding, Shadow, Stroke, Visuals, style::WidgetVisuals};
     use egui::Color32;
+    use egui::{style::WidgetVisuals, Rounding, Shadow, Stroke, Visuals};
 
     // Publish the editor palette for this theme so the syntax layouter picks it up.
     crate::theme::set_active(theme);
 
-    let mut v = if theme.dark { Visuals::dark() } else { Visuals::light() };
+    let mut v = if theme.dark {
+        Visuals::dark()
+    } else {
+        Visuals::light()
+    };
 
     // Panels keep a consistent semi-opaque fill (the background painter draws a
     // matching base so the area *outside* the panes looks the same as the panes).
     // ── Theme palette ─────────────────────────────────────────────────────
-    let bg_panel    = theme.bg_panel;
-    let bg_control   = theme.bg_control;
-    let bg_hover    = theme.bg_hover;
-    let bg_active   = theme.bg_active;
-    let bg_extreme  = theme.bg_extreme;
-    let accent      = theme.accent;
-    let border_dim  = theme.border_dim;
-    let border_hi   = theme.border_hi;
-    let text_dim    = theme.text_dim;
+    let bg_panel = theme.bg_panel;
+    let bg_control = theme.bg_control;
+    let bg_hover = theme.bg_hover;
+    let bg_active = theme.bg_active;
+    let bg_extreme = theme.bg_extreme;
+    let accent = theme.accent;
+    let border_dim = theme.border_dim;
+    let border_hi = theme.border_hi;
+    let text_dim = theme.text_dim;
     let text_bright = theme.text_bright;
 
     // ── Window / panel fills ──────────────────────────────────────────────
-    v.window_fill      = bg_panel;
-    v.panel_fill       = bg_panel;
-    v.faint_bg_color   = theme.faint_bg;
+    v.window_fill = bg_panel;
+    v.panel_fill = bg_panel;
+    v.faint_bg_color = theme.faint_bg;
     v.extreme_bg_color = bg_extreme;
-    v.code_bg_color    = theme.code_bg;
+    v.code_bg_color = theme.code_bg;
 
     // ── Window chrome ─────────────────────────────────────────────────────
-    v.window_stroke   = Stroke::new(1.0, border_hi);
-    v.window_shadow   = Shadow {
+    v.window_stroke = Stroke::new(1.0, border_hi);
+    v.window_shadow = Shadow {
         offset: Vec2::new(0.0, 10.0),
-        blur:   40.0,
+        blur: 40.0,
         spread: 0.0,
-        color:  Color32::from_rgba_unmultiplied(0, 0, 0, 100),
+        color: Color32::from_rgba_unmultiplied(0, 0, 0, 100),
     };
     v.window_rounding = Rounding::same(12.0);
     v.window_highlight_topmost = false;
@@ -3015,22 +3353,22 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     // ── Control states ─────────────────────────────────────────────────────
     let make_widget = |bg: Color32, stroke_c: Color32, text: Color32| WidgetVisuals {
         weak_bg_fill: bg,
-        bg_fill:      bg,
-        bg_stroke:    Stroke::new(1.0, stroke_c),
-        fg_stroke:    Stroke::new(1.5, text),
-        rounding:     Rounding::same(8.0),
-        expansion:    0.0,
+        bg_fill: bg,
+        bg_stroke: Stroke::new(1.0, stroke_c),
+        fg_stroke: Stroke::new(1.5, text),
+        rounding: Rounding::same(8.0),
+        expansion: 0.0,
     };
 
     v.widgets.noninteractive = make_widget(bg_control, border_dim, text_dim);
-    v.widgets.inactive       = make_widget(bg_control, border_dim, text_dim);
-    v.widgets.hovered        = make_widget(bg_hover,  border_hi,  text_bright);
+    v.widgets.inactive = make_widget(bg_control, border_dim, text_dim);
+    v.widgets.hovered = make_widget(bg_hover, border_hi, text_bright);
     // NOTE: egui derives `strong_text_color()` from the ACTIVE control text, so
     // this must be the theme's bright text (dark on light themes, light on
     // dark ones) — a hardcoded white washes out every `.strong()` label on
     // light themes.
-    v.widgets.active         = make_widget(bg_active, accent,     text_bright);
-    v.widgets.open           = make_widget(bg_hover,  border_hi,  text_bright);
+    v.widgets.active = make_widget(bg_active, accent, text_bright);
+    v.widgets.open = make_widget(bg_hover, border_hi, text_bright);
 
     // Keep separators / dividers very faint (the prominent light-grey lines were
     // too noisy). Use the theme's dim border colour.
@@ -3038,13 +3376,13 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
 
     // ── Selection ─────────────────────────────────────────────────────────
     v.selection.bg_fill = theme.selection;
-    v.selection.stroke  = Stroke::new(1.0, accent);
+    v.selection.stroke = Stroke::new(1.0, accent);
 
     // ── Text / decorations ────────────────────────────────────────────────
-    v.override_text_color     = None;
-    v.hyperlink_color         = theme.hyperlink;
-    v.warn_fg_color           = theme.warn;
-    v.error_fg_color          = theme.error;
+    v.override_text_color = None;
+    v.hyperlink_color = theme.hyperlink;
+    v.warn_fg_color = theme.warn;
+    v.error_fg_color = theme.error;
 
     ctx.set_visuals(v);
 
@@ -3052,21 +3390,37 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     // Roomier rows/padding for a less cramped, more professional feel.
     use egui::{FontFamily, FontId, TextStyle};
     let mut style = (*ctx.style()).clone();
-    style.spacing.item_spacing      = egui::Vec2::new(8.0, 8.0);
-    style.spacing.button_padding    = egui::Vec2::new(12.0, 7.0);
-    style.spacing.indent            = 20.0;
-    style.spacing.window_margin     = egui::Margin::same(12.0);
-    style.spacing.menu_margin       = egui::Margin::same(8.0);
-    style.spacing.interact_size.y   = 30.0;
+    style.spacing.item_spacing = egui::Vec2::new(8.0, 8.0);
+    style.spacing.button_padding = egui::Vec2::new(12.0, 7.0);
+    style.spacing.indent = 20.0;
+    style.spacing.window_margin = egui::Margin::same(12.0);
+    style.spacing.menu_margin = egui::Margin::same(8.0);
+    style.spacing.interact_size.y = 30.0;
     // No vertical indent guide lines in the tree (the grey lines looked noisy).
     style.visuals.indent_has_left_vline = false;
     style.text_styles = [
-        (TextStyle::Small,     FontId::new(11.5, FontFamily::Proportional)),
-        (TextStyle::Body,      FontId::new(16.75, FontFamily::Proportional)),
-        (TextStyle::Button,    FontId::new(16.75, FontFamily::Proportional)),
-        (TextStyle::Heading,   FontId::new(25.0, FontFamily::Proportional)),
-        (TextStyle::Monospace, FontId::new(16.0, FontFamily::Monospace)),
-    ].into();
+        (
+            TextStyle::Small,
+            FontId::new(11.5, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Body,
+            FontId::new(16.75, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Button,
+            FontId::new(16.75, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Heading,
+            FontId::new(25.0, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Monospace,
+            FontId::new(16.0, FontFamily::Monospace),
+        ),
+    ]
+    .into();
     ctx.set_style(style);
 }
 
@@ -3138,8 +3492,11 @@ impl eframe::App for CoboltApp {
         {
             let p = ctx.style().visuals.panel_fill;
             let floor = egui::Color32::from_rgb(p.r(), p.g(), p.b());
-            ctx.layer_painter(egui::LayerId::background())
-                .rect_filled(ctx.screen_rect(), 0.0, floor);
+            ctx.layer_painter(egui::LayerId::background()).rect_filled(
+                ctx.screen_rect(),
+                0.0,
+                floor,
+            );
         }
         self.paint_ide_background(ctx);
         {
@@ -3165,7 +3522,9 @@ impl eframe::App for CoboltApp {
                 }
             }
         }
-        if self.runner.is_finished() { self.runner.clear(); }
+        if self.runner.is_finished() {
+            self.runner.clear();
+        }
 
         // ── Drain debugger events ─────────────────────────────────────────────
         if self.debug_active {
@@ -3189,7 +3548,9 @@ impl eframe::App for CoboltApp {
                 self.debugger.reset();
                 self.editor.debug_line = None;
             }
-            if dirty { ctx.request_repaint(); }
+            if dirty {
+                ctx.request_repaint();
+            }
         }
 
         // ── Drain binary build result (Phase 11) ─────────────────────────────
@@ -3215,7 +3576,8 @@ impl eframe::App for CoboltApp {
                     ctx.request_repaint(); // keep polling
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.output.push_status("❌ Build thread disconnected unexpectedly.");
+                    self.output
+                        .push_status("❌ Build thread disconnected unexpectedly.");
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
                 }
@@ -3344,18 +3706,26 @@ impl eframe::App for CoboltApp {
         // "Active" = a project is open or a file is being edited. Gates Save /
         // Check (toolbar) and the Run / View menus.
         let has_active = self.cobolt_project.is_some() || self.editor.active_source().is_some();
-        match toolbar::show(ctx, &self.runner, &tr, &mut self.lang, compilable, debuggable, has_active) {
-            ToolbarAction::Run   => self.do_run(),
-            ToolbarAction::Stop  => self.do_stop(),
+        match toolbar::show(
+            ctx,
+            &self.runner,
+            &tr,
+            &mut self.lang,
+            compilable,
+            debuggable,
+            has_active,
+        ) {
+            ToolbarAction::Run => self.do_run(),
+            ToolbarAction::Stop => self.do_stop(),
             ToolbarAction::Debug => self.do_debug(),
             ToolbarAction::Build => self.do_build_binary(),
             ToolbarAction::Check => self.do_check(),
             // The toolbar Open button always opens (or switches to) a project, so
             // you can change projects at any time. Opening an individual COBOL
             // file lives in File → Open COBOL (and the project tree).
-            ToolbarAction::Open  => self.do_open_project(),
-            ToolbarAction::Save  => self.do_save(),
-            ToolbarAction::None  => {}
+            ToolbarAction::Open => self.do_open_project(),
+            ToolbarAction::Save => self.do_save(),
+            ToolbarAction::None => {}
         }
 
         // ── Active debug-session controls (shown only while debugging) ────────
@@ -3424,7 +3794,7 @@ impl eframe::App for CoboltApp {
                         self.inspect = None;
                         self.open_indexed_inspect(cidx, Some(field_id));
                     }
-                    ProjectPanelEvent::InspectForm(path)  => {
+                    ProjectPanelEvent::InspectForm(path) => {
                         self.show_project_settings = false;
                         self.indexed_inspect = None;
                         self.open_inspect(path, None);
@@ -3446,16 +3816,18 @@ impl eframe::App for CoboltApp {
                             if let Some(i) = self.designers.iter().position(|(p, _)| *p == form) {
                                 self.do_generate_cobol(i);
                             } else if let Ok(f) = load_form(&form) {
-                                if let Some(parent) = cbl.parent() { let _ = std::fs::create_dir_all(parent); }
+                                if let Some(parent) = cbl.parent() {
+                                    let _ = std::fs::create_dir_all(parent);
+                                }
                                 let _ = std::fs::write(&cbl, generate(&f));
                             }
                         }
                         self.pending_open_in_editor = Some(cbl);
-                        self.pending_goto_paragraph  = Some(paragraph);
+                        self.pending_goto_paragraph = Some(paragraph);
                     }
                     ProjectPanelEvent::Select(_) => {} // applied inside the panel
                     ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
-                    ProjectPanelEvent::Add(kind)  => self.do_add_file_to_project(kind),
+                    ProjectPanelEvent::Add(kind) => self.do_add_file_to_project(kind),
                     ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
                     ProjectPanelEvent::ShowProjectSettings => {
                         self.show_project_settings = true;
@@ -3479,7 +3851,9 @@ impl eframe::App for CoboltApp {
         } else if self.inspect.is_some() {
             self.show_inspector(ctx, &tr);
         } else {
-            let root = self.project_path.as_ref()
+            let root = self
+                .project_path
+                .as_ref()
                 .and_then(|p| p.parent())
                 .map(|p| p.to_path_buf());
             self.editor.show(ctx, Some(&self.llm), &tr, root.as_deref());
@@ -3521,7 +3895,10 @@ impl eframe::App for CoboltApp {
 
         // Tree semaphore: the active file, if edited since its last check, goes
         // back to yellow ("changed — not tested").
-        let active = self.editor.active_source().map(|(p, c)| (p.clone(), Self::content_hash(c)));
+        let active = self
+            .editor
+            .active_source()
+            .map(|(p, c)| (p.clone(), Self::content_hash(c)));
         if let Some((path, h)) = active {
             let changed = self.checked.get(&path).map(|c| *c != h).unwrap_or(true);
             if changed {
@@ -3534,9 +3911,9 @@ impl eframe::App for CoboltApp {
         for idx in 0..n {
             // Compute stable viewport ID and title before entering the closure.
             let vp_id = ViewportId::from_hash_of(&self.designers[idx].0);
-            let title  = {
+            let title = {
                 let (path, d) = &self.designers[idx];
-                let stem  = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
                 let dirty = if d.dirty { " ●" } else { "" };
                 format!("PowerRustCOBOL Form Designer  v{VERSION} — {stem}{dirty}")
             };
@@ -3578,10 +3955,12 @@ impl eframe::App for CoboltApp {
 
         // ── Preview viewports (one per open form that has preview enabled) ───────
         for idx in 0..self.designers.len() {
-            if !self.designers[idx].1.show_preview { continue; }
+            if !self.designers[idx].1.show_preview {
+                continue;
+            }
 
             let vp_id = ViewportId::from_hash_of(("preview", &self.designers[idx].0));
-            let title  = {
+            let title = {
                 let (path, _) = &self.designers[idx];
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
                 format!("Preview — {stem}")
@@ -3625,8 +4004,8 @@ impl eframe::App for CoboltApp {
 
         for i in running_indices {
             let vp_id = ViewportId::from_hash_of(("run_form", &self.form_runtimes[i].form_path));
-            let title  = format!("▶ {}", self.form_runtimes[i].form_title);
-            let fw = self.form_runtimes[i].form_width  as f32;
+            let title = format!("▶ {}", self.form_runtimes[i].form_title);
+            let fw = self.form_runtimes[i].form_width as f32;
             let fh = self.form_runtimes[i].form_height as f32;
 
             ctx.show_viewport_immediate(
@@ -3667,8 +4046,13 @@ fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str {
     use cobolt_forms::ControlType as CT;
     match ct {
         CT::TextBox => "Text",
-        CT::ComboBox | CT::ListBox | CT::Slider | CT::ProgressBar
-        | CT::NumericUpDown | CT::CheckBox | CT::RadioButton => "Value",
+        CT::ComboBox
+        | CT::ListBox
+        | CT::Slider
+        | CT::ProgressBar
+        | CT::NumericUpDown
+        | CT::CheckBox
+        | CT::RadioButton => "Value",
         _ => "Caption",
     }
 }
@@ -3686,26 +4070,41 @@ impl cobolt_forms::render::FormState for PreviewState<'_> {
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
         let mut c = base.clone();
         if let Some(v) = self.values.get(&base.id) {
-            c.set_prop(preview_value_key(&base.control_type).to_owned(),
-                cobolt_forms::PropValue::String(v.clone()));
+            c.set_prop(
+                preview_value_key(&base.control_type).to_owned(),
+                cobolt_forms::PropValue::String(v.clone()),
+            );
         }
         c
     }
-    fn visible(&self, base: &cobolt_forms::Control) -> bool { base.visible }
-    fn enabled(&self, base: &cobolt_forms::Control) -> bool { base.enabled }
+    fn visible(&self, base: &cobolt_forms::Control) -> bool {
+        base.visible
+    }
+    fn enabled(&self, base: &cobolt_forms::Control) -> bool {
+        base.enabled
+    }
     fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
-        let (dx, dy, scale, anim_alpha) = base.animations.iter()
+        let (dx, dy, scale, anim_alpha) = base
+            .animations
+            .iter()
             .find_map(|a| {
                 let key = format!("{}:{}", base.id, a.name);
-                self.anim.get(&key)
-                    .map(|&t| crate::panels::designer::anim_transform(a, self.form_w, self.form_h, t))
+                self.anim.get(&key).map(|&t| {
+                    crate::panels::designer::anim_transform(a, self.form_w, self.form_h, t)
+                })
             })
             .unwrap_or((0.0, 0.0, 1.0, 1.0));
         // The control's own Transparency fades it (its Opacity is applied inside
         // draw_control); container opacity is folded in by the engine separately.
-        let transparency = base.get_prop("Transparency").map(|v| v.as_i64()).unwrap_or(0).clamp(0, 100);
+        let transparency = base
+            .get_prop("Transparency")
+            .map(|v| v.as_i64())
+            .unwrap_or(0)
+            .clamp(0, 100);
         cobolt_forms::render::RenderTransform {
-            dx, dy, scale,
+            dx,
+            dy,
+            scale,
             alpha: anim_alpha * (1.0 - transparency as f32 / 100.0),
         }
     }
@@ -3734,10 +4133,12 @@ impl cobolt_forms::render::FormState for RunState<'_> {
 
 impl CoboltApp {
     fn show_preview_window(&mut self, ctx: &Context, idx: usize) {
-        use egui::Color32;
         use crate::panels::designer::AnimState;
+        use egui::Color32;
 
-        if idx >= self.designers.len() { return; }
+        if idx >= self.designers.len() {
+            return;
+        }
 
         // Match the designer's glass toggle so the preview looks identical to the
         // canvas (WYSIWYG, spec 003).
@@ -3752,7 +4153,10 @@ impl CoboltApp {
         {
             let d = &mut self.designers[idx].1;
             let now = std::time::Instant::now();
-            let dt = d.preview_last_frame.map(|t| now.duration_since(t).as_secs_f32()).unwrap_or(0.0);
+            let dt = d
+                .preview_last_frame
+                .map(|t| now.duration_since(t).as_secs_f32())
+                .unwrap_or(0.0);
             d.preview_last_frame = Some(now);
 
             // Auto-start OnFormLoad animations once on first open.
@@ -3760,7 +4164,8 @@ impl CoboltApp {
             // even if no OnFormLoad animations exist (avoids re-running every frame).
             let needs_init = !d.preview_anim_states.contains_key("__init__");
             if needs_init {
-                d.preview_anim_states.insert("__init__".to_owned(), AnimState::new("__init__"));
+                d.preview_anim_states
+                    .insert("__init__".to_owned(), AnimState::new("__init__"));
                 for ctrl in &d.form.controls {
                     for anim in &ctrl.animations {
                         if matches!(anim.trigger, cobolt_forms::model::AnimTrigger::OnFormLoad) {
@@ -3776,26 +4181,44 @@ impl CoboltApp {
 
             // Advance all playing animations
             if dt > 0.0 {
-                let anim_meta: std::collections::HashMap<String, u64> = d.form.controls.iter()
-                    .flat_map(|c| c.animations.iter()
-                        .map(move |a| (format!("{}:{}", c.id, a.name), a.duration_ms)))
+                let anim_meta: std::collections::HashMap<String, u64> = d
+                    .form
+                    .controls
+                    .iter()
+                    .flat_map(|c| {
+                        c.animations
+                            .iter()
+                            .map(move |a| (format!("{}:{}", c.id, a.name), a.duration_ms))
+                    })
                     .collect();
                 let mut need_repaint = false;
                 for (key, state) in d.preview_anim_states.iter_mut() {
-                    if !state.playing { continue; }
+                    if !state.playing {
+                        continue;
+                    }
                     if state.delay_remaining > 0.0 {
                         state.delay_remaining -= dt;
-                        if state.delay_remaining < 0.0 { state.delay_remaining = 0.0; }
+                        if state.delay_remaining < 0.0 {
+                            state.delay_remaining = 0.0;
+                        }
                         need_repaint = true;
                         continue;
                     }
                     let dur = anim_meta.get(key).copied().unwrap_or(400) as f32 / 1000.0;
-                    if dur <= 0.0 { state.stop(); continue; }
+                    if dur <= 0.0 {
+                        state.stop();
+                        continue;
+                    }
                     state.t += dt / dur;
-                    if state.t >= 1.0 { state.t = 1.0; state.playing = false; }
+                    if state.t >= 1.0 {
+                        state.t = 1.0;
+                        state.playing = false;
+                    }
                     need_repaint = true;
                 }
-                if need_repaint { ctx.request_repaint(); }
+                if need_repaint {
+                    ctx.request_repaint();
+                }
             }
         }
 
@@ -3808,27 +4231,30 @@ impl CoboltApp {
             // colour scheme, then layer in the preview-specific transparency.
             let mut visuals = ctx.style().visuals.clone();
             // Control backgrounds — translucent frosted glass
-            let glass_fill   = Color32::from_rgba_premultiplied(50, 55, 90, 55);
-            let glass_stroke = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180,180,230,80));
-            visuals.widgets.noninteractive.bg_fill   = glass_fill;
+            let glass_fill = Color32::from_rgba_premultiplied(50, 55, 90, 55);
+            let glass_stroke =
+                egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
+            visuals.widgets.noninteractive.bg_fill = glass_fill;
             visuals.widgets.noninteractive.bg_stroke = glass_stroke;
-            visuals.widgets.inactive.bg_fill         = glass_fill;
-            visuals.widgets.inactive.bg_stroke       = glass_stroke;
-            visuals.widgets.hovered.bg_fill          = Color32::from_rgba_premultiplied(70, 80, 130, 80);
-            visuals.widgets.hovered.bg_stroke        = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200,210,255,120));
-            visuals.widgets.active.bg_fill           = Color32::from_rgba_premultiplied(90,100,160,100);
-            visuals.widgets.active.bg_stroke         = egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220,230,255,160));
+            visuals.widgets.inactive.bg_fill = glass_fill;
+            visuals.widgets.inactive.bg_stroke = glass_stroke;
+            visuals.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(70, 80, 130, 80);
+            visuals.widgets.hovered.bg_stroke =
+                egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 210, 255, 120));
+            visuals.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
+            visuals.widgets.active.bg_stroke =
+                egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
             // Rounding
             let rnd = egui::Rounding::same(8.0);
             visuals.widgets.noninteractive.rounding = rnd;
-            visuals.widgets.inactive.rounding        = rnd;
-            visuals.widgets.hovered.rounding         = rnd;
-            visuals.widgets.active.rounding          = rnd;
+            visuals.widgets.inactive.rounding = rnd;
+            visuals.widgets.hovered.rounding = rnd;
+            visuals.widgets.active.rounding = rnd;
             // Text
             visuals.override_text_color = Some(Color32::from_rgb(230, 235, 255));
             // Window / panel background — transparent so the OS shows through
-            visuals.panel_fill       = Color32::TRANSPARENT;
-            visuals.window_fill      = Color32::TRANSPARENT;
+            visuals.panel_fill = Color32::TRANSPARENT;
+            visuals.window_fill = Color32::TRANSPARENT;
             visuals.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
             ctx.set_visuals(visuals);
         }
@@ -3842,7 +4268,9 @@ impl CoboltApp {
             let d = &self.designers[idx].1;
             form_w = d.form.width as f32;
             form_h = d.form.height as f32;
-            preview_anim_snap = d.preview_anim_states.iter()
+            preview_anim_snap = d
+                .preview_anim_states
+                .iter()
                 .map(|(k, s)| (k.clone(), s.t))
                 .collect();
         }
@@ -3869,7 +4297,9 @@ impl CoboltApp {
             let image = if bg_path.is_empty() {
                 None
             } else {
-                d.image_cache.get(&bg_path).and_then(|o| o.as_ref())
+                d.image_cache
+                    .get(&bg_path)
+                    .and_then(|o| o.as_ref())
                     .map(|t| (t.id(), t.size_vec2()))
             };
             cobolt_forms::render::Backdrop {
@@ -3891,21 +4321,23 @@ impl CoboltApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::none())
             .show(ctx, |ui| {
-                egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-                    ui.set_min_size(egui::vec2(form_w, form_h));
-                    let input = cobolt_forms::render::RenderInput {
-                        controls: &controls,
-                        state: &st,
-                        form_size: egui::vec2(form_w, form_h),
-                        glass: glass_v,
-                        mode: cobolt_forms::render::RenderMode::Interactive,
-                        active_tabs: &active_tabs,
-                        backdrop,
-                    };
-                    let out = cobolt_forms::render::render_form(ui, &input);
-                    updates = out.prop_updates;
-                    // Preview has no COBOL event loop; UI events are discarded.
-                });
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(form_w, form_h));
+                        let input = cobolt_forms::render::RenderInput {
+                            controls: &controls,
+                            state: &st,
+                            form_size: egui::vec2(form_w, form_h),
+                            glass: glass_v,
+                            mode: cobolt_forms::render::RenderMode::Interactive,
+                            active_tabs: &active_tabs,
+                            backdrop,
+                        };
+                        let out = cobolt_forms::render::render_form(ui, &input);
+                        updates = out.prop_updates;
+                        // Preview has no COBOL event loop; UI events are discarded.
+                    });
             });
 
         // Apply the engine's value updates back to the preview value map so the
@@ -3936,7 +4368,9 @@ impl CoboltApp {
         use cobolt_runtime::FormEvent;
         use egui::Color32;
 
-        if idx >= self.form_runtimes.len() { return; }
+        if idx >= self.form_runtimes.len() {
+            return;
+        }
 
         // Match the designer's glass toggle live so the running form tracks the
         // canvas (WYSIWYG, spec 003). Resolve the owning designer by path first,
@@ -3945,11 +4379,15 @@ impl CoboltApp {
         let glass = {
             let fp = self.form_runtimes[idx].form_path.clone();
             let fname = self.form_runtimes[idx].form_name.clone();
-            let found = self.designers.iter()
+            let found = self
+                .designers
+                .iter()
                 .find(|(p, _)| *p == fp)
                 .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
                 .map(|(_, d)| d.glass_mode);
-            if let Some(g) = found { self.form_runtimes[idx].glass = g; }
+            if let Some(g) = found {
+                self.form_runtimes[idx].glass = g;
+            }
             found.unwrap_or(self.form_runtimes[idx].glass)
         };
 
@@ -3960,10 +4398,16 @@ impl CoboltApp {
         {
             let fp = self.form_runtimes[idx].form_path.clone();
             let fname = self.form_runtimes[idx].form_name.clone();
-            let pack = self.designers.iter().find(|(p, _)| *p == fp)
+            let pack = self
+                .designers
+                .iter()
+                .find(|(p, _)| *p == fp)
                 .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
                 .and_then(|(_, d)| d.active_theme_pack.clone());
-            let glass_style = self.designers.iter().find(|(p, _)| *p == fp)
+            let glass_style = self
+                .designers
+                .iter()
+                .find(|(p, _)| *p == fp)
                 .or_else(|| self.designers.iter().find(|(_, d)| d.form.name == fname))
                 .map(|(_, d)| d.form.glass_style)
                 .unwrap_or_default();
@@ -3985,8 +4429,10 @@ impl CoboltApp {
                 self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onShow"));
                 self.form_runtimes[idx].send_event(FormEvent::new(&fname, "onActivate"));
                 ctx.memory_mut(|m| m.data.insert_temp(shown_id, true));
-                ctx.memory_mut(|m| m.data.insert_temp(
-                    egui::Id::new(("form-size", idx)), cur_size));
+                ctx.memory_mut(|m| {
+                    m.data
+                        .insert_temp(egui::Id::new(("form-size", idx)), cur_size)
+                });
             } else {
                 let size_id = egui::Id::new(("form-size", idx));
                 let prev = ctx.memory(|m| m.data.get_temp::<(u32, u32)>(size_id));
@@ -4001,33 +4447,35 @@ impl CoboltApp {
         {
             let mut vis = ctx.style().visuals.clone();
             let gf = Color32::from_rgba_premultiplied(50, 55, 90, 55);
-            let gs = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180,180,230,80));
-            vis.widgets.noninteractive.bg_fill   = gf;
+            let gs = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
+            vis.widgets.noninteractive.bg_fill = gf;
             vis.widgets.noninteractive.bg_stroke = gs;
-            vis.widgets.inactive.bg_fill         = gf;
-            vis.widgets.inactive.bg_stroke       = gs;
-            vis.widgets.hovered.bg_fill          = Color32::from_rgba_premultiplied(70,80,130,80);
-            vis.widgets.hovered.bg_stroke        = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200,210,255,120));
-            vis.widgets.active.bg_fill           = Color32::from_rgba_premultiplied(90,100,160,100);
-            vis.widgets.active.bg_stroke         = egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220,230,255,160));
+            vis.widgets.inactive.bg_fill = gf;
+            vis.widgets.inactive.bg_stroke = gs;
+            vis.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(70, 80, 130, 80);
+            vis.widgets.hovered.bg_stroke =
+                egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 210, 255, 120));
+            vis.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
+            vis.widgets.active.bg_stroke =
+                egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
             let rnd = egui::Rounding::same(8.0);
-            vis.widgets.noninteractive.rounding  = rnd;
-            vis.widgets.inactive.rounding        = rnd;
-            vis.widgets.hovered.rounding         = rnd;
-            vis.widgets.active.rounding          = rnd;
-            vis.override_text_color              = Some(Color32::from_rgb(230, 235, 255));
-            vis.panel_fill                       = Color32::TRANSPARENT;
-            vis.window_fill                      = Color32::TRANSPARENT;
-            vis.extreme_bg_color                 = Color32::from_rgba_premultiplied(20,20,40,180);
+            vis.widgets.noninteractive.rounding = rnd;
+            vis.widgets.inactive.rounding = rnd;
+            vis.widgets.hovered.rounding = rnd;
+            vis.widgets.active.rounding = rnd;
+            vis.override_text_color = Some(Color32::from_rgb(230, 235, 255));
+            vis.panel_fill = Color32::TRANSPARENT;
+            vis.window_fill = Color32::TRANSPARENT;
+            vis.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
             ctx.set_visuals(vis);
         }
 
         // Snapshot what we need (avoids borrow-split issues with self).
-        let bg_image   = self.form_runtimes[idx].background_image.clone();
-        let bg_mode    = self.form_runtimes[idx].bg_image_mode;
-        let bg_transp  = self.form_runtimes[idx].transparency;
-        let form_w     = self.form_runtimes[idx].form_width  as f32;
-        let form_h     = self.form_runtimes[idx].form_height as f32;
+        let bg_image = self.form_runtimes[idx].background_image.clone();
+        let bg_mode = self.form_runtimes[idx].bg_image_mode;
+        let bg_transp = self.form_runtimes[idx].transparency;
+        let form_w = self.form_runtimes[idx].form_width as f32;
+        let form_h = self.form_runtimes[idx].form_height as f32;
 
         // Derive the form background colour from the stored form metadata. This
         // mirrors the preview window exactly (strip '#', take the first 6 hex
@@ -4038,7 +4486,11 @@ impl CoboltApp {
         let bg_color = {
             let rt = &self.form_runtimes[idx];
             let raw = rt.background_color.trim();
-            let s = if let Some(stripped) = raw.strip_prefix('#') { stripped } else { raw };
+            let s = if let Some(stripped) = raw.strip_prefix('#') {
+                stripped
+            } else {
+                raw
+            };
             let hex = if s.len() >= 6 { &s[..6] } else { s };
             let bg_alpha = (255.0 * (1.0 - rt.transparency as f32 / 100.0)) as u8;
             if hex.len() == 6 {
@@ -4046,7 +4498,11 @@ impl CoboltApp {
                 let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(22);
                 let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(45);
                 // Pure black (000000) ⇒ default dark navy, matching the preview.
-                let (r, g, b) = if r == 0 && g == 0 && b == 0 { (20, 22, 45) } else { (r, g, b) };
+                let (r, g, b) = if r == 0 && g == 0 && b == 0 {
+                    (20, 22, 45)
+                } else {
+                    (r, g, b)
+                };
                 Color32::from_rgba_premultiplied(
                     (r as f32 * bg_alpha as f32 / 255.0) as u8,
                     (g as f32 * bg_alpha as f32 / 255.0) as u8,
@@ -4067,14 +4523,20 @@ impl CoboltApp {
         let bg_hex = self.form_runtimes[idx].background_color.clone();
         // Live tab selection per TabControl (so a runtime SET-PROPERTY SelectedTab
         // or a tab click hides/shows the right page).
-        let active_tabs: cobolt_forms::containers::ActiveTabs = controls.iter()
+        let active_tabs: cobolt_forms::containers::ActiveTabs = controls
+            .iter()
             .filter(|c| matches!(c.control_type, CT::TabControl))
-            .filter_map(|c| states_snap.get(&c.id)
-                .and_then(|s| s.props.get("SelectedTab"))
-                .and_then(|v| v.trim().parse::<u32>().ok())
-                .map(|t| (c.id.clone(), t)))
+            .filter_map(|c| {
+                states_snap
+                    .get(&c.id)
+                    .and_then(|s| s.props.get("SelectedTab"))
+                    .and_then(|v| v.trim().parse::<u32>().ok())
+                    .map(|t| (c.id.clone(), t))
+            })
             .collect();
-        let st = RunState { state: &states_snap };
+        let st = RunState {
+            state: &states_snap,
+        };
 
         let mut output = cobolt_forms::render::RenderOutput::default();
         egui::CentralPanel::default()
@@ -4082,39 +4544,42 @@ impl CoboltApp {
             .show(ctx, |ui| {
                 // Scrollbars appear automatically when the form is larger than the
                 // window viewport; the content area is at least the form's size.
-                egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-                    ui.set_min_size(egui::vec2(form_w, form_h));
-                    // Background image texture (cached in egui memory).
-                    let image = if bg_image.trim().is_empty() {
-                        None
-                    } else {
-                        let cid = egui::Id::new(("runform_bg", bg_image.as_str()));
-                        let tex = match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(cid)) {
-                            Some(t) => t,
-                            None => {
-                                let l = load_image_texture(ui.ctx(), &bg_image);
-                                ui.data_mut(|d| d.insert_temp(cid, l.clone()));
-                                l
-                            }
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(form_w, form_h));
+                        // Background image texture (cached in egui memory).
+                        let image = if bg_image.trim().is_empty() {
+                            None
+                        } else {
+                            let cid = egui::Id::new(("runform_bg", bg_image.as_str()));
+                            let tex =
+                                match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(cid)) {
+                                    Some(t) => t,
+                                    None => {
+                                        let l = load_image_texture(ui.ctx(), &bg_image);
+                                        ui.data_mut(|d| d.insert_temp(cid, l.clone()));
+                                        l
+                                    }
+                                };
+                            tex.map(|t| (t.id(), t.size_vec2()))
                         };
-                        tex.map(|t| (t.id(), t.size_vec2()))
-                    };
-                    let input = cobolt_forms::render::RenderInput {
-                        controls: &controls,
-                        state: &st,
-                        form_size: egui::vec2(form_w, form_h),
-                        glass,
-                        mode: cobolt_forms::render::RenderMode::Interactive,
-                        active_tabs: &active_tabs,
-                        backdrop: cobolt_forms::render::Backdrop {
-                            color_hex: bg_hex.clone(),
-                            transparency: bg_transp,
-                            image,
-                            image_mode: bg_mode,
-                        },
-                    };
-                    output = cobolt_forms::render::render_form(ui, &input);
-                });
+                        let input = cobolt_forms::render::RenderInput {
+                            controls: &controls,
+                            state: &st,
+                            form_size: egui::vec2(form_w, form_h),
+                            glass,
+                            mode: cobolt_forms::render::RenderMode::Interactive,
+                            active_tabs: &active_tabs,
+                            backdrop: cobolt_forms::render::Backdrop {
+                                color_hex: bg_hex.clone(),
+                                transparency: bg_transp,
+                                image,
+                                image_mode: bg_mode,
+                            },
+                        };
+                        output = cobolt_forms::render::render_form(ui, &input);
+                    });
             });
 
         // Apply value updates back to CtrlState, sync them to the interpreter (so
@@ -4123,8 +4588,11 @@ impl CoboltApp {
         {
             let rt = &mut self.form_runtimes[idx];
             for (id, key, val) in &output.prop_updates {
-                rt.ctrl_state.entry(id.clone()).or_default()
-                    .props.insert(key.clone(), val.clone());
+                rt.ctrl_state
+                    .entry(id.clone())
+                    .or_default()
+                    .props
+                    .insert(key.clone(), val.clone());
                 rt.send_input(id, key, val);
             }
             for ev in output.events {
@@ -4175,35 +4643,32 @@ impl CoboltApp {
         }
     }
 
-
-
-
-
-
-
-
-
     fn show_indexed_grid_window(&mut self, ctx: &Context, gi: usize, tr: &Tr) {
         if gi >= self.indexed_grids.len() {
             return;
         }
         let theme = self.current_theme();
         apply_opaque_viewport_theme(ctx, theme);
-        let panel_frame =
-            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, theme);
+        let panel_frame = crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, theme);
         let mut toolbar_action = GridAction::None;
         let mut status_msg: Option<String> = None;
-        egui::CentralPanel::default().frame(panel_frame).show(ctx, |ui| {
-            let st = &mut self.indexed_grids[gi].1;
-            let (act, msg) = st.panel.show(ui, &st.def, tr);
-            toolbar_action = act;
-            status_msg = msg;
-        });
+        egui::CentralPanel::default()
+            .frame(panel_frame)
+            .show(ctx, |ui| {
+                let st = &mut self.indexed_grids[gi].1;
+                let (act, msg) = st.panel.show(ui, &st.def, tr);
+                toolbar_action = act;
+                status_msg = msg;
+            });
         if let Some(msg) = status_msg {
             self.output.push_status(msg);
         }
         if toolbar_action != GridAction::None {
-            if let Some(msg) = self.indexed_grids[gi].1.panel.apply_action(toolbar_action, tr) {
+            if let Some(msg) = self.indexed_grids[gi]
+                .1
+                .panel
+                .apply_action(toolbar_action, tr)
+            {
                 self.output.push_status(msg);
             }
         }
@@ -4214,8 +4679,44 @@ impl CoboltApp {
 // ── Designer window contents ──────────────────────────────────────────────────
 
 impl CoboltApp {
+    fn show_user_control_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(name) = self.pending_user_control_delete.clone() else {
+            return;
+        };
+        let mut cancel = false;
+        let mut confirm = false;
+        let message = tr.uc_delete_confirm.replace("{name}", &name);
+
+        egui::Window::new(tr.uc_delete)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(message);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_user_control_delete = None;
+        }
+        if confirm {
+            self.pending_user_control_delete = None;
+            self.remove_user_control_def(&name);
+        }
+    }
+
     fn show_designer_window(&mut self, ctx: &Context, idx: usize, tr: &Tr) {
-        if idx >= self.designers.len() { return; }
+        if idx >= self.designers.len() {
+            return;
+        }
 
         // Re-apply glass visuals to this designer viewport every frame.
         // The preview viewport calls ctx.set_visuals() which is globally shared
@@ -4224,8 +4725,11 @@ impl CoboltApp {
 
         // ── Unsaved-changes confirmation dialog ───────────────────────────────
         if self.designers[idx].1.close_confirm {
-            let stem = self.designers[idx].0
-                .file_stem().and_then(|s| s.to_str()).unwrap_or("form");
+            let stem = self.designers[idx]
+                .0
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("form");
             let title = format!("Save changes to '{stem}'?");
             let mut close_confirm = true; // controls the egui::Window open state
             egui::Window::new(&title)
@@ -4238,13 +4742,13 @@ impl CoboltApp {
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button(tr.close_save).clicked() {
-                            self.designers[idx].1.close_confirm   = false;
+                            self.designers[idx].1.close_confirm = false;
                             self.do_save_designer(idx);
                             self.do_generate_cobol(idx);
                             self.designers[idx].1.close_requested = true;
                         }
                         if ui.button(tr.close_discard).clicked() {
-                            self.designers[idx].1.close_confirm   = false;
+                            self.designers[idx].1.close_confirm = false;
                             self.designers[idx].1.close_requested = true;
                         }
                         if ui.button(tr.close_cancel).clicked() {
@@ -4261,7 +4765,8 @@ impl CoboltApp {
         }
 
         // ── Designer keyboard shortcuts ───────────────────────────────────────
-        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S))) {
+        if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
+        {
             self.do_save_designer(idx);
             self.do_generate_cobol(idx);
         }
@@ -4272,6 +4777,11 @@ impl CoboltApp {
         // Collect open paths as owned so no borrow lingers on self.designers.
         let open_paths: Vec<PathBuf> = self.designers.iter().map(|(p, _)| p.clone()).collect();
         let open_path_refs: Vec<&Path> = open_paths.iter().map(|p| p.as_path()).collect();
+        let user_controls: Vec<UserControlDef> = self
+            .cobolt_project
+            .as_ref()
+            .map(|project| project.user_controls.clone())
+            .unwrap_or_default();
 
         let (form_to_open, toolbox_action) = egui::SidePanel::left(format!("dl_{idx}"))
             .resizable(true)
@@ -4281,7 +4791,7 @@ impl CoboltApp {
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
-                let tb = self.designers[idx].1.toolbox.show(ui, tr);
+                let tb = self.designers[idx].1.toolbox.show(ui, tr, &user_controls);
                 (to_open, tb)
             })
             .inner;
@@ -4301,17 +4811,26 @@ impl CoboltApp {
             .show_separator_line(false)
             .show(ctx, |ui| {
                 let d = &self.designers[idx].1;
-                let can_undo    = d.can_undo();
-                let can_redo    = d.can_redo();
-                let has_sel     = !d.selected_ids.is_empty();
-                let has_multi   = d.selected_ids.len() >= 2;
-                let preview_on  = d.show_preview;
-                let grid_on     = d.show_grid;
-                let glass_on    = d.glass_mode;
-                let fp_active   = matches!(d.format_painter,
-                    crate::panels::designer::FormatPainter::WaitingForTarget { .. });
-                let form_path   = self.designers[idx].0.clone();
-                let form_running = self.form_runtimes.iter()
+                let can_undo = d.can_undo();
+                let can_redo = d.can_redo();
+                let has_sel = !d.selected_ids.is_empty();
+                let has_multi = d.selected_ids.len() >= 2;
+                let has_clipboard = self
+                    .clipboard
+                    .as_ref()
+                    .map(|clip| !clip.controls.is_empty())
+                    .unwrap_or(false);
+                let preview_on = d.show_preview;
+                let grid_on = d.show_grid;
+                let glass_on = d.glass_mode;
+                let fp_active = matches!(
+                    d.format_painter,
+                    crate::panels::designer::FormatPainter::WaitingForTarget { .. }
+                );
+                let form_path = self.designers[idx].0.clone();
+                let form_running = self
+                    .form_runtimes
+                    .iter()
                     .any(|rt| rt.form_path == form_path && rt.is_running());
 
                 // Icons (left) + language selector (right) on a SINGLE centred row.
@@ -4320,8 +4839,23 @@ impl CoboltApp {
                 // panel height — overriding `exact_height(50)`.
                 let mut action = DesignerToolbarAction::None;
                 ui.horizontal_centered(|ui| {
-                    action = draw_icon_toolbar(ui, can_undo, can_redo, has_sel, has_multi,
-                        preview_on, grid_on, glass_on, form_running, fp_active);
+                    action = draw_icon_toolbar(
+                        ui,
+                        can_undo,
+                        can_redo,
+                        has_sel,
+                        has_multi,
+                        has_clipboard,
+                        tr.clipboard_cut,
+                        tr.clipboard_copy,
+                        tr.clipboard_paste,
+                        tr.clipboard_duplicate,
+                        preview_on,
+                        grid_on,
+                        glass_on,
+                        form_running,
+                        fp_active,
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
                             .selected_text(self.lang.native_name())
@@ -4336,13 +4870,19 @@ impl CoboltApp {
 
                 // Dispatch actions
                 match action {
-                    DesignerToolbarAction::Undo => { self.designers[idx].1.undo(); }
-                    DesignerToolbarAction::Redo => { self.designers[idx].1.redo(); }
+                    DesignerToolbarAction::Undo => {
+                        self.designers[idx].1.undo();
+                    }
+                    DesignerToolbarAction::Redo => {
+                        self.designers[idx].1.redo();
+                    }
                     DesignerToolbarAction::SaveAndGenerate => {
                         self.do_save_designer(idx);
                         self.do_generate_cobol(idx);
                     }
-                    DesignerToolbarAction::GenerateOnly => { self.do_generate_cobol(idx); }
+                    DesignerToolbarAction::GenerateOnly => {
+                        self.do_generate_cobol(idx);
+                    }
                     DesignerToolbarAction::TogglePreview => {
                         let d = &mut self.designers[idx].1;
                         d.show_preview = !d.show_preview;
@@ -4354,33 +4894,92 @@ impl CoboltApp {
                             ctx.memory_mut(|mem| mem.close_popup());
                         }
                     }
-                    DesignerToolbarAction::ToggleGrid  => { self.designers[idx].1.show_grid  = !self.designers[idx].1.show_grid; }
-                    DesignerToolbarAction::ToggleGlass => { self.designers[idx].1.glass_mode = !self.designers[idx].1.glass_mode; }
-                    DesignerToolbarAction::RunForm  => { self.do_run_form(idx); }
+                    DesignerToolbarAction::ToggleGrid => {
+                        self.designers[idx].1.show_grid = !self.designers[idx].1.show_grid;
+                    }
+                    DesignerToolbarAction::ToggleGlass => {
+                        self.designers[idx].1.glass_mode = !self.designers[idx].1.glass_mode;
+                    }
+                    DesignerToolbarAction::RunForm => {
+                        self.do_run_form(idx);
+                    }
                     DesignerToolbarAction::StopForm => {
                         let fp = self.designers[idx].0.clone();
                         self.form_runtimes.retain_mut(|rt| {
-                            if rt.form_path == fp { rt.stop(); false } else { true }
+                            if rt.form_path == fp {
+                                rt.stop();
+                                false
+                            } else {
+                                true
+                            }
                         });
                     }
-                    DesignerToolbarAction::Delete        => { self.designers[idx].1.delete_selected(); }
-                    DesignerToolbarAction::BringToFront  => { self.designers[idx].1.bring_to_front(); }
-                    DesignerToolbarAction::SendToBack    => { self.designers[idx].1.send_to_back(); }
-                    DesignerToolbarAction::BringForward  => { self.designers[idx].1.bring_forward(); }
-                    DesignerToolbarAction::SendBackward  => { self.designers[idx].1.send_backward(); }
-                    DesignerToolbarAction::AlignLeft     => { self.designers[idx].1.align_left(); }
-                    DesignerToolbarAction::AlignRight    => { self.designers[idx].1.align_right(); }
-                    DesignerToolbarAction::AlignTop      => { self.designers[idx].1.align_top(); }
-                    DesignerToolbarAction::AlignBottom   => { self.designers[idx].1.align_bottom(); }
-                    DesignerToolbarAction::CenterH       => { self.designers[idx].1.center_horizontal(); }
-                    DesignerToolbarAction::CenterV       => { self.designers[idx].1.center_vertical(); }
-                    DesignerToolbarAction::SpaceH        => { self.designers[idx].1.space_evenly_horizontal(); }
-                    DesignerToolbarAction::SpaceV        => { self.designers[idx].1.space_evenly_vertical(); }
-                    DesignerToolbarAction::FormatPainter   => { self.designers[idx].1.toggle_format_painter(); }
-                    DesignerToolbarAction::ToggleAnimPreview => { self.designers[idx].1.play_all_form_load_anims(); }
-                    DesignerToolbarAction::AutoArrange   => { self.designers[idx].1.auto_arrange_labels(); }
-                    DesignerToolbarAction::ReportBug     => { self.report_bug.open_for("Form Designer"); }
-                    DesignerToolbarAction::None          => {}
+                    DesignerToolbarAction::Cut => {
+                        self.designers[idx].1.cut_selected(&mut self.clipboard);
+                    }
+                    DesignerToolbarAction::Copy => {
+                        self.designers[idx].1.copy_selected(&mut self.clipboard);
+                    }
+                    DesignerToolbarAction::Paste => {
+                        self.designers[idx].1.paste_from_clipboard(&self.clipboard);
+                    }
+                    DesignerToolbarAction::Duplicate => {
+                        self.designers[idx]
+                            .1
+                            .duplicate_selected(&mut self.clipboard);
+                    }
+                    DesignerToolbarAction::Delete => {
+                        self.designers[idx].1.delete_selected();
+                    }
+                    DesignerToolbarAction::BringToFront => {
+                        self.designers[idx].1.bring_to_front();
+                    }
+                    DesignerToolbarAction::SendToBack => {
+                        self.designers[idx].1.send_to_back();
+                    }
+                    DesignerToolbarAction::BringForward => {
+                        self.designers[idx].1.bring_forward();
+                    }
+                    DesignerToolbarAction::SendBackward => {
+                        self.designers[idx].1.send_backward();
+                    }
+                    DesignerToolbarAction::AlignLeft => {
+                        self.designers[idx].1.align_left();
+                    }
+                    DesignerToolbarAction::AlignRight => {
+                        self.designers[idx].1.align_right();
+                    }
+                    DesignerToolbarAction::AlignTop => {
+                        self.designers[idx].1.align_top();
+                    }
+                    DesignerToolbarAction::AlignBottom => {
+                        self.designers[idx].1.align_bottom();
+                    }
+                    DesignerToolbarAction::CenterH => {
+                        self.designers[idx].1.center_horizontal();
+                    }
+                    DesignerToolbarAction::CenterV => {
+                        self.designers[idx].1.center_vertical();
+                    }
+                    DesignerToolbarAction::SpaceH => {
+                        self.designers[idx].1.space_evenly_horizontal();
+                    }
+                    DesignerToolbarAction::SpaceV => {
+                        self.designers[idx].1.space_evenly_vertical();
+                    }
+                    DesignerToolbarAction::FormatPainter => {
+                        self.designers[idx].1.toggle_format_painter();
+                    }
+                    DesignerToolbarAction::ToggleAnimPreview => {
+                        self.designers[idx].1.play_all_form_load_anims();
+                    }
+                    DesignerToolbarAction::AutoArrange => {
+                        self.designers[idx].1.auto_arrange_labels();
+                    }
+                    DesignerToolbarAction::ReportBug => {
+                        self.report_bug.open_for("Form Designer");
+                    }
+                    DesignerToolbarAction::None => {}
                 }
             });
 
@@ -4392,8 +4991,12 @@ impl CoboltApp {
         let half_win = (ctx.screen_rect().width() * 0.5).max(320.0);
         // 10px right inner margin so the pane's content keeps a small gap from the
         // window border instead of butting against it.
-        let props_frame = egui::Frame::side_top_panel(&ctx.style())
-            .inner_margin(egui::Margin { left: 6.0, right: 10.0, top: 6.0, bottom: 6.0 });
+        let props_frame = egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin {
+            left: 6.0,
+            right: 10.0,
+            top: 6.0,
+            bottom: 6.0,
+        });
         let inspector_action = egui::SidePanel::right(format!("props_{idx}"))
             .resizable(true)
             .default_width(300.0)
@@ -4405,7 +5008,7 @@ impl CoboltApp {
                 let d = &mut self.designers[idx].1;
                 let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
                 // SAFETY: form and properties are different fields — field-level borrow split.
-                let form  = &d.form       as *const cobolt_forms::Form;
+                let form = &d.form as *const cobolt_forms::Form;
                 let props = &mut d.properties;
                 // SAFETY: we only read *form; no aliased write to form or properties exists.
                 props.show(ui, unsafe { &*form }, sel_ctrl, tr)
@@ -4415,22 +5018,28 @@ impl CoboltApp {
         // ── Apply inspector actions ───────────────────────────────────────────
         let mut preview_triggered = false;
         for (ctrl_id, key, value) in inspector_action.set_props {
-            if key.starts_with("_PreviewAnim") { preview_triggered = true; }
+            if key.starts_with("_PreviewAnim") {
+                preview_triggered = true;
+            }
             self.designers[idx].1.set_property(&ctrl_id, &key, value);
         }
         // Kick off a repaint immediately so the animation loop starts on the next frame.
-        if preview_triggered { ctx.request_repaint(); }
+        if preview_triggered {
+            ctx.request_repaint();
+        }
         if let Some((ctrl_id, ev_name)) = inspector_action.open_event_editor {
             self.designers[idx].1.open_event_modal(&ctrl_id, &ev_name);
         }
         if let Some(ctrl_id) = inspector_action.open_menu_editor {
             let dir = self.designers[idx].1.cfrm_dir.clone();
-            let existing = dir.as_ref()
+            let existing = dir
+                .as_ref()
                 .map(|d| cobolt_forms::menu::menu_yaml_path(d, &ctrl_id))
                 .and_then(|p| cobolt_forms::menu::load_menu(&p).ok())
                 .unwrap_or_default();
-            self.designers[idx].1.menu_modal = Some(
-                super::panels::designer::MenuEditorModal::new(ctrl_id, existing));
+            self.designers[idx].1.menu_modal = Some(super::panels::designer::MenuEditorModal::new(
+                ctrl_id, existing,
+            ));
         }
         if let Some((ctrl_id, ev_name)) = inspector_action.open_event_in_code {
             self.jump_to_event_code(idx, &ctrl_id, &ev_name);
@@ -4445,10 +5054,12 @@ impl CoboltApp {
         if inspector_action.cs_add_proc {
             let d = &mut self.designers[idx].1;
             let n = d.form.user_procedures.len() + 1;
-            d.form.user_procedures.push(cobolt_forms::model::UserProcedure {
-                name: format!("USER-PROC-{n}"),
-                code: String::new(),
-            });
+            d.form
+                .user_procedures
+                .push(cobolt_forms::model::UserProcedure {
+                    name: format!("USER-PROC-{n}"),
+                    code: String::new(),
+                });
             d.dirty = true;
             let new_idx = d.form.user_procedures.len() - 1;
             d.cobol_structure_edit =
@@ -4471,9 +5082,21 @@ impl CoboltApp {
 
         // ── Apply toolbox drop (add control at canvas centre) ─────────────────
         if let Some(ct) = toolbox_action.dragged_type {
-            let cx = (self.designers[idx].1.form.width  / 2) as i32;
+            let cx = (self.designers[idx].1.form.width / 2) as i32;
             let cy = (self.designers[idx].1.form.height / 2) as i32;
             self.designers[idx].1.add_control(ct, cx, cy);
+        }
+        if let Some(name) = toolbox_action.dragged_user_control {
+            if let Some(def) = user_controls
+                .iter()
+                .find(|def| def.name.eq_ignore_ascii_case(&name))
+            {
+                let cx = (self.designers[idx].1.form.width / 2) as i32;
+                let cy = (self.designers[idx].1.form.height / 2) as i32;
+                self.designers[idx]
+                    .1
+                    .deploy_user_control(def, cx, cy, &user_controls);
+            }
         }
 
         // ── Canvas (centre) ───────────────────────────────────────────────────
@@ -4482,9 +5105,20 @@ impl CoboltApp {
         let form_theme = self.designers[idx].1.form.theme.clone();
         let pack = self.resolve_theme_pack(form_theme.as_deref());
         self.designers[idx].1.active_theme_pack = pack;
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.designers[idx].1.show(ui);
-        });
+        let designer_result = egui::CentralPanel::default()
+            .show(ctx, |ui| {
+                self.designers[idx]
+                    .1
+                    .show(ui, &mut self.clipboard, &user_controls)
+            })
+            .inner;
+        if let Some(def) = designer_result.user_control_created {
+            self.add_user_control_def(def);
+        }
+        if let Some(name) = designer_result.user_control_delete_requested {
+            self.pending_user_control_delete = Some(name);
+        }
+        self.show_user_control_delete_confirm(ctx, tr);
 
         // ── COBOL Structure editor window (spec 005) ──────────────────────────
         // Hosts the shared `EditorPanel` (IntelliSense) — same editor everywhere.
@@ -4546,11 +5180,20 @@ fn sanitize_file_stem(name: &str) -> String {
     let cleaned: String = name
         .trim()
         .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
-            || c.is_control() { '-' } else { c })
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
         .collect();
     let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
-    if cleaned.is_empty() { "project".to_string() } else { cleaned }
+    if cleaned.is_empty() {
+        "project".to_string()
+    } else {
+        cleaned
+    }
 }
 
 #[cfg(test)]
@@ -4559,8 +5202,10 @@ mod manifest_name_tests {
 
     #[test]
     fn project_name_becomes_manifest_stem() {
-        assert_eq!(sanitize_file_stem("Financial Asset Management System"),
-            "Financial Asset Management System");
+        assert_eq!(
+            sanitize_file_stem("Financial Asset Management System"),
+            "Financial Asset Management System"
+        );
         // Illegal path chars → '-'; surrounding dots/spaces trimmed.
         assert_eq!(sanitize_file_stem("  My/Project:v2  "), "My-Project-v2");
         assert_eq!(sanitize_file_stem("...."), "project");

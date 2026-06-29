@@ -23,7 +23,10 @@ fn run_capture(src: &str) -> Vec<String> {
     let tokens = tokenize(src, SourceFormat::Free);
     let result = parse(tokens);
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -68,7 +71,11 @@ fn numprec_suite_reports_pass() {
         "NUMPREC reported individual failures:\n{out}"
     );
     // All ten cases must have run and passed.
-    assert_eq!(out.matches("PASS T0").count(), 10, "expected 10 PASS lines:\n{out}");
+    assert_eq!(
+        out.matches("PASS T0").count(),
+        10,
+        "expected 10 PASS lines:\n{out}"
+    );
 }
 
 // ── Focused behaviours ─────────────────────────────────────────────────────────

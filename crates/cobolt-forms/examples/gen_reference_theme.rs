@@ -18,7 +18,14 @@ use image::{Rgba, RgbaImage};
 
 /// Draw a rounded-rectangle 9-slice tile: `radius`-cornered `border`-stroked
 /// panel over a vertical fill gradient. Returns a `size`×`size` RGBA image.
-fn rounded_tile(size: u32, radius: f32, fill_top: [u8; 4], fill_bot: [u8; 4], border: [u8; 4], border_w: f32) -> RgbaImage {
+fn rounded_tile(
+    size: u32,
+    radius: f32,
+    fill_top: [u8; 4],
+    fill_bot: [u8; 4],
+    border: [u8; 4],
+    border_w: f32,
+) -> RgbaImage {
     let mut img = RgbaImage::new(size, size);
     let s = size as f32;
     for y in 0..size {
@@ -65,19 +72,83 @@ fn main() {
     std::fs::create_dir_all(dir).expect("create theme dir");
 
     // Brushed cobalt-steel palette.
-    let panel    = rounded_tile(48, 12.0, [44, 56, 84, 255],  [28, 36, 60, 255],  [120, 150, 210, 255], 2.0);
-    let groupbox = rounded_tile(48, 12.0, [40, 52, 80, 235],  [26, 34, 58, 235],  [120, 150, 210, 220], 2.0);
-    let button   = rounded_tile(40, 10.0, [86, 110, 168, 255],[52, 70, 120, 255], [180, 205, 255, 255], 2.0);
-    let button_h = rounded_tile(40, 10.0, [110, 140, 205, 255],[70, 96, 158, 255],[210, 230, 255, 255], 2.0);
-    let button_p = rounded_tile(40, 10.0, [54, 72, 122, 255], [40, 54, 96, 255],  [150, 175, 225, 255], 2.5);
-    let textbox  = rounded_tile(32, 7.0,  [232, 238, 250, 255],[214, 222, 240, 255],[120, 150, 210, 255], 1.5);
-    let combobox = rounded_tile(32, 7.0,  [224, 232, 248, 255],[206, 216, 238, 255],[120, 150, 210, 255], 1.5);
-    let listbox  = rounded_tile(32, 6.0,  [236, 240, 250, 255],[224, 230, 244, 255],[120, 150, 210, 255], 1.5);
+    let panel = rounded_tile(
+        48,
+        12.0,
+        [44, 56, 84, 255],
+        [28, 36, 60, 255],
+        [120, 150, 210, 255],
+        2.0,
+    );
+    let groupbox = rounded_tile(
+        48,
+        12.0,
+        [40, 52, 80, 235],
+        [26, 34, 58, 235],
+        [120, 150, 210, 220],
+        2.0,
+    );
+    let button = rounded_tile(
+        40,
+        10.0,
+        [86, 110, 168, 255],
+        [52, 70, 120, 255],
+        [180, 205, 255, 255],
+        2.0,
+    );
+    let button_h = rounded_tile(
+        40,
+        10.0,
+        [110, 140, 205, 255],
+        [70, 96, 158, 255],
+        [210, 230, 255, 255],
+        2.0,
+    );
+    let button_p = rounded_tile(
+        40,
+        10.0,
+        [54, 72, 122, 255],
+        [40, 54, 96, 255],
+        [150, 175, 225, 255],
+        2.5,
+    );
+    let textbox = rounded_tile(
+        32,
+        7.0,
+        [232, 238, 250, 255],
+        [214, 222, 240, 255],
+        [120, 150, 210, 255],
+        1.5,
+    );
+    let combobox = rounded_tile(
+        32,
+        7.0,
+        [224, 232, 248, 255],
+        [206, 216, 238, 255],
+        [120, 150, 210, 255],
+        1.5,
+    );
+    let listbox = rounded_tile(
+        32,
+        6.0,
+        [236, 240, 250, 255],
+        [224, 230, 244, 255],
+        [120, 150, 210, 255],
+        1.5,
+    );
     // Background: a large soft vertical gradient tile (stretched to the form).
-    let background = rounded_tile(64, 0.0, [22, 28, 50, 255],  [12, 16, 32, 255],  [22, 28, 50, 255], 0.0);
+    let background = rounded_tile(
+        64,
+        0.0,
+        [22, 28, 50, 255],
+        [12, 16, 32, 255],
+        [22, 28, 50, 255],
+        0.0,
+    );
 
     let save = |name: &str, img: &RgbaImage| {
-        img.save(dir.join(name)).unwrap_or_else(|e| panic!("save {name}: {e}"));
+        img.save(dir.join(name))
+            .unwrap_or_else(|e| panic!("save {name}: {e}"));
     };
     save("panel.png", &panel);
     save("groupbox.png", &groupbox);

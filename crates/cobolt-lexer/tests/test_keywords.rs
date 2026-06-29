@@ -45,7 +45,11 @@ fn procedure_division() {
 #[test]
 fn working_storage_section() {
     let toks = tokens_from_free("WORKING-STORAGE SECTION.");
-    assert_eq!(toks[0], Token::WorkingStorage, "WORKING-STORAGE should be a single token");
+    assert_eq!(
+        toks[0],
+        Token::WorkingStorage,
+        "WORKING-STORAGE should be a single token"
+    );
     assert_eq!(toks[1], Token::Section);
 }
 
@@ -90,14 +94,14 @@ fn end_perform_token() {
 #[test]
 fn comp_variants() {
     let cases = [
-        ("COMP",           Token::Comp),
-        ("COMPUTATIONAL",  Token::Comp),
-        ("COMP-1",         Token::Comp1),
-        ("COMP-2",         Token::Comp2),
-        ("COMP-3",         Token::Comp3),
-        ("COMP-5",         Token::Comp5),
+        ("COMP", Token::Comp),
+        ("COMPUTATIONAL", Token::Comp),
+        ("COMP-1", Token::Comp1),
+        ("COMP-2", Token::Comp2),
+        ("COMP-3", Token::Comp3),
+        ("COMP-5", Token::Comp5),
         ("PACKED-DECIMAL", Token::PackedDecimal),
-        ("BINARY",         Token::Binary),
+        ("BINARY", Token::Binary),
     ];
     for (word, expected) in cases {
         let toks = tokens_from_free(word);
@@ -107,16 +111,16 @@ fn comp_variants() {
 
 #[test]
 fn figurative_constants() {
-    assert_eq!(tokens_from_free("SPACES")[0],      Token::Spaces);
-    assert_eq!(tokens_from_free("SPACE")[0],       Token::Spaces);
-    assert_eq!(tokens_from_free("ZEROS")[0],       Token::Zeros);
-    assert_eq!(tokens_from_free("ZEROES")[0],      Token::Zeros);
-    assert_eq!(tokens_from_free("ZERO")[0],        Token::Zeros);
+    assert_eq!(tokens_from_free("SPACES")[0], Token::Spaces);
+    assert_eq!(tokens_from_free("SPACE")[0], Token::Spaces);
+    assert_eq!(tokens_from_free("ZEROS")[0], Token::Zeros);
+    assert_eq!(tokens_from_free("ZEROES")[0], Token::Zeros);
+    assert_eq!(tokens_from_free("ZERO")[0], Token::Zeros);
     assert_eq!(tokens_from_free("HIGH-VALUES")[0], Token::HighValues);
-    assert_eq!(tokens_from_free("HIGH-VALUE")[0],  Token::HighValues);
-    assert_eq!(tokens_from_free("LOW-VALUES")[0],  Token::LowValues);
-    assert_eq!(tokens_from_free("QUOTES")[0],      Token::Quotes);
-    assert_eq!(tokens_from_free("NULLS")[0],       Token::Nulls);
+    assert_eq!(tokens_from_free("HIGH-VALUE")[0], Token::HighValues);
+    assert_eq!(tokens_from_free("LOW-VALUES")[0], Token::LowValues);
+    assert_eq!(tokens_from_free("QUOTES")[0], Token::Quotes);
+    assert_eq!(tokens_from_free("NULLS")[0], Token::Nulls);
 }
 
 #[test]
@@ -139,17 +143,31 @@ fn mixed_case_keywords() {
 
 #[test]
 fn powercobol_keywords() {
-    assert_eq!(tokens_from_free("WINDOW-STATUS")[0],       Token::WindowStatus);
-    assert_eq!(tokens_from_free("COBOLT-WAIT-EVENT")[0],   Token::CoboltWaitEvent);
-    assert_eq!(tokens_from_free("COBOLT-SET-PROPERTY")[0], Token::CoboltSetProperty);
-    assert_eq!(tokens_from_free("COBOLT-GET-PROPERTY")[0], Token::CoboltGetProperty);
+    assert_eq!(tokens_from_free("WINDOW-STATUS")[0], Token::WindowStatus);
+    assert_eq!(
+        tokens_from_free("COBOLT-WAIT-EVENT")[0],
+        Token::CoboltWaitEvent
+    );
+    assert_eq!(
+        tokens_from_free("COBOLT-SET-PROPERTY")[0],
+        Token::CoboltSetProperty
+    );
+    assert_eq!(
+        tokens_from_free("COBOLT-GET-PROPERTY")[0],
+        Token::CoboltGetProperty
+    );
 }
 
 #[test]
 fn user_identifiers_preserved() {
     let names = [
-        "WS-COUNTER", "MY-FLAG", "SCREEN-DATA", "END-PROGRAM-ID",
-        "TOTAL-AMOUNT", "BUTTON1-CLICK", "CUSTOMER-NAME",
+        "WS-COUNTER",
+        "MY-FLAG",
+        "SCREEN-DATA",
+        "END-PROGRAM-ID",
+        "TOTAL-AMOUNT",
+        "BUTTON1-CLICK",
+        "CUSTOMER-NAME",
     ];
     for name in names {
         let toks = tokens_from_free(name);

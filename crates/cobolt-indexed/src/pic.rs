@@ -49,7 +49,10 @@ impl FieldEncodeError {
 /// Parse common PIC templates from `.cidx` (`X(20)`, `9(5)`, `9`, `A(10)`, `S9(4)`…).
 pub fn parse_pic(pic: &str) -> ParsedPic {
     // Strip any custom-entry marker (zero-width) before parsing for display/encoding.
-    let upper = pic.trim_start_matches('\u{200B}').trim().to_ascii_uppercase();
+    let upper = pic
+        .trim_start_matches('\u{200B}')
+        .trim()
+        .to_ascii_uppercase();
     let signed = upper.starts_with('S');
     let body = if signed { &upper[1..] } else { &upper[..] };
     let (category, width) = if body == "9" {
@@ -93,7 +96,10 @@ pub fn format_field_display(field: &IndexedField, bytes: &[u8]) -> String {
         return format_comp_display(bytes);
     }
     let pic = parse_pic(&field.pic);
-    let slice = fit_slice(bytes, field.length.map(|l| l as usize).unwrap_or(bytes.len()));
+    let slice = fit_slice(
+        bytes,
+        field.length.map(|l| l as usize).unwrap_or(bytes.len()),
+    );
     match pic.category {
         PicCategory::Alphanumeric | PicCategory::Alphabetic => {
             String::from_utf8_lossy(slice).trim_end().to_string()
@@ -147,7 +153,10 @@ fn format_numeric_display(slice: &[u8], width: usize, signed: bool) -> String {
         return String::new();
     }
     if signed && trimmed.starts_with('-') {
-        let digits: String = trimmed[1..].chars().filter(|c| c.is_ascii_digit()).collect();
+        let digits: String = trimmed[1..]
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .collect();
         if digits.is_empty() {
             return String::new();
         }
@@ -212,7 +221,10 @@ fn encode_numeric(
         return Err(FieldEncodeError::Empty);
     }
     let (neg, digits): (bool, String) = if signed && t.starts_with('-') {
-        (true, t[1..].chars().filter(|c| c.is_ascii_digit()).collect())
+        (
+            true,
+            t[1..].chars().filter(|c| c.is_ascii_digit()).collect(),
+        )
     } else {
         (false, t.chars().filter(|c| c.is_ascii_digit()).collect())
     };
@@ -223,11 +235,7 @@ fn encode_numeric(
         return Err(FieldEncodeError::NumericOverflow);
     }
     let padded = format!("{digits:0>width$}");
-    let encoded = if neg {
-        format!("-{padded}")
-    } else {
-        padded
-    };
+    let encoded = if neg { format!("-{padded}") } else { padded };
     if encoded.len() > len {
         return Err(FieldEncodeError::WrongLength);
     }

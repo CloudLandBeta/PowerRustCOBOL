@@ -27,6 +27,7 @@
 //! fixed_format = false
 //! ```
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -38,15 +39,43 @@ use serde::{Deserialize, Serialize};
 pub struct CoboltProject {
     pub project: ProjectMeta,
     #[serde(default)]
-    pub files:   ProjectFiles,
+    pub files: ProjectFiles,
     #[serde(default)]
     pub runtime: RuntimeConfig,
     /// Per-project IDE appearance (colour theme + background image).
     #[serde(default)]
-    pub ide:     IdeSettings,
+    pub ide: IdeSettings,
     /// Per-project form appearance — the default **form** theme (spec 007).
     #[serde(default)]
-    pub forms:   FormsConfig,
+    pub forms: FormsConfig,
+    /// Project-scoped reusable composite controls (spec 020).
+    #[serde(default, rename = "user-controls")]
+    pub user_controls: Vec<UserControlDef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserControlDef {
+    pub name: String,
+    pub width: i32,
+    pub height: i32,
+    #[serde(default)]
+    pub controls: Vec<UserControlEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserControlEntry {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub control_type: String,
+    #[serde(default)]
+    pub parent: Option<String>,
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+    pub z_order: i32,
+    #[serde(default)]
+    pub properties: HashMap<String, String>,
 }
 
 /// Per-project form appearance settings (spec 007). Distinct from [`IdeSettings`]
@@ -65,7 +94,11 @@ impl CoboltProject {
     /// so it resolves to Liquid Glass (R3).
     pub fn form_theme_default(&self) -> Option<&str> {
         let t = self.forms.theme.trim();
-        if t.is_empty() { None } else { Some(t) }
+        if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        }
     }
 }
 
@@ -84,7 +117,9 @@ pub struct IdeSettings {
     pub background_opacity: u8,
 }
 
-fn default_bg_opacity() -> u8 { 70 }
+fn default_bg_opacity() -> u8 {
+    70
+}
 
 impl Default for IdeSettings {
     fn default() -> Self {
@@ -98,12 +133,12 @@ impl Default for IdeSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMeta {
-    pub name:    String,
+    pub name: String,
     /// Semantic version `major.minor.fix` (the three parts are edited
     /// separately in the Settings form and recomposed here).
     pub version: String,
     /// Relative path (from project root) to the main COBOL source file.
-    pub main:    String,
+    pub main: String,
     /// Custom copyright line embedded in generated headers / distributions.
     #[serde(default)]
     pub copyright: String,
@@ -118,8 +153,15 @@ pub struct ProjectMeta {
 impl ProjectMeta {
     /// Parse `version` into `(major, minor, fix)`, tolerating missing parts.
     pub fn version_parts(&self) -> (u32, u32, u32) {
-        let mut it = self.version.split('.').map(|s| s.trim().parse::<u32>().unwrap_or(0));
-        (it.next().unwrap_or(1), it.next().unwrap_or(0), it.next().unwrap_or(0))
+        let mut it = self
+            .version
+            .split('.')
+            .map(|s| s.trim().parse::<u32>().unwrap_or(0));
+        (
+            it.next().unwrap_or(1),
+            it.next().unwrap_or(0),
+            it.next().unwrap_or(0),
+        )
     }
     /// Recompose `version` from its three parts.
     pub fn set_version_parts(&mut self, major: u32, minor: u32, fix: u32) {
@@ -133,9 +175,9 @@ pub struct ProjectFiles {
     #[serde(default)]
     pub sources: Vec<String>, // relative paths
     #[serde(default)]
-    pub forms:   Vec<String>,
+    pub forms: Vec<String>,
     #[serde(default)]
-    pub assets:  Vec<String>,
+    pub assets: Vec<String>,
     /// Documentation files (Markdown, text, PDF, …).
     #[serde(default)]
     pub documentation: Vec<String>,
@@ -154,7 +196,11 @@ pub struct RuntimeConfig {
 }
 
 impl Default for RuntimeConfig {
-    fn default() -> Self { Self { fixed_format: false } }
+    fn default() -> Self {
+        Self {
+            fixed_format: false,
+        }
+    }
 }
 
 impl CoboltProject {
@@ -162,17 +208,18 @@ impl CoboltProject {
     pub fn new(name: impl Into<String>, main: impl Into<String>) -> Self {
         Self {
             project: ProjectMeta {
-                name:    name.into(),
+                name: name.into(),
                 version: "1.0.0".into(),
-                main:    main.into(),
-                copyright:     String::new(),
+                main: main.into(),
+                copyright: String::new(),
                 license_model: String::new(),
-                license_text:  String::new(),
+                license_text: String::new(),
             },
-            files:   ProjectFiles::default(),
+            files: ProjectFiles::default(),
             runtime: RuntimeConfig::default(),
-            ide:     IdeSettings::default(),
-            forms:   FormsConfig::default(),
+            ide: IdeSettings::default(),
+            forms: FormsConfig::default(),
+            user_controls: Vec::new(),
         }
     }
 
@@ -206,11 +253,11 @@ impl CoboltProject {
 
     fn list_mut(&mut self, category: Category) -> &mut Vec<String> {
         match category {
-            Category::Forms         => &mut self.files.forms,
-            Category::CommonCode    => &mut self.files.sources,
-            Category::Assets        => &mut self.files.assets,
+            Category::Forms => &mut self.files.forms,
+            Category::CommonCode => &mut self.files.sources,
+            Category::Assets => &mut self.files.assets,
             Category::Documentation => &mut self.files.documentation,
-            Category::Generated     => &mut self.files.generated,
+            Category::Generated => &mut self.files.generated,
             Category::IndexedFiles => &mut self.files.indexed,
         }
     }
@@ -244,17 +291,23 @@ impl CoboltProject {
         let is_cobol = FileKind::from_path(&rel) == FileKind::Source;
         if is_cobol && stem.is_some() {
             let stem = stem.unwrap();
-            if self.files.forms.iter().any(|form| {
-                Path::new(form).file_stem().and_then(|s| s.to_str()) == Some(stem)
-            }) {
+            if self
+                .files
+                .forms
+                .iter()
+                .any(|form| Path::new(form).file_stem().and_then(|s| s.to_str()) == Some(stem))
+            {
                 return true;
             }
             // `generated/<stem>-indexed.cbl` from a `.cidx` definition.
             if stem.ends_with("-indexed") {
                 let base = stem.strip_suffix("-indexed").unwrap_or(stem);
-                if self.files.indexed.iter().any(|cidx| {
-                    Path::new(cidx).file_stem().and_then(|s| s.to_str()) == Some(base)
-                }) {
+                if self
+                    .files
+                    .indexed
+                    .iter()
+                    .any(|cidx| Path::new(cidx).file_stem().and_then(|s| s.to_str()) == Some(base))
+                {
                     return true;
                 }
             }
@@ -266,18 +319,20 @@ impl CoboltProject {
     /// tree, so callers usually iterate CommonCode + Generated separately).
     pub fn files_in(&self, category: Category) -> &[String] {
         match category {
-            Category::Forms         => &self.files.forms,
-            Category::CommonCode    => &self.files.sources,
-            Category::Assets        => &self.files.assets,
+            Category::Forms => &self.files.forms,
+            Category::CommonCode => &self.files.sources,
+            Category::Assets => &self.files.assets,
             Category::Documentation => &self.files.documentation,
-            Category::Generated     => &self.files.generated,
+            Category::Generated => &self.files.generated,
             Category::IndexedFiles => &self.files.indexed,
         }
     }
 
     /// All tracked files as relative path strings.
     pub fn all_files(&self) -> impl Iterator<Item = &str> {
-        self.files.sources.iter()
+        self.files
+            .sources
+            .iter()
             .chain(self.files.forms.iter())
             .chain(self.files.indexed.iter())
             .chain(self.files.assets.iter())
@@ -313,17 +368,17 @@ impl ElementStatus {
     /// `(r, g, b)` for the status dot.
     pub fn rgb(self) -> (u8, u8, u8) {
         match self {
-            ElementStatus::Tested  => (40, 200, 70),    // green
-            ElementStatus::Changed => (245, 200, 30),   // yellow
-            ElementStatus::Failed  => (235, 55, 55),    // red
+            ElementStatus::Tested => (40, 200, 70),   // green
+            ElementStatus::Changed => (245, 200, 30), // yellow
+            ElementStatus::Failed => (235, 55, 55),   // red
         }
     }
     /// Hover text key idea (tooltip).
     pub fn tooltip(self) -> &'static str {
         match self {
-            ElementStatus::Tested  => "Tested OK",
+            ElementStatus::Tested => "Tested OK",
             ElementStatus::Changed => "Changed — not tested",
-            ElementStatus::Failed  => "Issue / failed",
+            ElementStatus::Failed => "Issue / failed",
         }
     }
 }
@@ -365,11 +420,11 @@ impl Category {
     /// Route a path to a category by extension.
     pub fn of_path(path: &str) -> Category {
         match FileKind::from_path(path) {
-            FileKind::Form          => Category::Forms,
-            FileKind::Indexed       => Category::IndexedFiles,
-            FileKind::Source        => Category::CommonCode,
+            FileKind::Form => Category::Forms,
+            FileKind::Indexed => Category::IndexedFiles,
+            FileKind::Source => Category::CommonCode,
             FileKind::Documentation => Category::Documentation,
-            FileKind::Asset         => Category::Assets,
+            FileKind::Asset => Category::Assets,
         }
     }
 
@@ -397,21 +452,22 @@ impl FileKind {
             .unwrap_or("")
             .to_ascii_lowercase();
         match ext.as_str() {
-            "cbl" | "cob" | "cpy"                          => FileKind::Source,
-            "cfrm"                                          => FileKind::Form,
-            "cidx"                                          => FileKind::Indexed,
-            "md" | "markdown" | "txt" | "rst" | "adoc"
-            | "pdf" | "html" | "htm"                       => FileKind::Documentation,
-            _                                              => FileKind::Asset,
+            "cbl" | "cob" | "cpy" => FileKind::Source,
+            "cfrm" => FileKind::Form,
+            "cidx" => FileKind::Indexed,
+            "md" | "markdown" | "txt" | "rst" | "adoc" | "pdf" | "html" | "htm" => {
+                FileKind::Documentation
+            }
+            _ => FileKind::Asset,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            FileKind::Source        => "Common Code",
-            FileKind::Form          => "Forms",
-            FileKind::Indexed       => "Indexed Files",
-            FileKind::Asset         => "Assets",
+            FileKind::Source => "Common Code",
+            FileKind::Form => "Forms",
+            FileKind::Indexed => "Indexed Files",
+            FileKind::Asset => "Assets",
             FileKind::Documentation => "Documentation",
         }
     }
@@ -432,15 +488,17 @@ pub enum ProjectError {
 impl std::fmt::Display for ProjectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProjectError::Io(e)   => write!(f, "I/O error: {e}"),
+            ProjectError::Io(e) => write!(f, "I/O error: {e}"),
             ProjectError::Toml(s) => write!(f, "TOML error: {s}"),
-            ProjectError::Zip(s)  => write!(f, "Zip error: {s}"),
+            ProjectError::Zip(s) => write!(f, "Zip error: {s}"),
         }
     }
 }
 
 impl From<std::io::Error> for ProjectError {
-    fn from(e: std::io::Error) -> Self { ProjectError::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        ProjectError::Io(e)
+    }
 }
 
 pub fn load_project(path: &Path) -> Result<CoboltProject, ProjectError> {
@@ -449,8 +507,7 @@ pub fn load_project(path: &Path) -> Result<CoboltProject, ProjectError> {
 }
 
 pub fn save_project(project: &CoboltProject, path: &Path) -> Result<(), ProjectError> {
-    let text = toml::to_string_pretty(project)
-        .map_err(|e| ProjectError::Toml(e.to_string()))?;
+    let text = toml::to_string_pretty(project).map_err(|e| ProjectError::Toml(e.to_string()))?;
     std::fs::write(path, text)?;
     Ok(())
 }
@@ -465,9 +522,9 @@ pub fn save_project(project: &CoboltProject, path: &Path) -> Result<(), ProjectE
 /// If a `cobolt` / `cobolt.exe` binary is found next to the running IDE,
 /// it is included automatically.
 pub fn package_project(
-    project:     &CoboltProject,
+    project: &CoboltProject,
     project_dir: &Path,
-    output_zip:  &Path,
+    output_zip: &Path,
 ) -> Result<usize, ProjectError> {
     use zip::write::SimpleFileOptions;
     use zip::CompressionMethod;
@@ -484,8 +541,8 @@ pub fn package_project(
     let mut count = 0usize;
 
     // ── cobolt.toml ───────────────────────────────────────────────────────────
-    let manifest = toml::to_string_pretty(project)
-        .map_err(|e| ProjectError::Toml(e.to_string()))?;
+    let manifest =
+        toml::to_string_pretty(project).map_err(|e| ProjectError::Toml(e.to_string()))?;
     zip.start_file("cobolt.toml", opts)
         .map_err(|e| ProjectError::Zip(e.to_string()))?;
     zip.write_all(manifest.as_bytes())?;
@@ -495,7 +552,10 @@ pub fn package_project(
     for (name, text) in [
         ("LICENSE", cobolt_compiler::LICENSE_TEXT),
         ("NOTICE", cobolt_compiler::NOTICE_TEXT),
-        ("POWERRUSTCOBOL-NOTICE.txt", cobolt_compiler::RUNTIME_NOTICE_TEXT),
+        (
+            "POWERRUSTCOBOL-NOTICE.txt",
+            cobolt_compiler::RUNTIME_NOTICE_TEXT,
+        ),
     ] {
         zip.start_file(name, opts)
             .map_err(|e| ProjectError::Zip(e.to_string()))?;
@@ -579,8 +639,7 @@ pub fn package_project(
            cargo install cobolt-cli  # installs as 'rcrun'\n\
          \n\
          Main entry point: {main}\n",
-        project.project.name,
-        project.project.version,
+        project.project.name, project.project.version,
     );
     zip.start_file("README.txt", opts)
         .map_err(|e| ProjectError::Zip(e.to_string()))?;
@@ -737,7 +796,10 @@ version = "1.0.0"
 main = "src/main.cbl"
 "#;
         let p: CoboltProject = toml::from_str(toml).expect("parse legacy toml");
-        assert_eq!(p.ide.theme, "", "missing theme → empty (resolves to default)");
+        assert_eq!(
+            p.ide.theme, "",
+            "missing theme → empty (resolves to default)"
+        );
         assert_eq!(p.ide.background_image, "");
         assert_eq!(p.ide.background_opacity, 70, "serde default opacity");
     }
@@ -777,5 +839,38 @@ main = "src/main.cbl"
         let back: CoboltProject = toml::from_str(&s).expect("deserialize");
         assert_eq!(back.forms.theme, "stainless-steel");
         assert_eq!(back.form_theme_default(), Some("stainless-steel"));
+    }
+
+    #[test]
+    fn user_control_toml_roundtrip() {
+        let mut p = proj();
+        let mut properties = HashMap::new();
+        properties.insert("Caption".to_string(), "Name:".to_string());
+        properties.insert("ForegroundColor".to_string(), "#FFFFFF".to_string());
+        let def = UserControlDef {
+            name: "CustomerCard".to_string(),
+            width: 300,
+            height: 200,
+            controls: vec![UserControlEntry {
+                id: "Label1".to_string(),
+                control_type: "Label".to_string(),
+                parent: None,
+                x: 10,
+                y: 12,
+                w: 80,
+                h: 20,
+                z_order: 1,
+                properties,
+            }],
+        };
+        p.user_controls.push(def.clone());
+
+        let s = toml::to_string(&p).expect("serialize");
+        assert!(
+            s.contains("[[user-controls]]"),
+            "serialized project should use the public user-controls TOML key"
+        );
+        let back: CoboltProject = toml::from_str(&s).expect("deserialize");
+        assert_eq!(back.user_controls, vec![def]);
     }
 }

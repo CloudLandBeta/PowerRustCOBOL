@@ -62,8 +62,8 @@
 //!       END PROGRAM MAIN-FORM.
 //! ```
 
-use cobolt_forms::{Control, ControlType, Form};
 use cobolt_forms::model::PropValue;
+use cobolt_forms::{Control, ControlType, Form};
 
 pub mod indexed;
 pub use indexed::generate_indexed;
@@ -170,7 +170,11 @@ fn write_environment(out: &mut String, form: &Form) {
 fn write_data_division(out: &mut String, form: &Form) {
     out.push_str("       DATA DIVISION.\n");
     // ── COBOL Structure: FILE SECTION (spec 005) — precedes WORKING-STORAGE ───
-    weave_block(out, "       FILE SECTION.", &form.cobol_structure.file_section);
+    weave_block(
+        out,
+        "       FILE SECTION.",
+        &form.cobol_structure.file_section,
+    );
     out.push_str("       WORKING-STORAGE SECTION.\n");
     out.push_str("      *>── Cobolt runtime fields ─────────────────────────────────────\n");
     out.push_str("       01 COBOL-QUIT             PIC 9        VALUE 0.\n");
@@ -184,7 +188,9 @@ fn write_data_division(out: &mut String, form: &Form) {
     let all_controls = collect_all_controls(&form.controls);
 
     // ── REST / HTTP infrastructure (emitted when any RestClient exists) ─────
-    let has_rest = all_controls.iter().any(|c| c.control_type == ControlType::RestClient);
+    let has_rest = all_controls
+        .iter()
+        .any(|c| c.control_type == ControlType::RestClient);
     if has_rest {
         out.push_str("      *>── REST / HTTP runtime variables ──────────────────────────────\n");
         out.push_str("      *>   Usage:\n");
@@ -205,8 +211,8 @@ fn write_data_division(out: &mut String, form: &Form) {
     }
 
     // ── Animation runtime fields ───────────────────────────────────────────
-    let has_anims = all_controls.iter().any(|c| !c.animations.is_empty())
-        || !form.animations.is_empty();
+    let has_anims =
+        all_controls.iter().any(|c| !c.animations.is_empty()) || !form.animations.is_empty();
     if has_anims {
         out.push_str("      *>── Animation runtime fields ──────────────────────────────────\n");
         out.push_str("      *>   INVOKE ctrl-id 'PlayAnimation' USING BY VALUE WS-ANIM-NAME\n");
@@ -216,7 +222,9 @@ fn write_data_division(out: &mut String, form: &Form) {
     }
 
     // ── Agent infrastructure ───────────────────────────────────────────────
-    let has_agents = all_controls.iter().any(|c| c.control_type == ControlType::AgentObject);
+    let has_agents = all_controls
+        .iter()
+        .any(|c| c.control_type == ControlType::AgentObject);
     if has_agents {
         out.push_str("      *>── AI Agent infrastructure ────────────────────────────────────\n");
         out.push_str("      *>   INVOKE agent-id 'Ask'\n");
@@ -229,35 +237,77 @@ fn write_data_division(out: &mut String, form: &Form) {
     }
 
     // ── Per-RestClient instance fields ────────────────────────────────────
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::RestClient) {
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::RestClient)
+    {
         let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
-        let base = ctrl.get_prop("BaseURL").map(|v| v.as_str().to_owned()).unwrap_or_default();
-        out.push_str(&format!("      *>── REST client: {} ──────────────────────────────────\n", ctrl.id));
-        out.push_str(&format!("       01 {}-BASE-URL      PIC X(2048) VALUE '{}'.\n", pfx, base));
-        let resp_item = ctrl.get_prop("ResponseDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        let base = ctrl
+            .get_prop("BaseURL")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "      *>── REST client: {} ──────────────────────────────────\n",
+            ctrl.id
+        ));
+        out.push_str(&format!(
+            "       01 {}-BASE-URL      PIC X(2048) VALUE '{}'.\n",
+            pfx, base
+        ));
+        let resp_item = ctrl
+            .get_prop("ResponseDataItem")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
         if !resp_item.is_empty() {
-            out.push_str(&format!("       01 {}             PIC X(32767) VALUE SPACES.\n", resp_item));
+            out.push_str(&format!(
+                "       01 {}             PIC X(32767) VALUE SPACES.\n",
+                resp_item
+            ));
         }
-        let status_item = ctrl.get_prop("StatusDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        let status_item = ctrl
+            .get_prop("StatusDataItem")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
         if !status_item.is_empty() {
-            out.push_str(&format!("       01 {}         PIC 9(4) VALUE 0.\n", status_item));
+            out.push_str(&format!(
+                "       01 {}         PIC 9(4) VALUE 0.\n",
+                status_item
+            ));
         }
         out.push('\n');
     }
 
     // ── DataGrid CSV fields ───────────────────────────────────────────────
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::DataGrid) {
-        if ctrl.get_prop("ExportCSV").map(|v| v.as_bool()).unwrap_or(false) {
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::DataGrid)
+    {
+        if ctrl
+            .get_prop("ExportCSV")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
-            out.push_str(&format!("      *>── DataGrid {} CSV export ──────────────────────────\n", ctrl.id));
-            out.push_str(&format!("       01 {}-CSV-PATH    PIC X(512)  VALUE SPACES.\n", pfx));
-            out.push_str(&format!("       01 {}-CSV-STATUS  PIC 9       VALUE 0.\n", pfx));
+            out.push_str(&format!(
+                "      *>── DataGrid {} CSV export ──────────────────────────\n",
+                ctrl.id
+            ));
+            out.push_str(&format!(
+                "       01 {}-CSV-PATH    PIC X(512)  VALUE SPACES.\n",
+                pfx
+            ));
+            out.push_str(&format!(
+                "       01 {}-CSV-STATUS  PIC 9       VALUE 0.\n",
+                pfx
+            ));
             out.push('\n');
         }
     }
 
     // ── SQL Database infrastructure (Phase 8) ────────────────────────────
-    let has_sql = all_controls.iter().any(|c| c.control_type == ControlType::SqlDatabase);
+    let has_sql = all_controls
+        .iter()
+        .any(|c| c.control_type == ControlType::SqlDatabase);
     if has_sql {
         out.push_str("      *>── SQL Database runtime variables ──────────────────────────────\n");
         out.push_str("      *>   Usage:\n");
@@ -282,52 +332,116 @@ fn write_data_division(out: &mut String, form: &Form) {
         out.push('\n');
     }
 
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::SqlDatabase) {
-        let pfx  = format!("WS-{}", ctrl.id.to_ascii_uppercase());
-        let cs   = ctrl.get_prop("ConnectionString").map(|v| v.as_str().to_owned())
-                       .unwrap_or_else(|| ":memory:".into());
-        let drv  = ctrl.get_prop("Driver").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "sqlite".into());
-        out.push_str(&format!("      *>── SQL instance: {} ({}) ─────────────────────────────────\n", ctrl.id, drv));
-        out.push_str(&format!("       01 {pfx}-CONN-STRING   PIC X(512)  VALUE '{cs}'.\n"));
-        out.push_str(&format!("       01 {pfx}-HANDLE        PIC 9(9)    VALUE 0.\n"));
-        out.push_str(&format!("       01 {pfx}-STATUS        PIC X(512)  VALUE SPACES.\n"));
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::SqlDatabase)
+    {
+        let pfx = format!("WS-{}", ctrl.id.to_ascii_uppercase());
+        let cs = ctrl
+            .get_prop("ConnectionString")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| ":memory:".into());
+        let drv = ctrl
+            .get_prop("Driver")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "sqlite".into());
+        out.push_str(&format!(
+            "      *>── SQL instance: {} ({}) ─────────────────────────────────\n",
+            ctrl.id, drv
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-CONN-STRING   PIC X(512)  VALUE '{cs}'.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-HANDLE        PIC 9(9)    VALUE 0.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-STATUS        PIC X(512)  VALUE SPACES.\n"
+        ));
         out.push('\n');
     }
 
     // ── Timer runtime fields ──────────────────────────────────────────────
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::Timer) {
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::Timer)
+    {
         let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
-        let iv  = ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000);
-        let ena = ctrl.get_prop("Enabled").map(|v| if v.as_bool() { 1 } else { 0 }).unwrap_or(1);
-        out.push_str(&format!("      *>── Timer: {} ──────────────────────────────────────────\n", ctrl.id));
-        out.push_str(&format!("       01 {}-INTERVAL   PIC 9(8) VALUE {}.\n", pfx, iv));
-        out.push_str(&format!("       01 {}-ENABLED    PIC 9    VALUE {}.\n", pfx, ena));
+        let iv = ctrl
+            .get_prop("Interval")
+            .map(|v| v.as_i64())
+            .unwrap_or(1000);
+        let ena = ctrl
+            .get_prop("Enabled")
+            .map(|v| if v.as_bool() { 1 } else { 0 })
+            .unwrap_or(1);
+        out.push_str(&format!(
+            "      *>── Timer: {} ──────────────────────────────────────────\n",
+            ctrl.id
+        ));
+        out.push_str(&format!(
+            "       01 {}-INTERVAL   PIC 9(8) VALUE {}.\n",
+            pfx, iv
+        ));
+        out.push_str(&format!(
+            "       01 {}-ENABLED    PIC 9    VALUE {}.\n",
+            pfx, ena
+        ));
         out.push_str(&format!("       01 {}-ELAPSED-MS PIC 9(8) VALUE 0.\n", pfx));
         out.push('\n');
     }
 
     // ── Chart working-storage items ───────────────────────────────────────
     let chart_types = [
-        ControlType::BarChart, ControlType::LineChart, ControlType::PieChart,
-        ControlType::AreaChart, ControlType::ScatterChart, ControlType::DonutChart,
+        ControlType::BarChart,
+        ControlType::LineChart,
+        ControlType::PieChart,
+        ControlType::AreaChart,
+        ControlType::ScatterChart,
+        ControlType::DonutChart,
     ];
-    for ctrl in all_controls.iter().filter(|c| chart_types.contains(&c.control_type)) {
-        let pfx  = format!("WS-{}", ctrl.id.to_ascii_uppercase().replace('-', "-"));
-        let ds   = ctrl.get_prop("DataSource").map(|v| v.as_str().to_owned()).unwrap_or_default();
-        let cnt  = ctrl.get_prop("DataCount").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| chart_types.contains(&c.control_type))
+    {
+        let pfx = format!("WS-{}", ctrl.id.to_ascii_uppercase().replace('-', "-"));
+        let ds = ctrl
+            .get_prop("DataSource")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let cnt = ctrl
+            .get_prop("DataCount")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
         let kind = ctrl.control_type.as_str();
         out.push_str(&format!(
             "      *>── Chart: {} (type: {}) ─────────────────────────────────────\n",
-            ctrl.id, kind));
+            ctrl.id, kind
+        ));
         out.push_str(&format!(
             "      *>   Data source : {}\n",
-            if ds.is_empty() { "(none — use INVOKE SET-TABLE or ADD-POINT)" } else { &ds }));
+            if ds.is_empty() {
+                "(none — use INVOKE SET-TABLE or ADD-POINT)"
+            } else {
+                &ds
+            }
+        ));
         out.push_str(&format!(
             "      *>   Row count   : {}\n",
-            if cnt.is_empty() { "(not set)" } else { &cnt }));
-        out.push_str(&format!("       01 {}-SELECTED-IDX PIC 9(6) VALUE 0.\n", pfx));
-        out.push_str(&format!("       01 {}-SELECTED-LBL PIC X(64) VALUE SPACES.\n", pfx));
-        out.push_str(&format!("       01 {}-SELECTED-VAL PIC 9(18)V9(6) VALUE ZEROES.\n", pfx));
+            if cnt.is_empty() { "(not set)" } else { &cnt }
+        ));
+        out.push_str(&format!(
+            "       01 {}-SELECTED-IDX PIC 9(6) VALUE 0.\n",
+            pfx
+        ));
+        out.push_str(&format!(
+            "       01 {}-SELECTED-LBL PIC X(64) VALUE SPACES.\n",
+            pfx
+        ));
+        out.push_str(&format!(
+            "       01 {}-SELECTED-VAL PIC 9(18)V9(6) VALUE ZEROES.\n",
+            pfx
+        ));
         out.push('\n');
     }
 
@@ -369,8 +483,8 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
         .get_prop(caption_key)
         .map(|v| match v {
             PropValue::String(s) => s.clone(),
-            PropValue::Int(n)    => n.to_string(),
-            PropValue::Bool(b)   => if *b { "1" } else { "0" }.to_string(),
+            PropValue::Int(n) => n.to_string(),
+            PropValue::Bool(b) => if *b { "1" } else { "0" }.to_string(),
         })
         .unwrap_or_else(|| ctrl.id.clone());
 
@@ -392,10 +506,7 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
     // Extra numeric value field for editable controls
     if matches!(
         ctrl.control_type,
-        ControlType::TextBox
-            | ControlType::CheckBox
-            | ControlType::ComboBox
-            | ControlType::ListBox
+        ControlType::TextBox | ControlType::CheckBox | ControlType::ComboBox | ControlType::ListBox
     ) {
         out.push_str(&format!(
             "          05 {}-VALUE      PIC X(512) VALUE SPACES.\n",
@@ -405,17 +516,25 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
 
     // Slider: numeric value + min/max/step fields
     if matches!(ctrl.control_type, ControlType::Slider) {
-        let val  = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
-        let min  = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
-        let max  = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100);
+        let val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
+        let min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
+        let max = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100);
         let step = ctrl.get_prop("Step").map(|v| v.as_i64()).unwrap_or(10);
         // Each 05 item must start at column 8+ in fixed-format COBOL.
         // Use separate push_str calls so Rust string continuation (`\n\`)
         // does not eat the leading spaces that position the level numbers.
-        out.push_str(&format!("          05 {prefix}-VALUE      PIC S9(9) VALUE {val}.\n"));
-        out.push_str(&format!("          05 {prefix}-MINIMUM    PIC S9(9) VALUE {min}.\n"));
-        out.push_str(&format!("          05 {prefix}-MAXIMUM    PIC S9(9) VALUE {max}.\n"));
-        out.push_str(&format!("          05 {prefix}-STEP       PIC S9(9) VALUE {step}.\n"));
+        out.push_str(&format!(
+            "          05 {prefix}-VALUE      PIC S9(9) VALUE {val}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-MINIMUM    PIC S9(9) VALUE {min}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-MAXIMUM    PIC S9(9) VALUE {max}.\n"
+        ));
+        out.push_str(&format!(
+            "          05 {prefix}-STEP       PIC S9(9) VALUE {step}.\n"
+        ));
     }
 
     out.push('\n');
@@ -431,7 +550,9 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     out.push_str("           CALL \"COBOL-INIT-FORM\" USING FORM-NAME\n");
 
     // Kick off timer dispatcher if any timers exist
-    let has_timers = all_controls.iter().any(|c| c.control_type == ControlType::Timer);
+    let has_timers = all_controls
+        .iter()
+        .any(|c| c.control_type == ControlType::Timer);
     if has_timers {
         out.push_str("           PERFORM COBOL-START-TIMERS\n");
     }
@@ -477,16 +598,22 @@ fn write_timer_stubs(out: &mut String, all_controls: &[&Control]) {
         .iter()
         .filter(|c| c.control_type == ControlType::Timer)
         .collect();
-    if timers.is_empty() { return; }
+    if timers.is_empty() {
+        return;
+    }
 
     // COBOL-START-TIMERS: enable each timer at startup
     out.push_str("       COBOL-START-TIMERS.\n");
     out.push_str("      *>    Called once from COBOL-MAIN to register timer intervals.\n");
     for ctrl in &timers {
-        let iv = ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000);
+        let iv = ctrl
+            .get_prop("Interval")
+            .map(|v| v.as_i64())
+            .unwrap_or(1000);
         out.push_str(&format!(
             "           INVOKE {id} 'SetInterval' USING BY VALUE {iv}\n",
-            id = ctrl.id, iv = iv
+            id = ctrl.id,
+            iv = iv
         ));
     }
     out.push_str("           CONTINUE.\n");
@@ -502,15 +629,24 @@ fn write_timer_stubs(out: &mut String, all_controls: &[&Control]) {
 // ── DataGrid CSV export paragraph generator ───────────────────────────────────
 
 fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::DataGrid) {
-        if !ctrl.get_prop("ExportCSV").map(|v| v.as_bool()).unwrap_or(false) {
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::DataGrid)
+    {
+        if !ctrl
+            .get_prop("ExportCSV")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             continue;
         }
-        let pfx  = format!("WS-{}", ctrl.id.replace('-', "-"));
-        let para = ctrl.get_prop("CSVParagraph")
+        let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
+        let para = ctrl
+            .get_prop("CSVParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-EXPORT-CSV", ctrl.id));
-        let delim = ctrl.get_prop("CSVDelimiter")
+        let delim = ctrl
+            .get_prop("CSVDelimiter")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| ",".to_owned());
 
@@ -529,12 +665,8 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(&format!(
             "               USING BY REFERENCE {pfx}-CSV-PATH\n"
         ));
-        out.push_str(&format!(
-            "               RETURNING {pfx}-CSV-STATUS\n"
-        ));
-        out.push_str(&format!(
-            "           IF {pfx}-CSV-STATUS NOT = 0\n"
-        ));
+        out.push_str(&format!("               RETURNING {pfx}-CSV-STATUS\n"));
+        out.push_str(&format!("           IF {pfx}-CSV-STATUS NOT = 0\n"));
         out.push_str(&format!(
             "               DISPLAY \"CSV export error: \" {pfx}-CSV-STATUS\n"
         ));
@@ -546,18 +678,29 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
 // ── RestClient call stub generator ───────────────────────────────────────────
 
 fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::RestClient) {
-        let para_get  = format!("{}-GET",  ctrl.id);
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::RestClient)
+    {
+        let para_get = format!("{}-GET", ctrl.id);
         let para_post = format!("{}-POST", ctrl.id);
-        let para_put  = format!("{}-PUT",  ctrl.id);
-        let resp_para = ctrl.get_prop("ResponseParagraph")
+        let para_put = format!("{}-PUT", ctrl.id);
+        let resp_para = ctrl
+            .get_prop("ResponseParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-RESPONSE", ctrl.id));
-        let err_para = ctrl.get_prop("ErrorParagraph")
+        let err_para = ctrl
+            .get_prop("ErrorParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-ERROR", ctrl.id));
-        let resp_item   = ctrl.get_prop("ResponseDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
-        let status_item = ctrl.get_prop("StatusDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        let resp_item = ctrl
+            .get_prop("ResponseDataItem")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let status_item = ctrl
+            .get_prop("StatusDataItem")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
 
         // ── {ID}-GET ─────────────────────────────────────────────────────────
         out.push_str(&format!("       {}.\n", para_get));
@@ -623,12 +766,20 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
 
         // ── Response / error handler stubs ───────────────────────────────────
         write_stub_paragraph(
-            out, &resp_para,
-            &format!("{} response handler — WS-HTTP-RESPONSE contains the body, WS-HTTP-STATUS the code", ctrl.id),
+            out,
+            &resp_para,
+            &format!(
+                "{} response handler — WS-HTTP-RESPONSE contains the body, WS-HTTP-STATUS the code",
+                ctrl.id
+            ),
         );
         write_stub_paragraph(
-            out, &err_para,
-            &format!("{} error handler — WS-HTTP-STATUS contains the error code (0 = network failure)", ctrl.id),
+            out,
+            &err_para,
+            &format!(
+                "{} error handler — WS-HTTP-STATUS contains the error code (0 = network failure)",
+                ctrl.id
+            ),
         );
 
         // ── Optional sync paragraph ───────────────────────────────────────────
@@ -637,10 +788,16 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
             out.push_str(&format!("       {}.\n", sync_para));
             out.push_str("      *>    Copy response / status into your declared data items.\n");
             if !resp_item.is_empty() {
-                out.push_str(&format!("           MOVE WS-HTTP-RESPONSE TO {}\n", resp_item));
+                out.push_str(&format!(
+                    "           MOVE WS-HTTP-RESPONSE TO {}\n",
+                    resp_item
+                ));
             }
             if !status_item.is_empty() {
-                out.push_str(&format!("           MOVE WS-HTTP-STATUS TO {}\n", status_item));
+                out.push_str(&format!(
+                    "           MOVE WS-HTTP-STATUS TO {}\n",
+                    status_item
+                ));
             }
             out.push_str("           CONTINUE.\n");
             out.push('\n');
@@ -651,17 +808,31 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
 // ── AgentObject Ask stub generator ───────────────────────────────────────────
 
 fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::AgentObject) {
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::AgentObject)
+    {
         let ask_para = format!("{}-ASK", ctrl.id);
-        let resp_para = ctrl.get_prop("ResponseParagraph")
+        let resp_para = ctrl
+            .get_prop("ResponseParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-RESPONSE", ctrl.id));
-        let err_para = ctrl.get_prop("ErrorParagraph")
+        let err_para = ctrl
+            .get_prop("ErrorParagraph")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| format!("{}-ON-ERROR", ctrl.id));
-        let resp_item = ctrl.get_prop("ResponseDataItem").map(|v| v.as_str().to_owned()).unwrap_or_default();
-        let model = ctrl.get_prop("AgentModel").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "llama3.2".into());
-        let url   = ctrl.get_prop("AgentURL").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "http://localhost:11434".into());
+        let resp_item = ctrl
+            .get_prop("ResponseDataItem")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let model = ctrl
+            .get_prop("AgentModel")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "llama3.2".into());
+        let url = ctrl
+            .get_prop("AgentURL")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "http://localhost:11434".into());
 
         out.push_str(&format!("       {}.\n", ask_para));
         out.push_str(&format!(
@@ -674,7 +845,10 @@ fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
             id = ctrl.id
         ));
         if !resp_item.is_empty() {
-            out.push_str(&format!("           MOVE WS-AGENT-RESPONSE TO {}\n", resp_item));
+            out.push_str(&format!(
+                "           MOVE WS-AGENT-RESPONSE TO {}\n",
+                resp_item
+            ));
         }
         out.push_str("           EVALUATE TRUE\n");
         out.push_str("               WHEN WS-AGENT-ERROR = SPACES\n");
@@ -685,12 +859,20 @@ fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push('\n');
 
         write_stub_paragraph(
-            out, &resp_para,
-            &format!("{} response ready — WS-AGENT-RESPONSE contains the LLM reply", ctrl.id),
+            out,
+            &resp_para,
+            &format!(
+                "{} response ready — WS-AGENT-RESPONSE contains the LLM reply",
+                ctrl.id
+            ),
         );
         write_stub_paragraph(
-            out, &err_para,
-            &format!("{} error handler — WS-AGENT-ERROR contains the error message", ctrl.id),
+            out,
+            &err_para,
+            &format!(
+                "{} error handler — WS-AGENT-ERROR contains the error message",
+                ctrl.id
+            ),
         );
     }
 }
@@ -708,7 +890,9 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
             entries.push((ctrl.id.clone(), anim.name.clone()));
         }
     }
-    if entries.is_empty() { return; }
+    if entries.is_empty() {
+        return;
+    }
 
     // ── COBOL-PLAY-ANIMATION ─────────────────────────────────────────────────
     // Dispatches to the correct INVOKE based on WS-ANIM-NAME.
@@ -717,21 +901,15 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
     if entries.len() == 1 {
         let (ctrl_id, anim_name) = &entries[0];
         if ctrl_id != "FORM" {
-            out.push_str(&format!(
-                "           INVOKE {ctrl_id} 'PlayAnimation'\n"
-            ));
-            out.push_str(&format!(
-                "               USING BY VALUE \"{anim_name}\".\n"
-            ));
+            out.push_str(&format!("           INVOKE {ctrl_id} 'PlayAnimation'\n"));
+            out.push_str(&format!("               USING BY VALUE \"{anim_name}\".\n"));
         } else {
             out.push_str("           CONTINUE.\n");
         }
     } else {
         out.push_str("           EVALUATE WS-ANIM-NAME\n");
         for (ctrl_id, anim_name) in &entries {
-            out.push_str(&format!(
-                "               WHEN \"{anim_name}\"\n"
-            ));
+            out.push_str(&format!("               WHEN \"{anim_name}\"\n"));
             if ctrl_id != "FORM" {
                 out.push_str(&format!(
                     "                   INVOKE {ctrl_id} 'PlayAnimation'\n"
@@ -755,21 +933,15 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
     if entries.len() == 1 {
         let (ctrl_id, anim_name) = &entries[0];
         if ctrl_id != "FORM" {
-            out.push_str(&format!(
-                "           INVOKE {ctrl_id} 'StopAnimation'\n"
-            ));
-            out.push_str(&format!(
-                "               USING BY VALUE \"{anim_name}\".\n"
-            ));
+            out.push_str(&format!("           INVOKE {ctrl_id} 'StopAnimation'\n"));
+            out.push_str(&format!("               USING BY VALUE \"{anim_name}\".\n"));
         } else {
             out.push_str("           CONTINUE.\n");
         }
     } else {
         out.push_str("           EVALUATE WS-ANIM-NAME\n");
         for (ctrl_id, anim_name) in &entries {
-            out.push_str(&format!(
-                "               WHEN \"{anim_name}\"\n"
-            ));
+            out.push_str(&format!("               WHEN \"{anim_name}\"\n"));
             if ctrl_id != "FORM" {
                 out.push_str(&format!(
                     "                   INVOKE {ctrl_id} 'StopAnimation'\n"
@@ -795,13 +967,20 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
                 // already called from COBOL-FORM-LOAD via timer dispatch
                 continue;
             }
-            let para = format!("{}-PLAY-{}", ctrl.id,
-                anim.name.to_ascii_uppercase().replace(' ', "-").replace('-', "-"));
+            let para = format!(
+                "{}-PLAY-{}",
+                ctrl.id,
+                anim.name
+                    .to_ascii_uppercase()
+                    .replace(' ', "-")
+                    .replace('-', "-")
+            );
             out.push_str(&format!("       {para}.\n"));
+            out.push_str(&format!("           INVOKE {} 'PlayAnimation'\n", ctrl.id));
             out.push_str(&format!(
-                "           INVOKE {} 'PlayAnimation'\n", ctrl.id));
-            out.push_str(&format!(
-                "               USING BY VALUE \"{}\".\n\n", anim.name));
+                "               USING BY VALUE \"{}\".\n\n",
+                anim.name
+            ));
         }
     }
 }
@@ -813,34 +992,42 @@ fn write_animation_stubs(out: &mut String, form: &Form, all_controls: &[&Control
 // built-in CALLs provided by the cobolt-runtime database engine.
 
 fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
-    for ctrl in all_controls.iter().filter(|c| c.control_type == ControlType::SqlDatabase) {
-        let id   = ctrl.id.as_str();
-        let pfx  = format!("WS-{}", id.to_ascii_uppercase());
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::SqlDatabase)
+    {
+        let id = ctrl.id.as_str();
+        let pfx = format!("WS-{}", id.to_ascii_uppercase());
         // Backend label derived from the Driver property (sqlite / postgres /
         // mysql). The runtime actually routes on the connection-string scheme,
         // so this only affects the generated comments.
-        let drv  = ctrl.get_prop("Driver").map(|v| v.as_str().to_owned())
-                       .unwrap_or_else(|| "sqlite".into());
+        let drv = ctrl
+            .get_prop("Driver")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "sqlite".into());
         let drv_label = match drv.to_ascii_lowercase().as_str() {
             "postgres" | "postgresql" => "PostgreSQL",
-            "mysql"                   => "MySQL",
-            _                          => "SQLite",
+            "mysql" => "MySQL",
+            _ => "SQLite",
         };
 
-        let conn_para  = format!("{id}-CONNECT");
-        let exec_para  = format!("{id}-EXEC");
+        let conn_para = format!("{id}-CONNECT");
+        let exec_para = format!("{id}-EXEC");
         let fetch_para = format!("{id}-FETCH-ALL");
         let close_para = format!("{id}-CLOSE");
 
-        let connect_ok = ctrl.get_prop("ConnectParagraph")
+        let connect_ok = ctrl
+            .get_prop("ConnectParagraph")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{id}-ON-CONNECT"));
-        let query_done = ctrl.get_prop("QueryCompleteParagraph")
+        let query_done = ctrl
+            .get_prop("QueryCompleteParagraph")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{id}-ON-QUERY-DONE"));
-        let error_para = ctrl.get_prop("ErrorParagraph")
+        let error_para = ctrl
+            .get_prop("ErrorParagraph")
             .map(|v| v.as_str().to_owned())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{id}-ON-ERROR"));
@@ -849,13 +1036,23 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         // Opens a SQLite connection using the connection string in
         // {pfx}-CONN-STRING.  Stores the handle in {pfx}-HANDLE.
         out.push_str(&format!("       {conn_para}.\n"));
-        out.push_str(&format!("      *>  Open a {drv_label} connection for {id}.\n"));
-        out.push_str(&format!("      *>  Connection string is in {pfx}-CONN-STRING.\n"));
-        out.push_str(&format!("      *>  On success: {pfx}-HANDLE holds the connection handle.\n"));
-        out.push_str(&format!("      *>  On error:   WS-SQL-ERROR contains the message.\n"));
+        out.push_str(&format!(
+            "      *>  Open a {drv_label} connection for {id}.\n"
+        ));
+        out.push_str(&format!(
+            "      *>  Connection string is in {pfx}-CONN-STRING.\n"
+        ));
+        out.push_str(&format!(
+            "      *>  On success: {pfx}-HANDLE holds the connection handle.\n"
+        ));
+        out.push_str(&format!(
+            "      *>  On error:   WS-SQL-ERROR contains the message.\n"
+        ));
         out.push_str(&format!("           MOVE SPACES TO WS-SQL-ERROR\n"));
         out.push_str(&format!("           CALL \"COBOL-OPEN-DB\"\n"));
-        out.push_str(&format!("               USING BY REFERENCE {pfx}-CONN-STRING\n"));
+        out.push_str(&format!(
+            "               USING BY REFERENCE {pfx}-CONN-STRING\n"
+        ));
         out.push_str(&format!("                     BY REFERENCE {pfx}-HANDLE\n"));
         out.push_str(&format!("                     BY REFERENCE WS-SQL-ERROR\n"));
         out.push_str(&format!("           IF WS-SQL-ERROR NOT = SPACES\n"));
@@ -870,13 +1067,19 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         // Row count / affected rows → WS-SQL-ROW-COUNT.
         out.push_str(&format!("       {exec_para}.\n"));
         out.push_str(&format!("      *>  Execute WS-SQL-QUERY via {id}.\n"));
-        out.push_str(&format!("      *>  Stores row count in WS-SQL-ROW-COUNT.\n"));
-        out.push_str(&format!("      *>  Resets WS-SQL-MORE to 'Y' if rows are present.\n"));
+        out.push_str(&format!(
+            "      *>  Stores row count in WS-SQL-ROW-COUNT.\n"
+        ));
+        out.push_str(&format!(
+            "      *>  Resets WS-SQL-MORE to 'Y' if rows are present.\n"
+        ));
         out.push_str(&format!("           MOVE SPACES TO WS-SQL-ERROR\n"));
         out.push_str(&format!("           CALL \"COBOL-EXEC-SQL\"\n"));
         out.push_str(&format!("               USING BY REFERENCE {pfx}-HANDLE\n"));
         out.push_str(&format!("                     BY REFERENCE WS-SQL-QUERY\n"));
-        out.push_str(&format!("                     BY REFERENCE WS-SQL-ROW-COUNT\n"));
+        out.push_str(&format!(
+            "                     BY REFERENCE WS-SQL-ROW-COUNT\n"
+        ));
         out.push_str(&format!("                     BY REFERENCE WS-SQL-ERROR\n"));
         out.push_str(&format!("           IF WS-SQL-ERROR NOT = SPACES\n"));
         out.push_str(&format!("               PERFORM {error_para}\n"));
@@ -894,35 +1097,67 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         // Template loop — user copies this and adds their own MOVE/COMPUTE
         // statements to read column values from WS-SQL-CURRENT-VALUE.
         out.push_str(&format!("       {fetch_para}.\n"));
-        out.push_str(&format!("      *>  Iterate over all rows returned by {id}-EXEC.\n"));
-        out.push_str(&format!("      *>  Copy this paragraph and add column reads inside the loop.\n"));
+        out.push_str(&format!(
+            "      *>  Iterate over all rows returned by {id}-EXEC.\n"
+        ));
+        out.push_str(&format!(
+            "      *>  Copy this paragraph and add column reads inside the loop.\n"
+        ));
         out.push_str(&format!("      *>  Example:\n"));
         out.push_str(&format!("      *>    MOVE 1 TO WS-SQL-COL-INDEX\n"));
-        out.push_str(&format!("      *>    CALL \"COBOL-FETCH-ROW\" USING {pfx}-HANDLE\n"));
-        out.push_str(&format!("      *>                                   WS-SQL-COL-INDEX\n"));
-        out.push_str(&format!("      *>                                   WS-SQL-CURRENT-VALUE\n"));
-        out.push_str(&format!("      *>                                   WS-SQL-ERROR\n"));
-        out.push_str(&format!("      *>    MOVE WS-SQL-CURRENT-VALUE TO WS-MY-NAME-FIELD\n"));
+        out.push_str(&format!(
+            "      *>    CALL \"COBOL-FETCH-ROW\" USING {pfx}-HANDLE\n"
+        ));
+        out.push_str(&format!(
+            "      *>                                   WS-SQL-COL-INDEX\n"
+        ));
+        out.push_str(&format!(
+            "      *>                                   WS-SQL-CURRENT-VALUE\n"
+        ));
+        out.push_str(&format!(
+            "      *>                                   WS-SQL-ERROR\n"
+        ));
+        out.push_str(&format!(
+            "      *>    MOVE WS-SQL-CURRENT-VALUE TO WS-MY-NAME-FIELD\n"
+        ));
         out.push_str(&format!("           PERFORM UNTIL WS-SQL-MORE = 'N'\n"));
         out.push_str(&format!("               MOVE 1 TO WS-SQL-COL-INDEX\n"));
         out.push_str(&format!("               CALL \"COBOL-FETCH-ROW\"\n"));
-        out.push_str(&format!("                   USING BY REFERENCE {pfx}-HANDLE\n"));
-        out.push_str(&format!("                         BY REFERENCE WS-SQL-COL-INDEX\n"));
-        out.push_str(&format!("                         BY REFERENCE WS-SQL-CURRENT-VALUE\n"));
-        out.push_str(&format!("                         BY REFERENCE WS-SQL-ERROR\n"));
-        out.push_str(&format!("      *>          MOVE WS-SQL-CURRENT-VALUE TO your-field-here\n"));
+        out.push_str(&format!(
+            "                   USING BY REFERENCE {pfx}-HANDLE\n"
+        ));
+        out.push_str(&format!(
+            "                         BY REFERENCE WS-SQL-COL-INDEX\n"
+        ));
+        out.push_str(&format!(
+            "                         BY REFERENCE WS-SQL-CURRENT-VALUE\n"
+        ));
+        out.push_str(&format!(
+            "                         BY REFERENCE WS-SQL-ERROR\n"
+        ));
+        out.push_str(&format!(
+            "      *>          MOVE WS-SQL-CURRENT-VALUE TO your-field-here\n"
+        ));
         out.push_str(&format!("               CONTINUE\n"));
         out.push_str(&format!("               CALL \"COBOL-NEXT-ROW\"\n"));
-        out.push_str(&format!("                   USING BY REFERENCE {pfx}-HANDLE\n"));
-        out.push_str(&format!("                         BY REFERENCE WS-SQL-MORE\n"));
+        out.push_str(&format!(
+            "                   USING BY REFERENCE {pfx}-HANDLE\n"
+        ));
+        out.push_str(&format!(
+            "                         BY REFERENCE WS-SQL-MORE\n"
+        ));
         out.push_str(&format!("           END-PERFORM.\n"));
         out.push('\n');
 
         // ── {id}-CLOSE ─────────────────────────────────────────────────────
         out.push_str(&format!("       {close_para}.\n"));
-        out.push_str(&format!("      *>  Close the {drv_label} connection for {id}.\n"));
+        out.push_str(&format!(
+            "      *>  Close the {drv_label} connection for {id}.\n"
+        ));
         out.push_str(&format!("           CALL \"COBOL-CLOSE-DB\"\n"));
-        out.push_str(&format!("               USING BY REFERENCE {pfx}-HANDLE.\n"));
+        out.push_str(&format!(
+            "               USING BY REFERENCE {pfx}-HANDLE.\n"
+        ));
         out.push('\n');
 
         // ── user event handler stubs ───────────────────────────────────────
@@ -950,28 +1185,30 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         .iter()
         .filter(|c| chart_types.contains(&c.control_type))
         .collect();
-    if charts.is_empty() { return; }
+    if charts.is_empty() {
+        return;
+    }
 
     out.push_str("      *> ── Chart INVOKE verb paragraphs ─────────────────────────────────\n");
     out.push('\n');
 
     for ctrl in charts {
-        let id  = &ctrl.id;
-        let ws  = format!("WS-{}", id);
-        let ds  = ctrl.get_prop("DataSource")
-                      .map(|v| v.as_str().to_owned())
-                      .filter(|s| !s.is_empty())
-                      .unwrap_or_else(|| format!("WS-{}-TABLE", id));
-        let cnt = ctrl.get_prop("DataCount")
-                      .map(|v| v.as_str().to_owned())
-                      .filter(|s| !s.is_empty())
-                      .unwrap_or_else(|| format!("WS-{}-COUNT", id));
+        let id = &ctrl.id;
+        let ws = format!("WS-{}", id);
+        let ds = ctrl
+            .get_prop("DataSource")
+            .map(|v| v.as_str().to_owned())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("WS-{}-TABLE", id));
+        let cnt = ctrl
+            .get_prop("DataCount")
+            .map(|v| v.as_str().to_owned())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("WS-{}-COUNT", id));
 
         // ── SET-TABLE ────────────────────────────────────────────────────────
         out.push_str(&format!("       {id}-SET-TABLE.\n"));
-        out.push_str(&format!(
-            "      *>    Bind a COBOL table to {id}.\n"
-        ));
+        out.push_str(&format!("      *>    Bind a COBOL table to {id}.\n"));
         out.push_str(&format!(
             "      *>    Usage: INVOKE {id} SET-TABLE USING {ds} {cnt}\n"
         ));
@@ -1000,12 +1237,8 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
 
         // ── CLEAR ────────────────────────────────────────────────────────────
         out.push_str(&format!("       {id}-CLEAR.\n"));
-        out.push_str(&format!(
-            "      *>    Remove all data series from {id}.\n"
-        ));
-        out.push_str(&format!(
-            "      *>    Usage: INVOKE {id} CLEAR\n"
-        ));
+        out.push_str(&format!("      *>    Remove all data series from {id}.\n"));
+        out.push_str(&format!("      *>    Usage: INVOKE {id} CLEAR\n"));
         out.push_str(&format!(
             "           CALL \"COBOL-CHART-CLEAR\" USING \"{id}\"\n"
         ));
@@ -1017,9 +1250,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(&format!(
             "      *>    Force {id} to redraw with current data.\n"
         ));
-        out.push_str(&format!(
-            "      *>    Usage: INVOKE {id} REFRESH\n"
-        ));
+        out.push_str(&format!("      *>    Usage: INVOKE {id} REFRESH\n"));
         out.push_str(&format!(
             "           CALL \"COBOL-CHART-REFRESH\" USING \"{id}\"\n"
         ));
@@ -1036,7 +1267,9 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
     let has_any = !form.form_events.is_empty()
         || all_controls.iter().any(|c| !c.events.is_empty())
         || !form.user_procedures.is_empty();
-    if !has_any { return; }
+    if !has_any {
+        return;
+    }
 
     out.push_str("\n      *> ── Nested event-handler programs (COBOL-85) ─────────────────────\n");
     out.push('\n');
@@ -1045,15 +1278,27 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
     // R4) so any procedure is callable from anywhere within the form module (e.g.
     // one handler CALLing another, or a user procedure CALLing a handler).
     for ev in &form.form_events {
-        write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
-            &format!("Form {} handler", ev.event), true);
+        write_nested_program(
+            out,
+            &ev.paragraph,
+            &ev.event,
+            &ev.code,
+            &format!("Form {} handler", ev.event),
+            true,
+        );
     }
 
     // Per-control events
     for ctrl in all_controls {
         for ev in &ctrl.events {
-            write_nested_program(out, &ev.paragraph, &ev.event, &ev.code,
-                &format!("{} {} handler", ctrl.id, ev.event), true);
+            write_nested_program(
+                out,
+                &ev.paragraph,
+                &ev.event,
+                &ev.code,
+                &format!("{} {} handler", ctrl.id, ev.event),
+                true,
+            );
         }
     }
 
@@ -1061,9 +1306,17 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
     // event handlers. A handler is a *sibling* contained program, so the
     // procedure must be `IS COMMON` for that CALL to be valid COBOL-85.
     for up in &form.user_procedures {
-        if up.name.trim().is_empty() { continue; }
-        write_nested_program(out, up.name.trim(), "", &up.code,
-            &format!("user procedure {}", up.name.trim()), true);
+        if up.name.trim().is_empty() {
+            continue;
+        }
+        write_nested_program(
+            out,
+            up.name.trim(),
+            "",
+            &up.code,
+            &format!("user procedure {}", up.name.trim()),
+            true,
+        );
     }
 }
 
@@ -1125,7 +1378,8 @@ fn write_event_loop(out: &mut String, form: &Form) {
     // CALLed directly from COBOL-MAIN (not via the loop), so they're excluded
     // here; every other bound form event (onShow, onActivate, onResize, …) is
     // dispatched under a WHEN that matches the form's own id.
-    let form_loop_events: Vec<_> = form.form_events
+    let form_loop_events: Vec<_> = form
+        .form_events
         .iter()
         .filter(|e| e.event != "onLoad" && e.event != "onClose")
         .collect();
@@ -1141,8 +1395,14 @@ fn write_event_loop(out: &mut String, form: &Form) {
             out.push_str(&format!("                   WHEN \"{}\"\n", form.name));
             out.push_str("                       EVALUATE COBOL-EVENT-ID\n");
             for ev in &form_loop_events {
-                out.push_str(&format!("                           WHEN \"{}\"\n", ev.event));
-                out.push_str(&format!("                               CALL \"{}\"\n", ev.paragraph));
+                out.push_str(&format!(
+                    "                           WHEN \"{}\"\n",
+                    ev.event
+                ));
+                out.push_str(&format!(
+                    "                               CALL \"{}\"\n",
+                    ev.paragraph
+                ));
             }
             out.push_str("                       END-EVALUATE\n");
         }
@@ -1197,15 +1457,15 @@ fn collect_rec<'a>(ctrl: &'a Control, out: &mut Vec<&'a Control>) {
 /// Which property key holds the display text for a given control type.
 fn caption_prop_key(ct: &ControlType) -> &'static str {
     match ct {
-        ControlType::Label       => "Caption",
-        ControlType::Button      => "Caption",
-        ControlType::CheckBox    => "Caption",
+        ControlType::Label => "Caption",
+        ControlType::Button => "Caption",
+        ControlType::CheckBox => "Caption",
         ControlType::RadioButton => "Caption",
-        ControlType::GroupBox    => "Caption",
-        ControlType::TextBox     => "Text",
-        ControlType::ComboBox    => "Text",
-        ControlType::ListBox     => "Text",
-        _                        => "Caption",
+        ControlType::GroupBox => "Caption",
+        ControlType::TextBox => "Text",
+        ControlType::ComboBox => "Text",
+        ControlType::ListBox => "Text",
+        _ => "Caption",
     }
 }
 
@@ -1220,7 +1480,8 @@ mod tests {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
 
         let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
-        btn.events.push(EventBinding::for_control("BTN-OK", "onClick"));
+        btn.events
+            .push(EventBinding::for_control("BTN-OK", "onClick"));
         form.controls.push(btn);
 
         form
@@ -1237,12 +1498,13 @@ mod tests {
         use cobolt_forms::model::UserProcedure;
         let mut form = make_form();
         form.cobol_structure.special_names = "       DECIMAL-POINT IS COMMA.".into();
-        form.cobol_structure.repository    = "       FUNCTION ALL INTRINSIC.".into();
-        form.cobol_structure.file_control  = "           SELECT F ASSIGN TO \"f.dat\".".into();
-        form.cobol_structure.file_section  = "       FD  F.\n       01 F-REC PIC X(80).".into();
+        form.cobol_structure.repository = "       FUNCTION ALL INTRINSIC.".into();
+        form.cobol_structure.file_control = "           SELECT F ASSIGN TO \"f.dat\".".into();
+        form.cobol_structure.file_section = "       FD  F.\n       01 F-REC PIC X(80).".into();
         form.user_procedures = vec![UserProcedure {
             name: "RECALC-TOTAL".into(),
-            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.".into(),
+            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE."
+                .into(),
         }];
         let src = generate(&form);
 
@@ -1253,7 +1515,9 @@ mod tests {
         assert!(src.contains("SELECT F ASSIGN"));
         // FILE SECTION must come before WORKING-STORAGE SECTION.
         let fs = src.find("FILE SECTION.").expect("no FILE SECTION");
-        let ws = src.find("WORKING-STORAGE SECTION.").expect("no WORKING-STORAGE");
+        let ws = src
+            .find("WORKING-STORAGE SECTION.")
+            .expect("no WORKING-STORAGE");
         assert!(fs < ws, "FILE SECTION must precede WORKING-STORAGE");
         // User procedure emitted as a nested program, IS COMMON so the event
         // handlers (sibling contained programs) may CALL it (spec 005 T6).
@@ -1271,7 +1535,8 @@ mod tests {
         let mut form = make_form(); // has BTN-OK onClick handler
         form.user_procedures = vec![UserProcedure {
             name: "RECALC-TOTAL".into(),
-            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.".into(),
+            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE."
+                .into(),
         }];
         let src = generate(&form);
 
@@ -1282,8 +1547,7 @@ mod tests {
         );
         // Form-level OnLoad/OnClose handlers too.
         assert!(
-            src.contains("IS COMMON PROGRAM.")
-                && src.matches("IS COMMON PROGRAM.").count() >= 3,
+            src.contains("IS COMMON PROGRAM.") && src.matches("IS COMMON PROGRAM.").count() >= 3,
             "all woven procedures (form events + control event + user proc) must be IS COMMON"
         );
         // And the user procedure (already COMMON pre-009) stays COMMON.
@@ -1299,7 +1563,10 @@ mod tests {
             src.contains("generated automatically by PowerRustCOBOL RAD"),
             "missing generated-by line"
         );
-        assert!(src.contains("DO NOT MODIFY IT DIRECTLY"), "missing do-not-modify warning");
+        assert!(
+            src.contains("DO NOT MODIFY IT DIRECTLY"),
+            "missing do-not-modify warning"
+        );
         assert!(src.contains("Apache 2.0 License"), "missing license line");
         // The banner sits above the program proper.
         let hdr = src.find("*>").unwrap();
@@ -1310,11 +1577,17 @@ mod tests {
     #[test]
     fn generate_contains_event_loop() {
         let src = generate(&make_form());
-        assert!(src.contains("COBOL-EVENT-LOOP"), "missing event loop paragraph");
+        assert!(
+            src.contains("COBOL-EVENT-LOOP"),
+            "missing event loop paragraph"
+        );
         assert!(src.contains("WHEN \"BTN-OK\""), "missing control WHEN");
         assert!(src.contains("WHEN \"onClick\""), "missing event WHEN");
         // v1.0.0: dispatch via CALL to nested program (double-hyphen name)
-        assert!(src.contains("CALL \"BTN-OK--ONCLICK\""), "missing nested CALL dispatch");
+        assert!(
+            src.contains("CALL \"BTN-OK--ONCLICK\""),
+            "missing nested CALL dispatch"
+        );
     }
 
     #[test]
@@ -1328,10 +1601,19 @@ mod tests {
         let src = generate(&make_form());
         // v1.0.0: event handlers are nested COBOL-85 programs.
         // Spec 009 R4: each is `IS COMMON PROGRAM` (callable from anywhere in the form).
-        assert!(src.contains("PROGRAM-ID. BTN-OK--ONCLICK IS COMMON PROGRAM."), "missing nested program ID");
-        assert!(src.contains("END PROGRAM BTN-OK--ONCLICK."), "missing END PROGRAM for handler");
+        assert!(
+            src.contains("PROGRAM-ID. BTN-OK--ONCLICK IS COMMON PROGRAM."),
+            "missing nested program ID"
+        );
+        assert!(
+            src.contains("END PROGRAM BTN-OK--ONCLICK."),
+            "missing END PROGRAM for handler"
+        );
         assert!(src.contains("GOBACK."), "missing GOBACK in nested program");
-        assert!(src.contains("END PROGRAM MAIN-FORM."), "missing outer END PROGRAM");
+        assert!(
+            src.contains("END PROGRAM MAIN-FORM."),
+            "missing outer END PROGRAM"
+        );
     }
 
     #[test]
@@ -1339,13 +1621,21 @@ mod tests {
         // A bound form-level event (onResize) must be dispatched under a WHEN
         // matching the form's own id — not just generated as a nested program.
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
-        form.form_events.push(EventBinding::for_control("MAIN-FORM", "onResize"));
+        form.form_events
+            .push(EventBinding::for_control("MAIN-FORM", "onResize"));
         let src = generate(&form);
-        assert!(src.contains("WHEN \"MAIN-FORM\""),
-            "event loop missing a WHEN for the form id");
-        assert!(src.contains("WHEN \"onResize\""), "missing onResize event WHEN");
-        assert!(src.contains("CALL \"MAIN-FORM--ONRESIZE\""),
-            "onResize not dispatched to its nested program");
+        assert!(
+            src.contains("WHEN \"MAIN-FORM\""),
+            "event loop missing a WHEN for the form id"
+        );
+        assert!(
+            src.contains("WHEN \"onResize\""),
+            "missing onResize event WHEN"
+        );
+        assert!(
+            src.contains("CALL \"MAIN-FORM--ONRESIZE\""),
+            "onResize not dispatched to its nested program"
+        );
     }
 
     #[test]
@@ -1355,15 +1645,24 @@ mod tests {
         // Paragraph names come from `derive_paragraph_name`, which uppercases the
         // event name without inserting separators: "OnLoad" → "ONLOAD".
         // Spec 009 R4: form-event handlers are `IS COMMON PROGRAM` too.
-        assert!(src.contains("PROGRAM-ID. MAIN-FORM--ONLOAD IS COMMON PROGRAM."), "missing OnLoad nested program");
-        assert!(src.contains("PROGRAM-ID. MAIN-FORM--ONCLOSE IS COMMON PROGRAM."), "missing OnClose nested program");
+        assert!(
+            src.contains("PROGRAM-ID. MAIN-FORM--ONLOAD IS COMMON PROGRAM."),
+            "missing OnLoad nested program"
+        );
+        assert!(
+            src.contains("PROGRAM-ID. MAIN-FORM--ONCLOSE IS COMMON PROGRAM."),
+            "missing OnClose nested program"
+        );
     }
 
     #[test]
     fn generate_calls_on_load_nested() {
         let src = generate(&make_form());
         // Form::new() pre-populates form_events with OnLoad; COBOL-MAIN must CALL it.
-        assert!(src.contains("CALL \"MAIN-FORM--ONLOAD\""), "missing OnLoad CALL in COBOL-MAIN");
+        assert!(
+            src.contains("CALL \"MAIN-FORM--ONLOAD\""),
+            "missing OnLoad CALL in COBOL-MAIN"
+        );
     }
 
     /// `regenerate` is now a clean alias for `generate` — all event code lives in the
@@ -1395,15 +1694,20 @@ mod tests {
        LINKAGE SECTION.\n\
 \n\
        PROCEDURE DIVISION.\n\
-           MOVE 1 TO COBOL-QUIT.".into();
+           MOVE 1 TO COBOL-QUIT."
+            .into();
         btn.events.push(ev);
         form.controls.push(btn);
 
         let src = generate(&form);
-        assert!(src.contains("MOVE 1 TO COBOL-QUIT"),
-            "handler statements must appear in the nested program body");
-        assert!(src.contains("WS-LOCAL-FLAG"),
-            "handler-local WORKING-STORAGE must appear in the nested program");
+        assert!(
+            src.contains("MOVE 1 TO COBOL-QUIT"),
+            "handler statements must appear in the nested program body"
+        );
+        assert!(
+            src.contains("WS-LOCAL-FLAG"),
+            "handler-local WORKING-STORAGE must appear in the nested program"
+        );
     }
 
     /// An unwritten handler is emitted from the shared template (it still
@@ -1412,13 +1716,18 @@ mod tests {
     fn generate_emits_template_stub_for_empty_handler() {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
         let mut btn = Control::new("BTN-OK", ControlType::Button, 10, 10);
-        btn.events.push(EventBinding::for_control("BTN-OK", "onClick")); // no code
+        btn.events
+            .push(EventBinding::for_control("BTN-OK", "onClick")); // no code
         form.controls.push(btn);
 
         let src = generate(&form);
-        assert!(src.contains("LINKAGE SECTION."),
-            "the stub handler must include a LINKAGE SECTION");
-        assert!(src.contains("PROCEDURE DIVISION."),
-            "the stub handler must include a PROCEDURE DIVISION");
+        assert!(
+            src.contains("LINKAGE SECTION."),
+            "the stub handler must include a LINKAGE SECTION"
+        );
+        assert!(
+            src.contains("PROCEDURE DIVISION."),
+            "the stub handler must include a PROCEDURE DIVISION"
+        );
     }
 }

@@ -85,7 +85,10 @@ pub struct RustBridge {
 
 impl RustBridge {
     pub fn new() -> Self {
-        Self { objects: HashMap::new(), next_id: 1 }
+        Self {
+            objects: HashMap::new(),
+            next_id: 1,
+        }
     }
 
     /// Number of live object handles. `0` ⇒ everything created has been dropped.
@@ -97,7 +100,13 @@ impl RustBridge {
     fn store(&mut self, type_name: &str, value: Box<dyn Any>) -> i64 {
         let id = self.next_id;
         self.next_id += 1;
-        self.objects.insert(id, BridgeObject { type_name: type_name.to_owned(), value });
+        self.objects.insert(
+            id,
+            BridgeObject {
+                type_name: type_name.to_owned(),
+                value,
+            },
+        );
         id
     }
 
@@ -108,12 +117,17 @@ impl RustBridge {
 
     /// Construct a curated Rust object. `type_name` is the `REPOSITORY` external
     /// name (e.g. `"Rust.String"`). Returns a [`BridgeValue::Handle`].
-    pub fn create(&mut self, type_name: &str, args: &[BridgeValue]) -> Result<BridgeValue, BridgeError> {
+    pub fn create(
+        &mut self,
+        type_name: &str,
+        args: &[BridgeValue],
+    ) -> Result<BridgeValue, BridgeError> {
         let value: Box<dyn Any> = match type_name {
             "Rust.String" => Box::new(string_new(args)?),
-            "Rust.i8" | "Rust.i16" | "Rust.i32" | "Rust.i64" | "Rust.i128"
-            | "Rust.isize" | "Rust.u8" | "Rust.u16" | "Rust.u32" | "Rust.u64"
-            | "Rust.u128" | "Rust.usize" => Box::new(int_new(args)?),
+            "Rust.i8" | "Rust.i16" | "Rust.i32" | "Rust.i64" | "Rust.i128" | "Rust.isize"
+            | "Rust.u8" | "Rust.u16" | "Rust.u32" | "Rust.u64" | "Rust.u128" | "Rust.usize" => {
+                Box::new(int_new(args)?)
+            }
             "Rust.f32" | "Rust.f64" => Box::new(float_new(args)?),
             "Rust.bool" => Box::new(bool_new(args)?),
             "Rust.Vec" => Box::new(Vec::<BridgeValue>::new()),
@@ -125,11 +139,21 @@ impl RustBridge {
     /// Invoke a method on a live handle, marshaling `args` in and the result out.
     /// Runs inside `catch_unwind`, so a panic surfaces as [`BridgeError::Panicked`]
     /// rather than tearing down the interpreter.
-    pub fn invoke(&mut self, id: i64, method: &str, args: &[BridgeValue]) -> Result<BridgeValue, BridgeError> {
-        let obj = self.objects.get_mut(&id).ok_or(BridgeError::NoSuchHandle(id))?;
+    pub fn invoke(
+        &mut self,
+        id: i64,
+        method: &str,
+        args: &[BridgeValue],
+    ) -> Result<BridgeValue, BridgeError> {
+        let obj = self
+            .objects
+            .get_mut(&id)
+            .ok_or(BridgeError::NoSuchHandle(id))?;
         let type_name = obj.type_name.clone();
         let value = &mut obj.value;
-        let called = catch_unwind(AssertUnwindSafe(|| dispatch(&type_name, value, method, args)));
+        let called = catch_unwind(AssertUnwindSafe(|| {
+            dispatch(&type_name, value, method, args)
+        }));
         match called {
             Ok(result) => result,
             Err(_) => Err(BridgeError::Panicked(format!("{type_name}::{method}"))),
@@ -149,9 +173,11 @@ fn dispatch(
 ) -> Result<BridgeValue, BridgeError> {
     match type_name {
         "Rust.String" => string_method(value.downcast_mut::<String>().unwrap(), method, args),
-        "Rust.Vec" => {
-            vec_method(value.downcast_mut::<Vec<BridgeValue>>().unwrap(), method, args)
-        }
+        "Rust.Vec" => vec_method(
+            value.downcast_mut::<Vec<BridgeValue>>().unwrap(),
+            method,
+            args,
+        ),
         "Rust.f32" | "Rust.f64" => float_method(value.downcast_mut::<f64>().unwrap(), method, args),
         "Rust.bool" => bool_method(value.downcast_mut::<bool>().unwrap(), method, args),
         // every integer width is stored as i64
@@ -168,7 +194,10 @@ fn arg_str(args: &[BridgeValue], i: usize, method: &str) -> Result<String, Bridg
     match args.get(i) {
         Some(BridgeValue::Str(s)) => Ok(s.clone()),
         Some(other) => Ok(coerce_string(other)),
-        None => Err(BridgeError::BadArgs { method: method.to_owned(), detail: format!("missing argument {i}") }),
+        None => Err(BridgeError::BadArgs {
+            method: method.to_owned(),
+            detail: format!("missing argument {i}"),
+        }),
     }
 }
 
@@ -181,7 +210,10 @@ fn arg_int(args: &[BridgeValue], i: usize, method: &str) -> Result<i64, BridgeEr
             method: method.to_owned(),
             detail: format!("argument {i} expected an integer, got {other:?}"),
         }),
-        None => Err(BridgeError::BadArgs { method: method.to_owned(), detail: format!("missing argument {i}") }),
+        None => Err(BridgeError::BadArgs {
+            method: method.to_owned(),
+            detail: format!("missing argument {i}"),
+        }),
     }
 }
 
@@ -240,7 +272,11 @@ fn bool_new(args: &[BridgeValue]) -> Result<bool, BridgeError> {
 
 // ── Method tables ──────────────────────────────────────────────────────────────
 
-fn string_method(s: &mut String, method: &str, args: &[BridgeValue]) -> Result<BridgeValue, BridgeError> {
+fn string_method(
+    s: &mut String,
+    method: &str,
+    args: &[BridgeValue],
+) -> Result<BridgeValue, BridgeError> {
     Ok(match method {
         "len" => BridgeValue::Int(s.len() as i64), // bytes, like Rust's String::len
         "char_count" => BridgeValue::Int(s.chars().count() as i64),
@@ -249,13 +285,26 @@ fn string_method(s: &mut String, method: &str, args: &[BridgeValue]) -> Result<B
         "to_uppercase" => BridgeValue::Str(s.to_uppercase()),
         "to_lowercase" => BridgeValue::Str(s.to_lowercase()),
         "trim" => BridgeValue::Str(s.trim().to_owned()),
-        "push_str" => { s.push_str(&arg_str(args, 0, method)?); BridgeValue::Null }
-        "clear" => { s.clear(); BridgeValue::Null }
+        "push_str" => {
+            s.push_str(&arg_str(args, 0, method)?);
+            BridgeValue::Null
+        }
+        "clear" => {
+            s.clear();
+            BridgeValue::Null
+        }
         "contains" => BridgeValue::Bool(s.contains(&arg_str(args, 0, method)?)),
         "starts_with" => BridgeValue::Bool(s.starts_with(&arg_str(args, 0, method)?)),
         "ends_with" => BridgeValue::Bool(s.ends_with(&arg_str(args, 0, method)?)),
-        "replace" => BridgeValue::Str(s.replace(&arg_str(args, 0, method)?, &arg_str(args, 1, method)?)),
-        _ => return Err(BridgeError::UnknownMethod { type_name: "Rust.String".into(), method: method.into() }),
+        "replace" => {
+            BridgeValue::Str(s.replace(&arg_str(args, 0, method)?, &arg_str(args, 1, method)?))
+        }
+        _ => {
+            return Err(BridgeError::UnknownMethod {
+                type_name: "Rust.String".into(),
+                method: method.into(),
+            })
+        }
     })
 }
 
@@ -264,17 +313,41 @@ fn int_method(n: &mut i64, method: &str, args: &[BridgeValue]) -> Result<BridgeV
         "value" => BridgeValue::Int(*n),
         "to_string" => BridgeValue::Str(n.to_string()),
         "abs" => BridgeValue::Int(n.abs()),
-        "add" => { *n += arg_int(args, 0, method)?; BridgeValue::Int(*n) }
-        "sub" => { *n -= arg_int(args, 0, method)?; BridgeValue::Int(*n) }
-        "mul" => { *n *= arg_int(args, 0, method)?; BridgeValue::Int(*n) }
-        "div" => { *n /= arg_int(args, 0, method)?; BridgeValue::Int(*n) } // div-by-0 panics → caught
-        "rem" => { *n %= arg_int(args, 0, method)?; BridgeValue::Int(*n) }
+        "add" => {
+            *n += arg_int(args, 0, method)?;
+            BridgeValue::Int(*n)
+        }
+        "sub" => {
+            *n -= arg_int(args, 0, method)?;
+            BridgeValue::Int(*n)
+        }
+        "mul" => {
+            *n *= arg_int(args, 0, method)?;
+            BridgeValue::Int(*n)
+        }
+        "div" => {
+            *n /= arg_int(args, 0, method)?;
+            BridgeValue::Int(*n)
+        } // div-by-0 panics → caught
+        "rem" => {
+            *n %= arg_int(args, 0, method)?;
+            BridgeValue::Int(*n)
+        }
         "pow" => BridgeValue::Int(n.pow(arg_int(args, 0, method)?.max(0) as u32)),
-        _ => return Err(BridgeError::UnknownMethod { type_name: "Rust.int".into(), method: method.into() }),
+        _ => {
+            return Err(BridgeError::UnknownMethod {
+                type_name: "Rust.int".into(),
+                method: method.into(),
+            })
+        }
     })
 }
 
-fn float_method(x: &mut f64, method: &str, args: &[BridgeValue]) -> Result<BridgeValue, BridgeError> {
+fn float_method(
+    x: &mut f64,
+    method: &str,
+    args: &[BridgeValue],
+) -> Result<BridgeValue, BridgeError> {
     Ok(match method {
         "value" => BridgeValue::Float(*x),
         "to_string" => BridgeValue::Str(x.to_string()),
@@ -283,25 +356,52 @@ fn float_method(x: &mut f64, method: &str, args: &[BridgeValue]) -> Result<Bridg
         "floor" => BridgeValue::Float(x.floor()),
         "ceil" => BridgeValue::Float(x.ceil()),
         "round" => BridgeValue::Float(x.round()),
-        "add" => { *x += arg_int(args, 0, method)? as f64; BridgeValue::Float(*x) }
-        _ => return Err(BridgeError::UnknownMethod { type_name: "Rust.f64".into(), method: method.into() }),
+        "add" => {
+            *x += arg_int(args, 0, method)? as f64;
+            BridgeValue::Float(*x)
+        }
+        _ => {
+            return Err(BridgeError::UnknownMethod {
+                type_name: "Rust.f64".into(),
+                method: method.into(),
+            })
+        }
     })
 }
 
-fn bool_method(b: &mut bool, method: &str, _args: &[BridgeValue]) -> Result<BridgeValue, BridgeError> {
+fn bool_method(
+    b: &mut bool,
+    method: &str,
+    _args: &[BridgeValue],
+) -> Result<BridgeValue, BridgeError> {
     Ok(match method {
         "value" => BridgeValue::Bool(*b),
-        "not" => { *b = !*b; BridgeValue::Bool(*b) }
+        "not" => {
+            *b = !*b;
+            BridgeValue::Bool(*b)
+        }
         "to_string" => BridgeValue::Str(b.to_string()),
-        _ => return Err(BridgeError::UnknownMethod { type_name: "Rust.bool".into(), method: method.into() }),
+        _ => {
+            return Err(BridgeError::UnknownMethod {
+                type_name: "Rust.bool".into(),
+                method: method.into(),
+            })
+        }
     })
 }
 
-fn vec_method(v: &mut Vec<BridgeValue>, method: &str, args: &[BridgeValue]) -> Result<BridgeValue, BridgeError> {
+fn vec_method(
+    v: &mut Vec<BridgeValue>,
+    method: &str,
+    args: &[BridgeValue],
+) -> Result<BridgeValue, BridgeError> {
     Ok(match method {
         "len" => BridgeValue::Int(v.len() as i64),
         "is_empty" => BridgeValue::Bool(v.is_empty()),
-        "clear" => { v.clear(); BridgeValue::Null }
+        "clear" => {
+            v.clear();
+            BridgeValue::Null
+        }
         "push" => {
             v.push(args.first().cloned().unwrap_or(BridgeValue::Null));
             BridgeValue::Null
@@ -309,9 +409,18 @@ fn vec_method(v: &mut Vec<BridgeValue>, method: &str, args: &[BridgeValue]) -> R
         "pop" => v.pop().unwrap_or(BridgeValue::Null),
         "get" => {
             let i = arg_int(args, 0, method)?;
-            usize::try_from(i).ok().and_then(|i| v.get(i)).cloned().unwrap_or(BridgeValue::Null)
+            usize::try_from(i)
+                .ok()
+                .and_then(|i| v.get(i))
+                .cloned()
+                .unwrap_or(BridgeValue::Null)
         }
-        _ => return Err(BridgeError::UnknownMethod { type_name: "Rust.Vec".into(), method: method.into() }),
+        _ => {
+            return Err(BridgeError::UnknownMethod {
+                type_name: "Rust.Vec".into(),
+                method: method.into(),
+            })
+        }
     })
 }
 
@@ -339,11 +448,19 @@ mod tests {
     #[test]
     fn string_create_invoke_len() {
         let mut b = RustBridge::new();
-        let h = b.create("Rust.String", &[BridgeValue::Str("hello".into())]).unwrap();
-        let BridgeValue::Handle(id) = h else { panic!("expected handle") };
+        let h = b
+            .create("Rust.String", &[BridgeValue::Str("hello".into())])
+            .unwrap();
+        let BridgeValue::Handle(id) = h else {
+            panic!("expected handle")
+        };
         assert_eq!(b.invoke(id, "len", &[]).unwrap(), BridgeValue::Int(5));
-        assert_eq!(b.invoke(id, "to_uppercase", &[]).unwrap(), BridgeValue::Str("HELLO".into()));
-        b.invoke(id, "push_str", &[BridgeValue::Str("!".into())]).unwrap();
+        assert_eq!(
+            b.invoke(id, "to_uppercase", &[]).unwrap(),
+            BridgeValue::Str("HELLO".into())
+        );
+        b.invoke(id, "push_str", &[BridgeValue::Str("!".into())])
+            .unwrap();
         assert_eq!(b.invoke(id, "len", &[]).unwrap(), BridgeValue::Int(6));
     }
 
@@ -368,7 +485,11 @@ mod tests {
             b.store("Test.Probe", Box::new(DropProbe::new(&live)));
             assert_eq!(live.load(Ordering::SeqCst), 2);
         }
-        assert_eq!(live.load(Ordering::SeqCst), 0, "objects leaked when bridge dropped");
+        assert_eq!(
+            live.load(Ordering::SeqCst),
+            0,
+            "objects leaked when bridge dropped"
+        );
     }
 
     #[test]
@@ -393,24 +514,36 @@ mod tests {
         // A COBOL `VALUE "10"` reaches the bridge as a string; the integer
         // constructor must parse it (regression: it used to fail to construct).
         let mut b = RustBridge::new();
-        let BridgeValue::Handle(id) = b.create("Rust.i64", &[BridgeValue::Str("10".into())]).unwrap()
+        let BridgeValue::Handle(id) = b
+            .create("Rust.i64", &[BridgeValue::Str("10".into())])
+            .unwrap()
         else {
             panic!("expected handle")
         };
-        assert_eq!(b.invoke(id, "add", &[BridgeValue::Int(5)]).unwrap(), BridgeValue::Int(15));
+        assert_eq!(
+            b.invoke(id, "add", &[BridgeValue::Int(5)]).unwrap(),
+            BridgeValue::Int(15)
+        );
     }
 
     #[test]
     fn unknown_type_and_method_error() {
         let mut b = RustBridge::new();
-        assert!(matches!(b.create("Rust.Nope", &[]), Err(BridgeError::UnknownType(_))));
-        let BridgeValue::Handle(id) = b.create("Rust.bool", &[BridgeValue::Bool(true)]).unwrap() else {
+        assert!(matches!(
+            b.create("Rust.Nope", &[]),
+            Err(BridgeError::UnknownType(_))
+        ));
+        let BridgeValue::Handle(id) = b.create("Rust.bool", &[BridgeValue::Bool(true)]).unwrap()
+        else {
             panic!()
         };
         assert!(matches!(
             b.invoke(id, "frobnicate", &[]),
             Err(BridgeError::UnknownMethod { .. })
         ));
-        assert!(matches!(b.invoke(9999, "len", &[]), Err(BridgeError::NoSuchHandle(9999))));
+        assert!(matches!(
+            b.invoke(9999, "len", &[]),
+            Err(BridgeError::NoSuchHandle(9999))
+        ));
     }
 }

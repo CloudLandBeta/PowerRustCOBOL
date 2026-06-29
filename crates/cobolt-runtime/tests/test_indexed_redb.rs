@@ -20,7 +20,9 @@ use std::sync::mpsc;
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::{parse, Severity};
-use cobolt_runtime::indexed::{status, IndexedEngine, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp};
+use cobolt_runtime::indexed::{
+    status, IndexedEngine, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp,
+};
 use cobolt_runtime::indexed_redb::RedbIndexedFile;
 use cobolt_runtime::Interpreter;
 
@@ -39,7 +41,10 @@ fn run_fixture_redb(tag: &str, raw: &str) -> Vec<String> {
     let tokens = tokenize(&src, SourceFormat::Free);
     let result = parse(tokens);
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -50,7 +55,10 @@ fn run_fixture_redb(tag: &str, raw: &str) -> Vec<String> {
     let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
     interp.set_indexed_engine(IndexedEngine::Redb);
     interp.run().expect("run failed");
-    let out: Vec<String> = display_rx.try_iter().map(|l| l.trim_end().to_string()).collect();
+    let out: Vec<String> = display_rx
+        .try_iter()
+        .map(|l| l.trim_end().to_string())
+        .collect();
     let _ = std::fs::remove_dir_all(&base);
     out
 }
@@ -116,8 +124,16 @@ fn rec(id: &str, name: &str) -> Vec<u8> {
 #[test]
 fn store_crud_and_alternate_duplicates() {
     let path = tmp_path("crud");
-    let primary = KeySpec { offset: 0, len: 4, duplicates: false };
-    let city = KeySpec { offset: 4, len: 5, duplicates: true }; // alt WITH DUPLICATES
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
+    let city = KeySpec {
+        offset: 4,
+        len: 5,
+        duplicates: true,
+    }; // alt WITH DUPLICATES
     let mut f = RedbIndexedFile::new(&path, 9, primary, vec![city]);
 
     assert_eq!(f.open(OpenMode::Output), status::OK);
@@ -163,7 +179,11 @@ fn store_crud_and_alternate_duplicates() {
 #[test]
 fn store_commit_survives_rollback_undoes() {
     let path = tmp_path("tx");
-    let primary = KeySpec { offset: 0, len: 4, duplicates: false };
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
     let mut f = RedbIndexedFile::new(&path, 9, primary, vec![]);
 
     assert_eq!(f.open(OpenMode::Io), status::OK);
@@ -195,9 +215,16 @@ fn store_commit_survives_rollback_undoes() {
 #[ignore = "scale smoke test; run explicitly"]
 fn scale_open_is_instant_and_reads_are_fast() {
     use std::time::Instant;
-    let n: u32 = std::env::var("PRC_SCALE_N").ok().and_then(|s| s.parse().ok()).unwrap_or(200_000);
+    let n: u32 = std::env::var("PRC_SCALE_N")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200_000);
     let path = tmp_path("scale");
-    let primary = KeySpec { offset: 0, len: 9, duplicates: false };
+    let primary = KeySpec {
+        offset: 0,
+        len: 9,
+        duplicates: false,
+    };
     let mut f = RedbIndexedFile::new(&path, 14, primary, vec![]);
 
     let t0 = Instant::now();
@@ -255,7 +282,11 @@ fn scale_open_is_instant_and_reads_are_fast() {
 #[test]
 fn open_input_missing_file_is_35() {
     let path = tmp_path("missing");
-    let primary = KeySpec { offset: 0, len: 4, duplicates: false };
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
     let mut f = RedbIndexedFile::new(&path, 9, primary, vec![]);
     assert_eq!(f.open(OpenMode::Input), status::FILE_NOT_FOUND);
 }
@@ -269,7 +300,11 @@ fn observability_log_records_transactions() {
         os.push(".log");
         std::path::PathBuf::from(os)
     };
-    let primary = KeySpec { offset: 0, len: 4, duplicates: false };
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
     let mut f = RedbIndexedFile::new(&path, 9, primary, vec![]);
     f.set_log_level(LogLevel::Full);
 
@@ -298,7 +333,8 @@ fn observability_log_records_transactions() {
     );
     // The ROLLBACK recorded the single (undone) write.
     assert!(
-        log.lines().any(|l| l.contains("kind=ROLLBACK") && l.contains("writes=1")),
+        log.lines()
+            .any(|l| l.contains("kind=ROLLBACK") && l.contains("writes=1")),
         "ROLLBACK line wrong:\n{log}"
     );
     // The full-level CLOSE line carries redb index statistics.
@@ -310,7 +346,9 @@ fn observability_log_records_transactions() {
         "CLOSE stats missing:\n{log}"
     );
     // Every line is timestamped and names the file.
-    assert!(log.lines().all(|l| l.starts_with("ts=") && l.contains("file=")));
+    assert!(log
+        .lines()
+        .all(|l| l.starts_with("ts=") && l.contains("file=")));
 }
 
 #[test]
@@ -356,7 +394,10 @@ fn open_with_registered_user_appears_in_log() {
     let tokens = tokenize(&src, SourceFormat::Free);
     let result = parse(tokens);
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -374,16 +415,20 @@ fn open_with_registered_user_appears_in_log() {
 
     // The string-literal user tags the first session…
     assert!(
-        log.lines().any(|l| l.contains("user=ALICE") && l.contains("kind=OPEN")),
+        log.lines()
+            .any(|l| l.contains("user=ALICE") && l.contains("kind=OPEN")),
         "missing literal user:\n{log}"
     );
     // …and the data-item user tags the second.
     assert!(
-        log.lines().any(|l| l.contains("user=BOB-FROM-WS") && l.contains("kind=CLOSE")),
+        log.lines()
+            .any(|l| l.contains("user=BOB-FROM-WS") && l.contains("kind=CLOSE")),
         "missing data-item user:\n{log}"
     );
     // Every event line in a session carries the user.
-    assert!(log.lines().all(|l| l.contains("user=ALICE") || l.contains("user=BOB-FROM-WS")));
+    assert!(log
+        .lines()
+        .all(|l| l.contains("user=ALICE") || l.contains("user=BOB-FROM-WS")));
 }
 
 #[test]
@@ -395,7 +440,11 @@ fn observability_log_json_format() {
         os.push(".log");
         std::path::PathBuf::from(os)
     };
-    let primary = KeySpec { offset: 0, len: 4, duplicates: false };
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
     let mut f = RedbIndexedFile::new(&path, 9, primary, vec![]);
     f.set_log_level(LogLevel::Basic);
     f.set_log_format(LogFormat::Json);
@@ -412,8 +461,14 @@ fn observability_log_json_format() {
 
     // Every line is a JSON object (NDJSON).
     for l in log.lines() {
-        assert!(l.starts_with('{') && l.ends_with('}'), "not a JSON object: {l}");
-        assert!(l.contains(r#""ts":""#) && l.contains(r#""kind":""#), "missing fields: {l}");
+        assert!(
+            l.starts_with('{') && l.ends_with('}'),
+            "not a JSON object: {l}"
+        );
+        assert!(
+            l.contains(r#""ts":""#) && l.contains(r#""kind":""#),
+            "missing fields: {l}"
+        );
     }
     // Numeric fields are bare numbers (graphable in Grafana), strings are quoted.
     assert!(

@@ -18,7 +18,10 @@ use cobolt_runtime::Interpreter;
 fn run_capture(src: &str) -> Vec<String> {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -65,5 +68,9 @@ const SRC: &str = r#"
 #[test]
 fn handler_calls_common_user_procedure_updating_global() {
     let out = run_capture(SRC);
-    assert_eq!(out, vec!["0099".to_string()], "GLOBAL update via user proc not seen");
+    assert_eq!(
+        out,
+        vec!["0099".to_string()],
+        "GLOBAL update via user proc not seen"
+    );
 }

@@ -63,7 +63,8 @@ fn check_decl(decl: &DataDecl, diagnostics: &mut Vec<SemanticDiagnostic>) {
             message: format!(
                 "EXTERNAL is valid only on 01/77-level items (or FDs); found on a \
                  level-{:02} item{}",
-                decl.level, who()
+                decl.level,
+                who()
             ),
             span: decl.span,
         });
@@ -75,7 +76,8 @@ fn check_decl(decl: &DataDecl, diagnostics: &mut Vec<SemanticDiagnostic>) {
             message: format!(
                 "GLOBAL is valid only on 01/77-level items (or FDs); found on a \
                  level-{:02} item{}",
-                decl.level, who()
+                decl.level,
+                who()
             ),
             span: decl.span,
         });

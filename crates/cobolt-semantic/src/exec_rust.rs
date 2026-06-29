@@ -143,15 +143,29 @@ fn walk_stmts_in_program(program: &Program, visitor: &mut impl FnMut(&Stmt)) {
 fn walk_stmt(stmt: &Stmt, visitor: &mut impl FnMut(&Stmt)) {
     visitor(stmt);
     match stmt {
-        Stmt::If { then_stmts, else_stmts, .. } => {
-            for s in then_stmts { walk_stmt(s, visitor); }
-            for s in else_stmts { walk_stmt(s, visitor); }
-        }
-        Stmt::Evaluate { whens, other_stmts, .. } => {
-            for w in whens {
-                for s in &w.stmts { walk_stmt(s, visitor); }
+        Stmt::If {
+            then_stmts,
+            else_stmts,
+            ..
+        } => {
+            for s in then_stmts {
+                walk_stmt(s, visitor);
             }
-            for s in other_stmts { walk_stmt(s, visitor); }
+            for s in else_stmts {
+                walk_stmt(s, visitor);
+            }
+        }
+        Stmt::Evaluate {
+            whens, other_stmts, ..
+        } => {
+            for w in whens {
+                for s in &w.stmts {
+                    walk_stmt(s, visitor);
+                }
+            }
+            for s in other_stmts {
+                walk_stmt(s, visitor);
+            }
         }
         Stmt::Perform { target, .. } => {
             use cobolt_ast::stmt::PerformTarget;
@@ -160,19 +174,29 @@ fn walk_stmt(stmt: &Stmt, visitor: &mut impl FnMut(&Stmt)) {
                 | PerformTarget::Times { stmts, .. }
                 | PerformTarget::Until { stmts, .. }
                 | PerformTarget::Varying { stmts, .. } => {
-                    for s in stmts { walk_stmt(s, visitor); }
+                    for s in stmts {
+                        walk_stmt(s, visitor);
+                    }
                 }
                 PerformTarget::Paragraph(..)
                 | PerformTarget::Section(..)
                 | PerformTarget::Thru { .. } => {}
             }
         }
-        Stmt::Read { at_end, not_at_end, .. } => {
-            for s in at_end     { walk_stmt(s, visitor); }
-            for s in not_at_end { walk_stmt(s, visitor); }
+        Stmt::Read {
+            at_end, not_at_end, ..
+        } => {
+            for s in at_end {
+                walk_stmt(s, visitor);
+            }
+            for s in not_at_end {
+                walk_stmt(s, visitor);
+            }
         }
         Stmt::Call { on_exception, .. } => {
-            for s in on_exception { walk_stmt(s, visitor); }
+            for s in on_exception {
+                walk_stmt(s, visitor);
+            }
         }
         // Leaf statements — no nested statements.
         _ => {}

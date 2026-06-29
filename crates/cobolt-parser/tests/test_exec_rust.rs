@@ -14,8 +14,8 @@
 //!   4. Multiple EXEC RUST blocks in one program work correctly.
 //!   5. EXEC RUST may appear without a trailing period.
 
-use cobolt_ast::stmt::Stmt;
 use cobolt_ast::program::ProcedureBody;
+use cobolt_ast::stmt::Stmt;
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 
@@ -38,9 +38,7 @@ fn parse_stmts(code: &str) -> Vec<Stmt> {
     );
     let proc = result.program.unwrap().procedure;
     match proc.body {
-        ProcedureBody::Paragraphs(mut paras) => {
-            paras.pop().map(|p| p.stmts).unwrap_or_default()
-        }
+        ProcedureBody::Paragraphs(mut paras) => paras.pop().map(|p| p.stmts).unwrap_or_default(),
         ProcedureBody::Sections(secs) => secs
             .into_iter()
             .flat_map(|s| s.paragraphs)
@@ -53,9 +51,7 @@ fn parse_stmts(code: &str) -> Vec<Stmt> {
 
 #[test]
 fn exec_rust_basic() {
-    let code = prog(
-        "    EXEC RUST\n        let _ = 1 + 1;\n    END-EXEC.\n    STOP RUN.\n",
-    );
+    let code = prog("    EXEC RUST\n        let _ = 1 + 1;\n    END-EXEC.\n    STOP RUN.\n");
     let stmts = parse_stmts(&code);
     assert!(!stmts.is_empty(), "expected at least one statement");
     if let Stmt::ExecRust { source, .. } = &stmts[0] {
@@ -96,7 +92,12 @@ fn exec_rust_cobol_data_references() {
     STOP RUN.
 "#;
     let stmts = parse_stmts(&prog(rust_body));
-    if let Stmt::ExecRust { source, referenced_data, .. } = &stmts[0] {
+    if let Stmt::ExecRust {
+        source,
+        referenced_data,
+        ..
+    } = &stmts[0]
+    {
         assert!(source.contains("ws_count"), "source: {source:?}");
         assert!(source.contains("ws_total"), "source: {source:?}");
         assert!(source.contains("ws_flag"), "source: {source:?}");

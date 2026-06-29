@@ -120,7 +120,12 @@ pub enum IndexedEngine {
 impl IndexedEngine {
     /// Parse an engine name (case-insensitive). Accepts a few common aliases.
     pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().replace(['_', ' '], "-").as_str() {
+        match s
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['_', ' '], "-")
+            .as_str()
+        {
             "rust" | "rstcobol" | "rustcobol" | "native" | "default" => Some(Self::Rust),
             "rm" | "rm-cobol" | "rm-cobol85" | "rmcobol" | "rmcobol85" => Some(Self::RmCobol85),
             "fujitsu" | "fujitsu-cobol" | "fujitsu-cobol85" | "fj" => Some(Self::Fujitsu),
@@ -303,9 +308,9 @@ impl KeySpec {
 
 #[derive(Clone)]
 enum Journal {
-    Insert(Bytes),               // primary key inserted
-    Update(Bytes, Bytes),        // primary key, previous record bytes
-    Delete(Bytes, Bytes),        // primary key, previous record bytes
+    Insert(Bytes),        // primary key inserted
+    Update(Bytes, Bytes), // primary key, previous record bytes
+    Delete(Bytes, Bytes), // primary key, previous record bytes
 }
 
 /// One indexed file.
@@ -349,7 +354,12 @@ pub struct IndexedFile {
 }
 
 impl IndexedFile {
-    pub fn new(path: impl AsRef<Path>, record_len: usize, primary: KeySpec, alternates: Vec<KeySpec>) -> Self {
+    pub fn new(
+        path: impl AsRef<Path>,
+        record_len: usize,
+        primary: KeySpec,
+        alternates: Vec<KeySpec>,
+    ) -> Self {
         let n_alt = alternates.len();
         IndexedFile {
             path: path.as_ref().to_path_buf(),
@@ -425,7 +435,9 @@ impl IndexedFile {
         let total_key_length =
             primary.total_length() + alternates.iter().map(|d| d.total_length()).sum::<u32>();
         IndexedFileInfo {
-            record_format: RecordFormat::Fixed { length: self.record_len as u32 },
+            record_format: RecordFormat::Fixed {
+                length: self.record_len as u32,
+            },
             key_count: 1 + alternates.len() as u16,
             total_key_length,
             primary,
@@ -500,7 +512,10 @@ impl IndexedFile {
         if self.open.is_none() {
             return status::LOGIC_ERROR;
         }
-        let writable = matches!(self.open, Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend));
+        let writable = matches!(
+            self.open,
+            Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)
+        );
         self.open = None;
         self.locks.clear();
         self.journal.clear();
@@ -593,7 +608,13 @@ impl IndexedFile {
                 let pos = order.iter().position(|k| k == cur);
                 match (pos, dir) {
                     (Some(p), ReadDir::Next) => order.get(p + 1).cloned(),
-                    (Some(p), ReadDir::Previous) => if p == 0 { None } else { order.get(p - 1).cloned() },
+                    (Some(p), ReadDir::Previous) => {
+                        if p == 0 {
+                            None
+                        } else {
+                            order.get(p - 1).cloned()
+                        }
+                    }
                     (None, ReadDir::Next) => order.iter().find(|k| **k > *cur).cloned(),
                     (None, ReadDir::Previous) => order.iter().rev().find(|k| **k < *cur).cloned(),
                 }
@@ -633,7 +654,11 @@ impl IndexedFile {
                 // to the predecessor in primary order.
                 let order = self.ordered_primary_keys();
                 let idx = order.iter().position(|k| *k == pkey).unwrap_or(0);
-                self.cursor = if idx == 0 { None } else { Some(order[idx - 1].clone()) };
+                self.cursor = if idx == 0 {
+                    None
+                } else {
+                    Some(order[idx - 1].clone())
+                };
                 self.current = None;
                 status::OK
             }
@@ -766,18 +791,27 @@ impl IndexedFile {
     fn resolve_primary(&self, key: &[u8]) -> Option<Bytes> {
         if self.kor == 0 {
             let k = pad(key, self.primary.len);
-            if self.records.contains_key(&k) { Some(k) } else { None }
+            if self.records.contains_key(&k) {
+                Some(k)
+            } else {
+                None
+            }
         } else {
             let idx = self.kor - 1;
             let k = pad(key, self.alternates[idx].len);
-            self.alt_index[idx].get(&k).and_then(|set| set.iter().next().cloned())
+            self.alt_index[idx]
+                .get(&k)
+                .and_then(|set| set.iter().next().cloned())
         }
     }
 
     /// Ordered list of primary keys in the current key-of-reference ordering.
     #[doc(hidden)]
     pub fn debug_keys(&self) -> Vec<String> {
-        self.records.keys().map(|k| String::from_utf8_lossy(k).to_string()).collect()
+        self.records
+            .keys()
+            .map(|k| String::from_utf8_lossy(k).to_string())
+            .collect()
     }
 
     fn ordered_primary_keys(&self) -> Vec<Bytes> {
@@ -793,15 +827,31 @@ impl IndexedFile {
     }
 
     fn find_start(&self, op: StartOp, key: &[u8]) -> Option<Bytes> {
-        let ks_len = if self.kor == 0 { self.primary.len } else { self.alternates[self.kor - 1].len };
+        let ks_len = if self.kor == 0 {
+            self.primary.len
+        } else {
+            self.alternates[self.kor - 1].len
+        };
         let key = pad(key, ks_len);
         if self.kor == 0 {
             match op {
                 StartOp::Eq => self.records.get(&key).map(|_| key.clone()),
                 StartOp::Ge => self.records.range(key..).next().map(|(k, _)| k.clone()),
-                StartOp::Gt => self.records.range(key.clone()..).find(|(k, _)| **k > key).map(|(k, _)| k.clone()),
-                StartOp::Le => self.records.range(..=key.clone()).next_back().map(|(k, _)| k.clone()),
-                StartOp::Lt => self.records.range(..key).next_back().map(|(k, _)| k.clone()),
+                StartOp::Gt => self
+                    .records
+                    .range(key.clone()..)
+                    .find(|(k, _)| **k > key)
+                    .map(|(k, _)| k.clone()),
+                StartOp::Le => self
+                    .records
+                    .range(..=key.clone())
+                    .next_back()
+                    .map(|(k, _)| k.clone()),
+                StartOp::Lt => self
+                    .records
+                    .range(..key)
+                    .next_back()
+                    .map(|(k, _)| k.clone()),
             }
         } else {
             let idx = self.kor - 1;
@@ -809,8 +859,14 @@ impl IndexedFile {
             let akey = match op {
                 StartOp::Eq => map.get(&key).map(|_| key.clone()),
                 StartOp::Ge => map.range(key..).next().map(|(k, _)| k.clone()),
-                StartOp::Gt => map.range(key.clone()..).find(|(k, _)| **k > key).map(|(k, _)| k.clone()),
-                StartOp::Le => map.range(..=key.clone()).next_back().map(|(k, _)| k.clone()),
+                StartOp::Gt => map
+                    .range(key.clone()..)
+                    .find(|(k, _)| **k > key)
+                    .map(|(k, _)| k.clone()),
+                StartOp::Le => map
+                    .range(..=key.clone())
+                    .next_back()
+                    .map(|(k, _)| k.clone()),
                 StartOp::Lt => map.range(..key).next_back().map(|(k, _)| k.clone()),
             };
             akey.and_then(|ak| map.get(&ak).and_then(|set| set.iter().next().cloned()))
@@ -820,7 +876,10 @@ impl IndexedFile {
     fn index_insert(&mut self, pkey: &[u8], rec: &[u8]) {
         for (i, ks) in self.alternates.iter().enumerate() {
             let ak = ks.extract(rec);
-            self.alt_index[i].entry(ak).or_default().insert(pkey.to_vec());
+            self.alt_index[i]
+                .entry(ak)
+                .or_default()
+                .insert(pkey.to_vec());
         }
     }
 
@@ -840,7 +899,11 @@ impl IndexedFile {
         for m in &mut self.alt_index {
             m.clear();
         }
-        let snapshot: Vec<(Bytes, Bytes)> = self.records.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let snapshot: Vec<(Bytes, Bytes)> = self
+            .records
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         for (pkey, rec) in snapshot {
             self.index_insert(&pkey, &rec);
         }
@@ -873,7 +936,11 @@ impl IndexedFile {
             && decl.key_count == stored.key_count
             && key_eq(&decl.primary, &stored.primary)
             && decl.alternates.len() == stored.alternates.len()
-            && decl.alternates.iter().zip(&stored.alternates).all(|(a, b)| key_eq(a, b))
+            && decl
+                .alternates
+                .iter()
+                .zip(&stored.alternates)
+                .all(|(a, b)| key_eq(a, b))
     }
 
     /// Load the container. Returns the stored schema when the file is a
@@ -902,7 +969,8 @@ impl IndexedFile {
         let need = |i: usize, n: usize, len: usize| i + n <= len;
         let mut i = 12usize; // skip magic(8) + record_len(4)
         while need(i, 4, data.len()) {
-            let rlen = u32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+            let rlen =
+                u32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
             i += 4;
             if !need(i, rlen, data.len()) {
                 break;
@@ -922,7 +990,10 @@ impl IndexedFile {
         // Validate the CRC-32 trailer first.
         let body = &data[..data.len() - 4];
         let want = u32::from_le_bytes([
-            data[data.len() - 4], data[data.len() - 3], data[data.len() - 2], data[data.len() - 1],
+            data[data.len() - 4],
+            data[data.len() - 3],
+            data[data.len() - 2],
+            data[data.len() - 1],
         ]);
         if crc32(body) != want {
             return Err(std::io::Error::new(
@@ -945,8 +1016,13 @@ impl IndexedFile {
         let _updated = c.u64()?;
 
         let record_format = match rf {
-            2 => RecordFormat::Variable { min_length, max_length },
-            _ => RecordFormat::Fixed { length: fixed_length },
+            2 => RecordFormat::Variable {
+                min_length,
+                max_length,
+            },
+            _ => RecordFormat::Fixed {
+                length: fixed_length,
+            },
         };
 
         // Key descriptors: primary (number 1) then alternates in order.
@@ -954,7 +1030,11 @@ impl IndexedFile {
         for _ in 0..key_count {
             let key_number = c.u16()?;
             let duplicates_allowed = c.u8()? != 0;
-            let ordering = if c.u8()? == 1 { KeyOrdering::Descending } else { KeyOrdering::Ascending };
+            let ordering = if c.u8()? == 1 {
+                KeyOrdering::Descending
+            } else {
+                KeyOrdering::Ascending
+            };
             let part_count = c.u16()?;
             let name_len = c.u16()? as usize;
             let name_bytes = c.bytes(name_len)?;
@@ -969,9 +1049,19 @@ impl IndexedFile {
                 let length = c.u32()?;
                 let encoding = KeyEncoding::from_u8(c.u8()?);
                 let _reserved = c.u8()?;
-                parts.push(KeyPart { offset, length, encoding });
+                parts.push(KeyPart {
+                    offset,
+                    length,
+                    encoding,
+                });
             }
-            keys.push(KeyDescriptor { key_number, name, parts, duplicates_allowed, ordering });
+            keys.push(KeyDescriptor {
+                key_number,
+                name,
+                parts,
+                duplicates_allowed,
+                ordering,
+            });
         }
 
         // Records (decompressed when the container is COMPRESSION-encoded).
@@ -979,19 +1069,36 @@ impl IndexedFile {
         for _ in 0..record_count {
             let rlen = c.u32()? as usize;
             let stored = c.bytes(rlen)?;
-            let rec = if self.compressing { crate::compress::decompress(stored) } else { stored.to_vec() };
+            let rec = if self.compressing {
+                crate::compress::decompress(stored)
+            } else {
+                stored.to_vec()
+            };
             let pkey = self.primary.extract(&rec);
             self.records.insert(pkey, rec);
         }
 
         let primary = keys.first().cloned().unwrap_or(KeyDescriptor {
-            key_number: 1, name: None, parts: vec![], duplicates_allowed: false,
+            key_number: 1,
+            name: None,
+            parts: vec![],
+            duplicates_allowed: false,
             ordering: KeyOrdering::Ascending,
         });
-        let alternates = if keys.len() > 1 { keys[1..].to_vec() } else { Vec::new() };
+        let alternates = if keys.len() > 1 {
+            keys[1..].to_vec()
+        } else {
+            Vec::new()
+        };
         let total_key_length =
             primary.total_length() + alternates.iter().map(|d| d.total_length()).sum::<u32>();
-        Ok(IndexedFileInfo { record_format, key_count, total_key_length, primary, alternates })
+        Ok(IndexedFileInfo {
+            record_format,
+            key_count,
+            total_key_length,
+            primary,
+            alternates,
+        })
     }
 
     fn save(&self) -> std::io::Result<()> {
@@ -999,12 +1106,15 @@ impl IndexedFile {
         let mut out = Vec::new();
         out.extend_from_slice(b"PRCIDX1\0"); // 8-byte magic
         out.extend_from_slice(&1u16.to_le_bytes()); // version
-        // flags: bit0 = records are COMPRESSION-encoded.
+                                                    // flags: bit0 = records are COMPRESSION-encoded.
         let flags: u16 = if self.compressing { 1 } else { 0 };
         out.extend_from_slice(&flags.to_le_bytes());
         let (rf, fixed, minl, maxl) = match info.record_format {
             RecordFormat::Fixed { length } => (1u8, length, length, length),
-            RecordFormat::Variable { min_length, max_length } => (2u8, 0, min_length, max_length),
+            RecordFormat::Variable {
+                min_length,
+                max_length,
+            } => (2u8, 0, min_length, max_length),
         };
         out.push(rf);
         out.push(0u8); // reserved
@@ -1013,7 +1123,11 @@ impl IndexedFile {
         out.extend_from_slice(&maxl.to_le_bytes());
         out.extend_from_slice(&info.key_count.to_le_bytes());
         let now = now_ms();
-        let created = if self.created_ms != 0 { self.created_ms } else { now };
+        let created = if self.created_ms != 0 {
+            self.created_ms
+        } else {
+            now
+        };
         out.extend_from_slice(&created.to_le_bytes());
         out.extend_from_slice(&now.to_le_bytes());
 
@@ -1022,7 +1136,10 @@ impl IndexedFile {
         for k in &keys {
             out.extend_from_slice(&k.key_number.to_le_bytes());
             out.push(k.duplicates_allowed as u8);
-            out.push(match k.ordering { KeyOrdering::Descending => 1, KeyOrdering::Ascending => 0 });
+            out.push(match k.ordering {
+                KeyOrdering::Descending => 1,
+                KeyOrdering::Ascending => 0,
+            });
             out.extend_from_slice(&(k.parts.len() as u16).to_le_bytes());
             let name = k.name.clone().unwrap_or_default();
             out.extend_from_slice(&(name.len() as u16).to_le_bytes());
@@ -1037,7 +1154,11 @@ impl IndexedFile {
 
         out.extend_from_slice(&(self.records.len() as u64).to_le_bytes());
         for rec in self.records.values() {
-            let stored = if self.compressing { crate::compress::compress(rec) } else { rec.clone() };
+            let stored = if self.compressing {
+                crate::compress::compress(rec)
+            } else {
+                rec.clone()
+            };
             out.extend_from_slice(&(stored.len() as u32).to_le_bytes());
             out.extend_from_slice(&stored);
         }
@@ -1059,7 +1180,11 @@ impl IndexedFile {
         let mut probe = IndexedFile::new(
             path.as_ref(),
             0,
-            KeySpec { offset: 0, len: 0, duplicates: false },
+            KeySpec {
+                offset: 0,
+                len: 0,
+                duplicates: false,
+            },
             Vec::new(),
         );
         probe.load_prcidx(&data).map(Some)
@@ -1073,7 +1198,10 @@ struct Cur<'a> {
 }
 
 fn trunc() -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "truncated prcidx container")
+    std::io::Error::new(
+        std::io::ErrorKind::UnexpectedEof,
+        "truncated prcidx container",
+    )
 }
 
 impl<'a> Cur<'a> {
@@ -1098,7 +1226,9 @@ impl<'a> Cur<'a> {
     }
     fn u64(&mut self) -> std::io::Result<u64> {
         let b = self.bytes(8)?;
-        Ok(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+        Ok(u64::from_le_bytes([
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+        ]))
     }
 }
 
@@ -1126,21 +1256,45 @@ fn now_ms() -> u64 {
 // Bridge the in-memory engine to the shared backend trait. Inherent methods of
 // the same name take resolution priority, so each body calls the inherent one.
 impl IndexedStore for IndexedFile {
-    fn open(&mut self, mode: OpenMode) -> &'static str { self.open(mode) }
-    fn close(&mut self) -> &'static str { self.close() }
-    fn write(&mut self, rec: &[u8]) -> &'static str { self.write(rec) }
-    fn read_key(&mut self, key: &[u8]) -> (Option<Bytes>, &'static str) { self.read_key(key) }
-    fn read_seq(&mut self, dir: ReadDir) -> (Option<Bytes>, &'static str) { self.read_seq(dir) }
-    fn start(&mut self, op: StartOp, key: &[u8]) -> &'static str { self.start(op, key) }
+    fn open(&mut self, mode: OpenMode) -> &'static str {
+        self.open(mode)
+    }
+    fn close(&mut self) -> &'static str {
+        self.close()
+    }
+    fn write(&mut self, rec: &[u8]) -> &'static str {
+        self.write(rec)
+    }
+    fn read_key(&mut self, key: &[u8]) -> (Option<Bytes>, &'static str) {
+        self.read_key(key)
+    }
+    fn read_seq(&mut self, dir: ReadDir) -> (Option<Bytes>, &'static str) {
+        self.read_seq(dir)
+    }
+    fn start(&mut self, op: StartOp, key: &[u8]) -> &'static str {
+        self.start(op, key)
+    }
     fn rewrite(&mut self, rec: &[u8], random_key: Option<&[u8]>) -> &'static str {
         self.rewrite(rec, random_key)
     }
-    fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str { self.delete(random_key) }
-    fn set_key_of_reference(&mut self, kor: usize) { self.set_key_of_reference(kor) }
-    fn is_open(&self) -> bool { self.is_open() }
-    fn unlock(&mut self) { self.locks.clear(); }
-    fn commit(&mut self) { self.commit() }
-    fn rollback(&mut self) { self.rollback() }
+    fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str {
+        self.delete(random_key)
+    }
+    fn set_key_of_reference(&mut self, kor: usize) {
+        self.set_key_of_reference(kor)
+    }
+    fn is_open(&self) -> bool {
+        self.is_open()
+    }
+    fn unlock(&mut self) {
+        self.locks.clear();
+    }
+    fn commit(&mut self) {
+        self.commit()
+    }
+    fn rollback(&mut self) {
+        self.rollback()
+    }
 }
 
 fn pad(key: &[u8], len: usize) -> Bytes {
@@ -1166,9 +1320,18 @@ mod tests {
     }
     fn newfile(p: PathBuf, dup: bool) -> IndexedFile {
         let mut f = IndexedFile::new(
-            p, 15,
-            KeySpec { offset: 0, len: 5, duplicates: false },
-            vec![KeySpec { offset: 5, len: 10, duplicates: dup }],
+            p,
+            15,
+            KeySpec {
+                offset: 0,
+                len: 5,
+                duplicates: false,
+            },
+            vec![KeySpec {
+                offset: 5,
+                len: 10,
+                duplicates: dup,
+            }],
         );
         // These round-trip tests verify write → CLOSE → reopen persistence, so
         // they opt into WITH PERSISTENCE (the engine default is now ephemeral).
@@ -1178,7 +1341,8 @@ mod tests {
 
     #[test]
     fn write_read_random_and_duplicate() {
-        let p = tmp("wr"); let _ = std::fs::remove_file(&p);
+        let p = tmp("wr");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, false);
         assert_eq!(f.open(OpenMode::Output), status::OK);
         assert_eq!(f.write(&rec("1", "ALICE")), status::OK);
@@ -1197,19 +1361,24 @@ mod tests {
 
     #[test]
     fn sequential_next_previous_and_start() {
-        let p = tmp("seq"); let _ = std::fs::remove_file(&p);
+        let p = tmp("seq");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, false);
         f.open(OpenMode::Output);
-        for (id, nm) in [("3", "C"), ("1", "A"), ("2", "B")] { f.write(&rec(id, nm)); }
+        for (id, nm) in [("3", "C"), ("1", "A"), ("2", "B")] {
+            f.write(&rec(id, nm));
+        }
         f.close();
 
         let mut f = newfile(f.path.clone(), false);
         f.open(OpenMode::Input);
         // READ NEXT returns ascending primary order.
-        let ids: Vec<String> = (0..3).map(|_| {
-            let (r, _) = f.read_seq(ReadDir::Next);
-            String::from_utf8_lossy(&r.unwrap()[0..5]).into_owned()
-        }).collect();
+        let ids: Vec<String> = (0..3)
+            .map(|_| {
+                let (r, _) = f.read_seq(ReadDir::Next);
+                String::from_utf8_lossy(&r.unwrap()[0..5]).into_owned()
+            })
+            .collect();
         assert_eq!(ids, ["00001", "00002", "00003"]);
         let (_, s) = f.read_seq(ReadDir::Next);
         assert_eq!(s, status::EOF);
@@ -1225,7 +1394,8 @@ mod tests {
 
     #[test]
     fn rewrite_delete_under_io() {
-        let p = tmp("io"); let _ = std::fs::remove_file(&p);
+        let p = tmp("io");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, false);
         f.open(OpenMode::Output);
         f.write(&rec("1", "ALICE"));
@@ -1255,7 +1425,8 @@ mod tests {
     #[test]
     fn alternate_key_no_duplicates_and_with_duplicates() {
         // no-dup alt rejects a second record with the same NAME.
-        let p = tmp("altnodup"); let _ = std::fs::remove_file(&p);
+        let p = tmp("altnodup");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, false);
         f.open(OpenMode::Output);
         assert_eq!(f.write(&rec("1", "ACME")), status::OK);
@@ -1264,7 +1435,8 @@ mod tests {
 
         // with-dup alt allows it (a duplicate is a successful 00 write), and
         // read by alt finds one.
-        let p = tmp("altdup"); let _ = std::fs::remove_file(&p);
+        let p = tmp("altdup");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, true);
         f.open(OpenMode::Output);
         assert_eq!(f.write(&rec("1", "ACME")), status::OK);
@@ -1283,7 +1455,8 @@ mod tests {
 
     #[test]
     fn commit_and_rollback() {
-        let p = tmp("tx"); let _ = std::fs::remove_file(&p);
+        let p = tmp("tx");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, false);
         f.open(OpenMode::Output);
         f.write(&rec("1", "ALICE"));
@@ -1306,7 +1479,8 @@ mod tests {
     fn prcidx_schema_round_trips_and_inspect_discovers_it() {
         // Write a file with a named primary + a WITH DUPLICATES alternate, then
         // discover its schema from disk (the cobfa_indexinfo analog).
-        let p = tmp("schema"); let _ = std::fs::remove_file(&p);
+        let p = tmp("schema");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p.clone(), true);
         f.set_key_names(vec![Some("CUST-ID".into()), Some("CUST-NAME".into())]);
         f.open(OpenMode::Output);
@@ -1314,29 +1488,41 @@ mod tests {
         f.write(&rec("2", "BOB"));
         f.close();
 
-        let info = IndexedFile::inspect_path(&p).unwrap().expect("PRCIDX1 schema");
+        let info = IndexedFile::inspect_path(&p)
+            .unwrap()
+            .expect("PRCIDX1 schema");
         assert_eq!(info.record_format, RecordFormat::Fixed { length: 15 });
         assert_eq!(info.key_count, 2);
         assert_eq!(info.total_key_length, 15); // 5 + 10
-        // Primary: number 1, offset 0 len 5, unique, ascending, named.
+                                               // Primary: number 1, offset 0 len 5, unique, ascending, named.
         assert_eq!(info.primary.key_number, 1);
         assert_eq!(info.primary.name.as_deref(), Some("CUST-ID"));
         assert_eq!(info.primary.parts.len(), 1);
-        assert_eq!((info.primary.parts[0].offset, info.primary.parts[0].length), (0, 5));
+        assert_eq!(
+            (info.primary.parts[0].offset, info.primary.parts[0].length),
+            (0, 5)
+        );
         assert!(!info.primary.duplicates_allowed);
         assert_eq!(info.primary.ordering, KeyOrdering::Ascending);
         // Alternate: number 2, offset 5 len 10, duplicates allowed, named.
         assert_eq!(info.alternates.len(), 1);
         assert_eq!(info.alternates[0].key_number, 2);
         assert_eq!(info.alternates[0].name.as_deref(), Some("CUST-NAME"));
-        assert_eq!((info.alternates[0].parts[0].offset, info.alternates[0].parts[0].length), (5, 10));
+        assert_eq!(
+            (
+                info.alternates[0].parts[0].offset,
+                info.alternates[0].parts[0].length
+            ),
+            (5, 10)
+        );
         assert!(info.alternates[0].duplicates_allowed);
         let _ = std::fs::remove_file(&p);
     }
 
     #[test]
     fn open_input_missing_file_is_status_35() {
-        let p = tmp("missing"); let _ = std::fs::remove_file(&p);
+        let p = tmp("missing");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p, false);
         assert_eq!(f.open(OpenMode::Input), status::FILE_NOT_FOUND);
     }
@@ -1345,7 +1531,8 @@ mod tests {
     fn strict_metadata_mismatch_is_status_39() {
         // Create with a 10-byte unique alternate; reopen declaring that same
         // alternate WITH DUPLICATES → attribute mismatch (39).
-        let p = tmp("mismatch"); let _ = std::fs::remove_file(&p);
+        let p = tmp("mismatch");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p.clone(), false);
         f.open(OpenMode::Output);
         f.write(&rec("1", "ALICE"));
@@ -1365,7 +1552,8 @@ mod tests {
     fn legacy_prcisam1_container_still_loads() {
         // Hand-build a legacy container (magic + record_len + records) and prove
         // it loads (no schema → strict validation is skipped).
-        let p = tmp("legacy"); let _ = std::fs::remove_file(&p);
+        let p = tmp("legacy");
+        let _ = std::fs::remove_file(&p);
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"PRCISAM1");
         bytes.extend_from_slice(&15u32.to_le_bytes());
@@ -1387,7 +1575,8 @@ mod tests {
 
     #[test]
     fn corrupt_prcidx_crc_is_io_error() {
-        let p = tmp("corrupt"); let _ = std::fs::remove_file(&p);
+        let p = tmp("corrupt");
+        let _ = std::fs::remove_file(&p);
         let mut f = newfile(p.clone(), false);
         f.open(OpenMode::Output);
         f.write(&rec("1", "ALICE"));

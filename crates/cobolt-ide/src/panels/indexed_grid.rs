@@ -11,8 +11,8 @@ use std::path::Path;
 use cobolt_indexed::{IndexedDefinition, IndexedField};
 use cobolt_runtime::indexed_ide::GridSession;
 
-use crate::i18n::Tr;
 use super::indexed_field_control::{build_record, format_cell, show_edit_control, EditCell};
+use crate::i18n::Tr;
 
 const PAGE_SIZE: usize = 200;
 
@@ -49,12 +49,7 @@ impl IndexedGridPanel {
         }
     }
 
-    pub fn open(
-        &mut self,
-        def: &IndexedDefinition,
-        data_path: &Path,
-        writes_blocked: bool,
-    ) {
+    pub fn open(&mut self, def: &IndexedDefinition, data_path: &Path, writes_blocked: bool) {
         self.writes_blocked = writes_blocked;
         match GridSession::open(def, data_path) {
             Ok(s) => {
@@ -169,7 +164,11 @@ impl IndexedGridPanel {
 
         if !self.writes_blocked && (self.new_row_mode || self.selected_row.is_some()) {
             ui.separator();
-            ui.heading(if self.new_row_mode { tr.grid_new_row } else { tr.grid_edit_row });
+            ui.heading(if self.new_row_mode {
+                tr.grid_new_row
+            } else {
+                tr.grid_edit_row
+            });
             let record_len = def.record_length() as usize;
             if self.edit_cells.len() != leaves.len() {
                 self.edit_cells = leaves
@@ -241,7 +240,10 @@ impl IndexedGridPanel {
             }
             GridAction::DeleteRow => {
                 let idx = self.selected_row?;
-                match session.select_row(idx).and_then(|_| session.delete_current()) {
+                match session
+                    .select_row(idx)
+                    .and_then(|_| session.delete_current())
+                {
                     Ok(()) => {
                         self.selected_row = None;
                         Some(tr.grid_status_delete_ok.into())

@@ -89,10 +89,7 @@ pub(crate) fn parse_identification_division(p: &mut Parser) -> IdentificationDiv
                 collect_comment_text(p);
             }
             // Next division or EOF — stop.
-            Token::Environment
-            | Token::Data
-            | Token::Procedure
-            | Token::Eof => break,
+            Token::Environment | Token::Data | Token::Procedure | Token::Eof => break,
             _ => break,
         }
     }
@@ -128,4 +125,3 @@ fn collect_comment_text(p: &mut Parser) -> String {
     p.eat(&Token::Period);
     parts.join(" ")
 }
-

@@ -60,7 +60,11 @@ pub fn doc_list(lang: Language) -> Vec<DocEntry> {
         }
         let source = f.contents_utf8().unwrap_or_default().to_string();
         let title = first_heading(&source).unwrap_or_else(|| pretty_name(name));
-        out.push(DocEntry { id: name.to_string(), title, source });
+        out.push(DocEntry {
+            id: name.to_string(),
+            title,
+            source,
+        });
     }
     // Developer's Guide first, then the rest alphabetically by title.
     out.sort_by(|a, b| {

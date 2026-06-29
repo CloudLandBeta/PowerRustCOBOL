@@ -54,16 +54,28 @@ pub fn structural_fingerprint(def: &IndexedDefinition) -> String {
     use std::fmt::Write;
     let mut s = String::new();
     let _ = write!(s, "rf:{:?}", def.record_format);
-    let _ = write!(s, ";st:{:?}{}{}", def.storage, def.compression, def.persistence);
+    let _ = write!(
+        s,
+        ";st:{:?}{}{}",
+        def.storage, def.compression, def.persistence
+    );
     fingerprint_key(&def.keys.primary, &mut s);
     for alt in &def.keys.alternates {
         fingerprint_key(alt, &mut s);
     }
-    for leaf in def.fields.first().map(|r| r.all_leaves()).unwrap_or_default() {
+    for leaf in def
+        .fields
+        .first()
+        .map(|r| r.all_leaves())
+        .unwrap_or_default()
+    {
         let _ = write!(
             s,
             ";f:{}:{}:{}:{:?}",
-            leaf.name, leaf.pic, leaf.offset.unwrap_or(0), leaf.usage
+            leaf.name,
+            leaf.pic,
+            leaf.offset.unwrap_or(0),
+            leaf.usage
         );
     }
     s
@@ -71,7 +83,11 @@ pub fn structural_fingerprint(def: &IndexedDefinition) -> String {
 
 fn fingerprint_key(key: &crate::model::KeyDef, s: &mut String) {
     for p in &key.parts {
-        let _ = write!(s, ";k:{}:{}:{}:{:?}", p.field_name, p.offset, p.length, p.encoding);
+        let _ = write!(
+            s,
+            ";k:{}:{}:{}:{:?}",
+            p.field_name, p.offset, p.length, p.encoding
+        );
     }
 }
 

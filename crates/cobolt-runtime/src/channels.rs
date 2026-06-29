@@ -32,14 +32,17 @@
 #[derive(Debug, Clone)]
 pub struct FormEvent {
     /// The COBOL control ID (e.g. `"BTN-OK"`).
-    pub ctrl_id:  String,
+    pub ctrl_id: String,
     /// The event name (e.g. `"onClick"`, `"onChange"`, `"onGotFocus"`, `"onLostFocus"`).
     pub event_id: String,
 }
 
 impl FormEvent {
     pub fn new(ctrl_id: impl Into<String>, event_id: impl Into<String>) -> Self {
-        Self { ctrl_id: ctrl_id.into(), event_id: event_id.into() }
+        Self {
+            ctrl_id: ctrl_id.into(),
+            event_id: event_id.into(),
+        }
     }
 
     /// Convenience: an `"onClick"` event on `ctrl_id`.
@@ -68,23 +71,23 @@ impl FormEvent {
 #[derive(Debug, Clone)]
 pub struct StateUpdate {
     /// The COBOL control ID.
-    pub ctrl_id:  String,
+    pub ctrl_id: String,
     /// The property name (e.g. `"Caption"`, `"Text"`, `"Enabled"`, `"Visible"`).
-    pub prop:     String,
+    pub prop: String,
     /// The new value as a string (booleans: `"0"`/`"1"`).
-    pub value:    String,
+    pub value: String,
 }
 
 impl StateUpdate {
     pub fn new(
         ctrl_id: impl Into<String>,
-        prop:    impl Into<String>,
-        value:   impl Into<String>,
+        prop: impl Into<String>,
+        value: impl Into<String>,
     ) -> Self {
         Self {
             ctrl_id: ctrl_id.into(),
-            prop:    prop.into(),
-            value:   value.into(),
+            prop: prop.into(),
+            value: value.into(),
         }
     }
 }

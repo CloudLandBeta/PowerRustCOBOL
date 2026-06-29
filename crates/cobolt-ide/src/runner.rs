@@ -37,10 +37,7 @@ use std::thread::{self, JoinHandle};
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
-use cobolt_runtime::{
-    Interpreter,
-    DebugCmd, DebugEvent, Breakpoints, new_breakpoints,
-};
+use cobolt_runtime::{new_breakpoints, Breakpoints, DebugCmd, DebugEvent, Interpreter};
 use cobolt_semantic::analyze;
 
 // ── Message types ─────────────────────────────────────────────────────────────
@@ -64,9 +61,9 @@ pub enum RunMsg {
 #[derive(Debug, Clone)]
 pub struct DiagMsg {
     pub severity: DiagSeverity,
-    pub message:  String,
-    pub line:     u32,
-    pub col:      u32,
+    pub message: String,
+    pub line: u32,
+    pub col: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,9 +78,9 @@ pub enum DiagSeverity {
 /// Manages the background execution thread.
 pub struct Runner {
     /// Messages produced by the running thread.
-    rx:      Option<Receiver<RunMsg>>,
+    rx: Option<Receiver<RunMsg>>,
     /// Handle to the thread (for joining).
-    handle:  Option<JoinHandle<()>>,
+    handle: Option<JoinHandle<()>>,
     /// Set to `true` to ask the thread to stop.
     stop_flag: Arc<AtomicBool>,
     /// True while the thread is still running.
@@ -91,16 +88,18 @@ pub struct Runner {
 }
 
 impl Default for Runner {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Runner {
     pub fn new() -> Self {
         Self {
-            rx:        None,
-            handle:    None,
+            rx: None,
+            handle: None,
             stop_flag: Arc::new(AtomicBool::new(false)),
-            running:   false,
+            running: false,
         }
     }
 
@@ -111,13 +110,13 @@ impl Runner {
         self.stop();
 
         let file_name = file_name.into();
-        let source    = source.into();
+        let source = source.into();
 
         self.stop_flag = Arc::new(AtomicBool::new(false));
-        let stop_flag  = Arc::clone(&self.stop_flag);
+        let stop_flag = Arc::clone(&self.stop_flag);
 
         let (tx, rx) = mpsc::channel::<RunMsg>();
-        self.rx      = Some(rx);
+        self.rx = Some(rx);
         self.running = true;
 
         let handle = thread::spawn(move || {
@@ -140,7 +139,9 @@ impl Runner {
     /// when a `Finished`, `Stopped`, or `Error` message is received.
     pub fn drain_output(&mut self) -> Vec<RunMsg> {
         let mut out = Vec::new();
-        let Some(rx) = &self.rx else { return out; };
+        let Some(rx) = &self.rx else {
+            return out;
+        };
 
         loop {
             match rx.try_recv() {
@@ -153,7 +154,7 @@ impl Runner {
                     }
                     out.push(msg);
                 }
-                Err(mpsc::TryRecvError::Empty)        => break,
+                Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.running = false;
                     break;
@@ -164,12 +165,18 @@ impl Runner {
     }
 
     /// `true` while the run thread is active.
-    pub fn is_running(&self) -> bool { self.running }
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
 
     /// `true` after the thread finishes (or was stopped).
     pub fn is_finished(&self) -> bool {
         !self.running
-            && self.handle.as_ref().map(|h| h.is_finished()).unwrap_or(true)
+            && self
+                .handle
+                .as_ref()
+                .map(|h| h.is_finished())
+                .unwrap_or(true)
     }
 
     /// Clean up finished thread handle.
@@ -188,14 +195,9 @@ impl Runner {
 /// Output is sent line-by-line through `tx`.  The `stop_flag` is checked
 /// between paragraphs (via a custom IoBackend hook in the future; for now
 /// the pipeline can only be stopped between statements via the flag).
-fn run_pipeline(
-    file_name: String,
-    source: String,
-    tx: Sender<RunMsg>,
-    stop_flag: Arc<AtomicBool>,
-) {
+fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag: Arc<AtomicBool>) {
     // ── Lex ──────────────────────────────────────────────────────────────────
-    let fmt    = detect_format(&source);
+    let fmt = detect_format(&source);
     let tokens = tokenize(&source, fmt);
 
     // ── Parse ────────────────────────────────────────────────────────────────
@@ -204,28 +206,34 @@ fn run_pipeline(
     // Forward parser diagnostics.
     for d in &parse_result.diagnostics {
         let severity = match d.severity {
-            cobolt_parser::Severity::Error   => DiagSeverity::Error,
+            cobolt_parser::Severity::Error => DiagSeverity::Error,
             cobolt_parser::Severity::Warning => DiagSeverity::Warning,
         };
         let _ = tx.send(RunMsg::Diagnostic(DiagMsg {
             severity,
             message: d.message.clone(),
-            line:    d.span.line,
-            col:     d.span.col,
+            line: d.span.line,
+            col: d.span.col,
         }));
     }
 
     let program = match parse_result.program {
         Some(p) => p,
         None => {
-            let _ = tx.send(RunMsg::Error("Parse failed — no program recovered.".to_owned()));
+            let _ = tx.send(RunMsg::Error(
+                "Parse failed — no program recovered.".to_owned(),
+            ));
             return;
         }
     };
 
     // A recovered program that still carries hard parse errors (for example a
     // redeclared PROGRAM-ID or division) must not run until it is corrected.
-    if parse_result.diagnostics.iter().any(|d| d.severity == cobolt_parser::Severity::Error) {
+    if parse_result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == cobolt_parser::Severity::Error)
+    {
         let _ = tx.send(RunMsg::Error("Aborting: parse errors found.".to_owned()));
         return;
     }
@@ -235,21 +243,19 @@ fn run_pipeline(
     for diag in &sem.diagnostics {
         use cobolt_semantic::Severity;
         let severity = match diag.severity {
-            Severity::Error   => DiagSeverity::Error,
+            Severity::Error => DiagSeverity::Error,
             Severity::Warning => DiagSeverity::Warning,
-            Severity::Info    => DiagSeverity::Info,
+            Severity::Info => DiagSeverity::Info,
         };
         let _ = tx.send(RunMsg::Diagnostic(DiagMsg {
             severity,
             message: diag.message.clone(),
-            line:    diag.span.line,
-            col:     diag.span.col,
+            line: diag.span.line,
+            col: diag.span.col,
         }));
     }
     if !sem.is_ok() {
-        let _ = tx.send(RunMsg::Error(
-            "Aborting: semantic errors found.".to_owned(),
-        ));
+        let _ = tx.send(RunMsg::Error("Aborting: semantic errors found.".to_owned()));
         return;
     }
 
@@ -300,32 +306,34 @@ fn run_pipeline(
 /// Resumed, Finished) back each frame via `drain_events()`.
 pub struct DebugRunner {
     /// Receives `RunMsg` (diagnostics, output, finished/error).
-    run_rx:      Option<Receiver<RunMsg>>,
+    run_rx: Option<Receiver<RunMsg>>,
     /// Receives `DebugEvent` from the interpreter (Paused, Resumed, Finished).
-    event_rx:    Option<Receiver<DebugEvent>>,
+    event_rx: Option<Receiver<DebugEvent>>,
     /// Sends `DebugCmd` to the interpreter.
-    cmd_tx:      Option<mpsc::Sender<DebugCmd>>,
+    cmd_tx: Option<mpsc::Sender<DebugCmd>>,
     /// Shared breakpoint set — IDE writes, interpreter reads.
     pub breakpoints: Breakpoints,
     /// Handle to the interpreter thread.
-    handle:      Option<JoinHandle<()>>,
+    handle: Option<JoinHandle<()>>,
     /// `true` while the thread is still running.
-    running:     bool,
+    running: bool,
 }
 
 impl Default for DebugRunner {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DebugRunner {
     pub fn new() -> Self {
         Self {
-            run_rx:      None,
-            event_rx:    None,
-            cmd_tx:      None,
+            run_rx: None,
+            event_rx: None,
+            cmd_tx: None,
             breakpoints: new_breakpoints(),
-            handle:      None,
-            running:     false,
+            handle: None,
+            running: false,
         }
     }
 
@@ -338,17 +346,17 @@ impl DebugRunner {
         // because the caller should write to `self.breakpoints` before calling.)
         let bp = Arc::clone(&self.breakpoints);
 
-        let (run_tx, run_rx)     = mpsc::channel::<RunMsg>();
-        let (ev_tx, ev_rx)       = mpsc::channel::<DebugEvent>();
-        let (cmd_tx, cmd_rx)     = mpsc::channel::<DebugCmd>();
+        let (run_tx, run_rx) = mpsc::channel::<RunMsg>();
+        let (ev_tx, ev_rx) = mpsc::channel::<DebugEvent>();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<DebugCmd>();
 
-        self.run_rx   = Some(run_rx);
+        self.run_rx = Some(run_rx);
         self.event_rx = Some(ev_rx);
-        self.cmd_tx   = Some(cmd_tx);
-        self.running  = true;
+        self.cmd_tx = Some(cmd_tx);
+        self.running = true;
 
         let file_name = file_name.into();
-        let source    = source.into();
+        let source = source.into();
 
         let handle = thread::spawn(move || {
             run_debug_pipeline(file_name, source, run_tx, ev_tx, cmd_rx, bp);
@@ -366,7 +374,9 @@ impl DebugRunner {
     /// Drain pending run messages (diagnostics, output, finished/stopped).
     pub fn drain_run(&mut self) -> Vec<RunMsg> {
         let mut out = Vec::new();
-        let Some(rx) = &self.run_rx else { return out; };
+        let Some(rx) = &self.run_rx else {
+            return out;
+        };
         loop {
             match rx.try_recv() {
                 Ok(msg) => {
@@ -379,7 +389,10 @@ impl DebugRunner {
                     out.push(msg);
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => { self.running = false; break; }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.running = false;
+                    break;
+                }
             }
         }
         out
@@ -388,7 +401,9 @@ impl DebugRunner {
     /// Drain pending debug events (Paused, Resumed, Finished).
     pub fn drain_events(&mut self) -> Vec<DebugEvent> {
         let mut out = Vec::new();
-        let Some(rx) = &self.event_rx else { return out; };
+        let Some(rx) = &self.event_rx else {
+            return out;
+        };
         loop {
             match rx.try_recv() {
                 Ok(ev) => {
@@ -398,13 +413,18 @@ impl DebugRunner {
                     out.push(ev);
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => { self.running = false; break; }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.running = false;
+                    break;
+                }
             }
         }
         out
     }
 
-    pub fn is_running(&self) -> bool { self.running }
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
 
     /// Stop the debug session (drops cmd_tx, which unblocks the interpreter).
     pub fn stop(&mut self) {
@@ -413,44 +433,53 @@ impl DebugRunner {
         if let Some(h) = self.handle.take() {
             let _ = h.join();
         }
-        self.run_rx   = None;
+        self.run_rx = None;
         self.event_rx = None;
     }
 }
 
 /// Run the full pipeline with debug channels attached.
 fn run_debug_pipeline(
-    file_name:  String,
-    source:     String,
-    run_tx:     Sender<RunMsg>,
-    ev_tx:      mpsc::Sender<DebugEvent>,
-    cmd_rx:     mpsc::Receiver<DebugCmd>,
+    file_name: String,
+    source: String,
+    run_tx: Sender<RunMsg>,
+    ev_tx: mpsc::Sender<DebugEvent>,
+    cmd_rx: mpsc::Receiver<DebugCmd>,
     breakpoints: Breakpoints,
 ) {
-    let fmt    = detect_format(&source);
+    let fmt = detect_format(&source);
     let tokens = tokenize(&source, fmt);
     let parse_result = parse(tokens);
 
     for d in &parse_result.diagnostics {
         let severity = match d.severity {
-            cobolt_parser::Severity::Error   => DiagSeverity::Error,
+            cobolt_parser::Severity::Error => DiagSeverity::Error,
             cobolt_parser::Severity::Warning => DiagSeverity::Warning,
         };
         let _ = run_tx.send(RunMsg::Diagnostic(DiagMsg {
-            severity, message: d.message.clone(), line: d.span.line, col: d.span.col,
+            severity,
+            message: d.message.clone(),
+            line: d.span.line,
+            col: d.span.col,
         }));
     }
 
     let program = match parse_result.program {
         Some(p) => p,
         None => {
-            let _ = run_tx.send(RunMsg::Error("Parse failed — no program recovered.".to_owned()));
+            let _ = run_tx.send(RunMsg::Error(
+                "Parse failed — no program recovered.".to_owned(),
+            ));
             return;
         }
     };
 
     // Block debugging a program that still carries hard parse errors.
-    if parse_result.diagnostics.iter().any(|d| d.severity == cobolt_parser::Severity::Error) {
+    if parse_result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == cobolt_parser::Severity::Error)
+    {
         let _ = run_tx.send(RunMsg::Error("Aborting: parse errors found.".to_owned()));
         return;
     }
@@ -459,12 +488,15 @@ fn run_debug_pipeline(
     for diag in &sem.diagnostics {
         use cobolt_semantic::Severity;
         let severity = match diag.severity {
-            Severity::Error   => DiagSeverity::Error,
+            Severity::Error => DiagSeverity::Error,
             Severity::Warning => DiagSeverity::Warning,
-            Severity::Info    => DiagSeverity::Info,
+            Severity::Info => DiagSeverity::Info,
         };
         let _ = run_tx.send(RunMsg::Diagnostic(DiagMsg {
-            severity, message: diag.message.clone(), line: diag.span.line, col: diag.span.col,
+            severity,
+            message: diag.message.clone(),
+            line: diag.span.line,
+            col: diag.span.col,
         }));
     }
     if !sem.is_ok() {
@@ -473,17 +505,23 @@ fn run_debug_pipeline(
     }
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut interp = Interpreter::new_with_debug_channels(
-            program, cmd_rx, ev_tx, breakpoints,
-        );
+        let mut interp = Interpreter::new_with_debug_channels(program, cmd_rx, ev_tx, breakpoints);
         interp.run()
     }));
 
     match result {
-        Ok(Ok(())) => { let _ = run_tx.send(RunMsg::Finished); }
-        Ok(Err(e)) if e.is_exit_signal() => { let _ = run_tx.send(RunMsg::Finished); }
-        Ok(Err(e)) => { let _ = run_tx.send(RunMsg::Error(e.to_string())); }
-        Err(_) => { let _ = run_tx.send(RunMsg::Error("Runtime panic".to_owned())); }
+        Ok(Ok(())) => {
+            let _ = run_tx.send(RunMsg::Finished);
+        }
+        Ok(Err(e)) if e.is_exit_signal() => {
+            let _ = run_tx.send(RunMsg::Finished);
+        }
+        Ok(Err(e)) => {
+            let _ = run_tx.send(RunMsg::Error(e.to_string()));
+        }
+        Err(_) => {
+            let _ = run_tx.send(RunMsg::Error("Runtime panic".to_owned()));
+        }
     }
 }
 
@@ -493,9 +531,11 @@ fn detect_format(source: &str) -> SourceFormat {
     // If any line has content starting in column 7+ after spaces in 1-6, fixed-form.
     let looks_fixed = source.lines().any(|line| {
         let b = line.as_bytes();
-        b.len() > 6
-            && b[6] != b' '
-            && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
+        b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
     });
-    if looks_fixed { SourceFormat::Fixed } else { SourceFormat::Free }
+    if looks_fixed {
+        SourceFormat::Fixed
+    } else {
+        SourceFormat::Free
+    }
 }

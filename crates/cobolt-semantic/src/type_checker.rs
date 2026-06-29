@@ -30,12 +30,11 @@ use crate::{symbol_table::SymbolTable, SemanticDiagnostic, Severity};
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-pub fn check(
-    program: &Program,
-    symbols: &SymbolTable,
-    diagnostics: &mut Vec<SemanticDiagnostic>,
-) {
-    let mut ctx = TypeCtx { symbols, diagnostics };
+pub fn check(program: &Program, symbols: &SymbolTable, diagnostics: &mut Vec<SemanticDiagnostic>) {
+    let mut ctx = TypeCtx {
+        symbols,
+        diagnostics,
+    };
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
             for para in paras {
@@ -87,17 +86,19 @@ impl<'a> TypeCtx<'a> {
             self.symbols.data_item(name).map(|info| {
                 // Numeric by PIC category, or by a numeric USAGE that needs no PIC
                 // (COMP-1/COMP-2 are floating-point numeric items).
-                matches!(info.pic_kind, Some(PicKind::Numeric | PicKind::NumericEdited))
-                    || matches!(
-                        info.usage,
-                        Usage::Comp1
-                            | Usage::Comp2
-                            | Usage::Binary
-                            | Usage::Comp
-                            | Usage::Comp3
-                            | Usage::Comp5
-                            | Usage::PackedDecimal
-                    )
+                matches!(
+                    info.pic_kind,
+                    Some(PicKind::Numeric | PicKind::NumericEdited)
+                ) || matches!(
+                    info.usage,
+                    Usage::Comp1
+                        | Usage::Comp2
+                        | Usage::Binary
+                        | Usage::Comp
+                        | Usage::Comp3
+                        | Usage::Comp5
+                        | Usage::PackedDecimal
+                )
             })
         } else {
             None
@@ -119,27 +120,43 @@ impl<'a> TypeCtx<'a> {
         match stmt {
             // ── Arithmetic verbs ──────────────────────────────────────────────
             Stmt::Compute { targets, .. } => {
-                for (t, _) in targets { self.require_numeric_receiver(t, "COMPUTE"); }
+                for (t, _) in targets {
+                    self.require_numeric_receiver(t, "COMPUTE");
+                }
             }
             Stmt::Add { to, giving, .. } => {
                 if giving.is_empty() {
-                    for (t, _) in to { self.require_numeric_receiver(t, "ADD TO"); }
+                    for (t, _) in to {
+                        self.require_numeric_receiver(t, "ADD TO");
+                    }
                 } else {
-                    for (g, _) in giving { self.require_numeric_receiver(g, "ADD GIVING"); }
+                    for (g, _) in giving {
+                        self.require_numeric_receiver(g, "ADD GIVING");
+                    }
                 }
             }
             Stmt::Subtract { from, giving, .. } => {
                 if giving.is_empty() {
-                    for (f, _) in from { self.require_numeric_receiver(f, "SUBTRACT FROM"); }
+                    for (f, _) in from {
+                        self.require_numeric_receiver(f, "SUBTRACT FROM");
+                    }
                 } else {
-                    for (g, _) in giving { self.require_numeric_receiver(g, "SUBTRACT GIVING"); }
+                    for (g, _) in giving {
+                        self.require_numeric_receiver(g, "SUBTRACT GIVING");
+                    }
                 }
             }
             Stmt::Multiply { giving, .. } => {
-                for (g, _) in giving { self.require_numeric_receiver(g, "MULTIPLY GIVING"); }
+                for (g, _) in giving {
+                    self.require_numeric_receiver(g, "MULTIPLY GIVING");
+                }
             }
-            Stmt::Divide { giving, remainder, .. } => {
-                for (g, _) in giving { self.require_numeric_receiver(g, "DIVIDE GIVING"); }
+            Stmt::Divide {
+                giving, remainder, ..
+            } => {
+                for (g, _) in giving {
+                    self.require_numeric_receiver(g, "DIVIDE GIVING");
+                }
                 if let Some(r) = remainder {
                     self.require_numeric_receiver(r, "DIVIDE REMAINDER");
                 }
@@ -176,39 +193,57 @@ impl<'a> TypeCtx<'a> {
             }
 
             // ── PERFORM ───────────────────────────────────────────────────────
-            Stmt::Perform { target, .. } => {
-                match target {
-                    PerformTarget::Times { count, stmts } => {
-                        if let Some(false) = self.is_numeric_expr(count) {
-                            if let Expr::Identifier(name, span) = count {
-                                self.error(
-                                    format!(
-                                        "'{name}' is not numeric; \
+            Stmt::Perform { target, .. } => match target {
+                PerformTarget::Times { count, stmts } => {
+                    if let Some(false) = self.is_numeric_expr(count) {
+                        if let Expr::Identifier(name, span) = count {
+                            self.error(
+                                format!(
+                                    "'{name}' is not numeric; \
                                          PERFORM … TIMES requires a numeric count"
-                                    ),
-                                    *span,
-                                );
-                            }
+                                ),
+                                *span,
+                            );
                         }
-                        for s in stmts { self.check_stmt(s); }
                     }
-                    PerformTarget::Inline { stmts }
-                    | PerformTarget::Until { stmts, .. }
-                    | PerformTarget::Varying { stmts, .. } => {
-                        for s in stmts { self.check_stmt(s); }
+                    for s in stmts {
+                        self.check_stmt(s);
                     }
-                    _ => {}
                 }
-            }
+                PerformTarget::Inline { stmts }
+                | PerformTarget::Until { stmts, .. }
+                | PerformTarget::Varying { stmts, .. } => {
+                    for s in stmts {
+                        self.check_stmt(s);
+                    }
+                }
+                _ => {}
+            },
 
             // ── IF / EVALUATE — recurse into branches ─────────────────────────
-            Stmt::If { then_stmts, else_stmts, .. } => {
-                for s in then_stmts { self.check_stmt(s); }
-                for s in else_stmts { self.check_stmt(s); }
+            Stmt::If {
+                then_stmts,
+                else_stmts,
+                ..
+            } => {
+                for s in then_stmts {
+                    self.check_stmt(s);
+                }
+                for s in else_stmts {
+                    self.check_stmt(s);
+                }
             }
-            Stmt::Evaluate { whens, other_stmts, .. } => {
-                for w in whens { for s in &w.stmts { self.check_stmt(s); } }
-                for s in other_stmts { self.check_stmt(s); }
+            Stmt::Evaluate {
+                whens, other_stmts, ..
+            } => {
+                for w in whens {
+                    for s in &w.stmts {
+                        self.check_stmt(s);
+                    }
+                }
+                for s in other_stmts {
+                    self.check_stmt(s);
+                }
             }
 
             // ── EXEC RUST — source is opaque Rust, no COBOL type checks ───────

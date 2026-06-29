@@ -44,11 +44,17 @@ impl DialogSpec {
     }
     /// A "save file" dialog.
     pub fn save() -> Self {
-        Self { save: true, ..Self::default() }
+        Self {
+            save: true,
+            ..Self::default()
+        }
     }
     /// Add a named extension filter (e.g. `("COBOL", &["cbl","cob"])`).
     pub fn filter(mut self, name: &str, exts: &[&str]) -> Self {
-        self.filters.push((name.to_owned(), exts.iter().map(|s| s.to_string()).collect()));
+        self.filters.push((
+            name.to_owned(),
+            exts.iter().map(|s| s.to_string()).collect(),
+        ));
         self
     }
     /// Start the dialog in this directory.

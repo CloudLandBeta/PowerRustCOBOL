@@ -97,10 +97,7 @@ MAIN.
     let result = analyze(&prog);
     // No warnings — both identifiers are declared
     let warnings: Vec<_> = result.warnings().collect();
-    assert!(
-        warnings.is_empty(),
-        "unexpected warnings: {warnings:?}"
-    );
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
 }
 
 #[test]
@@ -165,7 +162,9 @@ MAIN.
     let result = analyze(&prog);
     let errors: Vec<_> = result.errors().collect();
     assert!(
-        errors.iter().any(|e| e.message.contains("WS-NAME") && e.message.contains("numeric")),
+        errors
+            .iter()
+            .any(|e| e.message.contains("WS-NAME") && e.message.contains("numeric")),
         "expected type error for WS-NAME in COMPUTE, got: {errors:?}"
     );
 }
@@ -204,11 +203,24 @@ MAIN.
         !info_diags.is_empty(),
         "expected Info diagnostics from EXEC RUST binding pass"
     );
-    let combined = info_diags.iter().map(|d| d.message.as_str()).collect::<Vec<_>>().join(" ");
-    assert!(combined.contains("ws_count"),  "expected ws_count in bindings: {combined}");
-    assert!(combined.contains("ws_result"), "expected ws_result in bindings: {combined}");
+    let combined = info_diags
+        .iter()
+        .map(|d| d.message.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        combined.contains("ws_count"),
+        "expected ws_count in bindings: {combined}"
+    );
+    assert!(
+        combined.contains("ws_result"),
+        "expected ws_result in bindings: {combined}"
+    );
     // WS-NAME is not referenced in the Rust block — should not appear
-    assert!(!combined.contains("ws_name"), "ws_name should not be in bindings: {combined}");
+    assert!(
+        !combined.contains("ws_name"),
+        "ws_name should not be in bindings: {combined}"
+    );
 }
 
 #[test]
@@ -238,8 +250,7 @@ MAIN.
 
     // ws_count should NOT match ws_count_extra
     assert!(
-        info_diags.is_empty()
-            || !info_diags.iter().any(|d| d.message.contains("ws_count")),
+        info_diags.is_empty() || !info_diags.iter().any(|d| d.message.contains("ws_count")),
         "ws_count should not match ws_count_extra: {info_diags:?}"
     );
 }
@@ -286,7 +297,10 @@ MAIN.
     let prog = parse_program(src);
     let result = analyze(&prog);
     let errors: Vec<_> = result.errors().collect();
-    assert!(errors.is_empty(), "GLOBAL on 01/77 must be clean: {errors:?}");
+    assert!(
+        errors.is_empty(),
+        "GLOBAL on 01/77 must be clean: {errors:?}"
+    );
 }
 
 #[test]
@@ -306,7 +320,9 @@ MAIN.
     let result = analyze(&prog);
     let errors: Vec<_> = result.errors().collect();
     assert!(
-        errors.iter().any(|e| e.message.contains("GLOBAL is valid only")),
+        errors
+            .iter()
+            .any(|e| e.message.contains("GLOBAL is valid only")),
         "GLOBAL on a level-05 item must be flagged: {errors:?}"
     );
 }
@@ -335,5 +351,8 @@ MAIN.
     let prog = parse_program(src);
     let result = analyze(&prog);
     let errors: Vec<_> = result.errors().collect();
-    assert!(errors.is_empty(), "FD IS GLOBAL must parse clean: {errors:?}");
+    assert!(
+        errors.is_empty(),
+        "FD IS GLOBAL must parse clean: {errors:?}"
+    );
 }

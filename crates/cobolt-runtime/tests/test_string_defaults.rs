@@ -18,13 +18,21 @@ use cobolt_runtime::Interpreter;
 fn run_get(src: &str, var: &str) -> String {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
-        "parse errors: {:?}", result.diagnostics
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
     );
     let mut i = Interpreter::new(result.program.expect("no program"));
     i.run().expect("run failed");
     // Receiving field is PIC X(n): strip the trailing space padding only.
-    i.env.get_string(var).unwrap_or_default().trim_end().to_owned()
+    i.env
+        .get_string(var)
+        .unwrap_or_default()
+        .trim_end()
+        .to_owned()
 }
 
 #[test]
@@ -56,7 +64,10 @@ fn smart_default_delimiters_compose_a_sentence() {
     // SALARY  → "000100000"    (numeric → size, full PIC width)
     // " or US$" → " or US$"
     // TRIM(edited) → "100,000.00" (function → size)
-    assert_eq!(run_get(src, "TEXT-OUT"), "Joe earns 000100000 or US$100,000.00");
+    assert_eq!(
+        run_get(src, "TEXT-OUT"),
+        "Joe earns 000100000 or US$100,000.00"
+    );
 }
 
 #[test]

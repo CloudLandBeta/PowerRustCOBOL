@@ -63,30 +63,34 @@ pub fn call_intrinsic(name: &str, args: &[CobolValue]) -> Option<CobolValue> {
         }
 
         // ── Numeric functions ─────────────────────────────────────────────────
-        "ABS"          => Some(CobolValue::from_f64(first_f64(args).abs())),
-        "ACOS"         => Some(CobolValue::from_f64(first_f64(args).acos())),
-        "ASIN"         => Some(CobolValue::from_f64(first_f64(args).asin())),
-        "ATAN"         => Some(CobolValue::from_f64(first_f64(args).atan())),
-        "COS"          => Some(CobolValue::from_f64(first_f64(args).cos())),
-        "SIN"          => Some(CobolValue::from_f64(first_f64(args).sin())),
-        "TAN"          => Some(CobolValue::from_f64(first_f64(args).tan())),
-        "SQRT"         => Some(CobolValue::from_f64(first_f64(args).sqrt())),
-        "LOG"          => Some(CobolValue::from_f64(first_f64(args).ln())),
-        "LOG10"        => Some(CobolValue::from_f64(first_f64(args).log10())),
-        "EXP"          => Some(CobolValue::from_f64(first_f64(args).exp())),
-        "INTEGER"      => Some(CobolValue::from_i64(first_f64(args).floor() as i64)),
+        "ABS" => Some(CobolValue::from_f64(first_f64(args).abs())),
+        "ACOS" => Some(CobolValue::from_f64(first_f64(args).acos())),
+        "ASIN" => Some(CobolValue::from_f64(first_f64(args).asin())),
+        "ATAN" => Some(CobolValue::from_f64(first_f64(args).atan())),
+        "COS" => Some(CobolValue::from_f64(first_f64(args).cos())),
+        "SIN" => Some(CobolValue::from_f64(first_f64(args).sin())),
+        "TAN" => Some(CobolValue::from_f64(first_f64(args).tan())),
+        "SQRT" => Some(CobolValue::from_f64(first_f64(args).sqrt())),
+        "LOG" => Some(CobolValue::from_f64(first_f64(args).ln())),
+        "LOG10" => Some(CobolValue::from_f64(first_f64(args).log10())),
+        "EXP" => Some(CobolValue::from_f64(first_f64(args).exp())),
+        "INTEGER" => Some(CobolValue::from_i64(first_f64(args).floor() as i64)),
         "INTEGER-PART" => Some(CobolValue::from_i64(first_f64(args).trunc() as i64)),
         "FACTORIAL" => {
             let n = first_f64(args) as u64;
             Some(CobolValue::from_i64(factorial(n) as i64))
         }
         "MEAN" => {
-            if args.is_empty() { return Some(CobolValue::from_f64(0.0)); }
+            if args.is_empty() {
+                return Some(CobolValue::from_f64(0.0));
+            }
             let sum: f64 = args.iter().map(|v| v.as_f64()).sum();
             Some(CobolValue::from_f64(sum / args.len() as f64))
         }
         "MEDIAN" => {
-            if args.is_empty() { return Some(CobolValue::from_f64(0.0)); }
+            if args.is_empty() {
+                return Some(CobolValue::from_f64(0.0));
+            }
             let mut vals: Vec<f64> = args.iter().map(|v| v.as_f64()).collect();
             vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let mid = vals.len() / 2;
@@ -98,11 +102,12 @@ pub fn call_intrinsic(name: &str, args: &[CobolValue]) -> Option<CobolValue> {
             Some(CobolValue::from_f64(med))
         }
         "VARIANCE" => {
-            if args.len() < 2 { return Some(CobolValue::from_f64(0.0)); }
+            if args.len() < 2 {
+                return Some(CobolValue::from_f64(0.0));
+            }
             let vals: Vec<f64> = args.iter().map(|v| v.as_f64()).collect();
             let mean = vals.iter().sum::<f64>() / vals.len() as f64;
-            let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                / vals.len() as f64;
+            let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / vals.len() as f64;
             Some(CobolValue::from_f64(var))
         }
         "STANDARD-DEVIATION" => {
@@ -113,8 +118,8 @@ pub fn call_intrinsic(name: &str, args: &[CobolValue]) -> Option<CobolValue> {
             let sum: f64 = args.iter().map(|v| v.as_f64()).sum();
             Some(CobolValue::from_f64(sum))
         }
-        "PI"   => Some(CobolValue::from_f64(std::f64::consts::PI)),
-        "E"    => Some(CobolValue::from_f64(std::f64::consts::E)),
+        "PI" => Some(CobolValue::from_f64(std::f64::consts::PI)),
+        "E" => Some(CobolValue::from_f64(std::f64::consts::E)),
 
         // ── Date functions ────────────────────────────────────────────────────
         "CURRENT-DATE" => {
@@ -147,7 +152,9 @@ pub fn is_known(name: &str) -> bool {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn first_str(args: &[CobolValue]) -> String {
-    args.first().map(|v| v.as_display_string()).unwrap_or_default()
+    args.first()
+        .map(|v| v.as_display_string())
+        .unwrap_or_default()
 }
 
 fn first_f64(args: &[CobolValue]) -> f64 {
@@ -176,7 +183,9 @@ fn days_to_yyyymmdd(mut days: u64) -> String {
     let mut year = 1970u64;
     loop {
         let dy = if is_leap(year) { 366 } else { 365 };
-        if days < dy { break; }
+        if days < dy {
+            break;
+        }
         days -= dy;
         year += 1;
     }
@@ -187,7 +196,9 @@ fn days_to_yyyymmdd(mut days: u64) -> String {
     };
     let mut month = 1u64;
     for days_in_m in &md {
-        if days < *days_in_m { break; }
+        if days < *days_in_m {
+            break;
+        }
         days -= days_in_m;
         month += 1;
     }
@@ -209,13 +220,14 @@ fn cobol_integer_date_to_string(n: i64) -> String {
 
 fn string_to_cobol_integer_date(s: &str) -> i64 {
     // Parse YYYYMMDD, approximate.
-    if s.len() < 8 { return 0; }
+    if s.len() < 8 {
+        return 0;
+    }
     let year: u64 = s[0..4].parse().unwrap_or(1970);
     let month: u64 = s[4..6].parse().unwrap_or(1);
     let day: u64 = s[6..8].parse().unwrap_or(1);
     // Days since 1970-01-01 (very rough).
-    let y_days = (year.saturating_sub(1970)) * 365
-        + (year.saturating_sub(1970)) / 4;
+    let y_days = (year.saturating_sub(1970)) * 365 + (year.saturating_sub(1970)) / 4;
     let m_days: u64 = [0u64, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
         .get(month.saturating_sub(1) as usize)
         .copied()

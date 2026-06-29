@@ -8,7 +8,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
 
 ---
 
-- [ ] **T1 — Define base event group constants** (R1)
+- [x] **T1 — Define base event group constants** (R1)
   - Files: `crates/cobolt-forms/src/model.rs`
   - Do: Add `const` arrays for each event category: `BASE_MOUSE` (11 events),
     `BASE_FOCUS` (2), `BASE_KEYBOARD` (5), `BASE_HOVER` (3), `BASE_GEOMETRY` (6),
@@ -16,7 +16,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-forms` green. Constants compile but are
     not yet used.
 
-- [ ] **T2 — Expand supported_events() for all visual controls** (R1, R2, R3.5, R3.6)
+- [x] **T2 — Expand supported_events() for all visual controls** (R1, R2, R3.5, R3.6)
   - Files: `crates/cobolt-forms/src/model.rs`
   - Do: Rewrite each `ControlType` match arm in `supported_events()` to return
     the full event list (base groups + type-specific events). Use `const` arrays
@@ -28,7 +28,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo test -p cobolt-forms --lib` all pass. Existing tests
     unaffected. **Covers AC1, AC4, AC11, AC13.**
 
-- [ ] **T3 — Fire onRightClick, onMiddleClick, onContextMenu** (R1, R3.1)
+- [x] **T3 — Fire onRightClick, onMiddleClick, onContextMenu** (R1, R3.1)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: In `control_pointer_events()`, add detection for secondary click
     (`i.pointer.secondary_clicked()`) and middle click. When secondary click
@@ -37,14 +37,14 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-forms --features render` green. Add test
     `right_click_fires_event`. **Covers AC2.**
 
-- [ ] **T4 — Fire onMouseMove, onMouseWheel** (R1, R3.1)
+- [x] **T4 — Fire onMouseMove, onMouseWheel** (R1, R3.1)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: In `control_pointer_events()`, when pointer is over the control:
     fire `onMouseMove` if `want("onMouseMove")` and pointer has moved.
     Fire `onMouseWheel` if `want("onMouseWheel")` and `i.scroll_delta != 0`.
   - Verify: `cargo check -p cobolt-forms --features render` green.
 
-- [ ] **T5 — Fire onDoubleClick alias alongside onDblClick** (R3.6)
+- [x] **T5 — Fire onDoubleClick alias alongside onDblClick** (R3.6)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: In `control_pointer_events()`, where `onDblClick` fires, also fire
     `onDoubleClick` if `want("onDoubleClick")`.
@@ -61,7 +61,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-forms --features render` green.
     **Covers AC5.**
 
-- [ ] **T7 — Fire onHoverEnter, onHoverLeave** (R1, R3.1)
+- [x] **T7 — Fire onHoverEnter, onHoverLeave** (R1, R3.1)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: In `control_pointer_events()`, track hover duration using egui temp
     data keyed by `ctrl_id.with("hover-start")`. When pointer is over the
@@ -97,7 +97,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-forms --features render` green.
     **Covers AC3.**
 
-- [ ] **T11 — Fire onLoad** (R1, R3.1)
+- [x] **T11 — Fire onLoad** (R1, R3.1)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: Track "loaded" flag per control in egui temp. On the first frame a
     control is rendered, fire `onLoad` if `want("onLoad")`. Set the flag so
@@ -123,6 +123,10 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     - Charts: `onZoom`
   - Verify: `cargo check -p cobolt-forms --features render` green.
     **Covers AC6, AC7, AC8.**
+  - Status: TextBox `onTextChanged`/`onEnterPressed`/`onEscapePressed`,
+    CheckBox/RadioButton `onValueChanged`, and Slider `onValueChanged` are
+    implemented and covered by render-engine tests. Remaining type-specific
+    events still need follow-up.
 
 - [ ] **T13 — Event data: generated WS items** (R4)
   - Files: `crates/cobolt-codegen/src/lib.rs`

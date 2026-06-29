@@ -704,6 +704,79 @@ pub fn merge_props<'a>(
     c
 }
 
+/// Resolve a property path for a deployed User Control instance.
+///
+/// `Caption` targets the receiver itself. `Child.Caption` targets the deployed
+/// child id formed by qualifying the child name with the receiver id:
+/// `CustomerCard-1` + `Button1.Caption` -> `CustomerCard-1-Button1`, `Caption`.
+pub fn resolve_user_control_property_path(
+    receiver_id: &str,
+    property_path: &str,
+) -> Option<(String, String)> {
+    let receiver_id = receiver_id.trim();
+    let property_path = property_path.trim();
+    if receiver_id.is_empty() || property_path.is_empty() {
+        return None;
+    }
+
+    if let Some((child, prop)) = property_path.split_once('.') {
+        let child = child.trim();
+        let prop = prop.trim();
+        if child.is_empty() || prop.is_empty() {
+            return None;
+        }
+        Some((format!("{receiver_id}-{child}"), prop.to_owned()))
+    } else {
+        Some((receiver_id.to_owned(), property_path.to_owned()))
+    }
+}
+
+/// Read a live/designed control property using the same structural keys that
+/// [`merge_props`] accepts.
+pub fn control_property_string(ctrl: &Control, key: &str) -> String {
+    match key.to_ascii_uppercase().as_str() {
+        "NAME" => ctrl.id.clone(),
+        "X" => ctrl.rect.x.to_string(),
+        "Y" => ctrl.rect.y.to_string(),
+        "WIDTH" => ctrl.rect.w.to_string(),
+        "HEIGHT" => ctrl.rect.h.to_string(),
+        "VISIBLE" => {
+            if ctrl.visible {
+                "1".to_owned()
+            } else {
+                "0".to_owned()
+            }
+        }
+        "ENABLED" => {
+            if ctrl.enabled {
+                "1".to_owned()
+            } else {
+                "0".to_owned()
+            }
+        }
+        "TABORDER" => ctrl.tab_order.to_string(),
+        "ZORDER" => ctrl.z_order.to_string(),
+        _ => sv(ctrl, key),
+    }
+}
+
+/// Read a property from the live form state, resolving User Control
+/// `child.property` paths first. Returns `None` when the resolved control id does
+/// not exist in the designed control list.
+pub fn read_user_control_property(
+    controls: &[Control],
+    state: &dyn FormState,
+    receiver_id: &str,
+    property_path: &str,
+) -> Option<String> {
+    let (target_id, key) = resolve_user_control_property_path(receiver_id, property_path)?;
+    let base = controls
+        .iter()
+        .find(|ctrl| ctrl.id.eq_ignore_ascii_case(&target_id))?;
+    let live = state.live(base);
+    Some(control_property_string(&live, &key))
+}
+
 impl UiEvent {
     /// A valueless event (`onClick`, `onGotFocus`, `onTick`, …).
     fn ev(id: &str, event: &str) -> Self {
@@ -754,26 +827,76 @@ fn control_pointer_events(
     ct: &ControlType,
     enabled: bool,
     out: &mut RenderOutput,
+    bound_events: &[&str],
 ) {
     if !enabled {
         return;
     }
-    let supported = ct.supported_events();
-    let want = |e: &str| supported.contains(&e);
+    // Only fire events that the control has a bound handler for, not all
+    // supported events. Firing all supported events floods the COBOL event
+    // loop (which is single-threaded and blocking) with unhandled events
+    // like onMouseMove (60/sec) and onLoad, starving real handlers.
+    let want = |e: &str| bound_events.contains(&e);
 
     let over = ui.rect_contains_pointer(screen);
-    let (pressed, released, dbl, clicked) = ui.input(|i| {
+    let (
+        pressed,
+        released,
+        dbl,
+        clicked,
+        secondary_clicked,
+        middle_clicked,
+        pointer_moved,
+        wheel_scrolled,
+        now,
+    ) = ui.input(|i| {
+        let pointer_moved = i
+            .events
+            .iter()
+            .any(|e| matches!(e, egui::Event::PointerMoved(_) | egui::Event::MouseMoved(_)));
+        let wheel_scrolled = i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::MouseWheel { delta, .. } if delta.x != 0.0 || delta.y != 0.0
+            )
+        });
+        let middle_clicked = i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::PointerButton {
+                    button: egui::PointerButton::Middle,
+                    pressed: false,
+                    ..
+                }
+            )
+        });
         (
             i.pointer.primary_pressed(),
             i.pointer.primary_released(),
             i.pointer
                 .button_double_clicked(egui::PointerButton::Primary),
             i.pointer.primary_clicked(),
+            i.pointer.secondary_clicked(),
+            middle_clicked,
+            pointer_moved,
+            wheel_scrolled,
+            i.time,
         )
     });
     let press_mem = ctrl_id.with("press-began-over");
     if pressed {
         ui.ctx().memory_mut(|m| m.data.insert_temp(press_mem, over));
+    }
+    let loaded_mem = ctrl_id.with("loaded");
+    let loaded = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<bool>(loaded_mem).unwrap_or(false));
+    if !loaded {
+        if want("onLoad") {
+            out.events.push(UiEvent::ev(id, "onLoad"));
+        }
+        ui.ctx()
+            .memory_mut(|m| m.data.insert_temp(loaded_mem, true));
     }
     if over {
         if pressed && want("onMouseDown") {
@@ -784,6 +907,26 @@ fn control_pointer_events(
         }
         if dbl && want("onDblClick") {
             out.events.push(UiEvent::ev(id, "onDblClick"));
+        }
+        if dbl && want("onDoubleClick") {
+            out.events.push(UiEvent::ev(id, "onDoubleClick"));
+        }
+        if secondary_clicked {
+            if want("onRightClick") {
+                out.events.push(UiEvent::ev(id, "onRightClick"));
+            }
+            if want("onContextMenu") {
+                out.events.push(UiEvent::ev(id, "onContextMenu"));
+            }
+        }
+        if middle_clicked && want("onMiddleClick") {
+            out.events.push(UiEvent::ev(id, "onMiddleClick"));
+        }
+        if pointer_moved && want("onMouseMove") {
+            out.events.push(UiEvent::ev(id, "onMouseMove"));
+        }
+        if wheel_scrolled && want("onMouseWheel") {
+            out.events.push(UiEvent::ev(id, "onMouseWheel"));
         }
         if clicked
             && want("onClick")
@@ -804,6 +947,37 @@ fn control_pointer_events(
             out.events.push(UiEvent::ev(id, e));
         }
         ui.ctx().memory_mut(|m| m.data.insert_temp(mem_id, over));
+    }
+    let hover_start_id = ctrl_id.with("hover-start");
+    let hover_fired_id = ctrl_id.with("hover-fired");
+    if over {
+        let hover_start = ui.ctx().memory(|m| m.data.get_temp::<f64>(hover_start_id));
+        let start = hover_start.unwrap_or(now);
+        if hover_start.is_none() {
+            ui.ctx()
+                .memory_mut(|m| m.data.insert_temp(hover_start_id, start));
+        }
+        let fired = ui
+            .ctx()
+            .memory(|m| m.data.get_temp::<bool>(hover_fired_id).unwrap_or(false));
+        if !fired && now - start >= 0.2 {
+            if want("onHoverEnter") {
+                out.events.push(UiEvent::ev(id, "onHoverEnter"));
+            }
+            ui.ctx()
+                .memory_mut(|m| m.data.insert_temp(hover_fired_id, true));
+        }
+    } else {
+        let fired = ui
+            .ctx()
+            .memory(|m| m.data.get_temp::<bool>(hover_fired_id).unwrap_or(false));
+        if fired && want("onHoverLeave") {
+            out.events.push(UiEvent::ev(id, "onHoverLeave"));
+        }
+        ui.ctx().memory_mut(|m| {
+            m.data.remove::<f64>(hover_start_id);
+            m.data.insert_temp(hover_fired_id, false);
+        });
     }
 }
 
@@ -843,7 +1017,8 @@ fn render_interactive(
         CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient
     );
     if !non_visual {
-        control_pointer_events(ui, screen, ctrl_id, id, &ct, enabled, out);
+        let bound: Vec<&str> = ctrl.events.iter().map(|e| e.event.as_str()).collect();
+        control_pointer_events(ui, screen, ctrl_id, id, &ct, enabled, out, &bound);
     }
 
     match ct {
@@ -897,6 +1072,7 @@ fn render_interactive(
                     .push((id.to_owned(), "Value".to_owned(), v.to_owned()));
                 out.events.push(UiEvent::change(id, v));
                 out.events.push(UiEvent::ev(id, "onCheckedChanged"));
+                out.events.push(UiEvent::ev(id, "onValueChanged"));
             }
         }
         CT::RadioButton => {
@@ -914,6 +1090,7 @@ fn render_interactive(
                     .push((id.to_owned(), "Value".to_owned(), "1".to_owned()));
                 out.events.push(UiEvent::change(id, "1"));
                 out.events.push(UiEvent::ev(id, "onCheckedChanged"));
+                out.events.push(UiEvent::ev(id, "onValueChanged"));
             }
         }
         CT::TextBox => {
@@ -945,6 +1122,7 @@ fn render_interactive(
                 out.prop_updates
                     .push((id.to_owned(), "Text".to_owned(), buf.clone()));
                 out.events.push(UiEvent::change(id, &buf));
+                out.events.push(UiEvent::ev(id, "onTextChanged"));
             }
             if resp.gained_focus() {
                 out.events.push(UiEvent::ev(id, "onGotFocus"));
@@ -954,20 +1132,32 @@ fn render_interactive(
                 out.events.push(UiEvent::ev(id, "onLostFocus"));
                 out.events.push(UiEvent::ev(id, "onLeave"));
             }
-            if resp.has_focus() {
-                let (key_down, key_up, typed) = ui.input(|i| {
+            if resp.has_focus() || resp.lost_focus() {
+                let (key_down, key_up, typed, enter, escape) = ui.input(|i| {
                     let mut down = false;
                     let mut up = false;
                     let mut typed = false;
+                    let mut enter = false;
+                    let mut escape = false;
                     for e in &i.events {
                         match e {
-                            egui::Event::Key { pressed: true, .. } => down = true,
+                            egui::Event::Key {
+                                key, pressed: true, ..
+                            } => {
+                                down = true;
+                                if *key == egui::Key::Enter {
+                                    enter = true;
+                                }
+                                if *key == egui::Key::Escape {
+                                    escape = true;
+                                }
+                            }
                             egui::Event::Key { pressed: false, .. } => up = true,
                             egui::Event::Text(_) => typed = true,
                             _ => {}
                         }
                     }
-                    (down, up, typed)
+                    (down, up, typed, enter, escape)
                 });
                 if key_down {
                     out.events.push(UiEvent::ev(id, "onKeyDown"));
@@ -977,6 +1167,12 @@ fn render_interactive(
                 }
                 if typed || key_down {
                     out.events.push(UiEvent::ev(id, "onKeyPress"));
+                }
+                if enter {
+                    out.events.push(UiEvent::ev(id, "onEnterPressed"));
+                }
+                if escape {
+                    out.events.push(UiEvent::ev(id, "onEscapePressed"));
                 }
             }
         }
@@ -994,6 +1190,7 @@ fn render_interactive(
             let thumb_rect = paint::slider_thumb_rect(screen, min_v, max_v, cur, is_vertical);
             let resp = ui.interact(screen, ctrl_id, Sense::drag());
             let mut display_val = cur;
+            let slider_dirty_id = ctrl_id.with("value-dirty");
 
             // The grab (value + axis at press time) must only live while the
             // primary button is actually held. A phantom press at window-open or a
@@ -1057,6 +1254,14 @@ fn render_interactive(
                     .push((id.to_owned(), "Value".to_owned(), display_val.to_string()));
                 out.events
                     .push(UiEvent::change(id, &display_val.to_string()));
+                ui.data_mut(|d| d.insert_temp(slider_dirty_id, true));
+            }
+            if resp.drag_released() {
+                let dirty = ui.data(|d| d.get_temp::<bool>(slider_dirty_id).unwrap_or(false));
+                if dirty {
+                    out.events.push(UiEvent::ev(id, "onValueChanged"));
+                }
+                ui.data_mut(|d| d.insert_temp(slider_dirty_id, false));
             }
         }
         CT::NumericUpDown => {
@@ -1509,24 +1714,27 @@ fn render_interactive(
             }
         }
         CT::MenuBar => {
-            let menu_bg = ctrl.get_prop("BackgroundColor")
+            let menu_bg = ctrl
+                .get_prop("BackgroundColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::TRANSPARENT);
             if menu_bg.a() > 0 {
-                paint::draw_glass_auto(
-                    &painter, screen, menu_bg, 4.0, false, alpha * 0.85,
-                );
+                paint::draw_glass_auto(&painter, screen, menu_bg, 4.0, false, alpha * 0.85);
             }
-            let fg = ctrl.get_prop("ForegroundColor")
+            let fg = ctrl
+                .get_prop("ForegroundColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::from_rgb(225, 230, 250));
-            let highlight_bg = ctrl.get_prop("HighlightBgColor")
+            let highlight_bg = ctrl
+                .get_prop("HighlightBgColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::from_rgb(68, 136, 255));
-            let highlight_fg = ctrl.get_prop("HighlightFgColor")
+            let highlight_fg = ctrl
+                .get_prop("HighlightFgColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::WHITE);
-            let selected_bg = ctrl.get_prop("SelectedBgColor")
+            let selected_bg = ctrl
+                .get_prop("SelectedBgColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::from_rgb(51, 102, 204));
 
@@ -1539,7 +1747,9 @@ fn render_interactive(
                 let pad = 8.0;
 
                 for (ti, entry) in def.menu.iter().enumerate() {
-                    if entry.item_type == crate::menu::MenuItemType::Separator { continue; }
+                    if entry.item_type == crate::menu::MenuItemType::Separator {
+                        continue;
+                    }
                     let galley = painter.layout_no_wrap(entry.label.clone(), font.clone(), fg);
                     let w = galley.size().x;
                     let label_rect = egui::Rect::from_min_size(
@@ -1555,9 +1765,17 @@ fn render_interactive(
                     let resp = ui.allocate_rect(label_rect, egui::Sense::click());
                     if resp.hovered() && !is_open {
                         painter.rect_filled(label_rect, 2.0, highlight_bg);
-                        painter.galley(pos2(x, screen.center().y - galley.size().y * 0.5), galley, highlight_fg);
+                        painter.galley(
+                            pos2(x, screen.center().y - galley.size().y * 0.5),
+                            galley,
+                            highlight_fg,
+                        );
                     } else {
-                        painter.galley(pos2(x, screen.center().y - galley.size().y * 0.5), galley, fg);
+                        painter.galley(
+                            pos2(x, screen.center().y - galley.size().y * 0.5),
+                            galley,
+                            fg,
+                        );
                     }
 
                     if resp.clicked() {
@@ -1577,7 +1795,9 @@ fn render_interactive(
                                     .inner_margin(egui::Margin::same(4.0))
                                     .show(ui, |ui| {
                                         for item in &entry.items {
-                                            if item.item_type == crate::menu::MenuItemType::Separator {
+                                            if item.item_type
+                                                == crate::menu::MenuItemType::Separator
+                                            {
                                                 ui.separator();
                                                 continue;
                                             }
@@ -1585,45 +1805,86 @@ fn render_interactive(
                                                 let dimmed = !item.enabled;
                                                 let item_fg = if dimmed {
                                                     Color32::from_rgb(120, 120, 130)
-                                                } else { fg };
+                                                } else {
+                                                    fg
+                                                };
                                                 // Icon
                                                 if let Some(icon_name) = &item.icon {
-                                                    let icon_rect = ui.allocate_space(Vec2::splat(24.0)).1;
-                                                    crate::icons::draw_menu_icon(&painter, icon_rect, icon_name, item_fg);
+                                                    let icon_rect =
+                                                        ui.allocate_space(Vec2::splat(24.0)).1;
+                                                    crate::icons::draw_menu_icon(
+                                                        &painter, icon_rect, icon_name, item_fg,
+                                                    );
                                                 } else {
                                                     ui.allocate_space(Vec2::splat(24.0));
                                                 }
                                                 // Label
-                                                ui.label(egui::RichText::new(&item.label).color(item_fg));
+                                                ui.label(
+                                                    egui::RichText::new(&item.label).color(item_fg),
+                                                );
                                                 // Spacer
                                                 ui.add_space(40.0);
                                                 // Accelerator
                                                 if let Some(accel_str) = &item.accelerator {
-                                                    if let Some(accel) = crate::menu::parse_accelerator(accel_str) {
-                                                        let formatted = crate::menu::format_accelerator(&accel);
-                                                        ui.label(egui::RichText::new(formatted)
-                                                            .color(Color32::from_rgb(140, 140, 160)).small());
+                                                    if let Some(accel) =
+                                                        crate::menu::parse_accelerator(accel_str)
+                                                    {
+                                                        let formatted =
+                                                            crate::menu::format_accelerator(&accel);
+                                                        ui.label(
+                                                            egui::RichText::new(formatted)
+                                                                .color(Color32::from_rgb(
+                                                                    140, 140, 160,
+                                                                ))
+                                                                .small(),
+                                                        );
                                                     }
                                                 }
                                                 // Sub-menu indicator
                                                 if !item.items.is_empty() {
-                                                    ui.label(egui::RichText::new("▸").color(item_fg));
+                                                    ui.label(
+                                                        egui::RichText::new("▸").color(item_fg),
+                                                    );
                                                 }
                                             });
-                                            let row_resp = ui.interact(item_resp.response.rect, egui::Id::new(("mi", &item.id)), egui::Sense::click());
+                                            let row_resp = ui.interact(
+                                                item_resp.response.rect,
+                                                egui::Id::new(("mi", &item.id)),
+                                                egui::Sense::click(),
+                                            );
                                             if item.enabled && row_resp.hovered() {
-                                                ui.painter().rect_filled(item_resp.response.rect, 2.0, highlight_bg);
+                                                ui.painter().rect_filled(
+                                                    item_resp.response.rect,
+                                                    2.0,
+                                                    highlight_bg,
+                                                );
                                             }
                                             if item.enabled && row_resp.clicked() {
-                                                ui.data_mut(|d| d.insert_temp(menu_id, None::<usize>));
+                                                ui.data_mut(|d| {
+                                                    d.insert_temp(menu_id, None::<usize>)
+                                                });
                                                 if let Some(action) = &item.action {
                                                     if action == "close-application" {
-                                                        out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onCloseApplication".to_owned(), value: None });
+                                                        out.events.push(UiEvent {
+                                                            ctrl_id: id.to_owned(),
+                                                            event: "onCloseApplication".to_owned(),
+                                                            value: None,
+                                                        });
                                                     }
                                                 }
-                                                out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuClick".to_owned(), value: Some(item.id.clone()) });
-                                                let path = def.item_path(&item.id).unwrap_or_else(|| format!("/{}", item.label));
-                                                out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuItemClick".to_owned(), value: Some(path) });
+                                                out.events.push(UiEvent {
+                                                    ctrl_id: id.to_owned(),
+                                                    event: "onMenuClick".to_owned(),
+                                                    value: Some(item.id.clone()),
+                                                });
+                                                let path = def
+                                                    .item_path(&item.id)
+                                                    .unwrap_or_else(|| format!("/{}", item.label));
+                                                out.events.push(UiEvent {
+                                                    ctrl_id: id.to_owned(),
+                                                    event: "onMenuItemClick".to_owned(),
+                                                    value: Some(path),
+                                                });
                                             }
                                         }
                                     });
@@ -1642,7 +1903,10 @@ fn render_interactive(
                 }
 
                 // Accelerator key dispatch (T13)
-                fn collect_accels<'a>(items: &'a [crate::menu::MenuItem], out: &mut Vec<(&'a crate::menu::MenuItem, crate::menu::Accelerator)>) {
+                fn collect_accels<'a>(
+                    items: &'a [crate::menu::MenuItem],
+                    out: &mut Vec<(&'a crate::menu::MenuItem, crate::menu::Accelerator)>,
+                ) {
                     for item in items {
                         if item.enabled {
                             if let Some(accel_str) = &item.accelerator {
@@ -1663,19 +1927,39 @@ fn render_interactive(
                     mods.alt = accel.alt;
                     mods.command = accel.cmd;
                     if ui.input(|i| i.modifiers == mods && i.key_pressed(char_to_key(accel.key))) {
-                        out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuClick".to_owned(), value: Some(item.id.clone()) });
-                        let path = def.item_path(&item.id).unwrap_or_else(|| format!("/{}", item.label));
-                        out.events.push(UiEvent { ctrl_id: id.to_owned(), event: "onMenuItemClick".to_owned(), value: Some(path) });
+                        out.events.push(UiEvent {
+                            ctrl_id: id.to_owned(),
+                            event: "onMenuClick".to_owned(),
+                            value: Some(item.id.clone()),
+                        });
+                        let path = def
+                            .item_path(&item.id)
+                            .unwrap_or_else(|| format!("/{}", item.label));
+                        out.events.push(UiEvent {
+                            ctrl_id: id.to_owned(),
+                            event: "onMenuItemClick".to_owned(),
+                            value: Some(path),
+                        });
                     }
                 }
             } else {
-                painter.text(screen.center(), egui::Align2::CENTER_CENTER,
-                    "☰ MenuBar (empty)", FontId::proportional(12.0), fg);
+                painter.text(
+                    screen.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "☰ MenuBar (empty)",
+                    FontId::proportional(12.0),
+                    fg,
+                );
             }
         }
         CT::ToolBar | CT::StatusBar => {
             paint::draw_glass_auto(
-                &painter, screen, Color32::from_rgb(40, 46, 76), 4.0, false, alpha * 0.85,
+                &painter,
+                screen,
+                Color32::from_rgb(40, 46, 76),
+                4.0,
+                false,
+                alpha * 0.85,
             );
             let fg = Color32::from_rgb(225, 230, 250);
             let mut x = screen.min.x + 8.0;
@@ -1685,7 +1969,8 @@ fn render_interactive(
                 let w = galley.size().x;
                 painter.galley(
                     pos2(x, screen.center().y - galley.size().y / 2.0),
-                    galley, fg,
+                    galley,
+                    fg,
                 );
                 x += w + 18.0;
             }
@@ -1977,7 +2262,7 @@ mod tests {
     // ── Interaction simulation (Interactive mode) ─────────────────────────────
     // Drive the engine headlessly with simulated pointer/text/time input and
     // assert the neutral events + property updates it produces (T3 verification).
-    use egui::{pos2, Event, Modifiers, PointerButton, Pos2};
+    use egui::{pos2, Event, Key, Modifiers, PointerButton, Pos2};
     use std::cell::RefCell;
     use std::collections::HashMap as Map;
 
@@ -2012,6 +2297,23 @@ mod tests {
             pressed: false,
             modifiers: Modifiers::default(),
         }
+    }
+    fn right_click(p: Pos2) -> Vec<Event> {
+        vec![
+            Event::PointerMoved(p),
+            Event::PointerButton {
+                pos: p,
+                button: PointerButton::Secondary,
+                pressed: true,
+                modifiers: Modifiers::default(),
+            },
+            Event::PointerButton {
+                pos: p,
+                button: PointerButton::Secondary,
+                pressed: false,
+                modifiers: Modifiers::default(),
+            },
+        ]
     }
 
     /// A `FormState` over a per-control live-override map (id → key → value),
@@ -2213,6 +2515,67 @@ mod tests {
     }
 
     #[test]
+    fn engine_button_right_click_fires_context_events() {
+        let c = [ctrlp(
+            "Btn",
+            ControlType::Button,
+            0,
+            0,
+            80,
+            30,
+            &[("Caption", "OK")],
+        )];
+        let p = pos2(40.0, 15.0);
+        let (evs, _) = drive(&c, vec![(0.0, vec![]), (1.0, right_click(p))]);
+        let n = names(&evs);
+        assert!(
+            n.contains(&"onRightClick"),
+            "Button: no onRightClick; got {n:?}"
+        );
+        assert!(
+            n.contains(&"onContextMenu"),
+            "Button: no onContextMenu; got {n:?}"
+        );
+    }
+
+    #[test]
+    fn engine_label_hover_and_load_fire_events() {
+        let c = [ctrlp(
+            "Lbl",
+            ControlType::Label,
+            0,
+            0,
+            80,
+            24,
+            &[("Caption", "Name")],
+        )];
+        let p = pos2(40.0, 12.0);
+        let (evs, _) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(p)]),
+                (2.0, vec![Event::PointerMoved(p)]),
+                (3.0, vec![Event::PointerMoved(p)]),
+                (4.0, vec![Event::PointerMoved(p)]),
+                (5.0, vec![Event::PointerMoved(p)]),
+                (6.0, vec![Event::PointerMoved(p)]),
+                (7.0, vec![Event::PointerMoved(pos2(200.0, 200.0))]),
+            ],
+        );
+        let n = names(&evs);
+        assert!(n.contains(&"onLoad"), "Label: no onLoad; got {n:?}");
+        assert!(
+            n.contains(&"onHoverEnter"),
+            "Label: no onHoverEnter; got {n:?}"
+        );
+        assert!(
+            n.contains(&"onHoverLeave"),
+            "Label: no onHoverLeave; got {n:?}"
+        );
+    }
+
+    #[test]
     fn engine_checkbox_toggle_changes_value() {
         let c = [ctrlp(
             "Chk",
@@ -2237,6 +2600,10 @@ mod tests {
         assert!(
             n.contains(&"onCheckedChanged"),
             "CheckBox: no onCheckedChanged; got {n:?}"
+        );
+        assert!(
+            n.contains(&"onValueChanged"),
+            "CheckBox: no onValueChanged; got {n:?}"
         );
         assert_eq!(
             map.get("Chk")
@@ -2265,10 +2632,27 @@ mod tests {
                 (1.0, vec![Event::PointerMoved(p), press(p)]),
                 (2.0, vec![Event::PointerMoved(p), release(p)]),
                 (3.0, vec![Event::Text("Z".to_owned())]),
+                (
+                    4.0,
+                    vec![Event::Key {
+                        key: Key::Enter,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: Modifiers::default(),
+                    }],
+                ),
             ],
         );
         let n = names(&evs);
-        for want in ["onGotFocus", "onEnter", "onChange", "onKeyPress"] {
+        for want in [
+            "onGotFocus",
+            "onEnter",
+            "onChange",
+            "onTextChanged",
+            "onKeyPress",
+            "onEnterPressed",
+        ] {
             assert!(n.contains(&want), "TextBox: missing {want}; got {n:?}");
         }
     }
@@ -2305,6 +2689,11 @@ mod tests {
         assert!(
             names(&evs).contains(&"onChange"),
             "Slider: no onChange; got {:?}",
+            names(&evs)
+        );
+        assert!(
+            names(&evs).contains(&"onValueChanged"),
+            "Slider: no onValueChanged; got {:?}",
             names(&evs)
         );
         let v = map
@@ -2389,25 +2778,54 @@ mod tests {
 #[cfg(feature = "render")]
 fn char_to_key(c: char) -> egui::Key {
     match c {
-        'A' => egui::Key::A, 'B' => egui::Key::B, 'C' => egui::Key::C,
-        'D' => egui::Key::D, 'E' => egui::Key::E, 'F' => egui::Key::F,
-        'G' => egui::Key::G, 'H' => egui::Key::H, 'I' => egui::Key::I,
-        'J' => egui::Key::J, 'K' => egui::Key::K, 'L' => egui::Key::L,
-        'M' => egui::Key::M, 'N' => egui::Key::N, 'O' => egui::Key::O,
-        'P' => egui::Key::P, 'Q' => egui::Key::Q, 'R' => egui::Key::R,
-        'S' => egui::Key::S, 'T' => egui::Key::T, 'U' => egui::Key::U,
-        'V' => egui::Key::V, 'W' => egui::Key::W, 'X' => egui::Key::X,
-        'Y' => egui::Key::Y, 'Z' => egui::Key::Z,
-        '0' => egui::Key::Num0, '1' => egui::Key::Num1, '2' => egui::Key::Num2,
-        '3' => egui::Key::Num3, '4' => egui::Key::Num4, '5' => egui::Key::Num5,
-        '6' => egui::Key::Num6, '7' => egui::Key::Num7, '8' => egui::Key::Num8,
+        'A' => egui::Key::A,
+        'B' => egui::Key::B,
+        'C' => egui::Key::C,
+        'D' => egui::Key::D,
+        'E' => egui::Key::E,
+        'F' => egui::Key::F,
+        'G' => egui::Key::G,
+        'H' => egui::Key::H,
+        'I' => egui::Key::I,
+        'J' => egui::Key::J,
+        'K' => egui::Key::K,
+        'L' => egui::Key::L,
+        'M' => egui::Key::M,
+        'N' => egui::Key::N,
+        'O' => egui::Key::O,
+        'P' => egui::Key::P,
+        'Q' => egui::Key::Q,
+        'R' => egui::Key::R,
+        'S' => egui::Key::S,
+        'T' => egui::Key::T,
+        'U' => egui::Key::U,
+        'V' => egui::Key::V,
+        'W' => egui::Key::W,
+        'X' => egui::Key::X,
+        'Y' => egui::Key::Y,
+        'Z' => egui::Key::Z,
+        '0' => egui::Key::Num0,
+        '1' => egui::Key::Num1,
+        '2' => egui::Key::Num2,
+        '3' => egui::Key::Num3,
+        '4' => egui::Key::Num4,
+        '5' => egui::Key::Num5,
+        '6' => egui::Key::Num6,
+        '7' => egui::Key::Num7,
+        '8' => egui::Key::Num8,
         '9' => egui::Key::Num9,
-        '\u{F001}' => egui::Key::F1, '\u{F002}' => egui::Key::F2,
-        '\u{F003}' => egui::Key::F3, '\u{F004}' => egui::Key::F4,
-        '\u{F005}' => egui::Key::F5, '\u{F006}' => egui::Key::F6,
-        '\u{F007}' => egui::Key::F7, '\u{F008}' => egui::Key::F8,
-        '\u{F009}' => egui::Key::F9, '\u{F00A}' => egui::Key::F10,
-        '\u{F00B}' => egui::Key::F11, '\u{F00C}' => egui::Key::F12,
+        '\u{F001}' => egui::Key::F1,
+        '\u{F002}' => egui::Key::F2,
+        '\u{F003}' => egui::Key::F3,
+        '\u{F004}' => egui::Key::F4,
+        '\u{F005}' => egui::Key::F5,
+        '\u{F006}' => egui::Key::F6,
+        '\u{F007}' => egui::Key::F7,
+        '\u{F008}' => egui::Key::F8,
+        '\u{F009}' => egui::Key::F9,
+        '\u{F00A}' => egui::Key::F10,
+        '\u{F00B}' => egui::Key::F11,
+        '\u{F00C}' => egui::Key::F12,
         '\u{007F}' => egui::Key::Delete,
         '\u{0008}' => egui::Key::Backspace,
         '\t' => egui::Key::Tab,

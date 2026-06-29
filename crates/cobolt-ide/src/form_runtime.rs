@@ -49,14 +49,14 @@ pub struct FormRuntime {
     /// Title shown in the running-form viewport.
     pub form_title: String,
     /// Current width/height of the form canvas.
-    pub form_width:  u32,
+    pub form_width: u32,
     pub form_height: u32,
     /// Form background colour (hex RGB, e.g. "141622") and transparency (0–100).
     pub background_color: String,
-    pub transparency:     u8,
+    pub transparency: u8,
     /// Optional form background image (path) + how it's scaled.
     pub background_image: String,
-    pub bg_image_mode:    cobolt_forms::model::BgImageMode,
+    pub bg_image_mode: cobolt_forms::model::BgImageMode,
     /// Controls snapshot (id → props map), populated at launch from the form
     /// model and updated by `drain_state()` as COBOL-SET-PROPERTY arrives.
     pub ctrl_state: HashMap<String, CtrlState>,
@@ -89,21 +89,21 @@ pub struct FormRuntime {
 /// Per-control metadata needed for rendering (type + rect + initial props).
 #[derive(Clone, Debug)]
 pub struct CtrlMeta {
-    pub id:           String,
+    pub id: String,
     pub control_type: cobolt_forms::ControlType,
-    pub rect:         cobolt_forms::model::Rect,
-    pub z_order:      i32,
-    pub animations:   Vec<cobolt_forms::model::AnimationDef>,
+    pub rect: cobolt_forms::model::Rect,
+    pub z_order: i32,
+    pub animations: Vec<cobolt_forms::model::AnimationDef>,
     /// Containment (spec 012) so the running form clips children to their
     /// container and scopes tab pages, exactly like the designer/preview.
-    pub parent:       Option<String>,
-    pub tab:          Option<u32>,
+    pub parent: Option<String>,
+    pub tab: Option<u32>,
 }
 
 /// Mutable state of a single control as seen by the UI thread.
 #[derive(Clone, Debug, Default)]
 pub struct CtrlState {
-    pub props:   HashMap<String, String>,
+    pub props: HashMap<String, String>,
     pub visible: bool,
     pub enabled: bool,
 }
@@ -127,7 +127,8 @@ impl CtrlState {
         if let Some(v) = self.props.get(key) {
             return v.as_str();
         }
-        self.props.iter()
+        self.props
+            .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(key))
             .map(|(_, v)| v.as_str())
             .unwrap_or("")
@@ -142,7 +143,12 @@ impl CtrlState {
         // Overwrite any existing case-insensitive entry so a runtime update
         // (e.g. `::Caption` → "CAPTION") never shadows the designed "Caption".
         if !self.props.contains_key(key) {
-            if let Some(existing) = self.props.keys().find(|k| k.eq_ignore_ascii_case(key)).cloned() {
+            if let Some(existing) = self
+                .props
+                .keys()
+                .find(|k| k.eq_ignore_ascii_case(key))
+                .cloned()
+            {
                 self.props.remove(&existing);
             }
         }
@@ -165,10 +171,14 @@ impl FormRuntime {
         let tokens = tokenize(&cobol_source, SourceFormat::Free);
         let parse_result = parse(tokens);
 
-        let parse_has_errors = parse_result.diagnostics.iter()
+        let parse_has_errors = parse_result
+            .diagnostics
+            .iter()
             .any(|d| d.severity == cobolt_parser::Severity::Error);
         if parse_result.program.is_none() || parse_has_errors {
-            let msgs: Vec<_> = parse_result.diagnostics.iter()
+            let msgs: Vec<_> = parse_result
+                .diagnostics
+                .iter()
                 .map(|d| format!("{}:{} {}", d.span.line, d.span.col, d.message))
                 .collect();
             return Err(format!("Parse failed:\n{}", msgs.join("\n")));
@@ -177,16 +187,18 @@ impl FormRuntime {
 
         let sem = analyze(&program);
         if !sem.is_ok() {
-            let msgs: Vec<_> = sem.diagnostics.iter()
+            let msgs: Vec<_> = sem
+                .diagnostics
+                .iter()
                 .map(|d| format!("{}:{} {}", d.span.line, d.span.col, d.message))
                 .collect();
             return Err(format!("Semantic errors:\n{}", msgs.join("\n")));
         }
 
         // Build channel pairs.
-        let (event_tx, event_rx)   = mpsc::channel::<FormEvent>();
-        let (input_tx, input_rx)   = mpsc::channel::<StateUpdate>();
-        let (state_tx, state_rx)   = mpsc::channel::<StateUpdate>();
+        let (event_tx, event_rx) = mpsc::channel::<FormEvent>();
+        let (input_tx, input_rx) = mpsc::channel::<StateUpdate>();
+        let (state_tx, state_rx) = mpsc::channel::<StateUpdate>();
         let (display_tx, display_rx) = mpsc::channel::<String>();
 
         // Snapshot the form layout for the UI renderer.
@@ -198,68 +210,72 @@ impl FormRuntime {
         let mut ctrl_order: Vec<CtrlMeta> = collect_controls(&form.controls)
             .into_iter()
             .map(|c| CtrlMeta {
-                id:           c.id.clone(),
+                id: c.id.clone(),
                 control_type: c.control_type.clone(),
-                rect:         c.rect,
-                z_order:      c.z_order,
-                animations:   c.animations.clone(),
-                parent:       c.parent.clone(),
-                tab:          c.tab,
+                rect: c.rect,
+                z_order: c.z_order,
+                animations: c.animations.clone(),
+                parent: c.parent.clone(),
+                tab: c.tab,
             })
             .collect();
         ctrl_order.sort_by_key(|m| m.z_order);
 
         // Flattened designed controls — the engine's render base (spec 017).
         let controls: Vec<cobolt_forms::Control> = collect_controls(&form.controls)
-            .into_iter().cloned().collect();
+            .into_iter()
+            .cloned()
+            .collect();
 
         // Seed the interpreter's visual-object registry with every control's
         // designed properties, so property references and method getters return
         // the configured values before any setter runs.
-        let seed: Vec<(String, String, Vec<(String, String)>)> =
-            collect_controls(&form.controls)
-                .into_iter()
-                .map(|c| {
-                    let mut props: Vec<(String, String)> = c.properties.iter()
-                        .map(|(k, v)| (k.clone(), v.to_xml_string()))
-                        .collect();
-                    let b = |v: bool| if v { "1" } else { "0" }.to_string();
-                    props.push(("Name".into(),     c.id.clone()));
-                    props.push(("Visible".into(),  b(c.visible)));
-                    props.push(("Enabled".into(),  b(c.enabled)));
-                    props.push(("X".into(),        c.rect.x.to_string()));
-                    props.push(("Y".into(),        c.rect.y.to_string()));
-                    props.push(("Width".into(),    c.rect.w.to_string()));
-                    props.push(("Height".into(),   c.rect.h.to_string()));
-                    props.push(("TabOrder".into(), c.tab_order.to_string()));
-                    (c.id.clone(), c.control_type.as_str().to_string(), props)
-                })
-                .collect();
+        let seed: Vec<(String, String, Vec<(String, String)>)> = collect_controls(&form.controls)
+            .into_iter()
+            .map(|c| {
+                let mut props: Vec<(String, String)> = c
+                    .properties
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_xml_string()))
+                    .collect();
+                let b = |v: bool| if v { "1" } else { "0" }.to_string();
+                props.push(("Name".into(), c.id.clone()));
+                props.push(("Visible".into(), b(c.visible)));
+                props.push(("Enabled".into(), b(c.enabled)));
+                props.push(("X".into(), c.rect.x.to_string()));
+                props.push(("Y".into(), c.rect.y.to_string()));
+                props.push(("Width".into(), c.rect.w.to_string()));
+                props.push(("Height".into(), c.rect.h.to_string()));
+                props.push(("TabOrder".into(), c.tab_order.to_string()));
+                (c.id.clone(), c.control_type.as_str().to_string(), props)
+            })
+            .collect();
 
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_clone = Arc::clone(&stop_flag);
 
         // Spawn interpreter thread.
         let handle = thread::spawn(move || {
-            let mut interp = Interpreter::new_with_channels(
-                program, event_rx, state_tx, display_tx,
-            );
+            let mut interp =
+                Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
             interp.set_input_channel(input_rx);
             interp.seed_objects(seed);
-            if stop_clone.load(Ordering::Relaxed) { return; }
+            if stop_clone.load(Ordering::Relaxed) {
+                return;
+            }
             let _ = interp.run();
         });
 
         Ok(Self {
             form_path,
-            form_name:        form.name.clone(),
-            form_title:       form.title.clone(),
-            form_width:       form.width,
-            form_height:      form.height,
+            form_name: form.name.clone(),
+            form_title: form.title.clone(),
+            form_width: form.width,
+            form_height: form.height,
             background_color: form.background_color.clone(),
-            transparency:     form.transparency.clamp(0, 100) as u8,
+            transparency: form.transparency.clamp(0, 100) as u8,
             background_image: form.background_image.clone(),
-            bg_image_mode:    form.bg_image_mode,
+            bg_image_mode: form.bg_image_mode,
             ctrl_state,
             ctrl_order,
             controls,
@@ -268,9 +284,9 @@ impl FormRuntime {
             state_rx,
             display_rx,
             stop_flag,
-            handle:     Some(handle),
+            handle: Some(handle),
             combo_open: HashMap::new(),
-            glass:      true,
+            glass: true,
         })
     }
 
@@ -298,7 +314,9 @@ impl FormRuntime {
                     // becomes `LABEL-1`), but `ctrl_state` is keyed by the
                     // designer's original-case id. Resolve case-insensitively so
                     // property/method updates land on the rendered control.
-                    let key = self.ctrl_state.keys()
+                    let key = self
+                        .ctrl_state
+                        .keys()
                         .find(|k| k.eq_ignore_ascii_case(&upd.ctrl_id))
                         .cloned()
                         .unwrap_or_else(|| upd.ctrl_id.clone());
@@ -319,7 +337,7 @@ impl FormRuntime {
         loop {
             match self.display_rx.try_recv() {
                 Ok(line) => lines.push(line),
-                Err(_)   => break,
+                Err(_) => break,
             }
         }
         lines
@@ -327,7 +345,10 @@ impl FormRuntime {
 
     /// `true` while the interpreter thread is still running.
     pub fn is_running(&self) -> bool {
-        self.handle.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
+        self.handle
+            .as_ref()
+            .map(|h| !h.is_finished())
+            .unwrap_or(false)
     }
 
     /// Request the interpreter to stop and clean up (non-blocking).
@@ -368,10 +389,16 @@ fn collect_rec<'a>(ctrl: &'a cobolt_forms::Control, out: &mut Vec<&'a cobolt_for
 // ── Generated-form pipeline regression test ─────────────────────────────────────
 #[cfg(test)]
 mod form_codegen_roundtrip_tests {
-    use cobolt_forms::{Control, ControlType, Form, EventBinding};
+    use super::CtrlState;
+    use cobolt_forms::render::merge_props;
+    use cobolt_forms::PropValue;
+    use cobolt_forms::{Control, ControlType, EventBinding, Form};
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::{parse, Severity as PSev};
+    use cobolt_runtime::{FormEvent, Interpreter};
     use cobolt_semantic::analyze;
+    use std::sync::mpsc;
+    use std::thread;
 
     #[test]
     fn generated_form_with_handler_parses_and_dispatches() {
@@ -384,25 +411,102 @@ mod form_codegen_roundtrip_tests {
        WORKING-STORAGE SECTION.\n\
        LINKAGE SECTION.\n\n\
        PROCEDURE DIVISION.\n\
-           MOVE 1 TO COBOL-QUIT.".into();
+           MOVE 1 TO COBOL-QUIT."
+            .into();
         btn.events.push(ev);
         form.controls.push(btn);
 
         let src = cobolt_codegen::generate(&form);
 
-        assert!(src.contains("CALL \"BUTTON-1--ONCLICK\""), "missing dispatch:\n{src}");
+        assert!(
+            src.contains("CALL \"BUTTON-1--ONCLICK\""),
+            "missing dispatch:\n{src}"
+        );
         // Spec 009 R4: handlers are generated `IS COMMON PROGRAM`.
-        assert!(src.contains("PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM."), "missing handler program");
+        assert!(
+            src.contains("PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM."),
+            "missing handler program"
+        );
         assert!(src.contains("MOVE 1 TO COBOL-QUIT"), "missing handler body");
 
         let pr = parse(tokenize(&src, SourceFormat::Free));
-        let perrs: Vec<_> = pr.diagnostics.iter()
-            .filter(|d| d.severity == PSev::Error).collect();
-        assert!(perrs.is_empty(), "parse errors in generated form:\n{perrs:#?}\n--- src ---\n{src}");
+        let perrs: Vec<_> = pr
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == PSev::Error)
+            .collect();
+        assert!(
+            perrs.is_empty(),
+            "parse errors in generated form:\n{perrs:#?}\n--- src ---\n{src}"
+        );
 
         let program = pr.program.expect("no program recovered");
         let sem = analyze(&program);
         let serrs: Vec<_> = sem.errors().collect();
-        assert!(serrs.is_empty(), "semantic errors in generated form:\n{serrs:#?}");
+        assert!(
+            serrs.is_empty(),
+            "semantic errors in generated form:\n{serrs:#?}"
+        );
+    }
+
+    #[test]
+    fn runtime_uppercase_property_update_overwrites_designed_caption() {
+        let mut label = Control::new("label-5", ControlType::Label, 10, 10);
+        label.set_prop("Caption", PropValue::String("old".into()));
+
+        let mut state = CtrlState::from_control(&label);
+        state.set("CAPTION", "42".into());
+
+        let merged = merge_props(&label, state.props.iter());
+        assert_eq!(merged.get_prop("Caption").unwrap().as_str(), "42");
+    }
+
+    #[test]
+    fn generated_form_click_event_runs_handler_in_live_runtime() {
+        let mut form = Form::new("MAIN-FORM", "Demo", 640, 480);
+        let mut btn = Control::new("Button-1", ControlType::Button, 10, 10);
+        let mut ev = EventBinding::for_control("Button-1", "onClick");
+        ev.code = "\
+       ENVIRONMENT DIVISION.\n\
+       DATA DIVISION.\n\
+       WORKING-STORAGE SECTION.\n\
+       LINKAGE SECTION.\n\n\
+       PROCEDURE DIVISION.\n\
+           DISPLAY \"CLICKED\"."
+            .into();
+        btn.events.push(ev);
+        form.controls.push(btn);
+
+        let src = cobolt_codegen::generate(&form);
+        let pr = parse(tokenize(&src, SourceFormat::Free));
+        let perrs: Vec<_> = pr
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == PSev::Error)
+            .collect();
+        assert!(
+            perrs.is_empty(),
+            "parse errors in generated form:\n{perrs:#?}\n--- src ---\n{src}"
+        );
+
+        let (event_tx, event_rx) = mpsc::channel::<FormEvent>();
+        let (state_tx, _state_rx) = mpsc::channel();
+        let (display_tx, display_rx) = mpsc::channel();
+        let program = pr.program.expect("no program recovered");
+        let handle = thread::spawn(move || {
+            let mut interp =
+                Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+            let _ = interp.run();
+        });
+
+        event_tx.send(FormEvent::click("Button-1")).unwrap();
+        event_tx.send(FormEvent::quit()).unwrap();
+        handle.join().expect("interpreter thread panicked");
+
+        let display: Vec<String> = display_rx.try_iter().collect();
+        assert!(
+            display.iter().any(|line| line.trim() == "CLICKED"),
+            "onClick handler did not run; DISPLAY output was {display:?}"
+        );
     }
 }

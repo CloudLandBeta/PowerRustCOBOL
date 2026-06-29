@@ -69,7 +69,7 @@ pub struct SourceLine {
 pub fn preprocess(source: &str, format: SourceFormat) -> Vec<SourceLine> {
     match format {
         SourceFormat::Fixed => preprocess_fixed(source),
-        SourceFormat::Free  => preprocess_free(source),
+        SourceFormat::Free => preprocess_free(source),
     }
 }
 
@@ -101,9 +101,13 @@ fn preprocess_fixed(source: &str) -> Vec<SourceLine> {
         // Use char-column boundaries so multi-byte characters don't cause panics.
         // Active source is columns 8–72 (0-based char-cols 7–71); columns 73+ are
         // the identification area and must be dropped.
-        let col7_byte   = char_boundary_at_col(raw_line, 7);
-        let col72_byte  = char_boundary_at_col(raw_line, 72);
-        let active = if raw_bytes > 7 { &raw_line[col7_byte..col72_byte] } else { "" };
+        let col7_byte = char_boundary_at_col(raw_line, 7);
+        let col72_byte = char_boundary_at_col(raw_line, 72);
+        let active = if raw_bytes > 7 {
+            &raw_line[col7_byte..col72_byte]
+        } else {
+            ""
+        };
         let active_byte_offset = byte_offset + 7;
 
         if is_comment {
@@ -184,14 +188,16 @@ fn strip_free_comment(line: &str) -> (&str, Option<String>) {
                     i += 1;
                 }
             }
-            Some(_) => { i += 1; }
+            Some(_) => {
+                i += 1;
+            }
             None => {
                 if b == b'"' || b == b'\'' {
                     in_string = Some(b);
                     i += 1;
-                } else if bytes.get(i..i+2) == Some(b"*>") {
-                    let active  = &line[..i];
-                    let comment = line[i+2..].trim().to_string();
+                } else if bytes.get(i..i + 2) == Some(b"*>") {
+                    let active = &line[..i];
+                    let comment = line[i + 2..].trim().to_string();
                     return (active, Some(comment));
                 } else {
                     i += 1;
@@ -232,10 +238,10 @@ pub fn flatten_fixed(source: &str) -> String {
         } else {
             let indicator = raw_line.chars().nth(6).unwrap_or(' ');
             // Byte offsets for safe slicing
-            let col7_byte  = char_boundary_at_col(raw_line, 7);
+            let col7_byte = char_boundary_at_col(raw_line, 7);
             // Columns 73+ (0-based char-col 72) are the identification area — drop them.
             let col72_byte = char_boundary_at_col(raw_line, 72);
-            let col6_byte  = char_boundary_at_col(raw_line, 6);
+            let col6_byte = char_boundary_at_col(raw_line, 6);
 
             if matches!(indicator, '*' | '/') {
                 out.push_str(&" ".repeat(6));

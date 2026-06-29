@@ -587,6 +587,27 @@ Deleting a container deletes the controls inside it. A control keeps its unique
 id wherever it lives, so `control::property` access and event bindings are
 unaffected by nesting.
 
+#### Clipboard
+
+The Form Designer has a control clipboard for fast layout work:
+
+- **Copy** — select one or more controls and press `Cmd+C`.
+- **Cut** — press `Cmd+X`; controls and their children are removed from the
+  canvas and placed on the clipboard.
+- **Paste** — press `Cmd+V`; pasted controls get fresh IDs, keep their relative
+  layout, and are placed near the current pointer/canvas focus.
+- **Duplicate** — press `Cmd+D`; this is copy + paste in one step.
+
+The same actions are also available from the RAD toolbar and from the canvas
+right-click menu, so mouse-driven layout work does not require keyboard
+shortcuts.
+
+Container membership is preserved inside the copied selection. If you copy a
+GroupBox with child controls, the pasted copy has a new GroupBox ID and the
+children are re-parented to that new container. Event handler code is preserved
+on copied controls, but pasted controls receive regenerated handler names based
+on their new IDs.
+
 #### Corner radius (all bordered controls)
 
 Every control that draws a border — buttons, text boxes, combo/list boxes,
@@ -651,6 +672,52 @@ member-access syntax, e.g. `CustomerCard(3)::CustomerName::Caption`. A child's
 event handler is shared across every instance and receives the firing instance's
 index. *(Runtime instancing, indexed event dispatch, and data binding are
 delivered in later phases.)*
+
+#### User Controls
+
+A **User Control** is a reusable GroupBox-based component stored in the project.
+Design a GroupBox with its child controls, select the GroupBox, then right-click
+and choose **Create User Control**. Give it a name made from letters, digits, and
+hyphens; it must start with a letter. The designer refuses duplicate names and
+circular definitions, including indirect nesting.
+
+User Controls appear in the toolbox under **User Controls**. Drag one onto the
+form, or click it to place it near the canvas centre. Deployment creates a real
+GroupBox instance plus real child controls. IDs are qualified from the instance
+ID, for example `CustomerCard-1-Button1`, so every deployed instance is
+independent and still uses ordinary control rendering, selection, properties,
+and event dispatch.
+
+To customise one deployed instance, select the User Control root. Its properties
+include a collapsible **Child Controls** section that groups editable child
+properties as `ChildId.PropertyName = value`. These edits affect only that
+deployed instance; the project-level User Control definition remains the
+template for future deployments.
+
+COBOL can reach child properties through the User Control root:
+
+```cobol
+INVOKE CustomerCard-1 "SetProperty"
+    USING "Button1.Caption" "Save"
+INVOKE CustomerCard-1 "GetProperty"
+    USING "Button1.Caption"
+    RETURNING WS-CAPTION.
+```
+
+At run time `Button1.Caption` resolves to the deployed child control
+`CustomerCard-1-Button1` and its `Caption` property. If no matching child exists,
+the dotted name is treated as a normal property on the root, preserving older
+forms that used dotted property names directly.
+
+Child events use the deployed qualified child ID. A child button inside
+`CustomerCard-1` named `Button1` dispatches under
+`WHEN "CustomerCard-1-Button1"`, and its handler name is derived from that full
+ID, for example `CUSTOMERCARD-1-BUTTON1--ONCLICK`.
+
+User Controls can contain other User Controls. When deployed, nested controls are
+expanded recursively and receive qualified IDs under the outer instance. To
+remove a definition from the project, right-click in the designer and choose
+**Remove User Control**; existing form instances remain as ordinary controls.
 
 > 📷 **Screenshot needed — `control-gallery.png`.** A single form (or the preview
 > window) showing one of each major control so newcomers can recognise them. The
@@ -871,29 +938,35 @@ In words:
   `onClose` (as it closes) are pre-created for every form; the rest you attach as
   needed.
 
-> **Events fire at run time.** Every event a control lists in its catalogue can
-> be handled *and* actually fires in a *Run Form* session — the runtime no
-> longer supports only a subset. Coverage:
+> **Events fire at run time.** Control events are handled through the same
+> generated event loop in *Run Form* and compiled output. The live renderer now
+> covers the common interactive event families:
 >
 > - **Every visual control** gets the universal pointer set — `onClick`,
->   `onDblClick`, `onMouseDown`, `onMouseUp`, `onMouseEnter`, `onMouseLeave` —
->   whenever the gesture happens (only the ones the control actually declares).
+>   `onDblClick`, `onDoubleClick`, `onRightClick`, `onMiddleClick`,
+>   `onContextMenu`, `onMouseDown`, `onMouseUp`, `onMouseMove`,
+>   `onMouseEnter`, `onMouseLeave`, `onMouseWheel`, `onHoverEnter`,
+>   `onHoverLeave`, and `onLoad` — whenever the gesture or lifecycle condition
+>   happens.
 > - **Value controls** fire `onChange` plus their semantic aliases:
->   `onCheckedChanged` (check box / radio), `onSelectedIndexChanged`
->   (list / combo), and the combo's `onDropDown` on open.
+>   `onCheckedChanged`/`onValueChanged` (check box / radio),
+>   `onSelectedIndexChanged` (list / combo), the combo's `onDropDown` on open,
+>   and Slider `onValueChanged` when a drag finishes.
 > - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
->   `onKeyDown`/`onKeyUp`/`onKeyPress` while focused.
+>   `onKeyDown`/`onKeyUp`/`onKeyPress`, `onEnterPressed`,
+>   `onEscapePressed`, and `onTextChanged`.
 > - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes).
 >
-> A handful of events are tied to conditions the lightweight *Run Form* preview
-> doesn't fully model yet — back-end completions (`onResponseReceived`,
-> `onQueryComplete`, the AI agent's `onResponse`/`onError`) and a few
-> control-internal ones (`onNodeExpand`, `onCellChange`). They are still
-> designable and generate correctly; a compiled binary wires them to their real
-> sources. When in doubt, confirm in a *Run Form* session.
+> Some specialised events are tied to conditions the lightweight *Run Form*
+> preview does not fully model yet — back-end completions
+> (`onResponseReceived`, `onQueryComplete`, the AI agent's
+> `onResponse`/`onError`) and a few control-internal ones (`onNodeExpand`,
+> `onCellChange`). They are still designable and generate correctly; wire them
+> where their real source exists. When in doubt, confirm in a *Run Form*
+> session.
 
 ### Adding a handler
 

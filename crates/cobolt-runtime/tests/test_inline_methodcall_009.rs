@@ -16,7 +16,10 @@ use cobolt_runtime::Interpreter;
 fn run_capture(src: &str) -> Vec<String> {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -53,6 +56,9 @@ fn inline_method_call_as_value_operand() {
     // "hello".len() == 5 — once inline via DISPLAY, once via MOVE … TO N.
     assert_eq!(out.len(), 2, "expected two DISPLAY lines: {out:?}");
     assert_eq!(out[0], "5", "DISPLAY S::len() should output 5: {out:?}");
-    assert_eq!(out[1].trim_start_matches('0'), "5",
-        "MOVE S::len() TO N then DISPLAY N should be 5: {out:?}");
+    assert_eq!(
+        out[1].trim_start_matches('0'),
+        "5",
+        "MOVE S::len() TO N then DISPLAY N should be 5: {out:?}"
+    );
 }

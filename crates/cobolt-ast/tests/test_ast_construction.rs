@@ -10,16 +10,14 @@
 //! constructed, cloned, compared, and debug-printed without panicking.
 
 use cobolt_ast::{
-    Span,
     data::{DataDecl, OccursClause, PicClause, PicKind, Usage},
     expr::{ArithOp, CmpOp, Condition, Expr, FigurativeConstant, Literal, UnaryOp},
     program::{
-        DataDivision, DataSection, IdentificationDivision, Paragraph, ProcedureDivision,
-        ProcedureBody, Program,
+        DataDivision, DataSection, IdentificationDivision, Paragraph, ProcedureBody,
+        ProcedureDivision, Program,
     },
-    stmt::{
-        CallArg, EvalSubject, OpenMode, PerformTarget, Stmt, WhenClause, WhenValue,
-    },
+    stmt::{CallArg, EvalSubject, OpenMode, PerformTarget, Stmt, WhenClause, WhenValue},
+    Span,
 };
 
 fn dummy_span() -> Span {
@@ -86,7 +84,7 @@ fn expr_unary() {
 #[test]
 fn expr_subscript() {
     let base = Expr::Identifier("TABLE-ITEM".into(), dummy_span());
-    let idx  = Expr::Literal(Literal::Integer(1), dummy_span());
+    let idx = Expr::Literal(Literal::Integer(1), dummy_span());
     let e = Expr::Subscript {
         base: Box::new(base),
         indices: vec![idx],
@@ -112,7 +110,12 @@ fn expr_function_call() {
 fn condition_comparison() {
     let lhs = Expr::Identifier("WS-FLAG".into(), dummy_span());
     let rhs = Expr::Literal(Literal::Integer(1), dummy_span());
-    let c = Condition::Comparison { lhs, op: CmpOp::Eq, rhs, span: dummy_span() };
+    let c = Condition::Comparison {
+        lhs,
+        op: CmpOp::Eq,
+        rhs,
+        span: dummy_span(),
+    };
     assert_eq!(c.span(), dummy_span());
 }
 
@@ -121,7 +124,7 @@ fn condition_and_or_not() {
     let lhs = Condition::ConditionName("WS-ON".into(), dummy_span());
     let rhs = Condition::ConditionName("WS-OFF".into(), dummy_span());
     let and = Condition::And(Box::new(lhs.clone()), Box::new(rhs.clone()), dummy_span());
-    let or  = Condition::Or(Box::new(lhs.clone()), Box::new(rhs.clone()), dummy_span());
+    let or = Condition::Or(Box::new(lhs.clone()), Box::new(rhs.clone()), dummy_span());
     let not = Condition::Not(Box::new(lhs.clone()), dummy_span());
     let _ = format!("{and:?} {or:?} {not:?}");
 }
@@ -307,7 +310,10 @@ fn stmt_if_else() {
 #[test]
 fn stmt_evaluate() {
     let s = Stmt::Evaluate {
-        subjects: vec![EvalSubject::Expr(Expr::Identifier("WS-CODE".into(), dummy_span()))],
+        subjects: vec![EvalSubject::Expr(Expr::Identifier(
+            "WS-CODE".into(),
+            dummy_span(),
+        ))],
         whens: vec![WhenClause {
             values: vec![WhenValue::Literal(Literal::Integer(1))],
             stmts: vec![Stmt::Continue { span: dummy_span() }],
@@ -345,9 +351,10 @@ fn stmt_perform_varying() {
 fn stmt_call() {
     let s = Stmt::Call {
         program: Expr::Literal(Literal::String("MY-SUBPROG".into()), dummy_span()),
-        using: vec![
-            CallArg::ByReference(Expr::Identifier("WS-PARAM".into(), dummy_span())),
-        ],
+        using: vec![CallArg::ByReference(Expr::Identifier(
+            "WS-PARAM".into(),
+            dummy_span(),
+        ))],
         returning: None,
         on_exception: vec![],
         not_on_exception: vec![],
@@ -375,7 +382,11 @@ fn stmt_open_close() {
 
 #[test]
 fn stmt_stop_run() {
-    let s = Stmt::Stop { run: true, literal: None, span: dummy_span() };
+    let s = Stmt::Stop {
+        run: true,
+        literal: None,
+        span: dummy_span(),
+    };
     assert_eq!(s.span(), dummy_span());
 }
 
@@ -407,7 +418,7 @@ fn program_construction() {
                 }),
                 value: Some(Literal::String("Hello, World!".into())),
                 usage: Usage::Display,
-        object_class: None,
+                object_class: None,
                 occurs: None,
                 redefines: None,
                 renames: None,
@@ -434,7 +445,11 @@ fn program_construction() {
                         screen: None,
                         span: dummy_span(),
                     },
-                    Stmt::Stop { run: true, literal: None, span: dummy_span() },
+                    Stmt::Stop {
+                        run: true,
+                        literal: None,
+                        span: dummy_span(),
+                    },
                 ],
                 span: dummy_span(),
             }]),

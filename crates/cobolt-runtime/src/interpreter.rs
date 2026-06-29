@@ -29,8 +29,9 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 
 use cobolt_ast::{
-    expr::{ArithOp, Condition, CmpOp, DataClass, Expr, FigurativeConstant, Literal,
-           SignCond, UnaryOp},
+    expr::{
+        ArithOp, CmpOp, Condition, DataClass, Expr, FigurativeConstant, Literal, SignCond, UnaryOp,
+    },
     program::{AccessMode, AlternateKey, FileOrganization, ProcedureBody, Program, UseMode},
     stmt::{
         AcceptSource, CallArg, EvalSubject, ExitKind, InspectRegion, InspectSpec, OpenMode,
@@ -43,11 +44,11 @@ use cobolt_lexer::Span;
 use crate::{
     channels::{FormEvent, StateUpdate},
     db_runtime::DbRegistry,
-    environment::{CobolEnvironment, ExternalStore, new_external_store},
+    environment::{new_external_store, CobolEnvironment, ExternalStore},
     error::RuntimeError,
     exec_rust,
     objects::{ObjectRegistry, PathSeg, PropertyValue},
-    value::{CobolValue, CobolNumeric},
+    value::{CobolNumeric, CobolValue},
 };
 
 // ── Inline-PERFORM loop control ─────────────────────────────────────────────
@@ -95,9 +96,15 @@ struct FileSpec {
 /// so the verbs dispatch by file type (RELATIVE will add a variant here).
 enum OpenFile {
     /// SEQUENTIAL / LINE SEQUENTIAL, opened for output/extend.
-    Writer { w: std::io::BufWriter<std::fs::File>, org: FileOrganization },
+    Writer {
+        w: std::io::BufWriter<std::fs::File>,
+        org: FileOrganization,
+    },
     /// SEQUENTIAL / LINE SEQUENTIAL, opened for input.
-    Reader { r: std::io::BufReader<std::fs::File>, org: FileOrganization },
+    Reader {
+        r: std::io::BufReader<std::fs::File>,
+        org: FileOrganization,
+    },
     /// INDEXED (ISAM) — a keyed engine (in-memory or on-disk) handles every
     /// verb. The concrete backend is chosen by STORAGE MODE.
     Indexed(Box<dyn crate::indexed::IndexedStore>),
@@ -135,7 +142,8 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
     // DIVISION — they will be added to the env as a scope overlay on call).
     let local_items: Vec<(String, CobolValue)> = if let Some(data) = &prog.data {
         let local_env = CobolEnvironment::from_data_division_with(data, prog.decimal_comma);
-        local_env.iter()
+        local_env
+            .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     } else {
@@ -144,7 +152,15 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
 
     let key = prog.identification.program_id.to_ascii_uppercase();
     let using = prog.procedure.using.clone();
-    registry.insert(key, NestedProgram { para_map, para_order, local_items, using });
+    registry.insert(
+        key,
+        NestedProgram {
+            para_map,
+            para_order,
+            local_items,
+            using,
+        },
+    );
 
     // Recurse into any nested-programs declared inside this one.
     for child in &prog.nested_programs {
@@ -271,9 +287,7 @@ fn bridge_to_cobol(b: crate::rust_bridge::BridgeValue) -> CobolValue {
 
 /// Build the file registry from the program's FILE-CONTROL (SELECT) entries and
 /// FILE SECTION (FD) records: `(logical name → spec, record name → file name)`.
-fn build_file_specs(
-    program: &Program,
-) -> (HashMap<String, FileSpec>, HashMap<String, String>) {
+fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<String, String>) {
     use cobolt_ast::program::DataSection;
 
     let mut specs: HashMap<String, FileSpec> = HashMap::new();
@@ -286,7 +300,9 @@ fn build_file_specs(
         for section in &data.sections {
             if let DataSection::FileSection(fds) = section {
                 for fd in fds {
-                    let names: Vec<String> = fd.records.iter()
+                    let names: Vec<String> = fd
+                        .records
+                        .iter()
                         .filter_map(|r| r.name.clone())
                         .map(|n| n.to_ascii_uppercase())
                         .collect();
@@ -308,19 +324,22 @@ fn build_file_specs(
                 for rn in &record_names {
                     record_to_file.insert(rn.clone(), key.clone());
                 }
-                specs.insert(key.clone(), FileSpec {
-                    assign: fc.assign.clone(),
-                    organization: fc.organization,
-                    access: fc.access,
-                    status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
-                    record_names,
-                    record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
-                    alternate_keys: fc.alternate_keys.clone(),
-                    storage_mode: fc.storage_mode,
-                    data_compressing: fc.data_compressing,
-                    persist: fc.persist,
-                    layout: fd_layout.get(&key).cloned().unwrap_or_default(),
-                });
+                specs.insert(
+                    key.clone(),
+                    FileSpec {
+                        assign: fc.assign.clone(),
+                        organization: fc.organization,
+                        access: fc.access,
+                        status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
+                        record_names,
+                        record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
+                        alternate_keys: fc.alternate_keys.clone(),
+                        storage_mode: fc.storage_mode,
+                        data_compressing: fc.data_compressing,
+                        persist: fc.persist,
+                        layout: fd_layout.get(&key).cloned().unwrap_or_default(),
+                    },
+                );
             }
         }
     }
@@ -349,17 +368,21 @@ fn make_indexed_engine(
     log_level: crate::indexed_log::LogLevel,
     log_format: crate::indexed_log::LogFormat,
 ) -> Box<dyn crate::indexed::IndexedStore> {
-    use cobolt_ast::program::StorageMode;
     use crate::indexed::{IndexedEngine, IndexedFile, KeySpec};
     use crate::indexed_disk::DiskIndexedFile;
     use crate::indexed_redb::RedbIndexedFile;
+    use cobolt_ast::program::StorageMode;
     let layout = &spec.layout;
     let reclen = layout.len.max(1);
     let primary = spec
         .record_key
         .as_deref()
         .and_then(|k| layout.key_spec(k, false))
-        .unwrap_or(KeySpec { offset: 0, len: reclen, duplicates: false });
+        .unwrap_or(KeySpec {
+            offset: 0,
+            len: reclen,
+            duplicates: false,
+        });
     // Build alternate KeySpecs and their field names in lock-step (skipping any
     // alternate key field that isn't present in the FD record layout).
     let mut alts = Vec::new();
@@ -576,7 +599,10 @@ impl Interpreter {
         let (file_specs, record_to_file) = build_file_specs(&program);
 
         // Flatten the parsed DECLARATIVES into runtime-ready handlers.
-        let declaratives: Vec<DeclHandler> = program.procedure.declaratives.iter()
+        let declaratives: Vec<DeclHandler> = program
+            .procedure
+            .declaratives
+            .iter()
             .map(|u| DeclHandler {
                 files: u.files.clone(),
                 modes: u.modes.clone(),
@@ -598,16 +624,16 @@ impl Interpreter {
             nested_registry,
             program_locals: HashMap::new(),
             perform_depth: 0,
-            db:   DbRegistry::new(),
+            db: DbRegistry::new(),
             http: crate::http_runtime::HttpClient::new(),
-            event_rx:   None,
-            input_rx:   None,
-            state_tx:   None,
+            event_rx: None,
+            input_rx: None,
+            state_tx: None,
             display_tx: None,
-            debug_cmd_rx:      None,
-            debug_event_tx:    None,
-            breakpoints:       None,
-            debug_stepping:    false,
+            debug_cmd_rx: None,
+            debug_event_tx: None,
+            breakpoints: None,
+            debug_stepping: false,
             current_paragraph: String::new(),
             file_specs,
             record_to_file,
@@ -664,14 +690,14 @@ impl Interpreter {
     /// - `state_tx`  — sends `StateUpdate` to the UI (SET-PROPERTY changes)
     /// - `display_tx`— sends DISPLAY output lines to the IDE output panel
     pub fn new_with_channels(
-        program:    Program,
-        event_rx:   mpsc::Receiver<FormEvent>,
-        state_tx:   mpsc::Sender<StateUpdate>,
+        program: Program,
+        event_rx: mpsc::Receiver<FormEvent>,
+        state_tx: mpsc::Sender<StateUpdate>,
         display_tx: mpsc::Sender<String>,
     ) -> Self {
         let mut interp = Self::new(program);
-        interp.event_rx   = Some(event_rx);
-        interp.state_tx   = Some(state_tx);
+        interp.event_rx = Some(event_rx);
+        interp.state_tx = Some(state_tx);
         interp.display_tx = Some(display_tx);
         interp
     }
@@ -690,7 +716,8 @@ impl Interpreter {
         if let Some(rx) = &self.input_rx {
             let pending: Vec<StateUpdate> = rx.try_iter().collect();
             for upd in pending {
-                self.objects.set_property(&upd.ctrl_id, &upd.prop, upd.value);
+                self.objects
+                    .set_property(&upd.ctrl_id, &upd.prop, upd.value);
             }
         }
     }
@@ -701,15 +728,15 @@ impl Interpreter {
     /// - `debug_event_tx`— sends `DebugEvent` to the IDE (Paused, Resumed, Finished)
     /// - `breakpoints`   — shared set of active breakpoint line numbers
     pub fn new_with_debug_channels(
-        program:        Program,
-        debug_cmd_rx:   mpsc::Receiver<crate::debugger::DebugCmd>,
+        program: Program,
+        debug_cmd_rx: mpsc::Receiver<crate::debugger::DebugCmd>,
         debug_event_tx: mpsc::Sender<crate::debugger::DebugEvent>,
-        breakpoints:    crate::debugger::Breakpoints,
+        breakpoints: crate::debugger::Breakpoints,
     ) -> Self {
         let mut interp = Self::new(program);
-        interp.debug_cmd_rx   = Some(debug_cmd_rx);
+        interp.debug_cmd_rx = Some(debug_cmd_rx);
         interp.debug_event_tx = Some(debug_event_tx);
-        interp.breakpoints    = Some(breakpoints);
+        interp.breakpoints = Some(breakpoints);
         interp.debug_stepping = true; // start paused at line 1
         interp
     }
@@ -765,7 +792,10 @@ impl Interpreter {
         if names.is_empty() {
             return;
         }
-        let guard = self.external_store.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = self
+            .external_store
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for name in names {
             if let Some(v) = guard.get(&name).cloned() {
                 self.env.raw_set(&name, v);
@@ -779,7 +809,10 @@ impl Interpreter {
         if names.is_empty() {
             return;
         }
-        let mut guard = self.external_store.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .external_store
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for name in names {
             if let Some(v) = self.env.raw_get(&name).cloned() {
                 guard.insert(name, v);
@@ -794,7 +827,10 @@ impl Interpreter {
             self.current_paragraph = name.clone();
             let stmts = match self.para_map.get(&name) {
                 Some(s) => s.clone(),
-                None => { idx += 1; continue; }
+                None => {
+                    idx += 1;
+                    continue;
+                }
             };
             match self.exec_stmts(&stmts) {
                 // EXIT PARAGRAPH/SECTION and NEXT SENTENCE end the current
@@ -807,10 +843,12 @@ impl Interpreter {
                     let upper = target.to_ascii_uppercase();
                     match self.para_order.iter().position(|n| n == &upper) {
                         Some(pos) => idx = pos,
-                        None => return Err(RuntimeError::UndefinedParagraph {
-                            name: upper,
-                            span: Span::dummy(),
-                        }),
+                        None => {
+                            return Err(RuntimeError::UndefinedParagraph {
+                                name: upper,
+                                span: Span::dummy(),
+                            })
+                        }
                     }
                 }
                 // Normal program termination signals — treat as success.
@@ -840,7 +878,7 @@ impl Interpreter {
     /// GOBACK is propagated as-is so the caller can treat it as a normal return.
     fn run_para_sequence(
         &mut self,
-        para_map:   &IndexMap<String, Vec<Stmt>>,
+        para_map: &IndexMap<String, Vec<Stmt>>,
         para_order: &[String],
     ) -> Result<(), RuntimeError> {
         let mut idx = 0usize;
@@ -849,7 +887,10 @@ impl Interpreter {
             self.current_paragraph = name.clone();
             let stmts = match para_map.get(name) {
                 Some(s) => s.clone(),
-                None => { idx += 1; continue; }
+                None => {
+                    idx += 1;
+                    continue;
+                }
             };
             match self.exec_stmts(&stmts) {
                 Ok(())
@@ -860,10 +901,12 @@ impl Interpreter {
                     let upper = target.to_ascii_uppercase();
                     match para_order.iter().position(|n| n == &upper) {
                         Some(pos) => idx = pos,
-                        None => return Err(RuntimeError::UndefinedParagraph {
-                            name: upper,
-                            span: Span::dummy(),
-                        }),
+                        None => {
+                            return Err(RuntimeError::UndefinedParagraph {
+                                name: upper,
+                                span: Span::dummy(),
+                            })
+                        }
                     }
                 }
                 // GOBACK / STOP RUN / errors propagate to caller.
@@ -891,9 +934,7 @@ impl Interpreter {
                     // this list; if there is none, propagate to the enclosing
                     // list (ultimately ending the paragraph).
                     let mut j = i + 1;
-                    while j < stmts.len()
-                        && !matches!(stmts[j], Stmt::SentenceEnd { .. })
-                    {
+                    while j < stmts.len() && !matches!(stmts[j], Stmt::SentenceEnd { .. }) {
                         j += 1;
                     }
                     if j < stmts.len() {
@@ -929,9 +970,12 @@ impl Interpreter {
         let line = span.map(|s| s.line).unwrap_or(0);
 
         // Decide whether to pause.
-        let hit_breakpoint = line > 0 && self.breakpoints.as_ref().map(|bp| {
-            bp.lock().map(|set| set.contains(&line)).unwrap_or(false)
-        }).unwrap_or(false);
+        let hit_breakpoint = line > 0
+            && self
+                .breakpoints
+                .as_ref()
+                .map(|bp| bp.lock().map(|set| set.contains(&line)).unwrap_or(false))
+                .unwrap_or(false);
 
         if !self.debug_stepping && !hit_breakpoint {
             // Check for async Pause command without blocking.
@@ -942,16 +986,18 @@ impl Interpreter {
         }
 
         // Build variable snapshot.
-        let vars: Vec<crate::debugger::VarSnapshot> = self.env.iter()
+        let vars: Vec<crate::debugger::VarSnapshot> = self
+            .env
+            .iter()
             .map(|(k, v)| crate::debugger::VarSnapshot {
-                name:  k.clone(),
+                name: k.clone(),
                 value: v.as_display_string(),
             })
             .collect();
 
         let _ = ev_tx.send(crate::debugger::DebugEvent::Paused {
-            line:      line,
-            col:       span.map(|s| s.col).unwrap_or(0),
+            line: line,
+            col: span.map(|s| s.col).unwrap_or(0),
             paragraph: self.current_paragraph.clone(),
             vars,
         });
@@ -995,8 +1041,7 @@ impl Interpreter {
     fn dispatch_stmt(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
         match stmt {
             // ── Data movement ─────────────────────────────────────────────────
-            Stmt::Move { from, to, .. } =>
-                self.exec_move(from, to),
+            Stmt::Move { from, to, .. } => self.exec_move(from, to),
             Stmt::MoveCorresponding { from, to, .. } => {
                 let from_key = self.resolve_lvalue(from);
                 let to_key = self.resolve_lvalue(to);
@@ -1013,32 +1058,112 @@ impl Interpreter {
                 self.arith_corresponding(&from_key, &to_key, true)
             }
 
-            Stmt::Initialize { items, replacing, .. } => self.exec_initialize(items, replacing),
+            Stmt::Initialize {
+                items, replacing, ..
+            } => self.exec_initialize(items, replacing),
 
             // ── Arithmetic ────────────────────────────────────────────────────
-            Stmt::Add { operands, to, giving, on_size_error, not_on_size_error, span } =>
-                self.exec_add(operands, to, giving, on_size_error, not_on_size_error, *span),
-            Stmt::Subtract { operands, from, giving, on_size_error, not_on_size_error, span } =>
-                self.exec_subtract(operands, from, giving, on_size_error, not_on_size_error, *span),
-            Stmt::Multiply { lhs, by, giving, rounded, on_size_error, not_on_size_error, span } =>
-                self.exec_multiply(lhs, by, giving, *rounded, on_size_error, not_on_size_error, *span),
-            Stmt::Divide { lhs, by, giving, remainder, rounded, on_size_error, not_on_size_error, span } =>
-                self.exec_divide(lhs, by, giving, remainder.as_ref(), *rounded, on_size_error, not_on_size_error, *span),
-            Stmt::Compute { targets, expr, on_size_error, not_on_size_error, span } =>
-                self.exec_compute(targets, expr, on_size_error, not_on_size_error, *span),
+            Stmt::Add {
+                operands,
+                to,
+                giving,
+                on_size_error,
+                not_on_size_error,
+                span,
+            } => self.exec_add(
+                operands,
+                to,
+                giving,
+                on_size_error,
+                not_on_size_error,
+                *span,
+            ),
+            Stmt::Subtract {
+                operands,
+                from,
+                giving,
+                on_size_error,
+                not_on_size_error,
+                span,
+            } => self.exec_subtract(
+                operands,
+                from,
+                giving,
+                on_size_error,
+                not_on_size_error,
+                *span,
+            ),
+            Stmt::Multiply {
+                lhs,
+                by,
+                giving,
+                rounded,
+                on_size_error,
+                not_on_size_error,
+                span,
+            } => self.exec_multiply(
+                lhs,
+                by,
+                giving,
+                *rounded,
+                on_size_error,
+                not_on_size_error,
+                *span,
+            ),
+            Stmt::Divide {
+                lhs,
+                by,
+                giving,
+                remainder,
+                rounded,
+                on_size_error,
+                not_on_size_error,
+                span,
+            } => self.exec_divide(
+                lhs,
+                by,
+                giving,
+                remainder.as_ref(),
+                *rounded,
+                on_size_error,
+                not_on_size_error,
+                *span,
+            ),
+            Stmt::Compute {
+                targets,
+                expr,
+                on_size_error,
+                not_on_size_error,
+                span,
+            } => self.exec_compute(targets, expr, on_size_error, not_on_size_error, *span),
 
             // ── Control flow ──────────────────────────────────────────────────
-            Stmt::If { condition, then_stmts, else_stmts, .. } =>
-                self.exec_if(condition, then_stmts, else_stmts),
-            Stmt::Evaluate { subjects, whens, other_stmts, .. } =>
-                self.exec_evaluate(subjects, whens, other_stmts),
-            Stmt::Perform { target, span } =>
-                self.exec_perform(target, *span),
-            Stmt::Search { all, table, varying, at_end, whens, .. } =>
-                self.exec_search(*all, table, varying.as_ref(), at_end, whens),
+            Stmt::If {
+                condition,
+                then_stmts,
+                else_stmts,
+                ..
+            } => self.exec_if(condition, then_stmts, else_stmts),
+            Stmt::Evaluate {
+                subjects,
+                whens,
+                other_stmts,
+                ..
+            } => self.exec_evaluate(subjects, whens, other_stmts),
+            Stmt::Perform { target, span } => self.exec_perform(target, *span),
+            Stmt::Search {
+                all,
+                table,
+                varying,
+                at_end,
+                whens,
+                ..
+            } => self.exec_search(*all, table, varying.as_ref(), at_end, whens),
             Stmt::GoTo { target, .. } => {
                 // An ALTER may have redirected this paragraph's GO TO.
-                let t = self.alter_map.get(&self.current_paragraph)
+                let t = self
+                    .alter_map
+                    .get(&self.current_paragraph)
                     .cloned()
                     .unwrap_or_else(|| target.clone());
                 Err(RuntimeError::GoTo { target: t })
@@ -1074,10 +1199,17 @@ impl Interpreter {
                 }
                 Ok(())
             }
-            Stmt::SetPointer { address_of, targets, source, .. } =>
-                self.exec_set_pointer(address_of.as_ref(), targets, source),
-            Stmt::GoToDepending { targets, depending, span } =>
-                self.exec_go_to_depending(targets, depending, *span),
+            Stmt::SetPointer {
+                address_of,
+                targets,
+                source,
+                ..
+            } => self.exec_set_pointer(address_of.as_ref(), targets, source),
+            Stmt::GoToDepending {
+                targets,
+                depending,
+                span,
+            } => self.exec_go_to_depending(targets, depending, *span),
             Stmt::Continue { .. } => Ok(()),
             // NEXT SENTENCE transfers control past the next sentence boundary
             // (a SentenceEnd marker); handled by exec_stmts.
@@ -1093,54 +1225,191 @@ impl Interpreter {
             },
 
             // ── I/O ───────────────────────────────────────────────────────────
-            Stmt::Accept { target, from, screen, span } =>
-                self.exec_accept(target, from.as_ref(), screen.as_ref(), *span),
-            Stmt::Display { operands, no_advancing, screen, upon, .. } =>
-                self.exec_display(operands, *no_advancing, screen.as_ref(), upon.as_deref()),
-            Stmt::Open { mode, files, lock, registered_user, span, .. } =>
-                self.exec_open(*mode, files, *lock, registered_user.as_ref(), *span),
-            Stmt::Close { files, .. } =>
-                self.exec_close(files),
-            Stmt::Write { record, from, invalid_key, not_invalid_key, span, .. } =>
-                self.exec_write(record, from.as_ref(), invalid_key, not_invalid_key, *span),
-            Stmt::Read { file, into, key, direction, lock, at_end, not_at_end, invalid_key, not_invalid_key, span } =>
-                self.exec_read(file, into.as_ref(), key.as_ref(), *direction, *lock,
-                    at_end, not_at_end, invalid_key, not_invalid_key, *span),
-            Stmt::Rewrite { record, from, invalid_key, not_invalid_key, span } =>
-                self.exec_rewrite(record, from.as_ref(), invalid_key, not_invalid_key, *span),
-            Stmt::Delete { file, invalid_key, not_invalid_key, span } =>
-                self.exec_delete(file, invalid_key, not_invalid_key, *span),
-            Stmt::Start { file, key, invalid_key, not_invalid_key, span } => {
-                self.exec_start(file, key.as_ref(), invalid_key, not_invalid_key, *span)
-            }
+            Stmt::Accept {
+                target,
+                from,
+                screen,
+                span,
+            } => self.exec_accept(target, from.as_ref(), screen.as_ref(), *span),
+            Stmt::Display {
+                operands,
+                no_advancing,
+                screen,
+                upon,
+                ..
+            } => self.exec_display(operands, *no_advancing, screen.as_ref(), upon.as_deref()),
+            Stmt::Open {
+                mode,
+                files,
+                lock,
+                registered_user,
+                span,
+                ..
+            } => self.exec_open(*mode, files, *lock, registered_user.as_ref(), *span),
+            Stmt::Close { files, .. } => self.exec_close(files),
+            Stmt::Write {
+                record,
+                from,
+                invalid_key,
+                not_invalid_key,
+                span,
+                ..
+            } => self.exec_write(record, from.as_ref(), invalid_key, not_invalid_key, *span),
+            Stmt::Read {
+                file,
+                into,
+                key,
+                direction,
+                lock,
+                at_end,
+                not_at_end,
+                invalid_key,
+                not_invalid_key,
+                span,
+            } => self.exec_read(
+                file,
+                into.as_ref(),
+                key.as_ref(),
+                *direction,
+                *lock,
+                at_end,
+                not_at_end,
+                invalid_key,
+                not_invalid_key,
+                *span,
+            ),
+            Stmt::Rewrite {
+                record,
+                from,
+                invalid_key,
+                not_invalid_key,
+                span,
+            } => self.exec_rewrite(record, from.as_ref(), invalid_key, not_invalid_key, *span),
+            Stmt::Delete {
+                file,
+                invalid_key,
+                not_invalid_key,
+                span,
+            } => self.exec_delete(file, invalid_key, not_invalid_key, *span),
+            Stmt::Start {
+                file,
+                key,
+                invalid_key,
+                not_invalid_key,
+                span,
+            } => self.exec_start(file, key.as_ref(), invalid_key, not_invalid_key, *span),
 
             // ── String handling ───────────────────────────────────────────────
-            Stmt::String_ { operands, into, pointer, on_overflow, not_on_overflow, span } =>
-                self.exec_string(operands, into, pointer.as_ref(), on_overflow, not_on_overflow, *span),
-            Stmt::Unstring { from, delimited_by, all, into, pointer, tallying, on_overflow, not_on_overflow, span } =>
-                self.exec_unstring(from, delimited_by, *all, into,
-                                   pointer.as_ref(), tallying.as_ref(), on_overflow, not_on_overflow, *span),
-            Stmt::Inspect { target, spec, span } =>
-                self.exec_inspect(target, spec, *span),
+            Stmt::String_ {
+                operands,
+                into,
+                pointer,
+                on_overflow,
+                not_on_overflow,
+                span,
+            } => self.exec_string(
+                operands,
+                into,
+                pointer.as_ref(),
+                on_overflow,
+                not_on_overflow,
+                *span,
+            ),
+            Stmt::Unstring {
+                from,
+                delimited_by,
+                all,
+                into,
+                pointer,
+                tallying,
+                on_overflow,
+                not_on_overflow,
+                span,
+            } => self.exec_unstring(
+                from,
+                delimited_by,
+                *all,
+                into,
+                pointer.as_ref(),
+                tallying.as_ref(),
+                on_overflow,
+                not_on_overflow,
+                *span,
+            ),
+            Stmt::Inspect { target, spec, span } => self.exec_inspect(target, spec, *span),
 
             // ── Sorting ───────────────────────────────────────────────────────
-            Stmt::Sort { file, keys, using, giving, input_proc, output_proc, duplicates: _, span } =>
-                self.exec_sort(file, keys, using, giving,
-                    input_proc.as_deref(), output_proc.as_deref(), *span),
-            Stmt::Merge { file, keys, using, giving, output_proc, span } =>
-                self.exec_sort(file, keys, using, giving, None, output_proc.as_deref(), *span),
-            Stmt::Release { record, from, .. } =>
-                self.exec_release(record, from.as_ref()),
-            Stmt::Return { file, into, at_end, not_at_end, .. } =>
-                self.exec_return(file, into.as_ref(), at_end, not_at_end),
+            Stmt::Sort {
+                file,
+                keys,
+                using,
+                giving,
+                input_proc,
+                output_proc,
+                duplicates: _,
+                span,
+            } => self.exec_sort(
+                file,
+                keys,
+                using,
+                giving,
+                input_proc.as_deref(),
+                output_proc.as_deref(),
+                *span,
+            ),
+            Stmt::Merge {
+                file,
+                keys,
+                using,
+                giving,
+                output_proc,
+                span,
+            } => self.exec_sort(
+                file,
+                keys,
+                using,
+                giving,
+                None,
+                output_proc.as_deref(),
+                *span,
+            ),
+            Stmt::Release { record, from, .. } => self.exec_release(record, from.as_ref()),
+            Stmt::Return {
+                file,
+                into,
+                at_end,
+                not_at_end,
+                ..
+            } => self.exec_return(file, into.as_ref(), at_end, not_at_end),
 
             // ── Subprogram linkage ────────────────────────────────────────────
-            Stmt::Call { program, using, returning, on_exception, not_on_exception, span } =>
-                self.exec_call(program, using, returning.as_ref(), on_exception, not_on_exception, *span),
+            Stmt::Call {
+                program,
+                using,
+                returning,
+                on_exception,
+                not_on_exception,
+                span,
+            } => self.exec_call(
+                program,
+                using,
+                returning.as_ref(),
+                on_exception,
+                not_on_exception,
+                *span,
+            ),
 
-            Stmt::Invoke { object, method, args, returning, span } => {
+            Stmt::Invoke {
+                object,
+                method,
+                args,
+                returning,
+                span,
+            } => {
                 let mut vals = Vec::with_capacity(args.len());
-                for a in args { vals.push(self.eval_expr(a, *span)?); }
+                for a in args {
+                    vals.push(self.eval_expr(a, *span)?);
+                }
                 let result = self.exec_method(object, method, &vals);
                 if let Some(dest) = returning {
                     // RETURNING into a member chain (`… RETURNING B::Caption`)
@@ -1165,25 +1434,36 @@ impl Interpreter {
 
             // ── Program termination ───────────────────────────────────────────
             Stmt::Stop { run: true, .. } => Err(RuntimeError::StopRun),
-            Stmt::Stop { run: false, literal, .. } => {
+            Stmt::Stop {
+                run: false,
+                literal,
+                ..
+            } => {
                 if let Some(lit) = literal {
                     let s = match lit {
-                        Literal::String(s)  => s.clone(),
+                        Literal::String(s) => s.clone(),
                         Literal::Integer(n) => n.to_string(),
-                        _                   => String::new(),
+                        _ => String::new(),
                     };
-                    if !s.is_empty() { println!("{s}"); }
+                    if !s.is_empty() {
+                        println!("{s}");
+                    }
                 }
                 Ok(())
             }
             Stmt::GoBack { .. } => Err(RuntimeError::GoBack),
 
             // ── EXEC RUST ─────────────────────────────────────────────────────
-            Stmt::ExecRust { .. } =>
-                exec_rust::execute(stmt, &mut self.env, &mut self.objects),
+            Stmt::ExecRust { .. } => exec_rust::execute(stmt, &mut self.env, &mut self.objects),
 
             // ── TRY / CATCH EXCEPTION / FINALLY ──────────────────────────────
-            Stmt::TryCatch { try_stmts, exception_var, catch_stmts, finally_stmts, .. } => {
+            Stmt::TryCatch {
+                try_stmts,
+                exception_var,
+                catch_stmts,
+                finally_stmts,
+                ..
+            } => {
                 // Execute the TRY body, catching any UserException.
                 let try_result = self.exec_stmts(try_stmts);
 
@@ -1214,7 +1494,9 @@ impl Interpreter {
 
             Stmt::Throw { message, span } => {
                 let val = self.eval_expr(message, *span)?;
-                Err(RuntimeError::UserException { message: val.as_display_string() })
+                Err(RuntimeError::UserException {
+                    message: val.as_display_string(),
+                })
             }
 
             // ── PowerCOBOL extensions ─────────────────────────────────────────
@@ -1222,10 +1504,16 @@ impl Interpreter {
                 tracing::debug!("WindowOp: {:?}", op);
                 Ok(())
             }
-            Stmt::ControlSet { control, property, value, span } => {
+            Stmt::ControlSet {
+                control,
+                property,
+                value,
+                span,
+            } => {
                 let ctrl = self.expr_to_name(control);
-                let val  = self.eval_expr(value, *span)?;
-                self.objects.set_property(&ctrl, property, val.as_display_string());
+                let val = self.eval_expr(value, *span)?;
+                self.objects
+                    .set_property(&ctrl, property, val.as_display_string());
                 Ok(())
             }
         }
@@ -1243,7 +1531,13 @@ impl Interpreter {
         };
         for target in to {
             // Reference-modified receiver: partial (spliced) assignment.
-            if let Expr::RefMod { base, start, length, span } = target {
+            if let Expr::RefMod {
+                base,
+                start,
+                length,
+                span,
+            } = target
+            {
                 self.assign_refmod(base, start, length.as_deref(), &val, *span)?;
                 continue;
             }
@@ -1305,9 +1599,10 @@ impl Interpreter {
         let pv = CobolValue::from_i64(n);
         info.values.iter().any(|cv| match cv {
             ConditionValue::Single(lit) => compare_values(&pv, &literal_to_value(lit), CmpOp::Eq),
-            ConditionValue::Range(lo, hi) =>
+            ConditionValue::Range(lo, hi) => {
                 compare_values(&pv, &literal_to_value(lo), CmpOp::Ge)
-                    && compare_values(&pv, &literal_to_value(hi), CmpOp::Le),
+                    && compare_values(&pv, &literal_to_value(hi), CmpOp::Le)
+            }
         })
     }
 
@@ -1321,11 +1616,16 @@ impl Interpreter {
             if both_groups {
                 self.move_corresponding(&fk, &tk)?;
             } else {
-                let val = self.env.get(&fk).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
+                let val = self
+                    .env
+                    .get(&fk)
+                    .cloned()
+                    .unwrap_or_else(|| CobolValue::from_i64(0));
                 let src_digits = self.env.deedited_digits(&fk);
                 match src_digits {
-                    Some(digits) if self.env.is_alphanumeric_field(&tk) =>
-                        self.env.set_str_left(&tk, &digits),
+                    Some(digits) if self.env.is_alphanumeric_field(&tk) => {
+                        self.env.set_str_left(&tk, &digits)
+                    }
                     _ => self.env.set(&tk, val),
                 }
             }
@@ -1345,9 +1645,21 @@ impl Interpreter {
             if both_groups {
                 self.arith_corresponding(&fk, &tk, subtract)?;
             } else {
-                let a = self.env.get(&fk).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
-                let cur = self.env.get(&tk).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
-                let result = if subtract { cur.sub_val(&a) } else { cur.add_val(&a) };
+                let a = self
+                    .env
+                    .get(&fk)
+                    .cloned()
+                    .unwrap_or_else(|| CobolValue::from_i64(0));
+                let cur = self
+                    .env
+                    .get(&tk)
+                    .cloned()
+                    .unwrap_or_else(|| CobolValue::from_i64(0));
+                let result = if subtract {
+                    cur.sub_val(&a)
+                } else {
+                    cur.add_val(&a)
+                };
                 self.store_arith(&tk, result, false, false);
             }
         }
@@ -1357,8 +1669,14 @@ impl Interpreter {
     /// Matching subordinate pairs of two groups: `(from_child_key,
     /// to_child_key, both_are_groups)` for every leaf name they share.
     fn corr_pairs(&self, from_key: &str, to_key: &str) -> Vec<(String, String, bool)> {
-        let from_sym = match self.env.symbol(from_key) { Some(s) => s.clone(), None => return Vec::new() };
-        let to_sym = match self.env.symbol(to_key) { Some(s) => s.clone(), None => return Vec::new() };
+        let from_sym = match self.env.symbol(from_key) {
+            Some(s) => s.clone(),
+            None => return Vec::new(),
+        };
+        let to_sym = match self.env.symbol(to_key) {
+            Some(s) => s.clone(),
+            None => return Vec::new(),
+        };
         let mut out = Vec::new();
         for (i, child) in from_sym.children.iter().enumerate() {
             if let Some(j) = to_sym.children.iter().position(|c| c == child) {
@@ -1415,8 +1733,7 @@ impl Interpreter {
     fn canonical_no_alias(&self, expr: &Expr) -> String {
         match expr {
             Expr::Identifier(name, _) => self.env.canonical_name(name, &[]),
-            Expr::Qualified { name, of, .. } =>
-                self.env.canonical_name(name, &collect_quals(of)),
+            Expr::Qualified { name, of, .. } => self.env.canonical_name(name, &collect_quals(of)),
             _ => self.expr_to_name(expr),
         }
     }
@@ -1434,13 +1751,23 @@ impl Interpreter {
         let table_name = self.expr_to_name(table);
         let sym = self.env.symbol(&table_name).cloned();
         // Table size = the table's own OCCURS count (its last dimension).
-        let size = sym.as_ref()
-            .map(|s| if s.occurs > 0 { s.occurs } else { s.dims.last().copied().unwrap_or(0) })
+        let size = sym
+            .as_ref()
+            .map(|s| {
+                if s.occurs > 0 {
+                    s.occurs
+                } else {
+                    s.dims.last().copied().unwrap_or(0)
+                }
+            })
             .unwrap_or(0);
         // Index = VARYING item, else the table's first INDEXED BY index.
         let index_name = match varying {
             Some(v) => self.expr_to_name(v),
-            None => sym.as_ref().and_then(|s| s.index_names.first().cloned()).unwrap_or_default(),
+            None => sym
+                .as_ref()
+                .and_then(|s| s.index_names.first().cloned())
+                .unwrap_or_default(),
         };
         if index_name.is_empty() || size == 0 {
             return self.exec_stmts(at_end);
@@ -1473,7 +1800,8 @@ impl Interpreter {
                     let ord = cob_ordering(&lv, &rv);
                     if ord != std::cmp::Ordering::Equal {
                         let field = self.expr_to_name(lhs).to_ascii_uppercase();
-                        let ascending = keys.iter()
+                        let ascending = keys
+                            .iter()
                             .find(|(k, _)| *k == field)
                             .map(|(_, a)| *a)
                             .unwrap_or(true);
@@ -1494,7 +1822,11 @@ impl Interpreter {
 
         // ── Serial SEARCH (and SEARCH ALL fallback when no keys are declared):
         // SEARCH ALL scans from the start; serial SEARCH from the current index.
-        let start = if all { 1 } else { self.env.get_i64(&index_name).unwrap_or(1).max(1) };
+        let start = if all {
+            1
+        } else {
+            self.env.get_i64(&index_name).unwrap_or(1).max(1)
+        };
         let mut i = start;
         while i <= size as i64 {
             self.env.set_i64(&index_name, i);
@@ -1508,7 +1840,6 @@ impl Interpreter {
         // No WHEN matched within the table → run AT END.
         self.exec_stmts(at_end)
     }
-
 
     // ── INITIALIZE (category-aware) ─────────────────────────────────────────────
 
@@ -1547,7 +1878,10 @@ impl Interpreter {
             let name = self.resolve_lvalue(item);
             // Walk the DATA DIVISION for the item's declaration so groups recurse
             // into their elementary children; fall back to field-cap inference.
-            let decl = self.program.data.as_ref()
+            let decl = self
+                .program
+                .data
+                .as_ref()
                 .and_then(|d| find_decl_in_division(d, &name))
                 .cloned();
             match decl {
@@ -1563,7 +1897,11 @@ impl Interpreter {
     /// numeric-looking value resets to `"0"`, anything else to the empty string
     /// (spec 011 — properties have no PIC, so the current value's shape decides).
     fn init_default_for_member(&self, root: &str, path: &[PathSeg]) -> String {
-        let cur = self.objects.get_path(root, path).map(|v| v.to_string()).unwrap_or_default();
+        let cur = self
+            .objects
+            .get_path(root, path)
+            .map(|v| v.to_string())
+            .unwrap_or_default();
         if !cur.trim().is_empty() && crate::value::parse_decimal(cur.trim()).is_some() {
             "0".to_string()
         } else {
@@ -1590,11 +1928,11 @@ impl Interpreter {
         }
         let Some(name) = &d.name else { return };
         let cat = match d.picture.as_ref().map(|p| p.kind) {
-            Some(PicKind::Alphabetic)        => InitCategory::Alphabetic,
-            Some(PicKind::Alphanumeric)      => InitCategory::Alphanumeric,
-            Some(PicKind::Numeric)           => InitCategory::Numeric,
+            Some(PicKind::Alphabetic) => InitCategory::Alphabetic,
+            Some(PicKind::Alphanumeric) => InitCategory::Alphanumeric,
+            Some(PicKind::Numeric) => InitCategory::Numeric,
             Some(PicKind::AlphanumericEdited) => InitCategory::AlphanumericEdited,
-            Some(PicKind::NumericEdited)     => InitCategory::NumericEdited,
+            Some(PicKind::NumericEdited) => InitCategory::NumericEdited,
             None => return,
         };
         if let Some((_, val)) = repl.iter().find(|(c, _)| *c == cat) {
@@ -1622,8 +1960,14 @@ impl Interpreter {
                 Some(PicKind::Numeric) | Some(PicKind::NumericEdited)
             );
             if numeric {
-                let decimals = d.picture.as_ref().map(|p| p.decimals).unwrap_or(0).min(u8::MAX as u16) as u8;
-                self.env.set(&key, CobolValue::Numeric(CobolNumeric::new(0, decimals)));
+                let decimals = d
+                    .picture
+                    .as_ref()
+                    .map(|p| p.decimals)
+                    .unwrap_or(0)
+                    .min(u8::MAX as u16) as u8;
+                self.env
+                    .set(&key, CobolValue::Numeric(CobolNumeric::new(0, decimals)));
             } else {
                 let width = self.env.display_string(&key).map(|s| s.len()).unwrap_or(0);
                 self.env.set_str(&key, &" ".repeat(width));
@@ -1671,7 +2015,10 @@ impl Interpreter {
         } else {
             for (t, rounded) in to {
                 let name = self.resolve_lvalue(t);
-                let cur = self.env.get(&name).cloned()
+                let cur = self
+                    .env
+                    .get(&name)
+                    .cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 let result = cur.add_val(&sum);
                 size_err |= self.store_arith(&name, result, *rounded, has);
@@ -1708,7 +2055,10 @@ impl Interpreter {
         } else {
             for (f, rounded) in from {
                 let name = self.resolve_lvalue(f);
-                let cur = self.env.get(&name).cloned()
+                let cur = self
+                    .env
+                    .get(&name)
+                    .cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 let result = cur.sub_val(&sub);
                 size_err |= self.store_arith(&name, result, *rounded, has);
@@ -1917,7 +2267,10 @@ impl Interpreter {
                 for (i, val) in when.values.iter().enumerate() {
                     let subj = match subjects.get(i) {
                         Some(s) => s,
-                        None => { all = false; break; }
+                        None => {
+                            all = false;
+                            break;
+                        }
                     };
                     if !self.when_value_matches(subj, val)? {
                         all = false;
@@ -1956,18 +2309,16 @@ impl Interpreter {
             (_, WhenValue::Other) => Ok(false), // handled specially in exec_evaluate
             (s, WhenValue::Not(inner)) => Ok(!self.when_value_matches(s, inner)?),
             (EvalSubject::True_, WhenValue::Condition(c)) => self.eval_condition(c),
-            (EvalSubject::False_, WhenValue::Condition(c)) => {
-                Ok(!self.eval_condition(c)?)
-            }
+            (EvalSubject::False_, WhenValue::Condition(c)) => Ok(!self.eval_condition(c)?),
             (EvalSubject::Expr(e), WhenValue::Literal(lit)) => {
                 let subj = self.eval_expr(e, e.span())?;
-                let lv   = literal_to_value(lit);
+                let lv = literal_to_value(lit);
                 Ok(compare_values(&subj, &lv, CmpOp::Eq))
             }
             (EvalSubject::Expr(e), WhenValue::Range(lo, hi)) => {
-                let subj  = self.eval_expr(e, e.span())?;
-                let lo_v  = literal_to_value(lo);
-                let hi_v  = literal_to_value(hi);
+                let subj = self.eval_expr(e, e.span())?;
+                let lo_v = literal_to_value(lo);
+                let hi_v = literal_to_value(hi);
                 Ok(compare_values(&subj, &lo_v, CmpOp::Ge)
                     && compare_values(&subj, &hi_v, CmpOp::Le))
             }
@@ -2005,7 +2356,9 @@ impl Interpreter {
 
     fn exec_perform(&mut self, target: &PerformTarget, span: Span) -> Result<(), RuntimeError> {
         if self.perform_depth >= MAX_PERFORM_DEPTH {
-            return Err(RuntimeError::PerformDepthExceeded { max: MAX_PERFORM_DEPTH });
+            return Err(RuntimeError::PerformDepthExceeded {
+                max: MAX_PERFORM_DEPTH,
+            });
         }
         self.perform_depth += 1;
         let result = self.exec_perform_inner(target, span);
@@ -2017,13 +2370,17 @@ impl Interpreter {
         }
     }
 
-    fn exec_perform_inner(&mut self, target: &PerformTarget, span: Span) -> Result<(), RuntimeError> {
+    fn exec_perform_inner(
+        &mut self,
+        target: &PerformTarget,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
         match target {
             PerformTarget::Paragraph(name, s) => {
                 let stmts = self.para_stmts(name, *s)?;
                 // Track the active paragraph so ALTER overrides resolve correctly.
-                let prev = std::mem::replace(
-                    &mut self.current_paragraph, name.to_ascii_uppercase());
+                let prev =
+                    std::mem::replace(&mut self.current_paragraph, name.to_ascii_uppercase());
                 let r = self.exec_para_body(&stmts);
                 self.current_paragraph = prev;
                 r
@@ -2046,11 +2403,10 @@ impl Interpreter {
                 let stmts = self.thru_stmts(from, to, *s)?;
                 self.exec_para_body(&stmts)
             }
-            PerformTarget::Inline { stmts } =>
-                match self.exec_loop_body(stmts) {
-                    LoopStep::Continue | LoopStep::Break => Ok(()),
-                    LoopStep::Err(e) => Err(e),
-                },
+            PerformTarget::Inline { stmts } => match self.exec_loop_body(stmts) {
+                LoopStep::Continue | LoopStep::Break => Ok(()),
+                LoopStep::Err(e) => Err(e),
+            },
             PerformTarget::Times { count, stmts } => {
                 let n = self.eval_expr(count, span)?.as_i64().unwrap_or(0).max(0);
                 for _ in 0..n {
@@ -2062,7 +2418,11 @@ impl Interpreter {
                 }
                 Ok(())
             }
-            PerformTarget::Until { condition, test_before, stmts } => {
+            PerformTarget::Until {
+                condition,
+                test_before,
+                stmts,
+            } => {
                 if *test_before {
                     while !self.eval_condition(condition)? {
                         match self.exec_loop_body(stmts) {
@@ -2078,14 +2438,21 @@ impl Interpreter {
                             LoopStep::Break => break,
                             LoopStep::Err(e) => return Err(e),
                         }
-                        if self.eval_condition(condition)? { break; }
+                        if self.eval_condition(condition)? {
+                            break;
+                        }
                     }
                 }
                 Ok(())
             }
-            PerformTarget::Varying { var, from, by, until, stmts, after } => {
-                self.exec_perform_varying(var, from, by, until, stmts, after, span)
-            }
+            PerformTarget::Varying {
+                var,
+                from,
+                by,
+                until,
+                stmts,
+                after,
+            } => self.exec_perform_varying(var, from, by, until, stmts, after, span),
         }
     }
 
@@ -2111,15 +2478,22 @@ impl Interpreter {
         }
 
         loop {
-            if self.eval_condition(until)? { break; }
+            if self.eval_condition(until)? {
+                break;
+            }
 
             // Inner AFTER loops (right-most varies fastest). `EXIT PERFORM`
             // (without CYCLE) anywhere inside breaks out of the whole VARYING.
-            if self.exec_perform_after(after, stmts, span)? { break; }
+            if self.exec_perform_after(after, stmts, span)? {
+                break;
+            }
 
             // Increment outer variable
             let by_val = self.eval_expr(by, span)?;
-            let cur = self.env.get(&var_name).cloned()
+            let cur = self
+                .env
+                .get(&var_name)
+                .cloned()
                 .unwrap_or_else(|| CobolValue::from_i64(0));
             self.env.set(&var_name, cur.add_val(&by_val));
         }
@@ -2147,10 +2521,17 @@ impl Interpreter {
         self.env.set(&var_name, from_val);
 
         loop {
-            if self.eval_condition(&head.until)? { break; }
-            if self.exec_perform_after(tail, stmts, span)? { return Ok(true); }
+            if self.eval_condition(&head.until)? {
+                break;
+            }
+            if self.exec_perform_after(tail, stmts, span)? {
+                return Ok(true);
+            }
             let by_val = self.eval_expr(&head.by, span)?;
-            let cur = self.env.get(&var_name).cloned()
+            let cur = self
+                .env
+                .get(&var_name)
+                .cloned()
                 .unwrap_or_else(|| CobolValue::from_i64(0));
             self.env.set(&var_name, cur.add_val(&by_val));
         }
@@ -2165,7 +2546,9 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         let idx = self.eval_expr(depending, span)?.as_i64().unwrap_or(0);
         if idx >= 1 && (idx as usize) <= targets.len() {
-            Err(RuntimeError::GoTo { target: targets[(idx - 1) as usize].clone() })
+            Err(RuntimeError::GoTo {
+                target: targets[(idx - 1) as usize].clone(),
+            })
         } else {
             Ok(()) // out-of-range → fall through
         }
@@ -2195,12 +2578,15 @@ impl Interpreter {
                 let stdin = std::io::stdin();
                 let mut line = String::new();
                 let _ = stdin.lock().read_line(&mut line);
-                let s = line.trim_end_matches('\n').trim_end_matches('\r').to_owned();
+                let s = line
+                    .trim_end_matches('\n')
+                    .trim_end_matches('\r')
+                    .to_owned();
                 self.env.set_str(&name, &s);
             }
-            Some(AcceptSource::Date)      => self.env.set_str(&name, &runtime_date()),
-            Some(AcceptSource::Time)      => self.env.set_str(&name, &runtime_time()),
-            Some(AcceptSource::Day)       => self.env.set_str(&name, &runtime_julian_day()),
+            Some(AcceptSource::Date) => self.env.set_str(&name, &runtime_date()),
+            Some(AcceptSource::Time) => self.env.set_str(&name, &runtime_time()),
+            Some(AcceptSource::Day) => self.env.set_str(&name, &runtime_julian_day()),
             Some(AcceptSource::DayOfWeek) => self.env.set_i64(&name, runtime_day_of_week()),
             Some(AcceptSource::CommandLine) => {
                 self.env.set_str(&name, &self.program_args.join(" "));
@@ -2209,7 +2595,8 @@ impl Interpreter {
                 self.env.set_i64(&name, self.program_args.len() as i64);
             }
             Some(AcceptSource::ArgumentValue) => {
-                let val = self.program_args
+                let val = self
+                    .program_args
                     .get(self.argument_pointer.saturating_sub(1))
                     .cloned()
                     .unwrap_or_default();
@@ -2248,8 +2635,11 @@ impl Interpreter {
             }
             Some(ref u) if u == "ENVIRONMENT-NAME" => {
                 if let Some(op) = operands.first() {
-                    self.env_name_register = self.eval_expr(op, op.span())?
-                        .as_display_string().trim().to_string();
+                    self.env_name_register = self
+                        .eval_expr(op, op.span())?
+                        .as_display_string()
+                        .trim()
+                        .to_string();
                 }
                 return Ok(());
             }
@@ -2299,15 +2689,26 @@ impl Interpreter {
     /// Resolve a screen phrase to a 1-based `(row, col)` terminal position.
     fn screen_pos(&mut self, sc: &cobolt_ast::stmt::ScreenPhrase) -> (i64, i64) {
         if let Some(at) = &sc.at {
-            let v = self.eval_expr(at, at.span()).map(|x| x.as_i64().unwrap_or(0)).unwrap_or(0);
+            let v = self
+                .eval_expr(at, at.span())
+                .map(|x| x.as_i64().unwrap_or(0))
+                .unwrap_or(0);
             return ((v / 100).max(1), (v % 100).max(1));
         }
-        let row = sc.line.as_ref()
+        let row = sc
+            .line
+            .as_ref()
             .and_then(|e| self.eval_expr(e, e.span()).ok())
-            .and_then(|v| v.as_i64()).unwrap_or(1).max(1);
-        let col = sc.col.as_ref()
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1)
+            .max(1);
+        let col = sc
+            .col
+            .as_ref()
             .and_then(|e| self.eval_expr(e, e.span()).ok())
-            .and_then(|v| v.as_i64()).unwrap_or(1).max(1);
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1)
+            .max(1);
         (row, col)
     }
 
@@ -2350,7 +2751,11 @@ impl Interpreter {
             }
         }
         let name = self.resolve_lvalue(into);
-        let capacity = self.env.display_string(&name).map(|s| s.len()).unwrap_or(usize::MAX);
+        let capacity = self
+            .env
+            .display_string(&name)
+            .map(|s| s.len())
+            .unwrap_or(usize::MAX);
 
         let overflowed = match pointer {
             // ── WITH POINTER: place from the 1-based pointer position, preserve
@@ -2418,10 +2823,13 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let src = self.eval_expr(from, span)?.as_display_string();
-        let delims: Vec<String> = delimited_by.iter()
-            .map(|d| self.eval_expr(d, span)
-                .unwrap_or_else(|_| CobolValue::from_str(" ", 1))
-                .as_display_string())
+        let delims: Vec<String> = delimited_by
+            .iter()
+            .map(|d| {
+                self.eval_expr(d, span)
+                    .unwrap_or_else(|_| CobolValue::from_str(" ", 1))
+                    .as_display_string()
+            })
             .collect();
 
         // Split source by all delimiters in sequence.
@@ -2488,9 +2896,17 @@ impl Interpreter {
         Ok((lo.min(s.len()), hi.max(lo).min(s.len())))
     }
 
-    fn exec_inspect(&mut self, target: &Expr, spec: &InspectSpec, span: Span) -> Result<(), RuntimeError> {
+    fn exec_inspect(
+        &mut self,
+        target: &Expr,
+        spec: &InspectSpec,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
         let name = self.resolve_lvalue(target);
-        let val  = self.env.get(&name).cloned()
+        let val = self
+            .env
+            .get(&name)
+            .cloned()
             .unwrap_or_else(|| CobolValue::from_str("", 0));
         let mut s = val.as_display_string();
 
@@ -2507,7 +2923,11 @@ impl Interpreter {
                             TallyFor::Characters => win.len() as i64,
                             TallyFor::All(e) => {
                                 let pat = self.eval_expr(e, span)?.as_display_string();
-                                if pat.is_empty() { 0 } else { win.matches(pat.as_str()).count() as i64 }
+                                if pat.is_empty() {
+                                    0
+                                } else {
+                                    win.matches(pat.as_str()).count() as i64
+                                }
                             }
                             TallyFor::Leading(e) => {
                                 let pat = self.eval_expr(e, span)?.as_display_string();
@@ -2530,7 +2950,9 @@ impl Interpreter {
                     match &rep.what {
                         ReplaceWhat::All(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
-                            if !pat.is_empty() { win = win.replace(pat.as_str(), &by); }
+                            if !pat.is_empty() {
+                                win = win.replace(pat.as_str(), &by);
+                            }
                         }
                         ReplaceWhat::First(e) => {
                             let pat = self.eval_expr(e, span)?.as_display_string();
@@ -2565,7 +2987,7 @@ impl Interpreter {
             }
             InspectSpec::Converting { from, to } => {
                 let from_s = self.eval_expr(from, span)?.as_display_string();
-                let to_s   = self.eval_expr(to,   span)?.as_display_string();
+                let to_s = self.eval_expr(to, span)?.as_display_string();
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     s = s.replace(fc, &tc.to_string());
                 }
@@ -2600,7 +3022,11 @@ impl Interpreter {
 
     /// Set a file's FILE STATUS data item (if declared) to a 2-character code.
     fn set_file_status(&mut self, file: &str, code: &str) {
-        if let Some(field) = self.file_specs.get(file).and_then(|s| s.status_field.clone()) {
+        if let Some(field) = self
+            .file_specs
+            .get(file)
+            .and_then(|s| s.status_field.clone())
+        {
             self.env.set_str(&field, code);
         }
     }
@@ -2632,10 +3058,10 @@ impl Interpreter {
             }
             if let Some(m) = mode {
                 let um = match m {
-                    OpenMode::Input       => UseMode::Input,
-                    OpenMode::Output      => UseMode::Output,
+                    OpenMode::Input => UseMode::Input,
+                    OpenMode::Output => UseMode::Output,
                     OpenMode::InputOutput => UseMode::Io,
-                    OpenMode::Extend      => UseMode::Extend,
+                    OpenMode::Extend => UseMode::Extend,
                 };
                 if h.modes.contains(&um) {
                     return true;
@@ -2686,7 +3112,7 @@ impl Interpreter {
                 continue;
             };
             let path = self.resolve_assign_path(&spec.assign);
-            let org  = spec.organization;
+            let org = spec.organization;
 
             // ── INDEXED: dispatch to the keyed engine ──────────────────────
             if org == FileOrganization::Indexed {
@@ -2699,7 +3125,8 @@ impl Interpreter {
                 );
                 engine.set_registered_user(reg_user.clone());
                 let code = engine.open(map_open_mode(mode));
-                self.open_files.insert(file.clone(), OpenFile::Indexed(engine));
+                self.open_files
+                    .insert(file.clone(), OpenFile::Indexed(engine));
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
                 continue;
@@ -2707,18 +3134,31 @@ impl Interpreter {
 
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
             let result: std::io::Result<OpenFile> = match mode {
-                OpenMode::Output =>
-                    std::fs::File::create(&path)
-                        .map(|f| OpenFile::Writer { w: BufWriter::new(f), org }),
-                OpenMode::Extend =>
-                    OpenOptions::new().create(true).append(true).open(&path)
-                        .map(|f| OpenFile::Writer { w: BufWriter::new(f), org }),
-                OpenMode::Input =>
-                    std::fs::File::open(&path)
-                        .map(|f| OpenFile::Reader { r: BufReader::new(f), org }),
-                OpenMode::InputOutput =>
-                    OpenOptions::new().read(true).write(true).create(true).open(&path)
-                        .map(|f| OpenFile::Reader { r: BufReader::new(f), org }),
+                OpenMode::Output => std::fs::File::create(&path).map(|f| OpenFile::Writer {
+                    w: BufWriter::new(f),
+                    org,
+                }),
+                OpenMode::Extend => OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .map(|f| OpenFile::Writer {
+                        w: BufWriter::new(f),
+                        org,
+                    }),
+                OpenMode::Input => std::fs::File::open(&path).map(|f| OpenFile::Reader {
+                    r: BufReader::new(f),
+                    org,
+                }),
+                OpenMode::InputOutput => OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(&path)
+                    .map(|f| OpenFile::Reader {
+                        r: BufReader::new(f),
+                        org,
+                    }),
             };
 
             match result {
@@ -2729,7 +3169,12 @@ impl Interpreter {
                 Err(e) => {
                     tracing::warn!("OPEN '{}' ({}) failed: {}", raw, path, e);
                     let code = if matches!(mode, OpenMode::Input)
-                        && e.kind() == std::io::ErrorKind::NotFound { "35" } else { "30" };
+                        && e.kind() == std::io::ErrorKind::NotFound
+                    {
+                        "35"
+                    } else {
+                        "30"
+                    };
                     self.set_file_status(&file, code);
                     self.fire_declarative(&file, code, false)?;
                 }
@@ -2744,7 +3189,10 @@ impl Interpreter {
             let file = raw.to_ascii_uppercase();
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
-                    OpenFile::Writer { w, .. } => { let _ = w.flush(); "00" }
+                    OpenFile::Writer { w, .. } => {
+                        let _ = w.flush();
+                        "00"
+                    }
                     OpenFile::Reader { .. } => "00",
                     OpenFile::Indexed(engine) => engine.close(),
                 };
@@ -2789,7 +3237,11 @@ impl Interpreter {
         };
         let buf = match self.file_specs.get(&file) {
             Some(spec) => spec.layout.materialize(&self.env),
-            None => self.env.get_string(&rec_name).unwrap_or_default().into_bytes(),
+            None => self
+                .env
+                .get_string(&rec_name)
+                .unwrap_or_default()
+                .into_bytes(),
         };
         self.sort_buffers.entry(file).or_default().push(buf);
         Ok(())
@@ -2806,7 +3258,11 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         let fkey = file.to_ascii_uppercase();
         let cur = *self.sort_cursors.get(&fkey).unwrap_or(&0);
-        let rec = self.sort_buffers.get(&fkey).and_then(|v| v.get(cur)).cloned();
+        let rec = self
+            .sort_buffers
+            .get(&fkey)
+            .and_then(|v| v.get(cur))
+            .cloned();
         match rec {
             Some(b) => {
                 self.sort_cursors.insert(fkey.clone(), cur + 1);
@@ -2848,7 +3304,10 @@ impl Interpreter {
         } else {
             for uf in using {
                 let recs = self.read_all_records(uf);
-                self.sort_buffers.entry(fkey.clone()).or_default().extend(recs);
+                self.sort_buffers
+                    .entry(fkey.clone())
+                    .or_default()
+                    .extend(recs);
             }
         }
 
@@ -2876,7 +3335,9 @@ impl Interpreter {
         keys: &[cobolt_ast::stmt::SortKey],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let Some(spec) = self.file_specs.get(fkey).cloned() else { return Ok(()); };
+        let Some(spec) = self.file_specs.get(fkey).cloned() else {
+            return Ok(());
+        };
         let recs = self.sort_buffers.remove(fkey).unwrap_or_default();
         // Precompute each record's (key-value, ascending) vector.
         let mut keyed: Vec<(Vec<(CobolValue, bool)>, Vec<u8>)> = Vec::with_capacity(recs.len());
@@ -2899,8 +3360,10 @@ impl Interpreter {
             }
             std::cmp::Ordering::Equal
         });
-        self.sort_buffers
-            .insert(fkey.to_string(), keyed.into_iter().map(|(_, b)| b).collect());
+        self.sort_buffers.insert(
+            fkey.to_string(),
+            keyed.into_iter().map(|(_, b)| b).collect(),
+        );
         Ok(())
     }
 
@@ -2908,8 +3371,18 @@ impl Interpreter {
     fn read_all_records(&mut self, file: &str) -> Vec<Vec<u8>> {
         use std::io::{BufRead as _, Read as _};
         let fkey = file.to_ascii_uppercase();
-        let _ = self.exec_open(OpenMode::Input, &[file.to_string()], false, None, Span::dummy());
-        let rlen = self.file_specs.get(&fkey).map(|s| s.layout.len.max(1)).unwrap_or(1);
+        let _ = self.exec_open(
+            OpenMode::Input,
+            &[file.to_string()],
+            false,
+            None,
+            Span::dummy(),
+        );
+        let rlen = self
+            .file_specs
+            .get(&fkey)
+            .map(|s| s.layout.len.max(1))
+            .unwrap_or(1);
         let mut out = Vec::new();
         loop {
             let rec = match self.open_files.get_mut(&fkey) {
@@ -2919,7 +3392,9 @@ impl Interpreter {
                         match r.read_line(&mut line) {
                             Ok(0) => None,
                             Ok(_) => {
-                                while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
+                                while line.ends_with('\n') || line.ends_with('\r') {
+                                    line.pop();
+                                }
                                 Some(line.into_bytes())
                             }
                             Err(_) => None,
@@ -2948,7 +3423,13 @@ impl Interpreter {
     fn write_all_records(&mut self, file: &str, recs: &[Vec<u8>]) -> Result<(), RuntimeError> {
         use std::io::Write as _;
         let fkey = file.to_ascii_uppercase();
-        self.exec_open(OpenMode::Output, &[file.to_string()], false, None, Span::dummy())?;
+        self.exec_open(
+            OpenMode::Output,
+            &[file.to_string()],
+            false,
+            None,
+            Span::dummy(),
+        )?;
         for b in recs {
             if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
                 let _ = match org {
@@ -2970,8 +3451,7 @@ impl Interpreter {
         invalid_key: &[Stmt],
         not_invalid_key: &[Stmt],
         _span: Span,
-    ) -> Result<(), RuntimeError>
-    {
+    ) -> Result<(), RuntimeError> {
         use std::io::Write as _;
         // WRITE rec FROM src ⇒ move src into the record buffer first.
         if let Some(src) = from {
@@ -2986,7 +3466,11 @@ impl Interpreter {
         // elementary records alike).
         let buf = match self.file_specs.get(&file) {
             Some(spec) => spec.layout.materialize(&self.env),
-            None => self.env.get_string(&rec_name).unwrap_or_default().into_bytes(),
+            None => self
+                .env
+                .get_string(&rec_name)
+                .unwrap_or_default()
+                .into_bytes(),
         };
 
         let code = match self.open_files.get_mut(&file) {
@@ -3003,7 +3487,10 @@ impl Interpreter {
                 };
                 match r {
                     Ok(()) => "00",
-                    Err(e) => { tracing::warn!("WRITE failed: {e}"); "30" }
+                    Err(e) => {
+                        tracing::warn!("WRITE failed: {e}");
+                        "30"
+                    }
                 }
             }
             _ => {
@@ -3031,9 +3518,9 @@ impl Interpreter {
         not_invalid_key: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
-        use std::io::BufRead as _;
-        use cobolt_ast::stmt::ReadDirection;
         use crate::indexed::{status, ReadDir};
+        use cobolt_ast::stmt::ReadDirection;
+        use std::io::BufRead as _;
 
         let file = file_name.to_ascii_uppercase();
         let Some(spec) = self.file_specs.get(&file).cloned() else {
@@ -3050,9 +3537,17 @@ impl Interpreter {
         let sequential_dir = direction != ReadDirection::Default;
         let random = !sequential_dir
             && (key.is_some() || matches!(spec.access, AccessMode::Random | AccessMode::Dynamic));
-        let read_dir = if direction == ReadDirection::Previous { ReadDir::Previous } else { ReadDir::Next };
-        let key_field = key.map(|e| self.expr_to_name(e)).or_else(|| spec.record_key.clone());
-        let key_bytes = key_field.as_ref().and_then(|kf| spec.layout.field_value(&self.env, kf));
+        let read_dir = if direction == ReadDirection::Previous {
+            ReadDir::Previous
+        } else {
+            ReadDir::Next
+        };
+        let key_field = key
+            .map(|e| self.expr_to_name(e))
+            .or_else(|| spec.record_key.clone());
+        let key_bytes = key_field
+            .as_ref()
+            .and_then(|kf| spec.layout.field_value(&self.env, kf));
         let kor = match &key_field {
             Some(kf) if spec.record_key.as_deref() == Some(kf.as_str()) => 0,
             Some(kf) => spec
@@ -3084,10 +3579,15 @@ impl Interpreter {
                     match r.read_line(&mut line) {
                         Ok(0) => (None, status::EOF),
                         Ok(_) => {
-                            while line.ends_with('\n') || line.ends_with('\r') { line.pop(); }
+                            while line.ends_with('\n') || line.ends_with('\r') {
+                                line.pop();
+                            }
                             (Some(line.into_bytes()), status::OK)
                         }
-                        Err(e) => { tracing::warn!("READ failed: {e}"); (None, "30") }
+                        Err(e) => {
+                            tracing::warn!("READ failed: {e}");
+                            (None, "30")
+                        }
                     }
                 }
                 // Record SEQUENTIAL: fixed-length records, no terminator — read
@@ -3101,7 +3601,10 @@ impl Interpreter {
                         Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                             (None, status::EOF)
                         }
-                        Err(e) => { tracing::warn!("READ failed: {e}"); (None, "30") }
+                        Err(e) => {
+                            tracing::warn!("READ failed: {e}");
+                            (None, "30")
+                        }
                     }
                 }
             },
@@ -3119,7 +3622,11 @@ impl Interpreter {
         // Pick the success / failure handler. Random reads branch on INVALID KEY,
         // sequential reads on AT END; fall back to whichever phrase was supplied.
         fn pick<'a>(primary: &'a [Stmt], fallback: &'a [Stmt]) -> &'a [Stmt] {
-            if !primary.is_empty() { primary } else { fallback }
+            if !primary.is_empty() {
+                primary
+            } else {
+                fallback
+            }
         }
         let (ok_branch, fail_branch): (&[Stmt], &[Stmt]) = if random {
             (pick(not_invalid_key, not_at_end), pick(invalid_key, at_end))
@@ -3157,8 +3664,7 @@ impl Interpreter {
         invalid_key: &[Stmt],
         not_invalid_key: &[Stmt],
         _span: Span,
-    ) -> Result<(), RuntimeError>
-    {
+    ) -> Result<(), RuntimeError> {
         if let Some(src) = from {
             self.exec_move(src, std::slice::from_ref(record))?;
         }
@@ -3167,7 +3673,9 @@ impl Interpreter {
             tracing::warn!("REWRITE: record '{}' is not part of any FD", rec_name);
             return Ok(());
         };
-        let Some(spec) = self.file_specs.get(&file).cloned() else { return Ok(()); };
+        let Some(spec) = self.file_specs.get(&file).cloned() else {
+            return Ok(());
+        };
         let buf = spec.layout.materialize(&self.env);
         let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
         let code = match self.open_files.get_mut(&file) {
@@ -3175,7 +3683,10 @@ impl Interpreter {
                 engine.rewrite(&buf, if random { Some(buf.as_slice()) } else { None })
             }
             Some(_) => {
-                tracing::warn!("REWRITE on a non-indexed file '{}' is not yet supported", file);
+                tracing::warn!(
+                    "REWRITE on a non-indexed file '{}' is not yet supported",
+                    file
+                );
                 "30"
             }
             None => crate::indexed::status::NOT_OPEN_IO,
@@ -3195,11 +3706,16 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         use crate::indexed::status;
         let file = file_name.to_ascii_uppercase();
-        let Some(spec) = self.file_specs.get(&file).cloned() else { return Ok(()); };
+        let Some(spec) = self.file_specs.get(&file).cloned() else {
+            return Ok(());
+        };
         let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
-        // RANDOM DELETE addresses the record by the current RECORD KEY value;
-        // sequential/dynamic DELETE removes the current (last read) record.
-        let key_bytes = spec.record_key.as_deref().and_then(|k| spec.layout.field_value(&self.env, k));
+                                                            // RANDOM DELETE addresses the record by the current RECORD KEY value;
+                                                            // sequential/dynamic DELETE removes the current (last read) record.
+        let key_bytes = spec
+            .record_key
+            .as_deref()
+            .and_then(|k| spec.layout.field_value(&self.env, k));
         let code = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 engine.delete(if random { key_bytes.as_deref() } else { None })
@@ -3226,10 +3742,15 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         use crate::indexed::status;
         let file = file_name.to_ascii_uppercase();
-        let Some(spec) = self.file_specs.get(&file).cloned() else { return Ok(()); };
+        let Some(spec) = self.file_specs.get(&file).cloned() else {
+            return Ok(());
+        };
         let (op, key_field) = match key {
             Some((op, e)) => (*op, self.expr_to_name(e)),
-            None => (cobolt_ast::expr::CmpOp::Eq, spec.record_key.clone().unwrap_or_default()),
+            None => (
+                cobolt_ast::expr::CmpOp::Eq,
+                spec.record_key.clone().unwrap_or_default(),
+            ),
         };
         let key_bytes = spec.layout.field_value(&self.env, &key_field);
         let kor = if spec.record_key.as_deref() == Some(key_field.as_str()) {
@@ -3269,8 +3790,11 @@ impl Interpreter {
     /// fresh (as the standard requires after CANCEL).
     fn exec_cancel(&mut self, programs: &[Expr]) -> Result<(), RuntimeError> {
         for prog in programs {
-            let name = self.eval_expr(prog, prog.span())?
-                .as_display_string().trim().to_ascii_uppercase();
+            let name = self
+                .eval_expr(prog, prog.span())?
+                .as_display_string()
+                .trim()
+                .to_ascii_uppercase();
             // Static lifecycle (009 R10): CANCEL discards the program's persisted
             // local state so its next CALL re-initialises from the DATA DIVISION.
             // (Between calls the locals live only in `program_locals`, not `env`,
@@ -3292,7 +3816,8 @@ impl Interpreter {
         not_on_exception: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let prog_name = self.eval_expr(program, span)?
+        let prog_name = self
+            .eval_expr(program, span)?
             .as_display_string()
             .trim()
             .to_ascii_uppercase();
@@ -3354,12 +3879,12 @@ impl Interpreter {
 
             // COBOL-SET-PROPERTY obj prop value
             "COBOL-SET-PROPERTY" | "COBOLT-SET-PROPERTY" if using.len() >= 3 => {
-                let obj  = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let obj = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let prop = self.eval_call_arg(&using[1], span)?.as_display_string();
-                let val  = self.eval_call_arg(&using[2], span)?.as_display_string();
-                let obj_t  = obj.trim().to_owned();
+                let val = self.eval_call_arg(&using[2], span)?.as_display_string();
+                let obj_t = obj.trim().to_owned();
                 let prop_t = prop.trim().to_owned();
-                let val_t  = val.trim().to_owned();
+                let val_t = val.trim().to_owned();
                 self.objects.set_property(&obj_t, &prop_t, val_t.clone());
                 // GUI mode: notify the UI thread so the form window updates.
                 if let Some(tx) = &self.state_tx {
@@ -3369,7 +3894,7 @@ impl Interpreter {
 
             // COBOL-GET-PROPERTY obj prop dest
             "COBOL-GET-PROPERTY" | "COBOLT-GET-PROPERTY" if using.len() >= 3 => {
-                let obj  = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let obj = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let prop = self.eval_call_arg(&using[1], span)?.as_display_string();
                 if let Some(pv) = self.objects.get_property(obj.trim(), prop.trim()) {
                     let val_s = pv.to_string();
@@ -3388,8 +3913,10 @@ impl Interpreter {
             // COBOL-WRITE-FILE  USING path text [status]
             //   Same, but truncates/overwrites the file first (use to (re)write a
             //   header line).
-            "COBOL-APPEND-FILE" | "COBOLT-APPEND-FILE"
-            | "COBOL-WRITE-FILE" | "COBOLT-WRITE-FILE" if using.len() >= 2 => {
+            "COBOL-APPEND-FILE" | "COBOLT-APPEND-FILE" | "COBOL-WRITE-FILE"
+            | "COBOLT-WRITE-FILE"
+                if using.len() >= 2 =>
+            {
                 use std::io::Write as _;
                 let append = prog_name.contains("APPEND");
                 let path = self.eval_call_arg(&using[0], span)?.as_display_string();
@@ -3424,11 +3951,14 @@ impl Interpreter {
             "COBOL-CHART-SET-TABLE" => {
                 tracing::debug!(
                     "COBOL-CHART-SET-TABLE: chart='{}' (CLI mode — rendering skipped)",
-                    using.first().map(|a| {
-                        self.eval_call_arg(a, span)
-                            .map(|v| v.as_display_string())
-                            .unwrap_or_default()
-                    }).unwrap_or_default()
+                    using
+                        .first()
+                        .map(|a| {
+                            self.eval_call_arg(a, span)
+                                .map(|v| v.as_display_string())
+                                .unwrap_or_default()
+                        })
+                        .unwrap_or_default()
                 );
             }
             // COBOL-CHART-ADD-POINT chart-id label value
@@ -3457,8 +3987,8 @@ impl Interpreter {
             "COBOL-OPEN-DB" if using.len() >= 3 => {
                 let conn_str = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let conn_str = conn_str.trim().to_owned();
-                let handle_name  = self.expr_to_name(call_arg_expr(&using[1]));
-                let status_name  = self.expr_to_name(call_arg_expr(&using[2]));
+                let handle_name = self.expr_to_name(call_arg_expr(&using[1]));
+                let status_name = self.expr_to_name(call_arg_expr(&using[2]));
                 match self.db.open(&conn_str) {
                     Ok(h) => {
                         self.env.set(&handle_name, CobolValue::from_i64(h as i64));
@@ -3477,9 +4007,9 @@ impl Interpreter {
             //   handle-var.  Stores row / affected count in row-count-var.
             "COBOL-EXEC-SQL" if using.len() >= 4 => {
                 let handle = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
-                let query  = self.eval_call_arg(&using[1], span)?.as_display_string();
-                let query  = query.trim().to_owned();
-                let count_name  = self.expr_to_name(call_arg_expr(&using[2]));
+                let query = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let query = query.trim().to_owned();
+                let count_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[3]));
                 match self.db.exec(handle, &query) {
                     Ok(n) => {
@@ -3498,9 +4028,9 @@ impl Interpreter {
             //   Reads column col-index (1-based) of the current row into dest-var.
             //   status-var is cleared on success or contains an error.
             "COBOL-FETCH-ROW" if using.len() >= 4 => {
-                let handle  = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
+                let handle = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
                 let col_idx = self.eval_call_arg(&using[1], span)?.as_i64().unwrap_or(1) as usize;
-                let dest_name   = self.expr_to_name(call_arg_expr(&using[2]));
+                let dest_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[3]));
                 if handle == 0 || self.db.is_exhausted(handle) {
                     self.env.set_str(&dest_name, "");
@@ -3516,16 +4046,17 @@ impl Interpreter {
             //   Advances the cursor.  Sets more-flag-var to 'Y' if another
             //   row exists, or 'N' when the result set is exhausted.
             "COBOL-NEXT-ROW" if using.len() >= 2 => {
-                let handle    = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
+                let handle = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
                 let flag_name = self.expr_to_name(call_arg_expr(&using[1]));
-                let has_more  = self.db.next_row(handle);
-                self.env.set_str(&flag_name, if has_more { "Y" } else { "N" });
+                let has_more = self.db.next_row(handle);
+                self.env
+                    .set_str(&flag_name, if has_more { "Y" } else { "N" });
             }
 
             // COBOL-ROW-COUNT USING handle-var, count-var
             //   Stores the total number of rows in the last result set.
             "COBOL-ROW-COUNT" if using.len() >= 2 => {
-                let handle     = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
+                let handle = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0) as u32;
                 let count_name = self.expr_to_name(call_arg_expr(&using[1]));
                 let n = self.db.row_count(handle);
                 self.env.set(&count_name, CobolValue::from_i64(n as i64));
@@ -3546,53 +4077,57 @@ impl Interpreter {
             //   and the numeric status code (200, 404, …) into status-var.
             //   On network error status-var is set to 0.
             "COBOL-HTTP-GET" if using.len() >= 3 => {
-                let url  = self.eval_call_arg(&using[0], span)?.as_display_string();
-                let resp_name   = self.expr_to_name(call_arg_expr(&using[1]));
+                let url = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let resp_name = self.expr_to_name(call_arg_expr(&using[1]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let (body, status) = self.http.get(url.trim());
                 self.env.set_str(&resp_name, &body);
-                self.env.set(&status_name, CobolValue::from_i64(status as i64));
+                self.env
+                    .set(&status_name, CobolValue::from_i64(status as i64));
             }
 
             // COBOL-HTTP-POST  USING url-var, body-var, response-var, status-var
             //   Performs an HTTP POST with body-var as the request body.
             //   Content-Type defaults to application/json.
             "COBOL-HTTP-POST" if using.len() >= 4 => {
-                let url  = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let url = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let body = self.eval_call_arg(&using[1], span)?.as_display_string();
-                let resp_name   = self.expr_to_name(call_arg_expr(&using[2]));
+                let resp_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[3]));
                 let (resp, status) = self.http.post(url.trim(), body.trim());
                 self.env.set_str(&resp_name, &resp);
-                self.env.set(&status_name, CobolValue::from_i64(status as i64));
+                self.env
+                    .set(&status_name, CobolValue::from_i64(status as i64));
             }
 
             // COBOL-HTTP-PUT   USING url-var, body-var, response-var, status-var
             "COBOL-HTTP-PUT" if using.len() >= 4 => {
-                let url  = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let url = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let body = self.eval_call_arg(&using[1], span)?.as_display_string();
-                let resp_name   = self.expr_to_name(call_arg_expr(&using[2]));
+                let resp_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[3]));
                 let (resp, status) = self.http.put(url.trim(), body.trim());
                 self.env.set_str(&resp_name, &resp);
-                self.env.set(&status_name, CobolValue::from_i64(status as i64));
+                self.env
+                    .set(&status_name, CobolValue::from_i64(status as i64));
             }
 
             // COBOL-HTTP-DELETE  USING url-var, response-var, status-var
             "COBOL-HTTP-DELETE" if using.len() >= 3 => {
                 let url = self.eval_call_arg(&using[0], span)?.as_display_string();
-                let resp_name   = self.expr_to_name(call_arg_expr(&using[1]));
+                let resp_name = self.expr_to_name(call_arg_expr(&using[1]));
                 let status_name = self.expr_to_name(call_arg_expr(&using[2]));
                 let (resp, status) = self.http.delete(url.trim());
                 self.env.set_str(&resp_name, &resp);
-                self.env.set(&status_name, CobolValue::from_i64(status as i64));
+                self.env
+                    .set(&status_name, CobolValue::from_i64(status as i64));
             }
 
             // COBOL-HTTP-SET-HEADER  USING name-var, value-var
             //   Adds / overwrites a persistent request header sent on every
             //   subsequent COBOL-HTTP-GET / POST / PUT / DELETE call.
             "COBOL-HTTP-SET-HEADER" if using.len() >= 2 => {
-                let name  = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let name = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let value = self.eval_call_arg(&using[1], span)?.as_display_string();
                 self.http.set_header(name.trim(), value.trim());
             }
@@ -3609,13 +4144,18 @@ impl Interpreter {
                 // parameter names out of the registry before any mutable borrow.
                 let (para_map, para_order, local_items, params) = {
                     let np = &self.nested_registry[&prog_name];
-                    (np.para_map.clone(), np.para_order.clone(),
-                     np.local_items.clone(), np.using.clone())
+                    (
+                        np.para_map.clone(),
+                        np.para_order.clone(),
+                        np.local_items.clone(),
+                        np.using.clone(),
+                    )
                 };
 
                 // Pair each LINKAGE parameter with the caller's argument:
                 // (param-key, arg-key, by_reference).
-                let bindings: Vec<(String, String, bool)> = params.iter()
+                let bindings: Vec<(String, String, bool)> = params
+                    .iter()
                     .zip(using.iter())
                     .map(|(p, a)| {
                         let pk = p.to_ascii_uppercase();
@@ -3634,7 +4174,8 @@ impl Interpreter {
                 // DIVISION) and then **preserved** across calls. We push the
                 // *persisted* snapshot (or the fresh template on the first call),
                 // and `CANCEL` drops the snapshot to re-initialise next time.
-                let snapshot = self.program_locals
+                let snapshot = self
+                    .program_locals
                     .get(&prog_name)
                     .cloned()
                     .unwrap_or_else(|| local_items.clone());
@@ -3731,7 +4272,29 @@ impl Interpreter {
 
     /// Read a control property as a string (`""` when unset).
     fn obj_get(&self, obj: &str, prop: &str) -> String {
-        self.objects.get_property(obj, prop).map(|v| v.to_string()).unwrap_or_default()
+        self.objects
+            .get_property(obj, prop)
+            .map(|v| v.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Resolve a User Control property reference. `Child.Prop` is routed to the
+    /// deployed child object `{receiver}-{Child}` when that child exists; otherwise
+    /// the original receiver/property pair is preserved for backward compatibility.
+    fn resolve_control_property_ref(&self, obj: &str, prop: &str) -> (String, String) {
+        let obj = obj.trim();
+        let prop = prop.trim();
+        if let Some((child, child_prop)) = prop.split_once('.') {
+            let child = child.trim();
+            let child_prop = child_prop.trim();
+            if !child.is_empty() && !child_prop.is_empty() {
+                let qualified = format!("{obj}-{child}");
+                if self.objects.contains(&qualified) {
+                    return (qualified, child_prop.to_owned());
+                }
+            }
+        }
+        (obj.to_owned(), prop.to_owned())
     }
 
     // ── Member-access chains (spec 011) ─────────────────────────────────────────
@@ -3743,13 +4306,23 @@ impl Interpreter {
         expr: &Expr,
     ) -> Result<(String, Vec<MemberSeg>), RuntimeError> {
         match expr {
-            Expr::Member { recv, member, args, parens, span } => {
+            Expr::Member {
+                recv,
+                member,
+                args,
+                parens,
+                span,
+            } => {
                 let (root, mut segs) = self.lower_member_chain(recv)?;
                 let mut vals = Vec::with_capacity(args.len());
                 for a in args {
                     vals.push(self.eval_expr(a, *span)?);
                 }
-                segs.push(MemberSeg { member: member.clone(), parens: *parens, args: vals });
+                segs.push(MemberSeg {
+                    member: member.clone(),
+                    parens: *parens,
+                    args: vals,
+                });
                 Ok((root, segs))
             }
             Expr::Identifier(name, _) => Ok((name.clone(), Vec::new())),
@@ -3763,10 +4336,7 @@ impl Interpreter {
     /// place (an rvalue only). A `parens` segment is an *index* when its member
     /// names a collection (list/legacy-string) and an *argument* is present;
     /// otherwise it is a method call (terminal).
-    fn resolve_member(
-        &mut self,
-        expr: &Expr,
-    ) -> Result<(String, Resolved), RuntimeError> {
+    fn resolve_member(&mut self, expr: &Expr) -> Result<(String, Resolved), RuntimeError> {
         let (root, segs) = self.lower_member_chain(expr)?;
         let mut path: Vec<PathSeg> = Vec::new();
         for seg in segs {
@@ -3781,7 +4351,14 @@ impl Interpreter {
             // does not depend on the collection already existing, so writes that
             // auto-vivify nested structure classify correctly (spec 011).
             if is_known_method(&seg.member) || seg.args.is_empty() {
-                return Ok((root, Resolved::Method { path, method: seg.member, args: seg.args }));
+                return Ok((
+                    root,
+                    Resolved::Method {
+                        path,
+                        method: seg.member,
+                        args: seg.args,
+                    },
+                ));
             }
             let idx = seg.args[0]
                 .as_display_string()
@@ -3877,7 +4454,9 @@ impl Interpreter {
                     "TOLOWERCASE" | "LOWERCASE" | "LOWER" => cur.to_lowercase(),
                     "TRIM" => cur.trim().to_string(),
                     "LEN" | "LENGTH" => {
-                        return CobolValue::Numeric(CobolNumeric::integer(cur.chars().count() as i64));
+                        return CobolValue::Numeric(CobolNumeric::integer(
+                            cur.chars().count() as i64
+                        ));
                     }
                     // Unknown method on a value → no effect; return the value.
                     _ => cur,
@@ -3892,7 +4471,8 @@ impl Interpreter {
     /// `[Prop(name)]` path emits `StateUpdate(control, name, value)` so existing
     /// UI bindings update; a deeper path emits a best-effort joined key.
     fn set_member(&mut self, root: &str, path: &[PathSeg], val: String) {
-        self.objects.set_path(root, path, PropertyValue::String(val.clone()));
+        self.objects
+            .set_path(root, path, PropertyValue::String(val.clone()));
         if let Some(tx) = &self.state_tx {
             let key = match path {
                 [PathSeg::Prop(name)] => name.clone(),
@@ -3907,10 +4487,15 @@ impl Interpreter {
         match self.objects.get_path(root, path) {
             Some(PropertyValue::List(mut items)) => {
                 items.push(PropertyValue::String(item.to_string()));
-                self.objects.set_path(root, path, PropertyValue::List(items));
+                self.objects
+                    .set_path(root, path, PropertyValue::List(items));
             }
             Some(PropertyValue::String(s)) => {
-                let nv = if s.is_empty() { item.to_string() } else { format!("{s}\n{item}") };
+                let nv = if s.is_empty() {
+                    item.to_string()
+                } else {
+                    format!("{s}\n{item}")
+                };
                 self.objects.set_path(root, path, PropertyValue::String(nv));
             }
             _ => {
@@ -3936,7 +4521,8 @@ impl Interpreter {
     /// marshaling the COBOL arguments in and the result back out (spec 005 T10).
     fn invoke_rust(&mut self, key: &str, method: &str, args: &[CobolValue]) -> CobolValue {
         let id = self.env.get_i64(key).unwrap_or(0);
-        let bargs: Vec<crate::rust_bridge::BridgeValue> = args.iter().map(cobol_to_bridge).collect();
+        let bargs: Vec<crate::rust_bridge::BridgeValue> =
+            args.iter().map(cobol_to_bridge).collect();
         // The curated bridge methods are lowercase snake_case (`len`,
         // `to_uppercase`, …). The inline `obj::method()` form arrives with the
         // method uppercased by the COBOL lexer (`LEN`), whereas `INVOKE … "len"`
@@ -3960,129 +4546,348 @@ impl Interpreter {
         if self.object_refs.contains_key(&upper) {
             return self.invoke_rust(&upper, method, args);
         }
-        let m   = method.to_ascii_uppercase();
-        let arg = |i: usize| args.get(i)
-            .map(|v| v.as_display_string().trim().to_string()).unwrap_or_default();
-        let val = |s: String| { let n = s.len(); CobolValue::from_str(&s, n) };
+        let m = method.to_ascii_uppercase();
+        let arg = |i: usize| {
+            args.get(i)
+                .map(|v| v.as_display_string().trim().to_string())
+                .unwrap_or_default()
+        };
+        let val = |s: String| {
+            let n = s.len();
+            CobolValue::from_str(&s, n)
+        };
         let truthy = |s: &str| {
             let t = s.trim();
-            t == "1" || t.eq_ignore_ascii_case("true") || t.eq_ignore_ascii_case("yes")
+            t == "1"
+                || t.eq_ignore_ascii_case("true")
+                || t.eq_ignore_ascii_case("yes")
                 || t.eq_ignore_ascii_case("on")
         };
-        let b01 = |s: &str| if truthy(s) { "1".to_string() } else { "0".to_string() };
+        let b01 = |s: &str| {
+            if truthy(s) {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            }
+        };
         let none = CobolValue::from_str("", 0);
         let parse_i = |s: String| s.trim().parse::<i64>().unwrap_or(0);
 
         match m.as_str() {
             // ── Universal lifecycle / visibility ──
-            "SHOW"     => { self.obj_set(obj, "Visible", "1".into()); none }
-            "HIDE"     => { self.obj_set(obj, "Visible", "0".into()); none }
-            "ENABLE"   => { self.obj_set(obj, "Enabled", "1".into()); none }
-            "DISABLE"  => { self.obj_set(obj, "Enabled", "0".into()); none }
-            "SETFOCUS" | "FOCUS" => { self.obj_set(obj, "Focused", "1".into()); none }
-            "BRINGTOFRONT" => { self.obj_set(obj, "ZOrder", "10000".into()); none }
-            "SENDTOBACK"   => { self.obj_set(obj, "ZOrder", "-10000".into()); none }
+            "SHOW" => {
+                self.obj_set(obj, "Visible", "1".into());
+                none
+            }
+            "HIDE" => {
+                self.obj_set(obj, "Visible", "0".into());
+                none
+            }
+            "ENABLE" => {
+                self.obj_set(obj, "Enabled", "1".into());
+                none
+            }
+            "DISABLE" => {
+                self.obj_set(obj, "Enabled", "0".into());
+                none
+            }
+            "SETFOCUS" | "FOCUS" => {
+                self.obj_set(obj, "Focused", "1".into());
+                none
+            }
+            "BRINGTOFRONT" => {
+                self.obj_set(obj, "ZOrder", "10000".into());
+                none
+            }
+            "SENDTOBACK" => {
+                self.obj_set(obj, "ZOrder", "-10000".into());
+                none
+            }
             "REFRESH" | "VALIDATE" => none,
             // ── Geometry ──
-            "MOVETO" => { self.obj_set(obj, "X", arg(0)); self.obj_set(obj, "Y", arg(1)); none }
-            "RESIZE" => { self.obj_set(obj, "Width", arg(0)); self.obj_set(obj, "Height", arg(1)); none }
+            "MOVETO" => {
+                self.obj_set(obj, "X", arg(0));
+                self.obj_set(obj, "Y", arg(1));
+                none
+            }
+            "RESIZE" => {
+                self.obj_set(obj, "Width", arg(0));
+                self.obj_set(obj, "Height", arg(1));
+                none
+            }
             // ── Generic property access ──
-            "SETPROPERTY" => { let p = arg(0); self.obj_set(obj, &p, arg(1)); none }
-            "GETPROPERTY" => val(self.obj_get(obj, &arg(0))),
+            "SETPROPERTY" => {
+                let p = arg(0);
+                let (target, key) = self.resolve_control_property_ref(obj, &p);
+                self.obj_set(&target, &key, arg(1));
+                none
+            }
+            "GETPROPERTY" => {
+                let p = arg(0);
+                let (target, key) = self.resolve_control_property_ref(obj, &p);
+                val(self.obj_get(&target, &key))
+            }
             // ── Text / caption ──
-            "SETCAPTION" => { self.obj_set(obj, "Caption", arg(0)); none }
-            "SETTEXT"    => { self.obj_set(obj, "Text", arg(0)); none }
+            "SETCAPTION" => {
+                self.obj_set(obj, "Caption", arg(0));
+                none
+            }
+            "SETTEXT" => {
+                self.obj_set(obj, "Text", arg(0));
+                none
+            }
             "GETCAPTION" => val(self.obj_get(obj, "Caption")),
-            "GETTEXT"    => val(self.obj_get(obj, "Text")),
-            "APPENDTEXT" => { let cur = self.obj_get(obj, "Text"); self.obj_set(obj, "Text", format!("{cur}{}", arg(0))); none }
-            "SETCOLOR"   => { self.obj_set(obj, "ForegroundColor", arg(0)); none }
-            "SELECTALL"  => none,
-            "CLEAR"      => { self.obj_set(obj, "Text", String::new()); self.obj_set(obj, "Items", String::new()); none }
+            "GETTEXT" => val(self.obj_get(obj, "Text")),
+            "APPENDTEXT" => {
+                let cur = self.obj_get(obj, "Text");
+                self.obj_set(obj, "Text", format!("{cur}{}", arg(0)));
+                none
+            }
+            "SETCOLOR" => {
+                self.obj_set(obj, "ForegroundColor", arg(0));
+                none
+            }
+            "SELECTALL" => none,
+            "CLEAR" => {
+                self.obj_set(obj, "Text", String::new());
+                self.obj_set(obj, "Items", String::new());
+                none
+            }
             // ── Checkbox / radio ──
-            "ISCHECKED"  => val(b01(&self.obj_get(obj, "Checked"))),
-            "SETCHECKED" => { let v = b01(&arg(0)); self.obj_set(obj, "Checked", v); none }
-            "SELECT"     => { self.obj_set(obj, "Checked", "1".into()); none }
-            "TOGGLE"     => { let c = self.obj_get(obj, "Checked"); let nv = if truthy(&c) { "0" } else { "1" }; self.obj_set(obj, "Checked", nv.into()); none }
+            "ISCHECKED" => val(b01(&self.obj_get(obj, "Checked"))),
+            "SETCHECKED" => {
+                let v = b01(&arg(0));
+                self.obj_set(obj, "Checked", v);
+                none
+            }
+            "SELECT" => {
+                self.obj_set(obj, "Checked", "1".into());
+                none
+            }
+            "TOGGLE" => {
+                let c = self.obj_get(obj, "Checked");
+                let nv = if truthy(&c) { "0" } else { "1" };
+                self.obj_set(obj, "Checked", nv.into());
+                none
+            }
             // ── Numeric value (progress/slider/numeric/datetime) ──
-            "SETVALUE"  => { self.obj_set(obj, "Value", arg(0)); none }
-            "GETVALUE"  => val(self.obj_get(obj, "Value")),
-            "INCREMENT" => { let st = parse_i(self.obj_get(obj, "Step")); let st = if st == 0 { 1 } else { st }; let v = parse_i(self.obj_get(obj, "Value")); self.obj_set(obj, "Value", (v + st).to_string()); none }
-            "DECREMENT" => { let st = parse_i(self.obj_get(obj, "Step")); let st = if st == 0 { 1 } else { st }; let v = parse_i(self.obj_get(obj, "Value")); self.obj_set(obj, "Value", (v - st).to_string()); none }
-            "RESET"     => { let min = self.obj_get(obj, "Minimum"); let m2 = if min.trim().is_empty() { "0".to_string() } else { min }; self.obj_set(obj, "Value", m2); none }
+            "SETVALUE" => {
+                self.obj_set(obj, "Value", arg(0));
+                none
+            }
+            "GETVALUE" => val(self.obj_get(obj, "Value")),
+            "INCREMENT" => {
+                let st = parse_i(self.obj_get(obj, "Step"));
+                let st = if st == 0 { 1 } else { st };
+                let v = parse_i(self.obj_get(obj, "Value"));
+                self.obj_set(obj, "Value", (v + st).to_string());
+                none
+            }
+            "DECREMENT" => {
+                let st = parse_i(self.obj_get(obj, "Step"));
+                let st = if st == 0 { 1 } else { st };
+                let v = parse_i(self.obj_get(obj, "Value"));
+                self.obj_set(obj, "Value", (v - st).to_string());
+                none
+            }
+            "RESET" => {
+                let min = self.obj_get(obj, "Minimum");
+                let m2 = if min.trim().is_empty() {
+                    "0".to_string()
+                } else {
+                    min
+                };
+                self.obj_set(obj, "Value", m2);
+                none
+            }
             // ── Items (list / combo) ──
-            "ADDITEM" => { let cur = self.obj_get(obj, "Items"); let nv = if cur.is_empty() { arg(0) } else { format!("{cur}\n{}", arg(0)) }; self.obj_set(obj, "Items", nv); none }
-            "REMOVEITEM" => { let idx = arg(0).trim().parse::<usize>().unwrap_or(usize::MAX); let cur = self.obj_get(obj, "Items"); let mut lines: Vec<String> = cur.lines().map(|l| l.to_string()).collect(); if idx < lines.len() { lines.remove(idx); } self.obj_set(obj, "Items", lines.join("\n")); none }
+            "ADDITEM" => {
+                let cur = self.obj_get(obj, "Items");
+                let nv = if cur.is_empty() {
+                    arg(0)
+                } else {
+                    format!("{cur}\n{}", arg(0))
+                };
+                self.obj_set(obj, "Items", nv);
+                none
+            }
+            "REMOVEITEM" => {
+                let idx = arg(0).trim().parse::<usize>().unwrap_or(usize::MAX);
+                let cur = self.obj_get(obj, "Items");
+                let mut lines: Vec<String> = cur.lines().map(|l| l.to_string()).collect();
+                if idx < lines.len() {
+                    lines.remove(idx);
+                }
+                self.obj_set(obj, "Items", lines.join("\n"));
+                none
+            }
             "GETSELECTED" => val(self.obj_get(obj, "Value")),
             "GETSELECTEDINDEX" | "GETINDEX" => val(self.obj_get(obj, "SelectedIndex")),
-            "SETSELECTEDINDEX" | "SETINDEX" => { self.obj_set(obj, "SelectedIndex", arg(0)); none }
-            "GETCOUNT" => { let cur = self.obj_get(obj, "Items"); let n = if cur.trim().is_empty() { 0 } else { cur.lines().count() }; val(n.to_string()) }
+            "SETSELECTEDINDEX" | "SETINDEX" => {
+                self.obj_set(obj, "SelectedIndex", arg(0));
+                none
+            }
+            "GETCOUNT" => {
+                let cur = self.obj_get(obj, "Items");
+                let n = if cur.trim().is_empty() {
+                    0
+                } else {
+                    cur.lines().count()
+                };
+                val(n.to_string())
+            }
             // ── Timer ──
-            "START" => { self.obj_set(obj, "Enabled", "1".into()); none }
-            "STOP"  => { self.obj_set(obj, "Enabled", "0".into()); none }
-            "SETINTERVAL" => { self.obj_set(obj, "Interval", arg(0)); none }
+            "START" => {
+                self.obj_set(obj, "Enabled", "1".into());
+                none
+            }
+            "STOP" => {
+                self.obj_set(obj, "Enabled", "0".into());
+                none
+            }
+            "SETINTERVAL" => {
+                self.obj_set(obj, "Interval", arg(0));
+                none
+            }
             "ISENABLED" => val(b01(&self.obj_get(obj, "Enabled"))),
             // ── Animation ──
-            "PLAYANIMATION" | "PLAY" => { let a = if args.is_empty() { "1".to_string() } else { arg(0) }; self.obj_set(obj, "_PlayAnimation", a); none }
-            "STOPANIMATION" => { self.obj_set(obj, "_StopAnimation", "1".into()); none }
-            "PAUSE" => { self.obj_set(obj, "_PauseAnimation", "1".into()); none }
+            "PLAYANIMATION" | "PLAY" => {
+                let a = if args.is_empty() {
+                    "1".to_string()
+                } else {
+                    arg(0)
+                };
+                self.obj_set(obj, "_PlayAnimation", a);
+                none
+            }
+            "STOPANIMATION" => {
+                self.obj_set(obj, "_StopAnimation", "1".into());
+                none
+            }
+            "PAUSE" => {
+                self.obj_set(obj, "_PauseAnimation", "1".into());
+                none
+            }
             // ── AgentObject extras ──
             "CLOSE" => {
                 // SqlDatabase::Close closes the connection; otherwise hide a window.
                 let h = parse_i(self.obj_get(obj, "_Handle"));
-                if h > 0 { self.db.close(h as u32); }
-                else     { self.obj_set(obj, "Visible", "0".into()); }
+                if h > 0 {
+                    self.db.close(h as u32);
+                } else {
+                    self.obj_set(obj, "Visible", "0".into());
+                }
                 none
             }
             "GETRESULT" => val(self.obj_get(obj, "Result")),
-            "SETTITLE"  => { self.obj_set(obj, "Title", arg(0)); none }
+            "SETTITLE" => {
+                self.obj_set(obj, "Title", arg(0));
+                none
+            }
             // AgentObject (LLM): prompt/model are stored; Ask records the prompt
             // and returns the last reply property (filled by the host LLM bridge).
-            "SETPROMPT" => { self.obj_set(obj, "SystemPrompt", arg(0)); none }
-            "SETMODEL"  => { self.obj_set(obj, "Model", arg(0)); none }
-            "ASK"       => { self.obj_set(obj, "Prompt", arg(0)); val(self.obj_get(obj, "LastReply")) }
+            "SETPROMPT" => {
+                self.obj_set(obj, "SystemPrompt", arg(0));
+                none
+            }
+            "SETMODEL" => {
+                self.obj_set(obj, "Model", arg(0));
+                none
+            }
+            "ASK" => {
+                self.obj_set(obj, "Prompt", arg(0));
+                val(self.obj_get(obj, "LastReply"))
+            }
             // ── REST / HTTP client ──
-            "GET" => { let (b, st) = self.http.get(&arg(0)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
-            "POST" => { let (b, st) = self.http.post(&arg(0), &arg(1)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
-            "PUT" => { let (b, st) = self.http.put(&arg(0), &arg(1)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
-            "DELETE" => { let (b, st) = self.http.delete(&arg(0)); self.obj_set(obj, "ResponseBody", b.clone()); self.obj_set(obj, "StatusCode", st.to_string()); val(b) }
+            "GET" => {
+                let (b, st) = self.http.get(&arg(0));
+                self.obj_set(obj, "ResponseBody", b.clone());
+                self.obj_set(obj, "StatusCode", st.to_string());
+                val(b)
+            }
+            "POST" => {
+                let (b, st) = self.http.post(&arg(0), &arg(1));
+                self.obj_set(obj, "ResponseBody", b.clone());
+                self.obj_set(obj, "StatusCode", st.to_string());
+                val(b)
+            }
+            "PUT" => {
+                let (b, st) = self.http.put(&arg(0), &arg(1));
+                self.obj_set(obj, "ResponseBody", b.clone());
+                self.obj_set(obj, "StatusCode", st.to_string());
+                val(b)
+            }
+            "DELETE" => {
+                let (b, st) = self.http.delete(&arg(0));
+                self.obj_set(obj, "ResponseBody", b.clone());
+                self.obj_set(obj, "StatusCode", st.to_string());
+                val(b)
+            }
             "CALL" => {
                 let verb = arg(0).to_ascii_uppercase();
                 let (b, st) = match verb.as_str() {
-                    "POST"   => self.http.post(&arg(1), &arg(2)),
-                    "PUT"    => self.http.put(&arg(1), &arg(2)),
+                    "POST" => self.http.post(&arg(1), &arg(2)),
+                    "PUT" => self.http.put(&arg(1), &arg(2)),
                     "DELETE" => self.http.delete(&arg(1)),
-                    _        => self.http.get(&arg(1)),
+                    _ => self.http.get(&arg(1)),
                 };
                 self.obj_set(obj, "ResponseBody", b.clone());
                 self.obj_set(obj, "StatusCode", st.to_string());
                 val(b)
             }
-            "SETHEADER"    => { self.http.set_header(arg(0), arg(1)); none }
-            "CLEARHEADERS" => { self.http.clear_headers(); none }
-            "SETTIMEOUT"   => { self.obj_set(obj, "Timeout", arg(0)); none }
-            // ── SQL database ──
-            "OPEN" => {
-                match self.db.open(&arg(0)) {
-                    Ok(h)  => { self.obj_set(obj, "_Handle", h.to_string()); self.obj_set(obj, "StatusCode", "0".into()); val(h.to_string()) }
-                    Err(e) => { self.obj_set(obj, "LastError", e); self.obj_set(obj, "StatusCode", "1".into()); val("0".to_string()) }
-                }
+            "SETHEADER" => {
+                self.http.set_header(arg(0), arg(1));
+                none
             }
+            "CLEARHEADERS" => {
+                self.http.clear_headers();
+                none
+            }
+            "SETTIMEOUT" => {
+                self.obj_set(obj, "Timeout", arg(0));
+                none
+            }
+            // ── SQL database ──
+            "OPEN" => match self.db.open(&arg(0)) {
+                Ok(h) => {
+                    self.obj_set(obj, "_Handle", h.to_string());
+                    self.obj_set(obj, "StatusCode", "0".into());
+                    val(h.to_string())
+                }
+                Err(e) => {
+                    self.obj_set(obj, "LastError", e);
+                    self.obj_set(obj, "StatusCode", "1".into());
+                    val("0".to_string())
+                }
+            },
             "EXECUTE" | "EXEC" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 match self.db.exec(h, &arg(0)) {
-                    Ok(n)  => val(n.to_string()),
-                    Err(e) => { self.obj_set(obj, "LastError", e); val("0".to_string()) }
+                    Ok(n) => val(n.to_string()),
+                    Err(e) => {
+                        self.obj_set(obj, "LastError", e);
+                        val("0".to_string())
+                    }
                 }
             }
             "QUERY" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 match self.db.exec(h, &arg(0)) {
-                    Ok(_)  => val(self.db.row_count(h).to_string()),
-                    Err(e) => { self.obj_set(obj, "LastError", e); val("0".to_string()) }
+                    Ok(_) => val(self.db.row_count(h).to_string()),
+                    Err(e) => {
+                        self.obj_set(obj, "LastError", e);
+                        val("0".to_string())
+                    }
                 }
             }
-            "FETCH"    => { let h = parse_i(self.obj_get(obj, "_Handle")) as u32; val(if self.db.next_row(h) { "1" } else { "0" }.to_string()) }
-            "FETCHALL" => { let h = parse_i(self.obj_get(obj, "_Handle")) as u32; val(self.db.row_count(h).to_string()) }
+            "FETCH" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                val(if self.db.next_row(h) { "1" } else { "0" }.to_string())
+            }
+            "FETCHALL" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                val(self.db.row_count(h).to_string())
+            }
             // ── Property accessor (spec 010 R9) ──
             // A member that is not an explicit method is a **property**:
             //   `GET-<prop>` → get · `SET-<prop>` USING → set · bare `<prop>` →
@@ -4140,18 +4945,35 @@ impl Interpreter {
             Expr::Qualified { name, of, .. } => {
                 let quals = collect_quals(of);
                 let key = self.env.resolve_name(name, &quals);
-                Ok(self.env.get(&key).cloned().unwrap_or(CobolValue::from_i64(0)))
+                Ok(self
+                    .env
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(CobolValue::from_i64(0)))
             }
 
-            Expr::Subscript { base, indices, span: s } => {
+            Expr::Subscript {
+                base,
+                indices,
+                span: s,
+            } => {
                 // Table reference `t(i[,j…])` → the occurrence's storage slot.
                 let base_name = self.expr_to_name(base);
                 let idx = self.eval_indices(indices, *s);
                 let key = crate::environment::subscript_key(&base_name, &idx);
-                Ok(self.env.get(&key).cloned().unwrap_or_else(|| CobolValue::from_i64(0)))
+                Ok(self
+                    .env
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| CobolValue::from_i64(0)))
             }
 
-            Expr::RefMod { base, start, length, span: s } => {
+            Expr::RefMod {
+                base,
+                start,
+                length,
+                span: s,
+            } => {
                 // Reference modification (sender): `base(start:[length])`.
                 let text = self.eval_expr(base, *s)?.as_display_string();
                 let bytes = text.as_bytes();
@@ -4167,17 +4989,26 @@ impl Interpreter {
                 Ok(CobolValue::from_str(&s, n))
             }
 
-            Expr::FunctionCall { name, args, span: s } =>
-                self.eval_function(name, args, *s),
+            Expr::FunctionCall {
+                name,
+                args,
+                span: s,
+            } => self.eval_function(name, args, *s),
 
-            Expr::Arithmetic { op, lhs, rhs, span: s } => {
+            Expr::Arithmetic {
+                op,
+                lhs,
+                rhs,
+                span: s,
+            } => {
                 let l = self.eval_expr(lhs, *s)?;
                 let r = self.eval_expr(rhs, *s)?;
                 let result = match op {
                     ArithOp::Add => l.add_val(&r),
                     ArithOp::Sub => l.sub_val(&r),
                     ArithOp::Mul => l.mul_val(&r),
-                    ArithOp::Div => l.div_val(&r)
+                    ArithOp::Div => l
+                        .div_val(&r)
                         .ok_or(RuntimeError::DivisionByZero { span: *s })?,
                     // Exponentiation is inherently floating-point.
                     ArithOp::Pow => CobolValue::from_f64(l.as_f64().powf(r.as_f64())),
@@ -4185,7 +5016,11 @@ impl Interpreter {
                 Ok(result)
             }
 
-            Expr::Unary { op, operand, span: s } => {
+            Expr::Unary {
+                op,
+                operand,
+                span: s,
+            } => {
                 let v = self.eval_expr(operand, *s)?;
                 Ok(match op {
                     // 0 − v keeps exact decimals; Pos is a no-op.
@@ -4214,20 +5049,25 @@ impl Interpreter {
                 Ok(CobolValue::from_i64(len as i64))
             }
             "UPPER-CASE" => {
-                let s = self.eval_expr(&args[0], span)?.as_display_string()
+                let s = self
+                    .eval_expr(&args[0], span)?
+                    .as_display_string()
                     .to_ascii_uppercase();
                 let len = s.len();
                 Ok(CobolValue::from_str(&s, len))
             }
             "LOWER-CASE" => {
-                let s = self.eval_expr(&args[0], span)?.as_display_string()
+                let s = self
+                    .eval_expr(&args[0], span)?
+                    .as_display_string()
                     .to_ascii_lowercase();
                 let len = s.len();
                 Ok(CobolValue::from_str(&s, len))
             }
             "NUMVAL" | "NUMVAL-C" => {
                 let s = self.eval_expr(&args[0], span)?.as_display_string();
-                let f: f64 = s.trim()
+                let f: f64 = s
+                    .trim()
                     .replace(',', "")
                     .replace('$', "")
                     .replace('£', "")
@@ -4237,12 +5077,18 @@ impl Interpreter {
             }
             "MAX" => {
                 let vals = self.eval_args(args, span)?;
-                let max = vals.iter().map(|v| v.as_f64()).fold(f64::NEG_INFINITY, f64::max);
+                let max = vals
+                    .iter()
+                    .map(|v| v.as_f64())
+                    .fold(f64::NEG_INFINITY, f64::max);
                 Ok(CobolValue::from_f64(max))
             }
             "MIN" => {
                 let vals = self.eval_args(args, span)?;
-                let min = vals.iter().map(|v| v.as_f64()).fold(f64::INFINITY, f64::min);
+                let min = vals
+                    .iter()
+                    .map(|v| v.as_f64())
+                    .fold(f64::INFINITY, f64::min);
                 Ok(CobolValue::from_f64(min))
             }
             "SQRT" => {
@@ -4252,13 +5098,17 @@ impl Interpreter {
             "MOD" => {
                 let a = self.eval_expr(&args[0], span)?.as_f64();
                 let b = self.eval_expr(&args[1], span)?.as_f64();
-                if b == 0.0 { return Err(RuntimeError::DivisionByZero { span }); }
+                if b == 0.0 {
+                    return Err(RuntimeError::DivisionByZero { span });
+                }
                 Ok(CobolValue::from_f64(a - (a / b).floor() * b))
             }
             "REM" => {
                 let a = self.eval_expr(&args[0], span)?.as_f64();
                 let b = self.eval_expr(&args[1], span)?.as_f64();
-                if b == 0.0 { return Err(RuntimeError::DivisionByZero { span }); }
+                if b == 0.0 {
+                    return Err(RuntimeError::DivisionByZero { span });
+                }
                 Ok(CobolValue::from_f64(a - (a / b).trunc() * b))
             }
             "ABS" => {
@@ -4280,14 +5130,21 @@ impl Interpreter {
                 Ok(CobolValue::from_str(&s, len))
             }
             "TRIM" => {
-                let s = self.eval_expr(&args[0], span)?.as_display_string()
-                    .trim().to_owned();
+                let s = self
+                    .eval_expr(&args[0], span)?
+                    .as_display_string()
+                    .trim()
+                    .to_owned();
                 let len = s.len();
                 Ok(CobolValue::from_str(&s, len))
             }
             "REVERSE" => {
-                let s: String = self.eval_expr(&args[0], span)?.as_display_string()
-                    .chars().rev().collect();
+                let s: String = self
+                    .eval_expr(&args[0], span)?
+                    .as_display_string()
+                    .chars()
+                    .rev()
+                    .collect();
                 let len = s.len();
                 Ok(CobolValue::from_str(&s, len))
             }
@@ -4312,64 +5169,124 @@ impl Interpreter {
                 let vals = self.eval_args(args, span)?;
                 let cmp = |a: f64, b: f64| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal);
                 let pick = if name.eq_ignore_ascii_case("ORD-MAX") {
-                    vals.iter().enumerate().max_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
+                    vals.iter()
+                        .enumerate()
+                        .max_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
                 } else {
-                    vals.iter().enumerate().min_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
+                    vals.iter()
+                        .enumerate()
+                        .min_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
                 };
-                Ok(CobolValue::from_i64(pick.map(|(i, _)| i as i64 + 1).unwrap_or(0)))
+                Ok(CobolValue::from_i64(
+                    pick.map(|(i, _)| i as i64 + 1).unwrap_or(0),
+                ))
             }
             // ── Statistics over the argument list ─────────────────────────────
             "SUM" => {
                 let mut total = CobolValue::from_i64(0);
-                for v in self.eval_args(args, span)? { total = total.add_val(&v); }
+                for v in self.eval_args(args, span)? {
+                    total = total.add_val(&v);
+                }
                 Ok(total)
             }
             "MEAN" => {
                 let vals = self.eval_args(args, span)?;
-                if vals.is_empty() { return Ok(CobolValue::from_i64(0)); }
+                if vals.is_empty() {
+                    return Ok(CobolValue::from_i64(0));
+                }
                 let s: f64 = vals.iter().map(|v| v.as_f64()).sum();
                 Ok(CobolValue::from_f64(s / vals.len() as f64))
             }
             "MEDIAN" => {
-                let mut xs: Vec<f64> = self.eval_args(args, span)?.iter().map(|v| v.as_f64()).collect();
+                let mut xs: Vec<f64> = self
+                    .eval_args(args, span)?
+                    .iter()
+                    .map(|v| v.as_f64())
+                    .collect();
                 xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let m = if xs.is_empty() { 0.0 }
-                    else if xs.len() % 2 == 1 { xs[xs.len() / 2] }
-                    else { (xs[xs.len() / 2 - 1] + xs[xs.len() / 2]) / 2.0 };
+                let m = if xs.is_empty() {
+                    0.0
+                } else if xs.len() % 2 == 1 {
+                    xs[xs.len() / 2]
+                } else {
+                    (xs[xs.len() / 2 - 1] + xs[xs.len() / 2]) / 2.0
+                };
                 Ok(CobolValue::from_f64(m))
             }
             "MIDRANGE" | "RANGE" => {
-                let xs: Vec<f64> = self.eval_args(args, span)?.iter().map(|v| v.as_f64()).collect();
+                let xs: Vec<f64> = self
+                    .eval_args(args, span)?
+                    .iter()
+                    .map(|v| v.as_f64())
+                    .collect();
                 let lo = xs.iter().cloned().fold(f64::INFINITY, f64::min);
                 let hi = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                let r = if name.eq_ignore_ascii_case("RANGE") { hi - lo } else { (lo + hi) / 2.0 };
+                let r = if name.eq_ignore_ascii_case("RANGE") {
+                    hi - lo
+                } else {
+                    (lo + hi) / 2.0
+                };
                 Ok(CobolValue::from_f64(r))
             }
             "VARIANCE" | "STANDARD-DEVIATION" => {
-                let xs: Vec<f64> = self.eval_args(args, span)?.iter().map(|v| v.as_f64()).collect();
-                if xs.is_empty() { return Ok(CobolValue::from_i64(0)); }
+                let xs: Vec<f64> = self
+                    .eval_args(args, span)?
+                    .iter()
+                    .map(|v| v.as_f64())
+                    .collect();
+                if xs.is_empty() {
+                    return Ok(CobolValue::from_i64(0));
+                }
                 let mean = xs.iter().sum::<f64>() / xs.len() as f64;
                 let var = xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / xs.len() as f64;
-                Ok(CobolValue::from_f64(if name.eq_ignore_ascii_case("VARIANCE") { var } else { var.sqrt() }))
+                Ok(CobolValue::from_f64(
+                    if name.eq_ignore_ascii_case("VARIANCE") {
+                        var
+                    } else {
+                        var.sqrt()
+                    },
+                ))
             }
             // ── Math ──────────────────────────────────────────────────────────
             "FACTORIAL" => {
                 let n = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0).max(0);
                 let mut f: i128 = 1;
-                for k in 2..=n as i128 { f *= k; }
+                for k in 2..=n as i128 {
+                    f *= k;
+                }
                 Ok(CobolValue::from_i64(f as i64))
             }
-            "SIN"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().sin())),
-            "COS"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().cos())),
-            "TAN"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().tan())),
-            "ASIN"  => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().asin())),
-            "ACOS"  => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().acos())),
-            "ATAN"  => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().atan())),
-            "LOG"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().ln())),
-            "LOG10" => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().log10())),
-            "EXP"   => Ok(CobolValue::from_f64(self.eval_expr(&args[0], span)?.as_f64().exp())),
-            "EXP10" => Ok(CobolValue::from_f64(10f64.powf(self.eval_expr(&args[0], span)?.as_f64()))),
-            "PI"    => Ok(CobolValue::from_f64(std::f64::consts::PI)),
+            "SIN" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().sin(),
+            )),
+            "COS" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().cos(),
+            )),
+            "TAN" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().tan(),
+            )),
+            "ASIN" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().asin(),
+            )),
+            "ACOS" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().acos(),
+            )),
+            "ATAN" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().atan(),
+            )),
+            "LOG" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().ln(),
+            )),
+            "LOG10" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().log10(),
+            )),
+            "EXP" => Ok(CobolValue::from_f64(
+                self.eval_expr(&args[0], span)?.as_f64().exp(),
+            )),
+            "EXP10" => Ok(CobolValue::from_f64(
+                10f64.powf(self.eval_expr(&args[0], span)?.as_f64()),
+            )),
+            "PI" => Ok(CobolValue::from_f64(std::f64::consts::PI)),
             "STORED-CHAR-LENGTH" => {
                 let s = self.eval_expr(&args[0], span)?.as_display_string();
                 Ok(CobolValue::from_i64(s.trim_end().len() as i64))
@@ -4406,7 +5323,11 @@ impl Interpreter {
                 let rate = self.eval_expr(&args[0], span)?.as_f64();
                 let n = self.eval_expr(&args[1], span)?.as_f64();
                 let v = if rate == 0.0 {
-                    if n == 0.0 { 0.0 } else { 1.0 / n }
+                    if n == 0.0 {
+                        0.0
+                    } else {
+                        1.0 / n
+                    }
                 } else {
                     rate / (1.0 - (1.0 + rate).powf(-n))
                 };
@@ -4427,16 +5348,23 @@ impl Interpreter {
                 let yy = self.eval_expr(&args[0], span)?.as_i64().unwrap_or(0);
                 let window = if args.len() > 1 {
                     self.eval_expr(&args[1], span)?.as_i64().unwrap_or(50)
-                } else { 50 };
+                } else {
+                    50
+                };
                 let cur_year = {
                     use std::time::{SystemTime, UNIX_EPOCH};
-                    let days = SystemTime::now().duration_since(UNIX_EPOCH)
-                        .unwrap_or_default().as_secs() / 86400;
+                    let days = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                        / 86400;
                     ymd_from_days(days).0 as i64
                 };
                 let max_year = cur_year + window;
                 let mut yyyy = (max_year / 100) * 100 + yy;
-                if yyyy > max_year { yyyy -= 100; }
+                if yyyy > max_year {
+                    yyyy -= 100;
+                }
                 Ok(CobolValue::from_i64(yyyy))
             }
             "BYTE-LENGTH" | "LENGTH-AN" => {
@@ -4459,14 +5387,16 @@ impl Interpreter {
                 let s = self.eval_expr(&args[0], span)?.as_display_string();
                 let t = s.trim();
                 let ok = !t.is_empty()
-                    && t.chars().all(|c| c.is_ascii_digit()
-                        || matches!(c, '.' | '+' | '-' | ',' | ' '));
+                    && t.chars()
+                        .all(|c| c.is_ascii_digit() || matches!(c, '.' | '+' | '-' | ',' | ' '));
                 if ok && t.parse::<f64>().is_ok() {
                     Ok(CobolValue::from_i64(0))
                 } else {
-                    let pos = t.chars()
-                        .position(|c| !(c.is_ascii_digit()
-                            || matches!(c, '.' | '+' | '-' | ',' | ' ')))
+                    let pos = t
+                        .chars()
+                        .position(|c| {
+                            !(c.is_ascii_digit() || matches!(c, '.' | '+' | '-' | ',' | ' '))
+                        })
                         .map(|p| p as i64 + 1)
                         .unwrap_or(t.len() as i64 + 1);
                     Ok(CobolValue::from_i64(pos))
@@ -4498,29 +5428,39 @@ impl Interpreter {
                 Ok(compare_values(&l, &r, *op))
             }
             Condition::Not(inner, _) => Ok(!self.eval_condition(inner)?),
-            Condition::And(a, b, _)  => Ok(self.eval_condition(a)? && self.eval_condition(b)?),
-            Condition::Or(a, b, _)   => Ok(self.eval_condition(a)? || self.eval_condition(b)?),
-            Condition::ClassTest { expr, negated, class, span } => {
+            Condition::And(a, b, _) => Ok(self.eval_condition(a)? && self.eval_condition(b)?),
+            Condition::Or(a, b, _) => Ok(self.eval_condition(a)? || self.eval_condition(b)?),
+            Condition::ClassTest {
+                expr,
+                negated,
+                class,
+                span,
+            } => {
                 let v = self.eval_expr(expr, *span)?;
                 let s = v.as_display_string();
                 let result = match class {
-                    DataClass::Numeric => v.is_numeric()
-                        || s.trim().parse::<f64>().is_ok(),
-                    DataClass::Alphabetic =>
-                        s.chars().all(|c| c.is_ascii_alphabetic() || c == ' '),
-                    DataClass::AlphabeticLower =>
-                        s.chars().all(|c| c.is_ascii_lowercase() || c == ' '),
-                    DataClass::AlphabeticUpper =>
-                        s.chars().all(|c| c.is_ascii_uppercase() || c == ' '),
+                    DataClass::Numeric => v.is_numeric() || s.trim().parse::<f64>().is_ok(),
+                    DataClass::Alphabetic => s.chars().all(|c| c.is_ascii_alphabetic() || c == ' '),
+                    DataClass::AlphabeticLower => {
+                        s.chars().all(|c| c.is_ascii_lowercase() || c == ' ')
+                    }
+                    DataClass::AlphabeticUpper => {
+                        s.chars().all(|c| c.is_ascii_uppercase() || c == ' ')
+                    }
                 };
                 Ok(if *negated { !result } else { result })
             }
-            Condition::SignTest { expr, negated, sign, span } => {
+            Condition::SignTest {
+                expr,
+                negated,
+                sign,
+                span,
+            } => {
                 let v = self.eval_expr(expr, *span)?.as_f64();
                 let result = match sign {
                     SignCond::Positive => v > 0.0,
                     SignCond::Negative => v < 0.0,
-                    SignCond::Zero     => v == 0.0,
+                    SignCond::Zero => v == 0.0,
                 };
                 Ok(if *negated { !result } else { result })
             }
@@ -4529,28 +5469,43 @@ impl Interpreter {
                 // 88-level condition-name: true when the parent (host) item holds
                 // one of the declared VALUEs (or falls within a THRU range).
                 if let Some(info) = self.env.cond_name(name).cloned() {
-                    let pv = self.env.get(&info.parent).cloned()
+                    let pv = self
+                        .env
+                        .get(&info.parent)
+                        .cloned()
                         .unwrap_or_else(|| CobolValue::from_i64(0));
                     for cv in &info.values {
                         let hit = match cv {
-                            ConditionValue::Single(lit) =>
-                                compare_values(&pv, &literal_to_value(lit), CmpOp::Eq),
-                            ConditionValue::Range(lo, hi) =>
+                            ConditionValue::Single(lit) => {
+                                compare_values(&pv, &literal_to_value(lit), CmpOp::Eq)
+                            }
+                            ConditionValue::Range(lo, hi) => {
                                 compare_values(&pv, &literal_to_value(lo), CmpOp::Ge)
-                                    && compare_values(&pv, &literal_to_value(hi), CmpOp::Le),
+                                    && compare_values(&pv, &literal_to_value(hi), CmpOp::Le)
+                            }
                         };
-                        if hit { return Ok(true); }
+                        if hit {
+                            return Ok(true);
+                        }
                     }
                     return Ok(false);
                 }
                 // Fallback (undeclared): truthy if the slot is non-zero/non-space.
                 let upper = name.to_ascii_uppercase();
-                let v = self.env.get(&upper).cloned()
+                let v = self
+                    .env
+                    .get(&upper)
+                    .cloned()
                     .unwrap_or_else(|| CobolValue::from_i64(0));
                 Ok(!v.is_zero())
             }
 
-            Condition::NameOrAbbrev { subject, op, name, span } => {
+            Condition::NameOrAbbrev {
+                subject,
+                op,
+                name,
+                span,
+            } => {
                 // `a = b OR c`: if `c` is a known 88-level condition-name, treat
                 // it as one; otherwise it is the abbreviation object `a = c`.
                 if self.env.cond_name(name).is_some() {
@@ -4558,7 +5513,11 @@ impl Interpreter {
                 }
                 let l = self.eval_expr(subject, *span)?;
                 let key = self.env.resolve_name(name, &[]);
-                let r = self.env.get(&key).cloned().unwrap_or_else(|| CobolValue::from_i64(0));
+                let r = self
+                    .env
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| CobolValue::from_i64(0));
                 Ok(compare_values(&l, &r, *op))
             }
         }
@@ -4568,7 +5527,8 @@ impl Interpreter {
 
     fn para_stmts(&self, name: &str, span: Span) -> Result<Vec<Stmt>, RuntimeError> {
         let upper = name.to_ascii_uppercase();
-        self.para_map.get(&upper)
+        self.para_map
+            .get(&upper)
             .cloned()
             .ok_or(RuntimeError::UndefinedParagraph { name: upper, span })
     }
@@ -4597,11 +5557,23 @@ impl Interpreter {
 
     fn thru_stmts(&self, from: &str, to: &str, span: Span) -> Result<Vec<Stmt>, RuntimeError> {
         let from_u = from.to_ascii_uppercase();
-        let to_u   = to.to_ascii_uppercase();
-        let from_pos = self.para_order.iter().position(|n| n == &from_u)
-            .ok_or_else(|| RuntimeError::UndefinedParagraph { name: from_u.clone(), span })?;
-        let to_pos = self.para_order.iter().position(|n| n == &to_u)
-            .ok_or_else(|| RuntimeError::UndefinedParagraph { name: to_u.clone(), span })?;
+        let to_u = to.to_ascii_uppercase();
+        let from_pos = self
+            .para_order
+            .iter()
+            .position(|n| n == &from_u)
+            .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                name: from_u.clone(),
+                span,
+            })?;
+        let to_pos = self
+            .para_order
+            .iter()
+            .position(|n| n == &to_u)
+            .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                name: to_u.clone(),
+                span,
+            })?;
 
         let mut stmts = Vec::new();
         for i in from_pos..=to_pos {
@@ -4614,8 +5586,14 @@ impl Interpreter {
 
     /// Evaluate a list of subscript index expressions to 1-based integers.
     fn eval_indices(&mut self, indices: &[Expr], span: Span) -> Vec<i64> {
-        indices.iter()
-            .map(|e| self.eval_expr(e, span).ok().and_then(|v| v.as_i64()).unwrap_or(1))
+        indices
+            .iter()
+            .map(|e| {
+                self.eval_expr(e, span)
+                    .ok()
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(1)
+            })
             .collect()
     }
 
@@ -4623,7 +5601,11 @@ impl Interpreter {
     /// (`RefMod` targets are handled separately by `assign_refmod`.)
     fn resolve_lvalue(&mut self, expr: &Expr) -> String {
         match expr {
-            Expr::Subscript { base, indices, span } => {
+            Expr::Subscript {
+                base,
+                indices,
+                span,
+            } => {
                 let base_name = self.expr_to_name(base);
                 let idx = self.eval_indices(indices, *span);
                 crate::environment::subscript_key(&base_name, &idx)
@@ -4675,7 +5657,9 @@ impl Interpreter {
         let shadows: Vec<(String, (String, Vec<PathSeg>))> =
             self.property_shadows.drain().collect();
         for (synth, (ctrl, path)) in shadows {
-            let v = self.env.get(&synth)
+            let v = self
+                .env
+                .get(&synth)
                 .map(|cv| cv.as_display_string())
                 .unwrap_or_default()
                 .trim()
@@ -4688,13 +5672,13 @@ impl Interpreter {
     /// any `OF`/`IN` qualification to disambiguate duplicated names.
     fn expr_to_name(&self, expr: &Expr) -> String {
         match expr {
-            Expr::Identifier(name, _)  => self.env.resolve_name(name, &[]),
+            Expr::Identifier(name, _) => self.env.resolve_name(name, &[]),
             Expr::Qualified { name, of, .. } => {
                 let quals = collect_quals(of);
                 self.env.resolve_name(name, &quals)
             }
             Expr::Subscript { base, .. } => self.expr_to_name(base),
-            Expr::RefMod { base, .. }    => self.expr_to_name(base),
+            Expr::RefMod { base, .. } => self.expr_to_name(base),
             _ => "__UNKNOWN__".to_owned(),
         }
     }
@@ -4738,7 +5722,11 @@ impl Interpreter {
         span: Span,
     ) -> Result<(), RuntimeError> {
         let name = self.expr_to_name(base);
-        let mut cur = self.env.display_string(&name).unwrap_or_default().into_bytes();
+        let mut cur = self
+            .env
+            .display_string(&name)
+            .unwrap_or_default()
+            .into_bytes();
         let start_i = self.eval_expr(start, span)?.as_i64().unwrap_or(1).max(1) as usize; // 1-based
         let begin = (start_i - 1).min(cur.len());
         let region = match length {
@@ -4779,8 +5767,15 @@ fn find_decl_in_division<'a>(
     None
 }
 
-fn find_decl<'a>(d: &'a cobolt_ast::data::DataDecl, name: &str) -> Option<&'a cobolt_ast::data::DataDecl> {
-    if d.name.as_deref().map(|n| n.eq_ignore_ascii_case(name)).unwrap_or(false) {
+fn find_decl<'a>(
+    d: &'a cobolt_ast::data::DataDecl,
+    name: &str,
+) -> Option<&'a cobolt_ast::data::DataDecl> {
+    if d.name
+        .as_deref()
+        .map(|n| n.eq_ignore_ascii_case(name))
+        .unwrap_or(false)
+    {
         return Some(d);
     }
     for c in &d.children {
@@ -4804,8 +5799,8 @@ fn stmt_span(stmt: &Stmt) -> Option<Span> {
 // ── Paragraph map builder ─────────────────────────────────────────────────────
 
 fn build_para_map(body: &ProcedureBody) -> (IndexMap<String, Vec<Stmt>>, Vec<String>) {
-    let mut map:   IndexMap<String, Vec<Stmt>> = IndexMap::new();
-    let mut order: Vec<String>                 = Vec::new();
+    let mut map: IndexMap<String, Vec<Stmt>> = IndexMap::new();
+    let mut order: Vec<String> = Vec::new();
 
     match body {
         ProcedureBody::Paragraphs(paras) => {
@@ -4838,16 +5833,16 @@ fn build_para_map(body: &ProcedureBody) -> (IndexMap<String, Vec<Stmt>>, Vec<Str
 pub fn literal_to_value(lit: &Literal) -> CobolValue {
     match lit {
         Literal::Integer(n) => CobolValue::from_i64(*n),
-        Literal::Float(f)   => CobolValue::from_f64(*f),
+        Literal::Float(f) => CobolValue::from_f64(*f),
         Literal::Decimal(m, s) => CobolValue::Numeric(CobolNumeric::new(*m, *s)),
-        Literal::String(s)  => CobolValue::from_str(s, s.len()),
+        Literal::String(s) => CobolValue::from_str(s, s.len()),
         Literal::Figurative(fig) => match fig {
-            FigurativeConstant::Zero     => CobolValue::from_i64(0),
-            FigurativeConstant::Space    => CobolValue::spaces(1),
+            FigurativeConstant::Zero => CobolValue::from_i64(0),
+            FigurativeConstant::Space => CobolValue::spaces(1),
             FigurativeConstant::HighValue => CobolValue::figurative_high_values(1),
-            FigurativeConstant::LowValue  => CobolValue::figurative_low_values(1),
-            FigurativeConstant::Quote    => CobolValue::from_str("\"", 1),
-            FigurativeConstant::Null     => CobolValue::from_i64(0),
+            FigurativeConstant::LowValue => CobolValue::figurative_low_values(1),
+            FigurativeConstant::Quote => CobolValue::from_str("\"", 1),
+            FigurativeConstant::Null => CobolValue::from_i64(0),
             FigurativeConstant::All(inner) => literal_to_value(inner),
         },
     }
@@ -4856,10 +5851,7 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
 /// Flatten an `AND`-chain of equality comparisons into `(lhs, rhs, span)`
 /// tuples in major-to-minor (textual) order. Used by the `SEARCH ALL` binary
 /// search to find the discriminating key when a WHEN does not match at `mid`.
-fn flatten_eq_comparisons<'a>(
-    cond: &'a Condition,
-    out: &mut Vec<(&'a Expr, &'a Expr, Span)>,
-) {
+fn flatten_eq_comparisons<'a>(cond: &'a Condition, out: &mut Vec<(&'a Expr, &'a Expr, Span)>) {
     match cond {
         Condition::And(a, b, _) => {
             flatten_eq_comparisons(a, out);
@@ -4952,9 +5944,15 @@ fn call_arg_expr(arg: &CallArg) -> &Expr {
 /// ANSI SGR prefix for a screen phrase's display attributes (`""` if none).
 fn screen_attrs(sc: &cobolt_ast::stmt::ScreenPhrase) -> String {
     let mut s = String::new();
-    if sc.highlight { s.push_str("\x1b[1m"); }
-    if sc.reverse   { s.push_str("\x1b[7m"); }
-    if sc.underline { s.push_str("\x1b[4m"); }
+    if sc.highlight {
+        s.push_str("\x1b[1m");
+    }
+    if sc.reverse {
+        s.push_str("\x1b[7m");
+    }
+    if sc.underline {
+        s.push_str("\x1b[4m");
+    }
     s
 }
 
@@ -4988,7 +5986,11 @@ enum Resolved {
     /// A readable / assignable place — a property or an indexed element.
     Path(Vec<PathSeg>),
     /// A method call on the place reached by `path` (rvalue only).
-    Method { path: Vec<PathSeg>, method: String, args: Vec<CobolValue> },
+    Method {
+        path: Vec<PathSeg>,
+        method: String,
+        args: Vec<CobolValue>,
+    },
 }
 
 /// `true` if `name` is a recognised control/collection **method** (so a parens
@@ -5089,7 +6091,7 @@ fn runtime_time() -> String {
         .unwrap_or_default()
         .as_secs();
     let h = (secs % 86400) / 3600;
-    let m = (secs % 3600)  / 60;
+    let m = (secs % 3600) / 60;
     let s = secs % 60;
     format!("{h:02}{m:02}{s:02}00")
 }
@@ -5099,7 +6101,13 @@ fn cob_days_in_month(year: i64, month: i64) -> i64 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
-        2 => if is_leap(year.max(0) as u64) { 29 } else { 28 },
+        2 => {
+            if is_leap(year.max(0) as u64) {
+                29
+            } else {
+                28
+            }
+        }
         _ => 0,
     }
 }
@@ -5124,12 +6132,22 @@ fn date_of_integer(n: i64) -> i64 {
     let mut y = 1601i64;
     loop {
         let dy = if is_leap(y as u64) { 366 } else { 365 };
-        if rem > dy { rem -= dy; y += 1; } else { break; }
+        if rem > dy {
+            rem -= dy;
+            y += 1;
+        } else {
+            break;
+        }
     }
     let mut m = 1i64;
     loop {
         let dm = cob_days_in_month(y, m);
-        if rem > dm { rem -= dm; m += 1; } else { break; }
+        if rem > dm {
+            rem -= dm;
+            m += 1;
+        } else {
+            break;
+        }
     }
     y * 10000 + m * 100 + rem
 }
@@ -5150,7 +6168,12 @@ fn day_of_integer(n: i64) -> i64 {
     let mut y = 1601i64;
     loop {
         let dy = if is_leap(y as u64) { 366 } else { 365 };
-        if rem > dy { rem -= dy; y += 1; } else { break; }
+        if rem > dy {
+            rem -= dy;
+            y += 1;
+        } else {
+            break;
+        }
     }
     y * 1000 + rem
 }
@@ -5193,7 +6216,11 @@ fn is_leap(year: u64) -> bool {
 }
 
 fn days_in_year(year: u64) -> u64 {
-    if is_leap(year) { 366 } else { 365 }
+    if is_leap(year) {
+        366
+    } else {
+        365
+    }
 }
 
 /// Days since Unix epoch for January 1 of `year`.
@@ -5212,7 +6239,9 @@ fn ymd_from_days(mut days: u64) -> (u64, u64, u64) {
     let mut year = 1970u64;
     loop {
         let dy = days_in_year(year);
-        if days < dy { break; }
+        if days < dy {
+            break;
+        }
         days -= dy;
         year += 1;
     }
@@ -5223,7 +6252,9 @@ fn ymd_from_days(mut days: u64) -> (u64, u64, u64) {
     };
     let mut month = 1u64;
     for md in &month_days {
-        if days < *md { break; }
+        if days < *md {
+            break;
+        }
         days -= md;
         month += 1;
     }
@@ -5271,7 +6302,7 @@ mod tests {
     #[test]
     fn compare_strings() {
         let a = CobolValue::from_str("ALPHA", 5);
-        let b = CobolValue::from_str("BETA",  4);
+        let b = CobolValue::from_str("BETA", 4);
         assert!(compare_values(&a, &b, CmpOp::Lt));
         assert!(compare_values(&a, &a, CmpOp::Eq));
     }

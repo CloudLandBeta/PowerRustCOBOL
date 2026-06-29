@@ -60,9 +60,9 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     match args.get(1).map(|s| s.as_str()) {
-        Some("run")     => cmd_run(&args[2..]),
-        Some("check")   => cmd_check(&args[2..]),
-        Some("build")   => cmd_build(&args[2..]),
+        Some("run") => cmd_run(&args[2..]),
+        Some("check") => cmd_check(&args[2..]),
+        Some("build") => cmd_build(&args[2..]),
         Some("package") => cmd_package(&args[2..]),
         Some("version") => cmd_version(),
         Some("help") | Some("--help") | Some("-h") => cmd_help(),
@@ -92,23 +92,32 @@ fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> String {
 }
 
 fn cmd_run(args: &[String]) {
-    let path   = require_path(args, "run");
+    let path = require_path(args, "run");
     let source = read_source(&path);
-    let fmt    = detect_format(&source, &path);
+    let fmt = detect_format(&source, &path);
     let source = expand_copy(&path, &source, fmt);
 
     // COPY expansion flattens to free form.
-    let tokens       = tokenize(&source, SourceFormat::Free);
+    let tokens = tokenize(&source, SourceFormat::Free);
     let parse_result = parse(tokens);
 
     // Print parser diagnostics.
     let mut parser_has_errors = false;
     for d in &parse_result.diagnostics {
         let sev = match d.severity {
-            cobolt_parser::Severity::Error   => { parser_has_errors = true; "error" }
+            cobolt_parser::Severity::Error => {
+                parser_has_errors = true;
+                "error"
+            }
             cobolt_parser::Severity::Warning => "warning",
         };
-        eprintln!("{}:{}:{}: {sev}: {}", path.display(), d.span.line, d.span.col, d.message);
+        eprintln!(
+            "{}:{}:{}: {sev}: {}",
+            path.display(),
+            d.span.line,
+            d.span.col,
+            d.message
+        );
     }
 
     let program = match parse_result.program {
@@ -152,22 +161,30 @@ fn cmd_run(args: &[String]) {
 }
 
 fn cmd_check(args: &[String]) {
-    let path   = require_path(args, "check");
+    let path = require_path(args, "check");
     let source = read_source(&path);
-    let fmt    = detect_format(&source, &path);
+    let fmt = detect_format(&source, &path);
     let source = expand_copy(&path, &source, fmt);
 
-    let tokens       = tokenize(&source, SourceFormat::Free);
+    let tokens = tokenize(&source, SourceFormat::Free);
     let parse_result = parse(tokens);
 
     let mut has_errors = false;
     for d in &parse_result.diagnostics {
-        if d.severity == cobolt_parser::Severity::Error { has_errors = true; }
+        if d.severity == cobolt_parser::Severity::Error {
+            has_errors = true;
+        }
         let sev = match d.severity {
-            cobolt_parser::Severity::Error   => "error",
+            cobolt_parser::Severity::Error => "error",
             cobolt_parser::Severity::Warning => "warning",
         };
-        eprintln!("{}:{}:{}: {sev}: {}", path.display(), d.span.line, d.span.col, d.message);
+        eprintln!(
+            "{}:{}:{}: {sev}: {}",
+            path.display(),
+            d.span.line,
+            d.span.col,
+            d.message
+        );
     }
 
     match parse_result.program {
@@ -183,9 +200,11 @@ fn cmd_check(args: &[String]) {
                 eprintln!("{}: check FAILED", path.display());
                 process::exit(1);
             } else {
-                println!("{}: check OK ({} warning(s))",
+                println!(
+                    "{}: check OK ({} warning(s))",
                     path.display(),
-                    sem.warnings().count());
+                    sem.warnings().count()
+                );
             }
         }
     }
@@ -253,8 +272,11 @@ fn cmd_build(args: &[String]) {
 
     // A bare COBOL source file → standalone single-file build (no manifest).
     let is_source = matches!(
-        target.extension().and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase()).as_deref(),
+        target
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
         Some("cbl" | "cob" | "cbk" | "cpy")
     );
 
@@ -310,7 +332,7 @@ fn cmd_package(args: &[String]) {
     // ── Argument parsing ──────────────────────────────────────────────────────
 
     let mut manifest_path: Option<PathBuf> = None;
-    let mut output_path:   Option<PathBuf> = None;
+    let mut output_path: Option<PathBuf> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -349,20 +371,34 @@ fn cmd_package(args: &[String]) {
     // ── Load the manifest ─────────────────────────────────────────────────────
 
     #[derive(Deserialize)]
-    struct ProjectMeta    { name: String, version: String, main: String }
+    struct ProjectMeta {
+        name: String,
+        version: String,
+        main: String,
+    }
     #[derive(Deserialize, Default)]
-    struct ProjectFiles   {
-        #[serde(default)] sources: Vec<String>,
-        #[serde(default)] forms:   Vec<String>,
-        #[serde(default)] assets:  Vec<String>,
+    struct ProjectFiles {
+        #[serde(default)]
+        sources: Vec<String>,
+        #[serde(default)]
+        forms: Vec<String>,
+        #[serde(default)]
+        assets: Vec<String>,
     }
     #[derive(Deserialize)]
-    struct CoboltProject  { project: ProjectMeta, #[serde(default)] files: ProjectFiles }
+    struct CoboltProject {
+        project: ProjectMeta,
+        #[serde(default)]
+        files: ProjectFiles,
+    }
 
     let manifest_text = match std::fs::read_to_string(&manifest_path) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("rcrun package: cannot read '{}': {e}", manifest_path.display());
+            eprintln!(
+                "rcrun package: cannot read '{}': {e}",
+                manifest_path.display()
+            );
             process::exit(1);
         }
     };
@@ -430,7 +466,10 @@ fn cmd_package(args: &[String]) {
     for (name, text) in [
         ("LICENSE", cobolt_compiler::LICENSE_TEXT),
         ("NOTICE", cobolt_compiler::NOTICE_TEXT),
-        ("POWERRUSTCOBOL-NOTICE.txt", cobolt_compiler::RUNTIME_NOTICE_TEXT),
+        (
+            "POWERRUSTCOBOL-NOTICE.txt",
+            cobolt_compiler::RUNTIME_NOTICE_TEXT,
+        ),
     ] {
         if zip.start_file(name, opts).is_ok() {
             zip.write_all(text.as_bytes()).unwrap();
@@ -439,7 +478,10 @@ fn cmd_package(args: &[String]) {
     }
 
     // ── Project files ─────────────────────────────────────────────────────────
-    let all_files: Vec<&str> = proj.files.sources.iter()
+    let all_files: Vec<&str> = proj
+        .files
+        .sources
+        .iter()
         .chain(proj.files.forms.iter())
         .chain(proj.files.assets.iter())
         .map(|s| s.as_str())
@@ -520,8 +562,7 @@ fn cmd_package(args: &[String]) {
            cargo install cobolt-cli  # installs as 'rcrun'\n\
          \n\
          Main entry point: {main}\n",
-        proj.project.name,
-        proj.project.version,
+        proj.project.name, proj.project.version,
     );
     zip.start_file("README.txt", opts).unwrap();
     zip.write_all(readme.as_bytes()).unwrap();
@@ -566,7 +607,11 @@ fn extract_program_args(args: &[String]) -> Vec<String> {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" || a == "--indexed-log-format" {
+        if a == "--indexed-engine"
+            || a == "-I"
+            || a == "--indexed-log"
+            || a == "--indexed-log-format"
+        {
             i += 2;
             continue;
         }
@@ -586,7 +631,11 @@ fn require_path(args: &[String], cmd: &str) -> PathBuf {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--indexed-engine" || a == "-I" || a == "--indexed-log" || a == "--indexed-log-format" {
+        if a == "--indexed-engine"
+            || a == "-I"
+            || a == "--indexed-log"
+            || a == "--indexed-log-format"
+        {
             i += 2; // skip the flag and its separate value
             continue;
         }
@@ -696,18 +745,21 @@ fn detect_format(_source: &str, _path: &PathBuf) -> SourceFormat {
     SourceFormat::Free
 }
 
-fn print_diagnostics(
-    diagnostics: &[cobolt_semantic::SemanticDiagnostic],
-    file: &str,
-) -> bool {
+fn print_diagnostics(diagnostics: &[cobolt_semantic::SemanticDiagnostic], file: &str) -> bool {
     let mut has_errors = false;
     for d in diagnostics {
         let sev = match d.severity {
-            Severity::Error   => { has_errors = true; "error" }
+            Severity::Error => {
+                has_errors = true;
+                "error"
+            }
             Severity::Warning => "warning",
-            Severity::Info    => "note",
+            Severity::Info => "note",
         };
-        eprintln!("{file}:{}:{}: {sev}: {}", d.span.line, d.span.col, d.message);
+        eprintln!(
+            "{file}:{}:{}: {sev}: {}",
+            d.span.line, d.span.col, d.message
+        );
     }
     has_errors
 }

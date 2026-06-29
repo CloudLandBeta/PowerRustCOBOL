@@ -18,7 +18,10 @@ use cobolt_runtime::Interpreter;
 fn run(src: &str) -> (Vec<String>, usize) {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -55,7 +58,10 @@ fn invoke_rust_string_len_and_uppercase() {
 "#;
     let (out, live) = run(src);
     assert_eq!(out, vec!["0005".to_string(), "HELLO".to_string()]);
-    assert!(live >= 1, "the Rust.String object should be live during the run");
+    assert!(
+        live >= 1,
+        "the Rust.String object should be live during the run"
+    );
 }
 
 #[test]

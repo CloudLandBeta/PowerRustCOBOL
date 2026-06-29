@@ -39,12 +39,12 @@ pub mod debugger;
 pub mod environment;
 pub mod error;
 pub mod exec_rust;
-pub mod http_runtime;
 pub mod files;
+pub mod http_runtime;
 pub mod indexed;
+pub mod indexed_disk;
 pub mod indexed_ide;
 pub mod indexed_import;
-pub mod indexed_disk;
 pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
@@ -55,7 +55,8 @@ pub mod value;
 
 pub use channels::{FormEvent, StateUpdate};
 pub use db_runtime::DbRegistry;
-pub use debugger::{Breakpoints, DebugCmd, DebugEvent, VarSnapshot, new_breakpoints};
+pub use debugger::{new_breakpoints, Breakpoints, DebugCmd, DebugEvent, VarSnapshot};
+pub use environment::{new_external_store, CobolEnvironment, ExternalStore};
 pub use error::RuntimeError;
 pub use http_runtime::HttpClient;
 pub use indexed::{
@@ -67,7 +68,6 @@ pub use indexed_ide::{
 };
 pub use indexed_import::{definition_from_inspect, inspect_any_path};
 pub use interpreter::Interpreter;
-pub use environment::{CobolEnvironment, ExternalStore, new_external_store};
-pub use rust_bridge::{BridgeError, BridgeValue, RustBridge};
 pub use objects::ObjectRegistry;
+pub use rust_bridge::{BridgeError, BridgeValue, RustBridge};
 pub use value::CobolValue;

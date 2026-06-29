@@ -39,7 +39,7 @@ pub enum DebugCmd {
 /// A snapshot of one data-item's current value.
 #[derive(Debug, Clone)]
 pub struct VarSnapshot {
-    pub name:  String,
+    pub name: String,
     pub value: String,
 }
 
@@ -49,13 +49,13 @@ pub enum DebugEvent {
     /// The interpreter has paused before executing a statement.
     Paused {
         /// Source line that is about to execute (1-based).
-        line:      u32,
+        line: u32,
         /// Source column (1-based).
-        col:       u32,
+        col: u32,
         /// Name of the paragraph currently executing.
         paragraph: String,
         /// Snapshot of all data items at the moment of pause.
-        vars:      Vec<VarSnapshot>,
+        vars: Vec<VarSnapshot>,
     },
     /// The interpreter resumed after a `Continue` or `StepOver`.
     Resumed,

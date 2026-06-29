@@ -70,8 +70,12 @@ impl MenuDefinition {
     pub fn find_item(&self, id: &str) -> Option<&MenuItem> {
         fn find_in<'a>(items: &'a [MenuItem], id: &str) -> Option<&'a MenuItem> {
             for item in items {
-                if item.id == id { return Some(item); }
-                if let Some(found) = find_in(&item.items, id) { return Some(found); }
+                if item.id == id {
+                    return Some(item);
+                }
+                if let Some(found) = find_in(&item.items, id) {
+                    return Some(found);
+                }
             }
             None
         }
@@ -81,8 +85,12 @@ impl MenuDefinition {
     pub fn find_item_mut(&mut self, id: &str) -> Option<&mut MenuItem> {
         fn find_in<'a>(items: &'a mut [MenuItem], id: &str) -> Option<&'a mut MenuItem> {
             for item in items {
-                if item.id == id { return Some(item); }
-                if let Some(found) = find_in(&mut item.items, id) { return Some(found); }
+                if item.id == id {
+                    return Some(item);
+                }
+                if let Some(found) = find_in(&mut item.items, id) {
+                    return Some(found);
+                }
             }
             None
         }
@@ -107,8 +115,12 @@ impl MenuDefinition {
         fn find_path(items: &[MenuItem], id: &str, prefix: &str) -> Option<String> {
             for item in items {
                 let cur = format!("{}/{}", prefix, item.label);
-                if item.id == id { return Some(cur); }
-                if let Some(p) = find_path(&item.items, id, &cur) { return Some(p); }
+                if item.id == id {
+                    return Some(cur);
+                }
+                if let Some(p) = find_path(&item.items, id, &cur) {
+                    return Some(p);
+                }
             }
             None
         }
@@ -181,8 +193,7 @@ pub fn validate_depth(def: &MenuDefinition) -> Result<(), MenuError> {
 // ── HMAC ────────────────────────────────────────────────────────────────────────
 
 fn compute_hmac(menu_yaml: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(HMAC_KEY).expect("HMAC accepts any key length");
+    let mut mac = HmacSha256::new_from_slice(HMAC_KEY).expect("HMAC accepts any key length");
     mac.update(menu_yaml.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
@@ -209,11 +220,7 @@ fn verify_hmac(def: &MenuDefinition) -> Result<(), MenuError> {
 
 mod hex {
     pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 
@@ -378,40 +385,38 @@ mod tests {
 
     fn sample_menu() -> MenuDefinition {
         MenuDefinition {
-            menu: vec![
-                MenuItem {
-                    id: "file".into(),
-                    label: "File".into(),
-                    item_type: MenuItemType::Action,
-                    icon: None,
-                    accelerator: None,
-                    action: None,
-                    enabled: true,
-                    items: vec![
-                        MenuItem {
-                            id: "file-new".into(),
-                            label: "New".into(),
-                            item_type: MenuItemType::Action,
-                            icon: Some("doc-new".into()),
-                            accelerator: Some("Cmd+N".into()),
-                            action: Some("event".into()),
-                            enabled: true,
-                            items: vec![],
-                        },
-                        MenuItem::new_separator("sep-1"),
-                        MenuItem {
-                            id: "file-exit".into(),
-                            label: "Exit".into(),
-                            item_type: MenuItemType::Action,
-                            icon: Some("x-circle".into()),
-                            accelerator: None,
-                            action: Some("close-application".into()),
-                            enabled: true,
-                            items: vec![],
-                        },
-                    ],
-                },
-            ],
+            menu: vec![MenuItem {
+                id: "file".into(),
+                label: "File".into(),
+                item_type: MenuItemType::Action,
+                icon: None,
+                accelerator: None,
+                action: None,
+                enabled: true,
+                items: vec![
+                    MenuItem {
+                        id: "file-new".into(),
+                        label: "New".into(),
+                        item_type: MenuItemType::Action,
+                        icon: Some("doc-new".into()),
+                        accelerator: Some("Cmd+N".into()),
+                        action: Some("event".into()),
+                        enabled: true,
+                        items: vec![],
+                    },
+                    MenuItem::new_separator("sep-1"),
+                    MenuItem {
+                        id: "file-exit".into(),
+                        label: "Exit".into(),
+                        item_type: MenuItemType::Action,
+                        icon: Some("x-circle".into()),
+                        accelerator: None,
+                        action: Some("close-application".into()),
+                        enabled: true,
+                        items: vec![],
+                    },
+                ],
+            }],
             hash: String::new(),
         }
     }
@@ -425,7 +430,10 @@ mod tests {
         let loaded = load_menu(&path).unwrap();
         assert_eq!(def.menu, loaded.menu);
         assert!(!loaded.hash.is_empty());
-        println!("round_trip_yaml: menu with {} items round-tripped OK", loaded.menu.len());
+        println!(
+            "round_trip_yaml: menu with {} items round-tripped OK",
+            loaded.menu.len()
+        );
     }
 
     #[test]
@@ -466,7 +474,9 @@ mod tests {
         let result = validate_depth(&def);
         assert!(result.is_err(), "4 levels should exceed max depth of 3");
         match result {
-            Err(MenuError::DepthExceeded(3)) => println!("depth_limit: correctly rejected 4-level tree"),
+            Err(MenuError::DepthExceeded(3)) => {
+                println!("depth_limit: correctly rejected 4-level tree")
+            }
             Err(e) => panic!("wrong error: {e}"),
             Ok(_) => panic!("should have failed"),
         }

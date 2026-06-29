@@ -53,7 +53,8 @@ impl CoboltObject {
 
     /// Write a property value (case-insensitive key — see [`get_property`]).
     pub fn set_property(&mut self, name: impl Into<String>, value: impl Into<PropertyValue>) {
-        self.properties.insert(name.into().to_ascii_uppercase(), value.into());
+        self.properties
+            .insert(name.into().to_ascii_uppercase(), value.into());
     }
 
     /// Convenience: read a property as a `String`.
@@ -105,39 +106,55 @@ pub enum PropertyValue {
 }
 
 impl From<&str> for PropertyValue {
-    fn from(s: &str) -> Self { PropertyValue::String(s.to_owned()) }
+    fn from(s: &str) -> Self {
+        PropertyValue::String(s.to_owned())
+    }
 }
 impl From<String> for PropertyValue {
-    fn from(s: String) -> Self { PropertyValue::String(s) }
+    fn from(s: String) -> Self {
+        PropertyValue::String(s)
+    }
 }
 impl From<i64> for PropertyValue {
-    fn from(n: i64) -> Self { PropertyValue::Integer(n) }
+    fn from(n: i64) -> Self {
+        PropertyValue::Integer(n)
+    }
 }
 impl From<i32> for PropertyValue {
-    fn from(n: i32) -> Self { PropertyValue::Integer(n as i64) }
+    fn from(n: i32) -> Self {
+        PropertyValue::Integer(n as i64)
+    }
 }
 impl From<f64> for PropertyValue {
-    fn from(f: f64) -> Self { PropertyValue::Float(f) }
+    fn from(f: f64) -> Self {
+        PropertyValue::Float(f)
+    }
 }
 impl From<bool> for PropertyValue {
-    fn from(b: bool) -> Self { PropertyValue::Bool(b) }
+    fn from(b: bool) -> Self {
+        PropertyValue::Bool(b)
+    }
 }
 
 impl std::fmt::Display for PropertyValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PropertyValue::String(s)  => write!(f, "{s}"),
+            PropertyValue::String(s) => write!(f, "{s}"),
             PropertyValue::Integer(n) => write!(f, "{n}"),
-            PropertyValue::Float(v)   => write!(f, "{v}"),
-            PropertyValue::Bool(b)    => write!(f, "{b}"),
+            PropertyValue::Float(v) => write!(f, "{v}"),
+            PropertyValue::Bool(b) => write!(f, "{b}"),
             // A list renders as its elements joined by newlines (matching the
             // legacy newline-joined `Items` string form); a nested object as its
             // class name in angle brackets (it has no single scalar rendering).
             PropertyValue::List(items) => {
-                let joined = items.iter().map(|v| v.to_string()).collect::<Vec<_>>().join("\n");
+                let joined = items
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 write!(f, "{joined}")
             }
-            PropertyValue::Object(o)  => write!(f, "<{}>", o.class),
+            PropertyValue::Object(o) => write!(f, "<{}>", o.class),
         }
     }
 }
@@ -267,7 +284,9 @@ pub enum PathSeg {
 fn get_in_obj(o: &CoboltObject, path: &[PathSeg]) -> Option<PropertyValue> {
     let (first, rest) = path.split_first()?;
     // A path under an object must begin with a property name.
-    let PathSeg::Prop(name) = first else { return None };
+    let PathSeg::Prop(name) = first else {
+        return None;
+    };
     let cur = o.get_property(name)?;
     get_in_value(cur, rest)
 }
@@ -281,9 +300,10 @@ fn get_in_value(cur: &PropertyValue, path: &[PathSeg]) -> Option<PropertyValue> 
         PathSeg::Index(i) => match cur {
             PropertyValue::List(items) => get_in_value(items.get(*i)?, rest),
             // Legacy string list: index a newline-delimited line (terminal).
-            PropertyValue::String(s) if rest.is_empty() => {
-                s.lines().nth(*i).map(|l| PropertyValue::String(l.to_string()))
-            }
+            PropertyValue::String(s) if rest.is_empty() => s
+                .lines()
+                .nth(*i)
+                .map(|l| PropertyValue::String(l.to_string())),
             _ => None,
         },
         PathSeg::Prop(_) => match cur {
@@ -307,7 +327,9 @@ fn place_in_obj_mut<'a>(
     path: &[PathSeg],
     vivify: bool,
 ) -> Option<&'a mut PropertyValue> {
-    let PathSeg::Prop(name) = path.first()? else { return None };
+    let PathSeg::Prop(name) = path.first()? else {
+        return None;
+    };
     let key = name.to_ascii_uppercase();
     if vivify && o.get_property(&key).is_none() {
         let seed = match path.get(1) {
@@ -338,7 +360,9 @@ fn place_in_value_mut<'a>(
                     *cur = PropertyValue::List(Vec::new());
                 }
             }
-            let PropertyValue::List(items) = cur else { return None };
+            let PropertyValue::List(items) = cur else {
+                return None;
+            };
             if vivify {
                 while items.len() <= *i {
                     items.push(PropertyValue::String(String::new()));
@@ -352,7 +376,9 @@ fn place_in_value_mut<'a>(
                     *cur = PropertyValue::Object(Box::new(CoboltObject::new("Object")));
                 }
             }
-            let PropertyValue::Object(o) = cur else { return None };
+            let PropertyValue::Object(o) = cur else {
+                return None;
+            };
             place_in_obj_mut(o, path, vivify)
         }
     }

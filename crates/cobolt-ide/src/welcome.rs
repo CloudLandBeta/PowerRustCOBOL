@@ -17,13 +17,13 @@ type Quote = (&'static str, &'static str);
 /// The quote pool for `lang`.
 pub fn quotes(lang: Language) -> &'static [Quote] {
     match lang {
-        Language::Spanish    => ES,
+        Language::Spanish => ES,
         Language::Portuguese => PT,
-        Language::Japanese   => JA,
-        Language::Chinese    => ZH,
-        Language::English    => EN,
+        Language::Japanese => JA,
+        Language::Chinese => ZH,
+        Language::English => EN,
         // French shares the English quote pool until a French set is provided.
-        Language::French     => EN,
+        Language::French => EN,
     }
 }
 
@@ -163,12 +163,27 @@ const ZH: &[Quote] = &[
     ("Linus Torvalds", "如果你把用户当傻瓜，就只有傻瓜会用它。"),
     ("Grace Hopper", "请求原谅比请求许可更容易。"),
     ("Alan Kay", "简单的事应当简单，复杂的事应当可行。"),
-    ("Edsger Dijkstra", "计算机科学之于计算机，正如天文学之于望远镜。"),
-    ("Elon Musk", "当一件事足够重要时，即使胜算不大，你也要去做。"),
-    ("Donald Knuth", "程序最重要的属性，是它是否实现了用户的意图。"),
+    (
+        "Edsger Dijkstra",
+        "计算机科学之于计算机，正如天文学之于望远镜。",
+    ),
+    (
+        "Elon Musk",
+        "当一件事足够重要时，即使胜算不大，你也要去做。",
+    ),
+    (
+        "Donald Knuth",
+        "程序最重要的属性，是它是否实现了用户的意图。",
+    ),
     ("箴言 1:7", "敬畏耶和华是知识的开端，愚妄人藐视智慧和训诲。"),
-    ("箴言 3:5-6", "你要专心仰赖耶和华，不可倚靠自己的聪明；在你一切所行的事上都要认定他，他必指引你的路。"),
-    ("箴言 4:7", "智慧为首，所以要得智慧；在你一切所得之内必得聪明。"),
+    (
+        "箴言 3:5-6",
+        "你要专心仰赖耶和华，不可倚靠自己的聪明；在你一切所行的事上都要认定他，他必指引你的路。",
+    ),
+    (
+        "箴言 4:7",
+        "智慧为首，所以要得智慧；在你一切所得之内必得聪明。",
+    ),
     ("箴言 16:18", "骄傲在败坏以先，狂心在跌倒之前。"),
     ("箴言 15:1", "回答柔和，使怒消退；言语暴戾，触动怒气。"),
     ("箴言 27:17", "铁磨铁，磨出刃来；朋友相感，也是如此。"),
@@ -182,15 +197,25 @@ mod tests {
 
     #[test]
     fn every_language_has_a_nonempty_localized_pool() {
-        for lang in [Language::English, Language::Spanish, Language::Portuguese,
-                     Language::Japanese, Language::Chinese] {
+        for lang in [
+            Language::English,
+            Language::Spanish,
+            Language::Portuguese,
+            Language::Japanese,
+            Language::Chinese,
+        ] {
             let q = quotes(lang);
             assert!(!q.is_empty(), "{lang:?} quote pool is empty");
             // No entry may be blank.
-            assert!(q.iter().all(|(a, t)| !a.is_empty() && !t.is_empty()),
-                "{lang:?} has a blank quote/author");
+            assert!(
+                q.iter().all(|(a, t)| !a.is_empty() && !t.is_empty()),
+                "{lang:?} has a blank quote/author"
+            );
         }
         // Non-English pools must actually differ from English (localised).
-        assert_ne!(quotes(Language::Spanish)[0].1, quotes(Language::English)[0].1);
+        assert_ne!(
+            quotes(Language::Spanish)[0].1,
+            quotes(Language::English)[0].1
+        );
     }
 }

@@ -8,6 +8,66 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.27] — 2026-06-29
+
+### Fixed
+
+- **Run Form property updates now treat quoted and bare property names the
+  same** — live interpreter updates such as `MOVE Slider-1::Value TO
+  label-5::Caption` now overwrite the designed `Caption` property instead of
+  creating a separate uppercase `CAPTION` shadow key, matching the behavior of
+  `label-5::"Caption"`.
+
+## [PowerRustCOBOL 1.27.26] — 2026-06-29
+
+### Fixed
+
+- **Run Form now fires the newly exposed live control events** — the unified
+  form renderer emits right-click/context-menu, double-click alias, mouse move,
+  mouse wheel, hover enter/leave, control load, TextBox text/key aliases,
+  checkbox/radio value aliases, and Slider final value events, and a regression
+  test verifies generated `onClick` handlers execute through the live
+  interpreter channel.
+
+## [PowerRustCOBOL 1.27.25] — 2026-06-29
+
+### Fixed
+
+- **Designer clipboard actions are now reachable from the RAD UI** — Cut, Copy,
+  Paste, and Duplicate are available in the Form Designer toolbar and the canvas
+  right-click menu, using the same selection-aware clipboard behavior as the
+  keyboard shortcuts.
+
+## [PowerRustCOBOL 1.27.24] — 2026-06-29
+
+### Fixed
+
+- **Existing controls now show the expanded Events list** — the Properties
+  panel already reads events dynamically from each control type, and those
+  supported event lists now include the comprehensive design-time events such as
+  `onRightClick`, `onDoubleClick`, `onHoverEnter`, `onResize`, and
+  `onPropertyChanged` while preserving non-visual control event lists.
+
+## [PowerRustCOBOL 1.27.23] — 2026-06-29
+
+### Fixed
+
+- **Reusable User Controls are now project-backed designer components** — a
+  selected GroupBox can be saved as a named User Control, shown in the Toolbox,
+  deployed as regular qualified controls, nested inside other User Controls, and
+  removed from the project without breaking existing form instances.
+- **Designer clipboard workflows are safer and more complete** — `Cmd+C`,
+  `Cmd+X`, `Cmd+V`, and `Cmd+D` now copy, cut, paste, and duplicate selected
+  controls while preserving child containment and regenerating IDs/handlers for
+  pasted instances.
+- **Deletion confirmation now protects event-handler code** — removing controls
+  with handler bodies shows a confirmation dialog with handler/control counts,
+  while confirmed deletions still recycle the removed code for recovery.
+- **User Control child properties and events resolve by qualified IDs** —
+  selecting a deployed User Control shows grouped child properties, runtime
+  `GetProperty`/`SetProperty` can target `Child.Property`, and generated event
+  dispatch keeps full child IDs such as `CUSTOMERCARD-1-BUTTON1--ONCLICK`.
+
 ## [PowerRustCOBOL 1.27.20] — 2026-06-26
 
 ### Fixed

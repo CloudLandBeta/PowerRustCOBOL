@@ -26,12 +26,12 @@ pub enum Literal {
 /// COBOL figurative constants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FigurativeConstant {
-    Zero,       // ZERO / ZEROS / ZEROES
-    Space,      // SPACE / SPACES
-    HighValue,  // HIGH-VALUE / HIGH-VALUES
-    LowValue,   // LOW-VALUE / LOW-VALUES
-    Quote,      // QUOTE / QUOTES
-    Null,       // NULL / NULLS
+    Zero,              // ZERO / ZEROS / ZEROES
+    Space,             // SPACE / SPACES
+    HighValue,         // HIGH-VALUE / HIGH-VALUES
+    LowValue,          // LOW-VALUE / LOW-VALUES
+    Quote,             // QUOTE / QUOTES
+    Null,              // NULL / NULLS
     All(Box<Literal>), // ALL literal
 }
 
@@ -50,19 +50,19 @@ pub enum ArithOp {
 /// Unary operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnaryOp {
-    Neg,  // unary minus
-    Pos,  // unary plus (no-op, kept for fidelity)
+    Neg, // unary minus
+    Pos, // unary plus (no-op, kept for fidelity)
 }
 
 /// Comparison operators used in `Condition::Comparison`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CmpOp {
-    Eq,  // =  / EQUAL TO
-    Ne,  // <> / NOT EQUAL TO
-    Lt,  // <  / LESS THAN
-    Le,  // <= / LESS THAN OR EQUAL TO
-    Gt,  // >  / GREATER THAN
-    Ge,  // >= / GREATER THAN OR EQUAL TO
+    Eq, // =  / EQUAL TO
+    Ne, // <> / NOT EQUAL TO
+    Lt, // <  / LESS THAN
+    Le, // <= / LESS THAN OR EQUAL TO
+    Gt, // >  / GREATER THAN
+    Ge, // >= / GREATER THAN OR EQUAL TO
 }
 
 // ── Expressions ───────────────────────────────────────────────────────────────
@@ -149,15 +149,15 @@ impl Expr {
     /// Return the span of this expression node.
     pub fn span(&self) -> Span {
         match self {
-            Expr::Literal(_, s)          => *s,
-            Expr::Identifier(_, s)       => *s,
+            Expr::Literal(_, s) => *s,
+            Expr::Identifier(_, s) => *s,
             Expr::Qualified { span, .. } => *span,
             Expr::Subscript { span, .. } => *span,
-            Expr::RefMod { span, .. }    => *span,
+            Expr::RefMod { span, .. } => *span,
             Expr::FunctionCall { span, .. } => *span,
             Expr::Arithmetic { span, .. } => *span,
-            Expr::Unary { span, .. }     => *span,
-            Expr::Member { span, .. }    => *span,
+            Expr::Unary { span, .. } => *span,
+            Expr::Member { span, .. } => *span,
         }
     }
 }
@@ -237,12 +237,12 @@ impl Condition {
     pub fn span(&self) -> Span {
         match self {
             Condition::Comparison { span, .. } => *span,
-            Condition::Not(_, s)               => *s,
-            Condition::And(_, _, s)            => *s,
-            Condition::Or(_, _, s)             => *s,
-            Condition::ClassTest { span, .. }  => *span,
-            Condition::SignTest { span, .. }   => *span,
-            Condition::ConditionName(_, s)     => *s,
+            Condition::Not(_, s) => *s,
+            Condition::And(_, _, s) => *s,
+            Condition::Or(_, _, s) => *s,
+            Condition::ClassTest { span, .. } => *span,
+            Condition::SignTest { span, .. } => *span,
+            Condition::ConditionName(_, s) => *s,
             Condition::NameOrAbbrev { span, .. } => *span,
         }
     }

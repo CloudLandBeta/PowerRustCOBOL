@@ -56,9 +56,9 @@ pub enum Severity {
 impl std::fmt::Display for Severity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Severity::Info    => write!(f, "info"),
+            Severity::Info => write!(f, "info"),
             Severity::Warning => write!(f, "warning"),
-            Severity::Error   => write!(f, "error"),
+            Severity::Error => write!(f, "error"),
         }
     }
 }
@@ -76,8 +76,7 @@ impl std::fmt::Display for SemanticDiagnostic {
         write!(
             f,
             "[{}:{}] {}: {}",
-            self.span.line, self.span.col,
-            self.severity, self.message
+            self.span.line, self.span.col, self.severity, self.message
         )
     }
 }
@@ -96,17 +95,23 @@ pub struct SemanticResult {
 impl SemanticResult {
     /// `true` if there are no error-severity diagnostics.
     pub fn is_ok(&self) -> bool {
-        self.diagnostics.iter().all(|d| d.severity < Severity::Error)
+        self.diagnostics
+            .iter()
+            .all(|d| d.severity < Severity::Error)
     }
 
     /// Return only error-severity diagnostics.
     pub fn errors(&self) -> impl Iterator<Item = &SemanticDiagnostic> {
-        self.diagnostics.iter().filter(|d| d.severity == Severity::Error)
+        self.diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
     }
 
     /// Return only warning-severity diagnostics.
     pub fn warnings(&self) -> impl Iterator<Item = &SemanticDiagnostic> {
-        self.diagnostics.iter().filter(|d| d.severity == Severity::Warning)
+        self.diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Warning)
     }
 }
 
@@ -143,5 +148,8 @@ pub fn analyze(program: &Program) -> SemanticResult {
     // Pass 4: EXEC RUST binding resolution.
     exec_rust::resolve_bindings(program, &symbols, &mut diagnostics);
 
-    SemanticResult { diagnostics, symbols }
+    SemanticResult {
+        diagnostics,
+        symbols,
+    }
 }

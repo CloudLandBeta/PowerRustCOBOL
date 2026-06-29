@@ -23,11 +23,40 @@ use std::path::Path;
 fn all_controls() -> Vec<ControlType> {
     use ControlType::*;
     vec![
-        Button, Label, TextBox, CheckBox, RadioButton, ComboBox, ListBox, NumericUpDown,
-        DateTimePicker, GroupBox, Panel, TabControl, Splitter, DataGrid, TreeView, PictureBox,
-        Animator, ProgressBar, Slider, Line, Shape, MenuBar, ToolBar, StatusBar, Timer,
-        AgentObject, RestClient, SqlDatabase, BarChart, LineChart, PieChart, AreaChart,
-        ScatterChart, DonutChart,
+        Button,
+        Label,
+        TextBox,
+        CheckBox,
+        RadioButton,
+        ComboBox,
+        ListBox,
+        NumericUpDown,
+        DateTimePicker,
+        GroupBox,
+        Panel,
+        TabControl,
+        Splitter,
+        DataGrid,
+        TreeView,
+        PictureBox,
+        Animator,
+        ProgressBar,
+        Slider,
+        Line,
+        Shape,
+        MenuBar,
+        ToolBar,
+        StatusBar,
+        Timer,
+        AgentObject,
+        RestClient,
+        SqlDatabase,
+        BarChart,
+        LineChart,
+        PieChart,
+        AreaChart,
+        ScatterChart,
+        DonutChart,
     ]
 }
 
@@ -46,19 +75,34 @@ fn kebab(name: &str) -> String {
 /// SCREAMING id token: "BackgroundColor" -> "BACKGROUNDCOLOR".
 fn screaming(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
 /// A type-appropriate runtime test value for a property, based on its default.
 fn test_value(prop: &str, default: &PropValue) -> String {
     match default {
-        PropValue::Bool(b) => if *b { "0".into() } else { "1".into() },
+        PropValue::Bool(b) => {
+            if *b {
+                "0".into()
+            } else {
+                "1".into()
+            }
+        }
         PropValue::Int(n) => (n + 10).to_string(),
         PropValue::String(s) if s.starts_with('#') => {
             // colour: pick a contrasting value
-            if prop.to_ascii_lowercase().contains("background") { "#0066CC".into() }
-            else { "#CC3300".into() }
+            if prop.to_ascii_lowercase().contains("background") {
+                "#0066CC".into()
+            } else {
+                "#CC3300".into()
+            }
         }
         PropValue::String(_) => "TEST".into(),
     }
@@ -145,9 +189,15 @@ fn build_one(ct: &ControlType, examples_dir: &Path) {
 
     // The button list: one per property, then geometry, then PlayAnimation.
     let mut buttons: Vec<(String, String)> = Vec::new(); // (caption, handler code)
-    // Caption = property name (capped at 20 chars so codegen's WS caption field
-    // stays within column 72). The handler still uses the full property name.
-    let cap20 = |s: &str| if s.len() > 20 { s[..20].to_string() } else { s.to_string() };
+                                                         // Caption = property name (capped at 20 chars so codegen's WS caption field
+                                                         // stays within column 72). The handler still uses the full property name.
+    let cap20 = |s: &str| {
+        if s.len() > 20 {
+            s[..20].to_string()
+        } else {
+            s.to_string()
+        }
+    };
     for (prop, def) in &props {
         let val = test_value(prop, def);
         buttons.push((cap20(prop), setprop_handler(&subj_id, prop, &val)));
@@ -155,7 +205,15 @@ fn build_one(ct: &ControlType, examples_dir: &Path) {
     for geo in ["X", "Y", "Width", "Height"] {
         buttons.push((
             geo.to_string(),
-            setprop_handler(&subj_id, geo, if geo == "X" || geo == "Y" { "60" } else { "180" }),
+            setprop_handler(
+                &subj_id,
+                geo,
+                if geo == "X" || geo == "Y" {
+                    "60"
+                } else {
+                    "180"
+                },
+            ),
         ));
     }
     buttons.push((
@@ -219,7 +277,11 @@ fn build_one(ct: &ControlType, examples_dir: &Path) {
     );
     fs::write(proj_dir.join("README.md"), readme).unwrap();
 
-    println!("built examples/{folder}/  ({} events, {} buttons)", ct.supported_events().len(), props.len() + 5);
+    println!(
+        "built examples/{folder}/  ({} events, {} buttons)",
+        ct.supported_events().len(),
+        props.len() + 5
+    );
 }
 
 fn main() {

@@ -79,25 +79,42 @@ pub enum RawToken {
     Word(String),
 
     // ── Operators (longest match first) ────────────────────────────────────
-    #[token("**")]  Power,
-    #[token("<=")]  LtEq,
-    #[token(">=")]  GtEq,
-    #[token("<>")]  NotEq,
-    #[token("=")]   Eq,
-    #[token("<")]   Lt,
-    #[token(">")]   Gt,
-    #[token("+")]   Plus,
-    #[token("-")]   Minus,
-    #[token("*")]   Star,
-    #[token("/")]   Slash,
+    #[token("**")]
+    Power,
+    #[token("<=")]
+    LtEq,
+    #[token(">=")]
+    GtEq,
+    #[token("<>")]
+    NotEq,
+    #[token("=")]
+    Eq,
+    #[token("<")]
+    Lt,
+    #[token(">")]
+    Gt,
+    #[token("+")]
+    Plus,
+    #[token("-")]
+    Minus,
+    #[token("*")]
+    Star,
+    #[token("/")]
+    Slash,
 
     // ── Punctuation ────────────────────────────────────────────────────────
-    #[token(".")]   Period,
-    #[token(",")]   Comma,
-    #[token(";")]   Semicolon,
-    #[token("(")]   LParen,
-    #[token(")")]   RParen,
-    #[token(":")]   Colon,
+    #[token(".")]
+    Period,
+    #[token(",")]
+    Comma,
+    #[token(";")]
+    Semicolon,
+    #[token("(")]
+    LParen,
+    #[token(")")]
+    RParen,
+    #[token(":")]
+    Colon,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,46 +141,46 @@ pub enum Token {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     Section,
     Configuration,
-    SourceComputer,     // SOURCE-COMPUTER
-    ObjectComputer,     // OBJECT-COMPUTER
-    InputOutput,        // INPUT-OUTPUT
-    FileControl,        // FILE-CONTROL
-    FileSection,        // FILE (when used as section header)
-    WorkingStorage,     // WORKING-STORAGE
-    LocalStorage,       // LOCAL-STORAGE
+    SourceComputer, // SOURCE-COMPUTER
+    ObjectComputer, // OBJECT-COMPUTER
+    InputOutput,    // INPUT-OUTPUT
+    FileControl,    // FILE-CONTROL
+    FileSection,    // FILE (when used as section header)
+    WorkingStorage, // WORKING-STORAGE
+    LocalStorage,   // LOCAL-STORAGE
     Linkage,
     Screen,
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Program structure
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    ProgramId,          // PROGRAM-ID
+    ProgramId, // PROGRAM-ID
     Author,
-    DateWritten,        // DATE-WRITTEN
-    DateCompiled,       // DATE-COMPILED
+    DateWritten,  // DATE-WRITTEN
+    DateCompiled, // DATE-COMPILED
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Data definition
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    Pic,                // PIC  (alias for PICTURE)
-    Picture,            // PICTURE
+    Pic,     // PIC  (alias for PICTURE)
+    Picture, // PICTURE
     Value,
     Values,
     Occurs,
     Times,
-    Depending,          // DEPENDING ON
+    Depending, // DEPENDING ON
     On,
     Redefines,
     Renames,
     Filler,
     Global,
     External,
-    Blank,              // BLANK WHEN ZERO
+    Blank, // BLANK WHEN ZERO
     When,
-    Zero,               // also figurative constant
-    Justified,          // JUSTIFIED RIGHT
+    Zero,      // also figurative constant
+    Justified, // JUSTIFIED RIGHT
     Right,
-    Synchronized,       // SYNCHRONIZED LEFT/RIGHT
+    Synchronized, // SYNCHRONIZED LEFT/RIGHT
     Left,
     Sign,
     Leading,
@@ -175,17 +192,17 @@ pub enum Token {
     // USAGE clause keywords
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     Usage,
-    Display,            // USAGE DISPLAY  (also DISPLAY verb)
+    Display, // USAGE DISPLAY  (also DISPLAY verb)
     Binary,
-    Comp,               // COMPUTATIONAL / COMP
-    Comp1,              // COMP-1 (float32)
-    Comp2,              // COMP-2 (float64)
-    Comp3,              // COMP-3 / PACKED-DECIMAL
-    Comp5,              // COMP-5 (native binary)
-    PackedDecimal,      // PACKED-DECIMAL
-    Pointer,            // POINTER usage
+    Comp,          // COMPUTATIONAL / COMP
+    Comp1,         // COMP-1 (float32)
+    Comp2,         // COMP-2 (float64)
+    Comp3,         // COMP-3 / PACKED-DECIMAL
+    Comp5,         // COMP-5 (native binary)
+    PackedDecimal, // PACKED-DECIMAL
+    Pointer,       // POINTER usage
     Index,
-    NationalUsage,      // NATIONAL
+    NationalUsage, // NATIONAL
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Arithmetic verbs
@@ -201,13 +218,13 @@ pub enum Token {
     Giving,
     Remainder,
     Rounded,
-    EndAdd,             // END-ADD
-    EndSubtract,        // END-SUBTRACT
-    EndMultiply,        // END-MULTIPLY
-    EndDivide,          // END-DIVIDE
-    EndCompute,         // END-COMPUTE
-    SizeError,          // SIZE ERROR (ON SIZE ERROR)
-    NotSizeError,       // NOT ON SIZE ERROR (handled as compound)
+    EndAdd,       // END-ADD
+    EndSubtract,  // END-SUBTRACT
+    EndMultiply,  // END-MULTIPLY
+    EndDivide,    // END-DIVIDE
+    EndCompute,   // END-COMPUTE
+    SizeError,    // SIZE ERROR (ON SIZE ERROR)
+    NotSizeError, // NOT ON SIZE ERROR (handled as compound)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Move / Set / Initialize
@@ -215,40 +232,40 @@ pub enum Token {
     Move,
     Set,
     Initialize,
-    Corresponding,      // CORRESPONDING / CORR
-    To_,                // alias, same meaning as To but used in SET ... TO TRUE
+    Corresponding, // CORRESPONDING / CORR
+    To_,           // alias, same meaning as To but used in SET ... TO TRUE
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Conditional / control flow
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     If,
     Else,
-    EndIf,              // END-IF
+    EndIf, // END-IF
     Evaluate,
     Also,
     Other,
-    EndEvaluate,        // END-EVALUATE
-    EndPerform,         // END-PERFORM
+    EndEvaluate, // END-EVALUATE
+    EndPerform,  // END-PERFORM
     Perform,
     Until,
     Varying,
     After,
     Before,
     Test,
-    Through,            // THROUGH / THRU
+    Through, // THROUGH / THRU
     Thru,
     With,
     No,
     Go,
-    GoTo,               // GO TO (two words, treated as one token for convenience)
-    GoBack,             // GO BACK
+    GoTo,   // GO TO (two words, treated as one token for convenience)
+    GoBack, // GO BACK
     Stop,
     Run,
     Exit,
-    End,                // END (bare — used in END PROGRAM / END DECLARATIVES)
+    End, // END (bare — used in END PROGRAM / END DECLARATIVES)
     Program,
-    Declaratives,       // DECLARATIVES (procedure-division declaratives block)
-    Use,                // USE (USE AFTER STANDARD ERROR PROCEDURE …)
+    Declaratives, // DECLARATIVES (procedure-division declaratives block)
+    Use,          // USE (USE AFTER STANDARD ERROR PROCEDURE …)
     Continue,
     Not,
     And,
@@ -261,25 +278,25 @@ pub enum Token {
     Equal,
     Greater,
     Less,
-    OrEqual,            // part of GREATER OR EQUAL / LESS OR EQUAL
-    True_,              // TRUE (condition)
-    False_,             // FALSE (condition)
+    OrEqual, // part of GREATER OR EQUAL / LESS OR EQUAL
+    True_,   // TRUE (condition)
+    False_,  // FALSE (condition)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // String manipulation
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    StringVerb,         // STRING (verb, distinct from string literal)
+    StringVerb, // STRING (verb, distinct from string literal)
     Unstring,
     Inspect,
     Tallying,
     Replacing,
     Converting,
     Delimited,
-    By_,                // BY (inside STRING/UNSTRING)
+    By_, // BY (inside STRING/UNSTRING)
     Into,
     Count,
     All,
-    Leading_,           // ALL/LEADING inside INSPECT
+    Leading_, // ALL/LEADING inside INSPECT
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // I/O verbs and clauses
@@ -292,26 +309,26 @@ pub enum Token {
     Delete,
     Start,
     Accept,
-    DisplayVerb,        // DISPLAY (verb form; same text as Display usage kw)
+    DisplayVerb, // DISPLAY (verb form; same text as Display usage kw)
     Input,
     Output,
-    IoMode,             // I-O
+    IoMode, // I-O
     Extend,
-    AtEnd,              // AT END
-    NotAtEnd,           // NOT AT END
-    EndRead,            // END-READ
-    EndWrite,           // END-WRITE
-    EndRewrite,         // END-REWRITE
-    EndDelete,          // END-DELETE
-    EndStart,           // END-START
-    EndString,          // END-STRING
-    EndUnstring,        // END-UNSTRING
-    EndSearch,          // END-SEARCH
-    InvalidKey,         // INVALID KEY
-    NotInvalidKey,      // NOT INVALID KEY
-    Upon,               // DISPLAY ... UPON
-    From_,              // ACCEPT ... FROM
-    With_,              // WITH NO ADVANCING
+    AtEnd,         // AT END
+    NotAtEnd,      // NOT AT END
+    EndRead,       // END-READ
+    EndWrite,      // END-WRITE
+    EndRewrite,    // END-REWRITE
+    EndDelete,     // END-DELETE
+    EndStart,      // END-START
+    EndString,     // END-STRING
+    EndUnstring,   // END-UNSTRING
+    EndSearch,     // END-SEARCH
+    InvalidKey,    // INVALID KEY
+    NotInvalidKey, // NOT INVALID KEY
+    Upon,          // DISPLAY ... UPON
+    From_,         // ACCEPT ... FROM
+    With_,         // WITH NO ADVANCING
     Advancing,
     Line,
     Lines,
@@ -328,11 +345,11 @@ pub enum Token {
     Mode,
     Random,
     Dynamic,
-    RecordKey,          // RECORD KEY
-    AlternateRecord,    // ALTERNATE RECORD KEY
+    RecordKey,       // RECORD KEY
+    AlternateRecord, // ALTERNATE RECORD KEY
     Status,
-    Fd,                 // FD file descriptor
-    Sd,                 // SD sort descriptor
+    Fd, // FD file descriptor
+    Sd, // SD sort descriptor
     Block,
     Contains,
     Characters,
@@ -344,15 +361,15 @@ pub enum Token {
     // CALL / INVOKE / subprogram
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     Call,
-    Invoke,             // OO-COBOL INVOKE object 'method' [USING ...] [RETURNING ...]
+    Invoke, // OO-COBOL INVOKE object 'method' [USING ...] [RETURNING ...]
     Using,
     Returning,
     Reference,
-    Content_,           // CALL ... BY CONTENT
-    Value_,             // CALL ... BY VALUE
-    EndCall,            // END-CALL
+    Content_, // CALL ... BY CONTENT
+    Value_,   // CALL ... BY VALUE
+    EndCall,  // END-CALL
     Cancel,
-    AddressOf,          // ADDRESS OF
+    AddressOf, // ADDRESS OF
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Intrinsic functions
@@ -364,13 +381,13 @@ pub enum Token {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Figurative constants
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    Spaces,             // SPACES / SPACE
-    Zeros,              // ZEROS / ZEROES / ZERO
-    HighValues,         // HIGH-VALUES / HIGH-VALUE
-    LowValues,          // LOW-VALUES / LOW-VALUE
-    Quotes,             // QUOTES / QUOTE
-    Nulls,              // NULLS / NULL
-    AllLiteral,         // ALL "x"
+    Spaces,     // SPACES / SPACE
+    Zeros,      // ZEROS / ZEROES / ZERO
+    HighValues, // HIGH-VALUES / HIGH-VALUE
+    LowValues,  // LOW-VALUES / LOW-VALUE
+    Quotes,     // QUOTES / QUOTE
+    Nulls,      // NULLS / NULL
+    AllLiteral, // ALL "x"
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Sort / merge verbs
@@ -380,25 +397,25 @@ pub enum Token {
     Ascending,
     Descending,
     Sequence,
-    Output_,            // OUTPUT PROCEDURE
-    Input_,             // INPUT PROCEDURE
-    EndSort,            // END-SORT
-    EndMerge,           // END-MERGE
+    Output_,  // OUTPUT PROCEDURE
+    Input_,   // INPUT PROCEDURE
+    EndSort,  // END-SORT
+    EndMerge, // END-MERGE
     Release,
-    Return_,            // RETURN (from sort)
-    EndReturn,          // END-RETURN
-    Commit,             // COMMIT (indexed-file transaction)
-    Rollback,           // ROLLBACK (indexed-file transaction)
+    Return_,   // RETURN (from sort)
+    EndReturn, // END-RETURN
+    Commit,    // COMMIT (indexed-file transaction)
+    Rollback,  // ROLLBACK (indexed-file transaction)
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // PowerCOBOL / Fujitsu GUI extensions
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    WindowStatus,       // WINDOW-STATUS
-    WindowOpen,         // WINDOW-OPEN  (legacy)
-    WindowClose,        // WINDOW-CLOSE (legacy)
-    CoboltWaitEvent,    // COBOLT-WAIT-EVENT / COBOL-WAIT-EVENT
-    CoboltSetProperty,  // COBOLT-SET-PROPERTY / COBOL-SET-PROPERTY
-    CoboltGetProperty,  // COBOLT-GET-PROPERTY / COBOL-GET-PROPERTY
+    WindowStatus,      // WINDOW-STATUS
+    WindowOpen,        // WINDOW-OPEN  (legacy)
+    WindowClose,       // WINDOW-CLOSE (legacy)
+    CoboltWaitEvent,   // COBOLT-WAIT-EVENT / COBOL-WAIT-EVENT
+    CoboltSetProperty, // COBOLT-SET-PROPERTY / COBOL-SET-PROPERTY
+    CoboltGetProperty, // COBOLT-GET-PROPERTY / COBOL-GET-PROPERTY
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // CoBolt animation extensions
@@ -411,7 +428,6 @@ pub enum Token {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // EXEC RUST inline Rust code block
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
     /// The `EXEC` keyword (part of `EXEC RUST … END-EXEC`).
     /// Normally consumed internally by the block-capture logic; only emitted
     /// standalone when `EXEC` appears without `RUST` (parser emits an error).
@@ -441,7 +457,7 @@ pub enum Token {
     ///
     /// * `cobol_env: &mut CobolEnvironment` — dynamic key/value access
     ///   (`cobol_env.get("WS-NAME")`, `cobol_env.set("WS-COUNT", 42)`)
-    /// * `cobolt_objects: &mut ObjectRegistry` 
+    /// * `cobolt_objects: &mut ObjectRegistry`
     ///   (`cobolt_objects.get("FORM1")?.set_property("Text", "Hello")`)
     ///
     /// Variable naming rule: hyphens are replaced with underscores and the
@@ -467,13 +483,15 @@ pub enum Token {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Literals
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
     /// Integer literal, e.g. `42` or `007`.
     IntegerLiteral(i64),
 
     /// Fixed-point decimal literal, e.g. `3.14` → `{ mantissa: 314, scale: 2 }`.
     /// Stored exactly (integer mantissa + decimal scale) — no `f64` rounding.
-    DecimalLiteral { mantissa: i128, scale: u8 },
+    DecimalLiteral {
+        mantissa: i128,
+        scale: u8,
+    },
 
     /// String literal (contents without the surrounding quotes), e.g. `Hello`.
     StringLiteral(String),
@@ -481,14 +499,12 @@ pub enum Token {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Level numbers (01–49, 66, 77, 78, 88)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
     /// A COBOL data-item level number such as `01`, `05`, `77`, `88`.
     LevelNumber(u8),
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Identifiers, comments, operators, punctuation
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
     /// A user-defined name (data item, paragraph, section, program-id, etc.).
     Identifier(String),
 
@@ -496,30 +512,29 @@ pub enum Token {
     Comment(String),
 
     // Operators
-    Plus,       // +
-    Minus,      // -
-    Star,       // *
-    Slash,      // /
-    Power,      // **
-    Eq,         // =
-    Lt,         // <
-    Gt,         // >
-    LtEq,       // <=
-    GtEq,       // >=
-    NotEq,      // <>
+    Plus,  // +
+    Minus, // -
+    Star,  // *
+    Slash, // /
+    Power, // **
+    Eq,    // =
+    Lt,    // <
+    Gt,    // >
+    LtEq,  // <=
+    GtEq,  // >=
+    NotEq, // <>
 
     // Punctuation
-    Period,     // .
-    Comma,      // ,
-    Semicolon,  // ;
-    LParen,     // (
-    RParen,     // )
-    Colon,      // :
+    Period,    // .
+    Comma,     // ,
+    Semicolon, // ;
+    LParen,    // (
+    RParen,    // )
+    Colon,     // :
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Sentinels
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
     /// End of the token stream.
     Eof,
 
@@ -536,20 +551,20 @@ impl Token {
     /// Human-readable name used in diagnostic messages.
     pub fn description(&self) -> &'static str {
         match self {
-            Token::Identifier(_)      => "identifier",
-            Token::IntegerLiteral(_)  => "integer literal",
+            Token::Identifier(_) => "identifier",
+            Token::IntegerLiteral(_) => "integer literal",
             Token::DecimalLiteral { .. } => "decimal literal",
-            Token::StringLiteral(_)   => "string literal",
-            Token::LevelNumber(_)     => "level number",
-            Token::ExecRustBlock(_)   => "EXEC RUST block",
-            Token::Period             => "'.'",
-            Token::Comma              => "','",
-            Token::LParen             => "'('",
-            Token::RParen             => "')'",
-            Token::Eq                 => "'='",
-            Token::Eof                => "end of file",
-            Token::Error(_)           => "unexpected character",
-            _                         => "keyword",
+            Token::StringLiteral(_) => "string literal",
+            Token::LevelNumber(_) => "level number",
+            Token::ExecRustBlock(_) => "EXEC RUST block",
+            Token::Period => "'.'",
+            Token::Comma => "','",
+            Token::LParen => "'('",
+            Token::RParen => "')'",
+            Token::Eq => "'='",
+            Token::Eof => "end of file",
+            Token::Error(_) => "unexpected character",
+            _ => "keyword",
         }
     }
 }
@@ -557,8 +572,8 @@ impl Token {
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Identifier(s)       => write!(f, "{s}"),
-            Token::IntegerLiteral(n)   => write!(f, "{n}"),
+            Token::Identifier(s) => write!(f, "{s}"),
+            Token::IntegerLiteral(n) => write!(f, "{n}"),
             Token::DecimalLiteral { mantissa, scale } => {
                 if *scale == 0 {
                     write!(f, "{mantissa}")
@@ -567,18 +582,25 @@ impl std::fmt::Display for Token {
                     let sc = *scale as usize;
                     let padded = if s.len() <= sc {
                         format!("{}{}", "0".repeat(sc + 1 - s.len()), s)
-                    } else { s };
+                    } else {
+                        s
+                    };
                     let at = padded.len() - sc;
-                    write!(f, "{}{}.{}", if *mantissa < 0 { "-" } else { "" },
-                           &padded[..at], &padded[at..])
+                    write!(
+                        f,
+                        "{}{}.{}",
+                        if *mantissa < 0 { "-" } else { "" },
+                        &padded[..at],
+                        &padded[at..]
+                    )
                 }
             }
-            Token::StringLiteral(s)    => write!(f, "\"{s}\""),
-            Token::LevelNumber(n)      => write!(f, "{n:02}"),
-            Token::Comment(c)          => write!(f, "*> {c}"),
-            Token::Error(e)            => write!(f, "ERROR({e})"),
-            Token::ExecRustBlock(src)  => write!(f, "EXEC RUST {} END-EXEC", src),
-            _                          => write!(f, "{}", self.description()),
+            Token::StringLiteral(s) => write!(f, "\"{s}\""),
+            Token::LevelNumber(n) => write!(f, "{n:02}"),
+            Token::Comment(c) => write!(f, "*> {c}"),
+            Token::Error(e) => write!(f, "ERROR({e})"),
+            Token::ExecRustBlock(src) => write!(f, "EXEC RUST {} END-EXEC", src),
+            _ => write!(f, "{}", self.description()),
         }
     }
 }

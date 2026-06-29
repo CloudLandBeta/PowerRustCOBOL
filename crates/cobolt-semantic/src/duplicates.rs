@@ -47,11 +47,23 @@ fn check_program(program: &Program, diagnostics: &mut Vec<SemanticDiagnostic>) {
         ProcedureBody::Sections(secs) => {
             let mut seen_sections: HashSet<String> = HashSet::new();
             for sec in secs {
-                record(&sec.name, sec.span, "section", &mut seen_sections, diagnostics);
+                record(
+                    &sec.name,
+                    sec.span,
+                    "section",
+                    &mut seen_sections,
+                    diagnostics,
+                );
                 // Paragraph names must be unique within their own section.
                 let mut seen_paras: HashSet<String> = HashSet::new();
                 for para in &sec.paragraphs {
-                    record(&para.name, para.span, "paragraph", &mut seen_paras, diagnostics);
+                    record(
+                        &para.name,
+                        para.span,
+                        "paragraph",
+                        &mut seen_paras,
+                        diagnostics,
+                    );
                 }
             }
         }

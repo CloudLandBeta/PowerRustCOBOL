@@ -193,7 +193,15 @@ impl LogWriter {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "file".to_string());
-        LogWriter { path, dir, idx_name, user: sanitize_user(user), file: None, written: 0, level }
+        LogWriter {
+            path,
+            dir,
+            idx_name,
+            user: sanitize_user(user),
+            file: None,
+            written: 0,
+            level,
+        }
     }
 
     pub fn level(&self) -> LogLevel {
@@ -202,7 +210,11 @@ impl LogWriter {
 
     fn ensure_open(&mut self) {
         if self.file.is_none() {
-            self.file = OpenOptions::new().create(true).append(true).open(&self.path).ok();
+            self.file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.path)
+                .ok();
             // Continue counting from whatever is already in the file (the log
             // persists and is appended across sessions).
             self.written = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
@@ -213,9 +225,12 @@ impl LogWriter {
     /// a fresh active log on the next write.
     fn rotate(&mut self) {
         self.file = None; // close before renaming
-        let rotated = self
-            .dir
-            .join(format!("{}.{}.log.{}", self.user, self.idx_name, compact_stamp()));
+        let rotated = self.dir.join(format!(
+            "{}.{}.log.{}",
+            self.user,
+            self.idx_name,
+            compact_stamp()
+        ));
         let _ = std::fs::rename(&self.path, &rotated);
         self.written = 0;
     }
@@ -246,7 +261,13 @@ fn sanitize_user(user: Option<&str>) -> String {
         .map(|s| s.trim())
         .unwrap_or("")
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if cleaned.is_empty() {
         "no-user".to_string()
@@ -258,7 +279,10 @@ fn sanitize_user(user: Option<&str>) -> String {
 /// A compact, filesystem-safe UTC timestamp for rotated file names, e.g.
 /// `20260610T073000123Z` (ISO-8601 with the separators removed).
 pub fn compact_stamp() -> String {
-    now_iso().chars().filter(|c| !matches!(c, '-' | ':' | '.')).collect()
+    now_iso()
+        .chars()
+        .filter(|c| !matches!(c, '-' | ':' | '.'))
+        .collect()
 }
 
 /// Quote a value for the `key=value` line if it contains spaces.
@@ -357,7 +381,10 @@ mod tests {
         // Active log stays under the cap.
         let active = dir.join("customers.idx.log");
         let active_len = std::fs::metadata(&active).unwrap().len();
-        assert!(active_len <= MAX_LOG_BYTES, "active log too big: {active_len}");
+        assert!(
+            active_len <= MAX_LOG_BYTES,
+            "active log too big: {active_len}"
+        );
 
         // A rotated file exists, named `<user>.<datafile>.log.<timestamp>`.
         let rotated: Vec<String> = std::fs::read_dir(&dir)
@@ -383,7 +410,11 @@ mod tests {
         let has_no_user = std::fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .any(|e| e.file_name().to_string_lossy().starts_with("no-user.orders.dat.log."));
+            .any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("no-user.orders.dat.log.")
+            });
         assert!(has_no_user, "expected a no-user rotated file");
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -19,7 +19,10 @@ use cobolt_runtime::Interpreter;
 fn run_capture(src: &str) -> Vec<String> {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -126,6 +129,9 @@ fn procedure_local_global_item_is_not_shared_with_sibling() {
        END PROGRAM OUTER.
 "#;
     let out = run_capture(src);
-    assert_eq!(out, vec!["0"],
-        "PROC-A's local GLOBAL item must NOT be visible to sibling PROC-B (R9)");
+    assert_eq!(
+        out,
+        vec!["0"],
+        "PROC-A's local GLOBAL item must NOT be visible to sibling PROC-B (R9)"
+    );
 }

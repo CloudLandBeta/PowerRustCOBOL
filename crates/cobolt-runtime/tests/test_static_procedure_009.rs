@@ -18,7 +18,10 @@ use cobolt_runtime::Interpreter;
 fn run_capture(src: &str) -> Vec<String> {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -107,5 +110,9 @@ const SRC_INIT: &str = r#"
 #[ignore = "009: INITIALIZE does not yet resolve nested-program-local decls (out of scope; INITIALIZE left as-is)"]
 fn initialize_resets_each_call_developer_choice() {
     let out = run_capture(SRC_INIT);
-    assert_eq!(out, vec!["1", "1"], "INITIALIZE should reset the local each call");
+    assert_eq!(
+        out,
+        vec!["1", "1"],
+        "INITIALIZE should reset the local each call"
+    );
 }

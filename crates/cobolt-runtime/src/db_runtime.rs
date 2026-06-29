@@ -437,8 +437,14 @@ mod tests {
     #[test]
     fn classify_routes_by_scheme() {
         assert_eq!(BackendKind::classify(":memory:"), BackendKind::Sqlite);
-        assert_eq!(BackendKind::classify("sqlite:/tmp/app.db"), BackendKind::Sqlite);
-        assert_eq!(BackendKind::classify("/var/data/app.db"), BackendKind::Sqlite);
+        assert_eq!(
+            BackendKind::classify("sqlite:/tmp/app.db"),
+            BackendKind::Sqlite
+        );
+        assert_eq!(
+            BackendKind::classify("/var/data/app.db"),
+            BackendKind::Sqlite
+        );
         assert_eq!(
             BackendKind::classify("postgres://u:p@localhost/db"),
             BackendKind::Postgres
@@ -469,9 +475,13 @@ mod tests {
         let mut reg = DbRegistry::new();
         let h = reg.open(":memory:").expect("open in-memory sqlite");
 
-        reg.exec(h, "CREATE TABLE c (id INTEGER, name TEXT)").unwrap();
+        reg.exec(h, "CREATE TABLE c (id INTEGER, name TEXT)")
+            .unwrap();
         let n = reg
-            .exec(h, "INSERT INTO c (id, name) VALUES (1, 'ANA'), (2, 'BRUNO')")
+            .exec(
+                h,
+                "INSERT INTO c (id, name) VALUES (1, 'ANA'), (2, 'BRUNO')",
+            )
             .unwrap();
         assert_eq!(n, 2, "two rows inserted");
 
@@ -519,12 +529,15 @@ mod tests {
         let mut reg = DbRegistry::new();
         let h = reg.open(&url).expect("connect postgres");
         reg.exec(h, "DROP TABLE IF EXISTS prc_demo").unwrap();
-        reg.exec(h, "CREATE TABLE prc_demo (id INT, name TEXT)").unwrap();
+        reg.exec(h, "CREATE TABLE prc_demo (id INT, name TEXT)")
+            .unwrap();
         let n = reg
             .exec(h, "INSERT INTO prc_demo VALUES (1,'ANA'),(2,'BRUNO')")
             .unwrap();
         assert_eq!(n, 2);
-        let rows = reg.exec(h, "SELECT id, name FROM prc_demo ORDER BY id").unwrap();
+        let rows = reg
+            .exec(h, "SELECT id, name FROM prc_demo ORDER BY id")
+            .unwrap();
         assert_eq!(rows, 2);
         assert_eq!(reg.fetch_col(h, 1), "1");
         assert_eq!(reg.fetch_col(h, 2), "ANA");
@@ -542,12 +555,15 @@ mod tests {
         let mut reg = DbRegistry::new();
         let h = reg.open(&url).expect("connect mysql");
         reg.exec(h, "DROP TABLE IF EXISTS prc_demo").unwrap();
-        reg.exec(h, "CREATE TABLE prc_demo (id INT, name VARCHAR(32))").unwrap();
+        reg.exec(h, "CREATE TABLE prc_demo (id INT, name VARCHAR(32))")
+            .unwrap();
         let n = reg
             .exec(h, "INSERT INTO prc_demo VALUES (1,'ANA'),(2,'BRUNO')")
             .unwrap();
         assert_eq!(n, 2);
-        let rows = reg.exec(h, "SELECT id, name FROM prc_demo ORDER BY id").unwrap();
+        let rows = reg
+            .exec(h, "SELECT id, name FROM prc_demo ORDER BY id")
+            .unwrap();
         assert_eq!(rows, 2);
         assert_eq!(reg.fetch_col(h, 1), "1");
         assert_eq!(reg.fetch_col(h, 2), "ANA");

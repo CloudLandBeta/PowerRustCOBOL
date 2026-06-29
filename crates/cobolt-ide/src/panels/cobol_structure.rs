@@ -79,7 +79,11 @@ pub fn section_text(form: &Form, t: CsTarget) -> Option<&str> {
 /// The editable code of a block (section text, or a procedure's body).
 pub fn block_text(form: &Form, t: CsTarget) -> String {
     match t {
-        CsTarget::Procedure(i) => form.user_procedures.get(i).map(|p| p.code.clone()).unwrap_or_default(),
+        CsTarget::Procedure(i) => form
+            .user_procedures
+            .get(i)
+            .map(|p| p.code.clone())
+            .unwrap_or_default(),
         other => section_text(form, other).unwrap_or_default().to_owned(),
     }
 }

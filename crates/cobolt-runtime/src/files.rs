@@ -48,7 +48,11 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
     let mut offset = 0usize;
 
     fn walk(d: &DataDecl, offset: &mut usize, fields: &mut Vec<FieldPos>) {
-        let times = d.occurs.as_ref().map(|o| o.max.max(1) as usize).unwrap_or(1);
+        let times = d
+            .occurs
+            .as_ref()
+            .map(|o| o.max.max(1) as usize)
+            .unwrap_or(1);
         for _ in 0..times {
             if !d.children.is_empty() {
                 for c in &d.children {
@@ -76,7 +80,10 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
             walk(c, &mut offset, &mut fields);
         }
     }
-    RecordLayout { len: offset.max(1), fields }
+    RecordLayout {
+        len: offset.max(1),
+        fields,
+    }
 }
 
 impl RecordLayout {
@@ -87,7 +94,11 @@ impl RecordLayout {
 
     /// A `KeySpec` for the named key field (its slice of the record).
     pub fn key_spec(&self, name: &str, duplicates: bool) -> Option<KeySpec> {
-        self.field(name).map(|f| KeySpec { offset: f.offset, len: f.len, duplicates })
+        self.field(name).map(|f| KeySpec {
+            offset: f.offset,
+            len: f.len,
+            duplicates,
+        })
     }
 
     /// The current byte value of a single (key) field.
@@ -124,7 +135,10 @@ impl RecordLayout {
                     .map(|&b| if b.is_ascii_digit() { b as char } else { '0' })
                     .collect();
                 let mantissa: i128 = digits.parse().unwrap_or(0);
-                env.set(&f.name, CobolValue::Numeric(CobolNumeric::new(mantissa, f.decimals)));
+                env.set(
+                    &f.name,
+                    CobolValue::Numeric(CobolNumeric::new(mantissa, f.decimals)),
+                );
             } else {
                 env.set_str(&f.name, &String::from_utf8_lossy(slice));
             }
@@ -163,32 +177,63 @@ mod tests {
     use cobolt_lexer::Span;
 
     fn pic(template: &str, kind: PicKind, digits: u16, decimals: u16) -> PicClause {
-        PicClause { template: template.into(), kind, digits, decimals, span: Span::dummy() }
+        PicClause {
+            template: template.into(),
+            kind,
+            digits,
+            decimals,
+            span: Span::dummy(),
+        }
     }
     fn elem(name: &str, p: PicClause) -> DataDecl {
         DataDecl {
-            level: 5, name: Some(name.into()), picture: Some(p), value: None,
-            usage: Default::default(), object_class: None, occurs: None, redefines: None, renames: None,
-            condition_values: vec![], is_global: false, is_external: false,
-            blank_when_zero: false, children: vec![], span: Span::dummy(),
+            level: 5,
+            name: Some(name.into()),
+            picture: Some(p),
+            value: None,
+            usage: Default::default(),
+            object_class: None,
+            occurs: None,
+            redefines: None,
+            renames: None,
+            condition_values: vec![],
+            is_global: false,
+            is_external: false,
+            blank_when_zero: false,
+            children: vec![],
+            span: Span::dummy(),
         }
     }
     fn group(name: &str, children: Vec<DataDecl>) -> DataDecl {
         DataDecl {
-            level: 1, name: Some(name.into()), picture: None, value: None,
-            usage: Default::default(), object_class: None, occurs: None, redefines: None, renames: None,
-            condition_values: vec![], is_global: false, is_external: false,
-            blank_when_zero: false, children, span: Span::dummy(),
+            level: 1,
+            name: Some(name.into()),
+            picture: None,
+            value: None,
+            usage: Default::default(),
+            object_class: None,
+            occurs: None,
+            redefines: None,
+            renames: None,
+            condition_values: vec![],
+            is_global: false,
+            is_external: false,
+            blank_when_zero: false,
+            children,
+            span: Span::dummy(),
         }
     }
 
     #[test]
     fn layout_offsets_and_round_trip() {
         // 01 REC. 05 ID PIC 9(4).  05 NAME PIC X(6).
-        let rec = group("REC", vec![
-            elem("ID", pic("9(4)", PicKind::Numeric, 4, 0)),
-            elem("NAME", pic("X(6)", PicKind::Alphanumeric, 6, 0)),
-        ]);
+        let rec = group(
+            "REC",
+            vec![
+                elem("ID", pic("9(4)", PicKind::Numeric, 4, 0)),
+                elem("NAME", pic("X(6)", PicKind::Alphanumeric, 6, 0)),
+            ],
+        );
         let layout = compute_layout(&rec);
         assert_eq!(layout.len, 10);
         assert_eq!(layout.field("ID").unwrap().offset, 0);

@@ -32,7 +32,10 @@ pub fn resolve(
     symbols: &SymbolTable,
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) {
-    let mut ctx = ResolveCtx { symbols, diagnostics };
+    let mut ctx = ResolveCtx {
+        symbols,
+        diagnostics,
+    };
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
             for para in paras {
@@ -73,7 +76,10 @@ impl<'a> ResolveCtx<'a> {
         match stmt {
             Stmt::Move { from, to, .. } => {
                 self.resolve_expr(from);
-                for t in to { self.check_receiving(t); self.resolve_expr(t); }
+                for t in to {
+                    self.check_receiving(t);
+                    self.resolve_expr(t);
+                }
             }
             Stmt::MoveCorresponding { from, to, .. }
             | Stmt::AddCorresponding { from, to, .. }
@@ -81,82 +87,163 @@ impl<'a> ResolveCtx<'a> {
                 self.resolve_expr(from);
                 self.resolve_expr(to);
             }
-            Stmt::Add { operands, to, giving, .. } => {
-                for e in operands { self.resolve_expr(e); }
-                for (t, _) in to       { self.resolve_expr(t); }
-                for (g, _) in giving   { self.resolve_expr(g); }
+            Stmt::Add {
+                operands,
+                to,
+                giving,
+                ..
+            } => {
+                for e in operands {
+                    self.resolve_expr(e);
+                }
+                for (t, _) in to {
+                    self.resolve_expr(t);
+                }
+                for (g, _) in giving {
+                    self.resolve_expr(g);
+                }
             }
-            Stmt::Subtract { operands, from, giving, .. } => {
-                for e in operands { self.resolve_expr(e); }
-                for (f, _) in from     { self.resolve_expr(f); }
-                for (g, _) in giving   { self.resolve_expr(g); }
+            Stmt::Subtract {
+                operands,
+                from,
+                giving,
+                ..
+            } => {
+                for e in operands {
+                    self.resolve_expr(e);
+                }
+                for (f, _) in from {
+                    self.resolve_expr(f);
+                }
+                for (g, _) in giving {
+                    self.resolve_expr(g);
+                }
             }
-            Stmt::Multiply { lhs, by, giving, .. } => {
+            Stmt::Multiply {
+                lhs, by, giving, ..
+            } => {
                 self.resolve_expr(lhs);
                 self.resolve_expr(by);
-                for (g, _) in giving { self.resolve_expr(g); }
+                for (g, _) in giving {
+                    self.resolve_expr(g);
+                }
             }
-            Stmt::Divide { lhs, by, giving, remainder, .. } => {
+            Stmt::Divide {
+                lhs,
+                by,
+                giving,
+                remainder,
+                ..
+            } => {
                 self.resolve_expr(lhs);
                 self.resolve_expr(by);
-                for (g, _) in giving { self.resolve_expr(g); }
-                if let Some(r) = remainder { self.resolve_expr(r); }
+                for (g, _) in giving {
+                    self.resolve_expr(g);
+                }
+                if let Some(r) = remainder {
+                    self.resolve_expr(r);
+                }
             }
             Stmt::Compute { targets, expr, .. } => {
-                for (t, _) in targets { self.check_receiving(t); self.resolve_expr(t); }
+                for (t, _) in targets {
+                    self.check_receiving(t);
+                    self.resolve_expr(t);
+                }
                 self.resolve_expr(expr);
             }
-            Stmt::If { condition, then_stmts, else_stmts, .. } => {
+            Stmt::If {
+                condition,
+                then_stmts,
+                else_stmts,
+                ..
+            } => {
                 self.resolve_condition(condition);
-                for s in then_stmts { self.resolve_stmt(s); }
-                for s in else_stmts { self.resolve_stmt(s); }
+                for s in then_stmts {
+                    self.resolve_stmt(s);
+                }
+                for s in else_stmts {
+                    self.resolve_stmt(s);
+                }
             }
-            Stmt::Evaluate { whens, other_stmts, .. } => {
+            Stmt::Evaluate {
+                whens, other_stmts, ..
+            } => {
                 for w in whens {
                     for v in &w.values {
                         if let WhenValue::Condition(c) = v {
                             self.resolve_condition(c);
                         }
                     }
-                    for s in &w.stmts { self.resolve_stmt(s); }
-                }
-                for s in other_stmts { self.resolve_stmt(s); }
-            }
-            Stmt::Perform { target, .. } => {
-                match target {
-                    PerformTarget::Paragraph(name, s) => self.check_procedure(name, *s),
-                    PerformTarget::Section(name, s)   => self.check_procedure(name, *s),
-                    PerformTarget::Thru { from, to, span } => {
-                        self.check_procedure(from, *span);
-                        self.check_procedure(to,   *span);
-                    }
-                    PerformTarget::Inline { stmts }
-                    | PerformTarget::Times { stmts, .. } => {
-                        for s in stmts { self.resolve_stmt(s); }
-                    }
-                    PerformTarget::Until { condition, stmts, .. } => {
-                        self.resolve_condition(condition);
-                        for s in stmts { self.resolve_stmt(s); }
-                    }
-                    PerformTarget::Varying { var, from, by, until, stmts, .. } => {
-                        self.resolve_expr(var);
-                        self.resolve_expr(from);
-                        self.resolve_expr(by);
-                        self.resolve_condition(until);
-                        for s in stmts { self.resolve_stmt(s); }
+                    for s in &w.stmts {
+                        self.resolve_stmt(s);
                     }
                 }
+                for s in other_stmts {
+                    self.resolve_stmt(s);
+                }
             }
+            Stmt::Perform { target, .. } => match target {
+                PerformTarget::Paragraph(name, s) => self.check_procedure(name, *s),
+                PerformTarget::Section(name, s) => self.check_procedure(name, *s),
+                PerformTarget::Thru { from, to, span } => {
+                    self.check_procedure(from, *span);
+                    self.check_procedure(to, *span);
+                }
+                PerformTarget::Inline { stmts } | PerformTarget::Times { stmts, .. } => {
+                    for s in stmts {
+                        self.resolve_stmt(s);
+                    }
+                }
+                PerformTarget::Until {
+                    condition, stmts, ..
+                } => {
+                    self.resolve_condition(condition);
+                    for s in stmts {
+                        self.resolve_stmt(s);
+                    }
+                }
+                PerformTarget::Varying {
+                    var,
+                    from,
+                    by,
+                    until,
+                    stmts,
+                    ..
+                } => {
+                    self.resolve_expr(var);
+                    self.resolve_expr(from);
+                    self.resolve_expr(by);
+                    self.resolve_condition(until);
+                    for s in stmts {
+                        self.resolve_stmt(s);
+                    }
+                }
+            },
             Stmt::GoTo { target, span } => self.check_procedure(target, *span),
-            Stmt::GoToDepending { targets, depending, span } => {
-                for t in targets { self.check_procedure(t, *span); }
+            Stmt::GoToDepending {
+                targets,
+                depending,
+                span,
+            } => {
+                for t in targets {
+                    self.check_procedure(t, *span);
+                }
                 self.resolve_expr(depending);
             }
             Stmt::Display { operands, .. } => {
-                for e in operands { self.resolve_expr(e); }
+                for e in operands {
+                    self.resolve_expr(e);
+                }
             }
             Stmt::Accept { target, .. } => self.resolve_expr(target),
-            Stmt::Call { program, using, returning, on_exception, not_on_exception, .. } => {
+            Stmt::Call {
+                program,
+                using,
+                returning,
+                on_exception,
+                not_on_exception,
+                ..
+            } => {
                 self.resolve_expr(program);
                 for arg in using {
                     let e = match arg {
@@ -164,38 +251,76 @@ impl<'a> ResolveCtx<'a> {
                     };
                     self.resolve_expr(e);
                 }
-                if let Some(r) = returning { self.resolve_expr(r); }
-                for s in on_exception { self.resolve_stmt(s); }
-                for s in not_on_exception { self.resolve_stmt(s); }
+                if let Some(r) = returning {
+                    self.resolve_expr(r);
+                }
+                for s in on_exception {
+                    self.resolve_stmt(s);
+                }
+                for s in not_on_exception {
+                    self.resolve_stmt(s);
+                }
             }
             Stmt::Write { record, from, .. } => {
                 self.resolve_expr(record);
-                if let Some(f) = from { self.resolve_expr(f); }
+                if let Some(f) = from {
+                    self.resolve_expr(f);
+                }
             }
             Stmt::Rewrite { record, from, .. } => {
                 self.resolve_expr(record);
-                if let Some(f) = from { self.resolve_expr(f); }
+                if let Some(f) = from {
+                    self.resolve_expr(f);
+                }
             }
-            Stmt::Read { into, at_end, not_at_end, .. } => {
-                if let Some(i) = into { self.resolve_expr(i); }
-                for s in at_end     { self.resolve_stmt(s); }
-                for s in not_at_end { self.resolve_stmt(s); }
+            Stmt::Read {
+                into,
+                at_end,
+                not_at_end,
+                ..
+            } => {
+                if let Some(i) = into {
+                    self.resolve_expr(i);
+                }
+                for s in at_end {
+                    self.resolve_stmt(s);
+                }
+                for s in not_at_end {
+                    self.resolve_stmt(s);
+                }
             }
             // EXEC RUST — source is opaque Rust; the exec_rust pass handles it.
             Stmt::ExecRust { .. } => {}
-            Stmt::TryCatch { try_stmts, catch_stmts, finally_stmts, .. } => {
-                for s in try_stmts     { self.resolve_stmt(s); }
-                for s in catch_stmts   { self.resolve_stmt(s); }
-                for s in finally_stmts { self.resolve_stmt(s); }
+            Stmt::TryCatch {
+                try_stmts,
+                catch_stmts,
+                finally_stmts,
+                ..
+            } => {
+                for s in try_stmts {
+                    self.resolve_stmt(s);
+                }
+                for s in catch_stmts {
+                    self.resolve_stmt(s);
+                }
+                for s in finally_stmts {
+                    self.resolve_stmt(s);
+                }
             }
             Stmt::Throw { message, .. } => {
                 self.resolve_expr(message);
             }
             // Visual-object method invocation: object is a control; resolve the
             // argument expressions and the optional RETURNING receiver.
-            Stmt::Invoke { args, returning, .. } => {
-                for a in args { self.resolve_expr(a); }
-                if let Some(r) = returning { self.resolve_expr(r); }
+            Stmt::Invoke {
+                args, returning, ..
+            } => {
+                for a in args {
+                    self.resolve_expr(a);
+                }
+                if let Some(r) = returning {
+                    self.resolve_expr(r);
+                }
             }
             _ => {}
         }
@@ -207,7 +332,13 @@ impl<'a> ResolveCtx<'a> {
     /// unambiguously a call; an indexed tail (`Items(4)`) carries arguments and
     /// remains assignable, so it is not flagged here.
     fn check_receiving(&mut self, expr: &Expr) {
-        if let Expr::Member { parens: true, args, span, .. } = expr {
+        if let Expr::Member {
+            parens: true,
+            args,
+            span,
+            ..
+        } = expr
+        {
             if args.is_empty() {
                 self.warn("a method-call result is not a receiving field", *span);
             }
@@ -225,10 +356,7 @@ impl<'a> ResolveCtx<'a> {
                     || name.starts_with("COBOLT-")
                     || matches!(
                         name.as_str(),
-                        "RETURN-CODE"
-                            | "WHEN-COMPILED"
-                            | "LINAGE-COUNTER"
-                            | "FORM-NAME"
+                        "RETURN-CODE" | "WHEN-COMPILED" | "LINAGE-COUNTER" | "FORM-NAME"
                     );
                 if !is_runtime && !self.symbols.has_data_item(name) && name.len() > 1 {
                     self.warn(
@@ -244,13 +372,22 @@ impl<'a> ResolveCtx<'a> {
             // Subscript: `TABLE-ITEM(index)`
             Expr::Subscript { base, indices, .. } => {
                 self.resolve_expr(base);
-                for idx in indices { self.resolve_expr(idx); }
+                for idx in indices {
+                    self.resolve_expr(idx);
+                }
             }
             // Reference modification: `base(start:length)`
-            Expr::RefMod { base, start, length, .. } => {
+            Expr::RefMod {
+                base,
+                start,
+                length,
+                ..
+            } => {
                 self.resolve_expr(base);
                 self.resolve_expr(start);
-                if let Some(l) = length { self.resolve_expr(l); }
+                if let Some(l) = length {
+                    self.resolve_expr(l);
+                }
             }
             Expr::Unary { operand, .. } => self.resolve_expr(operand),
             // Binary arithmetic
@@ -259,14 +396,18 @@ impl<'a> ResolveCtx<'a> {
                 self.resolve_expr(rhs);
             }
             Expr::FunctionCall { args, .. } => {
-                for a in args { self.resolve_expr(a); }
+                for a in args {
+                    self.resolve_expr(a);
+                }
             }
             // Member-access chain (`obj::Caption`, `Grid::Rows(I)::Value`): the
             // root object is a form control, not a DATA DIVISION item, so the
             // receiver chain is not name-resolved here — only the subscript /
             // call argument expressions are.
             Expr::Member { args, .. } => {
-                for a in args { self.resolve_expr(a); }
+                for a in args {
+                    self.resolve_expr(a);
+                }
             }
             // Literals and figurative constants need no resolution.
             Expr::Literal(..) => {}
@@ -289,16 +430,18 @@ impl<'a> ResolveCtx<'a> {
             }
             Condition::Not(inner, _) => self.resolve_condition(inner),
             Condition::ClassTest { expr, .. } => self.resolve_expr(expr),
-            Condition::SignTest  { expr, .. } => self.resolve_expr(expr),
+            Condition::SignTest { expr, .. } => self.resolve_expr(expr),
             Condition::ConditionName(name, span) => {
                 if !self.symbols.has_data_item(name) {
-                    self.warn(
-                        format!("condition name '{name}' is not declared"),
-                        *span,
-                    );
+                    self.warn(format!("condition name '{name}' is not declared"), *span);
                 }
             }
-            Condition::NameOrAbbrev { subject, name, span, .. } => {
+            Condition::NameOrAbbrev {
+                subject,
+                name,
+                span,
+                ..
+            } => {
                 self.resolve_expr(subject);
                 // `name` is either a condition-name or a data item — either is a
                 // declared symbol; warn only if it is neither.

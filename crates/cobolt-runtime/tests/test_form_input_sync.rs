@@ -45,7 +45,10 @@ const SRC: &str = r#"
 fn dragged_slider_value_reaches_change_handler() {
     let result = parse(tokenize(SRC, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -71,14 +74,19 @@ fn dragged_slider_value_reaches_change_handler() {
 
     // Simulate the UI: the drag pushes the new value, THEN fires the change event
     // (the ordering the running form uses).
-    input_tx.send(StateUpdate::new("SLIDER-1", "Value", "75")).unwrap();
+    input_tx
+        .send(StateUpdate::new("SLIDER-1", "Value", "75"))
+        .unwrap();
     event_tx.send(FormEvent::change("SLIDER-1", "75")).unwrap();
     // Close the form so the event loop exits.
     event_tx.send(FormEvent::quit()).unwrap();
 
     handle.join().expect("interpreter thread panicked");
 
-    let lines: Vec<String> = display_rx.try_iter().map(|l| l.trim().to_string()).collect();
+    let lines: Vec<String> = display_rx
+        .try_iter()
+        .map(|l| l.trim().to_string())
+        .collect();
     assert!(
         lines.iter().any(|l| l == "75"),
         "change handler should read the dragged value 75, got: {lines:?}",

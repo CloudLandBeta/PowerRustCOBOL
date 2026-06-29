@@ -44,7 +44,10 @@ fn fit_within(w: u32, h: u32) -> (u32, u32) {
         return (w.max(1), h.max(1));
     }
     let scale = (MAX_DIM as f32 / w as f32).min(MAX_DIM as f32 / h as f32);
-    (((w as f32 * scale) as u32).max(1), ((h as f32 * scale) as u32).max(1))
+    (
+        ((w as f32 * scale) as u32).max(1),
+        ((h as f32 * scale) as u32).max(1),
+    )
 }
 
 /// Decode an animation from in-memory bytes. Animated GIF/WebP/APNG yield all
@@ -79,7 +82,11 @@ pub fn decode_animation(bytes: &[u8]) -> Result<Animation, String> {
             let mut total = 0u32;
             for f in frames {
                 let (num, den) = f.delay().numer_denom_ms();
-                let delay = if den == 0 { MIN_DELAY_MS } else { (num / den).max(MIN_DELAY_MS) };
+                let delay = if den == 0 {
+                    MIN_DELAY_MS
+                } else {
+                    (num / den).max(MIN_DELAY_MS)
+                };
                 total = total.saturating_add(delay);
                 let buf = f.into_buffer();
                 let buf = if (buf.width(), buf.height()) != (tw, th) {
@@ -87,14 +94,24 @@ pub fn decode_animation(bytes: &[u8]) -> Result<Animation, String> {
                 } else {
                     buf
                 };
-                out.push(RgbaFrame { rgba: buf.into_raw(), delay_ms: delay });
+                out.push(RgbaFrame {
+                    rgba: buf.into_raw(),
+                    delay_ms: delay,
+                });
             }
-            return Ok(Animation { width: tw, height: th, frames: out, total_ms: total.max(1) });
+            return Ok(Animation {
+                width: tw,
+                height: th,
+                frames: out,
+                total_ms: total.max(1),
+            });
         }
     }
 
     // Fall back to a single still frame.
-    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?.to_rgba8();
+    let img = image::load_from_memory(bytes)
+        .map_err(|e| e.to_string())?
+        .to_rgba8();
     let (tw, th) = fit_within(img.width(), img.height());
     let img = if (img.width(), img.height()) != (tw, th) {
         image::imageops::resize(&img, tw, th, image::imageops::FilterType::Triangle)
@@ -104,7 +121,10 @@ pub fn decode_animation(bytes: &[u8]) -> Result<Animation, String> {
     Ok(Animation {
         width: tw,
         height: th,
-        frames: vec![RgbaFrame { rgba: img.into_raw(), delay_ms: MIN_DELAY_MS }],
+        frames: vec![RgbaFrame {
+            rgba: img.into_raw(),
+            delay_ms: MIN_DELAY_MS,
+        }],
         total_ms: MIN_DELAY_MS,
     })
 }
@@ -240,13 +260,24 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut enc = GifEncoder::new(&mut buf);
-            enc.set_repeat(image::codecs::gif::Repeat::Infinite).unwrap();
+            enc.set_repeat(image::codecs::gif::Repeat::Infinite)
+                .unwrap();
             let red = RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255]));
             let blue = RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 255, 255]));
-            enc.encode_frame(Frame::from_parts(red, 0, 0, Delay::from_numer_denom_ms(100, 1)))
-                .unwrap();
-            enc.encode_frame(Frame::from_parts(blue, 0, 0, Delay::from_numer_denom_ms(100, 1)))
-                .unwrap();
+            enc.encode_frame(Frame::from_parts(
+                red,
+                0,
+                0,
+                Delay::from_numer_denom_ms(100, 1),
+            ))
+            .unwrap();
+            enc.encode_frame(Frame::from_parts(
+                blue,
+                0,
+                0,
+                Delay::from_numer_denom_ms(100, 1),
+            ))
+            .unwrap();
         }
         buf
     }
@@ -272,14 +303,27 @@ mod tests {
         {
             let mut enc = GifEncoder::new(&mut buf);
             let big = RgbaImage::from_pixel(MAX_DIM + 200, 4, Rgba([0, 255, 0, 255]));
-            enc.encode_frame(Frame::from_parts(big, 0, 0, Delay::from_numer_denom_ms(100, 1)))
-                .unwrap();
+            enc.encode_frame(Frame::from_parts(
+                big,
+                0,
+                0,
+                Delay::from_numer_denom_ms(100, 1),
+            ))
+            .unwrap();
         }
         let anim = decode_animation(&buf).expect("decode oversized gif");
-        assert!(anim.width <= MAX_DIM, "width {} must be ≤ {}", anim.width, MAX_DIM);
+        assert!(
+            anim.width <= MAX_DIM,
+            "width {} must be ≤ {}",
+            anim.width,
+            MAX_DIM
+        );
         assert!(anim.height <= MAX_DIM);
         // Buffer length must match the (downscaled) declared size.
-        assert_eq!(anim.frames[0].rgba.len(), (anim.width * anim.height * 4) as usize);
+        assert_eq!(
+            anim.frames[0].rgba.len(),
+            (anim.width * anim.height * 4) as usize
+        );
     }
 
     #[test]

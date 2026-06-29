@@ -16,14 +16,19 @@ use cobolt_parser::{parse, Severity};
 
 fn error_count(src: &str) -> usize {
     let result = parse(tokenize(src, SourceFormat::Free));
-    result.diagnostics.iter().filter(|d| d.severity == Severity::Error).count()
+    result
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .count()
 }
 
 fn has_error_containing(src: &str, needle: &str) -> bool {
     let result = parse(tokenize(src, SourceFormat::Free));
-    result.diagnostics.iter().any(|d| {
-        d.severity == Severity::Error && d.message.contains(needle)
-    })
+    result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == Severity::Error && d.message.contains(needle))
 }
 
 #[test]
@@ -89,7 +94,11 @@ fn well_formed_single_program_has_no_redeclaration_error() {
            DISPLAY "OK".
            STOP RUN.
 "#;
-    assert_eq!(error_count(src), 0, "a well-formed program must not be flagged");
+    assert_eq!(
+        error_count(src),
+        0,
+        "a well-formed program must not be flagged"
+    );
 }
 
 #[test]
@@ -110,7 +119,8 @@ fn nested_and_sibling_programs_are_not_flagged() {
        END PROGRAM INNER.
 "#;
     assert_eq!(
-        error_count(src), 0,
+        error_count(src),
+        0,
         "distinct program units must not be treated as redeclarations"
     );
 }

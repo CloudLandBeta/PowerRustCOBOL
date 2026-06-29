@@ -63,7 +63,12 @@ struct Inline {
 
 impl Inline {
     fn none() -> Self {
-        Self { bold: false, italic: false, code: false, link: false }
+        Self {
+            bold: false,
+            italic: false,
+            code: false,
+            link: false,
+        }
     }
 }
 
@@ -194,10 +199,16 @@ impl<'a> Renderer<'a> {
     /// can be highlighted (blue text on a yellow background).
     fn push_text(&mut self, text: &str) {
         if self.runs.is_none() {
-            self.runs = Some(Runs { job: LayoutJob::default() });
+            self.runs = Some(Runs {
+                job: LayoutJob::default(),
+            });
         }
         let (font, color) = self.font_for(self.inline, self.heading);
-        let mut fmt = TextFormat { font_id: font, color, ..Default::default() };
+        let mut fmt = TextFormat {
+            font_id: font,
+            color,
+            ..Default::default()
+        };
         if self.inline.italic {
             fmt.italics = true;
         }
@@ -256,7 +267,10 @@ impl<'a> Renderer<'a> {
     /// Resolve an in-document `#slug` link to the heading index it points at.
     fn resolve_anchor(&self, target: &str) -> Option<usize> {
         let slug = target.strip_prefix('#')?.to_lowercase();
-        self.anchors.iter().find(|(s, _)| *s == slug).map(|(_, i)| *i)
+        self.anchors
+            .iter()
+            .find(|(s, _)| *s == slug)
+            .map(|(_, i)| *i)
     }
 
     /// Draw the accumulated text block as one wrapped label.
@@ -266,7 +280,9 @@ impl<'a> Renderer<'a> {
             self.flush_segs(ui);
             return;
         }
-        let Some(mut runs) = self.runs.take() else { return };
+        let Some(mut runs) = self.runs.take() else {
+            return;
+        };
         runs.job.wrap.max_width = ui.available_width();
         let heading = self.heading.take();
 
@@ -423,13 +439,19 @@ impl<'a> Renderer<'a> {
                     _ => "•  ".to_string(),
                 };
                 let indent = self.list_stack.len().saturating_sub(1) as f32 * 16.0 + 8.0;
-                self.runs = Some(Runs { job: LayoutJob::default() });
+                self.runs = Some(Runs {
+                    job: LayoutJob::default(),
+                });
                 // Prepend the marker as dim text.
                 let (font, _c) = self.font_for(Inline::none(), None);
                 self.runs.as_mut().unwrap().job.append(
                     &format!("{:width$}{marker}", "", width = (indent / 6.0) as usize),
                     0.0,
-                    TextFormat { font_id: font, color: self.dim_color, ..Default::default() },
+                    TextFormat {
+                        font_id: font,
+                        color: self.dim_color,
+                        ..Default::default()
+                    },
                 );
                 i + 1
             }
@@ -513,18 +535,17 @@ impl<'a> Renderer<'a> {
         let job = if is_cobol {
             editor::highlight_cobol(code)
         } else {
-            editor::mono_layout_job(
-                code,
-                FontId::monospace(self.base * 0.95),
-                self.body_color,
-            )
+            editor::mono_layout_job(code, FontId::monospace(self.base * 0.95), self.body_color)
         };
         ui.add_space(self.base * 0.3);
         egui::Frame::none()
             .fill(self.code_bg)
             .inner_margin(egui::Margin::same(8.0))
             .rounding(egui::Rounding::same(5.0))
-            .stroke(Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color))
+            .stroke(Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            ))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 egui::ScrollArea::horizontal()
@@ -579,7 +600,10 @@ impl<'a> Renderer<'a> {
         }
         let col_w = (ui.available_width() / cols as f32 - 8.0).max(60.0);
         egui::Frame::none()
-            .stroke(Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color))
+            .stroke(Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            ))
             .inner_margin(egui::Margin::same(2.0))
             .show(ui, |ui| {
                 egui::Grid::new(("md_table", start))

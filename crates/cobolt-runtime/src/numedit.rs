@@ -51,7 +51,11 @@ enum Sym {
 /// Under `decimal_comma`, the roles of `.` and `,` swap: `,` is the decimal point
 /// (`Sym::Point`) and `.` is grouping insertion (`Sym::Comma`).
 fn expand(template: &str, decimal_comma: bool) -> Vec<Sym> {
-    let (point_ch, group_ch) = if decimal_comma { (',', '.') } else { ('.', ',') };
+    let (point_ch, group_ch) = if decimal_comma {
+        (',', '.')
+    } else {
+        ('.', ',')
+    };
     let chars: Vec<char> = template.to_ascii_uppercase().chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -180,10 +184,18 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
     let float_char = if float_dollar {
         '$'
     } else if float_plus {
-        if negative { '-' } else { '+' }
+        if negative {
+            '-'
+        } else {
+            '+'
+        }
     } else {
         // floating minus
-        if negative { '-' } else { ' ' }
+        if negative {
+            '-'
+        } else {
+            ' '
+        }
     };
 
     let point = syms.iter().position(|s| *s == Sym::Point);
@@ -218,7 +230,11 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
     let mut supp_end = dt_count; // dt index where digits start showing
     {
         let mut k = 0usize; // digit-token index
-        let int_tok_syms: Vec<Sym> = int_syms.iter().copied().filter(|s| is_int_digit_tok(*s)).collect();
+        let int_tok_syms: Vec<Sym> = int_syms
+            .iter()
+            .copied()
+            .filter(|s| is_int_digit_tok(*s))
+            .collect();
         for (idx, &s) in int_tok_syms.iter().enumerate() {
             let is_sig = matches!(digit_for_tok.get(idx), Some(Some(d)) if *d != b'0');
             if s == Sym::Nine || is_sig {
@@ -230,7 +246,11 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
         let _ = k;
     }
     // Position of the floating char: immediately left of the first shown digit.
-    let float_pos = if floating { supp_end.saturating_sub(1) } else { usize::MAX };
+    let float_pos = if floating {
+        supp_end.saturating_sub(1)
+    } else {
+        usize::MAX
+    };
 
     let mut out = String::new();
     let mut seen_sig = false; // have we emitted a real digit yet (for commas)?
@@ -255,13 +275,17 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
                     if seen_sig {
                         out.push(grp_char);
                     } else {
-                        out.push(if int_syms.iter().any(|x| *x == Sym::Star) { '*' } else { ' ' });
+                        out.push(if int_syms.iter().any(|x| *x == Sym::Star) {
+                            '*'
+                        } else {
+                            ' '
+                        });
                     }
                 }
                 Sym::Blank => out.push(' '),
                 Sym::InsZero => out.push('0'),
                 Sym::Slash => out.push('/'),
-                Sym::Dollar => out.push('$'),   // fixed currency
+                Sym::Dollar => out.push('$'), // fixed currency
                 Sym::Plus => out.push(if negative { '-' } else { '+' }), // fixed leading/trailing +
                 Sym::Minus => out.push(if negative { '-' } else { ' ' }), // fixed sign
                 _ => {}
@@ -348,7 +372,10 @@ mod tests {
     fn decimal_point_is_comma_swaps_roles() {
         // 1234.50 under comma mode: '.' groups, ',' is the decimal point.
         assert_eq!(format_edited("$ZZ.ZZ9,99-", 123450, 2, true), "$ 1.234,50 ");
-        assert_eq!(format_edited("$ZZ.ZZ9,99-", -123450, 2, true), "$ 1.234,50-");
+        assert_eq!(
+            format_edited("$ZZ.ZZ9,99-", -123450, 2, true),
+            "$ 1.234,50-"
+        );
         // PIC 9.999 in comma mode = 4 integer digits with period grouping.
         assert_eq!(digit_counts("9.999", true), (4, 0));
         assert_eq!(format_edited("9.999", 1234, 0, true), "1.234");

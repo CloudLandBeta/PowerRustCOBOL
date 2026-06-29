@@ -9,6 +9,5 @@
 //! re-exports them so existing `super::containers::*` call sites keep working.
 
 pub use cobolt_forms::containers::{
-    clip_rect, collect_descendants, is_visible,
-    render_order, resolve_drop_target, DropTarget,
+    clip_rect, collect_descendants, is_visible, render_order, resolve_drop_target, DropTarget,
 };

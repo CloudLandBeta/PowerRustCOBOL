@@ -47,7 +47,10 @@ pub fn export(title: &str, markdown: &str, out: &Path) -> Result<(), String> {
     doc.set_page_decorator(deco);
 
     let mut w = Writer::new(out.to_path_buf());
-    let parser = Parser::new_ext(markdown, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH);
+    let parser = Parser::new_ext(
+        markdown,
+        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH,
+    );
     for ev in parser {
         w.event(&mut doc, ev);
     }
@@ -79,7 +82,10 @@ struct Writer {
 
 impl Writer {
     fn new(out: std::path::PathBuf) -> Self {
-        let tmp_dir = out.parent().map(|p| p.to_path_buf()).unwrap_or_else(std::env::temp_dir);
+        let tmp_dir = out
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(std::env::temp_dir);
         Self {
             tmp_dir,
             runs: Vec::new(),
@@ -223,7 +229,9 @@ impl Writer {
             Err(_) => return false,
         };
         self.diagram_n += 1;
-        let path = self.tmp_dir.join(format!(".prc-doc-diagram-{}.png", self.diagram_n));
+        let path = self
+            .tmp_dir
+            .join(format!(".prc-doc-diagram-{}.png", self.diagram_n));
         if pixmap.save_png(&path).is_err() {
             return false;
         }
@@ -249,7 +257,10 @@ impl Writer {
         doc.push(Break::new(0.2));
         for line in body.lines() {
             let mut p = Paragraph::default();
-            p.push_styled(line.to_string(), Style::new().with_color(genpdf::style::Color::Rgb(60, 60, 60)));
+            p.push_styled(
+                line.to_string(),
+                Style::new().with_color(genpdf::style::Color::Rgb(60, 60, 60)),
+            );
             doc.push(p);
         }
         doc.push(Break::new(0.3));
@@ -279,7 +290,11 @@ mod tests {
         let _ = std::fs::remove_file(&out);
         export("Export Test", md, &out).expect("pdf export");
         let bytes = std::fs::read(&out).expect("read pdf");
-        assert!(bytes.len() > 500, "pdf is non-trivial ({} bytes)", bytes.len());
+        assert!(
+            bytes.len() > 500,
+            "pdf is non-trivial ({} bytes)",
+            bytes.len()
+        );
         assert_eq!(&bytes[0..4], b"%PDF", "valid PDF header");
         let _ = std::fs::remove_file(&out);
     }

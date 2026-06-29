@@ -17,7 +17,10 @@ use cobolt_runtime::Interpreter;
 fn run_capture(src: &str) -> Vec<String> {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -65,6 +68,9 @@ const SRC: &str = r#"
 #[test]
 fn handler_calls_sibling_common_handler() {
     let out = run_capture(SRC);
-    assert_eq!(out, vec!["0042".to_string()],
-        "sibling-handler CALL (enabled by IS COMMON, 009 R4) did not run");
+    assert_eq!(
+        out,
+        vec!["0042".to_string()],
+        "sibling-handler CALL (enabled by IS COMMON, 009 R4) did not run"
+    );
 }

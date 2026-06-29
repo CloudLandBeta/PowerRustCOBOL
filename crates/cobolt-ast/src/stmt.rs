@@ -149,16 +149,15 @@ pub enum PerformTarget {
     /// `PERFORM section-name`
     Section(String, Span),
     /// `PERFORM paragraph-name THRU paragraph-name`
-    Thru { from: String, to: String, span: Span },
+    Thru {
+        from: String,
+        to: String,
+        span: Span,
+    },
     /// Inline PERFORM … END-PERFORM
-    Inline {
-        stmts: Vec<Stmt>,
-    },
+    Inline { stmts: Vec<Stmt> },
     /// PERFORM … TIMES
-    Times {
-        count: Expr,
-        stmts: Vec<Stmt>,
-    },
+    Times { count: Expr, stmts: Vec<Stmt> },
     /// PERFORM … UNTIL
     Until {
         condition: Condition,
@@ -328,7 +327,6 @@ pub enum InitCategory {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Stmt {
     // ── Data movement ────────────────────────────────────────────────────────
-
     /// `MOVE sending TO receiving …`
     Move {
         from: Expr,
@@ -337,11 +335,7 @@ pub enum Stmt {
     },
 
     /// `MOVE CORRESPONDING group TO group`
-    MoveCorresponding {
-        from: Expr,
-        to: Expr,
-        span: Span,
-    },
+    MoveCorresponding { from: Expr, to: Expr, span: Span },
 
     /// `ADD CORRESPONDING group TO group [ROUNDED]`
     AddCorresponding {
@@ -370,7 +364,6 @@ pub enum Stmt {
     },
 
     // ── Arithmetic ───────────────────────────────────────────────────────────
-
     /// `ADD operand … TO receiving … [GIVING receiving]`
     Add {
         operands: Vec<Expr>,
@@ -435,7 +428,6 @@ pub enum Stmt {
     },
 
     // ── Control flow ─────────────────────────────────────────────────────────
-
     /// `ALTER paragraph-1 TO [PROCEED TO] paragraph-2` — redirect the `GO TO`
     /// in `from` to target `to` (deprecated).
     Alter {
@@ -445,10 +437,7 @@ pub enum Stmt {
     },
 
     /// `UNLOCK file [RECORD[S]]` — release record locks on `file`.
-    Unlock {
-        file: String,
-        span: Span,
-    },
+    Unlock { file: String, span: Span },
 
     /// `COMMIT` — make all uncommitted INDEXED-file changes durable and start a
     /// new transaction.
@@ -488,10 +477,7 @@ pub enum Stmt {
     },
 
     /// `PERFORM …`
-    Perform {
-        target: PerformTarget,
-        span: Span,
-    },
+    Perform { target: PerformTarget, span: Span },
 
     /// `SEARCH [ALL] table [VARYING idx] [AT END …] {WHEN cond …}… END-SEARCH`
     Search {
@@ -504,10 +490,7 @@ pub enum Stmt {
     },
 
     /// `GO TO paragraph`
-    GoTo {
-        target: String,
-        span: Span,
-    },
+    GoTo { target: String, span: Span },
 
     /// `GO TO paragraph … DEPENDING ON data-item`
     GoToDepending {
@@ -531,7 +514,6 @@ pub enum Stmt {
     SentenceEnd { span: Span },
 
     // ── I/O ──────────────────────────────────────────────────────────────────
-
     /// `OPEN mode file … [SHARING WITH …] [WITH LOCK]`
     Open {
         mode: OpenMode,
@@ -549,10 +531,7 @@ pub enum Stmt {
     },
 
     /// `CLOSE file …`
-    Close {
-        files: Vec<String>,
-        span: Span,
-    },
+    Close { files: Vec<String>, span: Span },
 
     /// `READ file [NEXT|PREVIOUS] [INTO target] [KEY IS k]`
     /// `[AT END …] [NOT AT END …] [INVALID KEY …] [NOT INVALID KEY …]`
@@ -608,7 +587,6 @@ pub enum Stmt {
     },
 
     // ── User interaction ─────────────────────────────────────────────────────
-
     /// `ACCEPT target [AT …] [FROM source] [WITH …]`
     Accept {
         target: Expr,
@@ -629,7 +607,6 @@ pub enum Stmt {
     },
 
     // ── String handling ──────────────────────────────────────────────────────
-
     /// `STRING src … DELIMITED BY delim … INTO target [WITH POINTER ptr]`
     String_ {
         /// (source, delimiter) pairs
@@ -662,7 +639,6 @@ pub enum Stmt {
     },
 
     // ── Sorting ──────────────────────────────────────────────────────────────
-
     /// `SORT file ON KEY … {USING f… | INPUT PROCEDURE p} {GIVING f… | OUTPUT PROCEDURE p}`
     Sort {
         file: String,
@@ -704,7 +680,6 @@ pub enum Stmt {
     },
 
     // ── Subprogram linkage ───────────────────────────────────────────────────
-
     /// `CALL program [USING …] [RETURNING …] [ON EXCEPTION …] [NOT ON EXCEPTION …]`
     Call {
         program: Expr,
@@ -734,20 +709,13 @@ pub enum Stmt {
     /// effect: `Grid-1::Rows(I)::Delete()`, `Label-1::SetCaption("Hi")`,
     /// `obj::UpperCase()` (the last has no effect — the result is discarded).
     /// `expr` is always an [`Expr::Member`]; its value (if any) is dropped.
-    InvokeExpr {
-        expr: Expr,
-        span: Span,
-    },
+    InvokeExpr { expr: Expr, span: Span },
 
     /// `CANCEL program …` — drop the program(s) from memory so the next `CALL`
     /// re-initialises their storage.
-    Cancel {
-        programs: Vec<Expr>,
-        span: Span,
-    },
+    Cancel { programs: Vec<Expr>, span: Span },
 
     // ── Program termination ──────────────────────────────────────────────────
-
     /// `STOP RUN` or `STOP literal`
     Stop {
         run: bool,
@@ -759,12 +727,8 @@ pub enum Stmt {
     GoBack { span: Span },
 
     // ── PowerCOBOL / Fujitsu extensions ─────────────────────────────────────
-
     /// Form/window operation (SHOW, HIDE, CLOSE window).
-    WindowOp {
-        op: WindowOperation,
-        span: Span,
-    },
+    WindowOp { op: WindowOperation, span: Span },
 
     /// Set a control property via COBOLT-SET-PROPERTY.
     ControlSet {
@@ -775,7 +739,6 @@ pub enum Stmt {
     },
 
     // ── EXEC RUST inline Rust extension ─────────────────────────────────────
-
     /// `EXEC RUST … END-EXEC`
     ///
     /// Embeds verbatim Rust code inside a COBOL procedure.
@@ -811,7 +774,6 @@ pub enum Stmt {
     },
 
     // ── CoBolt exception handling extensions ─────────────────────────────────
-
     /// `TRY … CATCH EXCEPTION <name> … [ FINALLY … ] END-TRY`
     ///
     /// Non-standard CoBolt extension for structured exception handling.
@@ -826,11 +788,11 @@ pub enum Stmt {
     /// END-TRY
     /// ```
     TryCatch {
-        try_stmts:      Vec<Stmt>,
+        try_stmts: Vec<Stmt>,
         /// Name of the exception variable in the CATCH clause (e.g. `"e"`).
-        exception_var:  Option<String>,
-        catch_stmts:    Vec<Stmt>,
-        finally_stmts:  Vec<Stmt>,
+        exception_var: Option<String>,
+        catch_stmts: Vec<Stmt>,
+        finally_stmts: Vec<Stmt>,
         span: Span,
     },
 
@@ -847,58 +809,58 @@ impl Stmt {
     /// Return the source span of this statement.
     pub fn span(&self) -> Span {
         match self {
-            Stmt::Move { span, .. }              => *span,
+            Stmt::Move { span, .. } => *span,
             Stmt::MoveCorresponding { span, .. } => *span,
             Stmt::AddCorresponding { span, .. } => *span,
             Stmt::SubtractCorresponding { span, .. } => *span,
-            Stmt::Initialize { span, .. }        => *span,
-            Stmt::Add { span, .. }               => *span,
-            Stmt::Subtract { span, .. }          => *span,
-            Stmt::Multiply { span, .. }          => *span,
-            Stmt::Divide { span, .. }            => *span,
-            Stmt::Compute { span, .. }           => *span,
-            Stmt::If { span, .. }                => *span,
-            Stmt::Evaluate { span, .. }          => *span,
-            Stmt::Perform { span, .. }           => *span,
-            Stmt::Search { span, .. }            => *span,
-            Stmt::GoTo { span, .. }              => *span,
-            Stmt::GoToDepending { span, .. }     => *span,
-            Stmt::Continue { span }              => *span,
-            Stmt::Alter { span, .. }             => *span,
-            Stmt::Unlock { span, .. }            => *span,
-            Stmt::Commit { span }                => *span,
-            Stmt::Rollback { span }              => *span,
-            Stmt::SetPointer { span, .. }        => *span,
-            Stmt::Exit { span, .. }              => *span,
-            Stmt::NextSentence { span }          => *span,
-            Stmt::SentenceEnd { span }           => *span,
-            Stmt::Open { span, .. }              => *span,
-            Stmt::Close { span, .. }             => *span,
-            Stmt::Read { span, .. }              => *span,
-            Stmt::Write { span, .. }             => *span,
-            Stmt::Rewrite { span, .. }           => *span,
-            Stmt::Delete { span, .. }            => *span,
-            Stmt::Start { span, .. }             => *span,
-            Stmt::Accept { span, .. }            => *span,
-            Stmt::Display { span, .. }           => *span,
-            Stmt::String_ { span, .. }           => *span,
-            Stmt::Unstring { span, .. }          => *span,
-            Stmt::Inspect { span, .. }           => *span,
-            Stmt::Sort { span, .. }              => *span,
-            Stmt::Merge { span, .. }             => *span,
-            Stmt::Release { span, .. }           => *span,
-            Stmt::Return { span, .. }            => *span,
-            Stmt::Call { span, .. }              => *span,
-            Stmt::Invoke { span, .. }            => *span,
-            Stmt::InvokeExpr { span, .. }        => *span,
-            Stmt::Cancel { span, .. }            => *span,
-            Stmt::Stop { span, .. }              => *span,
-            Stmt::GoBack { span }                => *span,
-            Stmt::WindowOp { span, .. }          => *span,
-            Stmt::ControlSet { span, .. }        => *span,
-            Stmt::ExecRust { span, .. }          => *span,
-            Stmt::TryCatch { span, .. }          => *span,
-            Stmt::Throw { span, .. }             => *span,
+            Stmt::Initialize { span, .. } => *span,
+            Stmt::Add { span, .. } => *span,
+            Stmt::Subtract { span, .. } => *span,
+            Stmt::Multiply { span, .. } => *span,
+            Stmt::Divide { span, .. } => *span,
+            Stmt::Compute { span, .. } => *span,
+            Stmt::If { span, .. } => *span,
+            Stmt::Evaluate { span, .. } => *span,
+            Stmt::Perform { span, .. } => *span,
+            Stmt::Search { span, .. } => *span,
+            Stmt::GoTo { span, .. } => *span,
+            Stmt::GoToDepending { span, .. } => *span,
+            Stmt::Continue { span } => *span,
+            Stmt::Alter { span, .. } => *span,
+            Stmt::Unlock { span, .. } => *span,
+            Stmt::Commit { span } => *span,
+            Stmt::Rollback { span } => *span,
+            Stmt::SetPointer { span, .. } => *span,
+            Stmt::Exit { span, .. } => *span,
+            Stmt::NextSentence { span } => *span,
+            Stmt::SentenceEnd { span } => *span,
+            Stmt::Open { span, .. } => *span,
+            Stmt::Close { span, .. } => *span,
+            Stmt::Read { span, .. } => *span,
+            Stmt::Write { span, .. } => *span,
+            Stmt::Rewrite { span, .. } => *span,
+            Stmt::Delete { span, .. } => *span,
+            Stmt::Start { span, .. } => *span,
+            Stmt::Accept { span, .. } => *span,
+            Stmt::Display { span, .. } => *span,
+            Stmt::String_ { span, .. } => *span,
+            Stmt::Unstring { span, .. } => *span,
+            Stmt::Inspect { span, .. } => *span,
+            Stmt::Sort { span, .. } => *span,
+            Stmt::Merge { span, .. } => *span,
+            Stmt::Release { span, .. } => *span,
+            Stmt::Return { span, .. } => *span,
+            Stmt::Call { span, .. } => *span,
+            Stmt::Invoke { span, .. } => *span,
+            Stmt::InvokeExpr { span, .. } => *span,
+            Stmt::Cancel { span, .. } => *span,
+            Stmt::Stop { span, .. } => *span,
+            Stmt::GoBack { span } => *span,
+            Stmt::WindowOp { span, .. } => *span,
+            Stmt::ControlSet { span, .. } => *span,
+            Stmt::ExecRust { span, .. } => *span,
+            Stmt::TryCatch { span, .. } => *span,
+            Stmt::Throw { span, .. } => *span,
         }
     }
 }

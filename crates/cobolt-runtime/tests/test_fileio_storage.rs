@@ -25,7 +25,10 @@ fn run_capture(src: &str) -> Vec<String> {
     let tokens = tokenize(src, SourceFormat::Free);
     let result = parse(tokens);
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -55,7 +58,10 @@ fn run_variant(tag: &str, raw: &str) {
     let out = run_capture(&src).join("\n");
     let _ = std::fs::remove_dir_all(&base);
 
-    assert!(out.contains("RESULT       : PASS"), "{tag} did not pass:\n{out}");
+    assert!(
+        out.contains("RESULT       : PASS"),
+        "{tag} did not pass:\n{out}"
+    );
     assert!(!out.contains("\nFAIL "), "{tag} reported failures:\n{out}");
 }
 
@@ -73,8 +79,17 @@ macro_rules! variant_test {
 
 variant_test!(fileio_baseline, "fileiot.cbl");
 variant_test!(fileio_storage_disk, "fileiot_storage_disk.cbl");
-variant_test!(fileio_storage_disk_compression, "fileiot_storage_disk_compression.cbl");
+variant_test!(
+    fileio_storage_disk_compression,
+    "fileiot_storage_disk_compression.cbl"
+);
 variant_test!(fileio_storage_memory, "fileiot_storage_memory.cbl");
-variant_test!(fileio_storage_memory_compression, "fileiot_storage_memory_compression.cbl");
+variant_test!(
+    fileio_storage_memory_compression,
+    "fileiot_storage_memory_compression.cbl"
+);
 variant_test!(fileio_default_disk, "fileiot_default_disk.cbl");
-variant_test!(fileio_default_compression, "fileiot_default_compression.cbl");
+variant_test!(
+    fileio_default_compression,
+    "fileiot_default_compression.cbl"
+);

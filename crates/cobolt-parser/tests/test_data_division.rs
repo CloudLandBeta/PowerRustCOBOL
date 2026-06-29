@@ -21,17 +21,23 @@ fn with_data(data_src: &str) -> String {
 fn parse_data(data_src: &str) -> cobolt_ast::program::DataDivision {
     let code = with_data(data_src);
     let result = parse(tokenize(&code, SourceFormat::Free));
-    assert!(result.diagnostics.is_empty(), "Diagnostics: {:?}", result.diagnostics);
-    result.program.unwrap().data.expect("expected DATA DIVISION")
+    assert!(
+        result.diagnostics.is_empty(),
+        "Diagnostics: {:?}",
+        result.diagnostics
+    );
+    result
+        .program
+        .unwrap()
+        .data
+        .expect("expected DATA DIVISION")
 }
 
 // ── Working-storage basics ────────────────────────────────────────────────────
 
 #[test]
 fn working_storage_simple() {
-    let data = parse_data(
-        "DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-NAME PIC X(30).\n",
-    );
+    let data = parse_data("DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-NAME PIC X(30).\n");
     assert_eq!(data.sections.len(), 1);
     if let DataSection::WorkingStorage(items) = &data.sections[0] {
         assert_eq!(items.len(), 1);
@@ -46,9 +52,7 @@ fn working_storage_simple() {
 
 #[test]
 fn working_storage_numeric() {
-    let data = parse_data(
-        "DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-AMT PIC 9(7)V99.\n",
-    );
+    let data = parse_data("DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-AMT PIC 9(7)V99.\n");
     if let DataSection::WorkingStorage(items) = &data.sections[0] {
         let pic = items[0].picture.as_ref().unwrap();
         assert_eq!(pic.kind, PicKind::Numeric);
@@ -60,9 +64,8 @@ fn working_storage_numeric() {
 
 #[test]
 fn usage_comp3() {
-    let data = parse_data(
-        "DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-AMT PIC S9(7)V99 COMP-3.\n",
-    );
+    let data =
+        parse_data("DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-AMT PIC S9(7)V99 COMP-3.\n");
     if let DataSection::WorkingStorage(items) = &data.sections[0] {
         assert_eq!(items[0].usage, Usage::Comp3);
     } else {
@@ -72,9 +75,7 @@ fn usage_comp3() {
 
 #[test]
 fn filler_item() {
-    let data = parse_data(
-        "DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 FILLER PIC X(10).\n",
-    );
+    let data = parse_data("DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 FILLER PIC X(10).\n");
     if let DataSection::WorkingStorage(items) = &data.sections[0] {
         assert!(items[0].name.is_none(), "FILLER should have no name");
     } else {
@@ -102,9 +103,8 @@ fn group_item_tree() {
 
 #[test]
 fn value_clause() {
-    let data = parse_data(
-        "DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-FLAG PIC X VALUE 'N'.\n",
-    );
+    let data =
+        parse_data("DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 WS-FLAG PIC X VALUE 'N'.\n");
     if let DataSection::WorkingStorage(items) = &data.sections[0] {
         assert!(items[0].value.is_some(), "expected VALUE clause");
     } else {
@@ -152,9 +152,7 @@ fn multiple_sections() {
 
 #[test]
 fn level_77_item() {
-    let data = parse_data(
-        "DATA DIVISION.\nWORKING-STORAGE SECTION.\n77 WS-SWITCH PIC X.\n",
-    );
+    let data = parse_data("DATA DIVISION.\nWORKING-STORAGE SECTION.\n77 WS-SWITCH PIC X.\n");
     if let DataSection::WorkingStorage(items) = &data.sections[0] {
         assert_eq!(items[0].level, 77);
     } else {

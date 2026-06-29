@@ -17,12 +17,12 @@
 mod app;
 pub mod docs_embed;
 pub mod file_dialog;
-pub mod pdf_export;
 pub mod fonts;
 pub mod form_runtime;
 pub mod i18n;
 pub mod llm;
 mod panels;
+pub mod pdf_export;
 mod project_model;
 mod runner;
 pub mod theme;
@@ -53,7 +53,7 @@ fn main() -> eframe::Result<()> {
             .with_app_id(&ide_title)
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([800.0, 500.0])
-            .with_transparent(true)          // let desktop wallpaper bleed through
+            .with_transparent(true) // let desktop wallpaper bleed through
             .with_icon(load_icon()),
         ..Default::default()
     };
@@ -81,7 +81,11 @@ fn load_icon() -> egui::IconData {
         env!("CARGO_MANIFEST_DIR"),
         "/../../assets/images/powerrustcobol-icon.png"
     )))
-    .unwrap_or(egui::IconData { rgba: vec![0, 0, 0, 0], width: 1, height: 1 })
+    .unwrap_or(egui::IconData {
+        rgba: vec![0, 0, 0, 0],
+        width: 1,
+        height: 1,
+    })
 }
 
 /// Decode image bytes into an `egui::IconData` (RGBA, resized to 256×256).
@@ -91,5 +95,9 @@ fn decode_icon(bytes: &[u8]) -> Option<egui::IconData> {
         .resize_exact(256, 256, image::imageops::FilterType::Lanczos3)
         .into_rgba8();
     let (w, h) = img.dimensions();
-    Some(egui::IconData { rgba: img.into_raw(), width: w, height: h })
+    Some(egui::IconData {
+        rgba: img.into_raw(),
+        width: w,
+        height: h,
+    })
 }

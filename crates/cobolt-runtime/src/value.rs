@@ -58,7 +58,9 @@ fn umul128(a: u128, b: u128) -> (u128, u128) {
     let (mid, carry_mid) = lh.overflowing_add(hl);
     let mut hi = hh + (mid >> 64) + if carry_mid { 1u128 << 64 } else { 0 };
     let (lo, carry_lo) = ll.overflowing_add(mid << 64);
-    if carry_lo { hi += 1; }
+    if carry_lo {
+        hi += 1;
+    }
     (hi, lo)
 }
 
@@ -84,7 +86,10 @@ impl CobolNumeric {
 
     /// Construct from an integer (no decimal places).
     pub fn integer(n: i64) -> Self {
-        Self { mantissa: n as i128, decimals: 0 }
+        Self {
+            mantissa: n as i128,
+            decimals: 0,
+        }
     }
 
     /// Convert to `f64` for display / EXEC RUST interop. Lossy for >15-digit
@@ -153,7 +158,9 @@ impl CobolNumeric {
     /// Divide using exact integer math, producing a quotient carried to enough
     /// guard digits that the receiving field's truncation/rounding is correct.
     pub fn div(&self, other: &CobolNumeric) -> Option<CobolNumeric> {
-        if other.mantissa == 0 { return None; }
+        if other.mantissa == 0 {
+            return None;
+        }
         // Working fractional precision (guard digits); the receiving field
         // rescales to its own PIC on assignment.
         let dr = self.decimals.max(other.decimals).saturating_add(9).min(31);
@@ -179,7 +186,11 @@ impl CobolNumeric {
     pub fn integer_digit_count(&self) -> u32 {
         let p = pow10(self.decimals as u32).unwrap_or(1);
         let int_part = (self.mantissa / p).unsigned_abs();
-        if int_part == 0 { 0 } else { int_part.to_string().len() as u32 }
+        if int_part == 0 {
+            0
+        } else {
+            int_part.to_string().len() as u32
+        }
     }
 
     /// Return this value rounded (half away from zero) to `scale` decimal places.
@@ -188,11 +199,18 @@ impl CobolNumeric {
             return CobolNumeric::new(self.rescaled_to(scale), scale);
         }
         let drop = (self.decimals - scale) as u32;
-        let divisor = match pow10(drop) { Some(d) => d, None => return CobolNumeric::new(0, scale) };
+        let divisor = match pow10(drop) {
+            Some(d) => d,
+            None => return CobolNumeric::new(0, scale),
+        };
         let q = self.mantissa / divisor;
         let rem = (self.mantissa % divisor).abs();
         // Round half away from zero.
-        let bump = if rem * 2 >= divisor { self.mantissa.signum() } else { 0 };
+        let bump = if rem * 2 >= divisor {
+            self.mantissa.signum()
+        } else {
+            0
+        };
         CobolNumeric::new(q + bump, scale)
     }
 
@@ -233,7 +251,9 @@ impl fmt::Display for CobolNumeric {
 /// number of fractional digits as the scale. Returns `None` if not numeric.
 pub fn parse_decimal(s: &str) -> Option<CobolNumeric> {
     let t = s.trim();
-    if t.is_empty() { return None; }
+    if t.is_empty() {
+        return None;
+    }
     let (neg, body) = if let Some(r) = t.strip_prefix('-') {
         (true, r)
     } else {
@@ -251,7 +271,9 @@ pub fn parse_decimal(s: &str) -> Option<CobolNumeric> {
         return None;
     }
     let mut mantissa: i128 = digits.parse().ok()?;
-    if neg { mantissa = -mantissa; }
+    if neg {
+        mantissa = -mantissa;
+    }
     Some(CobolNumeric::new(mantissa, frac_s.len() as u8))
 }
 
@@ -268,10 +290,7 @@ pub enum CobolValue {
 
     /// An alphanumeric value stored as fixed-width bytes (padded with spaces).
     /// The `capacity` is the declared PIC X(n) width.
-    String {
-        bytes: Vec<u8>,
-        capacity: usize,
-    },
+    String { bytes: Vec<u8>, capacity: usize },
 
     /// Uninitialized / default value (before VALUE clause is applied).
     Unset,
@@ -324,7 +343,7 @@ impl CobolValue {
                     .unwrap_or(0);
                 Some(int_part as i64)
             }
-            CobolValue::Float(f)  => Some(*f as i64),
+            CobolValue::Float(f) => Some(*f as i64),
             CobolValue::String { bytes, .. } => {
                 let s = String::from_utf8_lossy(bytes);
                 s.trim().parse().ok()
@@ -337,7 +356,7 @@ impl CobolValue {
     pub fn as_f64(&self) -> f64 {
         match self {
             CobolValue::Numeric(n) => n.to_f64(),
-            CobolValue::Float(f)   => *f,
+            CobolValue::Float(f) => *f,
             CobolValue::String { bytes, .. } => {
                 String::from_utf8_lossy(bytes).trim().parse().unwrap_or(0.0)
             }
@@ -348,11 +367,9 @@ impl CobolValue {
     /// Convert to a display string (space-padded or decimal-formatted).
     pub fn as_display_string(&self) -> String {
         match self {
-            CobolValue::Numeric(n)           => n.to_string(),
-            CobolValue::Float(f)             => f.to_string(),
-            CobolValue::String { bytes, .. } => {
-                String::from_utf8_lossy(bytes).into_owned()
-            }
+            CobolValue::Numeric(n) => n.to_string(),
+            CobolValue::Float(f) => f.to_string(),
+            CobolValue::String { bytes, .. } => String::from_utf8_lossy(bytes).into_owned(),
             CobolValue::Unset => String::new(),
         }
     }
@@ -366,10 +383,8 @@ impl CobolValue {
     pub fn is_zero(&self) -> bool {
         match self {
             CobolValue::Numeric(n) => n.mantissa == 0,
-            CobolValue::Float(f)   => *f == 0.0,
-            CobolValue::String { bytes, .. } => {
-                bytes.iter().all(|&b| b == b' ' || b == b'0')
-            }
+            CobolValue::Float(f) => *f == 0.0,
+            CobolValue::String { bytes, .. } => bytes.iter().all(|&b| b == b' ' || b == b'0'),
             CobolValue::Unset => true,
         }
     }
@@ -381,10 +396,8 @@ impl CobolValue {
     pub fn as_exact(&self) -> Option<CobolNumeric> {
         match self {
             CobolValue::Numeric(n) => Some(n.clone()),
-            CobolValue::Unset      => Some(CobolNumeric::integer(0)),
-            CobolValue::String { bytes, .. } => {
-                parse_decimal(&String::from_utf8_lossy(bytes))
-            }
+            CobolValue::Unset => Some(CobolNumeric::integer(0)),
+            CobolValue::String { bytes, .. } => parse_decimal(&String::from_utf8_lossy(bytes)),
             CobolValue::Float(_) => None,
         }
     }
@@ -419,7 +432,11 @@ impl CobolValue {
             (Some(a), Some(b)) => a.div(&b).map(CobolValue::Numeric),
             _ => {
                 let d = other.as_f64();
-                if d == 0.0 { None } else { Some(CobolValue::Float(self.as_f64() / d)) }
+                if d == 0.0 {
+                    None
+                } else {
+                    Some(CobolValue::Float(self.as_f64() / d))
+                }
             }
         }
     }
@@ -448,7 +465,13 @@ impl CobolValue {
                 *dst = *src;
             }
             // String ← String
-            (CobolValue::String { bytes: dst, capacity }, CobolValue::String { bytes: src, .. }) => {
+            (
+                CobolValue::String {
+                    bytes: dst,
+                    capacity,
+                },
+                CobolValue::String { bytes: src, .. },
+            ) => {
                 let cap = *capacity;
                 dst.clear();
                 dst.extend_from_slice(src);
@@ -456,7 +479,13 @@ impl CobolValue {
                 dst.resize(cap, b' ');
             }
             // String ← Numeric (right-justify)
-            (CobolValue::String { bytes: dst, capacity }, CobolValue::Numeric(src)) => {
+            (
+                CobolValue::String {
+                    bytes: dst,
+                    capacity,
+                },
+                CobolValue::Numeric(src),
+            ) => {
                 let cap = *capacity;
                 let s = src.to_string();
                 let sb = s.as_bytes();
@@ -479,7 +508,7 @@ impl CobolValue {
             // or spaces (alphanumeric). It must NOT propagate Unset, or the
             // receiving field would silently swallow every later MOVE.
             (CobolValue::Numeric(dst), CobolValue::Unset) => dst.mantissa = 0,
-            (CobolValue::Float(dst), CobolValue::Unset)   => *dst = 0.0,
+            (CobolValue::Float(dst), CobolValue::Unset) => *dst = 0.0,
             (CobolValue::String { bytes, .. }, CobolValue::Unset) => bytes.fill(b' '),
             _ => {} // best-effort for edge cases
         }
@@ -502,14 +531,23 @@ impl CobolValue {
         if capacity == 0 {
             Self::Numeric(CobolNumeric::integer(0))
         } else {
-            Self::String { bytes: vec![b'0'; capacity], capacity }
+            Self::String {
+                bytes: vec![b'0'; capacity],
+                capacity,
+            }
         }
     }
     pub fn figurative_high_values(capacity: usize) -> Self {
-        Self::String { bytes: vec![0xFF; capacity], capacity }
+        Self::String {
+            bytes: vec![0xFF; capacity],
+            capacity,
+        }
     }
     pub fn figurative_low_values(capacity: usize) -> Self {
-        Self::String { bytes: vec![0x00; capacity], capacity }
+        Self::String {
+            bytes: vec![0x00; capacity],
+            capacity,
+        }
     }
 }
 
@@ -520,7 +558,7 @@ mod tests {
     #[test]
     fn numeric_add() {
         let a = CobolNumeric::new(1000, 2); // 10.00
-        let b = CobolNumeric::new(250,  2); //  2.50
+        let b = CobolNumeric::new(250, 2); //  2.50
         let c = a.add(&b);
         assert_eq!(c.mantissa, 1250);
         assert_eq!(c.decimals, 2);
@@ -530,7 +568,7 @@ mod tests {
     #[test]
     fn numeric_div() {
         let a = CobolNumeric::new(1000, 2); // 10.00
-        let b = CobolNumeric::new(4,    0); //  4
+        let b = CobolNumeric::new(4, 0); //  4
         let c = a.div(&b).unwrap();
         assert!((c.to_f64() - 2.5).abs() < 1e-6);
     }
@@ -574,7 +612,9 @@ mod tests {
     #[test]
     fn divide_truncates_to_guard_then_field() {
         // 10 / 3 carried to guard digits, then rescaled (truncating) to 4 places.
-        let q = CobolNumeric::integer(10).div(&CobolNumeric::integer(3)).unwrap();
+        let q = CobolNumeric::integer(10)
+            .div(&CobolNumeric::integer(3))
+            .unwrap();
         let mut field = CobolNumeric::new(0, 4);
         field.mantissa = q.rescaled_to(4);
         assert_eq!(field.to_string(), "3.3333");

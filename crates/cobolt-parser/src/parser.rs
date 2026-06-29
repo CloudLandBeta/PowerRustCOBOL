@@ -6,15 +6,15 @@
 
 //! Core [`Parser`] struct and token-cursor API.
 
-use cobolt_lexer::{Span, SpannedToken, Token};
 use cobolt_ast::program::{
     AccessMode, AlternateKey, EnvironmentDivision, FileControl, FileOrganization,
     InputOutputSection, StorageMode,
 };
+use cobolt_lexer::{Span, SpannedToken, Token};
 
+use crate::data::parse_data_division;
 use crate::error::{Diagnostic, ParseResult, Severity};
 use crate::identification::parse_identification_division;
-use crate::data::parse_data_division;
 use crate::procedure::parse_procedure_division;
 
 // ── Parser ────────────────────────────────────────────────────────────────────
@@ -55,12 +55,18 @@ impl Parser {
 
     /// Current token (does not advance).
     pub(crate) fn peek(&self) -> &Token {
-        self.tokens.get(self.pos).map(|st| &st.token).unwrap_or(&Token::Eof)
+        self.tokens
+            .get(self.pos)
+            .map(|st| &st.token)
+            .unwrap_or(&Token::Eof)
     }
 
     /// Span of the current token.
     pub(crate) fn peek_span(&self) -> Span {
-        self.tokens.get(self.pos).map(|st| st.span).unwrap_or(Span::dummy())
+        self.tokens
+            .get(self.pos)
+            .map(|st| st.span)
+            .unwrap_or(Span::dummy())
     }
 
     /// Look N tokens ahead (0 = current).
@@ -173,10 +179,7 @@ impl Parser {
     /// Consume a `Period` or emit a warning if missing.
     pub(crate) fn expect_period(&mut self) {
         if !self.eat(&Token::Period) {
-            self.emit_warning(format!(
-                "expected '.', found {:?}",
-                self.peek()
-            ));
+            self.emit_warning(format!("expected '.', found {:?}", self.peek()));
         }
     }
 
@@ -443,8 +446,11 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                 // but capture `DECIMAL-POINT IS COMMA` from SPECIAL-NAMES.
                 while !matches!(
                     p.peek(),
-                    Token::InputOutput | Token::Data | Token::Procedure
-                        | Token::Identification | Token::Eof
+                    Token::InputOutput
+                        | Token::Data
+                        | Token::Procedure
+                        | Token::Identification
+                        | Token::Eof
                 ) {
                     let ident = if let Token::Identifier(s) = p.peek() {
                         Some(s.clone())
@@ -475,7 +481,8 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                                 String::new()
                             };
                             p.eat(&Token::Is); // optional IS
-                            if matches!(p.peek(), Token::Identifier(a) if a.eq_ignore_ascii_case("AS")) {
+                            if matches!(p.peek(), Token::Identifier(a) if a.eq_ignore_ascii_case("AS"))
+                            {
                                 p.advance(); // optional AS
                             }
                             if let Token::StringLiteral(ext) = p.peek() {
@@ -486,7 +493,9 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                                 p.advance();
                             }
                         }
-                        _ => { p.advance(); }
+                        _ => {
+                            p.advance();
+                        }
                     }
                 }
             }
@@ -506,13 +515,22 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         }
                     }
                 }
-                input_output = Some(InputOutputSection { file_controls, span: io_span });
+                input_output = Some(InputOutputSection {
+                    file_controls,
+                    span: io_span,
+                });
             }
-            _ => { p.advance(); }
+            _ => {
+                p.advance();
+            }
         }
     }
 
-    Some(EnvironmentDivision { configuration: None, input_output, span })
+    Some(EnvironmentDivision {
+        configuration: None,
+        input_output,
+        span,
+    })
 }
 
 /// True if the token is the `COMPRESSION` word of a `WITH COMPRESSION` clause.
@@ -531,7 +549,9 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
 
     // Optional OPTIONAL keyword (no dedicated token).
     if let Token::Identifier(w) = p.peek() {
-        if w.eq_ignore_ascii_case("OPTIONAL") { p.advance(); }
+        if w.eq_ignore_ascii_case("OPTIONAL") {
+            p.advance();
+        }
     }
 
     let name = p.expect_identifier("file name in SELECT");
@@ -569,8 +589,11 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                         && (is_compression(p.peek_at(1)) || is_persistence(p.peek_at(1)))
                     {
                         p.advance(); // WITH
-                        if is_compression(p.peek()) { data_compressing = true; }
-                        else { persist = true; }
+                        if is_compression(p.peek()) {
+                            data_compressing = true;
+                        } else {
+                            persist = true;
+                        }
                         p.advance(); // COMPRESSION | PERSISTENCE
                     }
                     continue;
@@ -590,7 +613,10 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                                 with_duplicates = true;
                             }
                         }
-                        alternate_keys.push(AlternateKey { field, with_duplicates });
+                        alternate_keys.push(AlternateKey {
+                            field,
+                            with_duplicates,
+                        });
                     }
                     continue;
                 }
@@ -601,8 +627,11 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         // clause); the file uses the default storage backend with that option on.
         if p.at(&Token::With) && (is_compression(p.peek_at(1)) || is_persistence(p.peek_at(1))) {
             p.advance(); // WITH
-            if is_compression(p.peek()) { data_compressing = true; }
-            else { persist = true; }
+            if is_compression(p.peek()) {
+                data_compressing = true;
+            } else {
+                persist = true;
+            }
             p.advance(); // COMPRESSION | PERSISTENCE
             continue;
         }
@@ -636,9 +665,13 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                 p.advance();
                 p.eat(&Token::Mode);
                 p.eat(&Token::Is);
-                if p.eat(&Token::Sequential) { access = AccessMode::Sequential; }
-                else if p.eat(&Token::Random) { access = AccessMode::Random; }
-                else if p.eat(&Token::Dynamic) { access = AccessMode::Dynamic; }
+                if p.eat(&Token::Sequential) {
+                    access = AccessMode::Sequential;
+                } else if p.eat(&Token::Random) {
+                    access = AccessMode::Random;
+                } else if p.eat(&Token::Dynamic) {
+                    access = AccessMode::Dynamic;
+                }
             }
             // FILE STATUS [IS] data-name
             Token::File => {
@@ -668,7 +701,9 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                     }
                 }
             }
-            _ => { p.advance(); }
+            _ => {
+                p.advance();
+            }
         }
     }
     p.expect_period();

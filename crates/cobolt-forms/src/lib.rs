@@ -21,13 +21,13 @@
 //! </Form>
 //! ```
 
-pub mod model;
-pub mod menu;
+pub mod containers;
 pub mod icons;
-pub mod xml;
+pub mod menu;
+pub mod model;
 pub mod theme;
 pub mod theme_pack;
-pub mod containers;
+pub mod xml;
 
 pub use model::{Control, ControlType, EventBinding, Form, PropValue, Rect};
 pub use xml::{load_form, load_form_from_str, save_form, FormError};

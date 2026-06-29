@@ -10,7 +10,7 @@ use std::path::Path;
 
 use cobolt_indexed::{IndexedDefinition, RecordFormatDef, StorageMode};
 
-use crate::indexed::{IndexedFile, IndexedFileInfo, KeySpec, OpenMode, ReadDir, status};
+use crate::indexed::{status, IndexedFile, IndexedFileInfo, KeySpec, OpenMode, ReadDir};
 
 /// Schema comparison result for drift detection (R26).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,11 +59,21 @@ pub fn compare_schema(def: &IndexedDefinition, info: &IndexedFileInfo) -> Schema
 
 /// Build runtime key specs from a definition.
 pub fn key_specs_from_def(def: &IndexedDefinition) -> (KeySpec, Vec<KeySpec>) {
-    let primary = def.keys.primary.parts.first().map(|p| KeySpec {
-        offset: p.offset as usize,
-        len: p.length as usize,
-        duplicates: false,
-    }).unwrap_or(KeySpec { offset: 0, len: 1, duplicates: false });
+    let primary = def
+        .keys
+        .primary
+        .parts
+        .first()
+        .map(|p| KeySpec {
+            offset: p.offset as usize,
+            len: p.length as usize,
+            duplicates: false,
+        })
+        .unwrap_or(KeySpec {
+            offset: 0,
+            len: 1,
+            duplicates: false,
+        });
     let alternates: Vec<KeySpec> = def
         .keys
         .alternates
@@ -158,7 +168,9 @@ impl GridSession {
         let key = &row[self.primary_offset..end];
         let (_, st) = self.file.read_key(key);
         if st != status::OK {
-            return Err(format!("Could not position on row {index}: FILE STATUS {st}"));
+            return Err(format!(
+                "Could not position on row {index}: FILE STATUS {st}"
+            ));
         }
         Ok(())
     }

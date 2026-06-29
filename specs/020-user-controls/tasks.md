@@ -10,7 +10,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
 
 ## Layer 1: Clipboard & Deletion Confirmation
 
-- [ ] **T1 — Deletion confirmation dialog** (R29, R30)
+- [x] **T1 — Deletion confirmation dialog** (R29, R30)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`,
     `crates/cobolt-ide/src/i18n.rs`
   - Do: Modify `delete_selected()` to count controls and event handlers with
@@ -24,14 +24,14 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     with event handlers → dialog appears. Delete a control without handlers →
     no dialog, deletes immediately. **Covers AC12, AC15, AC18.**
 
-- [ ] **T2 — DesignerClipboard struct on CoboltApp** (R28)
+- [x] **T2 — DesignerClipboard struct on CoboltApp** (R28)
   - Files: `crates/cobolt-ide/src/app.rs`
   - Do: Add `DesignerClipboard` struct with `controls: Vec<cobolt_forms::Control>`
     and `source_form: String`. Add a `clipboard: Option<DesignerClipboard>`
     field on `CoboltApp`. This enables cross-form paste.
   - Verify: `cargo check -p cobolt-ide` green.
 
-- [ ] **T3 — Copy selected controls (Cmd+C)** (R22, R26)
+- [x] **T3 — Copy selected controls (Cmd+C)** (R22, R26)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`,
     `crates/cobolt-ide/src/app.rs`
   - Do: Add `copy_selected()` on `DesignerPanel`: clone selected controls +
@@ -42,7 +42,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. Launch IDE → select a Button →
     Cmd+C → no visible change (clipboard populated internally).
 
-- [ ] **T4 — Paste from clipboard (Cmd+V)** (R24, R26, R27, R28)
+- [x] **T4 — Paste from clipboard (Cmd+V)** (R24, R26, R27, R28)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`,
     `crates/cobolt-ide/src/app.rs`
   - Do: Add `paste_from_clipboard()` on `DesignerPanel`: read from app's
@@ -54,7 +54,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. Launch IDE → select Button →
     Cmd+C → Cmd+V → new Button at +20,+20 with new ID. **Covers AC13.**
 
-- [ ] **T5 — Paste container with children** (R24)
+- [x] **T5 — Paste container with children** (R24)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`
   - Do: Ensure `paste_from_clipboard()` handles containers: when pasting a
     GroupBox/Panel, all children are pasted with remapped parent IDs. Relative
@@ -63,7 +63,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     children → Cmd+C → Cmd+V → new GroupBox with 3 children, all new IDs,
     positions preserved. **Covers AC14.**
 
-- [ ] **T6 — Cut (Cmd+X)** (R23)
+- [x] **T6 — Cut (Cmd+X)** (R23)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`
   - Do: Add `cut_selected()` = `copy_selected()` + `delete_selected()` (which
     now shows confirmation if handlers exist). Wire Cmd+X. Add i18n string:
@@ -72,14 +72,14 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     Cmd+X → confirmation dialog → Confirm → Button removed, clipboard has it.
     **Covers AC15.**
 
-- [ ] **T7 — Duplicate (Cmd+D)** (R25)
+- [x] **T7 — Duplicate (Cmd+D)** (R25)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`
   - Do: Add `duplicate_selected()` = `copy_selected()` + `paste_from_clipboard()`
     in one step. Wire Cmd+D. Add i18n string: `clipboard_duplicate`.
   - Verify: `cargo check -p cobolt-ide` green. Select Label → Cmd+D →
     duplicate at +20,+20. **Covers AC16.**
 
-- [ ] **T8 — Cross-form paste** (R27, R28)
+- [x] **T8 — Cross-form paste** (R27, R28)
   - Files: `crates/cobolt-ide/src/app.rs`,
     `crates/cobolt-ide/src/panels/designer.rs`
   - Do: Verify that clipboard on CoboltApp persists across form switches.
@@ -90,7 +90,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
 
 ## Layer 2: User Control Definition & Persistence
 
-- [ ] **T9 — UserControlDef struct in project model** (R4, R20)
+- [x] **T9 — UserControlDef struct in project model** (R4, R20)
   - Files: `crates/cobolt-ide/src/project_model.rs`
   - Do: Add `UserControlDef { name, width, height, controls: Vec<UserControlEntry> }`
     and `UserControlEntry { id, control_type, x, y, w, h, z_order, properties }`.
@@ -99,7 +99,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. `cargo test -p cobolt-ide --
     lib -- user_control_toml` passes.
 
-- [ ] **T10 — "Create User Control" context menu** (R1, R2, R3)
+- [x] **T10 — "Create User Control" context menu** (R1, R2, R3)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`,
     `crates/cobolt-ide/src/app.rs`,
     `crates/cobolt-ide/src/i18n.rs`
@@ -114,7 +114,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. Right-click GroupBox → "Create
     User Control" → enter name → saved to .toml. **Covers AC1, AC10.**
 
-- [ ] **T11 — Circular reference detection** (R12)
+- [x] **T11 — Circular reference detection** (R12)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`
   - Do: When creating a User Control whose children include controls with a
     `UserControl` property, walk the containment graph to check if the new
@@ -123,7 +123,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. Attempt to create a UC
     containing itself → error. **Covers AC9.**
 
-- [ ] **T12 — Delete User Control definition** (R18)
+- [x] **T12 — Delete User Control definition** (R18)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`,
     `crates/cobolt-ide/src/app.rs`,
     `crates/cobolt-ide/src/i18n.rs`
@@ -137,7 +137,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
 
 ## Layer 3: Toolbox & Deployment
 
-- [ ] **T13 — "User Controls" section in Toolbox** (R5)
+- [x] **T13 — "User Controls" section in Toolbox** (R5)
   - Files: `crates/cobolt-ide/src/panels/toolbox.rs`,
     `crates/cobolt-ide/src/i18n.rs`
   - Do: After the existing categories, add a "User Controls" section that
@@ -147,7 +147,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. Toolbox shows "User Controls"
     section with defined UCs.
 
-- [ ] **T14 — Deploy User Control from Toolbox** (R6, R7, R8, R9, R10)
+- [x] **T14 — Deploy User Control from Toolbox** (R6, R7, R8, R9, R10)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`,
     `crates/cobolt-forms/src/model.rs`
   - Do: When a User Control is dropped from Toolbox: read `UserControlDef`
@@ -159,7 +159,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. Drag UC from Toolbox → controls
     appear with correct IDs and positions. **Covers AC2, AC3.**
 
-- [ ] **T15 — Nested User Control deployment** (R11)
+- [x] **T15 — Nested User Control deployment** (R11)
   - Files: `crates/cobolt-ide/src/panels/designer.rs`
   - Do: When deploying a UC whose children include controls with a
     `UserControl` property, recursively expand nested UCs: read the nested
@@ -170,7 +170,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
 
 ## Layer 4: Properties API & Events
 
-- [ ] **T16 — Grouped child properties in properties panel** (R13)
+- [x] **T16 — Grouped child properties in properties panel** (R13)
   - Files: `crates/cobolt-ide/src/panels/properties.rs`
   - Do: When a control with a `UserControl` property is selected, show a
     collapsible "Child Controls" section in the properties panel. List each
@@ -179,14 +179,14 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-ide` green. Select deployed UC instance →
     properties panel shows grouped child properties. **Covers AC5.**
 
-- [ ] **T17 — Runtime property API (GetProperty/SetProperty)** (R14, R15)
+- [x] **T17 — Runtime property API (GetProperty/SetProperty)** (R14, R15)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: Handle `INVOKE <uc-id> 'GetProperty' USING '<child>.<prop>'`: find
     child control by qualified ID (`{uc-id}-{child}`), read the property.
     Handle `SetProperty` similarly. Wire through the runtime dispatch.
   - Verify: `cargo check -p cobolt-ide` green. **Covers AC6.**
 
-- [ ] **T18 — Qualified event names for child controls** (R16, R17)
+- [x] **T18 — Qualified event names for child controls** (R16, R17)
   - Files: `crates/cobolt-codegen/src/lib.rs`
   - Do: Verify that the codegen's event loop generates WHEN clauses for
     child controls using their full qualified IDs (e.g. `CUSTOMERCARD-1-BUTTON1`).
@@ -199,7 +199,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
 
 ## Finalization
 
-- [ ] **T19 — Docs: developers-guide-en.md User Controls + Clipboard**
+- [x] **T19 — Docs: developers-guide-en.md User Controls + Clipboard**
   - Files: `docs/developers-guide-en.md`
   - Do: Add a "User Controls" section covering: creation from GroupBox,
     Toolbox, deployment, customisation, property API, event handling, nesting,
@@ -211,6 +211,9 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Do: Bump version. Add CHANGELOG entry. Run full `cargo test`. Launch IDE
     and walk through all manual verification steps from plan §6.
   - Verify: `cargo test` all green. All ACs verified manually.
+  - Status: version/changelog updated, full `cargo test` passed, and
+    `cargo run -p cobolt-ide` launched the IDE binary. Manual GUI walkthrough
+    from plan §6 still needs operator verification.
 
 ---
 

@@ -38,8 +38,8 @@
 //! focused  = "button_focused.png"
 //! ```
 
-use std::collections::BTreeMap;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 /// 9-slice insets in pixels: `[left, top, right, bottom]`. Corners are fixed;
 /// edges and centre stretch (so art scales to any control size — R6).
@@ -79,11 +79,11 @@ impl ControlSkin {
     /// The image ref for a given state, falling back to the normal image.
     pub fn image_for(&self, state: ControlState) -> &str {
         let alt = match state {
-            ControlState::Normal   => None,
-            ControlState::Hover    => self.hover.as_deref(),
-            ControlState::Pressed  => self.pressed.as_deref(),
+            ControlState::Normal => None,
+            ControlState::Hover => self.hover.as_deref(),
+            ControlState::Pressed => self.pressed.as_deref(),
             ControlState::Disabled => self.disabled.as_deref(),
-            ControlState::Focused  => self.focused.as_deref(),
+            ControlState::Focused => self.focused.as_deref(),
         };
         alt.unwrap_or(self.image.as_str())
     }
@@ -121,11 +121,16 @@ pub struct ChartStyle {
     pub fill_texture: Option<String>,
 }
 
-fn default_stroke_width() -> f32 { 2.0 }
+fn default_stroke_width() -> f32 {
+    2.0
+}
 
 impl Default for ChartStyle {
     fn default() -> Self {
-        ChartStyle { stroke_width: default_stroke_width(), fill_texture: None }
+        ChartStyle {
+            stroke_width: default_stroke_width(),
+            fill_texture: None,
+        }
     }
 }
 
@@ -186,10 +191,11 @@ pub enum PackError {
 impl std::fmt::Display for PackError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PackError::Io(e)   => write!(f, "theme.toml I/O error: {e}"),
+            PackError::Io(e) => write!(f, "theme.toml I/O error: {e}"),
             PackError::Toml(e) => write!(f, "theme.toml parse error: {e}"),
-            PackError::BadId { dir, id } =>
-                write!(f, "theme pack id {id:?} does not match folder {dir:?}"),
+            PackError::BadId { dir, id } => {
+                write!(f, "theme pack id {id:?} does not match folder {dir:?}")
+            }
         }
     }
 }
@@ -207,9 +213,16 @@ pub fn load_pack(dir: &std::path::Path) -> Result<ThemePack, PackError> {
     let manifest_path = dir.join("theme.toml");
     let src = std::fs::read_to_string(&manifest_path).map_err(PackError::Io)?;
     let manifest = parse_manifest(&src)?;
-    let folder = dir.file_name().and_then(|s| s.to_str()).unwrap_or("").to_owned();
+    let folder = dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_owned();
     if manifest.id.is_empty() || (!folder.is_empty() && manifest.id != folder) {
-        return Err(PackError::BadId { dir: folder, id: manifest.id });
+        return Err(PackError::BadId {
+            dir: folder,
+            id: manifest.id,
+        });
     }
     Ok(ThemePack {
         id: manifest.id.clone(),
@@ -225,7 +238,9 @@ pub fn load_pack(dir: &std::path::Path) -> Result<ThemePack, PackError> {
 #[cfg(feature = "render")]
 pub fn discover_packs(themes_dir: &std::path::Path) -> Vec<ThemePack> {
     let mut packs = Vec::new();
-    let Ok(entries) = std::fs::read_dir(themes_dir) else { return packs };
+    let Ok(entries) = std::fs::read_dir(themes_dir) else {
+        return packs;
+    };
     let mut dirs: Vec<_> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.is_dir())
@@ -279,7 +294,10 @@ slice = [16, 16, 16, 16]
         assert_eq!(m.palette.chart.len(), 4);
         assert_eq!(m.palette.foreground.as_deref(), Some("#dfe7ff"));
         assert_eq!(m.chart_style.stroke_width, 2.5);
-        assert_eq!(m.chart_style.fill_texture.as_deref(), Some("chart_fill.png"));
+        assert_eq!(
+            m.chart_style.fill_texture.as_deref(),
+            Some("chart_fill.png")
+        );
         assert!(m.background.is_some());
 
         let btn = m.controls.get("button").expect("button skin");
@@ -331,11 +349,17 @@ slice = [16, 16, 16, 16]
         }
         let pack = load_pack(&dir).expect("load cobalt-steel");
         assert_eq!(pack.id, "cobalt-steel");
-        assert!(pack.manifest.palette.chart.len() >= 4, "chart palette present");
+        assert!(
+            pack.manifest.palette.chart.len() >= 4,
+            "chart palette present"
+        );
         let btn = pack.control("button").expect("button skin");
         assert!(btn.image_for(ControlState::Hover).contains("hover"));
         // The referenced image files exist on disk.
-        assert!(pack.asset_path(&btn.image).exists(), "button image must exist");
+        assert!(
+            pack.asset_path(&btn.image).exists(),
+            "button image must exist"
+        );
         assert!(pack.manifest.background.is_some());
     }
 }

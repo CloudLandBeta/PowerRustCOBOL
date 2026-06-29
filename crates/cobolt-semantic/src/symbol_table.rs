@@ -144,11 +144,8 @@ impl SymbolTable {
             }
             ProcedureBody::Sections(secs) => {
                 for sec in secs {
-                    let para_names: Vec<String> = sec
-                        .paragraphs
-                        .iter()
-                        .map(|p| p.name.clone())
-                        .collect();
+                    let para_names: Vec<String> =
+                        sec.paragraphs.iter().map(|p| p.name.clone()).collect();
                     for para in &sec.paragraphs {
                         table.paragraphs.insert(
                             para.name.to_ascii_uppercase(),

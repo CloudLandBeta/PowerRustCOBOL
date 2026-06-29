@@ -20,7 +20,7 @@ use indexmap::IndexMap;
 use cobolt_ast::{
     data::{ConditionValue, DataDecl, PicKind, Usage},
     expr::Literal,
-    program::{DataSection, DataDivision},
+    program::{DataDivision, DataSection},
 };
 
 use crate::value::{CobolNumeric, CobolValue};
@@ -188,8 +188,7 @@ impl CobolEnvironment {
         let mut env = Self::new();
         env.decimal_comma = decimal_comma;
         // Pass 1: count every leaf name so we know which need disambiguation.
-        let mut counts: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for section in &data.sections {
             match section {
                 DataSection::WorkingStorage(items)
@@ -222,8 +221,7 @@ impl CobolEnvironment {
                 | DataSection::LocalStorage(items)
                 | DataSection::Linkage(items) => {
                     for decl in items {
-                        let external =
-                            decl.is_external && (decl.level == 1 || decl.level == 77);
+                        let external = decl.is_external && (decl.level == 1 || decl.level == 77);
                         env.init_decl_tracking_external(decl, external);
                     }
                 }
@@ -365,7 +363,9 @@ impl CobolEnvironment {
                     self.renames.insert(name.clone(), covered);
                 }
             }
-            if occ.is_some() { dims.pop(); }
+            if occ.is_some() {
+                dims.pop();
+            }
             return;
         }
 
@@ -380,12 +380,17 @@ impl CobolEnvironment {
                     if let Some(cn) = &c.name {
                         self.cond_names.insert(
                             cn.to_ascii_uppercase(),
-                            CondName { parent: key.clone(), values: c.condition_values.clone() },
+                            CondName {
+                                parent: key.clone(),
+                                values: c.condition_values.clone(),
+                            },
                         );
                     }
                 }
             }
-            let children: Vec<String> = decl.children.iter()
+            let children: Vec<String> = decl
+                .children
+                .iter()
                 .filter(|c| c.level != 88)
                 .filter_map(|c| c.name.as_ref())
                 .map(|n| n.to_ascii_uppercase())
@@ -394,27 +399,47 @@ impl CobolEnvironment {
             // Canonical keys of those children (their path = our path + leaf).
             let mut child_path = quals.clone();
             child_path.push(leaf.clone());
-            let child_keys: Vec<String> =
-                children.iter().map(|c| self.canon_key(c, &child_path)).collect();
-            let index_names: Vec<String> = decl.occurs.as_ref()
-                .map(|o| o.indexed_by.iter().map(|n| n.to_ascii_uppercase()).collect())
+            let child_keys: Vec<String> = children
+                .iter()
+                .map(|c| self.canon_key(c, &child_path))
+                .collect();
+            let index_names: Vec<String> = decl
+                .occurs
+                .as_ref()
+                .map(|o| {
+                    o.indexed_by
+                        .iter()
+                        .map(|n| n.to_ascii_uppercase())
+                        .collect()
+                })
                 .unwrap_or_default();
-            let keys: Vec<(String, bool)> = decl.occurs.as_ref()
-                .map(|o| o.keys.iter()
-                    .map(|(n, asc)| (n.to_ascii_uppercase(), *asc))
-                    .collect())
+            let keys: Vec<(String, bool)> = decl
+                .occurs
+                .as_ref()
+                .map(|o| {
+                    o.keys
+                        .iter()
+                        .map(|(n, asc)| (n.to_ascii_uppercase(), *asc))
+                        .collect()
+                })
                 .unwrap_or_default();
-            self.symbols.insert(key.clone(), ItemSym {
-                dims: dims.clone(),
-                children,
-                child_keys,
-                quals: quals.clone(),
-                is_group: !decl.children.is_empty(),
-                index_names: index_names.clone(),
-                occurs: occ.unwrap_or(0),
-                keys,
-            });
-            self.by_leaf.entry(leaf.clone()).or_default().push(key.clone());
+            self.symbols.insert(
+                key.clone(),
+                ItemSym {
+                    dims: dims.clone(),
+                    children,
+                    child_keys,
+                    quals: quals.clone(),
+                    is_group: !decl.children.is_empty(),
+                    index_names: index_names.clone(),
+                    occurs: occ.unwrap_or(0),
+                    keys,
+                },
+            );
+            self.by_leaf
+                .entry(leaf.clone())
+                .or_default()
+                .push(key.clone());
             // Record elementary (leaf) items in declaration order for 66 RENAMES.
             if decl.children.is_empty() {
                 self.elem_order.push(key.clone());
@@ -425,7 +450,9 @@ impl CobolEnvironment {
             // Register INDEXED BY index registers as numeric items (default 1).
             for ix in &index_names {
                 self.field_caps.insert(ix.clone(), (9, 0));
-                self.store.entry(ix.clone()).or_insert_with(|| CobolValue::from_i64(1));
+                self.store
+                    .entry(ix.clone())
+                    .or_insert_with(|| CobolValue::from_i64(1));
             }
             quals.push(leaf);
         }
@@ -449,7 +476,12 @@ impl CobolEnvironment {
     fn insert_value(&mut self, upper: &str, decl: &DataDecl) {
         if let Some(pic) = &decl.picture {
             if pic.kind == PicKind::NumericEdited {
-                self.init_edited(upper, &pic.template, decl.value.as_ref(), decl.blank_when_zero);
+                self.init_edited(
+                    upper,
+                    &pic.template,
+                    decl.value.as_ref(),
+                    decl.blank_when_zero,
+                );
                 return;
             }
         }
@@ -463,7 +495,8 @@ impl CobolEnvironment {
             if pic.kind == PicKind::Numeric {
                 let int_digits = pic.digits.min(u8::MAX as u16) as u8;
                 let decimals = pic.decimals.min(u8::MAX as u16) as u8;
-                self.field_caps.insert(upper.to_string(), (int_digits, decimals));
+                self.field_caps
+                    .insert(upper.to_string(), (int_digits, decimals));
             }
         }
         self.store.insert(upper.to_string(), value);
@@ -473,12 +506,18 @@ impl CobolEnvironment {
 
     /// OCCURS dimensions of a (table) item; empty for a non-table item.
     pub fn dims_of(&self, name: &str) -> Vec<usize> {
-        self.symbols.get(&name.to_ascii_uppercase()).map(|s| s.dims.clone()).unwrap_or_default()
+        self.symbols
+            .get(&name.to_ascii_uppercase())
+            .map(|s| s.dims.clone())
+            .unwrap_or_default()
     }
 
     /// Immediate child item names of a group (for CORRESPONDING).
     pub fn children_of(&self, name: &str) -> Vec<String> {
-        self.symbols.get(&name.to_ascii_uppercase()).map(|s| s.children.clone()).unwrap_or_default()
+        self.symbols
+            .get(&name.to_ascii_uppercase())
+            .map(|s| s.children.clone())
+            .unwrap_or_default()
     }
 
     /// The symbol-table entry for an item, if declared.
@@ -506,7 +545,9 @@ impl CobolEnvironment {
 
     /// The storage key an address id points at (`None` for NULL / unknown).
     pub fn addr_target(&self, id: i64) -> Option<String> {
-        if id < 1 { return None; }
+        if id < 1 {
+            return None;
+        }
         self.addr_table.get((id - 1) as usize).cloned()
     }
 
@@ -580,7 +621,9 @@ impl CobolEnvironment {
     /// Distribute `s` across the covered items of a RENAMES item by each item's
     /// stored width (left-to-right).
     pub fn set_renames(&mut self, name: &str, s: &str) {
-        let Some(covered) = self.renames.get(&name.to_ascii_uppercase()).cloned() else { return };
+        let Some(covered) = self.renames.get(&name.to_ascii_uppercase()).cloned() else {
+            return;
+        };
         let bytes = s.as_bytes();
         let mut pos = 0usize;
         for k in covered {
@@ -607,7 +650,13 @@ impl CobolEnvironment {
 
     /// Initialise a numeric-edited item: remember its template and store the
     /// edited string form of any VALUE (or spaces when there is none).
-    fn init_edited(&mut self, name: &str, template: &str, value: Option<&Literal>, blank_when_zero: bool) {
+    fn init_edited(
+        &mut self,
+        name: &str,
+        template: &str,
+        value: Option<&Literal>,
+        blank_when_zero: bool,
+    ) {
         let dc = self.decimal_comma;
         let width = crate::numedit::edited_width(template, dc);
         if blank_when_zero {
@@ -619,13 +668,13 @@ impl CobolEnvironment {
                 &crate::numedit::format_edited(template, *n as i128, 0, dc),
                 width,
             ),
-            Some(Literal::Decimal(m, s)) => CobolValue::from_str(
-                &crate::numedit::format_edited(template, *m, *s, dc),
-                width,
-            ),
+            Some(Literal::Decimal(m, s)) => {
+                CobolValue::from_str(&crate::numedit::format_edited(template, *m, *s, dc), width)
+            }
             _ => CobolValue::spaces(width),
         };
-        self.edited_templates.insert(name.to_string(), template.to_string());
+        self.edited_templates
+            .insert(name.to_string(), template.to_string());
         self.store.insert(name.to_string(), v);
     }
 
@@ -647,7 +696,9 @@ impl CobolEnvironment {
     /// Integer-digit capacity of a numeric field, if known (for ON SIZE ERROR).
     pub fn integer_capacity(&self, name: &str) -> Option<u8> {
         let key = name.to_ascii_uppercase();
-        self.field_caps.get(&key).or_else(|| self.field_caps.get(base_name(&key)))
+        self.field_caps
+            .get(&key)
+            .or_else(|| self.field_caps.get(base_name(&key)))
             .map(|(d, _)| *d)
     }
 
@@ -656,7 +707,10 @@ impl CobolEnvironment {
     /// `None` if the item isn't a plain numeric.
     pub fn deedited_digits(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_uppercase();
-        let (int_digits, _) = *self.field_caps.get(&key).or_else(|| self.field_caps.get(base_name(&key)))?;
+        let (int_digits, _) = *self
+            .field_caps
+            .get(&key)
+            .or_else(|| self.field_caps.get(base_name(&key)))?;
         if let Some(CobolValue::Numeric(n)) = self.get(&key) {
             let total = int_digits as usize + n.decimals as usize;
             let digits = n.mantissa.unsigned_abs().to_string();
@@ -699,8 +753,10 @@ impl CobolEnvironment {
         }
         let val = self.get(&key)?;
         if let CobolValue::Numeric(n) = val {
-            if let Some(&(int_digits, _)) =
-                self.field_caps.get(&key).or_else(|| self.field_caps.get(base_name(&key)))
+            if let Some(&(int_digits, _)) = self
+                .field_caps
+                .get(&key)
+                .or_else(|| self.field_caps.get(base_name(&key)))
             {
                 return Some(format_display_numeric(n, int_digits));
             }
@@ -726,15 +782,14 @@ impl CobolEnvironment {
         if let Some(template) = self.edited_templates.get(base_name(&key)).cloned() {
             // Accept any numeric source (incl. COMP-1/COMP-2 floats) for editing.
             let num = match &value {
-                CobolValue::Float(f) => {
-                    Some(CobolNumeric::new((*f * 1e9_f64).round() as i128, 9))
-                }
+                CobolValue::Float(f) => Some(CobolNumeric::new((*f * 1e9_f64).round() as i128, 9)),
                 other => other.as_exact(),
             };
             if let Some(num) = num {
                 let dc = self.decimal_comma;
                 let width = crate::numedit::edited_width(&template, dc);
-                let edited = if self.blank_when_zero.contains(base_name(&key)) && num.mantissa == 0 {
+                let edited = if self.blank_when_zero.contains(base_name(&key)) && num.mantissa == 0
+                {
                     " ".repeat(width)
                 } else {
                     crate::numedit::format_edited(&template, num.mantissa, num.decimals, dc)
@@ -872,7 +927,11 @@ fn collect_global_items(decl: &DataDecl, out: &mut Vec<(String, CobolValue)>) {
         if let Some(name) = &decl.name {
             let upper = name.to_ascii_uppercase();
             let val = default_value(decl);
-            let val = if let Some(lit) = &decl.value { apply_literal(lit, &val) } else { val };
+            let val = if let Some(lit) = &decl.value {
+                apply_literal(lit, &val)
+            } else {
+                val
+            };
             out.push((upper, val));
         }
         for child in &decl.children {
@@ -935,9 +994,7 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
                 v.assign(&CobolValue::from_i64(*n));
                 v
             }
-            CobolValue::String { capacity, .. } => {
-                CobolValue::from_str(&n.to_string(), *capacity)
-            }
+            CobolValue::String { capacity, .. } => CobolValue::from_str(&n.to_string(), *capacity),
             _ => CobolValue::from_i64(*n),
         },
         Literal::Float(f) => CobolValue::from_f64(*f),
@@ -967,18 +1024,20 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
                 _ => 1,
             };
             match fig {
-                FigurativeConstant::Space     => CobolValue::spaces(cap),
+                FigurativeConstant::Space => CobolValue::spaces(cap),
                 // ZERO must preserve the receiving field's PIC scale — a numeric
                 // field keeps its decimal places (a scale-0 zero would wipe them).
-                FigurativeConstant::Zero      => match default {
+                FigurativeConstant::Zero => match default {
                     CobolValue::Numeric(n) => CobolValue::Numeric(CobolNumeric::new(0, n.decimals)),
-                    CobolValue::String { capacity, .. } =>
-                        CobolValue::String { bytes: vec![b'0'; *capacity], capacity: *capacity },
+                    CobolValue::String { capacity, .. } => CobolValue::String {
+                        bytes: vec![b'0'; *capacity],
+                        capacity: *capacity,
+                    },
                     _ => CobolValue::zero(0),
                 },
                 FigurativeConstant::HighValue => CobolValue::figurative_high_values(cap),
-                FigurativeConstant::LowValue  => CobolValue::figurative_low_values(cap),
-                _                             => default.clone(),
+                FigurativeConstant::LowValue => CobolValue::figurative_low_values(cap),
+                _ => default.clone(),
             }
         }
     }

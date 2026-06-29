@@ -54,6 +54,9 @@ mod tests {
         let root = Path::new("/proj");
         let abs = Path::new("/other/customers.idx");
         assert_eq!(store_path(root, abs), "/other/customers.idx");
-        assert_eq!(resolve_path(root, "/other/customers.idx"), PathBuf::from("/other/customers.idx"));
+        assert_eq!(
+            resolve_path(root, "/other/customers.idx"),
+            PathBuf::from("/other/customers.idx")
+        );
     }
 }

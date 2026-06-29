@@ -48,8 +48,8 @@
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -64,8 +64,9 @@ pub const LICENSE_TEXT: &str = include_str!("../../../LICENSE");
 /// Project NOTICE file.
 pub const NOTICE_TEXT: &str = include_str!("../../../NOTICE");
 /// Short runtime/redistribution notice to ship with user applications.
-pub const RUNTIME_NOTICE_TEXT: &str =
-    include_str!("../../../docs/licensing/PACKAGE_NOTICE_TEMPLATE/POWER_RUST_COBOL_RUNTIME_NOTICE.txt");
+pub const RUNTIME_NOTICE_TEXT: &str = include_str!(
+    "../../../docs/licensing/PACKAGE_NOTICE_TEMPLATE/POWER_RUST_COBOL_RUNTIME_NOTICE.txt"
+);
 
 /// Write `LICENSE`, `NOTICE` and the PowerRustCOBOL runtime notice into `dir`.
 /// Used so distributed binaries/packages carry the required notices.
@@ -109,24 +110,29 @@ pub enum CompilerError {
 
 #[derive(Deserialize)]
 struct ProjectMeta {
-    name:    String,
+    name: String,
     version: String,
-    main:    String,
+    main: String,
 }
 
 #[derive(Deserialize, Default)]
 struct ProjectFiles {
-    #[serde(default)] sources: Vec<String>,
-    #[serde(default)] forms:   Vec<String>,
+    #[serde(default)]
+    sources: Vec<String>,
+    #[serde(default)]
+    forms: Vec<String>,
     /// Bundled binary/data assets (images, audio, fonts, …) — copied next to
     /// the produced binary so they ship with the build.
-    #[serde(default)] assets:  Vec<String>,
+    #[serde(default)]
+    assets: Vec<String>,
     /// Documentation files — also copied next to the binary.
-    #[serde(default)] documentation: Vec<String>,
+    #[serde(default)]
+    documentation: Vec<String>,
     /// Generated COBOL produced from the project's forms. For a form-centric
     /// project with no hand-written main, the first generated program is the
     /// runnable entry point.
-    #[serde(default)] generated: Vec<String>,
+    #[serde(default)]
+    generated: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -151,7 +157,9 @@ fn resolve_main(proj: &CoboltProject, dir: &Path) -> Option<String> {
     if exists(&proj.project.main) {
         return Some(proj.project.main.clone());
     }
-    proj.files.generated.iter()
+    proj.files
+        .generated
+        .iter()
         .chain(proj.files.sources.iter())
         .find(|rel| exists(rel))
         .cloned()
@@ -182,7 +190,11 @@ pub struct BuildOptions {
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        Self { verbose: true, workspace_root: None, progress: None }
+        Self {
+            verbose: true,
+            workspace_root: None,
+            progress: None,
+        }
     }
 }
 
@@ -206,10 +218,12 @@ pub fn build_project(
     manifest_path: &Path,
     opts: &BuildOptions,
 ) -> Result<BuildResult, CompilerError> {
-    if opts.verbose { eprintln!("📖 Reading cobolt.toml …"); }
+    if opts.verbose {
+        eprintln!("📖 Reading cobolt.toml …");
+    }
     let manifest_text = std::fs::read_to_string(manifest_path)?;
-    let proj: CoboltProject = toml::from_str(&manifest_text)
-        .map_err(|e| CompilerError::Toml(e.to_string()))?;
+    let proj: CoboltProject =
+        toml::from_str(&manifest_text).map_err(|e| CompilerError::Toml(e.to_string()))?;
 
     let project_dir = manifest_path
         .canonicalize()?
@@ -242,7 +256,11 @@ pub fn build_single_file(
         .unwrap_or_else(|| "program".to_string());
 
     let proj = CoboltProject {
-        project: ProjectMeta { name, version: "1.0.0".into(), main },
+        project: ProjectMeta {
+            name,
+            version: "1.0.0".into(),
+            main,
+        },
         files: ProjectFiles::default(),
     };
     build_core(proj, project_dir, opts)
@@ -255,20 +273,25 @@ fn build_core(
     opts: &BuildOptions,
 ) -> Result<BuildResult, CompilerError> {
     let log = |msg: &str| {
-        if opts.verbose { eprintln!("{msg}"); }
+        if opts.verbose {
+            eprintln!("{msg}");
+        }
     };
     // Emit a phase milestone: log it (verbose) and stream it to any UI progress bar.
     let report = |fraction: f32, msg: &str| {
-        if opts.verbose { eprintln!("{msg}"); }
+        if opts.verbose {
+            eprintln!("{msg}");
+        }
         if let Some(tx) = &opts.progress {
-            let _ = tx.send(BuildProgress { fraction, message: msg.to_string() });
+            let _ = tx.send(BuildProgress {
+                fraction,
+                message: msg.to_string(),
+            });
         }
     };
 
     report(0.05, "Reading project…");
-    let bin_name = proj.project.name
-        .to_ascii_lowercase()
-        .replace(' ', "_");
+    let bin_name = proj.project.name.to_ascii_lowercase().replace(' ', "_");
 
     // ── 2. Collect all source files ───────────────────────────────────────────
     report(0.10, "Collecting source files…");
@@ -279,14 +302,13 @@ fn build_core(
     // generated form program so the project still builds and runs.
     let main_rel = resolve_main(&proj, &project_dir).ok_or(CompilerError::NoMain)?;
     let main_path = project_dir.join(&main_rel);
-    sources.push((
-        main_rel.clone(),
-        std::fs::read_to_string(&main_path)?,
-    ));
+    sources.push((main_rel.clone(), std::fs::read_to_string(&main_path)?));
 
     // Then the rest of the declared sources (skip main if listed again).
     for rel in &proj.files.sources {
-        if rel == &main_rel { continue; }
+        if rel == &main_rel {
+            continue;
+        }
         let abs = project_dir.join(rel);
         if abs.exists() {
             sources.push((rel.clone(), std::fs::read_to_string(&abs)?));
@@ -297,9 +319,9 @@ fn build_core(
 
     // ── 3. Parse + semantic-check every source ────────────────────────────────
     report(0.25, "Parsing & analysing…");
-    use cobolt_lexer::{SourceFormat, tokenize};
+    use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::parse;
-    use cobolt_semantic::{Severity, analyze};
+    use cobolt_semantic::{analyze, Severity};
 
     // We compile the main source into the primary Program.
     // Additional sources are currently compiled independently and merged via
@@ -312,14 +334,14 @@ fn build_core(
     for d in &parse_result.diagnostics {
         if d.severity == cobolt_parser::Severity::Error {
             return Err(CompilerError::Parse {
-                file:    main_rel.clone(),
+                file: main_rel.clone(),
                 message: d.message.clone(),
             });
         }
     }
 
     let program = parse_result.program.ok_or_else(|| CompilerError::Parse {
-        file:    main_rel.clone(),
+        file: main_rel.clone(),
         message: "Parse produced no program".into(),
     })?;
 
@@ -327,7 +349,7 @@ fn build_core(
     for d in &sem.diagnostics {
         if d.severity == Severity::Error {
             return Err(CompilerError::Semantic {
-                file:    main_rel.clone(),
+                file: main_rel.clone(),
                 message: d.message.clone(),
             });
         }
@@ -335,14 +357,18 @@ fn build_core(
 
     // ── 4. Serialize + compress the AST ──────────────────────────────────────
     report(0.35, "Serialising the program…");
-    let ast_bytes = bincode::serialize(&program)
-        .map_err(|e| CompilerError::Serialize(e.to_string()))?;
+    let ast_bytes =
+        bincode::serialize(&program).map_err(|e| CompilerError::Serialize(e.to_string()))?;
 
     let mut gz = GzEncoder::new(Vec::new(), Compression::best());
     gz.write_all(&ast_bytes).unwrap();
     let compressed_ast = gz.finish()?;
     let ast_compressed_len = compressed_ast.len();
-    log(&format!("   AST: {} bytes → {} bytes compressed", ast_bytes.len(), ast_compressed_len));
+    log(&format!(
+        "   AST: {} bytes → {} bytes compressed",
+        ast_bytes.len(),
+        ast_compressed_len
+    ));
 
     // ── 5. Collect form files ─────────────────────────────────────────────────
     report(0.42, "Collecting forms…");
@@ -350,7 +376,9 @@ fn build_core(
 
     for rel in &proj.files.forms {
         let abs = project_dir.join(rel);
-        if !abs.exists() { continue; }
+        if !abs.exists() {
+            continue;
+        }
         // Form ID = file stem, uppercased (matches COBOL usage)
         let id = abs
             .file_stem()
@@ -365,9 +393,15 @@ fn build_core(
 
     // ── 6. Locate workspace root (where the cobolt-* crates live) ────────────
     let has_crates = |root: &Path| root.join("crates").join("cobolt-ast").is_dir();
-    let workspace_root = opts.workspace_root.clone()
+    let workspace_root = opts
+        .workspace_root
+        .clone()
         // Walk up from the running exe — works when launched from the source tree.
-        .or_else(|| std::env::current_exe().ok().and_then(|p| find_workspace_root(&p)))
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| find_workspace_root(&p))
+        })
         .filter(|p| has_crates(p))
         // Compile-time fallback: the PowerRustCOBOL workspace this compiler was
         // built in. Works when the IDE runs from an installed location (e.g. a
@@ -397,11 +431,10 @@ fn build_core(
 
     // ── 7. Create build staging directory ────────────────────────────────────
     report(0.50, "Preparing build project…");
-    let build_dir = std::env::temp_dir()
-        .join(format!("cobolt-build-{}", &bin_name));
-    let assets_dir  = build_dir.join("assets");
-    let forms_dir   = assets_dir.join("forms");
-    let src_dir     = build_dir.join("src");
+    let build_dir = std::env::temp_dir().join(format!("cobolt-build-{}", &bin_name));
+    let assets_dir = build_dir.join("assets");
+    let forms_dir = assets_dir.join("forms");
+    let src_dir = build_dir.join("src");
     std::fs::create_dir_all(&assets_dir)?;
     std::fs::create_dir_all(&forms_dir)?;
     std::fs::create_dir_all(&src_dir)?;
@@ -416,14 +449,9 @@ fn build_core(
 
     // ── 8. Generate Cargo.toml for the build project ──────────────────────────
     let crates_path = workspace_root.join("crates");
-    let has_forms   = !forms.is_empty();
+    let has_forms = !forms.is_empty();
 
-    let cargo_toml = generate_cargo_toml(
-        &bin_name,
-        &proj.project.version,
-        &crates_path,
-        has_forms,
-    );
+    let cargo_toml = generate_cargo_toml(&bin_name, &proj.project.version, &crates_path, has_forms);
     std::fs::write(build_dir.join("Cargo.toml"), cargo_toml)?;
 
     // ── 9. Generate src/main.rs ───────────────────────────────────────────────
@@ -467,7 +495,7 @@ fn build_core(
     let status = child.wait()?;
     if !status.success() {
         return Err(CompilerError::CargoBuild {
-            code:   status.code().unwrap_or(-1),
+            code: status.code().unwrap_or(-1),
             stderr: captured,
         });
     }
@@ -483,10 +511,7 @@ fn build_core(
         bin_name.clone()
     };
 
-    let src_bin = build_dir
-        .join("target")
-        .join("release")
-        .join(&exe_name);
+    let src_bin = build_dir.join("target").join("release").join(&exe_name);
     let dst_bin = bin_dir.join(&exe_name);
     std::fs::copy(&src_bin, &dst_bin)?;
 
@@ -507,7 +532,12 @@ fn build_core(
     // them by their relative path at runtime. They are copied into `bin/`
     // preserving the project-relative layout (e.g. `bin/assets/logo.png`).
     let mut asset_count = 0usize;
-    for rel in proj.files.assets.iter().chain(proj.files.documentation.iter()) {
+    for rel in proj
+        .files
+        .assets
+        .iter()
+        .chain(proj.files.documentation.iter())
+    {
         let src = project_dir.join(rel);
         if !src.exists() {
             log(&format!("⚠️  Asset not found, skipped: {rel}"));
@@ -521,7 +551,10 @@ fn build_core(
         asset_count += 1;
     }
     if asset_count > 0 {
-        log(&format!("📦 Bundled {asset_count} asset file(s) → {}", bin_dir.display()));
+        log(&format!(
+            "📦 Bundled {asset_count} asset file(s) → {}",
+            bin_dir.display()
+        ));
     }
 
     // Drop the required Apache-2.0 notices next to the binary so the
@@ -532,23 +565,24 @@ fn build_core(
 
     report(1.0, "Done");
     Ok(BuildResult {
-        binary_path:  dst_bin,
+        binary_path: dst_bin,
         source_count: sources.len(),
-        form_count:   forms.len(),
-        ast_bytes:    ast_compressed_len,
+        form_count: forms.len(),
+        ast_bytes: ast_compressed_len,
     })
 }
 
 // ── Code generators ───────────────────────────────────────────────────────────
 
 fn generate_cargo_toml(
-    bin_name:    &str,
-    version:     &str,
+    bin_name: &str,
+    version: &str,
     crates_path: &Path,
-    has_forms:   bool,
+    has_forms: bool,
 ) -> String {
     let cp = crates_path.display();
-    let mut s = format!(r#"[package]
+    let mut s = format!(
+        r#"[package]
 name    = "{bin_name}"
 version = "{version}"
 edition = "2021"
@@ -564,39 +598,34 @@ flate2          = "1"
 bincode         = "1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 tracing         = "0.1"
-"#);
+"#
+    );
 
     if has_forms {
-        s.push_str(&format!(r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
+        s.push_str(&format!(
+            r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
 eframe          = {{ version = "0.29", features = ["default_fonts"] }}
 egui            = "0.29"
 egui_extras     = {{ version = "0.29", features = ["image"] }}
-"#));
+"#
+        ));
     }
 
     s
 }
 
-fn generate_main_rs(
-    app_name:  &str,
-    version:   &str,
-    has_forms: bool,
-    form_ids:  &[&str],
-) -> String {
+fn generate_main_rs(app_name: &str, version: &str, has_forms: bool, form_ids: &[&str]) -> String {
     // Build the FORMS constant entries
-    let forms_entries: String = form_ids.iter().map(|id| {
-        format!(
-            "    (\"{id}\", include_bytes!(\"../assets/forms/{id}.cfrm\")),\n",
-        )
-    }).collect();
+    let forms_entries: String = form_ids
+        .iter()
+        .map(|id| format!("    (\"{id}\", include_bytes!(\"../assets/forms/{id}.cfrm\")),\n",))
+        .collect();
 
     let forms_const = if form_ids.is_empty() {
         "static FORMS: &[(&str, &[u8])] = &[];\n".to_owned()
     } else {
-        format!(
-            "static FORMS: &[(&str, &[u8])] = &[\n{forms_entries}];\n"
-        )
+        format!("static FORMS: &[(&str, &[u8])] = &[\n{forms_entries}];\n")
     };
 
     let form_runtime_code = if has_forms {
@@ -891,9 +920,9 @@ fn run_headless(program: cobolt_ast::program::Program) {{
 {form_runtime_code}
 "#,
         app_name = app_name,
-        version  = version,
+        version = version,
         forms_const = forms_const,
-        run_call    = run_call,
+        run_call = run_call,
         form_runtime_code = form_runtime_code,
     )
 }
@@ -903,8 +932,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
 fn detect_format(source: &str) -> cobolt_lexer::SourceFormat {
     let looks_fixed = source.lines().any(|line| {
         let b = line.as_bytes();
-        b.len() > 6 && b[6] != b' '
-            && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
+        b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
     });
     if looks_fixed {
         cobolt_lexer::SourceFormat::Fixed
@@ -916,7 +944,11 @@ fn detect_format(source: &str) -> cobolt_lexer::SourceFormat {
 /// Walk up the directory tree from `start` looking for a `Cargo.toml` that
 /// contains `[workspace]`.  Returns the directory containing that file.
 fn find_workspace_root(start: &Path) -> Option<PathBuf> {
-    let mut dir = if start.is_file() { start.parent()? } else { start };
+    let mut dir = if start.is_file() {
+        start.parent()?
+    } else {
+        start
+    };
     loop {
         let candidate = dir.join("Cargo.toml");
         if candidate.exists() {
@@ -937,7 +969,10 @@ mod resolve_main_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("prc-resolve-{tag}-{nanos}"));
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -946,7 +981,9 @@ mod resolve_main_tests {
     fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
         CoboltProject {
             project: ProjectMeta {
-                name: "Demo".into(), version: "1.0.0".into(), main: main.into(),
+                name: "Demo".into(),
+                version: "1.0.0".into(),
+                main: main.into(),
             },
             files: ProjectFiles {
                 sources: sources.into_iter().map(String::from).collect(),
@@ -973,7 +1010,10 @@ mod resolve_main_tests {
         fs::create_dir_all(dir.join("generated")).unwrap();
         fs::write(dir.join("generated/power-demo-1.cbl"), "x").unwrap();
         let p = proj("src/main.cbl", vec![], vec!["generated/power-demo-1.cbl"]);
-        assert_eq!(resolve_main(&p, &dir).as_deref(), Some("generated/power-demo-1.cbl"));
+        assert_eq!(
+            resolve_main(&p, &dir).as_deref(),
+            Some("generated/power-demo-1.cbl")
+        );
         fs::remove_dir_all(&dir).ok();
     }
 

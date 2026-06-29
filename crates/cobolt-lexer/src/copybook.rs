@@ -96,7 +96,12 @@ fn scan(s: &str) -> Vec<PTok> {
             } else {
                 i = b.len();
             }
-            toks.push(PTok { kind: PKind::Pseudo, text: inner, start, end: i });
+            toks.push(PTok {
+                kind: PKind::Pseudo,
+                text: inner,
+                start,
+                end: i,
+            });
         } else if c == b'"' || c == b'\'' {
             let quote = c;
             let start = i;
@@ -108,16 +113,31 @@ fn scan(s: &str) -> Vec<PTok> {
             if i < b.len() {
                 i += 1;
             }
-            toks.push(PTok { kind: PKind::Str, text: inner, start, end: i });
+            toks.push(PTok {
+                kind: PKind::Str,
+                text: inner,
+                start,
+                end: i,
+            });
         } else if c == b'.' {
-            toks.push(PTok { kind: PKind::Dot, text: ".".into(), start: i, end: i + 1 });
+            toks.push(PTok {
+                kind: PKind::Dot,
+                text: ".".into(),
+                start: i,
+                end: i + 1,
+            });
             i += 1;
         } else if is_word(c) {
             let start = i;
             while i < b.len() && is_word(b[i]) {
                 i += 1;
             }
-            toks.push(PTok { kind: PKind::Word, text: s[start..i].to_string(), start, end: i });
+            toks.push(PTok {
+                kind: PKind::Word,
+                text: s[start..i].to_string(),
+                start,
+                end: i,
+            });
         } else {
             i += 1;
         }
@@ -153,9 +173,8 @@ fn expand_text(
             out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
             match parse_copy(&toks, i) {
                 Some((name, replacing, end_idx, end_byte)) => {
-                    let copy = load_and_expand(
-                        &name, &replacing, base_dir, format, errors, stack, depth,
-                    );
+                    let copy =
+                        load_and_expand(&name, &replacing, base_dir, format, errors, stack, depth);
                     out.push_str(&apply_pairs(&copy, &active));
                     out.push('\n');
                     prev_end = end_byte;
@@ -309,7 +328,10 @@ fn load_and_expand(
     let replaced = apply_pairs(&flat, replacing);
     // Recursively expand nested COPY/REPLACE inside this copybook.
     stack.push(canon);
-    let child_dir = path.parent().map(Path::to_path_buf).unwrap_or_else(|| base_dir.to_path_buf());
+    let child_dir = path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| base_dir.to_path_buf());
     let expanded = expand_text(&replaced, &child_dir, format, errors, stack, depth + 1);
     stack.pop();
     expanded
@@ -319,7 +341,9 @@ fn load_and_expand(
 /// extensions. Quotes around a literal name are stripped.
 fn resolve(name: &str, base_dir: &Path) -> Option<PathBuf> {
     let name = name.trim_matches(|c| c == '"' || c == '\'');
-    let exts = ["", ".cpy", ".CPY", ".cbl", ".CBL", ".cob", ".COB", ".cpb", ".cobol"];
+    let exts = [
+        "", ".cpy", ".CPY", ".cbl", ".CBL", ".cob", ".COB", ".cpb", ".cobol",
+    ];
     for ext in exts {
         let cand = base_dir.join(format!("{name}{ext}"));
         if cand.is_file() {
@@ -462,6 +486,10 @@ mod tests {
             SourceFormat::Free,
         );
         assert!(r.text.contains("01 BAR PIC X."), "got: {}", r.text);
-        assert!(r.text.contains("01 FOO PIC 9."), "REPLACE OFF should stop rewriting: {}", r.text);
+        assert!(
+            r.text.contains("01 FOO PIC 9."),
+            "REPLACE OFF should stop rewriting: {}",
+            r.text
+        );
     }
 }

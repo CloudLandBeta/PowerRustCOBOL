@@ -14,7 +14,10 @@ use cobolt_runtime::Interpreter;
 fn run_get(src: &str, var: &str) -> String {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
         "parse errors: {:?}",
         result.diagnostics
     );
@@ -113,7 +116,11 @@ fn extend_appends_and_read_loop_counts_all_records() {
     "#,
         path = path
     );
-    assert_eq!(run_get(&src, "WS-N"), "3", "should read all 3 appended records");
+    assert_eq!(
+        run_get(&src, "WS-N"),
+        "3",
+        "should read all 3 appended records"
+    );
     let _ = std::fs::remove_file(&path);
 }
 
@@ -145,7 +152,11 @@ fn open_input_missing_file_sets_status_35() {
     "#,
         path = path
     );
-    assert_eq!(run_get(&src, "WS-FS"), "35", "missing INPUT file → status 35");
+    assert_eq!(
+        run_get(&src, "WS-FS"),
+        "35",
+        "missing INPUT file → status 35"
+    );
 }
 
 #[test]

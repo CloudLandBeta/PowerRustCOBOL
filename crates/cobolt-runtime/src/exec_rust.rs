@@ -40,10 +40,7 @@ use cobolt_ast::stmt::Stmt;
 use cobolt_lexer::Span;
 
 use crate::{
-    environment::CobolEnvironment,
-    error::RuntimeError,
-    objects::ObjectRegistry,
-    value::CobolValue,
+    environment::CobolEnvironment, error::RuntimeError, objects::ObjectRegistry, value::CobolValue,
 };
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -58,7 +55,11 @@ pub fn execute(
     objects: &mut ObjectRegistry,
 ) -> Result<(), RuntimeError> {
     let (source, _referenced_data, span) = match stmt {
-        Stmt::ExecRust { source, referenced_data, span } => (source, referenced_data, *span),
+        Stmt::ExecRust {
+            source,
+            referenced_data,
+            span,
+        } => (source, referenced_data, *span),
         _ => return Ok(()),
     };
 
@@ -78,7 +79,9 @@ pub fn execute(
     // Process each `;`-terminated statement.
     for raw_stmt in clean.split(';') {
         let s = raw_stmt.trim();
-        if s.is_empty() { continue; }
+        if s.is_empty() {
+            continue;
+        }
 
         interpret_statement(s, env, objects, span)?;
     }
@@ -100,9 +103,7 @@ fn interpret_statement(
         if let Some((lhs, rhs)) = src.split_once(op) {
             let name = cobol_name(lhs.trim());
             let rhs_val = eval_expr(rhs.trim(), env, span)?;
-            let lhs_val = env.get(&name)
-                .cloned()
-                .unwrap_or(CobolValue::from_i64(0));
+            let lhs_val = env.get(&name).cloned().unwrap_or(CobolValue::from_i64(0));
             let result = apply_compound(lhs_val, rhs_val, op, span)?;
             env.set(&name, result);
             return Ok(());
@@ -132,11 +133,7 @@ fn interpret_statement(
 
 /// Evaluate a simple expression to a `CobolValue`.
 /// Supports: literals, `*ident` / `ident`, binary `+`, `-`, `*`, `/`, `as i64`.
-fn eval_expr(
-    src: &str,
-    env: &CobolEnvironment,
-    span: Span,
-) -> Result<CobolValue, RuntimeError> {
+fn eval_expr(src: &str, env: &CobolEnvironment, span: Span) -> Result<CobolValue, RuntimeError> {
     let src = src.trim();
 
     // Strip trailing `as i64` / `as f64` casts (no-op at runtime)
@@ -203,7 +200,9 @@ fn try_binary(
                 b if b == *op as u8 && depth == 0 && i > 0 => {
                     let lhs_str = &src[..i];
                     let rhs_str = &src[i + 1..];
-                    if lhs_str.is_empty() || rhs_str.is_empty() { break; }
+                    if lhs_str.is_empty() || rhs_str.is_empty() {
+                        break;
+                    }
                     let lhs = eval_expr(lhs_str, env, span)?;
                     let rhs = eval_expr(rhs_str, env, span)?;
                     let result = match op {
@@ -250,7 +249,9 @@ fn apply_compound(
         "-=" => l - r,
         "*=" => l * r,
         "/=" => {
-            if r == 0.0 { return Err(RuntimeError::DivisionByZero { span }); }
+            if r == 0.0 {
+                return Err(RuntimeError::DivisionByZero { span });
+            }
             l / r
         }
         _ => l,

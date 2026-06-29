@@ -35,12 +35,30 @@ use crate::parser::Parser;
 pub(crate) fn try_parse_figurative(p: &mut Parser) -> Option<(FigurativeConstant, Span)> {
     let span = p.peek_span();
     match p.peek().clone() {
-        Token::Spaces     => { p.advance(); Some((FigurativeConstant::Space,     span)) }
-        Token::Zeros      => { p.advance(); Some((FigurativeConstant::Zero,      span)) }
-        Token::HighValues => { p.advance(); Some((FigurativeConstant::HighValue, span)) }
-        Token::LowValues  => { p.advance(); Some((FigurativeConstant::LowValue,  span)) }
-        Token::Quotes     => { p.advance(); Some((FigurativeConstant::Quote,     span)) }
-        Token::Nulls      => { p.advance(); Some((FigurativeConstant::Null,      span)) }
+        Token::Spaces => {
+            p.advance();
+            Some((FigurativeConstant::Space, span))
+        }
+        Token::Zeros => {
+            p.advance();
+            Some((FigurativeConstant::Zero, span))
+        }
+        Token::HighValues => {
+            p.advance();
+            Some((FigurativeConstant::HighValue, span))
+        }
+        Token::LowValues => {
+            p.advance();
+            Some((FigurativeConstant::LowValue, span))
+        }
+        Token::Quotes => {
+            p.advance();
+            Some((FigurativeConstant::Quote, span))
+        }
+        Token::Nulls => {
+            p.advance();
+            Some((FigurativeConstant::Null, span))
+        }
         // ALL "x"  — Token::All followed by a literal
         Token::All => {
             p.advance();
@@ -59,7 +77,10 @@ pub(crate) fn try_parse_figurative(p: &mut Parser) -> Option<(FigurativeConstant
 fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
     let span = p.peek_span();
     match p.peek().clone() {
-        Token::StringLiteral(s)  => { p.advance(); Some((Literal::String(s),  span)) }
+        Token::StringLiteral(s) => {
+            p.advance();
+            Some((Literal::String(s), span))
+        }
         Token::IntegerLiteral(n) => {
             // Under DECIMAL-POINT IS COMMA, `123,45` is one decimal literal:
             // an integer, an *adjacent* comma, and an *adjacent* integer (no
@@ -68,9 +89,9 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
                 if let (Token::Comma, Token::IntegerLiteral(frac)) =
                     (p.peek_at(1).clone(), p.peek_at(2).clone())
                 {
-                    let int_end   = p.peek_span().end;
-                    let comma_sp  = p.peek_span_at(1);
-                    let frac_sp   = p.peek_span_at(2);
+                    let int_end = p.peek_span().end;
+                    let comma_sp = p.peek_span_at(1);
+                    let frac_sp = p.peek_span_at(2);
                     let adjacent = comma_sp.start == int_end && frac_sp.start == comma_sp.end;
                     if adjacent {
                         // Frac token text was the literal digits after the comma;
@@ -115,7 +136,11 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         p.advance();
         let operand = parse_primary(p)?;
         let sp = span.merge(operand.span());
-        return Some(Expr::Unary { op: UnaryOp::Neg, operand: Box::new(operand), span: sp });
+        return Some(Expr::Unary {
+            op: UnaryOp::Neg,
+            operand: Box::new(operand),
+            span: sp,
+        });
     }
 
     // Unary plus (no-op, kept for source fidelity)
@@ -123,7 +148,11 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         p.advance();
         let operand = parse_primary(p)?;
         let sp = span.merge(operand.span());
-        return Some(Expr::Unary { op: UnaryOp::Pos, operand: Box::new(operand), span: sp });
+        return Some(Expr::Unary {
+            op: UnaryOp::Pos,
+            operand: Box::new(operand),
+            span: sp,
+        });
     }
 
     // Parenthesised expression
@@ -147,7 +176,11 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
             p.expect(&Token::RParen);
         }
         let sp = span.merge(p.peek_span());
-        return Some(Expr::FunctionCall { name, args, span: sp });
+        return Some(Expr::FunctionCall {
+            name,
+            args,
+            span: sp,
+        });
     }
 
     // Figurative constants / literals
@@ -167,10 +200,19 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
             if p.at(&Token::Colon) {
                 // Reference modification: IDENT(start:[length])
                 p.advance();
-                let length = if p.at(&Token::RParen) { None } else { Some(Box::new(parse_expr(p))) };
+                let length = if p.at(&Token::RParen) {
+                    None
+                } else {
+                    Some(Box::new(parse_expr(p)))
+                };
                 p.expect(&Token::RParen);
                 let sp = id_span.merge(p.peek_span());
-                expr = Expr::RefMod { base: Box::new(expr), start: Box::new(first), length, span: sp };
+                expr = Expr::RefMod {
+                    base: Box::new(expr),
+                    start: Box::new(first),
+                    length,
+                    span: sp,
+                };
             } else {
                 // Subscript: IDENT(i[,j…])
                 let mut indices = vec![first];
@@ -179,16 +221,29 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
                 }
                 p.expect(&Token::RParen);
                 let sp = id_span.merge(p.peek_span());
-                expr = Expr::Subscript { base: Box::new(expr), indices, span: sp };
+                expr = Expr::Subscript {
+                    base: Box::new(expr),
+                    indices,
+                    span: sp,
+                };
                 // A reference modification may follow a subscript: t(i)(s:l)
                 if p.at(&Token::LParen) {
                     p.advance();
                     let start = parse_expr(p);
                     p.expect(&Token::Colon);
-                    let length = if p.at(&Token::RParen) { None } else { Some(Box::new(parse_expr(p))) };
+                    let length = if p.at(&Token::RParen) {
+                        None
+                    } else {
+                        Some(Box::new(parse_expr(p)))
+                    };
                     p.expect(&Token::RParen);
                     let sp = id_span.merge(p.peek_span());
-                    expr = Expr::RefMod { base: Box::new(expr), start: Box::new(start), length, span: sp };
+                    expr = Expr::RefMod {
+                        base: Box::new(expr),
+                        start: Box::new(start),
+                        length,
+                        span: sp,
+                    };
                 }
             }
         }
@@ -229,8 +284,8 @@ pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
         let start = base.span();
         p.advance(); // first ':'
         p.advance(); // second ':'
-        // Member name: a bare identifier (preferred) or a quoted string (tolerated
-        // for symmetry with classic INVOKE / older completion output).
+                     // Member name: a bare identifier (preferred) or a quoted string (tolerated
+                     // for symmetry with classic INVOKE / older completion output).
         let member = p
             .eat_identifier()
             .map(|(n, _)| n)
@@ -250,7 +305,13 @@ pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
             p.expect(&Token::RParen);
         }
         let sp = start.merge(p.peek_span());
-        base = Expr::Member { recv: Box::new(base), member, args, parens, span: sp };
+        base = Expr::Member {
+            recv: Box::new(base),
+            member,
+            args,
+            parens,
+            span: sp,
+        };
     }
     base
 }
@@ -271,16 +332,16 @@ fn infix_bp(tok: &Token) -> Option<(u8, u8)> {
     match tok {
         Token::Plus | Token::Minus => Some((1, 2)),
         Token::Star | Token::Slash => Some((3, 4)),
-        Token::Power               => Some((6, 5)), // right-associative
+        Token::Power => Some((6, 5)), // right-associative
         _ => None,
     }
 }
 
 fn tok_to_arithop(tok: &Token) -> ArithOp {
     match tok {
-        Token::Plus  => ArithOp::Add,
+        Token::Plus => ArithOp::Add,
         Token::Minus => ArithOp::Sub,
-        Token::Star  => ArithOp::Mul,
+        Token::Star => ArithOp::Mul,
         Token::Slash => ArithOp::Div,
         Token::Power => ArithOp::Pow,
         _ => unreachable!(),
@@ -305,7 +366,12 @@ fn parse_expr_bp(p: &mut Parser, min_bp: u8) -> Expr {
                 p.advance();
                 let rhs = parse_expr_bp(p, r_bp);
                 let sp = lhs.span().merge(rhs.span());
-                lhs = Expr::Arithmetic { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span: sp };
+                lhs = Expr::Arithmetic {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                };
             }
             _ => break,
         }
@@ -344,8 +410,15 @@ fn peek_ident_upper(p: &Parser) -> Option<String> {
 fn is_relop_start(tok: &Token) -> bool {
     matches!(
         tok,
-        Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
-            | Token::Equal | Token::Greater | Token::Less
+        Token::Eq
+            | Token::NotEq
+            | Token::Lt
+            | Token::Gt
+            | Token::LtEq
+            | Token::GtEq
+            | Token::Equal
+            | Token::Greater
+            | Token::Less
     )
 }
 
@@ -354,12 +427,12 @@ fn is_relop_start(tok: &Token) -> bool {
 /// return its `CmpOp`. `None` if the current token is not a relational operator.
 fn parse_relop(p: &mut Parser) -> Option<CmpOp> {
     let op = match p.peek().clone() {
-        Token::Eq    => CmpOp::Eq,
+        Token::Eq => CmpOp::Eq,
         Token::NotEq => CmpOp::Ne,
-        Token::Lt    => CmpOp::Lt,
-        Token::Gt    => CmpOp::Gt,
-        Token::LtEq  => CmpOp::Le,
-        Token::GtEq  => CmpOp::Ge,
+        Token::Lt => CmpOp::Lt,
+        Token::Gt => CmpOp::Gt,
+        Token::LtEq => CmpOp::Le,
+        Token::GtEq => CmpOp::Ge,
         Token::Equal => {
             p.advance();
             p.eat(&Token::To);
@@ -427,16 +500,21 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
         // Class test: NUMERIC, ALPHABETIC, ALPHABETIC-LOWER, ALPHABETIC-UPPER
         if let Some(name) = peek_ident_upper(p) {
             let class = match name.as_str() {
-                "NUMERIC"           => Some(DataClass::Numeric),
-                "ALPHABETIC"        => Some(DataClass::Alphabetic),
-                "ALPHABETIC-LOWER"  => Some(DataClass::AlphabeticLower),
-                "ALPHABETIC-UPPER"  => Some(DataClass::AlphabeticUpper),
+                "NUMERIC" => Some(DataClass::Numeric),
+                "ALPHABETIC" => Some(DataClass::Alphabetic),
+                "ALPHABETIC-LOWER" => Some(DataClass::AlphabeticLower),
+                "ALPHABETIC-UPPER" => Some(DataClass::AlphabeticUpper),
                 _ => None,
             };
             if let Some(c) = class {
                 p.advance();
                 let sp = span.merge(p.peek_span());
-                return Condition::ClassTest { expr: lhs, negated, class: c, span: sp };
+                return Condition::ClassTest {
+                    expr: lhs,
+                    negated,
+                    class: c,
+                    span: sp,
+                };
             }
         }
 
@@ -450,13 +528,23 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
             if let Some(s) = sign {
                 p.advance();
                 let sp = span.merge(p.peek_span());
-                return Condition::SignTest { expr: lhs, negated, sign: s, span: sp };
+                return Condition::SignTest {
+                    expr: lhs,
+                    negated,
+                    sign: s,
+                    span: sp,
+                };
             }
         }
         if p.at(&Token::Zeros) {
             p.advance();
             let sp = span.merge(p.peek_span());
-            return Condition::SignTest { expr: lhs, negated, sign: SignCond::Zero, span: sp };
+            return Condition::SignTest {
+                expr: lhs,
+                negated,
+                sign: SignCond::Zero,
+                span: sp,
+            };
         }
 
         // Relational operator after IS [NOT]: `IS [NOT] {= | EQUAL TO | GREATER …}`.
@@ -464,7 +552,12 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
             let op = if negated { negate_cmp(base) } else { base };
             let rhs = parse_expr(p);
             let sp = span.merge(rhs.span());
-            return Condition::Comparison { lhs, op, rhs, span: sp };
+            return Condition::Comparison {
+                lhs,
+                op,
+                rhs,
+                span: sp,
+            };
         }
 
         p.emit_error("unrecognised IS clause in condition");
@@ -484,7 +577,12 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
         let op = if lead_not { negate_cmp(base) } else { base };
         let rhs = parse_expr(p);
         let sp = span.merge(rhs.span());
-        return Condition::Comparison { lhs, op, rhs, span: sp };
+        return Condition::Comparison {
+            lhs,
+            op,
+            rhs,
+            span: sp,
+        };
     }
 
     // No comparison operator → treat the expression as a condition-name (88-level).
@@ -549,9 +647,21 @@ fn at_bare_object(p: &Parser) -> bool {
     }
     !matches!(
         p.peek_at(1),
-        Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
-            | Token::Greater | Token::Less | Token::Equal | Token::Is
-            | Token::Of | Token::In | Token::LParen | Token::And | Token::Not
+        Token::Eq
+            | Token::NotEq
+            | Token::Lt
+            | Token::Gt
+            | Token::LtEq
+            | Token::GtEq
+            | Token::Greater
+            | Token::Less
+            | Token::Equal
+            | Token::Is
+            | Token::Of
+            | Token::In
+            | Token::LParen
+            | Token::And
+            | Token::Not
     )
 }
 
@@ -560,8 +670,15 @@ fn at_bare_object(p: &Parser) -> bool {
 fn at_relop(p: &Parser) -> bool {
     matches!(
         p.peek(),
-        Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
-            | Token::Greater | Token::Less | Token::Equal
+        Token::Eq
+            | Token::NotEq
+            | Token::Lt
+            | Token::Gt
+            | Token::LtEq
+            | Token::GtEq
+            | Token::Greater
+            | Token::Less
+            | Token::Equal
     )
 }
 
@@ -571,43 +688,102 @@ fn parse_abbrev_comparison(p: &mut Parser, subject: &Expr) -> Condition {
     let negated = p.eat(&Token::Not);
     let op = if p.eat(&Token::Equal) {
         p.eat(&Token::To);
-        if negated { CmpOp::Ne } else { CmpOp::Eq }
+        if negated {
+            CmpOp::Ne
+        } else {
+            CmpOp::Eq
+        }
     } else if p.eat(&Token::Greater) {
         let ge = check_or_equal(p);
         p.eat(&Token::Than);
         let base = if ge { CmpOp::Ge } else { CmpOp::Gt };
-        if negated { negate_cmp(base) } else { base }
+        if negated {
+            negate_cmp(base)
+        } else {
+            base
+        }
     } else if p.eat(&Token::Less) {
         let le = check_or_equal(p);
         p.eat(&Token::Than);
         let base = if le { CmpOp::Le } else { CmpOp::Lt };
-        if negated { negate_cmp(base) } else { base }
+        if negated {
+            negate_cmp(base)
+        } else {
+            base
+        }
     } else {
         let t = p.peek().clone();
         p.advance();
         match t {
-            Token::Eq => if negated { CmpOp::Ne } else { CmpOp::Eq },
+            Token::Eq => {
+                if negated {
+                    CmpOp::Ne
+                } else {
+                    CmpOp::Eq
+                }
+            }
             Token::NotEq => CmpOp::Ne,
-            Token::Lt => if negated { CmpOp::Ge } else { CmpOp::Lt },
-            Token::Gt => if negated { CmpOp::Le } else { CmpOp::Gt },
-            Token::LtEq => if negated { CmpOp::Gt } else { CmpOp::Le },
-            Token::GtEq => if negated { CmpOp::Lt } else { CmpOp::Ge },
+            Token::Lt => {
+                if negated {
+                    CmpOp::Ge
+                } else {
+                    CmpOp::Lt
+                }
+            }
+            Token::Gt => {
+                if negated {
+                    CmpOp::Le
+                } else {
+                    CmpOp::Gt
+                }
+            }
+            Token::LtEq => {
+                if negated {
+                    CmpOp::Gt
+                } else {
+                    CmpOp::Le
+                }
+            }
+            Token::GtEq => {
+                if negated {
+                    CmpOp::Lt
+                } else {
+                    CmpOp::Ge
+                }
+            }
             _ => CmpOp::Eq,
         }
     };
     let rhs = parse_expr(p);
     let sp = span.merge(rhs.span());
-    Condition::Comparison { lhs: subject.clone(), op, rhs, span: sp }
+    Condition::Comparison {
+        lhs: subject.clone(),
+        op,
+        rhs,
+        span: sp,
+    }
 }
 
 /// A continuation term after AND/OR: an operator-prefixed abbreviation reuses the
 /// preceding subject; otherwise a fresh primary condition.
 fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
-    if at_relop(p) || (p.at(&Token::Not) && {
-        let n = p.peek_at(1);
-        matches!(n, Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
-            | Token::Greater | Token::Less | Token::Equal)
-    }) {
+    if at_relop(p)
+        || (p.at(&Token::Not) && {
+            let n = p.peek_at(1);
+            matches!(
+                n,
+                Token::Eq
+                    | Token::NotEq
+                    | Token::Lt
+                    | Token::Gt
+                    | Token::LtEq
+                    | Token::GtEq
+                    | Token::Greater
+                    | Token::Less
+                    | Token::Equal
+            )
+        })
+    {
         if let Some(subject) = rightmost_subject(prev) {
             return parse_abbrev_comparison(p, &subject.clone());
         }
@@ -618,7 +794,12 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
             let span = p.peek_span();
             let rhs = parse_expr(p);
             let sp = span.merge(rhs.span());
-            return Condition::Comparison { lhs: subject, op, rhs, span: sp };
+            return Condition::Comparison {
+                lhs: subject,
+                op,
+                rhs,
+                span: sp,
+            };
         }
     }
     // Identifier-object abbreviation vs. condition-name: a *bare* identifier
@@ -630,9 +811,20 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
         let next = p.peek_at(1);
         let bare = !matches!(
             next,
-            Token::Eq | Token::NotEq | Token::Lt | Token::Gt | Token::LtEq | Token::GtEq
-                | Token::Greater | Token::Less | Token::Equal | Token::Is
-                | Token::Of | Token::In | Token::LParen | Token::Not
+            Token::Eq
+                | Token::NotEq
+                | Token::Lt
+                | Token::Gt
+                | Token::LtEq
+                | Token::GtEq
+                | Token::Greater
+                | Token::Less
+                | Token::Equal
+                | Token::Is
+                | Token::Of
+                | Token::In
+                | Token::LParen
+                | Token::Not
         );
         if bare {
             if let Some((subject, op)) = rightmost_comparison(prev) {

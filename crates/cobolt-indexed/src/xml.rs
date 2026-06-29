@@ -12,8 +12,8 @@ use std::path::Path;
 
 use cobolt_forms::ControlType;
 use quick_xml::{
-    Reader, Writer,
     events::{BytesCData, BytesDecl, BytesEnd, BytesStart, BytesText, Event},
+    Reader, Writer,
 };
 use thiserror::Error;
 
@@ -80,28 +80,39 @@ pub fn save_indexed_to_string(def: &IndexedDefinition) -> Result<String, Indexed
 
     let mut st = BytesStart::new("storage");
     st.push_attribute(("mode", def.storage.as_str()));
-    st.push_attribute(("compression", if def.compression { "true" } else { "false" }));
-    st.push_attribute(("persistence", if def.persistence { "true" } else { "false" }));
+    st.push_attribute((
+        "compression",
+        if def.compression { "true" } else { "false" },
+    ));
+    st.push_attribute((
+        "persistence",
+        if def.persistence { "true" } else { "false" },
+    ));
     w.write_event(Event::Empty(st)).map_err(xml_err)?;
 
     if !def.comment.is_empty() {
         write_cdata_el(&mut w, "comment", &def.comment)?;
     }
 
-    w.write_event(Event::Start(BytesStart::new("keys"))).map_err(xml_err)?;
+    w.write_event(Event::Start(BytesStart::new("keys")))
+        .map_err(xml_err)?;
     write_key(&mut w, "primary", &def.keys.primary, true)?;
     for alt in &def.keys.alternates {
         write_key(&mut w, "alternate", alt, false)?;
     }
-    w.write_event(Event::End(BytesEnd::new("keys"))).map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new("keys")))
+        .map_err(xml_err)?;
 
-    w.write_event(Event::Start(BytesStart::new("fields"))).map_err(xml_err)?;
+    w.write_event(Event::Start(BytesStart::new("fields")))
+        .map_err(xml_err)?;
     for f in &def.fields {
         write_field(&mut w, f)?;
     }
-    w.write_event(Event::End(BytesEnd::new("fields"))).map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new("fields")))
+        .map_err(xml_err)?;
 
-    w.write_event(Event::End(BytesEnd::new("IndexedFile"))).map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new("IndexedFile")))
+        .map_err(xml_err)?;
     String::from_utf8(w.into_inner()).map_err(|e| IndexedError::Xml(e.to_string()))
 }
 
@@ -110,16 +121,22 @@ fn xml_err(e: quick_xml::Error) -> IndexedError {
 }
 
 fn write_text_el(w: &mut Writer<Vec<u8>>, tag: &str, text: &str) -> Result<(), IndexedError> {
-    w.write_event(Event::Start(BytesStart::new(tag))).map_err(xml_err)?;
-    w.write_event(Event::Text(BytesText::new(text))).map_err(xml_err)?;
-    w.write_event(Event::End(BytesEnd::new(tag))).map_err(xml_err)?;
+    w.write_event(Event::Start(BytesStart::new(tag)))
+        .map_err(xml_err)?;
+    w.write_event(Event::Text(BytesText::new(text)))
+        .map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new(tag)))
+        .map_err(xml_err)?;
     Ok(())
 }
 
 fn write_cdata_el(w: &mut Writer<Vec<u8>>, tag: &str, text: &str) -> Result<(), IndexedError> {
-    w.write_event(Event::Start(BytesStart::new(tag))).map_err(xml_err)?;
-    w.write_event(Event::CData(BytesCData::new(text))).map_err(xml_err)?;
-    w.write_event(Event::End(BytesEnd::new(tag))).map_err(xml_err)?;
+    w.write_event(Event::Start(BytesStart::new(tag)))
+        .map_err(xml_err)?;
+    w.write_event(Event::CData(BytesCData::new(text)))
+        .map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new(tag)))
+        .map_err(xml_err)?;
     Ok(())
 }
 
@@ -137,7 +154,11 @@ fn write_key(
     }
     el.push_attribute((
         "duplicates",
-        if key.duplicates_allowed { "true" } else { "false" },
+        if key.duplicates_allowed {
+            "true"
+        } else {
+            "false"
+        },
     ));
     el.push_attribute(("ordering", key.ordering.as_str()));
     w.write_event(Event::Start(el)).map_err(xml_err)?;
@@ -149,7 +170,8 @@ fn write_key(
         part.push_attribute(("encoding", p.encoding.as_str()));
         w.write_event(Event::Empty(part)).map_err(xml_err)?;
     }
-    w.write_event(Event::End(BytesEnd::new(tag))).map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new(tag)))
+        .map_err(xml_err)?;
     Ok(())
 }
 
@@ -181,7 +203,8 @@ fn write_field(w: &mut Writer<Vec<u8>>, f: &IndexedField) -> Result<(), IndexedE
     if f.synchronized {
         el.push_attribute(("synchronized", "true"));
     }
-    if f.children.is_empty() && f.comment.is_empty() && f.grid_control.is_none() && f.pic.is_empty() {
+    if f.children.is_empty() && f.comment.is_empty() && f.grid_control.is_none() && f.pic.is_empty()
+    {
         w.write_event(Event::Empty(el)).map_err(xml_err)?;
         return Ok(());
     }
@@ -192,11 +215,14 @@ fn write_field(w: &mut Writer<Vec<u8>>, f: &IndexedField) -> Result<(), IndexedE
     for c in &f.children {
         write_field(w, c)?;
     }
-    w.write_event(Event::End(BytesEnd::new("Field"))).map_err(xml_err)?;
+    w.write_event(Event::End(BytesEnd::new("Field")))
+        .map_err(xml_err)?;
     Ok(())
 }
 
-fn load_indexed_from_reader<R: std::io::BufRead>(reader: R) -> Result<IndexedDefinition, IndexedError> {
+fn load_indexed_from_reader<R: std::io::BufRead>(
+    reader: R,
+) -> Result<IndexedDefinition, IndexedError> {
     let mut r = Reader::from_reader(reader);
     r.config_mut().trim_text(true);
     let mut buf = Vec::new();
@@ -273,7 +299,12 @@ fn load_indexed_from_reader<R: std::io::BufRead>(reader: R) -> Result<IndexedDef
             }
             Ok(Event::Text(t)) => {
                 let text = t.unescape().map_err(|e| IndexedError::Xml(e.to_string()))?;
-                apply_text(&mut def, &mut field_path, &mut text_target, text.into_owned());
+                apply_text(
+                    &mut def,
+                    &mut field_path,
+                    &mut text_target,
+                    text.into_owned(),
+                );
             }
             Ok(Event::CData(c)) => {
                 let text = String::from_utf8_lossy(&c).into_owned();

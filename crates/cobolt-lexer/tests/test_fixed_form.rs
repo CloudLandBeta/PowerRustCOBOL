@@ -37,7 +37,8 @@ fn star_comment_excluded_by_default() {
     let src = "000100* This is a comment line\n000200 MOVE A TO B.\n";
     let t = toks_fixed(src);
     assert!(
-        !t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "THIS")),
+        !t.iter()
+            .any(|t| matches!(t, Token::Identifier(s) if s == "THIS")),
         "comment text should not appear as tokens"
     );
     assert!(t.contains(&Token::Move));
@@ -47,10 +48,13 @@ fn star_comment_excluded_by_default() {
 fn star_comment_included_with_comments() {
     let src = "000100* This is a comment\n000200 MOVE A TO B.\n";
     let all = tokenize_with_comments(src, SourceFormat::Fixed);
-    let has_comment = all.iter().any(|st| {
-        matches!(&st.token, Token::Comment(c) if c.contains("This is a comment"))
-    });
-    assert!(has_comment, "comment token should be present with tokenize_with_comments");
+    let has_comment = all
+        .iter()
+        .any(|st| matches!(&st.token, Token::Comment(c) if c.contains("This is a comment")));
+    assert!(
+        has_comment,
+        "comment token should be present with tokenize_with_comments"
+    );
 }
 
 #[test]
@@ -58,7 +62,9 @@ fn slash_comment_line() {
     let src = "000100/ Page break comment\n000200 STOP RUN.\n";
     let t = toks_fixed(src);
     assert!(t.contains(&Token::Stop));
-    assert!(!t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "PAGE")));
+    assert!(!t
+        .iter()
+        .any(|t| matches!(t, Token::Identifier(s) if s == "PAGE")));
 }
 
 #[test]
@@ -69,7 +75,8 @@ fn identification_area_ignored() {
     let t = toks_fixed(src);
     assert_eq!(t[0], Token::Move);
     assert!(
-        !t.iter().any(|tok| matches!(tok, Token::Identifier(s) if s == "MYPROG")),
+        !t.iter()
+            .any(|tok| matches!(tok, Token::Identifier(s) if s == "MYPROG")),
         "identification area should be stripped"
     );
 }
@@ -79,11 +86,14 @@ fn sequence_numbers_ignored() {
     let src = "000100 DISPLAY \"Line 1\".\n000200 DISPLAY \"Line 2\".\n";
     let t = toks_fixed(src);
     assert!(
-        !t.iter().any(|tok| matches!(tok, Token::IntegerLiteral(100) | Token::IntegerLiteral(200))),
+        !t.iter()
+            .any(|tok| matches!(tok, Token::IntegerLiteral(100) | Token::IntegerLiteral(200))),
         "sequence numbers should not tokenize"
     );
     assert_eq!(
-        t.iter().filter(|t| matches!(t, Token::DisplayVerb | Token::Display)).count(),
+        t.iter()
+            .filter(|t| matches!(t, Token::DisplayVerb | Token::Display))
+            .count(),
         2,
         "should have two DISPLAY tokens"
     );
@@ -105,7 +115,9 @@ fn hello_world_program_fixed() {
     assert!(t.contains(&Token::Division));
     assert!(t.contains(&Token::ProgramId));
     assert!(t.contains(&Token::Procedure));
-    assert!(t.iter().any(|tok| matches!(tok, Token::StringLiteral(s) if s == "Hello, World!")));
+    assert!(t
+        .iter()
+        .any(|tok| matches!(tok, Token::StringLiteral(s) if s == "Hello, World!")));
     assert!(t.contains(&Token::Stop));
     assert!(t.contains(&Token::Run));
 }
@@ -150,7 +162,10 @@ fn perform_varying_fixed() {
     assert!(t.contains(&Token::Gt));
     // END-PERFORM is a scope-terminator keyword (like END-IF / END-EVALUATE),
     // which the parser eats to close the inline PERFORM block.
-    assert!(t.contains(&Token::EndPerform), "END-PERFORM should tokenize as Token::EndPerform");
+    assert!(
+        t.contains(&Token::EndPerform),
+        "END-PERFORM should tokenize as Token::EndPerform"
+    );
 }
 
 #[test]

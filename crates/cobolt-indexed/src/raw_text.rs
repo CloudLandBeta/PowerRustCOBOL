@@ -80,7 +80,9 @@ pub fn parse_record_text(text: &str) -> Result<Vec<FlatEntry>, String> {
         let trimmed = line.split("/*").next().unwrap_or("").trim();
         let trimmed = trimmed.trim_start();
         let mut parts = trimmed.splitn(2, char::is_whitespace);
-        let level_s = parts.next().ok_or_else(|| err_line(lineno, "missing level"))?;
+        let level_s = parts
+            .next()
+            .ok_or_else(|| err_line(lineno, "missing level"))?;
         let level: u8 = level_s
             .parse()
             .map_err(|_| err_line(lineno, "invalid level number"))?;

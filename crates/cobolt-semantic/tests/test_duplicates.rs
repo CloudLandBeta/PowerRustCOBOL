@@ -43,7 +43,9 @@ fn duplicate_paragraph_is_an_error() {
     let sem = analyze_src(src);
     assert!(!sem.is_ok(), "a redeclared paragraph must fail analysis");
     assert!(
-        error_messages(&sem).iter().any(|m| m.contains("paragraph 'PARA-A'")),
+        error_messages(&sem)
+            .iter()
+            .any(|m| m.contains("paragraph 'PARA-A'")),
         "missing duplicate-paragraph error: {:?}",
         error_messages(&sem)
     );
@@ -63,7 +65,9 @@ fn duplicate_section_is_an_error() {
     let sem = analyze_src(src);
     assert!(!sem.is_ok(), "a redeclared section must fail analysis");
     assert!(
-        error_messages(&sem).iter().any(|m| m.contains("section 'MAIN-SECTION'")),
+        error_messages(&sem)
+            .iter()
+            .any(|m| m.contains("section 'MAIN-SECTION'")),
         "missing duplicate-section error: {:?}",
         error_messages(&sem)
     );

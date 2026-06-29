@@ -33,7 +33,10 @@ fn write_environment(out: &mut String, def: &IndexedDefinition) {
     out.push_str("       ENVIRONMENT DIVISION.\n");
     out.push_str("       INPUT-OUTPUT SECTION.\n");
     out.push_str("       FILE-CONTROL.\n");
-    out.push_str(&format!("           SELECT {} ASSIGN TO \"{}\"\n", def.name, def.assign_path));
+    out.push_str(&format!(
+        "           SELECT {} ASSIGN TO \"{}\"\n",
+        def.name, def.assign_path
+    ));
     out.push_str("               ORGANIZATION IS INDEXED\n");
     out.push_str(&format!(
         "               ACCESS MODE IS {}\n",
@@ -52,9 +55,15 @@ fn write_environment(out: &mut String, def: &IndexedDefinition) {
             .or_else(|| alt.parts.first().map(|p| p.field_name.as_str()))
             .unwrap_or("ALT-KEY");
         if alt.duplicates_allowed {
-            out.push_str(&format!("               ALTERNATE RECORD KEY IS {} WITH DUPLICATES\n", name));
+            out.push_str(&format!(
+                "               ALTERNATE RECORD KEY IS {} WITH DUPLICATES\n",
+                name
+            ));
         } else {
-            out.push_str(&format!("               ALTERNATE RECORD KEY IS {}\n", name));
+            out.push_str(&format!(
+                "               ALTERNATE RECORD KEY IS {}\n",
+                name
+            ));
         }
     }
     let mut clauses = String::new();
@@ -85,9 +94,14 @@ fn write_file_section(out: &mut String, def: &IndexedDefinition) {
     out.push_str(&format!("       FD  {}.\n", def.name));
     match def.record_format {
         RecordFormatDef::Fixed { length } => {
-            out.push_str(&format!("           RECORD CONTAINS {length} CHARACTERS.\n"));
+            out.push_str(&format!(
+                "           RECORD CONTAINS {length} CHARACTERS.\n"
+            ));
         }
-        RecordFormatDef::Variable { min_length, max_length } => {
+        RecordFormatDef::Variable {
+            min_length,
+            max_length,
+        } => {
             out.push_str(&format!(
                 "           RECORD CONTAINS {min_length} TO {max_length} CHARACTERS.\n"
             ));

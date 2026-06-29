@@ -13,7 +13,10 @@ use crate::model::IndexedField;
 /// Pick a default grid-browser control from field PIC/usage.
 pub fn default_control_for_field(field: &IndexedField) -> ControlType {
     // Strip custom marker (if any) before inspecting PIC for control defaults.
-    let pic = field.pic.trim_start_matches('\u{200B}').to_ascii_uppercase();
+    let pic = field
+        .pic
+        .trim_start_matches('\u{200B}')
+        .to_ascii_uppercase();
     if pic == "9" || pic == "9(1)" {
         return ControlType::CheckBox;
     }
@@ -76,11 +79,17 @@ mod tests {
 
     #[test]
     fn numeric_is_spinner() {
-        assert_eq!(default_control_for_field(&leaf("9(8)")), ControlType::NumericUpDown);
+        assert_eq!(
+            default_control_for_field(&leaf("9(8)")),
+            ControlType::NumericUpDown
+        );
     }
 
     #[test]
     fn alpha_is_textbox() {
-        assert_eq!(default_control_for_field(&leaf("X(20)")), ControlType::TextBox);
+        assert_eq!(
+            default_control_for_field(&leaf("X(20)")),
+            ControlType::TextBox
+        );
     }
 }

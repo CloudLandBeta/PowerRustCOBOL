@@ -59,7 +59,13 @@ pub(crate) fn parse_procedure_division(p: &mut Parser) -> ProcedureDivision {
 
     let body = parse_procedure_body(p);
 
-    ProcedureDivision { using, returning, declaratives, body, span }
+    ProcedureDivision {
+        using,
+        returning,
+        declaratives,
+        body,
+        span,
+    }
 }
 
 fn empty_procedure(span: Span) -> ProcedureDivision {
@@ -107,7 +113,13 @@ fn parse_declaratives(p: &mut Parser) -> Vec<UseProcedure> {
 
             let (files, modes, catch_all) = parse_use_clause(p);
             let stmts = parse_declarative_body(p);
-            procs.push(UseProcedure { files, modes, catch_all, stmts, span });
+            procs.push(UseProcedure {
+                files,
+                modes,
+                catch_all,
+                stmts,
+                span,
+            });
         } else {
             // Unexpected token — recover to the next period to avoid looping.
             p.emit_error(format!(
@@ -141,15 +153,29 @@ fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool) {
     // Targets: file names and/or open-modes, until the period.
     while !p.at(&Token::Period) && !p.at(&Token::Eof) {
         match p.peek() {
-            Token::Input  => { p.advance(); modes.push(UseMode::Input); }
-            Token::Output => { p.advance(); modes.push(UseMode::Output); }
-            Token::IoMode => { p.advance(); modes.push(UseMode::Io); }
-            Token::Extend => { p.advance(); modes.push(UseMode::Extend); }
+            Token::Input => {
+                p.advance();
+                modes.push(UseMode::Input);
+            }
+            Token::Output => {
+                p.advance();
+                modes.push(UseMode::Output);
+            }
+            Token::IoMode => {
+                p.advance();
+                modes.push(UseMode::Io);
+            }
+            Token::Extend => {
+                p.advance();
+                modes.push(UseMode::Extend);
+            }
             Token::Identifier(_) => {
                 let (name, _) = p.eat_identifier().unwrap();
                 files.push(name.to_ascii_uppercase());
             }
-            _ => { p.advance(); } // skip noise words (e.g. commas already eaten)
+            _ => {
+                p.advance();
+            } // skip noise words (e.g. commas already eaten)
         }
         p.eat(&Token::Comma);
     }
@@ -185,7 +211,11 @@ fn parse_declarative_body(p: &mut Parser) -> Vec<cobolt_ast::stmt::Stmt> {
             let s = parse_stmts(p, &|tok| {
                 matches!(
                     tok,
-                    Token::End | Token::Eof | Token::Identification | Token::Environment | Token::Data
+                    Token::End
+                        | Token::Eof
+                        | Token::Identification
+                        | Token::Environment
+                        | Token::Data
                 )
             });
             if s.is_empty() {
@@ -226,10 +256,14 @@ fn look_ahead_for_sections(p: &Parser) -> bool {
                 // Could be a paragraph header — keep scanning
                 i += 1;
             }
-            Token::Period => { i += 1; }
+            Token::Period => {
+                i += 1;
+            }
             _ => {
                 // We hit a statement verb — no sections
-                if i > 20 { break; } // don't scan too far
+                if i > 20 {
+                    break;
+                } // don't scan too far
                 i += 1;
             }
         }
@@ -242,14 +276,21 @@ fn look_ahead_for_sections(p: &Parser) -> bool {
 fn parse_sections(p: &mut Parser) -> Vec<Section> {
     let mut sections = Vec::new();
     loop {
-        if p.at(&Token::Eof) { break; }
+        if p.at(&Token::Eof) {
+            break;
+        }
         // Division header or END PROGRAM — stop
-        if matches!(p.peek(), Token::Environment | Token::Data | Token::Identification | Token::End) {
+        if matches!(
+            p.peek(),
+            Token::Environment | Token::Data | Token::Identification | Token::End
+        ) {
             break;
         }
         // Skip any stray periods
         while p.eat(&Token::Period) {}
-        if p.at(&Token::Eof) { break; }
+        if p.at(&Token::Eof) {
+            break;
+        }
 
         // Expect `identifier SECTION .`
         if !matches!(p.peek(), Token::Identifier(_)) {
@@ -278,7 +319,11 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
         p.expect_period();
 
         let paragraphs = parse_paragraphs_until_section(p);
-        sections.push(Section { name, paragraphs, span });
+        sections.push(Section {
+            name,
+            paragraphs,
+            span,
+        });
     }
     sections
 }
@@ -286,24 +331,27 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
 fn parse_paragraphs_until_section(p: &mut Parser) -> Vec<Paragraph> {
     let mut paragraphs = Vec::new();
     loop {
-        if p.at(&Token::Eof) { break; }
-        if matches!(p.peek(), Token::Environment | Token::Data | Token::Identification | Token::End) {
+        if p.at(&Token::Eof) {
+            break;
+        }
+        if matches!(
+            p.peek(),
+            Token::Environment | Token::Data | Token::Identification | Token::End
+        ) {
             break;
         }
         while p.eat(&Token::Period) {}
-        if p.at(&Token::Eof) { break; }
+        if p.at(&Token::Eof) {
+            break;
+        }
 
         // Section header → stop collecting paragraphs for the current section
-        if matches!(p.peek(), Token::Identifier(_))
-            && matches!(p.peek_at(1), Token::Section)
-        {
+        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Section) {
             break;
         }
 
         // Paragraph header: Identifier Period
-        if matches!(p.peek(), Token::Identifier(_))
-            && matches!(p.peek_at(1), Token::Period)
-        {
+        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Period) {
             let para = parse_paragraph(p);
             paragraphs.push(para);
         } else {
@@ -318,17 +366,22 @@ fn parse_paragraphs_until_section(p: &mut Parser) -> Vec<Paragraph> {
 fn parse_paragraphs(p: &mut Parser) -> Vec<Paragraph> {
     let mut paragraphs = Vec::new();
     loop {
-        if p.at(&Token::Eof) { break; }
-        if matches!(p.peek(), Token::Environment | Token::Data | Token::Identification | Token::End) {
+        if p.at(&Token::Eof) {
+            break;
+        }
+        if matches!(
+            p.peek(),
+            Token::Environment | Token::Data | Token::Identification | Token::End
+        ) {
             break;
         }
         while p.eat(&Token::Period) {}
-        if p.at(&Token::Eof) { break; }
+        if p.at(&Token::Eof) {
+            break;
+        }
 
         // Paragraph header: Identifier Period
-        if matches!(p.peek(), Token::Identifier(_))
-            && matches!(p.peek_at(1), Token::Period)
-        {
+        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Period) {
             let para = parse_paragraph(p);
             paragraphs.push(para);
         } else {
@@ -337,7 +390,14 @@ fn parse_paragraphs(p: &mut Parser) -> Vec<Paragraph> {
             let span = p.peek_span();
             let stmts = parse_stmts(p, &|tok| {
                 // Stop at next paragraph candidate, division, or END PROGRAM
-                matches!(tok, Token::Environment | Token::Data | Token::Identification | Token::End | Token::Eof)
+                matches!(
+                    tok,
+                    Token::Environment
+                        | Token::Data
+                        | Token::Identification
+                        | Token::End
+                        | Token::Eof
+                )
             });
             if !stmts.is_empty() {
                 paragraphs.push(Paragraph {

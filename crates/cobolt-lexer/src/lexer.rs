@@ -107,7 +107,7 @@ impl<'src> Lexer<'src> {
     pub fn new(source: &'src str, format: SourceFormat) -> Self {
         let preprocessed = match format {
             SourceFormat::Fixed => flatten_fixed(source),
-            SourceFormat::Free  => source.to_string(),
+            SourceFormat::Free => source.to_string(),
         };
         let line_index = LineIndex::new(&preprocessed);
 
@@ -188,11 +188,11 @@ impl<'src> Lexer<'src> {
             let token = match result {
                 Err(()) => {
                     // Unexpected character — extract slice from preprocessed source.
-                    let text = self.preprocessed
-                        .get(range)
-                        .unwrap_or("?")
-                        .to_string();
-                    self.errors.push(LexError::UnexpectedChar { span, text: text.clone() });
+                    let text = self.preprocessed.get(range).unwrap_or("?").to_string();
+                    self.errors.push(LexError::UnexpectedChar {
+                        span,
+                        text: text.clone(),
+                    });
                     self.at_line_start = false;
                     Token::Error(text)
                 }
@@ -201,13 +201,19 @@ impl<'src> Lexer<'src> {
                     // Update line-start flag for the next token.
                     match &tok {
                         // A real newline (empty comment) or period resets the flag.
-                        Token::Comment(s) if s.is_empty() => { self.at_line_start = true; }
-                        Token::Period                      => { self.at_line_start = true; }
+                        Token::Comment(s) if s.is_empty() => {
+                            self.at_line_start = true;
+                        }
+                        Token::Period => {
+                            self.at_line_start = true;
+                        }
                         // Non-empty comments don't change the flag (they don't
                         // consume a "slot" on the logical line).
                         Token::Comment(_) => {}
                         // Any real token clears line-start.
-                        _ => { self.at_line_start = false; }
+                        _ => {
+                            self.at_line_start = false;
+                        }
                     }
                     tok
                 }
@@ -246,9 +252,7 @@ impl<'src> Lexer<'src> {
 
             RawToken::FreeComment(text) => Token::Comment(text),
 
-            RawToken::StringDouble(s) | RawToken::StringSingle(s) => {
-                Token::StringLiteral(s)
-            }
+            RawToken::StringDouble(s) | RawToken::StringSingle(s) => Token::StringLiteral(s),
 
             RawToken::Float(Some(text)) => {
                 // Parse the raw digits into an exact (mantissa, scale) fixed-point
@@ -257,17 +261,24 @@ impl<'src> Lexer<'src> {
                 match parse_decimal_token(&text) {
                     Some((mantissa, scale)) => Token::DecimalLiteral { mantissa, scale },
                     None => {
-                        self.errors.push(LexError::IntegerOverflow { span, text: text.clone() });
+                        self.errors.push(LexError::IntegerOverflow {
+                            span,
+                            text: text.clone(),
+                        });
                         Token::Error(text)
                     }
                 }
             }
             RawToken::Float(None) => {
-                let text = self.preprocessed
+                let text = self
+                    .preprocessed
                     .get(span.start..span.end)
                     .unwrap_or("?")
                     .to_string();
-                self.errors.push(LexError::IntegerOverflow { span, text: text.clone() });
+                self.errors.push(LexError::IntegerOverflow {
+                    span,
+                    text: text.clone(),
+                });
                 Token::Error(text)
             }
 
@@ -282,11 +293,15 @@ impl<'src> Lexer<'src> {
                 }
             }
             RawToken::Integer(None) => {
-                let text = self.preprocessed
+                let text = self
+                    .preprocessed
                     .get(span.start..span.end)
                     .unwrap_or("?")
                     .to_string();
-                self.errors.push(LexError::IntegerOverflow { span, text: text.clone() });
+                self.errors.push(LexError::IntegerOverflow {
+                    span,
+                    text: text.clone(),
+                });
                 Token::Error(text)
             }
 
@@ -301,24 +316,24 @@ impl<'src> Lexer<'src> {
                 }
             }
 
-            RawToken::Power    => Token::Power,
-            RawToken::LtEq     => Token::LtEq,
-            RawToken::GtEq     => Token::GtEq,
-            RawToken::NotEq    => Token::NotEq,
-            RawToken::Eq       => Token::Eq,
-            RawToken::Lt       => Token::Lt,
-            RawToken::Gt       => Token::Gt,
-            RawToken::Plus     => Token::Plus,
-            RawToken::Minus    => Token::Minus,
-            RawToken::Star     => Token::Star,
-            RawToken::Slash    => Token::Slash,
+            RawToken::Power => Token::Power,
+            RawToken::LtEq => Token::LtEq,
+            RawToken::GtEq => Token::GtEq,
+            RawToken::NotEq => Token::NotEq,
+            RawToken::Eq => Token::Eq,
+            RawToken::Lt => Token::Lt,
+            RawToken::Gt => Token::Gt,
+            RawToken::Plus => Token::Plus,
+            RawToken::Minus => Token::Minus,
+            RawToken::Star => Token::Star,
+            RawToken::Slash => Token::Slash,
 
-            RawToken::Period    => Token::Period,
-            RawToken::Comma     => Token::Comma,
+            RawToken::Period => Token::Period,
+            RawToken::Comma => Token::Comma,
             RawToken::Semicolon => Token::Semicolon,
-            RawToken::LParen    => Token::LParen,
-            RawToken::RParen    => Token::RParen,
-            RawToken::Colon     => Token::Colon,
+            RawToken::LParen => Token::LParen,
+            RawToken::RParen => Token::RParen,
+            RawToken::Colon => Token::Colon,
         }
     }
 
@@ -369,10 +384,11 @@ impl<'src> Lexer<'src> {
             if let Ok(RawToken::Word(w)) = &self.raw_tokens[look].0 {
                 if w.to_ascii_uppercase() == "END-EXEC" {
                     let rust_src_end = self.raw_tokens[look].1.start;
-                    let end_exec_end  = self.raw_tokens[look].1.end;
+                    let end_exec_end = self.raw_tokens[look].1.end;
 
                     // Slice the raw Rust source from the preprocessed string.
-                    let rust_source = self.preprocessed
+                    let rust_source = self
+                        .preprocessed
                         .get(rust_src_start..rust_src_end)
                         .unwrap_or("")
                         .trim()
@@ -383,12 +399,8 @@ impl<'src> Lexer<'src> {
                     self.at_line_start = false;
 
                     // Build a span that covers the whole EXEC RUST … END-EXEC.
-                    let block_span = Span::new(
-                        exec_span.start,
-                        end_exec_end,
-                        exec_span.line,
-                        exec_span.col,
-                    );
+                    let block_span =
+                        Span::new(exec_span.start, end_exec_end, exec_span.line, exec_span.col);
                     return Some(SpannedToken::new(
                         Token::ExecRustBlock(rust_source),
                         block_span,
@@ -423,7 +435,11 @@ impl<'src> Iterator for Lexer<'src> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let st = self.next_token()?;
-        if st.token == Token::Eof { None } else { Some(st) }
+        if st.token == Token::Eof {
+            None
+        } else {
+            Some(st)
+        }
     }
 }
 
@@ -466,10 +482,15 @@ fn reclassify_member_words(toks: &mut [SpannedToken], pre: &str) {
         if toks[i - 1].token != Token::Colon || toks[i - 2].token != Token::Colon {
             continue;
         }
-        if matches!(toks[i].token, Token::Identifier(_) | Token::StringLiteral(_)) {
+        if matches!(
+            toks[i].token,
+            Token::Identifier(_) | Token::StringLiteral(_)
+        ) {
             continue;
         }
-        let Some(text) = pre.get(toks[i].span.start..toks[i].span.end) else { continue };
+        let Some(text) = pre.get(toks[i].span.start..toks[i].span.end) else {
+            continue;
+        };
         let t = text.trim();
         let is_word = t.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
             && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');

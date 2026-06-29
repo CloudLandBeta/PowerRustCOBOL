@@ -11,8 +11,7 @@
 //! items.
 
 use cobolt_ast::data::{
-    ConditionValue, DataDecl, FileDescription, OccursClause, PicClause, PicKind, ScreenItem,
-    Usage,
+    ConditionValue, DataDecl, FileDescription, OccursClause, PicClause, PicKind, ScreenItem, Usage,
 };
 use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{DataDivision, DataSection};
@@ -81,10 +80,7 @@ pub(crate) fn parse_data_division(p: &mut Parser) -> Option<DataDivision> {
             Token::Procedure | Token::Environment | Token::Identification | Token::Eof => break,
             // Unknown — skip with a warning.
             _ => {
-                p.emit_warning(format!(
-                    "unexpected token in DATA DIVISION: {:?}",
-                    p.peek()
-                ));
+                p.emit_warning(format!("unexpected token in DATA DIVISION: {:?}", p.peek()));
                 p.sync_to_period();
             }
         }
@@ -124,14 +120,19 @@ fn parse_screen_section(p: &mut Parser) -> Vec<ScreenItem> {
     let mut items = Vec::new();
     while let Token::LevelNumber(_) = p.peek() {
         let span = p.peek_span();
-        let level = if let Token::LevelNumber(n) = p.peek().clone() { n } else { 0 };
+        let level = if let Token::LevelNumber(n) = p.peek().clone() {
+            n
+        } else {
+            0
+        };
         p.advance();
 
         let name = parse_item_name(p);
 
         // Consume all clauses until period
         let mut picture = None;
-        while !p.at(&Token::Period) && !p.at(&Token::Eof)
+        while !p.at(&Token::Period)
+            && !p.at(&Token::Eof)
             && !matches!(p.peek(), Token::LevelNumber(_))
         {
             if p.at(&Token::Pic) {
@@ -209,7 +210,7 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
     let mut redefines: Option<String> = None;
     let mut renames: Option<cobolt_ast::data::RenamesClause> = None;
     let mut condition_values: Vec<ConditionValue> = Vec::new();
-    let mut is_global   = false;
+    let mut is_global = false;
     let mut is_external = false;
     let mut blank_when_zero = false;
 
@@ -411,20 +412,38 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
     loop {
         match p.peek().clone() {
             // These keywords start the next clause or end the item
-            Token::Value | Token::Values
-            | Token::Usage | Token::Occurs
-            | Token::Redefines | Token::Justified
-            | Token::Synchronized | Token::Blank
-            | Token::Sign | Token::Global | Token::External
-            | Token::Eof | Token::LevelNumber(_)
-            | Token::WorkingStorage | Token::LocalStorage
-            | Token::Linkage | Token::Screen
-            | Token::Procedure | Token::Environment | Token::Identification => break,
+            Token::Value
+            | Token::Values
+            | Token::Usage
+            | Token::Occurs
+            | Token::Redefines
+            | Token::Justified
+            | Token::Synchronized
+            | Token::Blank
+            | Token::Sign
+            | Token::Global
+            | Token::External
+            | Token::Eof
+            | Token::LevelNumber(_)
+            | Token::WorkingStorage
+            | Token::LocalStorage
+            | Token::Linkage
+            | Token::Screen
+            | Token::Procedure
+            | Token::Environment
+            | Token::Identification => break,
 
             // Usage keywords that can appear without USAGE keyword
-            Token::Display | Token::Binary | Token::Comp
-            | Token::Comp1 | Token::Comp2 | Token::Comp3 | Token::Comp5
-            | Token::PackedDecimal | Token::Index | Token::Pointer => break,
+            Token::Display
+            | Token::Binary
+            | Token::Comp
+            | Token::Comp1
+            | Token::Comp2
+            | Token::Comp3
+            | Token::Comp5
+            | Token::PackedDecimal
+            | Token::Index
+            | Token::Pointer => break,
 
             // A `.` is the editing decimal point when more picture characters
             // follow it (e.g. `ZZ9.99`); otherwise it terminates the clause.
@@ -442,24 +461,55 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
                 template.push_str(&decimal_to_pic(mantissa, scale));
             }
             // '$' currency is lexed as an error token.
-            Token::Error(ref s) if s == "$" => { p.advance(); template.push('$'); }
+            Token::Error(ref s) if s == "$" => {
+                p.advance();
+                template.push('$');
+            }
 
             // Collect template characters
             Token::Identifier(s) => {
-                let s = s.clone(); p.advance(); template.push_str(&s);
+                let s = s.clone();
+                p.advance();
+                template.push_str(&s);
             }
             Token::IntegerLiteral(n) => {
-                let n = n; p.advance(); template.push_str(&n.to_string());
+                let n = n;
+                p.advance();
+                template.push_str(&n.to_string());
             }
-            Token::LParen  => { p.advance(); template.push('('); }
-            Token::RParen  => { p.advance(); template.push(')'); }
-            Token::Plus    => { p.advance(); template.push('+'); }
-            Token::Minus   => { p.advance(); template.push('-'); }
-            Token::Slash   => { p.advance(); template.push('/'); }
-            Token::Star    => { p.advance(); template.push('*'); }
+            Token::LParen => {
+                p.advance();
+                template.push('(');
+            }
+            Token::RParen => {
+                p.advance();
+                template.push(')');
+            }
+            Token::Plus => {
+                p.advance();
+                template.push('+');
+            }
+            Token::Minus => {
+                p.advance();
+                template.push('-');
+            }
+            Token::Slash => {
+                p.advance();
+                template.push('/');
+            }
+            Token::Star => {
+                p.advance();
+                template.push('*');
+            }
             // `**` is lexed as the exponentiation token; in a PIC it is two stars.
-            Token::Power   => { p.advance(); template.push_str("**"); }
-            Token::Comma   => { p.advance(); template.push(','); }
+            Token::Power => {
+                p.advance();
+                template.push_str("**");
+            }
+            Token::Comma => {
+                p.advance();
+                template.push(',');
+            }
             _ => break,
         }
     }
@@ -470,7 +520,13 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
     }
 
     let (kind, digits, decimals) = analyze_pic(&template);
-    Some(PicClause { template, kind, digits, decimals, span })
+    Some(PicClause {
+        template,
+        kind,
+        digits,
+        decimals,
+        span,
+    })
 }
 
 /// True if `tok` can be part of a PICTURE string (used to tell an editing decimal
@@ -497,7 +553,12 @@ fn decimal_to_pic(mantissa: i128, scale: u8) -> String {
         return mantissa.to_string();
     }
     let p = 10_i128.pow(scale as u32);
-    format!("{}.{:0width$}", mantissa / p, (mantissa % p).abs(), width = scale as usize)
+    format!(
+        "{}.{:0width$}",
+        mantissa / p,
+        (mantissa % p).abs(),
+        width = scale as usize
+    )
 }
 
 /// Classify a raw PIC template string.
@@ -521,11 +582,19 @@ fn analyze_pic(template: &str) -> (PicKind, u16, u16) {
         || t.contains("CR")
         || t.contains("DB");
     let count = |pred: &dyn Fn(char) -> bool| -> u16 {
-        expanded.iter().filter(|&&c| pred(c)).count().min(u16::MAX as usize) as u16
+        expanded
+            .iter()
+            .filter(|&&c| pred(c))
+            .count()
+            .min(u16::MAX as usize) as u16
     };
 
     if expanded.iter().any(|&c| c == 'X') {
-        let kind = if has_editing { PicKind::AlphanumericEdited } else { PicKind::Alphanumeric };
+        let kind = if has_editing {
+            PicKind::AlphanumericEdited
+        } else {
+            PicKind::Alphanumeric
+        };
         // Width = every character position in the picture.
         return (kind, expanded.len().min(u16::MAX as usize) as u16, 0);
     }
@@ -533,19 +602,35 @@ fn analyze_pic(template: &str) -> (PicKind, u16, u16) {
         return (PicKind::Alphabetic, count(&|c| c == 'A'), 0);
     }
     if expanded.iter().any(|&c| c == '9' || c == 'S') {
-        let kind = if has_editing { PicKind::NumericEdited } else { PicKind::Numeric };
+        let kind = if has_editing {
+            PicKind::NumericEdited
+        } else {
+            PicKind::Numeric
+        };
         let v_pos = expanded.iter().position(|&c| c == 'V');
         let (int_part, frac_part): (&[char], &[char]) = match v_pos {
             Some(p) => (&expanded[..p], &expanded[p + 1..]),
             None => (&expanded[..], &[]),
         };
-        let digits   = int_part.iter().filter(|&&c| c == '9').count().min(u16::MAX as usize) as u16;
-        let decimals = frac_part.iter().filter(|&&c| c == '9').count().min(u16::MAX as usize) as u16;
+        let digits = int_part
+            .iter()
+            .filter(|&&c| c == '9')
+            .count()
+            .min(u16::MAX as usize) as u16;
+        let decimals = frac_part
+            .iter()
+            .filter(|&&c| c == '9')
+            .count()
+            .min(u16::MAX as usize) as u16;
         return (kind, digits, decimals);
     }
 
     // Fallback — treat as a single alphanumeric position.
-    (PicKind::Alphanumeric, expanded.len().max(1).min(u16::MAX as usize) as u16, 0)
+    (
+        PicKind::Alphanumeric,
+        expanded.len().max(1).min(u16::MAX as usize) as u16,
+        0,
+    )
 }
 
 /// Expand a PICTURE template, turning each `C(n)` group into `n` copies of `C`.
@@ -588,25 +673,55 @@ fn expand_pic_template(t: &str) -> Vec<char> {
 
 fn parse_usage_clause(p: &mut Parser) -> Usage {
     match p.peek().clone() {
-        Token::Display     => { p.advance(); Usage::Display }
-        Token::Binary      => { p.advance(); Usage::Binary }
-        Token::Comp        => { p.advance(); Usage::Comp }
-        Token::Comp1       => { p.advance(); Usage::Comp1 }
-        Token::Comp2       => { p.advance(); Usage::Comp2 }
-        Token::Comp3       => { p.advance(); Usage::Comp3 }
-        Token::Comp5       => { p.advance(); Usage::Comp5 }
-        Token::PackedDecimal => { p.advance(); Usage::PackedDecimal }
-        Token::Index       => { p.advance(); Usage::Index }
-        Token::Pointer     => { p.advance(); Usage::Pointer }
+        Token::Display => {
+            p.advance();
+            Usage::Display
+        }
+        Token::Binary => {
+            p.advance();
+            Usage::Binary
+        }
+        Token::Comp => {
+            p.advance();
+            Usage::Comp
+        }
+        Token::Comp1 => {
+            p.advance();
+            Usage::Comp1
+        }
+        Token::Comp2 => {
+            p.advance();
+            Usage::Comp2
+        }
+        Token::Comp3 => {
+            p.advance();
+            Usage::Comp3
+        }
+        Token::Comp5 => {
+            p.advance();
+            Usage::Comp5
+        }
+        Token::PackedDecimal => {
+            p.advance();
+            Usage::PackedDecimal
+        }
+        Token::Index => {
+            p.advance();
+            Usage::Index
+        }
+        Token::Pointer => {
+            p.advance();
+            Usage::Pointer
+        }
         // OBJECT REFERENCE <class-name>  (COBOL-2002; spec 005 Rust-FFI bridge).
         // The class name is captured onto the data item being built so the
         // interpreter can resolve it to a Rust type via REPOSITORY.
         Token::Identifier(ref s) if s.eq_ignore_ascii_case("OBJECT") => {
-            p.advance();                 // OBJECT
-            p.eat(&Token::Reference);    // REFERENCE (optional word)
+            p.advance(); // OBJECT
+            p.eat(&Token::Reference); // REFERENCE (optional word)
             if let Token::Identifier(c) = p.peek() {
                 let c = c.clone();
-                p.advance();             // <class-name>
+                p.advance(); // <class-name>
                 p.pending_object_class = Some(c.to_ascii_uppercase());
             }
             Usage::ObjectReference
@@ -625,7 +740,10 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
 
     // OCCURS min TO max | OCCURS n
     let first = match p.peek().clone() {
-        Token::IntegerLiteral(n) => { p.advance(); n as u32 }
+        Token::IntegerLiteral(n) => {
+            p.advance();
+            n as u32
+        }
         _ => {
             p.emit_error("expected integer after OCCURS");
             0
@@ -635,7 +753,10 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
     let (min, max) = if p.at(&Token::To) {
         p.advance();
         let m = match p.peek().clone() {
-            Token::IntegerLiteral(n) => { p.advance(); n as u32 }
+            Token::IntegerLiteral(n) => {
+                p.advance();
+                n as u32
+            }
             _ => {
                 p.emit_error("expected integer after TO in OCCURS");
                 first
@@ -686,7 +807,14 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
         }
     }
 
-    OccursClause { min, max, depending_on, indexed_by, keys, span }
+    OccursClause {
+        min,
+        max,
+        depending_on,
+        indexed_by,
+        keys,
+        span,
+    }
 }
 
 // ── 88-level condition values ─────────────────────────────────────────────────
@@ -694,10 +822,10 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
 /// Negate a numeric literal (for a signed `VALUE`).
 fn negate_literal(lit: Literal) -> Literal {
     match lit {
-        Literal::Integer(n)    => Literal::Integer(-n),
+        Literal::Integer(n) => Literal::Integer(-n),
         Literal::Decimal(m, s) => Literal::Decimal(-m, s),
-        Literal::Float(f)      => Literal::Float(-f),
-        other                  => other,
+        Literal::Float(f) => Literal::Float(-f),
+        other => other,
     }
 }
 
@@ -765,7 +893,7 @@ fn build_tree(items: Vec<DataDecl>) -> Vec<DataDecl> {
     for i in 0..n {
         match parent_idx[i] {
             Some(p) => children_of[p].push(i),
-            None    => roots.push(i),
+            None => roots.push(i),
         }
     }
 
@@ -800,8 +928,10 @@ mod pic_tests {
     fn expands_parenthesised_repetitions() {
         assert_eq!(expand_pic_template("X(3)"), vec!['X', 'X', 'X']);
         assert_eq!(expand_pic_template("XXX"), vec!['X', 'X', 'X']);
-        assert_eq!(expand_pic_template("9(3)V99"),
-                   vec!['9', '9', '9', 'V', '9', '9']);
+        assert_eq!(
+            expand_pic_template("9(3)V99"),
+            vec!['9', '9', '9', 'V', '9', '9']
+        );
         assert_eq!(expand_pic_template("X(256)").len(), 256);
     }
 

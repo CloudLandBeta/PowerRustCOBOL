@@ -18,16 +18,23 @@ use cobolt_runtime::{Interpreter, StateUpdate};
 fn run(src: &str) -> (Vec<String>, Vec<StateUpdate>) {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
-        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
-        "parse errors: {:?}", result.diagnostics
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
     );
     let program = result.program.expect("no program");
     let (_event_tx, event_rx) = mpsc::channel();
-    let (state_tx, state_rx)  = mpsc::channel();
+    let (state_tx, state_rx) = mpsc::channel();
     let (display_tx, display_rx) = mpsc::channel();
     let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
     interp.run().expect("run failed");
-    (display_rx.try_iter().collect(), state_rx.try_iter().collect())
+    (
+        display_rx.try_iter().collect(),
+        state_rx.try_iter().collect(),
+    )
 }
 
 const SRC: &str = r#"
@@ -81,19 +88,37 @@ const SQL_SRC: &str = r#"
 fn methods_set_get_and_notify_ui() {
     let (out, updates) = run(SRC);
     let joined = out.join("\n");
-    assert!(joined.contains("CAP=[Hello"), "SetCaption/GetCaption failed: {out:?}");
-    assert!(joined.contains("TXT=[World"), "INVOKE SetText/GetText failed: {out:?}");
-    assert!(joined.contains("CHECKED"),    "IsChecked condition failed: {out:?}");
-    assert!(joined.contains("N=[2"),       "AddItem/GetCount failed: {out:?}");
+    assert!(
+        joined.contains("CAP=[Hello"),
+        "SetCaption/GetCaption failed: {out:?}"
+    );
+    assert!(
+        joined.contains("TXT=[World"),
+        "INVOKE SetText/GetText failed: {out:?}"
+    );
+    assert!(
+        joined.contains("CHECKED"),
+        "IsChecked condition failed: {out:?}"
+    );
+    assert!(joined.contains("N=[2"), "AddItem/GetCount failed: {out:?}");
 
     // Setters must also notify the UI thread (so a running form updates live).
     // COBOL upper-cases unquoted identifiers, so the control id is normalised.
-    let got = |ctrl: &str, prop: &str, v: &str| updates.iter().any(|u|
-        u.ctrl_id.eq_ignore_ascii_case(ctrl) && u.prop == prop && u.value == v);
-    assert!(got("Label-1", "Caption", "Hello"), "no Caption StateUpdate: {updates:?}");
-    assert!(got("TextBox-1", "Text", "World"),  "no Text StateUpdate");
-    assert!(got("CheckBox-1", "Checked", "1"),  "no Checked StateUpdate");
-    assert!(got("Button-1", "X", "40") && got("Button-1", "Y", "60"), "MoveTo X/Y not set");
+    let got = |ctrl: &str, prop: &str, v: &str| {
+        updates
+            .iter()
+            .any(|u| u.ctrl_id.eq_ignore_ascii_case(ctrl) && u.prop == prop && u.value == v)
+    };
+    assert!(
+        got("Label-1", "Caption", "Hello"),
+        "no Caption StateUpdate: {updates:?}"
+    );
+    assert!(got("TextBox-1", "Text", "World"), "no Text StateUpdate");
+    assert!(got("CheckBox-1", "Checked", "1"), "no Checked StateUpdate");
+    assert!(
+        got("Button-1", "X", "40") && got("Button-1", "Y", "60"),
+        "MoveTo X/Y not set"
+    );
 }
 
 #[test]
@@ -101,7 +126,10 @@ fn sql_control_methods_run_against_db_engine() {
     let (out, _updates) = run(SQL_SRC);
     let joined = out.join("\n");
     // query() returns the SELECT row count via the live SQLite engine.
-    assert!(joined.contains("ROWS=[2"), "SqlDatabase methods failed: {out:?}");
+    assert!(
+        joined.contains("ROWS=[2"),
+        "SqlDatabase methods failed: {out:?}"
+    );
 }
 
 const PROP_NUM_SRC: &str = r#"
@@ -120,27 +148,45 @@ const PROP_NUM_SRC: &str = r#"
 #[test]
 fn numeric_properties_compare_algebraically() {
     let result = parse(tokenize(PROP_NUM_SRC, SourceFormat::Free));
-    assert!(result.diagnostics.iter().all(|d| d.severity != Severity::Error),
-        "parse errors: {:?}", result.diagnostics);
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
     let program = result.program.expect("no program");
     let (_event_tx, event_rx) = mpsc::channel();
-    let (state_tx, state_rx)  = mpsc::channel();
+    let (state_tx, state_rx) = mpsc::channel();
     let (display_tx, display_rx) = mpsc::channel();
     let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
     // Designed geometry: Button-1 right of Label-1 (the user's exact layout).
     interp.seed_objects(vec![
-        ("Button-1".to_string(), "Button".to_string(),
-         vec![("X".to_string(), "232".to_string())]),
-        ("Label-1".to_string(), "Label".to_string(),
-         vec![("X".to_string(), "64".to_string())]),
+        (
+            "Button-1".to_string(),
+            "Button".to_string(),
+            vec![("X".to_string(), "232".to_string())],
+        ),
+        (
+            "Label-1".to_string(),
+            "Label".to_string(),
+            vec![("X".to_string(), "64".to_string())],
+        ),
     ]);
     interp.run().expect("run failed");
     let out: Vec<String> = display_rx.try_iter().collect();
-    assert!(out.iter().any(|l| l.contains("MOVED")),
-        "IF Button-1::X > Label-1::X must be true (232 > 64): {out:?}");
+    assert!(
+        out.iter().any(|l| l.contains("MOVED")),
+        "IF Button-1::X > Label-1::X must be true (232 > 64): {out:?}"
+    );
     let updates: Vec<StateUpdate> = state_rx.try_iter().collect();
-    assert!(updates.iter().any(|u|
-        u.ctrl_id.eq_ignore_ascii_case("Button-1") && u.prop == "X"
-        && u.value.trim() == "64"),
-        "Button-1.X must be moved to 64: {updates:?}");
+    assert!(
+        updates
+            .iter()
+            .any(|u| u.ctrl_id.eq_ignore_ascii_case("Button-1")
+                && u.prop == "X"
+                && u.value.trim() == "64"),
+        "Button-1.X must be moved to 64: {updates:?}"
+    );
 }

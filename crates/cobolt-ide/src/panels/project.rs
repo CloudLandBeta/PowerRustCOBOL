@@ -27,9 +27,9 @@ use egui::{Color32, Context, RichText, ScrollArea, SidePanel, Ui};
 use cobolt_forms::model::Form;
 use cobolt_indexed::{IndexedDefinition, IndexedField};
 
-use crate::project_model::{CoboltProject, Category, ElementStatus, FileKind};
 use crate::i18n::Tr;
 use crate::panels::toolbox;
+use crate::project_model::{Category, CoboltProject, ElementStatus, FileKind};
 
 /// Icon size in the tree — 80 % larger than the default body text (~12 px).
 const ICON_SIZE: f32 = 21.6;
@@ -106,10 +106,18 @@ impl Default for ProjectPanel {
 }
 
 /// Selection keys (unique per tree element).
-fn sel_file(rel: &str) -> String { format!("file:{rel}") }
-fn sel_ctrl(rel: &str, id: &str) -> String { format!("ctrl:{rel}#{id}") }
-fn sel_event(rel: &str, id: &str, ev: &str) -> String { format!("event:{rel}#{id}@{ev}") }
-fn sel_idx_field(rel: &str, id: &str) -> String { format!("idxfld:{rel}#{id}") }
+fn sel_file(rel: &str) -> String {
+    format!("file:{rel}")
+}
+fn sel_ctrl(rel: &str, id: &str) -> String {
+    format!("ctrl:{rel}#{id}")
+}
+fn sel_event(rel: &str, id: &str, ev: &str) -> String {
+    format!("event:{rel}#{id}@{ev}")
+}
+fn sel_idx_field(rel: &str, id: &str) -> String {
+    format!("idxfld:{rel}#{id}")
+}
 
 /// A selectable tree row that fills the remaining width: a full-width rounded
 /// **pill** (selection / hover) painted behind a **left-aligned** label. (Using
@@ -140,7 +148,8 @@ fn full_width_select(
         egui::Color32::TRANSPARENT
     };
     if fill != egui::Color32::TRANSPARENT {
-        ui.painter().rect_filled(rect, egui::Rounding::same(7.0), fill);
+        ui.painter()
+            .rect_filled(rect, egui::Rounding::same(7.0), fill);
     }
 
     // Left-aligned, vertically-centred label. RichText colours (e.g. generated
@@ -148,7 +157,11 @@ fn full_width_select(
     // keep theme-appropriate contrast: white on dark themes (dark selection
     // pill), the theme's dark bright-text on light ones (light selection pill).
     let fallback = if selected {
-        if theme.dark { egui::Color32::WHITE } else { theme.text_bright }
+        if theme.dark {
+            egui::Color32::WHITE
+        } else {
+            theme.text_bright
+        }
     } else {
         ui.visuals().text_color()
     };
@@ -158,7 +171,9 @@ fn full_width_select(
 }
 
 impl ProjectPanel {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Set the root directory shown in tree mode.
     pub fn set_root(&mut self, root: impl Into<PathBuf>) {
@@ -184,13 +199,18 @@ impl ProjectPanel {
 
     /// The status for `rel` — defaults to `Changed` (yellow / not yet tested).
     fn status_for(&self, rel: &str) -> ElementStatus {
-        self.status.get(&rel.replace('\\', "/")).copied().unwrap_or_default()
+        self.status
+            .get(&rel.replace('\\', "/"))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// The relative path of the currently selected *file* element, if any
     /// (used by the toolbar to gate Debug on a Generated Code selection).
     pub fn selected_file(&self) -> Option<&str> {
-        self.selected.as_deref().and_then(|s| s.strip_prefix("file:"))
+        self.selected
+            .as_deref()
+            .and_then(|s| s.strip_prefix("file:"))
     }
 
     /// Render the project panel and return all events that occurred this frame.
@@ -199,24 +219,24 @@ impl ProjectPanel {
     ///   the raw file-tree fallback.
     pub fn show(
         &mut self,
-        ctx:     &Context,
+        ctx: &Context,
         project: Option<&CoboltProject>,
-        tr:      &Tr,
+        tr: &Tr,
     ) -> Vec<ProjectPanelEvent> {
         let mut events = Vec::new();
 
         let frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill, &crate::theme::active());
+            ctx.style().visuals.panel_fill,
+            &crate::theme::active(),
+        );
         SidePanel::left("project_panel")
             .resizable(true)
             .default_width(410.0)
             .min_width(140.0)
             .frame(frame)
-            .show(ctx, |ui| {
-                match project {
-                    Some(proj) => self.show_project_mode(ui, proj, &mut events, tr),
-                    None       => self.show_tree_mode(ui, &mut events, tr),
-                }
+            .show(ctx, |ui| match project {
+                Some(proj) => self.show_project_mode(ui, proj, &mut events, tr),
+                None => self.show_tree_mode(ui, &mut events, tr),
             });
 
         // Consume Select events internally (update the highlighted element).
@@ -235,10 +255,10 @@ impl ProjectPanel {
 
     fn show_project_mode(
         &mut self,
-        ui:     &mut Ui,
-        proj:   &CoboltProject,
+        ui: &mut Ui,
+        proj: &CoboltProject,
         events: &mut Vec<ProjectPanelEvent>,
-        tr:     &Tr,
+        tr: &Tr,
     ) {
         // Current selection (read-only snapshot for highlighting); clicks emit a
         // `Select` event that `show()` applies after rendering.
@@ -263,25 +283,33 @@ impl ProjectPanel {
                 // L1 — the project itself is the root node; categories live under it.
                 let root_id = ui.make_persistent_id("project_root");
                 let mut root_clicked = false;
-                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), root_id, true)
-                    .show_header(ui, |ui| {
-                        tree_icon(ui, draw_folder_icon);
-                        let name_label = egui::Label::new(RichText::new(&proj.project.name).strong())
-                            .sense(egui::Sense::click());
-                        let name_resp = ui.add(name_label)
-                            .on_hover_cursor(egui::CursorIcon::PointingHand);
-                        if name_resp.clicked() {
-                            root_clicked = true;
-                        }
-                        ui.label(RichText::new(format!("v{}", proj.project.version))
-                            .color(crate::theme::active().text_dim).small());
-                    })
-                    .body(|ui| {
-                        // L2 — the five fixed, IDE-owned categories.
-                        for cat in Category::TOP {
-                            self.show_category(ui, cat, proj, &cur, events, tr);
-                        }
-                    });
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    root_id,
+                    true,
+                )
+                .show_header(ui, |ui| {
+                    tree_icon(ui, draw_folder_icon);
+                    let name_label = egui::Label::new(RichText::new(&proj.project.name).strong())
+                        .sense(egui::Sense::click());
+                    let name_resp = ui
+                        .add(name_label)
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    if name_resp.clicked() {
+                        root_clicked = true;
+                    }
+                    ui.label(
+                        RichText::new(format!("v{}", proj.project.version))
+                            .color(crate::theme::active().text_dim)
+                            .small(),
+                    );
+                })
+                .body(|ui| {
+                    // L2 — the five fixed, IDE-owned categories.
+                    for cat in Category::TOP {
+                        self.show_category(ui, cat, proj, &cur, events, tr);
+                    }
+                });
                 if root_clicked {
                     events.push(ProjectPanelEvent::ShowProjectSettings);
                     // Highlight the root as selected (the Select will be consumed after show()).
@@ -298,19 +326,16 @@ impl ProjectPanel {
 
         ScrollArea::vertical()
             .id_salt("project_tree_scroll")
-            .show(ui, |ui| {
-                match self.root.clone() {
-                    Some(root) => {
-                        if let Some(path) = self.show_dir(ui, &root, 0) {
-                            events.push(ProjectPanelEvent::Open(path));
-                        }
+            .show(ui, |ui| match self.root.clone() {
+                Some(root) => {
+                    if let Some(path) = self.show_dir(ui, &root, 0) {
+                        events.push(ProjectPanelEvent::Open(path));
                     }
-                    None => {
-                        ui.label(
-                            RichText::new(tr.no_project_open)
-                                .color(crate::theme::active().text_dim),
-                        );
-                    }
+                }
+                None => {
+                    ui.label(
+                        RichText::new(tr.no_project_open).color(crate::theme::active().text_dim),
+                    );
                 }
             });
     }
@@ -319,21 +344,19 @@ impl ProjectPanel {
         let mut opened: Option<PathBuf> = None;
 
         let entries = match std::fs::read_dir(dir) {
-            Ok(e)  => e,
+            Ok(e) => e,
             Err(_) => return None,
         };
 
-        let mut paths: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .collect();
+        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         paths.sort();
 
         for path in &paths {
-            let name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("?");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
 
-            if name.starts_with('.') { continue; }
+            if name.starts_with('.') {
+                continue;
+            }
 
             let indent = depth as f32 * 14.0;
 
@@ -343,7 +366,10 @@ impl ProjectPanel {
                 ui.horizontal(|ui| {
                     ui.add_space(indent);
                     tree_icon(ui, draw_folder_icon);
-                    if ui.selectable_label(false, format!("{arrow} {name}")).clicked() {
+                    if ui
+                        .selectable_label(false, format!("{arrow} {name}"))
+                        .clicked()
+                    {
                         if expanded {
                             self.expanded.remove(path);
                         } else {
@@ -357,19 +383,17 @@ impl ProjectPanel {
                     }
                 }
             } else {
-                let ext = path.extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
-                if !matches!(ext.to_ascii_lowercase().as_str(),
-                    "cbl" | "cob" | "cpy" | "cfrm" | "toml" | "txt") {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if !matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "cbl" | "cob" | "cpy" | "cfrm" | "toml" | "txt"
+                ) {
                     continue;
                 }
                 ui.horizontal(|ui| {
                     ui.add_space(indent + 14.0);
                     tree_icon(ui, draw_document_icon);
-                    if ui.selectable_label(false, name)
-                        .double_clicked()
-                    {
+                    if ui.selectable_label(false, name).double_clicked() {
                         opened = Some(path.clone());
                     }
                 });
@@ -393,7 +417,11 @@ fn status_dot(ui: &mut Ui, status: ElementStatus) {
     let painter = ui.painter();
     painter.circle_filled(center, radius, color);
     // Subtle dark ring so the knob reads on any background.
-    painter.circle_stroke(center, radius, egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 110)));
+    painter.circle_stroke(
+        center,
+        radius,
+        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 110)),
+    );
     resp.on_hover_text(status.tooltip());
 }
 
@@ -436,7 +464,10 @@ pub(crate) fn draw_indexed_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     for i in 0..3 {
         let y = body.min.y + body.height() * (0.30 + i as f32 * 0.18);
         p.line_segment(
-            [egui::pos2(body.min.x + 3.0, y), egui::pos2(body.max.x - 3.0, y)],
+            [
+                egui::pos2(body.min.x + 3.0, y),
+                egui::pos2(body.max.x - 3.0, y),
+            ],
             egui::Stroke::new(1.0, c),
         );
     }
@@ -465,7 +496,10 @@ fn draw_document_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     for i in 0..3 {
         let y = body.min.y + body.height() * (0.35 + i as f32 * 0.16);
         p.line_segment(
-            [egui::pos2(body.min.x + 3.0, y), egui::pos2(body.max.x - 4.0, y)],
+            [
+                egui::pos2(body.min.x + 3.0, y),
+                egui::pos2(body.max.x - 4.0, y),
+            ],
             egui::Stroke::new(0.9, c),
         );
     }
@@ -480,17 +514,26 @@ fn draw_lock_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let sw = 1.3;
     // left vertical
     p.line_segment(
-        [egui::pos2(cx - 3.2, cy + 0.5), egui::pos2(cx - 3.2, cy - 2.8)],
+        [
+            egui::pos2(cx - 3.2, cy + 0.5),
+            egui::pos2(cx - 3.2, cy - 2.8),
+        ],
         egui::Stroke::new(sw, c),
     );
     // top arc (approx with short horiz)
     p.line_segment(
-        [egui::pos2(cx - 3.2, cy - 2.8), egui::pos2(cx + 3.2, cy - 2.8)],
+        [
+            egui::pos2(cx - 3.2, cy - 2.8),
+            egui::pos2(cx + 3.2, cy - 2.8),
+        ],
         egui::Stroke::new(sw, c),
     );
     // right vertical
     p.line_segment(
-        [egui::pos2(cx + 3.2, cy - 2.8), egui::pos2(cx + 3.2, cy + 0.5)],
+        [
+            egui::pos2(cx + 3.2, cy - 2.8),
+            egui::pos2(cx + 3.2, cy + 0.5),
+        ],
         egui::Stroke::new(sw, c),
     );
     // Body
@@ -533,19 +576,19 @@ impl ProjectPanel {
     /// Draw one fixed category node (L2) and its items (L3).
     fn show_category(
         &mut self,
-        ui:     &mut Ui,
-        cat:    Category,
-        proj:   &CoboltProject,
-        cur:    &Option<String>,
+        ui: &mut Ui,
+        cat: Category,
+        proj: &CoboltProject,
+        cur: &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
-        tr:     &Tr,
+        tr: &Tr,
     ) {
         let (label, kind): (&str, Option<FileKind>) = match cat {
-            Category::Forms         => (tr.panel_forms, Some(FileKind::Form)),
-            Category::IndexedFiles  => (tr.cat_indexed_files, Some(FileKind::Indexed)),
-            Category::CommonCode    => (tr.cat_common_code, Some(FileKind::Source)),
-            Category::Generated     => (tr.cat_generated_code, None),
-            Category::Assets        => (tr.panel_assets, Some(FileKind::Asset)),
+            Category::Forms => (tr.panel_forms, Some(FileKind::Form)),
+            Category::IndexedFiles => (tr.cat_indexed_files, Some(FileKind::Indexed)),
+            Category::CommonCode => (tr.cat_common_code, Some(FileKind::Source)),
+            Category::Generated => (tr.cat_generated_code, None),
+            Category::Assets => (tr.panel_assets, Some(FileKind::Asset)),
             Category::Documentation => (tr.cat_documentation, Some(FileKind::Documentation)),
         };
         let is_generated = cat == Category::Generated;
@@ -564,7 +607,8 @@ impl ProjectPanel {
                 // Generated Code is IDE-owned (forms populate it) — no [+].
                 if let Some(kind) = kind {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let plus = ui.small_button("+")
+                        let plus = ui
+                            .small_button("+")
                             .on_hover_text(format!("{}: {label}", tr.tree_create_hover));
                         if plus.clicked() {
                             events.push(ProjectPanelEvent::Create(kind));
@@ -582,9 +626,16 @@ impl ProjectPanel {
             .body(|ui| {
                 let files: Vec<String> = proj.files_in(cat).to_vec();
                 if files.is_empty() {
-                    let hint = if is_generated { tr.tree_generated_empty } else { tr.tree_empty };
-                    ui.label(RichText::new(format!("  {hint}"))
-                        .color(crate::theme::active().text_dim).small());
+                    let hint = if is_generated {
+                        tr.tree_generated_empty
+                    } else {
+                        tr.tree_empty
+                    };
+                    ui.label(
+                        RichText::new(format!("  {hint}"))
+                            .color(crate::theme::active().text_dim)
+                            .small(),
+                    );
                     return;
                 }
                 for rel in &files {
@@ -594,7 +645,17 @@ impl ProjectPanel {
                     } else if is_indexed {
                         self.show_indexed_item(ui, rel, &root, cur, events, tr);
                     } else if is_generated {
-                        file_row(ui, rel, "🔒", Some(crate::theme::active().ed_generated), false, st, cur, &root, events);
+                        file_row(
+                            ui,
+                            rel,
+                            "🔒",
+                            Some(crate::theme::active().ed_generated),
+                            false,
+                            st,
+                            cur,
+                            &root,
+                            events,
+                        );
                     } else {
                         // The icon string is only used as a selector for vector draw
                         // (see file_row); real drawing no longer depends on FileKind::icon().
@@ -609,14 +670,17 @@ impl ProjectPanel {
     /// each control with handlers expands to an "Events" group.
     fn show_form_item(
         &mut self,
-        ui:     &mut Ui,
-        rel:    &str,
-        root:   &Option<PathBuf>,
-        cur:    &Option<String>,
+        ui: &mut Ui,
+        rel: &str,
+        root: &Option<PathBuf>,
+        cur: &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
-        tr:     &Tr,
+        tr: &Tr,
     ) {
-        let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
+        let name = Path::new(rel)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(rel);
         let abs = root.as_ref().map(|d| d.join(rel));
         let form = abs.as_ref().and_then(|p| self.form_for(p));
         let form_status = self.status_for(rel);
@@ -627,45 +691,59 @@ impl ProjectPanel {
         // L3 form node is open by default (collapse only kicks in below it).
         let (_toggle, header_inner, _body) =
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-            .show_header(ui, |ui| {
-                ui.add_space(8.0);
-                status_dot(ui, form_status);
-                tree_icon(ui, draw_document_icon);
-                full_width_select(ui, form_selected, RichText::new(name)).on_hover_text(rel)
-            })
-            .body(|ui| {
-                let Some(form) = &form else {
-                    ui.label(RichText::new("  (could not read form)")
-                        .color(crate::theme::active().text_dim).small());
-                    return;
-                };
-                let Some(form_path) = &abs else { return; };
-                // Group controls by toolbox category, Non-Visual first (L4, collapsed).
-                for &cat_key in toolbox::TREE_CATEGORY_ORDER {
-                    let in_cat: Vec<&cobolt_forms::model::Control> = form
-                        .controls
-                        .iter()
-                        .filter(|c| toolbox::category_of(c.control_type.clone()) == cat_key)
-                        .collect();
-                    if in_cat.is_empty() {
-                        continue;
-                    }
-                    let gid = ui.make_persistent_id(("form_grp", rel, cat_key));
-                    // L4 — collapsed by default (everything below level 3 collapses).
-                    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), gid, false)
+                .show_header(ui, |ui| {
+                    ui.add_space(8.0);
+                    status_dot(ui, form_status);
+                    tree_icon(ui, draw_document_icon);
+                    full_width_select(ui, form_selected, RichText::new(name)).on_hover_text(rel)
+                })
+                .body(|ui| {
+                    let Some(form) = &form else {
+                        ui.label(
+                            RichText::new("  (could not read form)")
+                                .color(crate::theme::active().text_dim)
+                                .small(),
+                        );
+                        return;
+                    };
+                    let Some(form_path) = &abs else {
+                        return;
+                    };
+                    // Group controls by toolbox category, Non-Visual first (L4, collapsed).
+                    for &cat_key in toolbox::TREE_CATEGORY_ORDER {
+                        let in_cat: Vec<&cobolt_forms::model::Control> = form
+                            .controls
+                            .iter()
+                            .filter(|c| toolbox::category_of(c.control_type.clone()) == cat_key)
+                            .collect();
+                        if in_cat.is_empty() {
+                            continue;
+                        }
+                        let gid = ui.make_persistent_id(("form_grp", rel, cat_key));
+                        // L4 — collapsed by default (everything below level 3 collapses).
+                        egui::collapsing_header::CollapsingState::load_with_default_open(
+                            ui.ctx(),
+                            gid,
+                            false,
+                        )
                         .show_header(ui, |ui| {
                             ui.add_space(16.0);
-                            ui.label(RichText::new(format!("{} ({})",
-                                toolbox::category_display(cat_key), in_cat.len()))
-                                .color(crate::theme::active().text_dim));
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} ({})",
+                                    toolbox::category_display(cat_key),
+                                    in_cat.len()
+                                ))
+                                .color(crate::theme::active().text_dim),
+                            );
                         })
                         .body(|ui| {
                             for c in &in_cat {
                                 control_node(ui, rel, form_path, c, form_status, cur, events, tr);
                             }
                         });
-                }
-            });
+                    }
+                });
         // Single click → inspect form properties; double click → open the designer.
         let resp = header_inner.inner;
         if let Some(p) = &abs {
@@ -682,14 +760,17 @@ impl ProjectPanel {
     /// An indexed-file item (L3) expanding to its record fields.
     fn show_indexed_item(
         &mut self,
-        ui:     &mut Ui,
-        rel:    &str,
-        root:   &Option<PathBuf>,
-        cur:    &Option<String>,
+        ui: &mut Ui,
+        rel: &str,
+        root: &Option<PathBuf>,
+        cur: &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
-        tr:     &Tr,
+        tr: &Tr,
     ) {
-        let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
+        let name = Path::new(rel)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(rel);
         let abs = root.as_ref().map(|d| d.join(rel));
         let def = abs.as_ref().and_then(|p| self.indexed_for(p));
         let status = self.status_for(rel);
@@ -699,23 +780,28 @@ impl ProjectPanel {
         let id = ui.make_persistent_id(("indexed_item", rel));
         let (_toggle, header_inner, _body) =
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
-            .show_header(ui, |ui| {
-                ui.add_space(8.0);
-                status_dot(ui, status);
-                tree_icon(ui, draw_indexed_icon);
-                full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel)
-            })
-            .body(|ui| {
-                let Some(def) = &def else {
-                    ui.label(RichText::new("  (could not read .cidx)")
-                        .color(crate::theme::active().text_dim).small());
-                    return;
-                };
-                let Some(cidx_path) = &abs else { return; };
-                for field in &def.fields {
-                    indexed_field_node(ui, rel, field, 0, status, cur, events, cidx_path);
-                }
-            });
+                .show_header(ui, |ui| {
+                    ui.add_space(8.0);
+                    status_dot(ui, status);
+                    tree_icon(ui, draw_indexed_icon);
+                    full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel)
+                })
+                .body(|ui| {
+                    let Some(def) = &def else {
+                        ui.label(
+                            RichText::new("  (could not read .cidx)")
+                                .color(crate::theme::active().text_dim)
+                                .small(),
+                        );
+                        return;
+                    };
+                    let Some(cidx_path) = &abs else {
+                        return;
+                    };
+                    for field in &def.fields {
+                        indexed_field_node(ui, rel, field, 0, status, cur, events, cidx_path);
+                    }
+                });
         let resp = header_inner.inner;
         if let Some(p) = &abs {
             if resp.double_clicked() {
@@ -730,27 +816,29 @@ impl ProjectPanel {
 }
 
 fn indexed_field_node(
-    ui:     &mut Ui,
-    rel:    &str,
-    field:  &IndexedField,
-    depth:  usize,
+    ui: &mut Ui,
+    rel: &str,
+    field: &IndexedField,
+    depth: usize,
     status: ElementStatus,
-    cur:    &Option<String>,
+    cur: &Option<String>,
     events: &mut Vec<ProjectPanelEvent>,
     cidx_abs: &Path,
 ) {
     let indent = 20.0 + depth as f32 * 14.0;
     let key = sel_idx_field(rel, &field.name);
     let selected = cur.as_deref() == Some(key.as_str());
-    let row_resp = ui.horizontal(|ui| {
-        ui.add_space(indent);
-        status_dot(ui, status);
-        full_width_select(
-            ui,
-            selected,
-            RichText::new(format!("{:02} {}", field.level, field.name)).monospace(),
-        )
-    }).inner;
+    let row_resp = ui
+        .horizontal(|ui| {
+            ui.add_space(indent);
+            status_dot(ui, status);
+            full_width_select(
+                ui,
+                selected,
+                RichText::new(format!("{:02} {}", field.level, field.name)).monospace(),
+            )
+        })
+        .inner;
     if row_resp.clicked() {
         events.push(ProjectPanelEvent::Select(key));
         events.push(ProjectPanelEvent::InspectIndexedField {
@@ -767,14 +855,14 @@ fn indexed_field_node(
 /// to an "Events" group listing them (click → open the event's COBOL paragraph).
 #[allow(clippy::too_many_arguments)]
 fn control_node(
-    ui:        &mut Ui,
-    rel:       &str,
+    ui: &mut Ui,
+    rel: &str,
     form_path: &Path,
-    c:         &cobolt_forms::model::Control,
-    status:    ElementStatus,
-    cur:       &Option<String>,
-    events:    &mut Vec<ProjectPanelEvent>,
-    tr:        &Tr,
+    c: &cobolt_forms::model::Control,
+    status: ElementStatus,
+    cur: &Option<String>,
+    events: &mut Vec<ProjectPanelEvent>,
+    tr: &Tr,
 ) {
     let ckey = sel_ctrl(rel, &c.id);
     let csel = cur.as_deref() == Some(ckey.as_str());
@@ -785,51 +873,64 @@ fn control_node(
     // same way CollapsingState stores its openness), so the expansion survives
     // frames and app restarts; collapsed by default.
     let id = ui.make_persistent_id(("ctrl_open", rel, &c.id));
-    let mut open = has_events
-        && ui.data_mut(|d| d.get_persisted::<bool>(id).unwrap_or(false));
+    let mut open = has_events && ui.data_mut(|d| d.get_persisted::<bool>(id).unwrap_or(false));
 
     // Every control row reserves the SAME leading layout — a fixed indent plus a
     // fixed-width arrow gutter — so the status dot and label line up in one
     // column whether or not the control has an expandable Events node.
-    let crow = ui.horizontal(|ui| {
-        ui.add_space(20.0);
-        let (arrow_rect, arrow_resp) =
-            ui.allocate_exact_size(egui::vec2(ARROW_GUTTER, 24.0), egui::Sense::click());
-        // Test probe: expose the arrow's screen rect under a reconstructable
-        // global id so headless tests can click it wherever layout puts it.
-        #[cfg(test)]
-        ui.data_mut(|d| d.insert_temp(
-            egui::Id::new(("arrow_probe", rel, c.id.as_str())), arrow_rect));
-        if has_events {
-            // Paint the triangle as a filled path (like egui's own collapsing
-            // icon) — a text glyph here depends on the loaded fonts and can
-            // render invisibly faint or missing. Use the standard interact
-            // foreground colour so it is clearly visible on every theme.
-            let color = ui.style().interact(&arrow_resp).fg_stroke.color;
-            let c = arrow_rect.center();
-            let r = 6.75;
-            let points = if open {
-                vec![ // ▾
-                    egui::pos2(c.x - r, c.y - r * 0.55),
-                    egui::pos2(c.x + r, c.y - r * 0.55),
-                    egui::pos2(c.x,     c.y + r * 0.80),
-                ]
-            } else {
-                vec![ // ▸
-                    egui::pos2(c.x - r * 0.55, c.y - r),
-                    egui::pos2(c.x + r * 0.80, c.y),
-                    egui::pos2(c.x - r * 0.55, c.y + r),
-                ]
-            };
-            ui.painter().add(egui::Shape::convex_polygon(
-                points, color, egui::Stroke::NONE));
-            if arrow_resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                open = !open;
+    let crow = ui
+        .horizontal(|ui| {
+            ui.add_space(20.0);
+            let (arrow_rect, arrow_resp) =
+                ui.allocate_exact_size(egui::vec2(ARROW_GUTTER, 24.0), egui::Sense::click());
+            // Test probe: expose the arrow's screen rect under a reconstructable
+            // global id so headless tests can click it wherever layout puts it.
+            #[cfg(test)]
+            ui.data_mut(|d| {
+                d.insert_temp(
+                    egui::Id::new(("arrow_probe", rel, c.id.as_str())),
+                    arrow_rect,
+                )
+            });
+            if has_events {
+                // Paint the triangle as a filled path (like egui's own collapsing
+                // icon) — a text glyph here depends on the loaded fonts and can
+                // render invisibly faint or missing. Use the standard interact
+                // foreground colour so it is clearly visible on every theme.
+                let color = ui.style().interact(&arrow_resp).fg_stroke.color;
+                let c = arrow_rect.center();
+                let r = 6.75;
+                let points = if open {
+                    vec![
+                        // ▾
+                        egui::pos2(c.x - r, c.y - r * 0.55),
+                        egui::pos2(c.x + r, c.y - r * 0.55),
+                        egui::pos2(c.x, c.y + r * 0.80),
+                    ]
+                } else {
+                    vec![
+                        // ▸
+                        egui::pos2(c.x - r * 0.55, c.y - r),
+                        egui::pos2(c.x + r * 0.80, c.y),
+                        egui::pos2(c.x - r * 0.55, c.y + r),
+                    ]
+                };
+                ui.painter().add(egui::Shape::convex_polygon(
+                    points,
+                    color,
+                    egui::Stroke::NONE,
+                ));
+                if arrow_resp
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked()
+                {
+                    open = !open;
+                }
             }
-        }
-        status_dot(ui, status);
-        full_width_select(ui, csel, c.id.as_str()).on_hover_text(hint)
-    }).inner;
+            status_dot(ui, status);
+            full_width_select(ui, csel, c.id.as_str()).on_hover_text(hint)
+        })
+        .inner;
 
     // Double-clicking the row is a second way to expand/collapse the Events
     // subtree (the single click still selects + inspects the control).
@@ -840,8 +941,7 @@ fn control_node(
         ui.data_mut(|d| d.insert_persisted(id, open));
     }
     #[cfg(test)]
-    ui.data_mut(|d| d.insert_temp(
-        egui::Id::new(("open_probe", rel, c.id.as_str())), open));
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(("open_probe", rel, c.id.as_str())), open));
     if crow.clicked() {
         events.push(ProjectPanelEvent::Select(ckey));
         events.push(ProjectPanelEvent::InspectControl {
@@ -857,16 +957,20 @@ fn control_node(
         let events_indent = 20.0 + ARROW_GUTTER + 16.0;
         ui.horizontal(|ui| {
             ui.add_space(events_indent);
-            ui.label(RichText::new(format!("⚡ {}", tr.tree_events))
-                .color(crate::theme::active().text_dim));
+            ui.label(
+                RichText::new(format!("⚡ {}", tr.tree_events))
+                    .color(crate::theme::active().text_dim),
+            );
         });
         for ev in &c.events {
             let ekey = sel_event(rel, &c.id, &ev.event);
             let esel = cur.as_deref() == Some(ekey.as_str());
-            let erow = ui.horizontal(|ui| {
-                ui.add_space(events_indent + 28.0);
-                full_width_select(ui, esel, ev.event.as_str()).on_hover_text(&ev.paragraph)
-            }).inner;
+            let erow = ui
+                .horizontal(|ui| {
+                    ui.add_space(events_indent + 28.0);
+                    full_width_select(ui, esel, ev.event.as_str()).on_hover_text(&ev.paragraph)
+                })
+                .inner;
             if erow.clicked() {
                 events.push(ProjectPanelEvent::Select(ekey));
                 events.push(ProjectPanelEvent::OpenEventCode {
@@ -882,33 +986,38 @@ fn control_node(
 /// Main Pane; `color` tints the label; `removable` adds a remove context menu.
 #[allow(clippy::too_many_arguments)]
 fn file_row(
-    ui:        &mut Ui,
-    rel:       &str,
-    icon:      &str,
-    color:     Option<Color32>,
+    ui: &mut Ui,
+    rel: &str,
+    icon: &str,
+    color: Option<Color32>,
     removable: bool,
-    status:    ElementStatus,
-    cur:       &Option<String>,
-    root:      &Option<PathBuf>,
-    events:    &mut Vec<ProjectPanelEvent>,
+    status: ElementStatus,
+    cur: &Option<String>,
+    root: &Option<PathBuf>,
+    events: &mut Vec<ProjectPanelEvent>,
 ) {
-    let name = Path::new(rel).file_name().and_then(|n| n.to_str()).unwrap_or(rel);
+    let name = Path::new(rel)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(rel);
     let key = sel_file(rel);
     let is_sel = cur.as_deref() == Some(key.as_str());
     let mut text = RichText::new(name);
     if let Some(c) = color {
         text = text.color(c);
     }
-    let resp = ui.horizontal(|ui| {
-        ui.add_space(8.0);
-        status_dot(ui, status);
-        if icon == "🔒" {
-            tree_icon(ui, draw_lock_icon);
-        } else {
-            tree_icon(ui, draw_document_icon);
-        }
-        full_width_select(ui, is_sel, text).on_hover_text(rel)
-    }).inner;
+    let resp = ui
+        .horizontal(|ui| {
+            ui.add_space(8.0);
+            status_dot(ui, status);
+            if icon == "🔒" {
+                tree_icon(ui, draw_lock_icon);
+            } else {
+                tree_icon(ui, draw_document_icon);
+            }
+            full_width_select(ui, is_sel, text).on_hover_text(rel)
+        })
+        .inner;
 
     // Single click selects + opens the file in the Main Pane.
     if resp.clicked() {
@@ -944,7 +1053,9 @@ mod control_node_tests {
     ) -> f32 {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0))),
+                egui::pos2(0.0, 0.0),
+                egui::vec2(800.0, 600.0),
+            )),
             time: Some(at),
             events: events_in,
             ..Default::default()
@@ -955,12 +1066,22 @@ mod control_node_tests {
                 .frame(egui::Frame::none())
                 .show(ctx, |ui| {
                     let tr = crate::i18n::Language::English.tr();
-                    let used = ui.vertical(|ui| {
-                        control_node(
-                            ui, "forms/f.cfrm", Path::new("/tmp/f.cfrm"), c,
-                            ElementStatus::Changed, &None, out, &tr,
-                        );
-                    }).response.rect.height();
+                    let used = ui
+                        .vertical(|ui| {
+                            control_node(
+                                ui,
+                                "forms/f.cfrm",
+                                Path::new("/tmp/f.cfrm"),
+                                c,
+                                ElementStatus::Changed,
+                                &None,
+                                out,
+                                &tr,
+                            );
+                        })
+                        .response
+                        .rect
+                        .height();
                     height = used;
                 });
         });
@@ -970,35 +1091,56 @@ mod control_node_tests {
     #[test]
     fn arrow_click_expands_events_subtree() {
         let mut c = Control::new("Button-1", ControlType::Button, 10, 10);
-        c.events.push(EventBinding::new("onClick", "BUTTON-1--ONCLICK"));
+        c.events
+            .push(EventBinding::new("onClick", "BUTTON-1--ONCLICK"));
 
         let ctx = egui::Context::default();
         let mut out = Vec::new();
         let arrow = egui::pos2(27.0, 12.0); // indent 20 + gutter 14 → centre ≈ x 27
 
         let collapsed = frame(&ctx, 0.00, vec![], &c, &mut out);
-        frame(&ctx, 0.05, vec![
-            egui::Event::PointerMoved(arrow),
-            egui::Event::PointerButton {
-                pos: arrow, button: egui::PointerButton::Primary,
-                pressed: true, modifiers: egui::Modifiers::default(),
-            },
-        ], &c, &mut out);
-        let on_release = frame(&ctx, 0.10, vec![
-            egui::Event::PointerButton {
-                pos: arrow, button: egui::PointerButton::Primary,
-                pressed: false, modifiers: egui::Modifiers::default(),
-            },
-        ], &c, &mut out);
+        frame(
+            &ctx,
+            0.05,
+            vec![
+                egui::Event::PointerMoved(arrow),
+                egui::Event::PointerButton {
+                    pos: arrow,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            &c,
+            &mut out,
+        );
+        let on_release = frame(
+            &ctx,
+            0.10,
+            vec![egui::Event::PointerButton {
+                pos: arrow,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            &c,
+            &mut out,
+        );
         let settled = frame(&ctx, 0.15, vec![], &c, &mut out);
 
-        assert!(collapsed > 0.0 && collapsed < 40.0,
-            "collapsed row should be a single line, got {collapsed}");
-        assert!(on_release > collapsed + 20.0,
+        assert!(
+            collapsed > 0.0 && collapsed < 40.0,
+            "collapsed row should be a single line, got {collapsed}"
+        );
+        assert!(
+            on_release > collapsed + 20.0,
             "clicking the arrow must expand the Events subtree \
-             (collapsed {collapsed}, after click {on_release})");
-        assert!(settled > collapsed + 20.0,
-            "expansion must persist on the next frame (got {settled})");
+             (collapsed {collapsed}, after click {on_release})"
+        );
+        assert!(
+            settled > collapsed + 20.0,
+            "expansion must persist on the next frame (got {settled})"
+        );
     }
 
     #[test]
@@ -1007,7 +1149,10 @@ mod control_node_tests {
         let ctx = egui::Context::default();
         let mut out = Vec::new();
         let h = frame(&ctx, 0.0, vec![], &c, &mut out);
-        assert!(h > 0.0 && h < 40.0, "event-less control must stay one row, got {h}");
+        assert!(
+            h > 0.0 && h < 40.0,
+            "event-less control must stay one row, got {h}"
+        );
     }
 }
 
@@ -1027,29 +1172,42 @@ mod control_node_in_real_wrappers {
     ) {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0), egui::vec2(900.0, 700.0))),
+                egui::pos2(0.0, 0.0),
+                egui::vec2(900.0, 700.0),
+            )),
             time: Some(at),
             events: events_in,
             ..Default::default()
         };
         let _ = ctx.run(input, |ctx| {
             let tr = crate::i18n::Language::English.tr();
-            SidePanel::left("project_panel").default_width(410.0).show(ctx, |ui| {
-                ScrollArea::vertical().show(ui, |ui| {
-                    let gid = ui.make_persistent_id(("form_grp", "forms/f.cfrm", "common"));
-                    egui::collapsing_header::CollapsingState::load_with_default_open(
-                        ctx, gid, true)
-                        .show_header(ui, |ui| { ui.label("Common (2)"); })
+            SidePanel::left("project_panel")
+                .default_width(410.0)
+                .show(ctx, |ui| {
+                    ScrollArea::vertical().show(ui, |ui| {
+                        let gid = ui.make_persistent_id(("form_grp", "forms/f.cfrm", "common"));
+                        egui::collapsing_header::CollapsingState::load_with_default_open(
+                            ctx, gid, true,
+                        )
+                        .show_header(ui, |ui| {
+                            ui.label("Common (2)");
+                        })
                         .body(|ui| {
                             for c in controls {
                                 control_node(
-                                    ui, "forms/f.cfrm", Path::new("/tmp/f.cfrm"), c,
-                                    ElementStatus::Changed, &None, out, &tr,
+                                    ui,
+                                    "forms/f.cfrm",
+                                    Path::new("/tmp/f.cfrm"),
+                                    c,
+                                    ElementStatus::Changed,
+                                    &None,
+                                    out,
+                                    &tr,
                                 );
                             }
                         });
+                    });
                 });
-            });
         });
     }
 
@@ -1057,42 +1215,61 @@ mod control_node_in_real_wrappers {
     fn arrow_click_expands_inside_panel_scroll_and_category() {
         let label = Control::new("Label-1", ControlType::Label, 10, 10);
         let mut button = Control::new("Button-1", ControlType::Button, 10, 60);
-        button.events.push(EventBinding::new("onClick", "BUTTON-1--ONCLICK"));
+        button
+            .events
+            .push(EventBinding::new("onClick", "BUTTON-1--ONCLICK"));
         let controls = vec![label, button];
 
         let ctx = egui::Context::default();
         let mut out = Vec::new();
         let arrow_id = egui::Id::new(("arrow_probe", "forms/f.cfrm", "Button-1"));
-        let open_id  = egui::Id::new(("open_probe",  "forms/f.cfrm", "Button-1"));
+        let open_id = egui::Id::new(("open_probe", "forms/f.cfrm", "Button-1"));
 
         // Frame 1+2: settle the collapsing animation, read the arrow's rect.
         frame(&ctx, 0.00, vec![], &controls, &mut out);
         frame(&ctx, 0.40, vec![], &controls, &mut out);
-        let arrow: egui::Rect = ctx.data(|d| d.get_temp(arrow_id))
+        let arrow: egui::Rect = ctx
+            .data(|d| d.get_temp(arrow_id))
             .expect("arrow rect probe not set — control row did not render");
         let open0: bool = ctx.data(|d| d.get_temp(open_id)).unwrap_or(false);
         assert!(!open0, "should start collapsed");
 
         // Click the arrow centre: move + press, then release.
         let p = arrow.center();
-        frame(&ctx, 0.45, vec![
-            egui::Event::PointerMoved(p),
-            egui::Event::PointerButton {
-                pos: p, button: egui::PointerButton::Primary,
-                pressed: true, modifiers: egui::Modifiers::default(),
-            },
-        ], &controls, &mut out);
-        frame(&ctx, 0.50, vec![
-            egui::Event::PointerButton {
-                pos: p, button: egui::PointerButton::Primary,
-                pressed: false, modifiers: egui::Modifiers::default(),
-            },
-        ], &controls, &mut out);
+        frame(
+            &ctx,
+            0.45,
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            &controls,
+            &mut out,
+        );
+        frame(
+            &ctx,
+            0.50,
+            vec![egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            &controls,
+            &mut out,
+        );
         frame(&ctx, 0.55, vec![], &controls, &mut out);
 
         let open: bool = ctx.data(|d| d.get_temp(open_id)).unwrap_or(false);
-        assert!(open,
+        assert!(
+            open,
             "clicking the arrow at {p:?} must expand Button-1's Events subtree \
-             inside SidePanel/ScrollArea/CollapsingState");
+             inside SidePanel/ScrollArea/CollapsingState"
+        );
     }
 }

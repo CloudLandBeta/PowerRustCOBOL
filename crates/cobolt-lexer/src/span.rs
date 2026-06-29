@@ -34,12 +34,22 @@ pub struct Span {
 impl Span {
     /// Construct a span explicitly.
     pub fn new(start: usize, end: usize, line: u32, col: u32) -> Self {
-        Self { start, end, line, col }
+        Self {
+            start,
+            end,
+            line,
+            col,
+        }
     }
 
     /// A dummy span used as a placeholder before positions are resolved.
     pub fn dummy() -> Self {
-        Self { start: 0, end: 0, line: 0, col: 0 }
+        Self {
+            start: 0,
+            end: 0,
+            line: 0,
+            col: 0,
+        }
     }
 
     /// Length of the token in bytes.
@@ -58,7 +68,11 @@ impl Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
             line: self.line.min(other.line),
-            col: if self.start <= other.start { self.col } else { other.col },
+            col: if self.start <= other.start {
+                self.col
+            } else {
+                other.col
+            },
         }
     }
 
@@ -152,9 +166,9 @@ mod tests {
     fn line_index_basic() {
         let src = "MOVE A TO B.\nADD 1 TO C.\n";
         let idx = LineIndex::new(src);
-        assert_eq!(idx.line_col(0), (1, 1));   // 'M'
-        assert_eq!(idx.line_col(13), (2, 1));  // 'A' of ADD
-        assert_eq!(idx.line_col(14), (2, 2));  // 'D'
+        assert_eq!(idx.line_col(0), (1, 1)); // 'M'
+        assert_eq!(idx.line_col(13), (2, 1)); // 'A' of ADD
+        assert_eq!(idx.line_col(14), (2, 2)); // 'D'
     }
 
     #[test]
