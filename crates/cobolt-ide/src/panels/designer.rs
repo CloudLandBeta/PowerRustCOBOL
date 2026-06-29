@@ -478,6 +478,10 @@ pub struct MenuEditorModal {
     /// Icon picker modal state
     icon_picker_open: bool,
     icon_search: String,
+    /// Generation counter for icon picker window ID (forces fresh egui state on reopen)
+    icon_picker_gen: u32,
+    /// Horizontal split ratio between Menu Items and Item Properties panes (0.0–1.0)
+    split_ratio: f32,
 }
 
 impl MenuEditorModal {
@@ -491,6 +495,8 @@ impl MenuEditorModal {
             target_buf: String::new(),
             icon_picker_open: false,
             icon_search: String::new(),
+            icon_picker_gen: 0,
+            split_ratio: 0.40,
         }
     }
 
@@ -2789,33 +2795,102 @@ impl DesignerPanel {
         let mut cancel_clicked = false;
 
         let screen = ui.ctx().screen_rect();
-        let default_w = (screen.width() * 0.65).max(500.0);
-        let default_h = (screen.height() * 0.70).max(450.0);
-
         let tr = crate::i18n::current_tr(ui.ctx());
 
-        // Reset stored window size each time the modal opens so it always
-        // respects the 70% sizing instead of remembering a previous session.
         let modal_id = egui::Id::new("menu_editor_modal");
-        ui.ctx().memory_mut(|m| m.data.remove::<egui::Rect>(modal_id));
 
         egui::Window::new(tr.menu_editor_title)
             .id(modal_id)
             .collapsible(false)
             .resizable(true)
-            .fixed_size(egui::Vec2::new(default_w, default_h))
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .default_size([800.0, 500.0])
+            .default_pos(egui::Pos2::new(
+                screen.center().x - 400.0,
+                screen.center().y - 250.0,
+            ))
             .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
             .show(ui.ctx(), |ui| {
                 let modal = self.menu_modal.as_mut().unwrap();
 
-                ui.horizontal(|ui| {
-                    // ── Left pane: tree + toolbar ─────────────────────────────
-                    ui.vertical(|ui| {
-                        ui.set_min_width(220.0);
-                        ui.set_max_width(300.0);
+                // ── Toolbar (full width, at top) ─────────────────────────
+                ui.horizontal_wrapped(|ui| {
+                    if ui.small_button(tr.menu_add_item).clicked() {
+                        let id = modal.next_id();
+                        let item = cobolt_forms::menu::MenuItem::new_action(&id, "New Item");
+                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
+                        list.insert(idx.min(list.len()), item);
+                        if modal.selected.is_empty() {
+                            modal.selected = vec![list.len() - 1];
+                        } else {
+                            *modal.selected.last_mut().unwrap() = idx.min(list.len() - 1);
+                        }
+                        modal.sync_bufs_from_selection();
+                    }
+                    if ui.small_button(tr.menu_add_submenu).clicked() {
+                        if MenuEditorModal::depth_of(&modal.selected) < 2 {
+                            let id = modal.next_id();
+                            if let Some(parent) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
+                                parent.items.push(cobolt_forms::menu::MenuItem::new_action(&id, "Sub Item"));
+                            }
+                        }
+                    }
+                    if ui.small_button(tr.menu_add_separator).clicked() {
+                        let id = modal.next_id();
+                        let item = cobolt_forms::menu::MenuItem::new_separator(&id);
+                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
+                        list.insert(idx.min(list.len()), item);
+                    }
+                    if ui.small_button(tr.menu_move_up).clicked() && !modal.selected.is_empty() {
+                        let idx = *modal.selected.last().unwrap();
+                        if idx > 0 {
+                            let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                            list.swap(idx, idx - 1);
+                            *modal.selected.last_mut().unwrap() = idx - 1;
+                        }
+                    }
+                    if ui.small_button(tr.menu_move_down).clicked() && !modal.selected.is_empty() {
+                        let idx = *modal.selected.last().unwrap();
+                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        if idx + 1 < list.len() {
+                            list.swap(idx, idx + 1);
+                            *modal.selected.last_mut().unwrap() = idx + 1;
+                        }
+                    }
+                    if ui.small_button(tr.menu_delete).clicked() && !modal.selected.is_empty() {
+                        let idx = *modal.selected.last().unwrap();
+                        let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
+                        if idx < list.len() {
+                            list.remove(idx);
+                            if list.is_empty() {
+                                modal.selected.pop();
+                            } else if idx >= list.len() {
+                                *modal.selected.last_mut().unwrap() = list.len() - 1;
+                            }
+                            modal.sync_bufs_from_selection();
+                        }
+                    }
+                });
 
-                        egui::ScrollArea::vertical().max_height(default_h - 100.0).show(ui, |ui| {
+                ui.separator();
+
+                // ── Two-pane area ────────────────────────────────────────
+                let pane_h = 350.0;
+                let content_w = 776.0; // 800 - 24 (margins)
+                let left_w = (content_w * modal.split_ratio).clamp(150.0, content_w - 150.0);
+                let right_w = (content_w - left_w - 8.0).max(100.0);
+
+                ui.horizontal(|ui| {
+                    // ── Left pane: Menu treeview ──────────────────────────
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(left_w, pane_h),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                        ui.label(egui::RichText::new("Menu treeview").strong());
+                        ui.separator();
+
+                        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                             fn draw_tree(
                                 ui: &mut egui::Ui,
                                 items: &[cobolt_forms::menu::MenuItem],
@@ -2834,7 +2909,7 @@ impl DesignerPanel {
                                             "── separator ──".to_string()
                                         } else {
                                             let icon_str = item.icon.as_deref().unwrap_or("");
-                                            let accel = item.accelerator.as_deref().unwrap_or("");
+                                            let _accel = item.accelerator.as_deref().unwrap_or("");
                                             let en = if item.enabled { "" } else { " [off]" };
                                             if icon_str.is_empty() {
                                                 format!("{}{}", item.label, en)
@@ -2865,77 +2940,41 @@ impl DesignerPanel {
                                 modal.sync_bufs_from_selection();
                             }
                         });
-
-                        ui.separator();
-                        // Toolbar buttons
-                        ui.horizontal_wrapped(|ui| {
-                            if ui.small_button(tr.menu_add_item).clicked() {
-                                let id = modal.next_id();
-                                let item = cobolt_forms::menu::MenuItem::new_action(&id, "New Item");
-                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
-                                let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
-                                list.insert(idx.min(list.len()), item);
-                                if modal.selected.is_empty() {
-                                    modal.selected = vec![list.len() - 1];
-                                } else {
-                                    *modal.selected.last_mut().unwrap() = idx.min(list.len() - 1);
-                                }
-                                modal.sync_bufs_from_selection();
-                            }
-                            if ui.small_button(tr.menu_add_separator).clicked() {
-                                let id = modal.next_id();
-                                let item = cobolt_forms::menu::MenuItem::new_separator(&id);
-                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
-                                let idx = modal.selected.last().map(|&i| i + 1).unwrap_or(list.len());
-                                list.insert(idx.min(list.len()), item);
-                            }
-                            if ui.small_button(tr.menu_add_submenu).clicked() {
-                                if MenuEditorModal::depth_of(&modal.selected) < 2 {
-                                    let id = modal.next_id();
-                                    if let Some(parent) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
-                                        parent.items.push(cobolt_forms::menu::MenuItem::new_action(&id, "Sub Item"));
-                                    }
-                                }
-                            }
-                        });
-                        ui.horizontal_wrapped(|ui| {
-                            if ui.small_button(tr.menu_delete).clicked() && !modal.selected.is_empty() {
-                                let idx = *modal.selected.last().unwrap();
-                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
-                                if idx < list.len() {
-                                    list.remove(idx);
-                                    if list.is_empty() {
-                                        modal.selected.pop();
-                                    } else if idx >= list.len() {
-                                        *modal.selected.last_mut().unwrap() = list.len() - 1;
-                                    }
-                                    modal.sync_bufs_from_selection();
-                                }
-                            }
-                            if ui.small_button(tr.menu_move_up).clicked() && !modal.selected.is_empty() {
-                                let idx = *modal.selected.last().unwrap();
-                                if idx > 0 {
-                                    let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
-                                    list.swap(idx, idx - 1);
-                                    *modal.selected.last_mut().unwrap() = idx - 1;
-                                }
-                            }
-                            if ui.small_button(tr.menu_move_down).clicked() && !modal.selected.is_empty() {
-                                let idx = *modal.selected.last().unwrap();
-                                let list = MenuEditorModal::parent_list_mut(&mut modal.def, &modal.selected);
-                                if idx + 1 < list.len() {
-                                    list.swap(idx, idx + 1);
-                                    *modal.selected.last_mut().unwrap() = idx + 1;
-                                }
-                            }
-                        });
                     });
 
-                    ui.separator();
+                    // ── Draggable splitter ────────────────────────────────
+                    {
+                        let splitter_id = egui::Id::new("menu_editor_splitter");
+                        let (splitter_rect, _) = ui.allocate_exact_size(
+                            egui::Vec2::new(8.0, pane_h),
+                            egui::Sense::hover(),
+                        );
+                        let resp = ui.interact(splitter_rect, splitter_id, egui::Sense::drag());
+                        let active = resp.dragged() || resp.hovered();
+                        let color = if active {
+                            Color32::from_rgb(100, 160, 255)
+                        } else {
+                            Color32::from_rgb(80, 80, 100)
+                        };
+                        ui.painter().rect_filled(
+                            egui::Rect::from_center_size(splitter_rect.center(), egui::Vec2::new(2.0, splitter_rect.height())),
+                            1.0, color);
+                        if resp.dragged() {
+                            let delta = resp.drag_delta().x;
+                            modal.split_ratio = (modal.split_ratio + delta / content_w).clamp(0.2, 0.8);
+                        }
+                        if resp.hovered() || resp.dragged() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        }
+                    }
 
-                    // ── Right pane: detail form ──────────────────────────────
-                    ui.vertical(|ui| {
-                        ui.set_min_width(250.0);
+                    // ── Right pane: Item properties ──────────────────────
+                    ui.allocate_ui_with_layout(
+                        egui::Vec2::new(right_w, pane_h),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                        ui.label(egui::RichText::new("Item properties").strong());
+                        ui.separator();
                         if let Some(item) = MenuEditorModal::item_at(&modal.def.menu, &modal.selected) {
                             let is_sep = item.item_type == cobolt_forms::menu::MenuItemType::Separator;
                             let cur_action_type = MenuEditorModal::action_type_of(item).to_string();
@@ -2956,7 +2995,6 @@ impl DesignerPanel {
                                 // Icon — click to open picker, Delete to clear
                                 ui.horizontal(|ui| {
                                     ui.label(tr.menu_lbl_icon);
-                                    // Show selected icon preview + name
                                     if !cur_icon.is_empty() {
                                         let icon_rect = ui.allocate_space(egui::Vec2::splat(24.0)).1;
                                         cobolt_forms::icons::draw_menu_icon(
@@ -2966,9 +3004,9 @@ impl DesignerPanel {
                                     let resp = ui.button(&display);
                                     if resp.clicked() || (resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Tab))) {
                                         modal.icon_picker_open = true;
+                                        modal.icon_picker_gen += 1;
                                         modal.icon_search.clear();
                                     }
-                                    // Delete key clears the icon
                                     if resp.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
                                         if let Some(it) = MenuEditorModal::item_at_mut(&mut modal.def.menu, &modal.selected) {
                                             it.icon = None;
@@ -3074,7 +3112,6 @@ impl DesignerPanel {
                                 if cur_action_type == "open-form" {
                                     ui.horizontal(|ui| {
                                         ui.label(tr.menu_lbl_target);
-                                        // List all forms in the project by scanning .cfrm files
                                         let forms: Vec<String> = self.cfrm_dir.as_ref()
                                             .and_then(|dir| std::fs::read_dir(dir).ok())
                                             .map(|entries| {
@@ -3125,8 +3162,8 @@ impl DesignerPanel {
                 ui.separator();
                 // Save / Cancel
                 ui.horizontal(|ui| {
-                    if ui.button(tr.me_save).clicked() { save_clicked = true; }
                     if ui.button(tr.me_cancel).clicked() { cancel_clicked = true; }
+                    if ui.button(tr.me_save).clicked() { save_clicked = true; }
                 });
             });
 
@@ -3136,13 +3173,13 @@ impl DesignerPanel {
                 let mut icon_picked: Option<Option<String>> = None;
 
                 let screen = ui.ctx().screen_rect();
+                let picker_id = egui::Id::new(("icon_picker", modal.icon_picker_gen));
                 egui::Window::new("Select Icon")
-                    .id(egui::Id::new("icon_picker_modal"))
+                    .id(picker_id)
                     .collapsible(false)
                     .resizable(true)
-                    .default_width((screen.width() * 0.5).max(400.0))
-                    .default_height((screen.height() * 0.5).max(350.0))
-                    .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                    .default_size([600.0, 500.0])
+                    .default_pos([screen.center().x - 300.0, screen.center().y - 250.0])
                     .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
                     .show(ui.ctx(), |ui| {
                         // Search field
@@ -3181,7 +3218,7 @@ impl DesignerPanel {
                         let cur_icon = MenuEditorModal::item_at(&modal.def.menu, &modal.selected)
                             .and_then(|i| i.icon.clone()).unwrap_or_default();
 
-                        egui::ScrollArea::vertical().show(ui, |ui| {
+                        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
                             for (cat_name, icons) in categories {
                                 let filtered: Vec<&&str> = icons.iter()
                                     .filter(|n| search.is_empty() || n.contains(&search) || cat_name.to_ascii_lowercase().contains(&search))
@@ -3211,9 +3248,19 @@ impl DesignerPanel {
                                 ui.add_space(4.0);
                             }
                         });
+
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Close").clicked() {
+                                modal.icon_picker_open = false;
+                            }
+                            if ui.button("Clear icon").clicked() {
+                                icon_picked = Some(None);
+                            }
+                        });
                     });
 
-                // ESC or click outside closes
+                // ESC closes
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     modal.icon_picker_open = false;
                 }
