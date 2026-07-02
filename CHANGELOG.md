@@ -8,6 +8,45 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.77] — 2026-07-02
+
+### Fixed
+
+- **Parser: `FUNCTION RANDOM` now parses, and the FUNCTION-argument loop can no
+  longer hang.** `RANDOM` lexes as a keyword (from `ACCESS MODE IS RANDOM`), so
+  the FUNCTION-name reader rejected it and left the token stuck — inside another
+  function's arguments (e.g. `FUNCTION INTEGER(FUNCTION RANDOM * 4)`) that spun
+  the parser forever and froze the IDE. The intrinsic name is now accepted and
+  the argument loop has a no-progress guard, so malformed input always terminates
+  with a diagnostic.
+- **Parser: optional `IS` before `GLOBAL` / `EXTERNAL`.** The COBOL-85 `[IS]
+  GLOBAL` / `[IS] EXTERNAL` connective is now consumed instead of warning.
+- **Forms: DataGrid scrolling no longer bleeds into its container.** While the
+  pointer is over a DataGrid the grid consumes the wheel and zeroes the frame
+  scroll deltas, so the surrounding GroupBox / form no longer scrolls too.
+- **Forms: a Timer honours its `Enabled` property.** The tick is gated on the
+  Timer's own `Enabled` property (default true), not the generic control-enabled
+  chrome flag, so a non-visual Timer with `enabled="false"` still fires `onTick`.
+- **IDE: reactive repaint loop.** A running form no longer pegs a CPU core while
+  idle — the event loop repaints only when there is work to drain and sleeps
+  otherwise.
+
+### Added
+
+- **IDE: event-handler validation with the project-tree semaphore.** Each form's
+  generated COBOL is validated (syntax + semantic) on save, on Run, before Build,
+  and on project open; the tree dot turns green/red per form and Run/Build are
+  refused with a clear message until the code is fixed.
+- **IDE: apply runtime DataGrid layout back to the design.** While a form runs, a
+  floating "Apply layout to design" button persists interactively-adjusted column
+  widths / row height into the form as the control's new defaults.
+- **IDE: Run-Form process inspector.** A toolbar toggle (in the designer RAD
+  toolbar, next to Run Form) opens an always-on-top window with real-time line
+  charts (Process CPU, Memory RSS, Child processes, System Memory), a process
+  tree, and leak / runaway-CPU / rogue-subprocess detection that dumps to the
+  console and a per-project-configurable file. Samples only while the Live
+  Interpreter runs. (Adds the `sysinfo` dependency.)
+
 ## [PowerRustCOBOL 1.27.76] — 2026-07-02
 
 ### Fixed
