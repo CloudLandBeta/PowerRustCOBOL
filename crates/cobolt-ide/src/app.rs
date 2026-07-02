@@ -4310,8 +4310,25 @@ impl eframe::App for CoboltApp {
         self.designers.retain(|(_, d)| !d.close_requested);
         self.indexed_grids.retain(|(_, g)| !g.close_requested);
 
-        if self.runner.is_running() || !self.form_runtimes.is_empty() {
-            ctx.request_repaint();
+        // Reactive event loop — do NOT repaint continuously (an unconditional
+        // top-level repaint pegged a whole core even when a form sat idle between
+        // timer ticks; the inspector correctly flagged it). Only schedule a
+        // repaint when there is real work to drain: queued interpreter events for
+        // a running form, or the console runner polling its output. Otherwise the
+        // app sleeps — timer ticks (render Timer arm), animations, channel output,
+        // and user input each schedule their own targeted repaints.
+        if self.runner.is_running() {
+            // The console runner streams output over a channel; poll at ~20 Hz.
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        } else if !self.form_runtimes.is_empty() {
+            // A form is running: repaint fast (60 Hz) only while interpreter
+            // events are queued to drain; otherwise a slow 5 Hz safety heartbeat
+            // keeps timer ticks firing and channel output draining without
+            // pegging a core. When NO form runs, nothing is scheduled here and
+            // the app sleeps until the next user input (fully reactive).
+            let busy = self.form_runtimes.iter().any(|rt| rt.pending_events() > 0);
+            let ms = if busy { 16 } else { 200 };
+            ctx.request_repaint_after(std::time::Duration::from_millis(ms));
         }
     }
 }
