@@ -1960,16 +1960,30 @@ fn render_interactive(
             scroll_x = layout.scroll_x;
             let header_rect = Rect::from_min_size(screen.min, vec2(screen.width(), header_h));
             let body_rect = Rect::from_min_max(pos2(screen.min.x, header_rect.max.y), screen.max);
-            if (layout.max_scroll_y > 0.0 || layout.max_scroll_x > 0.0)
-                && ui.rect_contains_pointer(body_rect)
-            {
-                let (wheel_delta_x, wheel_delta_y) = ui.input(|i| {
-                    i.events
-                        .iter()
-                        .fold((0.0_f32, 0.0_f32), |(x, y), event| match event {
-                            egui::Event::MouseWheel { delta, .. } => (x + delta.x, y + delta.y),
-                            _ => (x, y),
-                        })
+            // While the pointer is anywhere over the DataGrid, the grid owns the
+            // wheel: read AND *consume* the wheel so it never bleeds into the
+            // containing ScrollArea (GroupBox / form). We remove the MouseWheel
+            // events (for any event-based consumer) and zero this frame's scroll
+            // deltas — the ancestor ScrollArea reads `smooth_scroll_delta` in its
+            // `end()`, which runs after this content, so zeroing it here stops it.
+            // Consumption is unconditional over the grid (even when the grid has
+            // no overflow) so scrolling never leaks to the container; the clamps
+            // below make the applied scroll a no-op when there's nothing to move.
+            if ui.rect_contains_pointer(screen) {
+                let (wheel_delta_x, wheel_delta_y) = ui.input_mut(|i| {
+                    let mut dx = 0.0_f32;
+                    let mut dy = 0.0_f32;
+                    i.events.retain(|event| match event {
+                        egui::Event::MouseWheel { delta, .. } => {
+                            dx += delta.x;
+                            dy += delta.y;
+                            false // consumed by the DataGrid — do not bubble up
+                        }
+                        _ => true,
+                    });
+                    i.smooth_scroll_delta = egui::Vec2::ZERO;
+                    i.raw_scroll_delta = egui::Vec2::ZERO;
+                    (dx, dy)
                 });
                 if wheel_delta_y != 0.0 {
                     scroll_y = (scroll_y - wheel_delta_y).clamp(0.0, layout.max_scroll_y);
@@ -3454,8 +3468,13 @@ fn render_interactive(
             );
         }
         CT::Timer => {
-            // Non-visual, but it TICKS: fire `onTick` every Interval ms while enabled.
-            if enabled {
+            // Non-visual, but it TICKS: fire `onTick` every Interval ms while on.
+            // A Timer's on/off is its own `Enabled` *property* (default true), NOT
+            // the generic control-enabled chrome flag: a non-visual control can
+            // carry `enabled="false"` in the .cfrm yet still be an active timer
+            // (codegen agrees — it seeds WS-<timer>-ENABLED from this property).
+            let timer_on = prop_bool(ctrl, "Enabled", true);
+            if timer_on {
                 let interval_s = sv(ctrl, "Interval")
                     .trim()
                     .parse::<f64>()
@@ -3958,6 +3977,103 @@ mod tests {
         );
     }
 
+    /// Drive a DataGrid inside `ScrollArea::both()`, send a wheel event at
+    /// `wheel_pos`, and return `(outer_scrollarea_offset_y, datagrid_scroll_y)`
+    /// after the wheel frame. Mirrors how the run/compiled surfaces host a form.
+    fn drive_datagrid_wheel(controls: &[Control], wheel_pos: Pos2) -> (f32, f32) {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mut outer_offset_y = 0.0_f32;
+        // Frame 0 settles layout; frame 1 delivers the wheel over the grid.
+        let frames: Vec<Vec<Event>> = vec![
+            vec![],
+            vec![
+                Event::PointerMoved(wheel_pos),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, -40.0), // negative y = scroll down
+                    modifiers: Modifiers::default(),
+                },
+            ],
+        ];
+        for (i, evs) in frames.into_iter().enumerate() {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            input.events = evs;
+            let st = MapState(&overrides);
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::none())
+                    .show(ctx, |ui| {
+                        let out = egui::ScrollArea::both()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                // Content larger than the viewport → the outer area
+                                // has room to (wrongly) scroll if the grid bleeds.
+                                ui.set_min_size(Vec2::new(2000.0, 2000.0));
+                                let inp = RenderInput {
+                                    controls,
+                                    state: &st,
+                                    form_size: Vec2::new(2000.0, 2000.0),
+                                    glass: true,
+                                    mode: RenderMode::Interactive,
+                                    active_tabs: &active,
+                                    backdrop: Backdrop::default(),
+                                };
+                                render_form(ui, &inp);
+                            });
+                        outer_offset_y = out.state.offset.y;
+                    });
+            });
+        }
+        let grid_scroll_y = ctx.memory(|m| {
+            m.data
+                .get_temp::<f32>(egui::Id::new(("rt_ctrl", "Grd")).with("datagrid-scroll-y"))
+                .unwrap_or(0.0)
+        });
+        (outer_offset_y, grid_scroll_y)
+    }
+
+    #[test]
+    fn engine_datagrid_wheel_does_not_bleed_into_container() {
+        // A scrollable DataGrid (many rows) at the top-left of the form.
+        let rows: String = (0..50).map(|i| format!("row{i}\n")).collect();
+        let grid = ctrlp(
+            "Grd",
+            ControlType::DataGrid,
+            0,
+            0,
+            300,
+            150,
+            &[("Columns", "A:string"), ("Rows", &rows)],
+        );
+
+        // Wheel with the pointer OVER the grid: the grid scrolls, the outer
+        // ScrollArea must stay put (no bleed).
+        let (outer_y, grid_y) = drive_datagrid_wheel(&[grid.clone()], pos2(150.0, 90.0));
+        assert!(
+            grid_y > 0.0,
+            "DataGrid should scroll on wheel (grid_scroll_y={grid_y})"
+        );
+        assert!(
+            outer_y.abs() < 0.5,
+            "wheel over the DataGrid must not scroll the container (outer offset_y={outer_y})"
+        );
+
+        // Sanity: the same wheel with the pointer OUTSIDE the grid DOES scroll
+        // the outer area — proving the harness allows outer scrolling, so the
+        // assertion above is not vacuous.
+        let (outer_y_off, _grid_y_off) = drive_datagrid_wheel(&[grid], pos2(600.0, 400.0));
+        assert!(
+            outer_y_off > 0.5,
+            "control test: wheel outside the grid should scroll the container (offset_y={outer_y_off})"
+        );
+    }
+
     fn drive(
         controls: &[Control],
         frames: Vec<(f64, Vec<Event>)>,
@@ -4301,6 +4417,92 @@ mod tests {
             names(&evs).contains(&"onTick"),
             "Timer: no onTick; got {:?}",
             names(&evs)
+        );
+    }
+
+    /// A FormState with a fixed chrome-`enabled` answer — mirrors the real run
+    /// surface reporting `enabled="false"` on a (non-visual) control.
+    struct ChromeState {
+        chrome_enabled: bool,
+    }
+    impl FormState for ChromeState {
+        fn enabled(&self, _base: &Control) -> bool {
+            self.chrome_enabled
+        }
+    }
+
+    /// Run `frames` frames (1 simulated second apart) and collect engine events.
+    fn drive_state(state: &dyn FormState, controls: &[Control], frames: usize) -> Vec<UiEvent> {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let mut all = Vec::new();
+        for i in 0..frames {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            input.focused = true;
+            input.time = Some(i as f64); // 1s/frame → clears any interval
+            let events = RefCell::new(Vec::<UiEvent>::new());
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::none())
+                    .show(ctx, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let inp = RenderInput {
+                            controls,
+                            state,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        let out = render_form(ui, &inp);
+                        events.borrow_mut().extend(out.events);
+                    });
+            });
+            all.extend(events.into_inner());
+        }
+        all
+    }
+
+    #[test]
+    fn engine_timer_ticks_governed_by_enabled_property_not_chrome_flag() {
+        // Real .cfrm shape: a non-visual Timer with chrome `enabled="false"` but
+        // its own `Enabled` property = true. It MUST still tick — the property
+        // is the timer's on/off, not the chrome flag.
+        let on = [ctrlp(
+            "Tmr",
+            ControlType::Timer,
+            0,
+            0,
+            1,
+            1,
+            &[("Interval", "10"), ("Enabled", "true")],
+        )];
+        let evs = drive_state(&ChromeState { chrome_enabled: false }, &on, 2);
+        assert!(
+            names(&evs).contains(&"onTick"),
+            "Timer with Enabled=true must tick even when chrome enabled=false; got {:?}",
+            names(&evs)
+        );
+
+        // Conversely, the `Enabled` property = false silences it regardless of
+        // the chrome flag being true.
+        let off = [ctrlp(
+            "Tmr",
+            ControlType::Timer,
+            0,
+            0,
+            1,
+            1,
+            &[("Interval", "10"), ("Enabled", "false")],
+        )];
+        let evs_off = drive_state(&ChromeState { chrome_enabled: true }, &off, 2);
+        assert!(
+            !names(&evs_off).contains(&"onTick"),
+            "Timer with Enabled=false must not tick; got {:?}",
+            names(&evs_off)
         );
     }
 }
