@@ -5730,7 +5730,20 @@ impl Interpreter {
                 let v = self.eval_expr(&args[0], span)?.as_f64();
                 Ok(CobolValue::from_i64(v.trunc() as i64))
             }
-            "RANDOM" => Ok(CobolValue::from_f64(pseudo_random())),
+            "RANDOM" => {
+                // FUNCTION RANDOM [ ( seed ) ]
+                // With a seed argument, (re)seed the generator and return the
+                // first value of that sequence; with no argument, return the
+                // next value of the current sequence (COBOL-85). Same seed →
+                // same sequence (reproducible). For a fresh sequence each run,
+                // seed from a varying value, e.g. `ACCEPT ws-time FROM TIME`
+                // then `FUNCTION RANDOM(ws-time)`.
+                if let Some(seed_expr) = args.first() {
+                    let seed = self.eval_expr(seed_expr, span)?.as_i64().unwrap_or(0);
+                    seed_random(seed as u64);
+                }
+                Ok(CobolValue::from_f64(pseudo_random()))
+            }
             "CURRENT-DATE" => {
                 let s = current_date_string();
                 let len = s.len();
@@ -6698,14 +6711,19 @@ fn runtime_date() -> String {
 /// Return the current time as `HHMMSScc` (8 chars, cc = centiseconds).
 fn runtime_time() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    // COBOL-85 TIME is HHMMSSss where `ss` is HUNDREDTHS of a second
+    // (centiseconds, 00–99) — the standard's finest resolution, not
+    // milliseconds. Populate it for real so `ACCEPT … FROM TIME` (and the
+    // time portion of FUNCTION CURRENT-DATE) varies sub-second.
+    let cs = now.subsec_nanos() / 10_000_000; // ns → centiseconds, 0–99
     let h = (secs % 86400) / 3600;
     let m = (secs % 3600) / 60;
     let s = secs % 60;
-    format!("{h:02}{m:02}{s:02}00")
+    format!("{h:02}{m:02}{s:02}{cs:02}")
 }
 
 /// Days in `month` (1–12) of `year`, accounting for leap years.
@@ -6883,16 +6901,36 @@ fn days_to_ymd(days: u64) -> String {
 static RANDOM_STATE: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(6364136223846793005);
 
-/// Return a pseudo-random `f64` in [0, 1).
+/// One step of the PCG-style LCG: returns `(next_state, value)` where `value`
+/// is in `[0, 1)`. Pure — no shared state — so it is deterministically testable.
+fn lcg_step(state: u64) -> (u64, f64) {
+    let next = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    // Top 53 bits → double in [0, 1)
+    (next, (next >> 11) as f64 / (1u64 << 53) as f64)
+}
+
+/// Turn a user seed into an LCG state, mixing once so that adjacent small seeds
+/// (1, 2, 3 …) yield well-separated sequences from the very first value.
+fn mix_seed(seed: u64) -> u64 {
+    seed.wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407)
+}
+
+/// (Re)seed the generator. `FUNCTION RANDOM(seed)` calls this; the same seed
+/// always reproduces the same sequence (COBOL-85 semantics).
+fn seed_random(seed: u64) {
+    RANDOM_STATE.store(mix_seed(seed), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Return the next pseudo-random `f64` in `[0, 1)`.
 fn pseudo_random() -> f64 {
     use std::sync::atomic::Ordering;
     let s = RANDOM_STATE.load(Ordering::Relaxed);
-    let next = s
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
+    let (next, v) = lcg_step(s);
     RANDOM_STATE.store(next, Ordering::Relaxed);
-    // Top 53 bits → double in [0, 1)
-    (next >> 11) as f64 / (1u64 << 53) as f64
+    v
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -6903,6 +6941,36 @@ mod tests {
     use cobolt_ast::expr::{CmpOp, Literal};
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::parse;
+
+    #[test]
+    fn runtime_time_is_eight_digit_hhmmssss() {
+        // COBOL-85 TIME register: HHMMSSss (8 digits), hundredths of a second.
+        let t = runtime_time();
+        assert_eq!(t.len(), 8, "TIME must be 8 digits (HHMMSSss), got {t:?}");
+        assert!(t.chars().all(|c| c.is_ascii_digit()), "non-digit in {t:?}");
+        let hh: u32 = t[0..2].parse().unwrap();
+        let mm: u32 = t[2..4].parse().unwrap();
+        let ss: u32 = t[4..6].parse().unwrap();
+        let cs: u32 = t[6..8].parse().unwrap();
+        assert!(hh < 24, "hours out of range: {hh}");
+        assert!(mm < 60, "minutes out of range: {mm}");
+        assert!(ss < 60, "seconds out of range: {ss}");
+        assert!(cs < 100, "centiseconds out of range: {cs}");
+    }
+
+    #[test]
+    fn rng_same_seed_reproduces_distinct_seeds_differ() {
+        // Pure LCG math (no shared state) so this is deterministic under
+        // parallel test execution. `FUNCTION RANDOM(seed)` reseeds via
+        // `mix_seed`, so the same seed must reproduce the sequence and
+        // different seeds must diverge, all within [0, 1).
+        let (_, a) = lcg_step(mix_seed(12345));
+        let (_, a_again) = lcg_step(mix_seed(12345));
+        assert_eq!(a, a_again, "same seed must reproduce the same value");
+        let (_, b) = lcg_step(mix_seed(999));
+        assert!(a != b, "different seeds must produce different values");
+        assert!((0.0..1.0).contains(&a) && (0.0..1.0).contains(&b));
+    }
 
     #[test]
     fn compare_integers() {

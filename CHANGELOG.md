@@ -8,6 +8,27 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.76] — 2026-07-02
+
+### Fixed
+
+- **`FUNCTION RANDOM` now honours its seed argument (COBOL-85).** The intrinsic
+  previously ignored any argument, so the standard way to seed the generator —
+  `FUNCTION RANDOM(seed)` — did nothing and every run replayed the same
+  sequence. A seed argument now (re)seeds the generator deterministically and
+  returns the first value of that sequence, while an unseeded `FUNCTION RANDOM`
+  continues the current sequence. The same seed reproduces the same sequence
+  (e.g. `FUNCTION RANDOM(12345)` for stable demo data); seed from a varying
+  value for a fresh sequence each run (e.g. `ACCEPT ws-time FROM TIME` then
+  `FUNCTION RANDOM(ws-time)`).
+- **`ACCEPT … FROM TIME` resolves to real centiseconds.** The TIME register uses
+  the standard `HHMMSSss` 8-digit layout, but the hundredths were hard-coded to
+  `00` (whole-second resolution). They are now populated from the sub-second
+  clock — still COBOL-85 compliant (hundredths of a second, not milliseconds).
+  This also sharpens the time portion of `FUNCTION CURRENT-DATE` and lets a
+  time-seeded `FUNCTION RANDOM` differ between runs launched more than ~1/100 s
+  apart.
+
 ## [PowerRustCOBOL 1.27.75] — 2026-07-02
 
 ### Fixed
