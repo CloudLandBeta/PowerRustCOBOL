@@ -5471,13 +5471,20 @@ impl CoboltApp {
             }
         }
 
-        // Keep the live interpreter window (and the root-side drain of its
-        // channels) ticking at a good rate even when the primary window is
-        // showing a "static" inspector (e.g. the new indexed file properties)
-        // or has no other animation. The root only requests when it sees
-        // runtimes; a self-request here makes the RAD "Run Form (live
-        // interpreter)" reliably smooth and responsive.
-        ctx.request_repaint();
+        // NOTE: do NOT self-request an unconditional repaint here. This runs
+        // once per frame inside the running-form viewport, and an unconditional
+        // `request_repaint()` asks for the next frame *immediately* — so the
+        // window spins at the machine's max frame rate and pegs a whole core
+        // even while the form sits idle (98% CPU). That defeats the reactive
+        // scheduling in `update()` and the per-tick `request_repaint_after` in
+        // the Timer/animation render arms.
+        //
+        // Frames are driven reactively instead:
+        //   • the root `update()` schedules 16 ms while interpreter events are
+        //     queued to drain, and a 200 ms heartbeat otherwise;
+        //   • the Timer arm wakes exactly when the next tick is due;
+        //   • animations and channel output schedule their own targeted repaints.
+        // Between those, the form sleeps.
     }
 
     /// Persist the interactively-adjusted, whitelisted layout properties captured

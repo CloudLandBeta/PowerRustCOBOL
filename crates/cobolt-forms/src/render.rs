@@ -3483,20 +3483,25 @@ fn render_interactive(
                     / 1000.0;
                 let mem = ctrl_id.with("last_tick");
                 let now = ui.input(|i| i.time);
-                match ui.ctx().memory(|m| m.data.get_temp::<f64>(mem)) {
+                let last = match ui.ctx().memory(|m| m.data.get_temp::<f64>(mem)) {
                     None => {
                         ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
+                        now
                     }
                     Some(last) if now - last >= interval_s => {
                         out.events.push(UiEvent::ev(id, "onTick"));
                         ui.ctx().memory_mut(|m| m.data.insert_temp(mem, now));
+                        now
                     }
-                    _ => {}
-                }
+                    Some(last) => last,
+                };
+                // Wake exactly when the NEXT tick is due — not every interval/4.
+                // Between ticks the form sleeps, so a heavy form no longer
+                // re-renders at ~14 fps merely to poll a 250 ms timer (that pegged
+                // the CPU). A small floor avoids a zero-delay spin.
+                let remaining = (interval_s - (now - last)).clamp(0.005, interval_s);
                 ui.ctx()
-                    .request_repaint_after(std::time::Duration::from_millis(
-                        (interval_s * 250.0) as u64 + 10,
-                    ));
+                    .request_repaint_after(std::time::Duration::from_secs_f64(remaining));
             } else {
                 let mem = ctrl_id.with("last_tick");
                 ui.ctx().memory_mut(|m| m.data.remove::<f64>(mem));
