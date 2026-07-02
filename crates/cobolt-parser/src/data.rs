@@ -333,6 +333,13 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
                 p.eat(&Token::Character);
             }
 
+            // Optional `IS` connective before a clause keyword, e.g.
+            // `01 X IS GLOBAL` / `IS EXTERNAL` — a COBOL-85 noise word. Consume
+            // it silently so it doesn't trip the unknown-clause warning below.
+            Token::Is => {
+                p.advance();
+            }
+
             // GLOBAL — item visible to all nested programs
             Token::Global => {
                 p.advance();

@@ -504,3 +504,53 @@ fn quoted_string_of_name_is_not_a_property_ref() {
         other => panic!("expected DISPLAY, got {other:?}"),
     }
 }
+
+// ── FUNCTION RANDOM / intrinsic-name-vs-keyword + arg-loop liveness ─────────────
+
+#[test]
+fn function_random_parses_as_intrinsic() {
+    // `RANDOM` lexes as a keyword (from `ACCESS MODE IS RANDOM`), but
+    // `FUNCTION RANDOM` is a standard COBOL-85 intrinsic and must parse as a
+    // FunctionCall named "RANDOM" — with and without a seed argument.
+    for src in [
+        "    COMPUTE X = FUNCTION RANDOM.\n    STOP RUN.\n",
+        "    COMPUTE X = FUNCTION RANDOM(5).\n    STOP RUN.\n",
+    ] {
+        let stmts = parse_stmts(&prog(src));
+        match &stmts[0] {
+            Stmt::Compute { .. } => {}
+            other => panic!("expected COMPUTE, got {other:?}"),
+        }
+        // Confirm the intrinsic name resolved rather than a `<missing>`.
+        let joined = format!("{stmts:?}");
+        assert!(
+            joined.contains("RANDOM") && !joined.contains("<missing>"),
+            "FUNCTION RANDOM should name the intrinsic: {joined}"
+        );
+    }
+}
+
+#[test]
+fn nested_function_random_argument_parses() {
+    // Regression: `FUNCTION INTEGER(FUNCTION RANDOM * 4)` used to spin the
+    // function-argument loop forever (keyword `RANDOM` never advanced), freezing
+    // the whole IDE while parsing a form's generated event handler.
+    let stmts = parse_stmts(&prog(
+        "    COMPUTE X = FUNCTION INTEGER(FUNCTION RANDOM * 4) + 1.\n    STOP RUN.\n",
+    ));
+    assert!(matches!(stmts[0], Stmt::Compute { .. }));
+}
+
+#[test]
+fn malformed_function_argument_terminates_with_diagnostic() {
+    // Liveness guard: an unparseable function argument (a stray keyword the
+    // primary parser cannot start) must make the parser stop and report an
+    // error — never loop. Reaching the assertions at all proves termination.
+    let code = prog("    DISPLAY FUNCTION INTEGER(THRU).\n    STOP RUN.\n");
+    let result = parse(tokenize(&code, SourceFormat::Free));
+    assert!(
+        !result.diagnostics.is_empty(),
+        "malformed FUNCTION argument should produce a diagnostic"
+    );
+    assert!(result.program.is_some(), "parser should still yield a program");
+}

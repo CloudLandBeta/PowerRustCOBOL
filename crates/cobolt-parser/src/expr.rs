@@ -166,12 +166,32 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
     // FUNCTION name ( args )
     if p.at(&Token::Function) {
         p.advance();
-        let name = p.expect_identifier("FUNCTION name");
+        // Intrinsic names normally lex as identifiers, but a few collide with a
+        // COBOL keyword and arrive as their own token — e.g. RANDOM (from
+        // `ACCESS MODE IS RANDOM`). Accept those by name so `FUNCTION RANDOM`
+        // parses as the intrinsic; otherwise the keyword token was left stuck
+        // and the argument loop below could spin forever.
+        let name = if let Some((n, _)) = p.eat_identifier() {
+            n
+        } else if p.at(&Token::Random) {
+            p.advance();
+            "RANDOM".to_string()
+        } else {
+            p.expect_identifier("FUNCTION name")
+        };
         let mut args = Vec::new();
         if p.eat(&Token::LParen) {
             while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+                let before = p.pos;
                 args.push(parse_expr(p));
                 p.eat(&Token::Comma);
+                // Liveness guard: if the argument consumed nothing (an
+                // unparseable token that is neither ',' nor ')' nor EOF, e.g. a
+                // stray keyword), stop rather than loop forever. `expect(RParen)`
+                // below emits the diagnostic. A parser must always terminate.
+                if p.pos == before {
+                    break;
+                }
             }
             p.expect(&Token::RParen);
         }

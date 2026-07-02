@@ -159,3 +159,23 @@ fn level_77_item() {
         panic!("expected WORKING-STORAGE");
     }
 }
+
+#[test]
+fn optional_is_before_global_and_external() {
+    // COBOL-85 allows the optional `IS` connective: `[IS] GLOBAL` / `[IS]
+    // EXTERNAL`. It must parse cleanly (no "unknown data clause" warning) and
+    // still set the flags. `parse_data` asserts diagnostics are empty.
+    let data = parse_data(
+        "DATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+         01 WS-A IS GLOBAL PIC X.\n\
+         01 WS-B IS EXTERNAL PIC 9.\n\
+         01 WS-C IS GLOBAL OCCURS 100.\n   05 WS-C-ITEM PIC X.\n",
+    );
+    if let DataSection::WorkingStorage(items) = &data.sections[0] {
+        assert!(items[0].is_global, "WS-A should be GLOBAL");
+        assert!(items[1].is_external, "WS-B should be EXTERNAL");
+        assert!(items[2].is_global, "WS-C should be GLOBAL");
+    } else {
+        panic!("expected WORKING-STORAGE");
+    }
+}
