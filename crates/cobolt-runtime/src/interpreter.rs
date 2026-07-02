@@ -26,7 +26,9 @@
 
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::mpsc;
+use std::sync::Arc;
 
 use cobolt_ast::{
     expr::{
@@ -511,6 +513,16 @@ pub struct Interpreter {
     state_tx: Option<mpsc::Sender<StateUpdate>>,
     /// Sends DISPLAY output to the IDE output panel (instead of stdout).
     display_tx: Option<mpsc::Sender<String>>,
+    /// Cooperative cancellation flag shared with the host (`FormRuntime`). When
+    /// set, execution aborts between statements with `RuntimeError::Cancelled`
+    /// so a looping / long-running handler can never hang the UI thread on
+    /// close, relaunch, or exit.
+    cancel: Option<Arc<AtomicBool>>,
+    /// Depth of the UI→interpreter event queue, shared with the host so it can
+    /// coalesce timer ticks (skip enqueuing a new `onTick` while a previous
+    /// event is still outstanding). Decremented as each `COBOL-WAIT-EVENT`
+    /// consumes an event.
+    event_pending: Option<Arc<AtomicUsize>>,
 
     // ── Debugger channels (Phase 7) ───────────────────────────────────────────
     /// Receives `DebugCmd` from the IDE debugger panel (Continue, StepOver, Pause).
@@ -644,6 +656,8 @@ impl Interpreter {
             input_rx: None,
             state_tx: None,
             display_tx: None,
+            cancel: None,
+            event_pending: None,
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -722,6 +736,28 @@ impl Interpreter {
     /// live value rather than the seeded default.
     pub fn set_input_channel(&mut self, input_rx: mpsc::Receiver<StateUpdate>) {
         self.input_rx = Some(input_rx);
+    }
+
+    /// Attach the cooperative cancellation flag. Once the host sets it, the
+    /// interpreter aborts between statements with `RuntimeError::Cancelled`
+    /// (treated as a clean exit by `run`), so a looping handler stops promptly.
+    pub fn set_cancel_flag(&mut self, flag: Arc<AtomicBool>) {
+        self.cancel = Some(flag);
+    }
+
+    /// Attach the shared event-queue-depth counter. `COBOL-WAIT-EVENT`
+    /// decrements it as it consumes each event, letting the host coalesce
+    /// timer ticks against a still-full queue.
+    pub fn set_event_counter(&mut self, counter: Arc<AtomicUsize>) {
+        self.event_pending = Some(counter);
+    }
+
+    /// `true` when the host has requested cancellation.
+    fn is_cancelled(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .map(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(false)
     }
 
     /// Drain any pending UI-driven property updates into the object registry.
@@ -866,7 +902,10 @@ impl Interpreter {
                     }
                 }
                 // Normal program termination signals — treat as success.
-                Err(RuntimeError::StopRun) | Err(RuntimeError::GoBack) => {
+                // `Cancelled` is a host-requested cooperative abort, also clean.
+                Err(RuntimeError::StopRun)
+                | Err(RuntimeError::GoBack)
+                | Err(RuntimeError::Cancelled) => {
                     self.send_debug_finished();
                     self.db.close_all();
                     return Ok(());
@@ -935,6 +974,14 @@ impl Interpreter {
     fn exec_stmts(&mut self, stmts: &[Stmt]) -> Result<(), RuntimeError> {
         let mut i = 0;
         while i < stmts.len() {
+            // Cooperative cancellation: bail out promptly between statements so a
+            // long-running or looping handler (e.g. a Timer tick) can never hang
+            // the UI thread when the form/IDE is closing. This chokepoint also
+            // covers every PERFORM iteration and paragraph body, which route
+            // through here.
+            if self.is_cancelled() {
+                return Err(RuntimeError::Cancelled);
+            }
             let stmt = &stmts[i];
             if matches!(stmt, Stmt::SentenceEnd { .. }) {
                 i += 1;
@@ -3897,6 +3944,14 @@ impl Interpreter {
                     let recvd = self.event_rx.as_ref().unwrap().recv();
                     match recvd {
                         Ok(ev) => {
+                            // One event left the queue — let the host coalesce
+                            // timer ticks against the now-shallower backlog.
+                            if let Some(c) = &self.event_pending {
+                                let prev = c.load(std::sync::atomic::Ordering::Relaxed);
+                                if prev > 0 {
+                                    c.store(prev - 1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            }
                             // Fold any UI-driven value changes (the slider drag /
                             // text edit that produced this event, etc.) into the
                             // object registry so the handler reads the live value.

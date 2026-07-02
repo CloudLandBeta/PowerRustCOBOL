@@ -25,11 +25,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc::{self, Receiver, Sender},
-    Arc,
+    Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use cobolt_forms::{BindingSourceDescriptor, BindingTargetDescriptor, Form};
 use cobolt_lexer::{tokenize, SourceFormat};
@@ -75,8 +76,17 @@ pub struct FormRuntime {
     state_rx: Receiver<StateUpdate>,
     /// Receives DISPLAY output from the interpreter.
     display_rx: Receiver<String>,
-    /// Set to true to request the interpreter thread to stop.
+    /// Set to true to request the interpreter thread to stop. Doubles as the
+    /// interpreter's cooperative cancellation flag, so a looping/long-running
+    /// handler aborts between statements instead of hanging on close.
     stop_flag: Arc<AtomicBool>,
+    /// Depth of the UI→interpreter event queue. Incremented on `send_event`,
+    /// decremented by the interpreter as it consumes each event. Used to
+    /// coalesce timer ticks (skip a new `onTick` while the queue is non-empty).
+    pending: Arc<AtomicUsize>,
+    /// Set by the interpreter thread when `run()` returns a fatal error, so the
+    /// UI can surface it in a modal dialog (the IDE stays open).
+    error_slot: Arc<Mutex<Option<String>>>,
     /// Handle to the interpreter thread.
     handle: Option<JoinHandle<()>>,
     /// Tracks which ComboBox (by control ID) is currently open in the running form.
@@ -254,6 +264,10 @@ impl FormRuntime {
 
         let stop_flag = Arc::new(AtomicBool::new(false));
         let stop_clone = Arc::clone(&stop_flag);
+        let pending = Arc::new(AtomicUsize::new(0));
+        let pending_clone = Arc::clone(&pending);
+        let error_slot = Arc::new(Mutex::new(None));
+        let error_clone = Arc::clone(&error_slot);
 
         // Spawn interpreter thread.
         let handle = thread::spawn(move || {
@@ -264,12 +278,21 @@ impl FormRuntime {
             let mut interp =
                 Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
             interp.set_input_channel(input_rx);
+            // Cooperative cancellation + tick back-pressure so a non-visual
+            // control (Timer) or a heavy handler can never freeze the UI.
+            interp.set_cancel_flag(Arc::clone(&stop_clone));
+            interp.set_event_counter(pending_clone);
             interp.seed_objects(seed);
             if stop_clone.load(Ordering::Relaxed) {
                 return;
             }
+            // A `Cancelled` abort returns `Ok`, so only genuine faults land here.
             if let Err(e) = interp.run() {
-                let _ = err_tx.send(format!("⛔ Form runtime error: {e}"));
+                let msg = format!("⛔ Form runtime error: {e}");
+                let _ = err_tx.send(msg.clone());
+                if let Ok(mut slot) = error_clone.lock() {
+                    *slot = Some(msg);
+                }
             }
         });
 
@@ -291,15 +314,34 @@ impl FormRuntime {
             state_rx,
             display_rx,
             stop_flag,
+            pending,
+            error_slot,
             handle: Some(handle),
             combo_open: HashMap::new(),
             glass: true,
         })
     }
 
-    /// Send a UI event to the interpreter.
+    /// Send a UI event to the interpreter. Tracks queue depth so timer ticks
+    /// can be coalesced against a backlog (see [`pending_events`]).
     pub fn send_event(&self, event: FormEvent) {
-        let _ = self.event_tx.send(event);
+        if self.event_tx.send(event).is_ok() {
+            self.pending.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Number of UI events still queued for the interpreter. The caller skips
+    /// enqueuing another timer `onTick` while this is non-zero, so a handler
+    /// slower than the tick interval can never flood the queue (WinForms-style
+    /// tick coalescing) — which is what kept the UI responsive.
+    pub fn pending_events(&self) -> usize {
+        self.pending.load(Ordering::Relaxed)
+    }
+
+    /// Take any fatal runtime error reported by the interpreter thread. Returns
+    /// `Some(msg)` once; the UI shows it in a modal dialog without closing.
+    pub fn take_error(&self) -> Option<String> {
+        self.error_slot.lock().ok().and_then(|mut s| s.take())
     }
 
     /// Forward a UI-driven property change (a dragged slider value, typed text,
@@ -358,13 +400,43 @@ impl FormRuntime {
             .unwrap_or(false)
     }
 
-    /// Request the interpreter to stop and clean up (non-blocking).
+    /// Non-blocking stop request: raise the cooperative cancellation flag and
+    /// send the quit sentinel, then return immediately. Use this from a
+    /// per-frame UI callback (e.g. the form window's close button) so a stuck
+    /// or looping handler is aborted and the window can actually close; the
+    /// finished runtime is reaped (and joined, cheaply) on a later frame.
+    pub fn request_stop(&self) {
+        self.stop_flag.store(true, Ordering::Relaxed);
+        let _ = self.event_tx.send(FormEvent::quit());
+    }
+
+    /// Request the interpreter to stop and clean up.
+    ///
+    /// Sets the cooperative cancellation flag (aborting any running/looping
+    /// handler between statements) and sends a quit sentinel to unblock an idle
+    /// `COBOL-WAIT-EVENT`. Then it waits only a bounded grace period for the
+    /// thread to finish before **detaching** it, so a genuinely stuck statement
+    /// (e.g. a large blocking file read) can never freeze the UI thread on
+    /// close, relaunch, or exit. With cancellation, the thread almost always
+    /// exits within a couple of milliseconds.
     pub fn stop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
         // Unblock COBOL-WAIT-EVENT by sending a quit sentinel.
         let _ = self.event_tx.send(FormEvent::quit());
         if let Some(h) = self.handle.take() {
-            let _ = h.join();
+            let deadline = Instant::now() + Duration::from_millis(300);
+            loop {
+                if h.is_finished() {
+                    let _ = h.join();
+                    return;
+                }
+                if Instant::now() >= deadline {
+                    // Detach: drop the handle without joining. The cancelled
+                    // thread will unwind on its next statement/syscall boundary.
+                    return;
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
         }
     }
 }

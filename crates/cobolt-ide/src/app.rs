@@ -328,6 +328,9 @@ pub struct CoboltApp {
     /// Documentation viewer window (Help → Documentation).
     doc_viewer: crate::panels::doc_viewer::DocViewer,
     /// Non-empty while the "Form saved" alert should be displayed.
+    /// A fatal form-runtime / codegen error to surface in a modal dialog. The
+    /// IDE stays open; execution has already stopped on the interpreter thread.
+    form_error: Option<String>,
     save_alert_msg: Option<String>,
     /// Which surface owns the save alert: `Some(idx)` = the designer viewport at
     /// `idx` (so the alert is not hidden behind it), `None` = the main IDE window.
@@ -531,6 +534,7 @@ impl CoboltApp {
             report_bug: ReportBugDialog::new(),
             about_open: false,
             doc_viewer: Default::default(),
+            form_error: None,
             save_alert_msg: None,
             save_alert_designer: None,
             pending_build_rx: None,
@@ -867,8 +871,11 @@ impl CoboltApp {
                 self.form_runtimes.push(rt);
             }
             Err(e) => {
+                // Parse / semantic (syntax) errors: log to the console AND show a
+                // modal so the failure is impossible to miss. The IDE stays open.
                 self.output
                     .push_status(format!("Error launching form: {e}"));
+                self.form_error = Some(e);
             }
         }
     }
@@ -3068,6 +3075,45 @@ impl CoboltApp {
         std::path::PathBuf::from("BUGS.md")
     }
 
+    /// Modal shown when a form's generated COBOL fails to launch (parse /
+    /// semantic error) or the interpreter reports a fatal runtime error. The
+    /// message is also in the Output console; this dialog just makes it
+    /// unmissable. Closing it leaves the IDE fully usable.
+    fn show_form_error(&mut self, ctx: &Context) {
+        let msg = match &self.form_error {
+            Some(m) => m.clone(),
+            None => return,
+        };
+        let mut open = true;
+        egui::Window::new("⛔ COBOL error")
+            .id(egui::Id::new("form_runtime_error"))
+            .collapsible(false)
+            .resizable(true)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .default_width(520.0)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Execution stopped. See the Output panel for details.")
+                        .strong(),
+                );
+                ui.add_space(6.0);
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(&msg).monospace());
+                    });
+                ui.add_space(8.0);
+                if ui.button("OK").clicked() {
+                    self.form_error = None;
+                }
+            });
+        if !open {
+            self.form_error = None;
+        }
+    }
+
     fn show_save_alert(&mut self, ctx: &Context) {
         let form_name = match &self.save_alert_msg {
             Some(n) => n.clone(),
@@ -3832,6 +3878,8 @@ impl eframe::App for CoboltApp {
         }
         // "Building…" progress modal (closes right before the result is shown).
         self.show_building_modal(ctx);
+        // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
+        self.show_form_error(ctx);
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
@@ -4209,12 +4257,21 @@ impl eframe::App for CoboltApp {
         // ── Running form viewports (Phase 6) ─────────────────────────────────────
         // Drain display output and state updates from every running runtime each frame.
         let mut display_lines: Vec<String> = Vec::new();
+        let mut fatal_error: Option<String> = None;
         for rt in &mut self.form_runtimes {
             display_lines.extend(rt.drain_display());
             rt.drain_state();
+            // Surface a fatal runtime error (already logged to the console by the
+            // interpreter thread) in a modal dialog — the IDE stays open.
+            if fatal_error.is_none() {
+                fatal_error = rt.take_error();
+            }
         }
         for line in display_lines {
             self.output.push_line(line);
+        }
+        if let Some(err) = fatal_error {
+            self.form_error = Some(err);
         }
 
         // Collect indices of runtimes that are still alive.
@@ -4237,8 +4294,9 @@ impl eframe::App for CoboltApp {
                     .with_transparent(true),
                 |vp_ctx, _class| {
                     if vp_ctx.input(|inp| inp.viewport().close_requested()) {
-                        // User closed the window → send quit sentinel to interpreter.
-                        self.form_runtimes[i].send_event(cobolt_runtime::FormEvent::quit());
+                        // User closed the window → cooperatively cancel + quit so
+                        // even a looping handler aborts and the window can close.
+                        self.form_runtimes[i].request_stop();
                     }
                     self.show_running_form_window(vp_ctx, i);
                 },
@@ -4815,7 +4873,20 @@ impl CoboltApp {
                     .insert(key.clone(), val.clone());
                 rt.send_input(id, key, val);
             }
+            // A Timer keeps emitting `onTick` every frame the interval elapses,
+            // regardless of whether the previous tick's handler has finished.
+            // If the handler is slower than the interval those ticks would pile
+            // up in the unbounded event queue and starve close/quit — freezing
+            // the form (and the IDE, once a relaunch tried to join the thread).
+            // Coalesce: drop a new tick while any event is still queued, exactly
+            // like a WinForms timer skips ticks when the app is busy. User
+            // events (clicks, edits, focus, quit) are never dropped.
+            let busy = rt.pending_events() > 0;
             for ev in output.events {
+                let is_tick = ev.event.eq_ignore_ascii_case("onTick");
+                if is_tick && busy {
+                    continue;
+                }
                 rt.send_event(FormEvent::new(ev.ctrl_id, ev.event));
             }
         }

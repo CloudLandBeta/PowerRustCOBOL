@@ -35,6 +35,13 @@ pub enum RuntimeError {
     #[error("GO BACK")]
     GoBack,
 
+    /// The host requested cancellation (form window closed, IDE relaunching /
+    /// exiting). Not a fault — a cooperative-abort signal checked between
+    /// statements so a long-running or looping handler can stop promptly and
+    /// never hang the UI thread. `run()` treats it like a clean exit.
+    #[error("cancelled")]
+    Cancelled,
+
     /// An EXEC RUST block failed to execute.
     #[error("EXEC RUST error at {span}: {message}")]
     ExecRustError { message: String, span: Span },

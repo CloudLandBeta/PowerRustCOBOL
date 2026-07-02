@@ -1861,8 +1861,12 @@ impl EditorPanel {
         };
 
         let avail = ui.available_size();
-        let editor_rect_cell: std::cell::Cell<egui::Rect> =
-            std::cell::Cell::new(egui::Rect::NOTHING);
+        // Stable editor viewport rect — captured BEFORE the ScrollArea, so it
+        // does not move when navigating matches scrolls the text. Anchoring the
+        // floating find bar to this (instead of the scrolling TextEdit content
+        // rect, whose `min.y` slides with the scroll offset) keeps the bar from
+        // drifting up and down during a search.
+        let editor_viewport = ui.max_rect();
 
         ScrollArea::both()
             .id_salt("cobolt_editor_scroll")
@@ -1952,8 +1956,6 @@ impl EditorPanel {
                         .interactive(!tab.read_only)
                         .layouter(&mut layouter)
                         .show(ui);
-
-                    editor_rect_cell.set(te_out.response.rect);
 
                     // Paint the line-number gutter using the galley's actual
                     // per-row rectangles, so every number aligns with its row.
@@ -2335,11 +2337,13 @@ impl EditorPanel {
 
         // ─── Find / Search bar (Cmd+F) ─────────────────────────────────────
         if self.search.visible && !self.tabs.is_empty() {
-            let editor_rect = editor_rect_cell.get();
-            // Anchor: top-right corner of the editor area
+            // Anchor to the STABLE editor viewport (not the scrolling text
+            // content) so the bar keeps its position while searching scrolls the
+            // editor. `default_pos` + `movable` below lets the user drag it
+            // elsewhere and egui remembers where they left it.
             let bar_w = 320.0_f32;
-            let bar_x = (editor_rect.max.x - bar_w - 8.0).max(editor_rect.min.x);
-            let bar_y = editor_rect.min.y + 6.0;
+            let bar_x = (editor_viewport.max.x - bar_w - 8.0).max(editor_viewport.min.x);
+            let bar_y = editor_viewport.min.y + 6.0;
 
             let prev_query = self.search.query.clone();
             let active_ro = self
@@ -2351,7 +2355,12 @@ impl EditorPanel {
             let mut do_replace_all = false;
 
             egui::Area::new(egui::Id::new("cobolt_search_bar"))
-                .fixed_pos(Pos2::new(bar_x, bar_y))
+                // `default_pos` (not `fixed_pos`): egui applies it only on first
+                // appearance, then keeps the position the user dragged it to —
+                // so it stays put during a search and is draggable.
+                .default_pos(Pos2::new(bar_x, bar_y))
+                .movable(true)
+                .constrain(true)
                 .order(egui::Order::Foreground)
                 .interactable(true)
                 .show(ctx, |ui| {

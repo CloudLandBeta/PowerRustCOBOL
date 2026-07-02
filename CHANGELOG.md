@@ -8,6 +8,39 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.75] — 2026-07-02
+
+### Fixed
+
+- **Non-visual controls (Timer) can no longer freeze the IDE/RAD.** The form
+  interpreter now honours a cooperative cancellation flag checked between every
+  statement — which covers every PERFORM iteration and paragraph body — so a
+  long-running or looping event handler (for example a `Timer` `onTick`, or a
+  heavy `onLoad`) aborts promptly instead of pinning the interpreter thread.
+  Closing the running-form window, relaunching, or exiting the IDE now sets that
+  flag and no longer blocks the UI thread: `stop()` waits only a short bounded
+  grace period for the thread to unwind and then detaches it, so the application
+  stays responsive and is always closeable. A blocking statement (e.g. a large
+  file read) can finish its current step, but can never hang the whole IDE.
+- **Timer tick coalescing.** A `Timer` emitted `onTick` on every elapsed
+  interval regardless of whether the previous tick's handler had finished; a
+  handler slower than the interval flooded the unbounded UI→interpreter event
+  queue, starving the quit sentinel and eventually hanging a relaunch. Ticks are
+  now skipped while the interpreter's event queue is still non-empty
+  (WinForms-style coalescing), while user events — clicks, edits, focus changes,
+  quit — are never dropped.
+- **COBOL errors surface in a dialog and stop cleanly, without closing the
+  IDE.** A parse/semantic (syntax) error when launching a form, or a fatal
+  runtime error reported by the interpreter, is now shown in a modal "⛔ COBOL
+  error" window (with the message and a pointer to the Output panel) in addition
+  to the console line. Processing stops and the IDE/RAD stays open — it no longer
+  fails silently or leaves the run window in limbo.
+- **Find bar no longer drifts while searching.** The editor's floating Find/
+  Replace bar was anchored to the scrolling text-content rect, so jumping
+  between matches (which scrolls the editor) dragged the bar up and down. It is
+  now anchored to the stable editor viewport and stays where it opened; it is
+  also draggable — move it anywhere and it keeps that position.
+
 ## [PowerRustCOBOL 1.27.74] — 2026-07-01
 
 ### Fixed
