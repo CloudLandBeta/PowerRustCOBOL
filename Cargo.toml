@@ -65,5 +65,8 @@ tracing-subscriber   = { version = "0.3", features = ["env-filter"] }
 bincode = "1"
 flate2  = "1"
 
+# Run Form inspector — cross-platform process/system metrics (CPU%, RSS, children)
+sysinfo = "0.31"
+
 # Dev / test utilities
 pretty_assertions = "1"

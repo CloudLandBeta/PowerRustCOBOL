@@ -5768,6 +5768,8 @@ pub(crate) enum DesignerToolbarAction {
     // Run
     RunForm,
     StopForm,
+    /// Toggle the Run-Form process/memory inspector window.
+    ToggleInspector,
     // Edit
     Cut,
     Copy,
@@ -5818,6 +5820,7 @@ pub(crate) fn draw_icon_toolbar(
     glass_on: bool,
     form_running: bool,
     fp_active: bool,
+    inspector_on: bool,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -5971,6 +5974,16 @@ pub(crate) fn draw_icon_toolbar(
             if icon_btn(ui, true, false, "Run Form (live interpreter)", &icon_run) {
                 action = DesignerToolbarAction::RunForm;
             }
+        }
+        // Run-Form inspector toggle (enabled only while a form runs).
+        if icon_btn(
+            ui,
+            form_running,
+            inspector_on,
+            "Run-Form Inspector — CPU / memory / process charts",
+            &icon_inspector,
+        ) {
+            action = DesignerToolbarAction::ToggleInspector;
         }
 
         group_separator(ui, group_gap);
@@ -6339,6 +6352,29 @@ fn icon_run(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 
 fn icon_stop(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_filled(r.shrink(r.width() * 0.22), 2.0, c));
+}
+
+fn icon_inspector(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    // A mini bar-chart glyph on a baseline — the metrics/inspector icon.
+    let (w, h) = (r.width(), r.height());
+    let base = r.max.y - h * 0.20;
+    let bar_w = w * 0.15;
+    for (x, bh) in [(0.24_f32, 0.32_f32), (0.45, 0.56), (0.66, 0.42)] {
+        let left = r.min.x + w * x;
+        let top = base - h * bh;
+        out.push(Shape::rect_filled(
+            Rect::from_min_max(Pos2::new(left, top), Pos2::new(left + bar_w, base)),
+            1.0,
+            c,
+        ));
+    }
+    out.push(Shape::line_segment(
+        [
+            Pos2::new(r.min.x + w * 0.18, base),
+            Pos2::new(r.max.x - w * 0.14, base),
+        ],
+        Stroke::new(1.4, c),
+    ));
 }
 
 fn icon_cut(out: &mut Vec<Shape>, r: Rect, c: Color32) {

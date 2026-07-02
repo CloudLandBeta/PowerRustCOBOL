@@ -21,6 +21,7 @@ pub mod file_dialog;
 pub mod fonts;
 pub mod form_runtime;
 pub mod i18n;
+pub mod inspector;
 pub mod llm;
 mod panels;
 pub mod pdf_export;

@@ -71,6 +71,33 @@ use crate::data_binding_guardian::{
     validate_binding_action, BindingActionGate, BindingActionGateReport,
 };
 
+/// [TIMER-DBG] Append a diagnostic breadcrumb to `/tmp/prc_dbg.log` AND stderr.
+/// File logging means it's captured no matter how the app is launched (Dock or
+/// terminal). Silence with `PRC_QUIET=1`. Remove once the timer hang is fixed.
+pub(crate) fn tdbg(msg: &str) {
+    if std::env::var("PRC_QUIET").is_ok() {
+        return;
+    }
+    use std::io::Write as _;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/prc_dbg.log")
+    {
+        let _ = writeln!(f, "{msg}");
+    }
+    eprintln!("{msg}");
+}
+
+/// Whitelist of *design-intent* control properties that an interactive Run-Form
+/// adjustment may write back into the form definition (the control's new
+/// defaults). Deliberately narrow: layout only, never runtime data (Rows,
+/// Value, selection). Currently the DataGrid's column widths (carried in the
+/// `AdvancedGrid` blob) and its `RowHeight`.
+fn is_design_intent_prop(key: &str) -> bool {
+    key == cobolt_forms::model::DATAGRID_ADVANCED_PROP || key == "RowHeight"
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct DesignerClipboard {
@@ -262,6 +289,14 @@ pub struct CoboltApp {
 
     // Running form instances — each has its own OS window (Phase 6)
     form_runtimes: Vec<FormRuntime>,
+
+    // Run-Form process/memory inspector (toolbar toggle; only samples while a
+    // Live Interpreter is running).
+    inspector: crate::inspector::ProcessInspector,
+    show_inspector: bool,
+    /// One-shot: the inspector window's initial size is applied only on the first
+    /// frame after opening, so the user's own resizes are never reverted.
+    inspector_sized: bool,
 
     // Debugger (Phase 7)
     debug_runner: DebugRunner,
@@ -503,6 +538,9 @@ impl CoboltApp {
             raw_preferred_indexed: std::collections::HashSet::new(),
             checked: std::collections::HashMap::new(),
             form_runtimes: Vec::new(),
+            inspector: crate::inspector::ProcessInspector::new(Default::default()),
+            show_inspector: false,
+            inspector_sized: false,
             debug_runner: DebugRunner::new(),
             debugger: DebuggerPanel::new(),
             debug_active: false,
@@ -821,6 +859,7 @@ impl CoboltApp {
     /// Saves + regenerates COBOL first so the interpreter always runs the
     /// latest version of the form.
     fn do_run_form(&mut self, idx: usize) {
+        tdbg(&format!("do_run_form ENTRY (v{VERSION}) idx={idx}"));
         if idx >= self.designers.len() {
             return;
         }
@@ -831,16 +870,22 @@ impl CoboltApp {
             .and_then(|name| name.to_str())
             .unwrap_or("form")
             .to_owned();
+        tdbg("do_run_form 1: binding-gate begin");
         if !self.allow_data_binding_form_action(BindingActionGate::RunForm, &form, &label) {
+            tdbg("do_run_form: blocked by binding gate — returning");
             return;
         }
+        tdbg("do_run_form 2: refresh_data_binding_target_properties begin");
         refresh_data_binding_target_properties(&mut self.designers[idx].1.form);
         // Save the form and regenerate COBOL first (silently — Run should not
         // pop a "saved" alert).
+        tdbg("do_run_form 3: do_save_designer begin");
         self.do_save_designer(idx);
         self.save_alert_msg = None;
         self.save_alert_designer = None;
+        tdbg("do_run_form 4: do_generate_cobol begin");
         self.do_generate_cobol(idx);
+        tdbg("do_run_form 5: codegen done");
 
         let form_path = self.designers[idx].0.clone();
         let form = self.designers[idx].1.form.clone();
@@ -855,6 +900,7 @@ impl CoboltApp {
         ));
 
         // Kill any existing runtime for this form first.
+        tdbg("do_run_form 6: stop existing runtime begin");
         self.form_runtimes.retain_mut(|rt| {
             if rt.form_path == form_path {
                 rt.stop();
@@ -863,21 +909,55 @@ impl CoboltApp {
                 true
             }
         });
+        tdbg("do_run_form 7: FormRuntime::launch begin");
 
         let glass = self.designers[idx].1.glass_mode;
-        match FormRuntime::launch(&form, form_path) {
+        match FormRuntime::launch(&form, form_path.clone()) {
             Ok(mut rt) => {
+                tdbg("do_run_form 8: launch OK, pushing runtime");
                 rt.glass = glass;
                 self.form_runtimes.push(rt);
+                // The form's code compiled clean → green semaphore.
+                self.set_element_status(&form_path, ElementStatus::Tested);
             }
             Err(e) => {
-                // Parse / semantic (syntax) errors: log to the console AND show a
-                // modal so the failure is impossible to miss. The IDE stays open.
+                tdbg(&format!("do_run_form 8: launch ERR: {e}"));
+                // Parse / semantic (syntax) errors: log to the console, mark the
+                // form red in the tree, AND show a modal so the failure is
+                // impossible to miss. Execution is refused until it is fixed.
                 self.output
                     .push_status(format!("Error launching form: {e}"));
-                self.form_error = Some(e);
+                self.set_element_status(&form_path, ElementStatus::Failed);
+                self.form_error = Some(format!(
+                    "This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{e}"
+                ));
             }
         }
+    }
+
+    /// Toggle the Run-Form inspector window (from the designer's RAD toolbar).
+    /// On open it reloads the per-project dump config, clears the timeline, and
+    /// arms the one-shot default sizing.
+    fn toggle_inspector(&mut self) {
+        self.show_inspector = !self.show_inspector;
+        if self.show_inspector {
+            self.inspector.config = self.inspector_config();
+            self.inspector.reset();
+            self.inspector_sized = false;
+        }
+    }
+
+    /// Build the Run-Form inspector config from the current project's IDE
+    /// settings (or defaults when no project is open).
+    fn inspector_config(&self) -> crate::inspector::InspectorConfig {
+        let mut cfg = crate::inspector::InspectorConfig::default();
+        if let Some(p) = self.cobolt_project.as_ref() {
+            cfg.dump_enabled = p.ide.inspector_dump_enabled;
+            if !p.ide.inspector_dump_path.trim().is_empty() {
+                cfg.dump_path = p.ide.inspector_dump_path.clone();
+            }
+        }
+        cfg
     }
 
     /// Set a tracked element's semaphore status (converts abs path → rel).
@@ -895,6 +975,118 @@ impl CoboltApp {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         s.hash(&mut h);
         h.finish()
+    }
+
+    /// Validate a form's *generated* COBOL (syntax **and** semantic) and return
+    /// the diagnostics. Validating the whole generated program — the same source
+    /// the interpreter runs (spec 017) — keeps every event handler and the shared
+    /// WORKING-STORAGE in one scope, so a data item defined by one handler never
+    /// false-flags another.
+    fn validate_form_source(form: &Form) -> Vec<crate::runner::DiagMsg> {
+        use crate::runner::{DiagMsg, DiagSeverity};
+        use cobolt_semantic::analyze;
+        // Generated form source is always free-form.
+        let src = cobolt_codegen::generate(form);
+        let parse_result = parse(tokenize(&src, SourceFormat::Free));
+        let mut diags = Vec::new();
+        for d in &parse_result.diagnostics {
+            use cobolt_parser::Severity as PSev;
+            diags.push(DiagMsg {
+                severity: match d.severity {
+                    PSev::Error => DiagSeverity::Error,
+                    PSev::Warning => DiagSeverity::Warning,
+                },
+                message: d.message.clone(),
+                line: d.span.line,
+                col: d.span.col,
+            });
+        }
+        if let Some(prog) = parse_result.program {
+            let sem = analyze(&prog);
+            for d in &sem.diagnostics {
+                use cobolt_semantic::Severity;
+                diags.push(DiagMsg {
+                    severity: match d.severity {
+                        Severity::Error => DiagSeverity::Error,
+                        Severity::Warning => DiagSeverity::Warning,
+                        Severity::Info => DiagSeverity::Info,
+                    },
+                    message: d.message.clone(),
+                    line: d.span.line,
+                    col: d.span.col,
+                });
+            }
+        }
+        diags
+    }
+
+    /// Validate one form and update its tree semaphore (green = clean, red = has
+    /// an error-severity issue). When `report`, the diagnostics are echoed to the
+    /// Output panel. Returns the first error message, if any (for Run/Build gating
+    /// dialogs).
+    fn revalidate_form(
+        &mut self,
+        cfrm_path: &std::path::Path,
+        form: &Form,
+        report: bool,
+    ) -> Option<String> {
+        use crate::runner::{DiagSeverity, RunMsg};
+        let diags = Self::validate_form_source(form);
+        let first_error = diags
+            .iter()
+            .find(|d| d.severity == DiagSeverity::Error)
+            .map(|d| format!("{} (line {})", d.message, d.line));
+        if report {
+            for d in &diags {
+                self.output.push_msg(&RunMsg::Diagnostic(d.clone()));
+            }
+        }
+        self.set_element_status(
+            cfrm_path,
+            if first_error.is_some() {
+                ElementStatus::Failed
+            } else {
+                ElementStatus::Tested
+            },
+        );
+        first_error
+    }
+
+    /// Validate every tracked form (open designers + on-disk) and refresh each
+    /// form's tree semaphore. Returns the forms that have an error, as
+    /// `(cfrm_path, first_error_message)` — used to block Build/Run up front.
+    fn revalidate_all_forms(&mut self) -> Vec<(PathBuf, String)> {
+        let mut forms: Vec<(PathBuf, Form)> = self
+            .designers
+            .iter()
+            .map(|(p, d)| (p.clone(), d.form.clone()))
+            .collect();
+        let open_paths: std::collections::HashSet<PathBuf> =
+            forms.iter().map(|(p, _)| p.clone()).collect();
+        if let Some(root) = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_owned())
+        {
+            if let Some(proj) = &self.cobolt_project {
+                for rel in &proj.files.forms {
+                    let abs = root.join(rel);
+                    if !open_paths.contains(&abs) {
+                        if let Ok(form) = load_form(&abs) {
+                            forms.push((abs, form));
+                        }
+                    }
+                }
+            }
+        }
+        let mut bad = Vec::new();
+        for (path, form) in forms {
+            if let Some(msg) = self.revalidate_form(&path, &form, false) {
+                bad.push((path, msg));
+            }
+        }
+        bad
     }
 
     fn do_check(&mut self) {
@@ -1168,6 +1360,16 @@ impl CoboltApp {
                     self.show_project_settings = true;
                     self.inspect = None;
                 }
+                // Light each form's tree semaphore on open (green = clean, red =
+                // has a code error) so pre-existing problems are visible without
+                // opening or running anything.
+                let bad = self.revalidate_all_forms();
+                if !bad.is_empty() {
+                    self.output.push_status(format!(
+                        "⚠ {} form(s) have code errors (marked red in the tree).",
+                        bad.len()
+                    ));
+                }
             }
             Err(e) => {
                 self.output.push_status(format!(
@@ -1274,13 +1476,32 @@ impl CoboltApp {
         }
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
-        let Some(proj_path) = &self.project_path else {
+        let Some(manifest) = self.project_path.clone() else {
             self.output
                 .push_status("Open or create a project first (File → New/Open Project).");
             return;
         };
 
-        let manifest = proj_path.clone();
+        // Refuse to compile while any form has a syntax/semantic error: mark the
+        // offending forms red in the tree, list the problems in the Output panel,
+        // and pop a modal. The build is not attempted until they are fixed.
+        let bad_forms = self.revalidate_all_forms();
+        if !bad_forms.is_empty() {
+            self.output.clear();
+            self.output
+                .push_status("── Build blocked: fix these code errors first ──");
+            for (path, msg) in &bad_forms {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("form");
+                self.output.push_status(format!("  ✗ {name}: {msg}"));
+            }
+            self.form_error = Some(format!(
+                "Build blocked — {} form(s) have code errors that must be fixed first \
+                 (see the Output panel).",
+                bad_forms.len()
+            ));
+            return;
+        }
+
         self.output.clear();
         self.output
             .push_status("── Building binary …  (this may take a minute) ──");
@@ -1921,6 +2142,16 @@ impl CoboltApp {
         self.editor.reload_file(&cbl);
         self.output
             .push_status(format!("Regenerated {}", cbl.display()));
+
+        // Validate the saved form (syntax + semantic) so the tree semaphore turns
+        // green (clean) or red (has an error) right after a save — the developer
+        // learns about a bad event handler immediately, not only at Run time.
+        if let Some(err) = self.revalidate_form(cfrm_path, &form, true) {
+            self.output.push_status(format!(
+                "⚠ {} has a code error — fix it before running: {err}",
+                form.name
+            ));
+        }
     }
 
     /// Regenerate one form's `.cbl` from `form`, keep it tracked as generated,
@@ -4026,6 +4257,9 @@ impl eframe::App for CoboltApp {
             }
         }
 
+        // ── Run-Form process/memory inspector (bottom dock) ───────────────────
+        self.show_inspector_panel(ctx);
+
         // ── Code workspace panels ─────────────────────────────────────────────
         // Until a project is open we show a single full welcome pane (the
         // localized developer's guide) with no left tree, no editor, no output,
@@ -4256,16 +4490,49 @@ impl eframe::App for CoboltApp {
 
         // ── Running form viewports (Phase 6) ─────────────────────────────────────
         // Drain display output and state updates from every running runtime each frame.
+        // [TIMER-DBG] breadcrumbs (only while a form runs): the LAST line printed
+        // before a freeze localises the hang. Remove after diagnosis.
+        static TDBG_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let tdbg_on = !self.form_runtimes.is_empty();
+        let tf = if tdbg_on {
+            TDBG_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        } else {
+            0
+        };
+        if tdbg_on {
+            // File-logged so it's captured even for a Dock launch; only the
+            // FIRST few frames to avoid spamming the file at 60fps.
+            if tf < 5 {
+                tdbg(&format!(
+                    "[TIMER-DBG] f{tf} A drain-begin ({} runtimes)",
+                    self.form_runtimes.len()
+                ));
+            } else {
+                eprintln!("[TIMER-DBG] f{tf} A drain-begin");
+            }
+        }
         let mut display_lines: Vec<String> = Vec::new();
         let mut fatal_error: Option<String> = None;
-        for rt in &mut self.form_runtimes {
-            display_lines.extend(rt.drain_display());
+        for (ri, rt) in self.form_runtimes.iter_mut().enumerate() {
+            let d = rt.drain_display();
+            if tdbg_on {
+                eprintln!(
+                    "[TIMER-DBG] f{tf}   rt{ri} display+={} pending={} running={}",
+                    d.len(),
+                    rt.pending_events(),
+                    rt.is_running()
+                );
+            }
+            display_lines.extend(d);
             rt.drain_state();
             // Surface a fatal runtime error (already logged to the console by the
             // interpreter thread) in a modal dialog — the IDE stays open.
             if fatal_error.is_none() {
                 fatal_error = rt.take_error();
             }
+        }
+        if tdbg_on {
+            eprintln!("[TIMER-DBG] f{tf} B drain-end (display_lines={})", display_lines.len());
         }
         for line in display_lines {
             self.output.push_line(line);
@@ -4285,6 +4552,9 @@ impl eframe::App for CoboltApp {
             let fw = self.form_runtimes[i].form_width as f32;
             let fh = self.form_runtimes[i].form_height as f32;
 
+            if tdbg_on {
+                eprintln!("[TIMER-DBG] f{tf} C viewport-show-begin idx={i}");
+            }
             ctx.show_viewport_immediate(
                 vp_id,
                 ViewportBuilder::default()
@@ -4301,6 +4571,9 @@ impl eframe::App for CoboltApp {
                     self.show_running_form_window(vp_ctx, i);
                 },
             );
+            if tdbg_on {
+                eprintln!("[TIMER-DBG] f{tf} D viewport-show-end idx={i}");
+            }
         }
 
         // Reap finished runtimes.
@@ -4649,6 +4922,230 @@ impl CoboltApp {
     }
 }
 
+// ── Run-Form process/memory inspector panel ──────────────────────────────────
+
+impl CoboltApp {
+    /// Bottom dock (~1/6 of the screen) with real-time process/memory charts for
+    /// the running form. Only samples while a Live Interpreter is active; drawn
+    /// only when toggled on from the toolbar. Purely observational.
+    fn show_inspector_panel(&mut self, ctx: &Context) {
+        if !self.show_inspector {
+            return;
+        }
+        let form_running = !self.form_runtimes.is_empty();
+        // Sample only while a form runs; `processing` = the interpreter has queued
+        // work, so growth-while-idle can be told apart from real processing.
+        if form_running {
+            let processing = self.form_runtimes.iter().any(|rt| rt.pending_events() > 0);
+            self.inspector.maybe_sample(processing);
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+
+        // The inspector lives in its own always-on-top OS window (a viewport, like
+        // the running form) so the charts stay visible while you interact with the
+        // app and can correlate a spike with what you just did.
+        let vp_id = ViewportId::from_hash_of("run_form_inspector");
+        // Apply the default size ONLY on the first frame after opening; on later
+        // frames we omit `inner_size` so egui never re-commands a size and the
+        // user's own window resizes are preserved.
+        let mut builder = ViewportBuilder::default()
+            .with_title("📊 Run-Form Inspector")
+            .with_resizable(true)
+            .with_always_on_top();
+        if !self.inspector_sized {
+            let sh = ctx.screen_rect();
+            builder = builder.with_inner_size([
+                (sh.width() / 3.0).clamp(560.0, 900.0),
+                (sh.height() / 6.0).clamp(200.0, 320.0),
+            ]);
+            self.inspector_sized = true;
+        }
+        ctx.show_viewport_immediate(
+            vp_id,
+            builder,
+            |vp_ctx, _class| {
+                if vp_ctx.input(|i| i.viewport().close_requested()) {
+                    self.show_inspector = false;
+                }
+                // Animate the charts only while a form is being sampled; when no
+                // form runs the window is static and requests no repaints (idle).
+                if form_running {
+                    vp_ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                }
+                egui::CentralPanel::default().show(vp_ctx, |ui| {
+                    self.inspector_body(ui, form_running);
+                });
+            },
+        );
+    }
+
+    /// The inspector window contents: health header + the four sparklines.
+    fn inspector_body(&mut self, ui: &mut egui::Ui, form_running: bool) {
+        {
+                ui.horizontal(|ui| {
+                    ui.strong("📊 Run-Form Inspector");
+                    ui.separator();
+                    if !form_running {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(200, 170, 90),
+                            "no form running — start Run Form to sample",
+                        );
+                    } else if let Some(a) = &self.inspector.last_anomaly {
+                        ui.colored_label(egui::Color32::from_rgb(240, 100, 100), format!("⚠ {a}"));
+                    } else {
+                        ui.colored_label(egui::Color32::from_rgb(120, 200, 120), "healthy");
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("✕ close").clicked() {
+                            self.show_inspector = false;
+                        }
+                        let dumping = self.inspector.config.dump_enabled;
+                        ui.label(if dumping {
+                            format!("dumps → {}", self.inspector.config.dump_path)
+                        } else {
+                            "dumps off (Settings)".to_string()
+                        });
+                    });
+                });
+                ui.separator();
+
+                let hist = self.inspector.history();
+                let latest = self.inspector.latest().unwrap_or_default();
+                let n = hist.len();
+                let cpu: Vec<f32> = hist.iter().map(|s| s.cpu_pct).collect();
+                let rss: Vec<f32> =
+                    hist.iter().map(|s| s.rss_bytes as f32 / (1024.0 * 1024.0)).collect();
+                let kids: Vec<f32> = hist.iter().map(|s| s.children as f32).collect();
+                // System memory used (MB) as a chart — replaces the redundant
+                // second CPU% metric (System CPU) with a distinct signal.
+                let sysmem: Vec<f32> = hist
+                    .iter()
+                    .map(|s| s.sys_mem_used as f32 / (1024.0 * 1024.0))
+                    .collect();
+                let sysmem_total = (latest.sys_mem_total as f32 / (1024.0 * 1024.0)).max(1.0);
+
+                let avail = ui.available_size();
+                let chart_w = (avail.x - 24.0) / 4.0;
+                // Reserve the top ~55% for the four charts; the process tree
+                // (5th panel) fills the rest of the window below.
+                let chart_h = (avail.y * 0.55).clamp(64.0, 190.0);
+                ui.horizontal(|ui| {
+                    Self::sparkline(
+                        ui, chart_w, chart_h, "Process CPU", "%",
+                        &cpu, latest.cpu_pct, Some(100.0),
+                        egui::Color32::from_rgb(120, 200, 255),
+                    );
+                    Self::sparkline(
+                        ui, chart_w, chart_h, "Memory (RSS)", "MB",
+                        &rss, latest.rss_bytes as f32 / (1024.0 * 1024.0), None,
+                        egui::Color32::from_rgb(150, 230, 150),
+                    );
+                    Self::sparkline(
+                        ui, chart_w, chart_h, "Child procs", "",
+                        &kids, latest.children as f32, None,
+                        egui::Color32::from_rgb(240, 200, 120),
+                    );
+                    Self::sparkline(
+                        ui, chart_w, chart_h, "System Mem", "MB",
+                        &sysmem, latest.sys_mem_used as f32 / (1024.0 * 1024.0),
+                        Some(sysmem_total),
+                        egui::Color32::from_rgb(200, 160, 240),
+                    );
+                });
+                if n == 0 && form_running {
+                    ui.weak("sampling…");
+                }
+
+                // ── 5th panel: application process tree ───────────────────────
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong("Process tree");
+                    ui.weak("(this app + any child processes)");
+                });
+                let tree = self.inspector.process_tree();
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if tree.is_empty() {
+                            ui.weak(if form_running {
+                                "sampling…"
+                            } else {
+                                "run a form to sample the process tree"
+                            });
+                        }
+                        for (depth, pid, name, cpu, rss) in &tree {
+                            let indent = "    ".repeat(*depth);
+                            let branch = if *depth == 0 { "● " } else { "└ " };
+                            let mb = *rss as f64 / (1024.0 * 1024.0);
+                            ui.monospace(format!(
+                                "{indent}{branch}{name}  ·  pid {pid}  ·  CPU {cpu:.0}%  ·  RSS {mb:.0} MB"
+                            ));
+                        }
+                    });
+        }
+    }
+
+    /// Draw one Grafana-style sparkline in a fixed box: filled area under the
+    /// line, current value + unit, and the window's peak.
+    #[allow(clippy::too_many_arguments)]
+    fn sparkline(
+        ui: &mut egui::Ui,
+        w: f32,
+        h: f32,
+        title: &str,
+        unit: &str,
+        values: &[f32],
+        current: f32,
+        max_hint: Option<f32>,
+        color: egui::Color32,
+    ) {
+        let (rect, _resp) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+        let p = ui.painter_at(rect);
+        p.rect_filled(rect, 4.0, egui::Color32::from_rgb(18, 20, 30));
+        // Header line.
+        let peak = values.iter().cloned().fold(0.0_f32, f32::max);
+        p.text(
+            rect.left_top() + egui::vec2(6.0, 4.0),
+            egui::Align2::LEFT_TOP,
+            title,
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_rgb(170, 180, 200),
+        );
+        p.text(
+            rect.right_top() + egui::vec2(-6.0, 4.0),
+            egui::Align2::RIGHT_TOP,
+            format!("{current:.1}{unit}"),
+            egui::FontId::monospace(12.0),
+            color,
+        );
+        // Plot area.
+        let plot = egui::Rect::from_min_max(
+            rect.left_top() + egui::vec2(6.0, 22.0),
+            rect.right_bottom() - egui::vec2(6.0, 14.0),
+        );
+        let vmax = max_hint.unwrap_or(peak).max(peak).max(1.0);
+        if values.len() >= 2 {
+            let dx = plot.width() / (values.len() - 1) as f32;
+            let y_of = |v: f32| plot.bottom() - (v / vmax).clamp(0.0, 1.0) * plot.height();
+            let pts: Vec<egui::Pos2> = values
+                .iter()
+                .enumerate()
+                .map(|(i, &v)| egui::pos2(plot.left() + i as f32 * dx, y_of(v)))
+                .collect();
+            // Line only (no filled area under the curve).
+            p.add(egui::Shape::line(pts, egui::Stroke::new(1.5, color)));
+        }
+        // Peak label bottom-left.
+        p.text(
+            plot.left_bottom() + egui::vec2(0.0, 2.0),
+            egui::Align2::LEFT_TOP,
+            format!("peak {peak:.0}{unit}"),
+            egui::FontId::proportional(9.0),
+            egui::Color32::from_rgb(110, 120, 140),
+        );
+    }
+}
+
 // ── Running form window (Phase 6) ────────────────────────────────────────────
 
 impl CoboltApp {
@@ -4665,6 +5162,9 @@ impl CoboltApp {
 
         if idx >= self.form_runtimes.len() {
             return;
+        }
+        if std::env::var("PRC_QUIET").is_err() {
+            eprintln!("[TIMER-DBG]   E render-window-begin idx={idx}");
         }
 
         // Match the designer's glass toggle live so the running form tracks the
@@ -4876,6 +5376,13 @@ impl CoboltApp {
                         output = cobolt_forms::render::render_form(ui, &input);
                     });
             });
+        if std::env::var("PRC_QUIET").is_err() {
+            eprintln!(
+                "[TIMER-DBG]   F render-done idx={idx} events={} prop_updates={}",
+                output.events.len(),
+                output.prop_updates.len()
+            );
+        }
 
         // Apply value updates back to CtrlState, sync them to the interpreter (so
         // an event handler reads the live value), then map UI events -> FormEvent
@@ -4889,6 +5396,17 @@ impl CoboltApp {
                     .props
                     .insert(key.clone(), val.clone());
                 rt.send_input(id, key, val);
+                // Capture *design-intent* layout adjustments (DataGrid column
+                // widths via AdvancedGrid, row height) so the "Apply layout to
+                // design" button can persist them as the control's new defaults.
+                // Runtime data (populated Rows, Value, selection) is never
+                // captured — only this whitelist.
+                if is_design_intent_prop(key) {
+                    rt.pending_design_props
+                        .entry(id.clone())
+                        .or_default()
+                        .insert(key.clone(), val.clone());
+                }
             }
             // A Timer keeps emitting `onTick` every frame the interval elapses,
             // regardless of whether the previous tick's handler has finished.
@@ -4899,12 +5417,57 @@ impl CoboltApp {
             // like a WinForms timer skips ticks when the app is busy. User
             // events (clicks, edits, focus, quit) are never dropped.
             let busy = rt.pending_events() > 0;
+            let ev_total = output.events.len();
+            let mut sent = 0u32;
+            let mut coalesced = 0u32;
             for ev in output.events {
                 let is_tick = ev.event.eq_ignore_ascii_case("onTick");
                 if is_tick && busy {
+                    coalesced += 1;
                     continue;
                 }
                 rt.send_event(FormEvent::new(ev.ctrl_id, ev.event));
+                sent += 1;
+            }
+            if std::env::var("PRC_QUIET").is_err() {
+                eprintln!(
+                    "[TIMER-DBG]   G forward idx={idx} events={ev_total} sent={sent} coalesced={coalesced} pending_now={}",
+                    rt.pending_events()
+                );
+            }
+        }
+
+        // ── Floating "Apply layout to design" affordance ──────────────────────
+        // When the user has interactively adjusted a DataGrid (column widths /
+        // row height) while the form runs with real data, offer to persist those
+        // as the control's new design defaults. Purely additive: if it is never
+        // clicked, the running form behaves exactly as before.
+        let pending_count: usize = self.form_runtimes[idx]
+            .pending_design_props
+            .values()
+            .map(|m| m.len())
+            .sum();
+        if pending_count > 0 {
+            let mut apply = false;
+            egui::Area::new(egui::Id::new(("apply-layout-to-design", idx)))
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-14.0, 14.0))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        if ui
+                            .button(format!("✓ Apply layout to design ({pending_count})"))
+                            .on_hover_text(
+                                "Write the adjusted DataGrid column widths / row height back \
+                                 into the form as the control's new defaults, then Save (Ctrl+S).",
+                            )
+                            .clicked()
+                        {
+                            apply = true;
+                        }
+                    });
+                });
+            if apply {
+                self.apply_runtime_layout_to_design(idx);
             }
         }
 
@@ -4915,6 +5478,55 @@ impl CoboltApp {
         // runtimes; a self-request here makes the RAD "Run Form (live
         // interpreter)" reliably smooth and responsive.
         ctx.request_repaint();
+    }
+
+    /// Persist the interactively-adjusted, whitelisted layout properties captured
+    /// while the form at `idx` runs (DataGrid column widths / row height) back
+    /// into the owning designer's form model, as the control's new defaults. The
+    /// designer is marked dirty; the user Saves to write the `.cfrm`.
+    fn apply_runtime_layout_to_design(&mut self, idx: usize) {
+        if idx >= self.form_runtimes.len() {
+            return;
+        }
+        let form_path = self.form_runtimes[idx].form_path.clone();
+        let fname = self.form_runtimes[idx].form_name.clone();
+        let pending = std::mem::take(&mut self.form_runtimes[idx].pending_design_props);
+        if pending.is_empty() {
+            return;
+        }
+        // Resolve the owning designer by path, then by form name.
+        let pos = self
+            .designers
+            .iter()
+            .position(|(p, _)| *p == form_path)
+            .or_else(|| self.designers.iter().position(|(_, d)| d.form.name == fname));
+        let Some(pos) = pos else {
+            self.output.push_status(
+                "Apply layout: the form's designer is not open — reopen the form, run, and try again.",
+            );
+            return;
+        };
+        let designer = &mut self.designers[pos].1;
+        let mut applied = 0usize;
+        let mut controls = 0usize;
+        for (ctrl_id, props) in &pending {
+            if let Some(ctrl) = designer.form.find_control_mut(ctrl_id) {
+                controls += 1;
+                for (key, val) in props {
+                    ctrl.set_prop(key.clone(), cobolt_forms::PropValue::String(val.clone()));
+                    applied += 1;
+                }
+            }
+        }
+        if applied > 0 {
+            designer.dirty = true;
+            self.output.push_status(format!(
+                "Applied {applied} layout adjustment(s) to {controls} control(s) in {fname} — Save (Ctrl+S) to keep."
+            ));
+        } else {
+            self.output
+                .push_status("Apply layout: no matching controls found in the form.");
+        }
     }
 }
 
@@ -5163,6 +5775,7 @@ impl CoboltApp {
                         glass_on,
                         form_running,
                         fp_active,
+                        self.show_inspector,
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -5210,6 +5823,9 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::RunForm => {
                         self.do_run_form(idx);
+                    }
+                    DesignerToolbarAction::ToggleInspector => {
+                        self.toggle_inspector();
                     }
                     DesignerToolbarAction::StopForm => {
                         let fp = self.designers[idx].0.clone();
@@ -6529,6 +7145,61 @@ mod manifest_name_tests {
         assert_eq!(
             grid.get_prop("Rows").map(PropValue::as_str),
             Some("NEW-FIELD 1\nNEW-FIELD 2\nNEW-FIELD 3")
+        );
+    }
+
+    // ── Event-handler validation (syntax + semantic) ──────────────────────────
+
+    fn form_with_onload(code: &str) -> cobolt_forms::Form {
+        let mut f = cobolt_forms::Form::new("T", "T", 320, 200);
+        let mut ev = EventBinding::new("onLoad", "T--ONLOAD");
+        ev.code = code.to_string();
+        f.form_events.push(ev);
+        f
+    }
+
+    #[test]
+    fn design_intent_whitelist_is_layout_only_never_data() {
+        // Layout defaults that Run-Form adjustments may persist.
+        assert!(is_design_intent_prop(
+            cobolt_forms::model::DATAGRID_ADVANCED_PROP
+        ));
+        assert!(is_design_intent_prop("RowHeight"));
+        // Runtime DATA must NEVER be captured back into the form definition.
+        for data_key in ["Rows", "Value", "Text", "SelectedIndex", "Items", "Checked"] {
+            assert!(
+                !is_design_intent_prop(data_key),
+                "{data_key} is runtime data and must not be persisted as a default"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_form_source_passes_clean_handler() {
+        use crate::runner::DiagSeverity;
+        let f = form_with_onload(
+            "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.",
+        );
+        let diags = CoboltApp::validate_form_source(&f);
+        assert!(
+            !diags.iter().any(|d| d.severity == DiagSeverity::Error),
+            "a clean handler must not report an error: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn validate_form_source_flags_syntax_error_in_handler() {
+        use crate::runner::DiagSeverity;
+        // A stray ')' — the exact class of typo that previously slipped through
+        // unvalidated to Run time. Validation must surface it as an error so the
+        // tree semaphore turns red and Run/Build are blocked.
+        let f = form_with_onload(
+            "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           DISPLAY \"x\" ).",
+        );
+        let diags = CoboltApp::validate_form_source(&f);
+        assert!(
+            diags.iter().any(|d| d.severity == DiagSeverity::Error),
+            "a syntactically broken handler must report an error: {diags:?}"
         );
     }
 }

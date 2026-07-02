@@ -115,10 +115,25 @@ pub struct IdeSettings {
     /// Background-image opacity, 0 (invisible) … 100 (fully opaque).
     #[serde(default = "default_bg_opacity")]
     pub background_opacity: u8,
+    /// Run-Form inspector: when it detects suspicious behaviour, also write a
+    /// process/memory dump to `inspector_dump_path` (console output is always on).
+    #[serde(default = "default_true")]
+    pub inspector_dump_enabled: bool,
+    /// Where the inspector writes its dump file.
+    #[serde(default = "default_inspector_dump_path")]
+    pub inspector_dump_path: String,
 }
 
 fn default_bg_opacity() -> u8 {
     70
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_inspector_dump_path() -> String {
+    "/tmp/prc_inspector_dump.txt".to_string()
 }
 
 impl Default for IdeSettings {
@@ -127,6 +142,8 @@ impl Default for IdeSettings {
             theme: String::new(),
             background_image: String::new(),
             background_opacity: default_bg_opacity(),
+            inspector_dump_enabled: default_true(),
+            inspector_dump_path: default_inspector_dump_path(),
         }
     }
 }

@@ -94,6 +94,13 @@ pub struct FormRuntime {
     /// Whether to render with the Liquid-Glass look. Mirrors the launching
     /// designer's glass toggle so the running form matches the canvas (WYSIWYG).
     pub glass: bool,
+    /// Design-intent adjustments made interactively while the form runs (e.g. a
+    /// DataGrid's column widths / row height), captured from `prop_updates` by a
+    /// whitelist. The "Apply layout to design" button writes these back into the
+    /// owning designer's form so they persist as the control's new defaults.
+    /// `ctrl_id → (property → value)`. Runtime *data* is never captured here.
+    pub pending_design_props:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
 }
 
 /// Per-control metadata needed for rendering (type + rect + initial props).
@@ -174,12 +181,19 @@ impl FormRuntime {
     ///
     /// Returns `Err(String)` if parse/semantic fails.
     pub fn launch(form: &Form, form_path: PathBuf) -> Result<Self, String> {
+        crate::app::tdbg("  launch.a: generate begin");
         // Generate COBOL source from the form model.
         let cobol_source = cobolt_codegen::generate(form);
+        crate::app::tdbg(&format!(
+            "  launch.b: generate done ({} bytes); tokenize begin",
+            cobol_source.len()
+        ));
 
         // Lex → parse → semantic.
         let tokens = tokenize(&cobol_source, SourceFormat::Free);
+        crate::app::tdbg("  launch.c: tokenize done; parse begin");
         let parse_result = parse(tokens);
+        crate::app::tdbg("  launch.d: parse done");
 
         let parse_has_errors = parse_result
             .diagnostics
@@ -195,7 +209,9 @@ impl FormRuntime {
         }
         let program = parse_result.program.unwrap();
 
+        crate::app::tdbg("  launch.e: analyze begin");
         let sem = analyze(&program);
+        crate::app::tdbg("  launch.f: analyze done");
         if !sem.is_ok() {
             let msgs: Vec<_> = sem
                 .diagnostics
@@ -205,6 +221,7 @@ impl FormRuntime {
             return Err(format!("Semantic errors:\n{}", msgs.join("\n")));
         }
 
+        crate::app::tdbg("  launch.g: building seed/snapshots begin");
         // Build channel pairs.
         let (event_tx, event_rx) = mpsc::channel::<FormEvent>();
         let (input_tx, input_rx) = mpsc::channel::<StateUpdate>();
@@ -269,8 +286,10 @@ impl FormRuntime {
         let error_slot = Arc::new(Mutex::new(None));
         let error_clone = Arc::clone(&error_slot);
 
+        crate::app::tdbg("  launch.h: spawning interpreter thread");
         // Spawn interpreter thread.
         let handle = thread::spawn(move || {
+            crate::app::tdbg("  launch.i: interpreter thread started (interp.run next)");
             // A clone kept alive to surface a fatal runtime error to the UI: the
             // interpreter thread dies on the first error, so without this the run
             // window would silently never appear (or vanish) with no feedback.
@@ -286,6 +305,7 @@ impl FormRuntime {
             if stop_clone.load(Ordering::Relaxed) {
                 return;
             }
+            crate::app::tdbg("  launch.j: interp.run() begin (onLoad → event loop)");
             // A `Cancelled` abort returns `Ok`, so only genuine faults land here.
             if let Err(e) = interp.run() {
                 let msg = format!("⛔ Form runtime error: {e}");
@@ -319,6 +339,7 @@ impl FormRuntime {
             handle: Some(handle),
             combo_open: HashMap::new(),
             glass: true,
+            pending_design_props: std::collections::BTreeMap::new(),
         })
     }
 

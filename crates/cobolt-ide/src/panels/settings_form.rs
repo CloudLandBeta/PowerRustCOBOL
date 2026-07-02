@@ -46,6 +46,9 @@ pub struct SettingsDraft {
     pub form_theme_id: String,
     // ── Runtime ──
     pub fixed_format: bool,
+    // ── Run-Form inspector ──
+    pub insp_dump_enabled: bool,
+    pub insp_dump_path: String,
     // ── AI assistant (global) ──
     pub llm_endpoint: String,
     pub llm_api_key: String,
@@ -70,6 +73,8 @@ impl SettingsDraft {
             bg_opacity: p.ide.background_opacity,
             form_theme_id: p.forms.theme.clone(),
             fixed_format: p.runtime.fixed_format,
+            insp_dump_enabled: p.ide.inspector_dump_enabled,
+            insp_dump_path: p.ide.inspector_dump_path.clone(),
             llm_endpoint: llm.endpoint.clone(),
             llm_api_key: llm.api_key.clone(),
             llm_model: llm.model.clone(),
@@ -91,6 +96,8 @@ impl SettingsDraft {
         p.ide.background_opacity = self.bg_opacity;
         p.forms.theme = self.form_theme_id.clone();
         p.runtime.fixed_format = self.fixed_format;
+        p.ide.inspector_dump_enabled = self.insp_dump_enabled;
+        p.ide.inspector_dump_path = self.insp_dump_path.clone();
         llm.endpoint = self.llm_endpoint.clone();
         llm.api_key = self.llm_api_key.clone();
         llm.model = self.llm_model.clone();
@@ -802,6 +809,75 @@ impl SettingsForm {
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 ui.checkbox(&mut self.draft.fixed_format, "");
+                            });
+                        });
+
+                        // ── Run-Form inspector ────────────────────────────────
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.set_min_width(splitter);
+                                section(ui, "Run-Form inspector", &theme);
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |_ui| {});
+                        });
+                        // Dump-on-anomaly toggle.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new("Dump on suspicious activity").truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.checkbox(&mut self.draft.insp_dump_enabled, "")
+                                    .on_hover_text(
+                                        "When the inspector detects a memory leak, runaway CPU, or \
+                                         rogue subprocesses while a form runs, write a process/memory \
+                                         dump to the file below (console output is always on).",
+                                    );
+                            });
+                        });
+                        // Dump file path.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new("Dump file path").truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.add_enabled(
+                                    self.draft.insp_dump_enabled,
+                                    egui::TextEdit::singleline(&mut self.draft.insp_dump_path)
+                                        .desired_width(right_w - 8.0),
+                                );
                             });
                         });
                     });

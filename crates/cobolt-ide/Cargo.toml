@@ -72,6 +72,9 @@ ureq        = { version = "2", features = ["json"] }
 # Data structures
 indexmap    = { workspace = true }
 
+# Run Form inspector — process/system metrics (CPU%, RSS, child processes)
+sysinfo     = { workspace = true }
+
 # Logging
 tracing              = { workspace = true }
 tracing-subscriber   = { workspace = true }
