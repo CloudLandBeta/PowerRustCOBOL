@@ -133,6 +133,17 @@ struct NestedProgram {
     using: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct BindingRuntimeState {
+    loaded: bool,
+    populated: bool,
+    dirty: bool,
+    read_only: bool,
+    row_key: String,
+    pending_value: String,
+    last_status: String,
+}
+
 /// Recursively register a `Program` and all of its `nested_programs` into
 /// `registry`, keyed by the program-id (uppercase).
 fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>) {
@@ -483,6 +494,8 @@ pub struct Interpreter {
     db: DbRegistry,
     /// HTTP client (Phase 10) — manages persistent headers and sends requests.
     http: crate::http_runtime::HttpClient,
+    /// Generated data-binding helper CALL state, keyed by binding id.
+    binding_states: HashMap<String, BindingRuntimeState>,
 
     // ── GUI Form Runtime channels (Phase 6) ───────────────────────────────────
     /// Receives UI events (button clicks, text changes, etc.) from the form window.
@@ -626,6 +639,7 @@ impl Interpreter {
             perform_depth: 0,
             db: DbRegistry::new(),
             http: crate::http_runtime::HttpClient::new(),
+            binding_states: HashMap::new(),
             event_rx: None,
             input_rx: None,
             state_tx: None,
@@ -3832,6 +3846,46 @@ impl Interpreter {
                 // Nothing to do in non-GUI (CLI) mode.
             }
 
+            // ── Generated data-binding helper calls ─────────────────────────
+            "COBOL-BINDING-LOAD" if using.len() >= 2 => {
+                let binding_id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let status_name = self.expr_to_name(call_arg_expr(&using[1]));
+                let status = self.binding_load(binding_id.trim());
+                self.env.set_str(&status_name, &status);
+            }
+            "COBOL-BINDING-SET-READ-ONLY" if using.len() >= 2 => {
+                let binding_id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let flag = self.eval_call_arg(&using[1], span)?.as_display_string();
+                self.binding_set_read_only(binding_id.trim(), flag.trim() != "0");
+            }
+            "COBOL-BINDING-POPULATE" if using.len() >= 2 => {
+                let binding_id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let status_name = self.expr_to_name(call_arg_expr(&using[1]));
+                let status = self.binding_populate(binding_id.trim());
+                self.env.set_str(&status_name, &status);
+            }
+            "COBOL-BINDING-MARK-CLEAN" if using.len() >= 2 => {
+                let binding_id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let dirty_name = self.expr_to_name(call_arg_expr(&using[1]));
+                self.binding_mark_clean(binding_id.trim());
+                self.env.set(&dirty_name, CobolValue::from_i64(0));
+            }
+            "COBOL-BINDING-SET-PENDING" if using.len() >= 4 => {
+                let binding_id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let row_key = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let value = self.eval_call_arg(&using[2], span)?.as_display_string();
+                let dirty_name = self.expr_to_name(call_arg_expr(&using[3]));
+                self.binding_set_pending(binding_id.trim(), row_key.trim(), value.trim_end());
+                self.env.set(&dirty_name, CobolValue::from_i64(1));
+            }
+            "COBOL-BINDING-UPDATE" if using.len() >= 3 => {
+                let binding_id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let row_key = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let status_name = self.expr_to_name(call_arg_expr(&using[2]));
+                let status = self.binding_update(binding_id.trim(), row_key.trim());
+                self.env.set_str(&status_name, &status);
+            }
+
             // COBOL-WAIT-EVENT USING event-id control-id
             // GUI mode: block until the UI sends a FormEvent, then populate the two fields.
             // CLI mode: immediately set COBOL-QUIT = 1 so the event loop exits cleanly.
@@ -4246,6 +4300,388 @@ impl Interpreter {
         Ok(())
     }
 
+    fn binding_state_mut(&mut self, binding_id: &str) -> &mut BindingRuntimeState {
+        self.binding_states
+            .entry(binding_id.to_ascii_uppercase())
+            .or_default()
+    }
+
+    fn binding_load(&mut self, binding_id: &str) -> String {
+        let state = self.binding_state_mut(binding_id);
+        state.loaded = true;
+        state.last_status.clear();
+        String::new()
+    }
+
+    fn binding_set_read_only(&mut self, binding_id: &str, read_only: bool) {
+        let state = self.binding_state_mut(binding_id);
+        state.read_only = read_only;
+    }
+
+    fn binding_populate(&mut self, binding_id: &str) -> String {
+        let state = self.binding_state_mut(binding_id);
+        if !state.loaded {
+            state.last_status = "NOT-LOADED".into();
+            return state.last_status.clone();
+        }
+        state.populated = true;
+        state.last_status.clear();
+        String::new()
+    }
+
+    fn binding_mark_clean(&mut self, binding_id: &str) {
+        let state = self.binding_state_mut(binding_id);
+        state.dirty = false;
+        state.last_status.clear();
+    }
+
+    fn binding_set_pending(&mut self, binding_id: &str, row_key: &str, value: &str) {
+        let state = self.binding_state_mut(binding_id);
+        state.row_key = row_key.to_owned();
+        state.pending_value = value.to_owned();
+        state.dirty = true;
+        state.last_status.clear();
+    }
+
+    fn binding_update(&mut self, binding_id: &str, row_key: &str) -> String {
+        let state = self.binding_state_mut(binding_id);
+        if state.read_only {
+            state.last_status = "READ-ONLY".into();
+            return state.last_status.clone();
+        }
+        if row_key.trim().is_empty() && state.row_key.trim().is_empty() {
+            state.last_status = "MISSING-ROW-KEY".into();
+            return state.last_status.clone();
+        }
+        if !row_key.trim().is_empty() {
+            state.row_key = row_key.to_owned();
+        }
+        state.dirty = false;
+        state.pending_value.clear();
+        state.last_status.clear();
+        String::new()
+    }
+
+    fn refresh_datagrid_binding(&mut self, control_id: &str) -> usize {
+        if !self
+            .obj_get(control_id, "_BindingKind")
+            .eq_ignore_ascii_case("CobolTable")
+        {
+            return 0;
+        }
+        let fields = self
+            .obj_get(control_id, "_BindingFields")
+            .split(|ch| matches!(ch, '\n' | '\r' | ',' | ';' | '\t'))
+            .map(str::trim)
+            .filter(|field| !field.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if fields.is_empty() {
+            return 0;
+        }
+        let row_count = fields
+            .iter()
+            .filter_map(|field| self.env.symbol(field))
+            .filter_map(|symbol| symbol.dims.last().copied())
+            .max()
+            .unwrap_or(0);
+        if row_count == 0 {
+            self.obj_set(control_id, "Rows", String::new());
+            return 0;
+        }
+
+        let mut rows = Vec::new();
+        for row_index in 1..=row_count {
+            let cells = fields
+                .iter()
+                .map(|field| {
+                    let key = crate::environment::subscript_key(field, &[row_index as i64]);
+                    self.env
+                        .get(&key)
+                        .map(|value| value.as_display_string().trim_end().to_owned())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>();
+            if cells.iter().any(|cell| !cell.trim().is_empty()) {
+                rows.push(cells.join("\t"));
+            }
+        }
+        let row_count = rows.len();
+        self.obj_set(control_id, "Rows", rows.join("\n"));
+        row_count
+    }
+
+    fn datagrid_column_names(&self, control_id: &str) -> Vec<String> {
+        self.obj_get(control_id, "Columns")
+            .lines()
+            .filter_map(|line| {
+                let spec = line.trim();
+                if spec.is_empty() {
+                    return None;
+                }
+                Some(
+                    spec.split_once(':')
+                        .map(|(name, _)| name.trim())
+                        .unwrap_or(spec)
+                        .to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    fn datagrid_column_specs(&self, control_id: &str) -> Vec<(String, String)> {
+        self.obj_get(control_id, "Columns")
+            .lines()
+            .filter_map(|line| {
+                let spec = line.trim();
+                if spec.is_empty() {
+                    return None;
+                }
+                let (name, ty) = spec
+                    .split_once(':')
+                    .map(|(name, ty)| (name.trim(), ty.trim()))
+                    .unwrap_or((spec, "string"));
+                Some((name.to_owned(), ty.to_owned()))
+            })
+            .collect()
+    }
+
+    fn datagrid_advanced_json(&self, control_id: &str) -> Option<serde_json::Value> {
+        let raw = self.obj_get(control_id, "AdvancedGrid");
+        serde_json::from_str(raw.trim()).ok()
+    }
+
+    fn datagrid_display_columns(&self, control_id: &str) -> Vec<(usize, String, String)> {
+        let specs = self.datagrid_column_specs(control_id);
+        let mut columns = Vec::new();
+        if let Some(advanced) = self.datagrid_advanced_json(control_id) {
+            if let Some(advanced_columns) = advanced.get("columns").and_then(|v| v.as_array()) {
+                for column in advanced_columns {
+                    if column
+                        .get("visible")
+                        .and_then(|v| v.as_bool())
+                        .map(|visible| !visible)
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    let source = column
+                        .get("source_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    let title = column
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(source);
+                    let id = column
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    if let Some(index) = specs.iter().position(|(name, _)| {
+                        name.eq_ignore_ascii_case(source)
+                            || name.eq_ignore_ascii_case(title)
+                            || name.eq_ignore_ascii_case(id)
+                    }) {
+                        columns.push((index, title.to_owned(), specs[index].1.clone()));
+                    }
+                }
+            }
+        }
+        if columns.is_empty() {
+            specs
+                .into_iter()
+                .enumerate()
+                .map(|(index, (name, ty))| (index, name, ty))
+                .collect()
+        } else {
+            columns
+        }
+    }
+
+    fn datagrid_rows(&self, control_id: &str) -> Vec<Vec<String>> {
+        self.obj_get(control_id, "Rows")
+            .lines()
+            .map(|line| line.split('\t').map(str::to_owned).collect())
+            .collect()
+    }
+
+    fn set_datagrid_rows(&mut self, control_id: &str, rows: &[Vec<String>]) {
+        let value = rows
+            .iter()
+            .map(|row| row.join("\t"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.obj_set(control_id, "Rows", value);
+    }
+
+    fn datagrid_cell_index(value: &str) -> Option<usize> {
+        let n = value.trim().parse::<usize>().ok()?;
+        if n == 0 {
+            Some(0)
+        } else {
+            Some(n - 1)
+        }
+    }
+
+    fn set_datagrid_runtime_kv(&mut self, control_id: &str, prop: &str, key: &str, value: &str) {
+        let key = key.trim();
+        if key.is_empty() {
+            return;
+        }
+        let mut entries = self
+            .obj_get(control_id, prop)
+            .lines()
+            .filter_map(|line| {
+                let (k, v) = line.split_once('=')?;
+                let k = k.trim();
+                if k.is_empty() || k.eq_ignore_ascii_case(key) {
+                    None
+                } else {
+                    Some(format!("{k}={}", v.trim()))
+                }
+            })
+            .collect::<Vec<_>>();
+        if !value.trim().is_empty() {
+            entries.push(format!("{key}={}", value.trim()));
+        }
+        self.obj_set(control_id, prop, entries.join("\n"));
+    }
+
+    fn datagrid_selected_text(&self, control_id: &str) -> String {
+        let selected = self.obj_get(control_id, "_SelectedText");
+        if selected.is_empty() {
+            self.obj_get(control_id, "SelectedText")
+        } else {
+            selected
+        }
+    }
+
+    fn datagrid_csv_escape(value: &str, delimiter: char) -> String {
+        if value.contains(delimiter) || value.contains('"') || value.contains('\n') {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_owned()
+        }
+    }
+
+    fn datagrid_filter_pairs(&self, control_id: &str) -> Vec<(String, String)> {
+        let mut pairs = Vec::new();
+        if let Some(advanced) = self.datagrid_advanced_json(control_id) {
+            if let Some(filters) = advanced.get("filters").and_then(|v| v.as_array()) {
+                for filter in filters {
+                    let active = filter
+                        .get("active")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let column = filter
+                        .get("column_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .trim();
+                    let value = filter
+                        .get("value")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .trim();
+                    if active && !column.is_empty() && !value.is_empty() {
+                        pairs.push((column.to_owned(), value.to_owned()));
+                    }
+                }
+            }
+        }
+        for line in self.obj_get(control_id, "_RuntimeColumnFilters").lines() {
+            let Some((column, value)) = line.split_once('=') else {
+                continue;
+            };
+            let column = column.trim();
+            let value = value.trim();
+            if !column.is_empty() && !value.is_empty() {
+                pairs.retain(|(existing, _)| !existing.eq_ignore_ascii_case(column));
+                pairs.push((column.to_owned(), value.to_owned()));
+            }
+        }
+        pairs
+    }
+
+    fn datagrid_filtered_rows(&self, control_id: &str) -> Vec<Vec<String>> {
+        let rows = self.datagrid_rows(control_id);
+        let export_mode = self.obj_get(control_id, "CSVExportMode");
+        if matches!(
+            export_mode.trim().to_ascii_lowercase().as_str(),
+            "all" | "allrows" | "all_rows"
+        ) {
+            return rows;
+        }
+        let filters = self.datagrid_filter_pairs(control_id);
+        if filters.is_empty() {
+            return rows;
+        }
+        let columns = self.datagrid_display_columns(control_id);
+        let specs = self.datagrid_column_specs(control_id);
+        rows.into_iter()
+            .filter(|row| {
+                filters.iter().all(|(column, needle)| {
+                    let source_index = columns
+                        .iter()
+                        .find_map(|(source_index, title, _)| {
+                            let matches = title.eq_ignore_ascii_case(column)
+                                || specs
+                                    .get(*source_index)
+                                    .map(|(name, _)| name.eq_ignore_ascii_case(column))
+                                    .unwrap_or(false);
+                            matches.then_some(*source_index)
+                        })
+                        .or_else(|| {
+                            specs
+                                .iter()
+                                .position(|(name, _)| name.eq_ignore_ascii_case(column))
+                        });
+                    let Some(source_index) = source_index else {
+                        return false;
+                    };
+                    row.get(source_index)
+                        .map(|value| {
+                            value
+                                .to_ascii_lowercase()
+                                .contains(&needle.to_ascii_lowercase())
+                        })
+                        .unwrap_or(false)
+                })
+            })
+            .collect()
+    }
+
+    fn datagrid_export_csv(&self, control_id: &str) -> String {
+        let delimiter = self
+            .obj_get(control_id, "CSVDelimiter")
+            .chars()
+            .next()
+            .unwrap_or(',');
+        let mut lines = Vec::new();
+        let columns = self.datagrid_display_columns(control_id);
+        if !columns.is_empty() {
+            let header = columns
+                .iter()
+                .map(|(_, title, _)| Self::datagrid_csv_escape(title, delimiter))
+                .collect::<Vec<_>>()
+                .join(&delimiter.to_string());
+            lines.push(header);
+        }
+        for row in self.datagrid_filtered_rows(control_id) {
+            lines.push(
+                columns
+                    .iter()
+                    .map(|(source_index, _, _)| {
+                        row.get(*source_index).map(String::as_str).unwrap_or("")
+                    })
+                    .map(|cell| Self::datagrid_csv_escape(cell, delimiter))
+                    .collect::<Vec<_>>()
+                    .join(&delimiter.to_string()),
+            );
+        }
+        lines.join("\n")
+    }
+
     fn eval_call_arg(&mut self, arg: &CallArg, span: Span) -> Result<CobolValue, RuntimeError> {
         self.eval_expr(call_arg_expr(arg), span)
     }
@@ -4393,8 +4829,11 @@ impl Interpreter {
                 self.set_member(&root, &path, v);
                 Ok(())
             }
-            Resolved::Method { .. } => Err(RuntimeError::General {
-                message: "a method-call result is not a receiving field".into(),
+            Resolved::Method { method, .. } => Err(RuntimeError::General {
+                message: format!(
+                    "'{root}::{method}' is a method call, not a receiving field — call it as a \
+                     statement instead of using it as a MOVE/assignment target"
+                ),
             }),
         }
     }
@@ -4735,6 +5174,119 @@ impl Interpreter {
                     cur.lines().count()
                 };
                 val(n.to_string())
+            }
+            // ── DataGrid data binding ──
+            "GETROWCOUNT" => val(self.datagrid_rows(obj).len().to_string()),
+            "GETCELLVALUE" => {
+                let row = Self::datagrid_cell_index(&arg(0));
+                let col = Self::datagrid_cell_index(&arg(1));
+                let value = row
+                    .zip(col)
+                    .and_then(|(row, col)| {
+                        self.datagrid_rows(obj)
+                            .get(row)
+                            .and_then(|cells| cells.get(col))
+                            .cloned()
+                    })
+                    .unwrap_or_default();
+                val(value)
+            }
+            "SETCELLVALUE" => {
+                if let (Some(row), Some(col)) = (
+                    Self::datagrid_cell_index(&arg(0)),
+                    Self::datagrid_cell_index(&arg(1)),
+                ) {
+                    let mut rows = self.datagrid_rows(obj);
+                    let target_cols = self.datagrid_column_names(obj).len().max(col + 1);
+                    while rows.len() <= row {
+                        rows.push(vec![String::new(); target_cols]);
+                    }
+                    if rows[row].len() <= col {
+                        rows[row].resize(col + 1, String::new());
+                    }
+                    rows[row][col] = arg(2);
+                    self.set_datagrid_rows(obj, &rows);
+                }
+                none
+            }
+            "ADDROW" => {
+                let mut rows = self.datagrid_rows(obj);
+                let row = if args.is_empty() {
+                    vec![String::new(); self.datagrid_column_names(obj).len()]
+                } else {
+                    arg(0).split('\t').map(str::to_owned).collect()
+                };
+                rows.push(row);
+                self.set_datagrid_rows(obj, &rows);
+                none
+            }
+            "DELETEROW" => {
+                if let Some(row) = Self::datagrid_cell_index(&arg(0)) {
+                    let mut rows = self.datagrid_rows(obj);
+                    if row < rows.len() {
+                        rows.remove(row);
+                        self.set_datagrid_rows(obj, &rows);
+                    }
+                }
+                none
+            }
+            "CLEARROWS" => {
+                self.obj_set(obj, "Rows", String::new());
+                none
+            }
+            "SORT" => {
+                if let Some(col) = Self::datagrid_cell_index(&arg(0)) {
+                    let mut rows = self.datagrid_rows(obj);
+                    rows.sort_by(|left, right| {
+                        left.get(col)
+                            .map(String::as_str)
+                            .unwrap_or("")
+                            .cmp(right.get(col).map(String::as_str).unwrap_or(""))
+                    });
+                    self.set_datagrid_rows(obj, &rows);
+                }
+                none
+            }
+            "SETFILTER" => {
+                let column = arg(0);
+                let value = arg(1);
+                self.set_datagrid_runtime_kv(obj, "_RuntimeColumnFilters", &column, &value);
+                self.set_datagrid_runtime_kv(obj, "ColumnFilters", &column, &value);
+                none
+            }
+            "CLEARFILTERS" => {
+                self.obj_set(obj, "_RuntimeColumnFilters", String::new());
+                self.obj_set(obj, "ColumnFilters", String::new());
+                none
+            }
+            "FREEZECOLUMNS" => {
+                self.obj_set(obj, "_RuntimeFrozenColumns", arg(0));
+                self.obj_set(obj, "FrozenColumns", arg(0));
+                none
+            }
+            "FREEZEROWS" => {
+                self.obj_set(obj, "_RuntimeFrozenRows", arg(0));
+                self.obj_set(obj, "FrozenRows", arg(0));
+                none
+            }
+            "SETROWHEIGHT" => {
+                self.obj_set(obj, "_RuntimeRowHeight", arg(0));
+                self.obj_set(obj, "RowHeight", arg(0));
+                none
+            }
+            "SETCOLUMNWIDTH" => {
+                self.set_datagrid_runtime_kv(obj, "_RuntimeColumnWidths", &arg(0), &arg(1));
+                none
+            }
+            "GETSELECTEDTEXT" => val(self.datagrid_selected_text(obj)),
+            "COPYSELECTION" => {
+                self.obj_set(obj, "_CopySelection", "1".into());
+                val(self.datagrid_selected_text(obj))
+            }
+            "EXPORTCSV" => val(self.datagrid_export_csv(obj)),
+            "REFRESHBINDING" => {
+                let rows = self.refresh_datagrid_binding(obj);
+                val(rows.to_string())
             }
             // ── Timer ──
             "START" => {
@@ -6020,6 +6572,11 @@ fn is_known_method(name: &str) -> bool {
         // Items / list / combo
             | "ADDITEM" | "REMOVEITEM" | "GETSELECTED" | "GETSELECTEDINDEX"
             | "GETINDEX" | "SETSELECTEDINDEX" | "SETINDEX" | "GETCOUNT"
+        // DataGrid
+            | "GETROWCOUNT" | "GETCELLVALUE" | "SETCELLVALUE" | "ADDROW"
+            | "DELETEROW" | "CLEARROWS" | "SORT" | "SETFILTER" | "CLEARFILTERS"
+            | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH"
+            | "GETSELECTEDTEXT" | "COPYSELECTION" | "EXPORTCSV" | "REFRESHBINDING"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
@@ -6289,6 +6846,8 @@ fn pseudo_random() -> f64 {
 mod tests {
     use super::*;
     use cobolt_ast::expr::{CmpOp, Literal};
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::parse;
 
     #[test]
     fn compare_integers() {
@@ -6317,6 +6876,216 @@ mod tests {
     fn literal_to_value_string() {
         let v = literal_to_value(&Literal::String("HELLO".to_owned()));
         assert_eq!(v.as_display_string(), "HELLO");
+    }
+
+    #[test]
+    fn datagrid_refresh_binding_updates_rows_from_cobol_table() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. GRID-REFRESH.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-ACTOR-TABLE.
+   05 WS-ACTOR-ROW OCCURS 2 TIMES.
+      10 ACTOR-ID      PIC 9(09).
+      10 ACTOR-CAPTION PIC X(40).
+      10 ACTOR-SALARY  PIC S9(9)V99.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "ActorGrid".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                (
+                    "_BindingFields".to_owned(),
+                    "ACTOR-ID\nACTOR-CAPTION\nACTOR-SALARY".to_owned(),
+                ),
+            ],
+        )]);
+        interp.env.set_str("ACTOR-ID(1)", "000000001");
+        interp.env.set_str("ACTOR-CAPTION(1)", "Leonardo DiCaprio");
+        interp.env.set_str("ACTOR-SALARY(1)", "30000000.00");
+        interp.env.set_str("ACTOR-ID(2)", "000000002");
+        interp.env.set_str("ACTOR-CAPTION(2)", "Joe Pesci");
+        interp.env.set_str("ACTOR-SALARY(2)", "12000000.00");
+
+        assert_eq!(interp.refresh_datagrid_binding("ActorGrid"), 2);
+        let rows = state_rx
+            .try_iter()
+            .filter(|update| update.ctrl_id == "ActorGrid" && update.prop == "Rows")
+            .map(|update| update.value)
+            .last()
+            .expect("RefreshBinding should publish Rows");
+        assert_eq!(
+            rows,
+            "1\tLeonardo DiCaprio\t30000000.00\n2\tJoe Pesci\t12000000.00"
+        );
+    }
+
+    #[test]
+    fn datagrid_methods_publish_runtime_overrides_and_manage_rows() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. GRID-METHODS.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "ActorGrid".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                (
+                    "Columns".to_owned(),
+                    "Actor Id:number\nActor Caption:string\nActor Salary:number".to_owned(),
+                ),
+                (
+                    "Rows".to_owned(),
+                    "2\tJoe Pesci\t12000000\n1\tLeonardo DiCaprio\t30000000".to_owned(),
+                ),
+                ("CSVDelimiter".to_owned(), ",".to_owned()),
+                ("_SelectedText".to_owned(), "Joe Pesci".to_owned()),
+            ],
+        )]);
+
+        let cv = |s: &str| CobolValue::from_str(s, s.len());
+        assert_eq!(
+            interp
+                .exec_method("ActorGrid", "GetRowCount", &[])
+                .as_display_string(),
+            "2"
+        );
+        assert_eq!(
+            interp
+                .exec_method("ActorGrid", "GetCellValue", &[cv("1"), cv("2")])
+                .as_display_string(),
+            "Joe Pesci"
+        );
+
+        interp.exec_method("ActorGrid", "SetFilter", &[cv("Actor Caption"), cv("Joe")]);
+        interp.exec_method("ActorGrid", "FreezeColumns", &[cv("1")]);
+        interp.exec_method("ActorGrid", "FreezeRows", &[cv("2")]);
+        interp.exec_method("ActorGrid", "SetRowHeight", &[cv("28")]);
+        interp.exec_method(
+            "ActorGrid",
+            "SetColumnWidth",
+            &[cv("Actor Caption"), cv("220")],
+        );
+        interp.exec_method("ActorGrid", "Sort", &[cv("1")]);
+        interp.exec_method("ActorGrid", "SetCellValue", &[cv("2"), cv("2"), cv("Leo")]);
+        assert_eq!(
+            interp
+                .exec_method("ActorGrid", "CopySelection", &[])
+                .as_display_string(),
+            "Joe Pesci"
+        );
+
+        let updates = state_rx
+            .try_iter()
+            .map(|update| (update.prop, update.value))
+            .collect::<Vec<_>>();
+        assert!(updates.iter().any(|(prop, value)| {
+            prop == "_RuntimeColumnFilters" && value == "Actor Caption=Joe"
+        }));
+        assert!(updates
+            .iter()
+            .any(|(prop, value)| prop == "_RuntimeFrozenColumns" && value == "1"));
+        assert!(updates
+            .iter()
+            .any(|(prop, value)| prop == "_RuntimeFrozenRows" && value == "2"));
+        assert!(updates
+            .iter()
+            .any(|(prop, value)| prop == "_RuntimeRowHeight" && value == "28"));
+        assert!(updates.iter().any(|(prop, value)| {
+            prop == "_RuntimeColumnWidths" && value == "Actor Caption=220"
+        }));
+        assert!(updates
+            .iter()
+            .any(|(prop, value)| prop == "_CopySelection" && value == "1"));
+        assert_eq!(
+            interp
+                .exec_method("ActorGrid", "ExportCSV", &[])
+                .as_display_string(),
+            "Actor Id,Actor Caption,Actor Salary"
+        );
+
+        interp.exec_method("ActorGrid", "ClearFilters", &[]);
+        assert_eq!(
+            interp
+                .exec_method("ActorGrid", "ExportCSV", &[])
+                .as_display_string(),
+            "Actor Id,Actor Caption,Actor Salary\n1,Leonardo DiCaprio,30000000\n2,Leo,12000000"
+        );
+        assert_eq!(interp.obj_get("ActorGrid", "_RuntimeColumnFilters"), "");
+    }
+
+    #[test]
+    fn datagrid_csv_export_uses_display_order_and_export_mode() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. GRID-CSV.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "ActorGrid".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                (
+                    "Columns".to_owned(),
+                    "ID:number\nNAME:string\nSTATUS:string".to_owned(),
+                ),
+                (
+                    "Rows".to_owned(),
+                    "1\tLeonardo DiCaprio\tActive\n2\tJoe Pesci\tClosed".to_owned(),
+                ),
+                ("CSVDelimiter".to_owned(), ",".to_owned()),
+                ("CSVExportMode".to_owned(), "Filtered".to_owned()),
+                (
+                    "AdvancedGrid".to_owned(),
+                    r#"{"schema_version":1,"columns":[{"id":"NAME","title":"Actor Name","source_name":"NAME","value_type":"string","width":180.0,"visible":true},{"id":"ID","title":"Actor Id","source_name":"ID","value_type":"number","width":80.0,"visible":true}],"frozen_columns":0,"frozen_rows":0,"row_height":22,"row_overrides":[],"filters":[{"column_id":"STATUS","value":"Active","active":true}],"csv_export_mode":"Filtered","csv_delimiter":",","grid_line_style":"Solid","selectable_text":true}"#.to_owned(),
+                ),
+            ],
+        )]);
+
+        assert_eq!(
+            interp
+                .exec_method("ActorGrid", "ExportCSV", &[])
+                .as_display_string(),
+            "Actor Name,Actor Id\nLeonardo DiCaprio,1"
+        );
+
+        interp.exec_method(
+            "ActorGrid",
+            "SetProperty",
+            &[
+                CobolValue::from_str("CSVExportMode", 13),
+                CobolValue::from_str("All", 3),
+            ],
+        );
+        assert_eq!(
+            interp
+                .exec_method("ActorGrid", "ExportCSV", &[])
+                .as_display_string(),
+            "Actor Name,Actor Id\nLeonardo DiCaprio,1\nJoe Pesci,2"
+        );
     }
 
     #[test]

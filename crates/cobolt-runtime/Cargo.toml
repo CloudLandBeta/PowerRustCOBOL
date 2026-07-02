@@ -20,6 +20,7 @@ cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-indexed  = { path = "../cobolt-indexed" }
 thiserror       = { workspace = true }
 indexmap        = { workspace = true }
+serde_json      = { workspace = true }
 tracing         = { workspace = true }
 # Phase 8 — database runtime.
 # SQLite is bundled (no system library required). PostgreSQL and MySQL use the
@@ -34,6 +35,8 @@ redb            = { version = "2.2" }
 ureq            = { version = "2", features = ["json"] }
 
 [dev-dependencies]
+cobolt-codegen    = { path = "../cobolt-codegen" }
+cobolt-forms      = { path = "../cobolt-forms" }
 cobolt-lexer      = { path = "../cobolt-lexer" }
 cobolt-parser     = { path = "../cobolt-parser" }
 pretty_assertions = { workspace = true }

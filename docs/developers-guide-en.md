@@ -673,6 +673,118 @@ event handler is shared across every instance and receives the firing instance's
 index. *(Runtime instancing, indexed event dispatch, and data binding are
 delivered in later phases.)*
 
+#### Data binding and the Guardian
+
+Data binding is configured as a **form-level binding**, not as a standalone
+property on every scalar control. Select an approved target in the Form Designer
+and use the **Data Binding** section in the properties pane to create a binding
+from one of these source families:
+
+- **Indexed** — a project `.cidx` definition and its record fields.
+- **SQL** — a `SqlDatabase` control, query, and result set.
+- **COBOL table** — an in-memory COBOL table or array item.
+- **REST** — a `RestClient` response data item, saved schema, or sample payload.
+- **Agent AI** — a structured `AgentObject` output.
+
+Approved binding targets are deliberately limited to controls that can display
+or edit structured rows:
+
+- **DataGrid** — maps fields to stable grid columns.
+- **Charts** — maps one field to categories and one or more numeric fields to
+  value series.
+- **ComboBox** and **ListBox** — maps display text and an optional selected
+  value.
+- **Explicit control arrays** — maps fields to child control properties inside a
+  repeating GroupBox or equivalent array contract.
+
+Standalone scalar controls such as a single TextBox or Label do **not** expose
+data-binding information. If a scalar control belongs to an explicit control
+array, it can show only the array-owned mapping context; it cannot choose its own
+source. This keeps one field from silently drifting away from the row contract.
+
+Each binding stores its source descriptor, target descriptor, ordered field
+mappings, read-only/writable mode, saved source metadata, and validation
+snapshot in the `.cfrm` file. Existing forms without binding metadata load and
+save normally; old scalar `DataItem`/`DataFormat` values still round-trip, but
+new binding behavior comes from the top-level binding list.
+
+The **Data Binding Guardian** validates bindings before a form is saved, a form
+is run, debugging starts, Check runs, Build starts, or a package is created.
+Findings have three severities:
+
+- **Blocker** — the action is stopped. Examples: deleted target controls,
+  missing source fields, unsupported targets, ambiguous case-only identifiers,
+  missing row identity for writable bindings, or unsafe Agent AI target scope.
+- **Warning** — the action may continue, but review the mapping. Examples:
+  coercible type conversions, nullable-to-required mappings, or partial
+  REST/Agent schema information.
+- **Info** — advisory information that does not affect the action.
+
+REST and Agent AI validation is local and offline. The Guardian uses saved
+schemas, saved samples, response data-item names, and explicit mappings; it does
+not need a live network call. REST and Agent AI bindings are read-only unless
+you provide explicit update metadata: request schema, key/row identity fields,
+and an approved target list.
+
+Writable bindings must preserve source identity. A writable Indexed, SQL, COBOL
+table, REST, or Agent binding needs a key or row identity field so updates can
+target the correct record. Initial loads populate the target without marking it
+dirty. User edits are kept as pending binding state until an explicit update
+helper or your form's own event contract commits them; if an update fails, the
+pending edit and row identity remain recoverable.
+
+Repair actions are metadata-only and preserve visual layout and event handlers:
+
+- remap a missing field;
+- remove a stale mapping;
+- mark the binding read-only;
+- refresh fields from saved schema or sample metadata;
+- refresh fields from an available project source;
+- reselect the target control.
+
+#### Advanced DataGrid
+
+The **DataGrid** is the row-oriented binding target for tabular data and the
+highest-density visual control in the designer. It keeps the legacy `Columns`
+and `Rows` properties for compatibility, while newer layout and formatting
+settings are stored as advanced metadata on the grid.
+
+Important behaviors:
+
+- **Virtual scrolling** renders only visible rows and columns, so very large
+  datasets stay responsive and content is clipped inside the grid bounds.
+- **Resizable columns and rows** update grid metadata instead of changing the
+  binding field identity.
+- **Column reorder controls** change display order only. The source field name
+  remains attached to each column, so data binding and `RefreshBinding()` still
+  know which COBOL field supplies the value.
+- **Column filters** are AND-chained. `CSVExportMode = Filtered` exports the
+  filtered view; `CSVExportMode = AllRows` exports every row.
+- **Frozen columns and rows** keep left/top panes visible while the rest of the
+  grid scrolls.
+- **Rich cells** can use per-column foreground/background colors, value style
+  rules, rounded framed content, and optional numeric gauges.
+- **Grid fonts** apply to the whole grid in the designer and preview surfaces.
+- **Grid line styles** support `Solid`, `Dash`, `Dots`, and `None`.
+- **Selectable text** lets users copy a selected cell/row/range. When no partial
+  text selection is active, the grid falls back to the configured selection
+  mode.
+- **CSV export** can be shown as a small header command button and can also be
+  invoked from COBOL with `ExportCSV`.
+
+When a binding is applied to a DataGrid, the basic `Columns`, `Rows`, and
+`DataSource` properties are filled automatically from the binding source. If the
+grid already has advanced column metadata, PowerRustCOBOL preserves widths,
+styles, filters, gauges, and display order for fields that still exist, and
+appends new fields after the existing columns. The Data Binding Guardian blocks
+advanced metadata drift where a displayed column points to a different source
+field than its binding mapping.
+
+For COBOL-table bindings, `RefreshBinding()` reloads rows from the current
+working-storage table values. This works in the live interpreter and in
+generated code because generated forms seed the grid's `_BindingKind` and
+`_BindingFields` identity before population.
+
 #### User Controls
 
 A **User Control** is a reusable GroupBox-based component stored in the project.
@@ -1130,6 +1242,7 @@ control's methods after you type `::`, each with a one-line description.
 | REST Client | `get`, `post`, `put`, `delete`, `call`, `setHeader`, `clearHeaders` |
 | SQL Database | `open`, `execute`, `query`, `fetch`, `fetchAll`, `close` |
 | AI Agent | `Ask`, `SetPrompt`, `SetModel`, `Stop` |
+| DataGrid | `RefreshBinding`, `ExportCSV`, `SetFilter`, `ClearFilters`, `FreezeColumns`, `FreezeRows`, `SetRowHeight`, `SetColumnWidth`, `GetSelectedText`, `CopySelection` |
 
 A method that changes a property updates the **running form immediately** — the
 same channel the property syntax uses — so `Lbl-Out::SetCaption("Done")` repaints

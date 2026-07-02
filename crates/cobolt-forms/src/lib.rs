@@ -22,6 +22,7 @@
 //! ```
 
 pub mod containers;
+pub mod datagrid;
 pub mod icons;
 pub mod menu;
 pub mod model;
@@ -29,7 +30,14 @@ pub mod theme;
 pub mod theme_pack;
 pub mod xml;
 
-pub use model::{Control, ControlType, EventBinding, Form, PropValue, Rect};
+pub use model::{
+    ApprovedBindingTargetKind, BindingChartKind, BindingDataType, BindingField, BindingMode,
+    BindingSourceDescriptor, BindingSourceKind, BindingSourceMetadata, BindingTargetDescriptor,
+    BindingTargetPath, BindingUpdateMetadata, BindingValidationSnapshot, Control, ControlType,
+    DataBindingDef, DataGridAdvanced, DataGridColumn, DataGridFilter, EventBinding, FieldMapping,
+    Form, GuardianFinding, GuardianSeverity, MappingCompatibility, PropValue, Rect,
+    DATAGRID_ADVANCED_PROP, DATA_BINDING_SCHEMA_VERSION,
+};
 pub use xml::{load_form, load_form_from_str, save_form, FormError};
 
 #[cfg(feature = "render")]

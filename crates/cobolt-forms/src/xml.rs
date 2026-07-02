@@ -62,7 +62,8 @@ use thiserror::Error;
 
 use crate::model::{
     derive_paragraph_name, AnimKind, AnimRepeat, AnimTrigger, AnimationDef, BgImageMode, Control,
-    ControlType, DeletedControlCode, EasingKind, EventBinding, Form, PropValue, UserProcedure,
+    ControlType, DataBindingDef, DeletedControlCode, EasingKind, EventBinding, Form, PropValue,
+    UserProcedure,
 };
 
 // ── Error ─────────────────────────────────────────────────────────────────────
@@ -165,6 +166,7 @@ enum OwnedEvent {
     FileSectionStart,                    // <file-section>    (spec 005)
     UserProceduresStart,                 // <user-procedures> (spec 005)
     FormEventsStart,                     // <form-events>
+    DataBindingsStart,                   // <DataBindings>
     DeletedControlsStart,                // <deleted-controls>
     DeletedControlStart(String, String), // (control_id, deleted_at) from <DeletedControl>
     /// <Event> as a *start* tag — body (CDATA or text) follows as Text/CData events.
@@ -258,6 +260,7 @@ fn next_owned<R: std::io::BufRead>(
                 b"file-section" => Ok(OwnedEvent::FileSectionStart),
                 b"user-procedures" => Ok(OwnedEvent::UserProceduresStart),
                 b"form-events" => Ok(OwnedEvent::FormEventsStart),
+                b"DataBindings" => Ok(OwnedEvent::DataBindingsStart),
                 b"deleted-controls" => Ok(OwnedEvent::DeletedControlsStart),
                 b"DeletedControl" => {
                     let id = get_attr_str(e, b"id")?;
@@ -412,6 +415,31 @@ fn seed_missing_props(form: &mut Form) {
                     c.set_prop("BackgroundGradientEnabled", PropValue::Bool(false));
                 }
             }
+            ControlType::DataGrid => {
+                let defaults: &[(&str, PropValue)] = &[
+                    ("AlternatingRowOpacity", PropValue::Int(20)),
+                    ("AllowColumnReorder", PropValue::Bool(true)),
+                    ("AllowRowResize", PropValue::Bool(true)),
+                    (
+                        crate::model::DATAGRID_ADVANCED_PROP,
+                        PropValue::String(String::new()),
+                    ),
+                    ("ShowColumnFilters", PropValue::Bool(false)),
+                    ("ShowCSVExportButton", PropValue::Bool(true)),
+                    ("CSVExportMode", PropValue::String("Filtered".into())),
+                    ("FrozenColumns", PropValue::Int(0)),
+                    ("FrozenRows", PropValue::Int(0)),
+                    ("GridLineStyle", PropValue::String("Solid".into())),
+                    ("RowHeightOverrides", PropValue::String(String::new())),
+                    ("ColumnFilters", PropValue::String(String::new())),
+                    ("SelectableText", PropValue::Bool(true)),
+                ];
+                for (key, value) in defaults {
+                    if c.get_prop(key).is_none() {
+                        c.set_prop(*key, value.clone());
+                    }
+                }
+            }
             ControlType::MenuBar => {
                 let defaults: &[(&str, &str)] = &[
                     ("BackgroundColor", "#00000000"),
@@ -526,6 +554,11 @@ fn parse_form_body<R: std::io::BufRead>(
                 }
             }
 
+            // ── <DataBindings> ───────────────────────────────────────────────
+            OwnedEvent::DataBindingsStart => {
+                form.data_bindings = parse_data_bindings(reader, buf)?;
+            }
+
             // ── <deleted-controls> ────────────────────────────────────────────
             OwnedEvent::DeletedControlsStart => {
                 form.deleted_code = parse_deleted_controls(reader, buf)?;
@@ -591,6 +624,18 @@ fn parse_event_list<R: std::io::BufRead>(
         }
     }
     Ok(events)
+}
+
+fn parse_data_bindings<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
+    buf: &mut Vec<u8>,
+) -> Result<Vec<DataBindingDef>, FormError> {
+    let body = collect_cdata_body(reader, buf, b"DataBindings")?;
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(trimmed).map_err(xml_err)
 }
 
 /// Read everything inside an `<Event>...</Event>` block and return
@@ -954,6 +999,17 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
             w.write_event(Event::End(BytesEnd::new("form-events")))?;
         }
 
+        // ── <DataBindings> ───────────────────────────────────────────────────
+        if !form.data_bindings.is_empty() {
+            let mut elem = BytesStart::new("DataBindings");
+            let schema_version = crate::model::DATA_BINDING_SCHEMA_VERSION.to_string();
+            elem.push_attribute(("schema-version", schema_version.as_str()));
+            w.write_event(Event::Start(elem))?;
+            let json = serde_json::to_string_pretty(&form.data_bindings).map_err(xml_err)?;
+            w.write_event(Event::CData(BytesCData::new(json.as_str())))?;
+            w.write_event(Event::End(BytesEnd::new("DataBindings")))?;
+        }
+
         // ── Controls ─────────────────────────────────────────────────────────
         for ctrl in &form.controls {
             write_control(&mut w, ctrl)?;
@@ -1089,6 +1145,45 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    fn sample_binding() -> DataBindingDef {
+        let fields = vec![
+            crate::model::BindingField::new("CustomerId", crate::model::BindingDataType::Integer)
+                .key(),
+            crate::model::BindingField::new("CustomerName", crate::model::BindingDataType::Text)
+                .required(),
+        ];
+        DataBindingDef::new(
+            "Bind-Customers",
+            "Customers",
+            crate::model::BindingSourceDescriptor::IndexedFile {
+                definition_path: "data/Customers.cidx".into(),
+                record_name: "CustomerRecord".into(),
+                fields,
+                key_field: Some("CustomerId".into()),
+                writable: true,
+            },
+            crate::model::BindingTargetDescriptor::DataGrid {
+                control_id: "GridCustomers".into(),
+            },
+        )
+        .with_mappings(vec![
+            crate::model::FieldMapping::new(
+                "CustomerName",
+                crate::model::BindingTargetPath::GridColumn {
+                    control_id: "GridCustomers".into(),
+                    column_id: "CustomerName".into(),
+                },
+            ),
+            crate::model::FieldMapping::new(
+                "CustomerId",
+                crate::model::BindingTargetPath::GridColumn {
+                    control_id: "GridCustomers".into(),
+                    column_id: "CustomerId".into(),
+                },
+            ),
+        ])
+    }
+
     fn sample_form() -> Form {
         let mut form = Form::new("MAIN-FORM", "Test App", 800, 600);
         form.background_color = "#F0F0F0".into();
@@ -1114,6 +1209,188 @@ mod tests {
         form.controls.push(btn);
 
         form
+    }
+
+    #[test]
+    fn data_binding_cfrm_missing_metadata_loads_empty_and_writes_no_section() {
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Main" width="800" height="600" background="#FFFFFF">
+  <Control id="CustomerName" type="TextBox" x="10" y="10" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="DataItem">LEGACY-CUSTOMER-NAME</Property>
+    <Property name="DataFormat">X(30)</Property>
+  </Control>
+</Form>"##;
+        let loaded = load_form_from_str(xml).expect("load old form");
+        assert!(loaded.data_bindings.is_empty());
+        let scalar = loaded.find_control("CustomerName").expect("scalar control");
+        assert_eq!(
+            scalar.get_prop("DataItem").map(PropValue::as_str),
+            Some("LEGACY-CUSTOMER-NAME")
+        );
+
+        let path = std::env::temp_dir().join("cobolt_test_no_bindings_022.cfrm");
+        save_form(&loaded, &path).expect("save old form");
+        let saved = std::fs::read_to_string(&path).expect("read saved form");
+        assert!(!saved.contains("<DataBindings"));
+        assert!(saved.contains("LEGACY-CUSTOMER-NAME"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn data_binding_cfrm_roundtrip_preserves_metadata_and_unrelated_controls() {
+        let mut form = sample_form();
+        let mut grid = Control::new("GridCustomers", ControlType::DataGrid, 20, 60);
+        grid.events.push(EventBinding {
+            event: "onRowSelect".into(),
+            paragraph: "GRIDCUSTOMERS--ONROWSELECT".into(),
+            code: "       PROCEDURE DIVISION.\n           CONTINUE.\n".into(),
+        });
+        let mut scalar = Control::new("StandaloneName", ControlType::TextBox, 20, 280);
+        scalar.set_prop("DataItem", PropValue::String("LEGACY-NAME".into()));
+        scalar.set_prop("DataFormat", PropValue::String("X(40)".into()));
+        form.controls.push(grid);
+        form.controls.push(scalar);
+        form.data_bindings.push(sample_binding());
+
+        let path = std::env::temp_dir().join("cobolt_test_bindings_022.cfrm");
+        save_form(&form, &path).expect("save bound form");
+        let saved = std::fs::read_to_string(&path).expect("read bound form");
+        assert!(saved.contains("<DataBindings schema-version=\"1\">"));
+        assert!(saved.contains("CustomerName"));
+
+        let loaded = load_form(&path).expect("load bound form");
+        assert_eq!(loaded.data_bindings, form.data_bindings);
+        let grid = loaded.find_control("GridCustomers").expect("grid");
+        assert_eq!(grid.events.len(), 1);
+        let scalar = loaded.find_control("StandaloneName").expect("scalar");
+        assert_eq!(
+            scalar.get_prop("DataItem").map(PropValue::as_str),
+            Some("LEGACY-NAME")
+        );
+        assert_eq!(
+            loaded.data_bindings[0].source.fields()[1].name,
+            "CustomerName"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn datagrid_advanced_cfrm_legacy_grid_loads_with_seeded_defaults_023() {
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Main" width="800" height="600" background="#FFFFFF">
+  <Control id="Actors" type="DataGrid" x="10" y="10" w="420" h="220" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Columns">Actor Id:number
+Actor Caption:string</Property>
+    <Property name="Rows">1	Leonardo DiCaprio</Property>
+  </Control>
+</Form>"##;
+
+        let loaded = load_form_from_str(xml).expect("load legacy grid form");
+        let grid = loaded.find_control("Actors").expect("grid");
+        assert_eq!(
+            grid.get_prop("Columns").map(PropValue::as_str),
+            Some("Actor Id:number\nActor Caption:string")
+        );
+        assert_eq!(
+            grid.get_prop(crate::model::DATAGRID_ADVANCED_PROP)
+                .map(PropValue::as_str),
+            Some("")
+        );
+        assert_eq!(
+            grid.get_prop("GridLineStyle").map(PropValue::as_str),
+            Some("Solid")
+        );
+        assert!(grid
+            .get_prop("SelectableText")
+            .expect("SelectableText")
+            .as_bool());
+
+        let advanced = crate::model::DataGridAdvanced::from_control(grid);
+        assert_eq!(advanced.columns.len(), 2);
+        assert_eq!(advanced.columns[0].title, "Actor Id");
+        assert_eq!(advanced.columns[1].source_name, "Actor Caption");
+    }
+
+    #[test]
+    fn datagrid_advanced_cfrm_roundtrip_preserves_metadata_023() {
+        let mut form = sample_form();
+        let mut grid = Control::new("GridActors", ControlType::DataGrid, 20, 60);
+        grid.set_prop(
+            "Columns",
+            PropValue::String("Actor Id:number\nStatus:string".into()),
+        );
+        grid.set_prop("Rows", PropValue::String("1\tActive\n2\tTrial".into()));
+
+        let mut advanced = crate::model::DataGridAdvanced::default();
+        advanced.frozen_columns = 1;
+        advanced.frozen_rows = 1;
+        advanced.row_height = 30;
+        advanced.grid_line_style = crate::model::DataGridGridLineStyle::Dots;
+        advanced
+            .row_overrides
+            .push(crate::model::DataGridRowHeightOverride {
+                row_index: 2,
+                height: 44,
+            });
+        advanced.filters.push(crate::model::DataGridFilter {
+            column_id: "STATUS".into(),
+            value: "Active".into(),
+            active: true,
+        });
+        advanced.columns.push(crate::model::DataGridColumn {
+            id: "STATUS".into(),
+            title: "Status".into(),
+            source_name: "Status".into(),
+            width: 150.0,
+            frame: Some(crate::model::DataGridCellFrame {
+                enabled: true,
+                corner_radius: 12,
+                ..crate::model::DataGridCellFrame::default()
+            }),
+            gauge: Some(crate::model::DataGridGauge {
+                enabled: true,
+                max: 1000.0,
+                ..crate::model::DataGridGauge::default()
+            }),
+            value_style_rules: vec![crate::model::DataGridValueStyleRule {
+                value: "Active".into(),
+                frame_background_color: "#10B981".into(),
+                ..crate::model::DataGridValueStyleRule::default()
+            }],
+            ..crate::model::DataGridColumn::default()
+        });
+        grid.set_prop(
+            crate::model::DATAGRID_ADVANCED_PROP,
+            PropValue::String(advanced.to_json().unwrap()),
+        );
+        form.controls.push(grid);
+
+        let path = std::env::temp_dir().join("cobolt_test_datagrid_advanced_023.cfrm");
+        save_form(&form, &path).expect("save advanced grid");
+        let saved = std::fs::read_to_string(&path).expect("read advanced grid");
+        assert!(saved.contains(r#"<Property name="AdvancedGrid">"#));
+        assert!(saved.contains("Status"));
+        assert!(saved.contains("Active"));
+
+        let loaded = load_form(&path).expect("load advanced grid");
+        let grid = loaded.find_control("GridActors").expect("grid");
+        assert_eq!(
+            grid.get_prop("Rows").map(PropValue::as_str),
+            Some("1\tActive\n2\tTrial")
+        );
+        let parsed = crate::model::DataGridAdvanced::from_control(grid);
+        assert_eq!(parsed.columns.len(), 1);
+        assert_eq!(parsed.frozen_columns, 1);
+        assert_eq!(parsed.frozen_rows, 1);
+        assert_eq!(parsed.row_overrides[0].height, 44);
+        assert_eq!(parsed.filters[0].value, "Active");
+        assert_eq!(parsed.columns[0].frame.as_ref().unwrap().corner_radius, 12);
+        assert!(parsed.columns[0].gauge.as_ref().unwrap().enabled);
+        assert_eq!(
+            parsed.grid_line_style,
+            crate::model::DataGridGridLineStyle::Dots
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

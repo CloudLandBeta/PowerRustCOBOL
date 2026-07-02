@@ -8,6 +8,485 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.74] — 2026-07-01
+
+### Fixed
+
+- **Editor search has a case-insensitivity toggle** — the code editor's Find bar
+  now has an "Aa" toggle (on by default) to switch between case-insensitive and
+  case-sensitive matching. Matching also switched to ASCII-lowercasing so match
+  offsets stay byte-accurate.
+
+## [PowerRustCOBOL 1.27.73] — 2026-07-01
+
+### Fixed
+
+- **Controls can be renamed from the Properties inspector** — the control id in
+  the Identity header is now an editable field. Renaming to a unique, valid
+  identifier updates every reference form-wide: child `parent` links, `LabelFor`
+  associations, the control's event-handler paragraph names, data-binding
+  target/source/member references, and control references in handler/procedure
+  code (`Old::…` / `Old(i)…`). The rename is undoable; a taken or invalid name is
+  rejected.
+
+## [PowerRustCOBOL 1.27.72] — 2026-07-01
+
+### Fixed
+
+- **DataGrid frozen columns also clip the filter row** — with frozen columns and
+  column filters shown, horizontally scrolling drew the scrollable columns' filter
+  input boxes *over* the frozen band. The filter inputs (egui widgets, not
+  painter-drawn) are now clipped to the region right of the frozen columns, so the
+  whole filter row scrolls behind the frozen columns like the header and body.
+
+## [PowerRustCOBOL 1.27.71] — 2026-07-01
+
+### Fixed
+
+- **Editor Find box keeps focus while typing** — typing in the code editor's
+  Find field no longer kicks focus back into the editor after each keystroke.
+  Incremental search still scrolls to the first match, but keyboard focus only
+  moves into the editor on an explicit navigation (Next/Prev/Enter) or after
+  applying an autocomplete suggestion. The Replace field was unaffected.
+
+## [PowerRustCOBOL 1.27.70] — 2026-07-01
+
+### Fixed
+
+- **Repeating groups now render their instances at run time** — the shared render
+  engine expands a repeating GroupBox into N cards (one per `ItemCount`, falling
+  back to `PreviewItemCount`), laid out by the group's Vertical / Horizontal /
+  Grid direction and spacing. Each instance's controls are cloned with
+  instance-unique ids so they render and interact independently. This is the
+  runtime foundation for control-array data binding (data-driven population of
+  each card is the next step).
+
+## [PowerRustCOBOL 1.27.69] — 2026-07-01
+
+### Fixed
+
+- **Array-member event handlers receive the array index** — a control that
+  belongs to a repeating group (array) now gets an event-handler stub that
+  declares `01 CONTROL-ARRAY-INDEX PIC S9(4) COMP-5.` in its LINKAGE SECTION and
+  `PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX`, with a hint showing indexed
+  member access (`Name(CONTROL-ARRAY-INDEX)::Property`). Both the generated
+  `.cbl` stub and the handler skeleton opened in the IDE editor use it; regular
+  (non-array) controls keep the plain stub.
+
+## [PowerRustCOBOL 1.27.68] — 2026-07-01
+
+### Fixed
+
+- **Repeating-group binding editor can map fields to member controls** — the
+  control-array (repeating GroupBox) binding modal now has a "Map fields to
+  controls" section: each source field can be assigned to a member control, and
+  the control's default bindable property is shown and applied (Label→Caption,
+  TextBox→Text, CheckBox→Checked, **PictureBox→ImagePath**, ComboBox/ListBox and
+  numeric controls→Value). Applying the binding records a `ControlProperty`
+  mapping per mapped field; unmapped fields are skipped.
+
+## [PowerRustCOBOL 1.27.67] — 2026-07-01
+
+### Fixed
+
+- **DataGrid frozen panes can cast a drop shadow** — a new "Frozen pane shadow"
+  toggle (on by default) draws a soft shadow from the last frozen column
+  (rightward) and the frozen header/rows (downward) onto the content that
+  scrolls behind them, giving the usual spreadsheet freeze cue. The shadow only
+  appears when the grid actually scrolls in that direction.
+
+## [PowerRustCOBOL 1.27.66] — 2026-07-01
+
+### Fixed
+
+- **Data-binding source buttons work for a repeating GroupBox (control array)** —
+  choosing a source (COBOL table, SQL, …) on a repeating GroupBox did nothing:
+  the editor was keyed by the array **name** rather than the GroupBox's control
+  id, so the settings modal opened and instantly closed, and apply couldn't
+  resolve the target. The binding editor is now keyed by the control id, so the
+  modal stays open and the binding applies to the control array.
+
+## [PowerRustCOBOL 1.27.65] — 2026-07-01
+
+### Fixed
+
+- **DataGrid Image cells support corner radius and a drop shadow** — a column
+  whose Edit control is **Image** now exposes an "Image corner radius" and an
+  "Image drop shadow" setting in the column editor. The cell picture is rounded
+  to the chosen radius and, when enabled, drawn over a soft two-layer shadow.
+
+## [PowerRustCOBOL 1.27.64] — 2026-07-01
+
+### Fixed
+
+- **DataGrid frozen columns now clip the scrollable columns** — with one or more
+  frozen columns, horizontally scrolling the grid drew the scrollable columns
+  *over* the frozen band. Scrollable header cells, body cells, and column
+  separators are now clipped to the region right of the frozen columns, so they
+  slide behind the frozen band (mirroring the already-correct frozen-row
+  behavior).
+
+## [PowerRustCOBOL 1.27.63] — 2026-07-01
+
+### Fixed
+
+- **DataGrid COBOL masks now honour edited pictures** — a column mask such as
+  `ZZZ,ZZZ,ZZ9.99` now zero-suppresses, inserts digit-group commas and the
+  displayed decimal point, and signs negatives, so a bound `S9(9)V99` value like
+  `000003000.00` renders as `3,000.00` instead of the raw zero-padded digits.
+  Check-protection (`*`) fill and `9(n)`/`S9(n)V99` plain pictures are unchanged.
+- **DataGrid columns can render their value as an image** — a new **Image** edit
+  control treats the (alphanumeric) cell value as an image file path and draws
+  the picture fitted to the cell (falling back to the path text when the image
+  can't be loaded), useful for thumbnail columns.
+
+## [PowerRustCOBOL 1.27.62] — 2026-07-01
+
+### Fixed
+
+- **Run Form no longer fails silently on a startup error** — a runtime error
+  while a form starts (e.g. in its `onLoad`) was swallowed, so the interpreter
+  thread died and the run window never appeared with no message at all. Fatal
+  form-runtime errors are now surfaced to the Output pane
+  (`⛔ Form runtime error: …`) so the cause is visible instead of the run
+  silently doing nothing.
+- **Clearer error when assigning to a control method** — using a method call as a
+  MOVE/assignment target (e.g. `MOVE … TO Grid::RefreshBinding()`) now reports
+  which method it was and that it must be called as a statement, not used as a
+  receiving field.
+
+## [PowerRustCOBOL 1.27.61] — 2026-07-01
+
+### Fixed
+
+- **Data-bound DataGrid COBOL mask can be changed and is applied** — a COBOL
+  mask typed into a bound column's editor was reset to the bound field's
+  PICTURE on every save/run binding refresh, so it could never be changed and
+  cell values did not pass through it. The binding refresh now seeds a column's
+  mask from the field only when the column has none, preserving a user-typed
+  mask as a deliberate override; the DataGrid renderer already formats each
+  bound value through that mask before display.
+
+## [PowerRustCOBOL 1.27.60] — 2026-07-01
+
+### Fixed
+
+- **DataGrid alternating highlight can now stripe columns** — a new "Alternating
+  mode" setting (Rows / Columns / None) chooses whether the alternating
+  background color highlights every other row (default, unchanged for existing
+  forms), every other column, or nothing. Column striping reuses the same
+  alternating color and opacity and sits beneath any per-cell or per-column
+  background.
+
+## [PowerRustCOBOL 1.27.59] — 2026-07-01
+
+### Fixed
+
+- **DataGrid background patterns tile evenly** — dot, stripe, cross, X, X-dots,
+  and O background patterns previously started from a fixed top-left offset and
+  left a ragged, uneven gap at the right and bottom edges. Patterns now pick the
+  tile count that fits the grid and spread the tiles with balanced margins on all
+  sides, so the automatic tiling looks evenly distributed at any size.
+
+## [PowerRustCOBOL 1.27.58] — 2026-07-01
+
+### Fixed
+
+- **Every control is fully Liquid Glass again** — the solid background layer
+  added in 1.27.57 flattened glass-backed controls (buttons, PictureBoxes,
+  menu/tool bars) into opaque slabs. That underlay is removed from the shared
+  glass renderer, so all controls return to translucent Liquid Glass. The one
+  exception is the DataGrid, which keeps fine-grained control over its grid,
+  column, row, and cell backgrounds: a DataGrid still on the default background
+  renders as glass, and a chosen grid background color paints solid beneath the
+  frost.
+- **DataGrid grid-line color is now the grid's foreground** — the Appearance
+  section's Fore color drives the DataGrid grid-line color, replacing the
+  separate entry in the grid settings modal. A grid left on the default
+  foreground uses the subtle built-in line color, and existing forms with a
+  `GridLineColor` continue to render via a compatibility fallback.
+
+## [PowerRustCOBOL 1.27.57] — 2026-07-01
+
+### Fixed
+
+- **Control background opacity can now reach true solid colors** — glass-backed
+  controls paint their selected background color as an opacity-aware base layer,
+  and custom interactive backgrounds no longer cap full opacity below 100%.
+
+## [PowerRustCOBOL 1.27.56] — 2026-07-01
+
+### Fixed
+
+- **DataGrid column filters are now editable in the header** — filter rows use
+  real text inputs instead of painted placeholder text, and edits update the
+  same `AdvancedGrid`/`ColumnFilters` metadata used by DataGrid filtering.
+
+## [PowerRustCOBOL 1.27.55] — 2026-07-01
+
+### Fixed
+
+- **DataGrid inner shape colors can now be driven by cell values** — the
+  DataGrid column settings modal exposes value/color definitions for inner
+  shapes, allowing values such as `ACTIVE`, `SUSPENDED`, and `CANCELED` to map
+  to their own shape background colors.
+
+## [PowerRustCOBOL 1.27.54] — 2026-07-01
+
+### Fixed
+
+- **DataGrid data-binding debug output no longer floods the console** — removed
+  temporary `[data-binding]` console diagnostics from binding apply and shared
+  DataGrid render paths while leaving binding hydration and preview rows
+  unchanged.
+
+## [PowerRustCOBOL 1.27.53] — 2026-07-01
+
+### Fixed
+
+- **DataGrid frozen panes and keyboard navigation now work in the shared
+  renderer** — frozen columns/rows use the resolved advanced grid state,
+  scrollable rows no longer displace the frozen row band, keyboard movement
+  selects cells with arrows/Page/Home/End, column resize booleans honor typed
+  values, explicit text alignment wins, and grid/row/column backgrounds support
+  cross, X, X-dots, and O patterns.
+
+## [PowerRustCOBOL 1.27.52] — 2026-07-01
+
+### Fixed
+
+- **DataGrid headers and COBOL masks now render correctly** — DataGrid headers
+  apply `CornerRadius` only to the top-left and top-right corners, and bound
+  columns now use their COBOL mask when formatting displayed cell values.
+
+## [PowerRustCOBOL 1.27.51] — 2026-06-30
+
+### Fixed
+
+- **DataGrid settings moved into a focused modal and rendering options now apply
+  in the shared renderer** — the right-side properties pane now exposes a compact
+  DataGrid editor entry, while the modal handles grid backgrounds, column masks,
+  edit controls, column fonts, filter headers, inner cell frames, gauges, and
+  line styles without forcing minimum modal dimensions.
+
+## [PowerRustCOBOL 1.27.50] — 2026-06-30
+
+### Fixed
+
+- **Advanced DataGrid behavior is now guarded across runtime, binding, CSV,
+  i18n, and docs** — DataGrid runtime methods, CSV export mode/order,
+  advanced binding metadata preservation, localized property labels, and the
+  English developer guide now cover the advanced grid feature set.
+
+## [PowerRustCOBOL 1.27.49] — 2026-06-30
+
+### Fixed
+
+- **Runtime controls now honor `CornerRadius` in custom interactive renderers** —
+  runtime-only drawing paths for DataGrid, ListBox, NumericUpDown, TabControl,
+  TreeView, Splitter, MenuBar, ToolBar, StatusBar, and Button hover/press
+  overlays now use the same corner-radius helper as the Form Designer.
+
+## [PowerRustCOBOL 1.27.48] — 2026-06-30
+
+### Fixed
+
+- **DataGrid rows now stay inside the grid and scroll** — the shared renderer
+  clips DataGrid content to the control bounds, keeps the header fixed, supports
+  mouse-wheel scrolling through overflowing rows, and draws a small scrollbar
+  indicator when additional rows are available.
+
+## [PowerRustCOBOL 1.27.47] — 2026-06-30
+
+### Fixed
+
+- **DataGrid alternating row highlight is subtle by default** — added
+  `AlternatingRowOpacity` with a 20% default, applied it in the shared renderer,
+  exposed it in the DataGrid properties panel, and included it in format-painter
+  style copying.
+
+## [PowerRustCOBOL 1.27.46] — 2026-06-30
+
+### Fixed
+
+- **DataGrid cells now clip text to their own columns** — long bound values
+  such as thumbnail image paths no longer spill across column separators and
+  visually overlap adjacent captions in the shared form renderer.
+
+## [PowerRustCOBOL 1.27.45] — 2026-06-30
+
+### Fixed
+
+- **DataGrid now exposes `RefreshBinding()` for live COBOL tables** — running
+  forms seed bound DataGrid metadata into the interpreter, the runtime
+  `RefreshBinding` method rebuilds `Rows` from current `FIELD(n)` COBOL table
+  values, and the editor autocomplete now lists the method for DataGrid
+  controls.
+
+## [PowerRustCOBOL 1.27.44] — 2026-06-30
+
+### Fixed
+
+- **DataGrid COBOL table bindings now read indexed MOVE initialization rows** —
+  bound grids now hydrate rows from form event, control event, and user
+  procedure statements like `MOVE value TO FIELD(n)` before falling back to
+  synthetic preview data, so COBOL table examples populated in OnLoad/OnShow
+  display their real row values.
+
+## [PowerRustCOBOL 1.27.43] — 2026-06-30
+
+### Fixed
+
+- **DataGrid bindings now hydrate preview rows** — DataGrid binding refresh now
+  fills the grid's `Rows` property from COBOL table initial values when
+  available, falls back to deterministic preview rows from binding fields when
+  only definitions exist, and refreshes bound grid properties before save/run so
+  existing bindings do not stay header-only.
+
+## [PowerRustCOBOL 1.27.42] — 2026-06-30
+
+### Fixed
+
+- **DataGrid binding diagnostics now expose the render gap** — applying a
+  DataGrid binding now writes renderer-compatible `Name:Type` column
+  definitions, the Properties panel edits those definitions as multiline text,
+  and Apply/render paths emit console diagnostics for columns, rows, data
+  source, and binding field counts.
+
+## [PowerRustCOBOL 1.27.41] — 2026-06-30
+
+### Fixed
+
+- **Data binding Apply now hydrates DataGrid basics** — applying a DataGrid
+  binding updates the grid's Columns and DataSource properties from the binding
+  definitions immediately, and replaces the previous binding for that target so
+  the visible grid stays wired to the latest settings.
+
+## [PowerRustCOBOL 1.27.40] — 2026-06-30
+
+### Fixed
+
+- **COBOL table Add field now chooses from missing real fields** — the COBOL
+  table binding editor shows a selector of fields that exist in the selected
+  working-storage table but are not yet mapped, and hides the add flow once all
+  table fields are present.
+
+## [PowerRustCOBOL 1.27.39] — 2026-06-30
+
+### Fixed
+
+- **COBOL table data binding now uses real working-storage tables** — the table
+  selector no longer invents a placeholder value, lists eligible 01-level
+  GLOBAL OCCURS tables from the form working-storage section, limits added
+  fields to missing fields from the selected table, and shows an explicit
+  dropdown settings button only for Dropdown edit controls.
+
+## [PowerRustCOBOL 1.27.38] — 2026-06-30
+
+### Fixed
+
+- **Data-binding source fields use aligned grid columns again** — source-field
+  rows now render through an egui grid while dropdown details remain in their
+  separate modal, keeping columns aligned without reintroducing inline
+  dropdown-detail width pressure.
+
+## [PowerRustCOBOL 1.27.37] — 2026-06-30
+
+### Fixed
+
+- **Dropdown configuration now opens in its own modal** — selecting Dropdown
+  for a data-binding field or clicking an existing dropdown row opens a separate
+  configuration window, keeping source-field rows compact and avoiding inline
+  dropdown-detail width pressure.
+
+## [PowerRustCOBOL 1.27.36] — 2026-06-30
+
+### Fixed
+
+- **Dropdown configuration panels no longer widen the source-field grid** — the
+  expanded data-binding dropdown editor stays aligned under the Picture column
+  while using a bounded in-row panel instead of forcing horizontal scrolling.
+
+## [PowerRustCOBOL 1.27.35] — 2026-06-30
+
+### Fixed
+
+- **Data-binding settings no longer auto-grow beyond the working area** — the
+  modal width is capped and wide source-field grids scroll horizontally inside
+  the window instead of forcing the data-binding window wider than the screen.
+
+## [PowerRustCOBOL 1.27.34] — 2026-06-30
+
+### Fixed
+
+- **COBOL table data-binding settings now open a real configuration form** —
+  selecting COBOL table shows the table and occurs item, COBOL field mappings,
+  nested dropdown lookup configuration with COBOL/indexed origins, add/restore
+  behavior, and COBOL-table Apply validation inside the data-binding modal.
+
+## [PowerRustCOBOL 1.27.33] — 2026-06-30
+
+### Fixed
+
+- **REST API data-binding settings now open a real configuration form** —
+  selecting REST API shows endpoint, method, headers, authentication, JSON
+  preview, JSONPath guidance, REST field mappings, add/restore behavior, and
+  REST-specific Apply validation inside the data-binding modal.
+
+## [PowerRustCOBOL 1.27.32] — 2026-06-30
+
+### Fixed
+
+- **SQL data-binding settings now match the reference form details** — SQL
+  pagination uses the requested navigation glyphs, dropdown lookup mock data
+  uses the current Indexed-file samples, nested dropdown panels include the
+  separator styling, and Apply validation rejects non-positive lookup line
+  limits.
+
+## [PowerRustCOBOL 1.27.31] — 2026-06-30
+
+### Fixed
+
+- **Data Binding settings now include the SQL control configuration form** —
+  selecting SQL opens an interactive SQL-control source section with paginated
+  result-set preview controls, SQL field mappings, dropdown lookup
+  configuration for SQL controls and COBOL tables, line limits, add/restore
+  behavior, and Apply validation.
+
+## [PowerRustCOBOL 1.27.30] — 2026-06-30
+
+### Fixed
+
+- **Data Binding settings now open a full Indexed file configuration modal** —
+  the Properties panel opens an interactive, scrollable editor with source
+  selection, clear confirmation, indexed-file preview pagination, sample record
+  grid, source-field mapping rows, dropdown sub-configuration panels, restore
+  removed fields, and Apply validation.
+
+## [PowerRustCOBOL 1.27.29] — 2026-06-30
+
+### Fixed
+
+- **Data Binding source buttons now open a configuration editor** — choosing
+  Indexed, SQL, COBOL table, REST, or Agent AI in the Properties panel opens an
+  inline binding editor for the selected approved target, allowing the developer
+  to review and edit binding IDs, source details, fields, and generated mappings
+  before applying the form-level binding.
+
+## [PowerRustCOBOL 1.27.28] — 2026-06-29
+
+### Fixed
+
+- **Data binding is now guarded from source to runtime** — form-level bindings
+  can wire Indexed files, SQL, COBOL tables, REST schemas, and Agent AI
+  structured outputs into grids, charts, dropdowns, listboxes, and explicit
+  control arrays, while the Data Binding Guardian blocks unsafe saves, runs,
+  checks, builds, and packages before mappings can corrupt bound data.
+- **Bound controls keep writeback state recoverable** — generated binding code
+  loads and populates targets deterministically, writable bindings preserve row
+  identity and pending edits, read-only bindings never write back, and failed
+  updates keep the pending value available for repair.
+
 ## [PowerRustCOBOL 1.27.27] — 2026-06-29
 
 ### Fixed

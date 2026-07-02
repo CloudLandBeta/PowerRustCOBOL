@@ -263,6 +263,11 @@ enum Cmd {
         new_parent: Option<String>,
         new_tab: Option<u32>,
     },
+    /// Rename a control's id (updates all references form-wide).
+    Rename {
+        old: String,
+        new: String,
+    },
 }
 
 // ── Resize handle ─────────────────────────────────────────────────────────────
@@ -472,6 +477,8 @@ const STYLE_PROP_KEYS: &[&str] = &[
     "HeaderBackgroundColor",
     "HeaderForegroundColor",
     "AlternatingRowColor",
+    "AlternatingRowOpacity",
+    "AlternatingMode",
     "GridLineColor",
 ];
 
@@ -958,6 +965,19 @@ impl DesignerPanel {
                     c.tab = *new_tab;
                 }
             }
+            Cmd::Rename { old, new } => {
+                self.form.rename_control(old, new);
+                self.retarget_selection(old, new);
+            }
+        }
+    }
+
+    /// Point any selected id at its renamed replacement.
+    fn retarget_selection(&mut self, from: &str, to: &str) {
+        for s in &mut self.selected_ids {
+            if s.eq_ignore_ascii_case(from) {
+                *s = to.to_owned();
+            }
         }
     }
 
@@ -1033,7 +1053,27 @@ impl DesignerPanel {
                     c.tab = *old_tab;
                 }
             }
+            Cmd::Rename { old, new } => {
+                self.form.rename_control(new, old);
+                self.retarget_selection(new, old);
+            }
         }
+    }
+
+    /// Rename a control's id form-wide (undoable). Returns `false` if the new id
+    /// is invalid or already taken.
+    pub fn rename_control(&mut self, old: &str, new: &str) -> bool {
+        if !self.form.rename_control(old, new) {
+            return false;
+        }
+        self.retarget_selection(old, new);
+        self.undo_stack.push(Cmd::Rename {
+            old: old.to_owned(),
+            new: new.to_owned(),
+        });
+        self.redo_stack.clear();
+        self.dirty = true;
+        true
     }
 
     // ── Control manipulation ──────────────────────────────────────────────────
@@ -2073,7 +2113,18 @@ impl DesignerPanel {
         // skeleton (incl. the event's LINKAGE data and PROCEDURE DIVISION USING,
         // if any). Otherwise show the saved source.
         let source = if existing.trim().is_empty() {
-            cobolt_forms::model::event_handler_template(event_name)
+            // A control that belongs to a repeating group (array) gets the indexed
+            // skeleton — the handler receives the fired item's array index.
+            if !ctrl_id.is_empty()
+                && self
+                    .form
+                    .array_binding_context_for_member(ctrl_id)
+                    .is_some()
+            {
+                cobolt_forms::model::event_handler_template_indexed(event_name, ctrl_id)
+            } else {
+                cobolt_forms::model::event_handler_template(event_name)
+            }
         } else {
             existing
         };
