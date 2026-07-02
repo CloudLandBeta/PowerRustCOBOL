@@ -8,6 +8,12 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.78] — 2026-07-01
+
+### Fixed
+
+- **IDE/Forms: precise Timer-driven repaint scheduling.** Live forms and Timers no longer poll the repaint loop at a fixed fraction of the interval. The Timer now wakes the UI exactly when the next `onTick` is due (with a small floor to avoid spin), and the running-form viewport removes its unconditional `request_repaint()`. Combined with the prior reactive root loop, idle forms no longer peg a CPU core.
+
 ## [PowerRustCOBOL 1.27.77] — 2026-07-02
 
 ### Fixed
