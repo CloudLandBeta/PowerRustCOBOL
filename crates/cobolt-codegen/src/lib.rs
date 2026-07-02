@@ -65,6 +65,7 @@
 use cobolt_forms::model::PropValue;
 use cobolt_forms::{Control, ControlType, Form};
 
+pub mod data_binding;
 pub mod indexed;
 pub use indexed::generate_indexed;
 
@@ -282,11 +283,7 @@ fn write_data_division(out: &mut String, form: &Form) {
         .iter()
         .filter(|c| c.control_type == ControlType::DataGrid)
     {
-        if ctrl
-            .get_prop("ExportCSV")
-            .map(|v| v.as_bool())
-            .unwrap_or(false)
-        {
+        if datagrid_csv_export_enabled(ctrl) {
             let pfx = format!("WS-{}", ctrl.id.replace('-', "-"));
             out.push_str(&format!(
                 "      *>── DataGrid {} CSV export ──────────────────────────\n",
@@ -463,6 +460,8 @@ fn write_data_division(out: &mut String, form: &Form) {
         out.push('\n');
     }
 
+    data_binding::write_data_binding_storage(out, form);
+
     // ── Per-control groups ────────────────────────────────────────────────
     if !all_controls.is_empty() {
         out.push_str("      *>── Form controls ───────────────────────────────────────────────\n");
@@ -548,6 +547,7 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     // ── COBOL-MAIN ──────────────────────────────────────────────────────
     out.push_str("       COBOL-MAIN.\n");
     out.push_str("           CALL \"COBOL-INIT-FORM\" USING FORM-NAME\n");
+    data_binding::write_data_binding_bootstrap(out, form);
 
     // Kick off timer dispatcher if any timers exist
     let has_timers = all_controls
@@ -583,6 +583,7 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     write_agent_stubs(out, &all_controls);
     write_animation_stubs(out, form, &all_controls);
     write_chart_stubs(out, &all_controls);
+    data_binding::write_data_binding_paragraphs(out, form);
 
     // ── Nested COBOL-85 programs — one per event handler ─────────────────
     write_nested_programs(out, form, &all_controls);
@@ -634,9 +635,9 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
         .filter(|c| c.control_type == ControlType::DataGrid)
     {
         if !ctrl
-            .get_prop("ExportCSV")
+            .get_prop("ShowCSVExportButton")
             .map(|v| v.as_bool())
-            .unwrap_or(false)
+            .unwrap_or_else(|| datagrid_csv_export_enabled(ctrl))
         {
             continue;
         }
@@ -649,12 +650,19 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
             .get_prop("CSVDelimiter")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| ",".to_owned());
+        let mode = ctrl
+            .get_prop("CSVExportMode")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Filtered".to_owned());
 
         out.push_str(&format!("       {}.\n", para));
         out.push_str(&format!(
-            "      *>    Export {} data to CSV file.  Delimiter: \"{}\"\n",
-            ctrl.id, delim
+            "      *>    Export {} data to CSV file.  Delimiter: \"{}\". Mode: {}.\n",
+            ctrl.id, delim, mode
         ));
+        out.push_str(
+            "      *>    Column order and filtered/all rows follow the DataGrid settings.\n",
+        );
         out.push_str(&format!(
             "      *>    Set {pfx}-CSV-PATH to the desired output file path before calling.\n"
         ));
@@ -673,6 +681,16 @@ fn write_csv_export_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str("           END-IF.\n");
         out.push('\n');
     }
+}
+
+fn datagrid_csv_export_enabled(ctrl: &Control) -> bool {
+    ctrl.get_prop("ExportCSV")
+        .map(|v| v.as_bool())
+        .unwrap_or(false)
+        || ctrl
+            .get_prop("ShowCSVExportButton")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
 }
 
 // ── RestClient call stub generator ───────────────────────────────────────────
@@ -1285,11 +1303,17 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
             &ev.code,
             &format!("Form {} handler", ev.event),
             true,
+            None,
         );
     }
 
-    // Per-control events
+    // Per-control events. A control that belongs to a repeating group (array)
+    // gets the indexed handler stub — it receives the 1-based array index of the
+    // item that fired.
     for ctrl in all_controls {
+        let array_member = form
+            .array_binding_context_for_member(&ctrl.id)
+            .map(|_| ctrl.id.clone());
         for ev in &ctrl.events {
             write_nested_program(
                 out,
@@ -1298,6 +1322,7 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
                 &ev.code,
                 &format!("{} {} handler", ctrl.id, ev.event),
                 true,
+                array_member.as_deref(),
             );
         }
     }
@@ -1316,6 +1341,7 @@ fn write_nested_programs(out: &mut String, form: &Form, all_controls: &[&Control
             &up.code,
             &format!("user procedure {}", up.name.trim()),
             true,
+            None,
         );
     }
 }
@@ -1337,6 +1363,7 @@ fn write_nested_program(
     source: &str,
     comment: &str,
     common: bool,
+    array_member: Option<&str>,
 ) {
     let attr = if common { " IS COMMON PROGRAM" } else { "" };
     out.push_str("       IDENTIFICATION DIVISION.\n");
@@ -1346,7 +1373,12 @@ fn write_nested_program(
     let trimmed = source.trim();
     let body = if trimmed.is_empty() {
         out.push_str(&format!("      *>    TODO: {}\n", comment));
-        cobolt_forms::model::event_handler_template(event)
+        match array_member {
+            Some(control_id) => {
+                cobolt_forms::model::event_handler_template_indexed(event, control_id)
+            }
+            None => cobolt_forms::model::event_handler_template(event),
+        }
     } else {
         source.to_string()
     };
@@ -1474,7 +1506,11 @@ fn caption_prop_key(ct: &ControlType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobolt_forms::{Control, ControlType, EventBinding, Form};
+    use cobolt_forms::{
+        BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor,
+        BindingTargetPath, Control, ControlType, DataBindingDef, EventBinding, FieldMapping, Form,
+        PropValue,
+    };
 
     fn make_form() -> Form {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
@@ -1729,5 +1765,295 @@ mod tests {
             src.contains("PROCEDURE DIVISION."),
             "the stub handler must include a PROCEDURE DIVISION"
         );
+    }
+
+    /// A control that belongs to a repeating group (array) gets the indexed
+    /// handler stub: it receives the fired item's 1-based array index.
+    #[test]
+    fn array_member_handler_stub_receives_array_index() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut group = Control::new("CARD", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        let mut btn = Control::new("Button-1", ControlType::Button, 10, 10);
+        btn.parent = Some("CARD".into());
+        btn.events
+            .push(EventBinding::for_control("Button-1", "onClick")); // no code
+        form.controls.push(group);
+        form.controls.push(btn);
+
+        let src = generate(&form);
+        assert!(
+            src.contains("01 CONTROL-ARRAY-INDEX              PIC S9(4) COMP-5."),
+            "array-member handler must declare CONTROL-ARRAY-INDEX:\n{src}"
+        );
+        assert!(
+            src.contains("PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX."),
+            "array-member handler must receive the index via USING:\n{src}"
+        );
+        assert!(
+            src.contains("Button-1(CONTROL-ARRAY-INDEX)::BackgroundColor"),
+            "stub should hint indexed member access:\n{src}"
+        );
+
+        // A non-array control keeps the plain stub (no index parameter).
+        let mut plain = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut btn2 = Control::new("BTN-OK", ControlType::Button, 10, 10);
+        btn2.events
+            .push(EventBinding::for_control("BTN-OK", "onClick"));
+        plain.controls.push(btn2);
+        let plain_src = generate(&plain);
+        assert!(!plain_src.contains("CONTROL-ARRAY-INDEX"));
+    }
+
+    fn binding_fields() -> Vec<BindingField> {
+        vec![
+            BindingField::new("ID", BindingDataType::Integer).key(),
+            BindingField::new("NAME", BindingDataType::Text).required(),
+            BindingField::new("AMOUNT", BindingDataType::Decimal).required(),
+        ]
+    }
+
+    fn data_binding_fixture_form() -> Form {
+        let mut form = Form::new("BIND-FORM", "Bindings", 800, 600);
+        form.add_control(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+        form.add_control(Control::new("CHART-1", ControlType::BarChart, 0, 120));
+        form.add_control(Control::new("COMBO-1", ControlType::ComboBox, 0, 240));
+        form.add_control(Control::new("LIST-1", ControlType::ListBox, 0, 300));
+        let mut group = Control::new("ROWS", ControlType::GroupBox, 0, 360);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        group.set_prop("ArrayName", PropValue::String("CUSTOMERS".into()));
+        let mut name = Control::new("NAME", ControlType::TextBox, 10, 390);
+        name.parent = Some("ROWS".into());
+        form.add_control(group);
+        form.add_control(name);
+
+        let fields = binding_fields();
+        form.data_bindings.push(
+            DataBindingDef::new(
+                "BIND-IDX-GRID",
+                "Indexed Grid",
+                BindingSourceDescriptor::IndexedFile {
+                    definition_path: "data/customers.cidx".into(),
+                    record_name: "CUSTOMER-REC".into(),
+                    fields: fields.clone(),
+                    key_field: Some("ID".into()),
+                    writable: true,
+                },
+                BindingTargetDescriptor::DataGrid {
+                    control_id: "GRID-1".into(),
+                },
+            )
+            .with_mappings(vec![
+                FieldMapping::new(
+                    "ID",
+                    BindingTargetPath::GridColumn {
+                        control_id: "GRID-1".into(),
+                        column_id: "ID".into(),
+                    },
+                ),
+                FieldMapping::new(
+                    "NAME",
+                    BindingTargetPath::GridColumn {
+                        control_id: "GRID-1".into(),
+                        column_id: "NAME".into(),
+                    },
+                ),
+            ]),
+        );
+        form.data_bindings.push(
+            DataBindingDef::new(
+                "BIND-SQL-ARRAY",
+                "SQL Array",
+                BindingSourceDescriptor::Sql {
+                    source_control_id: "SQL-1".into(),
+                    query_name: "CUSTOMERS".into(),
+                    result_set_name: "CUSTOMER-ROWS".into(),
+                    fields: fields.clone(),
+                    key_fields: vec!["ID".into()],
+                    writable: true,
+                },
+                BindingTargetDescriptor::ControlArray {
+                    array_id: "CUSTOMERS".into(),
+                    member_control_ids: vec!["NAME".into()],
+                },
+            )
+            .with_mappings(vec![FieldMapping::new(
+                "NAME",
+                BindingTargetPath::ControlProperty {
+                    array_id: "CUSTOMERS".into(),
+                    control_id: "NAME".into(),
+                    property_name: "Text".into(),
+                },
+            )]),
+        );
+        form.data_bindings.push(
+            DataBindingDef::new(
+                "BIND-TABLE-CHART",
+                "Table Chart",
+                BindingSourceDescriptor::CobolTable {
+                    table_name: "CUSTOMER-TABLE".into(),
+                    occurs_item: "CUSTOMER-ROW".into(),
+                    fields: fields.clone(),
+                    key_fields: vec!["ID".into()],
+                    writable: true,
+                },
+                BindingTargetDescriptor::Chart {
+                    control_id: "CHART-1".into(),
+                    chart_kind: cobolt_forms::BindingChartKind::Bar,
+                },
+            )
+            .with_mappings(vec![
+                FieldMapping::new(
+                    "NAME",
+                    BindingTargetPath::ChartCategory {
+                        control_id: "CHART-1".into(),
+                    },
+                ),
+                FieldMapping::new(
+                    "AMOUNT",
+                    BindingTargetPath::ChartValueSeries {
+                        control_id: "CHART-1".into(),
+                        series_id: "AMOUNT".into(),
+                    },
+                ),
+            ]),
+        );
+        form.data_bindings.push(DataBindingDef::new(
+            "BIND-REST-LIST",
+            "REST List",
+            BindingSourceDescriptor::RestApi {
+                source_control_id: "REST-1".into(),
+                endpoint_name: "GET-CUSTOMERS".into(),
+                response_data_item: "REST-RESPONSE".into(),
+                fields: fields.clone(),
+                update: None,
+            },
+            BindingTargetDescriptor::ListBox {
+                control_id: "LIST-1".into(),
+            },
+        ));
+        form.data_bindings.push(
+            DataBindingDef::new(
+                "BIND-AGENT-COMBO",
+                "Agent Combo",
+                BindingSourceDescriptor::AgentAi {
+                    source_control_id: "AGENT-1".into(),
+                    output_name: "CUSTOMER-CHOICES".into(),
+                    fields,
+                    update: None,
+                },
+                BindingTargetDescriptor::ComboBox {
+                    control_id: "COMBO-1".into(),
+                },
+            )
+            .with_mappings(vec![
+                FieldMapping::new(
+                    "NAME",
+                    BindingTargetPath::ListDisplayItem {
+                        control_id: "COMBO-1".into(),
+                    },
+                ),
+                FieldMapping::new(
+                    "ID",
+                    BindingTargetPath::ListValue {
+                        control_id: "COMBO-1".into(),
+                    },
+                ),
+            ]),
+        );
+        form
+    }
+
+    #[test]
+    fn data_binding_codegen_emits_deterministic_runtime_sections() {
+        let src = generate(&data_binding_fixture_form());
+        assert!(src.contains("COBOL-DATA-BINDINGS-LOAD."));
+        assert!(src.contains("COBOL-DATA-BINDINGS-POPULATE."));
+        assert!(src.contains("COBOL-DATA-BINDINGS-MARK-CLEAN."));
+        assert!(src.contains("COBOL-DATA-BINDINGS-UPDATE."));
+        assert!(src.contains("CALL \"COBOL-BINDING-LOAD\" USING \"BIND-IDX-GRID\""));
+        assert!(src.contains("IndexedFile:CUSTOMER-REC"));
+        assert!(src.contains("SQL:CUSTOMER-ROWS"));
+        assert!(src.contains("COBOLTable:CUSTOMER-TABLE"));
+        assert!(src.contains("REST:GET-CUSTOMERS"));
+        assert!(src.contains("AgentAI:CUSTOMER-CHOICES"));
+        assert!(src.contains("NAME -> GRID-1.NAME"));
+        assert!(src.contains("NAME -> CHART-1.Category"));
+        assert!(src.contains("NAME -> NAME.Text"));
+        assert!(src.contains("NAME -> COMBO-1.Display"));
+    }
+
+    #[test]
+    fn data_binding_codegen_is_stable_across_runs() {
+        let form = data_binding_fixture_form();
+        assert_eq!(generate(&form), generate(&form));
+    }
+
+    #[test]
+    fn data_binding_codegen_seeds_datagrid_refresh_identity_for_cobol_tables() {
+        let mut form = Form::new("BIND-FORM", "Bindings", 800, 600);
+        form.add_control(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+        form.data_bindings.push(DataBindingDef::new(
+            "BIND-TABLE-GRID",
+            "Table Grid",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "CUSTOMER-TABLE".into(),
+                occurs_item: "CUSTOMER-ROW".into(),
+                fields: binding_fields(),
+                key_fields: vec!["ID".into()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".into(),
+            },
+        ));
+
+        let src = generate(&form);
+
+        assert!(src.contains(
+            "INVOKE GRID-1 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\""
+        ));
+        assert!(src.contains(
+            "INVOKE GRID-1 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"ID,NAME,AMOUNT\""
+        ));
+    }
+
+    #[test]
+    fn datagrid_csv_export_codegen_uses_button_mode_and_order_comment() {
+        let mut form = Form::new("CSV-FORM", "CSV", 800, 600);
+        let mut grid = Control::new("GRID-1", ControlType::DataGrid, 0, 0);
+        grid.set_prop("ExportCSV", PropValue::Bool(false));
+        grid.set_prop("ShowCSVExportButton", PropValue::Bool(true));
+        grid.set_prop("CSVExportMode", PropValue::String("All".into()));
+        grid.set_prop("CSVDelimiter", PropValue::String(";".into()));
+        form.add_control(grid);
+
+        let src = generate(&form);
+
+        assert!(src.contains("DataGrid GRID-1 CSV export"));
+        assert!(src.contains("Delimiter: \";\". Mode: All."));
+        assert!(src.contains("Column order and filtered/all rows follow the DataGrid settings."));
+        assert!(src.contains("INVOKE GRID-1 'ExportCSV'"));
+    }
+
+    #[test]
+    fn data_binding_e2e_generates_all_source_and_target_families() {
+        let src = generate(&data_binding_fixture_form());
+        for needle in [
+            "This code was generated automatically by PowerRustCOBOL RAD.",
+            "IndexedFile:CUSTOMER-REC",
+            "SQL:CUSTOMER-ROWS",
+            "COBOLTable:CUSTOMER-TABLE",
+            "REST:GET-CUSTOMERS",
+            "AgentAI:CUSTOMER-CHOICES",
+            "DataGrid:GRID-1",
+            "Chart:CHART-1",
+            "ComboBox:COMBO-1",
+            "ListBox:LIST-1",
+            "ControlArray:CUSTOMERS",
+            "COBOL-DATA-BINDINGS-UPDATE.",
+        ] {
+            assert!(src.contains(needle), "missing {needle}\n{src}");
+        }
     }
 }

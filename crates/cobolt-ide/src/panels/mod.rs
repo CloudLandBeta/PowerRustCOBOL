@@ -8,6 +8,8 @@
 
 pub mod cobol_structure;
 pub mod containers;
+pub mod data_binding;
+pub mod data_grid_columns;
 pub mod debugger;
 pub mod designer;
 pub mod doc_viewer;

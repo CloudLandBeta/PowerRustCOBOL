@@ -244,10 +244,21 @@ pub fn draw_glass_circle(
     painter.circle_stroke(center, radius, Stroke::new(border_w, border_c));
 }
 
+fn glass_base_underlay(base: Color32, alpha_mul: f32) -> Option<Color32> {
+    let base_alpha = ((base.a() as f32) * alpha_mul.clamp(0.0, 1.0)).clamp(0.0, 255.0) as u8;
+    (base_alpha > 0)
+        .then(|| Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), base_alpha))
+}
+
 pub fn draw_glass(
     painter: &egui::Painter,
     rect: egui::Rect,
     base: Color32, // control's own colour — used only as a faint frost tint
+    // Explicit user-chosen background painted as a solid, opacity-aware layer
+    // *under* the frost. `None` for the default glass look (the `base` tint only
+    // shifts the frost's hue by ~3.5%). Only set when the user actually picked a
+    // BackgroundColor, so default controls stay fully translucent glass.
+    bg_underlay: Option<Color32>,
     rounding: impl Into<egui::Rounding>, // uniform `f32` corner OR per-corner Rounding
     selected: bool,
     alpha_mul: f32,
@@ -298,6 +309,10 @@ pub fn draw_glass(
         round_map(rnd, |c| c + 10.0),
         pm(0, 0, 0, 8),
     );
+
+    if let Some(base_fill) = bg_underlay.and_then(|c| glass_base_underlay(c, am)) {
+        painter.rect_filled(rect, rnd, base_fill);
+    }
 
     // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
     // Each 1px band is horizontally inset to follow the rounded corner arcs
@@ -404,6 +419,9 @@ pub fn draw_glass_enhanced(
     painter: &egui::Painter,
     rect: egui::Rect,
     base: Color32,
+    // See `draw_glass`: explicit user background painted solid under the frost;
+    // `None` keeps the default translucent glass look.
+    bg_underlay: Option<Color32>,
     rounding: impl Into<egui::Rounding>,
     selected: bool,
     alpha_mul: f32,
@@ -449,6 +467,10 @@ pub fn draw_glass_enhanced(
         round_map(rnd, |c| c + 10.0),
         pm(0, 0, 0, 8),
     );
+
+    if let Some(base_fill) = bg_underlay.and_then(|c| glass_base_underlay(c, am)) {
+        painter.rect_filled(rect, rnd, base_fill);
+    }
 
     // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
     {
@@ -2413,6 +2435,255 @@ pub fn format_cell(raw: &str, ty: &str) -> (String, bool) {
     }
 }
 
+/// Format a DataGrid cell using a COBOL display mask when one is available.
+/// The mask support is intentionally conservative and covers the common grid
+/// binding masks: `9(n)`, `S9(n)V99`, `PIC ...`, and text `X(n)`.
+pub fn format_cell_with_cobol_mask(raw: &str, ty: &str, cobol_mask: &str) -> (String, bool) {
+    let mask = normalize_cobol_mask(cobol_mask);
+    if mask.is_empty() || mask == "-" || mask == "—" {
+        return format_cell(raw, ty);
+    }
+    if mask.contains('X') || mask.contains('A') {
+        return (raw.to_owned(), false);
+    }
+    // COBOL *edited* pictures — zero-suppression (`Z`), check protection (`*`),
+    // digit-group (`,`) and displayed decimal (`.`) insertion, e.g.
+    // `ZZZ,ZZZ,ZZ9.99` → `3,000.00`. Handled before the plain-numeric path so a
+    // bound `S9(9)V99` value renders through the column's display mask.
+    if is_edited_picture(&mask) {
+        if let Some(edited) = format_edited_numeric(raw, &mask) {
+            return (edited, true);
+        }
+    }
+    if !mask.contains('9') {
+        return format_cell(raw, ty);
+    }
+    let Some((integer_digits, decimal_digits, signed)) = parse_numeric_cobol_mask(&mask) else {
+        return format_cell(raw, ty);
+    };
+    let Ok(value) = raw.trim().parse::<f64>() else {
+        return (raw.to_owned(), true);
+    };
+    let negative = value.is_sign_negative();
+    let abs_value = value.abs();
+    let should_zero_pad = !signed;
+    let formatted = if decimal_digits == 0 {
+        let mut integer = format!("{:.0}", abs_value);
+        if should_zero_pad && integer_digits > integer.len() {
+            integer = format!("{}{}", "0".repeat(integer_digits - integer.len()), integer);
+        }
+        integer
+    } else {
+        let fixed = format!("{abs_value:.decimal_digits$}");
+        let mut parts = fixed.splitn(2, '.');
+        let mut integer = parts.next().unwrap_or_default().to_owned();
+        let decimal = parts.next().unwrap_or_default();
+        if should_zero_pad && integer_digits > integer.len() {
+            integer = format!("{}{}", "0".repeat(integer_digits - integer.len()), integer);
+        }
+        format!("{integer}.{decimal}")
+    };
+    let sign = if negative {
+        "-"
+    } else if signed && mask.starts_with('+') {
+        "+"
+    } else {
+        ""
+    };
+    (format!("{sign}{formatted}"), true)
+}
+
+/// A normalized picture is an *edited* numeric picture when it carries any
+/// insertion/suppression symbol (`Z` `*` `,` `$` `B`) or a displayed decimal
+/// point (`.`). Plain `9`/`S`/`V` pictures keep the simpler legacy formatting.
+fn is_edited_picture(mask: &str) -> bool {
+    mask.contains('Z')
+        || mask.contains('*')
+        || mask.contains(',')
+        || mask.contains('$')
+        || mask.contains('B')
+        || mask.contains('.')
+}
+
+/// Expand `9(3)` / `Z(4)` / `*(2)` repetition groups into individual symbols so
+/// the picture can be walked one position at a time.
+fn expand_picture(mask: &str) -> String {
+    let chars: Vec<char> = mask.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        if chars.get(i + 1) == Some(&'(') {
+            if let Some(end) = chars[i + 2..].iter().position(|c| *c == ')') {
+                let end = i + 2 + end;
+                let count: usize = chars[i + 2..end]
+                    .iter()
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or(1);
+                for _ in 0..count {
+                    out.push(ch);
+                }
+                i = end + 1;
+                continue;
+            }
+        }
+        out.push(ch);
+        i += 1;
+    }
+    out
+}
+
+fn count_digit_positions(pic: &str) -> usize {
+    pic.chars().filter(|c| matches!(c, '9' | 'Z' | '*')).count()
+}
+
+/// Format `raw` through a COBOL edited numeric picture (`ZZZ,ZZZ,ZZ9.99`,
+/// `**,**9.99`, `9(6)`, …). Zero-suppresses leading zeros, honours grouping and
+/// the displayed decimal point, and prefixes a sign for negatives / `+` floats.
+/// Returns `None` when `raw` isn't numeric (caller falls back).
+fn format_edited_numeric(raw: &str, mask: &str) -> Option<String> {
+    let pic = expand_picture(mask);
+    let value: f64 = raw.trim().parse().ok()?;
+    let negative = value.is_sign_negative() && value != 0.0;
+    let plus = pic.contains('+');
+    let abs = value.abs();
+
+    // Split integer / fraction at the displayed decimal point or implied `V`.
+    let (int_pic, dec_pic) = if let Some(idx) = pic.find('.') {
+        (pic[..idx].to_string(), pic[idx + 1..].to_string())
+    } else if let Some(idx) = pic.find('V') {
+        (pic[..idx].to_string(), pic[idx + 1..].to_string())
+    } else {
+        (pic.clone(), String::new())
+    };
+    let dec_digits = count_digit_positions(&dec_pic);
+    let int_positions = count_digit_positions(&int_pic);
+
+    // Digit strings, scaled to the fraction width and padded to the picture.
+    let scaled = format!("{abs:.dec_digits$}");
+    let (int_str, dec_str) = scaled.split_once('.').unwrap_or((scaled.as_str(), ""));
+    let mut int_digits = int_str.to_string();
+    while int_digits.len() < int_positions {
+        int_digits.insert(0, '0');
+    }
+    if int_digits.len() > int_positions {
+        int_digits = int_digits[int_digits.len() - int_positions..].to_string();
+    }
+    let int_digits: Vec<char> = int_digits.chars().collect();
+
+    let fill = if pic.contains('*') { '*' } else { ' ' };
+    let mut out = String::new();
+    let mut di = 0usize;
+    let mut suppressing = true;
+    for ch in int_pic.chars() {
+        match ch {
+            '9' => {
+                out.push(int_digits[di]);
+                di += 1;
+                suppressing = false;
+            }
+            'Z' | '*' => {
+                let d = int_digits[di];
+                di += 1;
+                if suppressing && d == '0' {
+                    out.push(fill);
+                } else {
+                    out.push(d);
+                    suppressing = false;
+                }
+            }
+            ',' => out.push(if suppressing { fill } else { ',' }),
+            'B' => out.push(' '),
+            'S' | 'V' | '+' | '-' => {}
+            other => out.push(other),
+        }
+    }
+
+    if dec_digits > 0 {
+        out.push('.');
+        let mut dec_chars = dec_str.to_string();
+        while dec_chars.len() < dec_digits {
+            dec_chars.push('0');
+        }
+        out.push_str(&dec_chars[..dec_digits]);
+    }
+
+    // Leading fill is alignment padding for a fixed field; a grid cell reads
+    // cleaner trimmed. Asterisk (check-protection) fill is meaningful — keep it.
+    if fill == ' ' {
+        out = out.trim_start().to_string();
+    }
+    if negative {
+        out = format!("-{out}");
+    } else if plus {
+        out = format!("+{out}");
+    }
+    Some(out)
+}
+
+fn normalize_cobol_mask(mask: &str) -> String {
+    let mut normalized = mask.trim().to_ascii_uppercase();
+    if let Some(rest) = normalized.strip_prefix("PIC ") {
+        normalized = rest.trim().to_owned();
+    } else if let Some(rest) = normalized.strip_prefix("PICTURE ") {
+        normalized = rest.trim().to_owned();
+    }
+    normalized.retain(|ch| !ch.is_whitespace());
+    normalized
+}
+
+fn parse_numeric_cobol_mask(mask: &str) -> Option<(usize, usize, bool)> {
+    let signed = mask.starts_with('S') || mask.starts_with('+') || mask.starts_with('-');
+    let unsigned = mask.trim_start_matches(['S', '+', '-']);
+    let (integer_mask, decimal_mask) = unsigned
+        .split_once('V')
+        .or_else(|| unsigned.split_once('.'))
+        .map(|(left, right)| (left, right))
+        .unwrap_or((unsigned, ""));
+    let integer_digits = count_cobol_digit_positions(integer_mask)?;
+    let decimal_digits = if decimal_mask.is_empty() {
+        0
+    } else {
+        count_cobol_digit_positions(decimal_mask)?
+    };
+    Some((integer_digits, decimal_digits, signed))
+}
+
+fn count_cobol_digit_positions(mask: &str) -> Option<usize> {
+    let chars: Vec<char> = mask.chars().collect();
+    let mut index = 0;
+    let mut count = 0;
+    while index < chars.len() {
+        match chars[index] {
+            '9' | 'Z' | '*' => {
+                if chars.get(index + 1) == Some(&'(') {
+                    let mut end = index + 2;
+                    while end < chars.len() && chars[end] != ')' {
+                        end += 1;
+                    }
+                    if end >= chars.len() {
+                        return None;
+                    }
+                    let repeat = chars[index + 2..end]
+                        .iter()
+                        .collect::<String>()
+                        .parse::<usize>()
+                        .ok()?;
+                    count += repeat;
+                    index = end + 1;
+                } else {
+                    count += 1;
+                    index += 1;
+                }
+            }
+            ',' | '.' | '-' | '+' | '$' | '/' => index += 1,
+            _ => return None,
+        }
+    }
+    Some(count)
+}
+
 // ── DateTimePicker calendar support ────────────────────────────────────────────
 pub const CAL_CELL: f32 = 28.0;
 pub const CAL_W: f32 = CAL_CELL * 7.0;
@@ -4069,12 +4340,45 @@ pub fn draw_glass_auto(
     selected: bool,
     alpha_mul: f32,
 ) {
+    // Default glass: `base` tints the frost only, never a solid underlay.
+    draw_glass_auto_bg(painter, rect, base, None, rounding, selected, alpha_mul);
+}
+
+/// Like [`draw_glass_auto`] but paints an explicit user-chosen background
+/// (`bg_underlay`) as a solid, opacity-aware layer beneath the frost. Callers
+/// pass `Some` only when the user actually set a BackgroundColor, so default
+/// controls keep the fully translucent Liquid Glass look (spec 019).
+pub fn draw_glass_auto_bg(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,
+    bg_underlay: Option<Color32>,
+    rounding: impl Into<egui::Rounding>,
+    selected: bool,
+    alpha_mul: f32,
+) {
     match active_glass_style(painter.ctx()) {
         crate::model::GlassStyle::Enhanced => {
-            draw_glass_enhanced(painter, rect, base, rounding, selected, alpha_mul);
+            draw_glass_enhanced(
+                painter,
+                rect,
+                base,
+                bg_underlay,
+                rounding,
+                selected,
+                alpha_mul,
+            );
         }
         crate::model::GlassStyle::Classic => {
-            draw_glass(painter, rect, base, rounding, selected, alpha_mul);
+            draw_glass(
+                painter,
+                rect,
+                base,
+                bg_underlay,
+                rounding,
+                selected,
+                alpha_mul,
+            );
         }
     }
 }
@@ -4470,6 +4774,77 @@ mod theme_render_tests {
         let mut z = big(ControlType::Button);
         z.set_prop("CornerRadius", PropValue::Int(0));
         assert_eq!(corner_radius(&z), 0.0);
+    }
+
+    #[test]
+    fn datagrid_cobol_masks_format_common_bound_values() {
+        assert_eq!(
+            format_cell_with_cobol_mask("1", "number", "9(06)"),
+            ("000001".to_owned(), true)
+        );
+        assert_eq!(
+            format_cell_with_cobol_mask("30000000", "number", "PIC S9(9)V99"),
+            ("30000000.00".to_owned(), true)
+        );
+        assert_eq!(
+            format_cell_with_cobol_mask("-12.3", "decimal", "S9(4)V99"),
+            ("-12.30".to_owned(), true)
+        );
+        assert_eq!(
+            format_cell_with_cobol_mask("Leonardo DiCaprio", "string", "X(40)"),
+            ("Leonardo DiCaprio".to_owned(), false)
+        );
+    }
+
+    #[test]
+    fn datagrid_edited_pictures_suppress_and_group() {
+        // The reported case: S9(9)V99 value shown through a ZZZ,ZZZ,ZZ9.99 mask.
+        assert_eq!(
+            format_cell_with_cobol_mask("000003000.00", "decimal", "PIC ZZZ,ZZZ,ZZ9.99"),
+            ("3,000.00".to_owned(), true)
+        );
+        assert_eq!(
+            format_cell_with_cobol_mask("1200.00", "decimal", "ZZZ,ZZZ,ZZ9.99"),
+            ("1,200.00".to_owned(), true)
+        );
+        // Zero keeps the forced `9` digit.
+        assert_eq!(
+            format_cell_with_cobol_mask("0", "decimal", "ZZZ,ZZZ,ZZ9.99"),
+            ("0.00".to_owned(), true)
+        );
+        // Check protection keeps the asterisk fill.
+        assert_eq!(
+            format_cell_with_cobol_mask("42.5", "decimal", "**,**9.99"),
+            ("****42.50".to_owned(), true)
+        );
+        // Negative gets a leading sign.
+        assert_eq!(
+            format_cell_with_cobol_mask("-1234.5", "decimal", "Z,ZZ9.99"),
+            ("-1,234.50".to_owned(), true)
+        );
+        // Plain (non-edited) pictures keep the legacy behaviour.
+        assert_eq!(
+            format_cell_with_cobol_mask("1", "number", "9(06)"),
+            ("000001".to_owned(), true)
+        );
+        assert_eq!(
+            format_cell_with_cobol_mask("30000000", "number", "PIC S9(9)V99"),
+            ("30000000.00".to_owned(), true)
+        );
+    }
+
+    #[test]
+    fn glass_base_underlay_allows_solid_background_at_full_opacity() {
+        let base = Color32::from_rgb(20, 40, 80);
+        let solid = glass_base_underlay(base, 1.0).expect("full opacity should draw base");
+        assert_eq!(solid.a(), 255);
+        assert_eq!((solid.r(), solid.g(), solid.b()), (20, 40, 80));
+
+        let half = glass_base_underlay(base, 0.5).expect("half opacity should draw base");
+        assert_eq!(half.a(), 127);
+
+        assert!(glass_base_underlay(Color32::TRANSPARENT, 1.0).is_none());
+        assert!(glass_base_underlay(base, 0.0).is_none());
     }
 
     #[test]

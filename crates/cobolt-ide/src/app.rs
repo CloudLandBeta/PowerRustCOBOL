@@ -21,7 +21,14 @@ use std::path::{Path, PathBuf};
 
 use egui::{Context, Key, KeyboardShortcut, Modifiers, Vec2, ViewportBuilder, ViewportId};
 
-use cobolt_forms::{load_form, save_form, Form};
+use cobolt_ast::data::DataDecl;
+use cobolt_ast::expr::{FigurativeConstant, Literal};
+use cobolt_ast::program::DataSection;
+use cobolt_forms::{
+    load_form, save_form, BindingDataType, BindingField, BindingSourceDescriptor,
+    BindingTargetDescriptor, BindingTargetPath, DataBindingDef, DataGridAdvanced, DataGridColumn,
+    Form, PropValue, DATAGRID_ADVANCED_PROP,
+};
 // The run/preview per-control draw loops are gone — the unified render engine
 // owns control rendering (spec 017) — so only the form-level background-image
 // loader remains in the IDE here.
@@ -31,6 +38,8 @@ use cobolt_forms::paint::load_image_texture;
 use cobolt_indexed::{
     load_indexed, record_to_text, resolve_path, save_indexed, text_to_record, IndexedDefinition,
 };
+use cobolt_lexer::{tokenize, SourceFormat};
+use cobolt_parser::parse;
 use cobolt_runtime::indexed_ide::{compare_schema, SchemaDrift};
 use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
 
@@ -57,6 +66,10 @@ use crate::runner::{DebugRunner, RunMsg, Runner};
 use crate::version::VERSION;
 use cobolt_runtime::DebugCmd;
 use rand::Rng;
+
+use crate::data_binding_guardian::{
+    validate_binding_action, BindingActionGate, BindingActionGateReport,
+};
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -443,6 +456,26 @@ fn file_mtime(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+fn guardian_severity_label<'a>(tr: &'a Tr, severity: &cobolt_forms::GuardianSeverity) -> &'a str {
+    match severity {
+        cobolt_forms::GuardianSeverity::Blocker => tr.data_binding_severity_blocker,
+        cobolt_forms::GuardianSeverity::Warning => tr.data_binding_severity_warning,
+        cobolt_forms::GuardianSeverity::Info => tr.data_binding_severity_info,
+    }
+}
+
+fn data_binding_action_label<'a>(tr: &'a Tr, action: BindingActionGate) -> &'a str {
+    match action {
+        BindingActionGate::SaveForm => tr.menu_save,
+        BindingActionGate::RunForm => tr.tb_run,
+        BindingActionGate::RunProject => tr.menu_run,
+        BindingActionGate::DebugProject => tr.tb_debug,
+        BindingActionGate::CheckProject => tr.tb_check,
+        BindingActionGate::BuildProject => tr.tb_build,
+        BindingActionGate::PackageProject => tr.menu_package_project,
+    }
+}
+
 impl CoboltApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut style = (*cc.egui_ctx.style()).clone();
@@ -570,7 +603,119 @@ impl CoboltApp {
 
     // ── Code workspace actions ────────────────────────────────────────────────
 
+    fn allow_data_binding_form_action(
+        &mut self,
+        action: BindingActionGate,
+        form: &Form,
+        label: &str,
+    ) -> bool {
+        let report = validate_binding_action(form, action);
+        self.emit_data_binding_gate_report(label, &report);
+        !report.blocked()
+    }
+
+    fn allow_data_binding_project_action(&mut self, action: BindingActionGate) -> bool {
+        let reports = self.data_binding_project_reports(action);
+        let blocked = reports.iter().any(|(_, report)| report.blocked());
+        for (label, report) in &reports {
+            self.emit_data_binding_gate_report(label, report);
+        }
+        !blocked
+    }
+
+    fn data_binding_project_reports(
+        &self,
+        action: BindingActionGate,
+    ) -> Vec<(String, BindingActionGateReport)> {
+        let mut reports = Vec::new();
+        let mut seen = std::collections::HashSet::<PathBuf>::new();
+
+        for (path, designer) in &self.designers {
+            seen.insert(path.clone());
+            reports.push((
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("form")
+                    .to_owned(),
+                validate_binding_action(&designer.form, action),
+            ));
+        }
+
+        if let Some(inspect) = &self.inspect {
+            if seen.insert(inspect.path.clone()) {
+                reports.push((
+                    inspect
+                        .path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("form")
+                        .to_owned(),
+                    validate_binding_action(&inspect.designer.form, action),
+                ));
+            }
+        }
+
+        if let (Some(project), Some(root)) = (
+            self.cobolt_project.as_ref(),
+            self.project_path.as_ref().and_then(|path| path.parent()),
+        ) {
+            for rel in &project.files.forms {
+                let path = root.join(rel);
+                if !seen.insert(path.clone()) {
+                    continue;
+                }
+                if let Ok(form) = load_form(&path) {
+                    reports.push((
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("form")
+                            .to_owned(),
+                        validate_binding_action(&form, action),
+                    ));
+                }
+            }
+        }
+
+        reports
+    }
+
+    fn emit_data_binding_gate_report(&mut self, label: &str, report: &BindingActionGateReport) {
+        let blockers = report.blocker_count();
+        let warnings = report.warning_count();
+        let tr = self.lang.tr();
+        let action = data_binding_action_label(&tr, report.action);
+        if blockers > 0 {
+            self.output.push_status(
+                tr.data_binding_guardian_blocked
+                    .replace("{action}", action)
+                    .replace("{label}", label)
+                    .replace("{count}", &blockers.to_string()),
+            );
+        } else if warnings > 0 {
+            self.output.push_status(
+                tr.data_binding_guardian_warning
+                    .replace("{action}", action)
+                    .replace("{label}", label)
+                    .replace("{count}", &warnings.to_string()),
+            );
+        }
+        for finding in &report.findings {
+            if finding.severity == cobolt_forms::GuardianSeverity::Info {
+                continue;
+            }
+            self.output.push_status(format!(
+                "[{}] {}: {}",
+                guardian_severity_label(&tr, &finding.severity),
+                finding.code,
+                finding.message
+            ));
+        }
+    }
+
     fn do_run(&mut self) {
+        if !self.allow_data_binding_project_action(BindingActionGate::RunProject) {
+            return;
+        }
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
         // Prefer the file in the editor; otherwise fall back to the open
@@ -633,6 +778,9 @@ impl CoboltApp {
     /// Syncs breakpoints from the editor gutter, resets the debugger panel,
     /// and starts `DebugRunner` with `new_with_debug_channels()`.
     fn do_debug(&mut self) {
+        if !self.allow_data_binding_project_action(BindingActionGate::DebugProject) {
+            return;
+        }
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
         let Some((path, src)) = self.editor.active_source() else {
@@ -669,6 +817,20 @@ impl CoboltApp {
     /// Saves + regenerates COBOL first so the interpreter always runs the
     /// latest version of the form.
     fn do_run_form(&mut self, idx: usize) {
+        if idx >= self.designers.len() {
+            return;
+        }
+        let form = self.designers[idx].1.form.clone();
+        let label = self.designers[idx]
+            .0
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("form")
+            .to_owned();
+        if !self.allow_data_binding_form_action(BindingActionGate::RunForm, &form, &label) {
+            return;
+        }
+        refresh_data_binding_target_properties(&mut self.designers[idx].1.form);
         // Save the form and regenerate COBOL first (silently — Run should not
         // pop a "saved" alert).
         self.do_save_designer(idx);
@@ -729,6 +891,9 @@ impl CoboltApp {
     }
 
     fn do_check(&mut self) {
+        if !self.allow_data_binding_project_action(BindingActionGate::CheckProject) {
+            return;
+        }
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
         let Some((path, src)) = self.editor.active_source() else {
@@ -1034,6 +1199,9 @@ impl CoboltApp {
     }
 
     fn do_package_project(&mut self) {
+        if !self.allow_data_binding_project_action(BindingActionGate::PackageProject) {
+            return;
+        }
         if self.cobolt_project.is_none() || self.project_path.is_none() {
             self.output
                 .push_status("Open or create a project first (File → New/Open Project).");
@@ -1094,6 +1262,9 @@ impl CoboltApp {
     /// Runs entirely on a background thread so the IDE stays responsive.
     /// Progress lines are forwarded to the Output panel.
     fn do_build_binary(&mut self) {
+        if !self.allow_data_binding_project_action(BindingActionGate::BuildProject) {
+            return;
+        }
         self.regenerate_all_forms();
         self.regenerate_all_indexed_files();
         let Some(proj_path) = &self.project_path else {
@@ -1384,6 +1555,16 @@ impl CoboltApp {
             return;
         }
         let path = self.designers[idx].0.clone();
+        let form = self.designers[idx].1.form.clone();
+        let label = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("form")
+            .to_owned();
+        if !self.allow_data_binding_form_action(BindingActionGate::SaveForm, &form, &label) {
+            return;
+        }
+        refresh_data_binding_target_properties(&mut self.designers[idx].1.form);
         let form_name = self.designers[idx].1.form.name.clone();
         let result = save_form(&self.designers[idx].1.form, &path);
         match result {
@@ -1601,16 +1782,31 @@ impl CoboltApp {
 
             // Split-borrow form (read) + properties (mutable), like the designer.
             let ctrl_id = st.ctrl_id.clone();
+            let indexed_files: Vec<String> = self
+                .cobolt_project
+                .as_ref()
+                .map(|project| project.files.indexed.clone())
+                .unwrap_or_default();
             let action = {
                 let d = &mut st.designer;
                 let sel = ctrl_id.as_deref().and_then(|id| d.form.find_control(id));
                 let form = &d.form as *const cobolt_forms::Form;
                 let props = &mut d.properties;
-                props.show(ui, unsafe { &*form }, sel, tr)
+                props.show(ui, unsafe { &*form }, sel, &indexed_files, tr)
             };
             for (cid, key, value) in action.set_props {
                 st.designer.set_property(&cid, &key, value);
                 changed = true;
+            }
+            if let Some(binding) = action.create_data_binding {
+                apply_data_binding_to_form(&mut st.designer.form, binding);
+                st.designer.dirty = true;
+                changed = true;
+            }
+            if let Some((old, new)) = action.rename_control {
+                if st.designer.rename_control(&old, &new) {
+                    changed = true;
+                }
             }
             for (key, value) in action.form_props {
                 st.designer.set_form_prop(&key, value);
@@ -1633,18 +1829,42 @@ impl CoboltApp {
         });
 
         if changed {
-            let saved_path = if let Some(st) = &mut self.inspect {
-                if save_form(&st.designer.form, &st.path).is_ok() {
-                    st.designer.dirty = false;
-                    // Record our own write time so the live-refresh check does
-                    // not treat this save as an external change and reload.
-                    st.mtime = file_mtime(&st.path);
-                    self.project.refresh_form(&st.path);
-                    Some(st.path.clone())
+            let gate_input = self.inspect.as_ref().map(|st| {
+                (
+                    st.path.clone(),
+                    st.designer.form.clone(),
+                    st.path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("form")
+                        .to_owned(),
+                )
+            });
+            let gate_ok = gate_input
+                .as_ref()
+                .map(|(_, form, label)| {
+                    self.allow_data_binding_form_action(BindingActionGate::SaveForm, form, label)
+                })
+                .unwrap_or(true);
+            let saved_path = if gate_ok {
+                if let Some(st) = &mut self.inspect {
+                    if save_form(&st.designer.form, &st.path).is_ok() {
+                        st.designer.dirty = false;
+                        // Record our own write time so the live-refresh check does
+                        // not treat this save as an external change and reload.
+                        st.mtime = file_mtime(&st.path);
+                        self.project.refresh_form(&st.path);
+                        Some(st.path.clone())
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
             } else {
+                if let Some(st) = &mut self.inspect {
+                    st.designer.dirty = true;
+                }
                 None
             };
             // An inline edit means the form changed and isn't re-tested → yellow.
@@ -4985,6 +5205,11 @@ impl CoboltApp {
 
         // ── Properties panel (right) ──────────────────────────────────────────
         let sel_id = self.designers[idx].1.selected_ids.first().cloned();
+        let indexed_files: Vec<String> = self
+            .cobolt_project
+            .as_ref()
+            .map(|project| project.files.indexed.clone())
+            .unwrap_or_default();
 
         // Allow the properties panel to be resized up to half the window width so
         // long values (paths, titles) aren't clipped by the window border.
@@ -5011,7 +5236,7 @@ impl CoboltApp {
                 let form = &d.form as *const cobolt_forms::Form;
                 let props = &mut d.properties;
                 // SAFETY: we only read *form; no aliased write to form or properties exists.
-                props.show(ui, unsafe { &*form }, sel_ctrl, tr)
+                props.show(ui, unsafe { &*form }, sel_ctrl, &indexed_files, tr)
             })
             .inner;
 
@@ -5022,6 +5247,14 @@ impl CoboltApp {
                 preview_triggered = true;
             }
             self.designers[idx].1.set_property(&ctrl_id, &key, value);
+        }
+        if let Some(binding) = inspector_action.create_data_binding {
+            let d = &mut self.designers[idx].1;
+            apply_data_binding_to_form(&mut d.form, binding);
+            d.dirty = true;
+        }
+        if let Some((old, new)) = inspector_action.rename_control {
+            self.designers[idx].1.rename_control(&old, &new);
         }
         // Kick off a repaint immediately so the animation loop starts on the next frame.
         if preview_triggered {
@@ -5196,9 +5429,649 @@ fn sanitize_file_stem(name: &str) -> String {
     }
 }
 
+fn apply_data_binding_to_form(form: &mut Form, binding: DataBindingDef) {
+    apply_data_binding_target_properties(form, &binding);
+    form.data_bindings
+        .retain(|existing| !same_binding_target(&existing.target, &binding.target));
+    form.data_bindings.push(binding);
+}
+
+fn refresh_data_binding_target_properties(form: &mut Form) {
+    let bindings = form.data_bindings.clone();
+    for binding in &bindings {
+        apply_data_binding_target_properties(form, binding);
+    }
+}
+
+fn same_binding_target(left: &BindingTargetDescriptor, right: &BindingTargetDescriptor) -> bool {
+    left.primary_control_id()
+        .eq_ignore_ascii_case(right.primary_control_id())
+}
+
+fn apply_data_binding_target_properties(form: &mut Form, binding: &DataBindingDef) {
+    if let BindingTargetDescriptor::DataGrid { control_id } = &binding.target {
+        let columns = binding
+            .source
+            .fields()
+            .iter()
+            .map(|field| {
+                let display_name = field.display_name.trim();
+                let name = if display_name.is_empty() {
+                    field.name.as_str()
+                } else {
+                    display_name
+                };
+                format!("{name}:{}", datagrid_column_type(&field.data_type))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let data_source = binding_source_basic_label(&binding.source);
+        let preview_rows = data_binding_preview_rows(form, binding);
+        if let Some(control) = form.find_control_mut(control_id) {
+            let advanced_grid = datagrid_advanced_for_binding(control, binding);
+            control.set_prop("Columns", PropValue::String(columns));
+            control.set_prop("DataSource", PropValue::String(data_source));
+            control.set_prop("Rows", PropValue::String(preview_rows));
+            if let Some(advanced_grid) = advanced_grid {
+                control.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(advanced_grid));
+            }
+        }
+    }
+}
+
+fn datagrid_advanced_for_binding(
+    control: &cobolt_forms::Control,
+    binding: &DataBindingDef,
+) -> Option<String> {
+    let fields = binding.source.fields();
+    if fields.is_empty() {
+        return None;
+    }
+    let mut advanced = DataGridAdvanced::from_control(control);
+    let existing_columns = advanced.columns.clone();
+    let mut used = vec![false; fields.len()];
+    let mut next_columns = Vec::new();
+
+    for existing in &existing_columns {
+        if let Some((index, field)) = fields
+            .iter()
+            .enumerate()
+            .find(|(index, field)| !used[*index] && column_matches_field(existing, field))
+        {
+            used[index] = true;
+            next_columns.push(merge_datagrid_binding_column(
+                existing.clone(),
+                binding,
+                field,
+            ));
+        }
+    }
+
+    for (index, field) in fields.iter().enumerate() {
+        if !used[index] {
+            next_columns.push(merge_datagrid_binding_column(
+                DataGridColumn::default(),
+                binding,
+                field,
+            ));
+        }
+    }
+
+    advanced.columns = next_columns;
+    advanced.to_json().ok()
+}
+
+fn merge_datagrid_binding_column(
+    mut column: DataGridColumn,
+    binding: &DataBindingDef,
+    field: &BindingField,
+) -> DataGridColumn {
+    column.id = datagrid_binding_column_id(binding, field);
+    column.title = if field.display_name.trim().is_empty() {
+        field.name.clone()
+    } else {
+        field.display_name.clone()
+    };
+    column.source_name = field.name.clone();
+    column.value_type = datagrid_column_type(&field.data_type).to_owned();
+    // Seed the COBOL mask from the bound field's PICTURE only when the column has
+    // none yet. A mask typed in the DataGrid column editor is a deliberate
+    // override that must survive save/run binding refreshes — otherwise the user
+    // "cannot change" the mask because every refresh resets it (and the cell value
+    // never passes through their mask). Clearing the field re-seeds from the bind.
+    if column.cobol_mask.trim().is_empty() {
+        column.cobol_mask = field.cobol_mask.clone();
+    }
+    column.edit_control = if field.edit_control.trim().is_empty() {
+        "Textbox".to_owned()
+    } else {
+        field.edit_control.clone()
+    };
+    if column.width <= 0.0 {
+        column.width = DataGridColumn::default().width;
+    }
+    column
+}
+
+fn datagrid_binding_column_id(binding: &DataBindingDef, field: &BindingField) -> String {
+    binding
+        .mappings
+        .iter()
+        .find_map(|mapping| {
+            if !mapping.source_field.eq_ignore_ascii_case(&field.name) {
+                return None;
+            }
+            match &mapping.target {
+                BindingTargetPath::GridColumn { column_id, .. } if !column_id.trim().is_empty() => {
+                    Some(column_id.clone())
+                }
+                _ => None,
+            }
+        })
+        .unwrap_or_else(|| normalize_datagrid_column_id(&field.name))
+}
+
+fn column_matches_field(column: &DataGridColumn, field: &BindingField) -> bool {
+    column.source_name.eq_ignore_ascii_case(&field.name)
+        || column.id.eq_ignore_ascii_case(&field.name)
+        || column.title.eq_ignore_ascii_case(&field.name)
+        || (!field.display_name.trim().is_empty()
+            && column.title.eq_ignore_ascii_case(&field.display_name))
+}
+
+fn normalize_datagrid_column_id(name: &str) -> String {
+    let normalized: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    normalized.trim_matches('_').to_owned()
+}
+
+fn data_binding_preview_rows(form: &Form, binding: &DataBindingDef) -> String {
+    let fields = binding.source.fields();
+    if fields.is_empty() {
+        return String::new();
+    }
+    let rows = cobol_table_move_rows(form, &binding.source, fields)
+        .or_else(|| cobol_table_value_rows(form, &binding.source, fields))
+        .unwrap_or_else(|| fallback_binding_preview_rows(&binding.source, fields));
+    rows.into_iter()
+        .filter(|row| !row.is_empty())
+        .map(|row| row.join("\t"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn cobol_table_move_rows(
+    form: &Form,
+    source: &BindingSourceDescriptor,
+    fields: &[BindingField],
+) -> Option<Vec<Vec<String>>> {
+    if !matches!(source, BindingSourceDescriptor::CobolTable { .. }) {
+        return None;
+    }
+    let field_names = fields
+        .iter()
+        .map(|field| field.name.to_ascii_uppercase())
+        .collect::<std::collections::HashSet<_>>();
+    let mut row_values =
+        std::collections::BTreeMap::<usize, std::collections::HashMap<String, String>>::new();
+    for code in form_binding_code_blocks(form) {
+        collect_move_rows_from_code(&code, &field_names, &mut row_values);
+    }
+    if row_values.is_empty() {
+        return None;
+    }
+    let rows = row_values
+        .into_iter()
+        .map(|(_, values)| {
+            fields
+                .iter()
+                .map(|field| {
+                    values
+                        .get(&field.name.to_ascii_uppercase())
+                        .cloned()
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|row| row.iter().any(|value| !value.trim().is_empty()))
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        None
+    } else {
+        Some(rows)
+    }
+}
+
+fn form_binding_code_blocks(form: &Form) -> Vec<String> {
+    let mut blocks = form
+        .form_events
+        .iter()
+        .map(|event| event.code.clone())
+        .collect::<Vec<_>>();
+    for control in &form.controls {
+        collect_control_event_code(control, &mut blocks);
+    }
+    blocks.extend(
+        form.user_procedures
+            .iter()
+            .map(|procedure| procedure.code.clone()),
+    );
+    blocks
+}
+
+fn collect_control_event_code(control: &cobolt_forms::Control, blocks: &mut Vec<String>) {
+    blocks.extend(control.events.iter().map(|event| event.code.clone()));
+    for child in &control.children {
+        collect_control_event_code(child, blocks);
+    }
+}
+
+fn collect_move_rows_from_code(
+    code: &str,
+    field_names: &std::collections::HashSet<String>,
+    row_values: &mut std::collections::BTreeMap<usize, std::collections::HashMap<String, String>>,
+) {
+    for statement in split_cobol_statements(code) {
+        if let Some((value, field, row_index)) = parse_indexed_move_statement(statement) {
+            let field = field.to_ascii_uppercase();
+            if field_names.contains(&field) {
+                row_values
+                    .entry(row_index)
+                    .or_default()
+                    .insert(field, value);
+            }
+        }
+    }
+}
+
+fn split_cobol_statements(code: &str) -> Vec<&str> {
+    let mut statements = Vec::new();
+    let mut in_quote: Option<char> = None;
+    let mut start = 0;
+    let mut index = 0;
+    while index < code.len() {
+        let ch = code[index..].chars().next().unwrap_or_default();
+        if matches!(ch, '"' | '\'') {
+            if in_quote == Some(ch) {
+                in_quote = None;
+            } else if in_quote.is_none() {
+                in_quote = Some(ch);
+            }
+        }
+        if ch == '.' && in_quote.is_none() && !is_decimal_point(code, index) {
+            let statement = code[start..index].trim();
+            if !statement.is_empty() {
+                statements.push(statement);
+            }
+            start = index + ch.len_utf8();
+        }
+        index += ch.len_utf8();
+    }
+    let statement = code[start..].trim();
+    if !statement.is_empty() {
+        statements.push(statement);
+    }
+    statements
+}
+
+fn is_decimal_point(text: &str, index: usize) -> bool {
+    let before = text[..index].chars().next_back();
+    let after = text[index + 1..].chars().next();
+    before.map(|ch| ch.is_ascii_digit()).unwrap_or(false)
+        && after.map(|ch| ch.is_ascii_digit()).unwrap_or(false)
+}
+
+fn parse_indexed_move_statement(statement: &str) -> Option<(String, String, usize)> {
+    let statement = statement.trim();
+    if !starts_with_keyword(statement, "MOVE") {
+        return None;
+    }
+    let after_move = statement.get(4..)?.trim_start();
+    let to_pos = find_keyword_outside_quotes(after_move, "TO")?;
+    let raw_value = after_move[..to_pos].trim();
+    let target = after_move[to_pos + 2..].trim();
+    let open = target.find('(')?;
+    let close = target[open + 1..].find(')')? + open + 1;
+    let field = target[..open].trim();
+    let index = target[open + 1..close].trim().parse::<usize>().ok()?;
+    if field.is_empty() || index == 0 {
+        return None;
+    }
+    Some((clean_move_value(raw_value), field.to_owned(), index))
+}
+
+fn starts_with_keyword(text: &str, keyword: &str) -> bool {
+    let Some(prefix) = text.get(..keyword.len()) else {
+        return false;
+    };
+    prefix.eq_ignore_ascii_case(keyword)
+        && text
+            .get(keyword.len()..)
+            .and_then(|rest| rest.chars().next())
+            .map(|ch| ch.is_whitespace())
+            .unwrap_or(false)
+}
+
+fn find_keyword_outside_quotes(text: &str, keyword: &str) -> Option<usize> {
+    let mut in_quote: Option<char> = None;
+    let mut index = 0;
+    while index < text.len() {
+        let ch = text[index..].chars().next()?;
+        if matches!(ch, '"' | '\'') {
+            if in_quote == Some(ch) {
+                in_quote = None;
+            } else if in_quote.is_none() {
+                in_quote = Some(ch);
+            }
+        }
+        if in_quote.is_none()
+            && text[index..].len() >= keyword.len()
+            && text[index..index + keyword.len()].eq_ignore_ascii_case(keyword)
+        {
+            let before_ok = index == 0
+                || text[..index]
+                    .chars()
+                    .next_back()
+                    .map(|ch| ch.is_whitespace())
+                    .unwrap_or(true);
+            let after_ok = text[index + keyword.len()..]
+                .chars()
+                .next()
+                .map(|ch| ch.is_whitespace())
+                .unwrap_or(true);
+            if before_ok && after_ok {
+                return Some(index);
+            }
+        }
+        index += ch.len_utf8();
+    }
+    None
+}
+
+fn clean_move_value(value: &str) -> String {
+    let value = value.trim();
+    if value.len() >= 2 {
+        let first = value.chars().next().unwrap_or_default();
+        let last = value.chars().next_back().unwrap_or_default();
+        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+            return value[1..value.len() - 1].to_owned();
+        }
+    }
+    value.to_owned()
+}
+
+fn cobol_table_value_rows(
+    form: &Form,
+    source: &BindingSourceDescriptor,
+    fields: &[BindingField],
+) -> Option<Vec<Vec<String>>> {
+    let BindingSourceDescriptor::CobolTable {
+        table_name,
+        occurs_item,
+        ..
+    } = source
+    else {
+        return None;
+    };
+    let ws = form.user_ws_source.trim();
+    if ws.is_empty() {
+        return None;
+    }
+    let source = format!(
+        "IDENTIFICATION DIVISION.\n\
+         PROGRAM-ID. BINDING-ROWS.\n\
+         DATA DIVISION.\n\
+         WORKING-STORAGE SECTION.\n\
+         {ws}\n\
+         PROCEDURE DIVISION.\n\
+         MAIN.\n\
+             STOP RUN.\n"
+    );
+    let result = parse(tokenize(&source, SourceFormat::Free));
+    let program = result.program?;
+    let data = program.data?;
+    let mut values = Vec::<(String, String)>::new();
+    for section in &data.sections {
+        if let DataSection::WorkingStorage(items) = section {
+            for root in items {
+                if root.level == 1
+                    && root
+                        .name
+                        .as_deref()
+                        .map(|name| name.eq_ignore_ascii_case(table_name))
+                        .unwrap_or(false)
+                {
+                    let item = if root
+                        .name
+                        .as_deref()
+                        .map(|name| name.eq_ignore_ascii_case(occurs_item))
+                        .unwrap_or(false)
+                    {
+                        Some(root)
+                    } else {
+                        find_data_decl_by_name(root, occurs_item)
+                    };
+                    if let Some(item) = item {
+                        collect_decl_values(item, &mut values);
+                    }
+                }
+            }
+        }
+    }
+    if values.is_empty() {
+        return None;
+    }
+    let row = fields
+        .iter()
+        .map(|field| {
+            values
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(&field.name))
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>();
+    if row.iter().any(|value| !value.trim().is_empty()) {
+        Some(vec![row])
+    } else {
+        None
+    }
+}
+
+fn find_data_decl_by_name<'a>(decl: &'a DataDecl, name: &str) -> Option<&'a DataDecl> {
+    if decl
+        .name
+        .as_deref()
+        .map(|candidate| candidate.eq_ignore_ascii_case(name))
+        .unwrap_or(false)
+    {
+        return Some(decl);
+    }
+    decl.children
+        .iter()
+        .find_map(|child| find_data_decl_by_name(child, name))
+}
+
+fn collect_decl_values(decl: &DataDecl, values: &mut Vec<(String, String)>) {
+    if let (Some(name), Some(value)) = (&decl.name, &decl.value) {
+        values.push((name.clone(), literal_preview_value(value)));
+    }
+    for child in &decl.children {
+        collect_decl_values(child, values);
+    }
+}
+
+fn literal_preview_value(value: &Literal) -> String {
+    match value {
+        Literal::String(value) => value.clone(),
+        Literal::Integer(value) => value.to_string(),
+        Literal::Float(value) => trim_float_preview(*value),
+        Literal::Decimal(mantissa, scale) => decimal_preview_value(*mantissa, *scale),
+        Literal::Figurative(figurative) => figurative_preview_value(figurative),
+    }
+}
+
+fn trim_float_preview(value: f64) -> String {
+    let mut text = value.to_string();
+    if text.contains('.') {
+        while text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+    }
+    text
+}
+
+fn decimal_preview_value(mantissa: i128, scale: u8) -> String {
+    if scale == 0 {
+        return mantissa.to_string();
+    }
+    let negative = mantissa < 0;
+    let digits = mantissa.abs().to_string();
+    let scale = scale as usize;
+    let padded = if digits.len() <= scale {
+        format!("{:0>width$}", digits, width = scale + 1)
+    } else {
+        digits
+    };
+    let split = padded.len() - scale;
+    let sign = if negative { "-" } else { "" };
+    format!("{sign}{}.{}", &padded[..split], &padded[split..])
+}
+
+fn figurative_preview_value(value: &FigurativeConstant) -> String {
+    match value {
+        FigurativeConstant::Zero => "0".to_owned(),
+        FigurativeConstant::Space => String::new(),
+        FigurativeConstant::HighValue => "HIGH-VALUE".to_owned(),
+        FigurativeConstant::LowValue => "LOW-VALUE".to_owned(),
+        FigurativeConstant::Quote => "\"".to_owned(),
+        FigurativeConstant::Null => String::new(),
+        FigurativeConstant::All(inner) => literal_preview_value(inner),
+    }
+}
+
+fn fallback_binding_preview_rows(
+    source: &BindingSourceDescriptor,
+    fields: &[BindingField],
+) -> Vec<Vec<String>> {
+    let row_count = match source {
+        BindingSourceDescriptor::RestApi { .. } => 2,
+        BindingSourceDescriptor::CobolTable { .. } => 3,
+        BindingSourceDescriptor::IndexedFile { .. } | BindingSourceDescriptor::Sql { .. } => 2,
+        BindingSourceDescriptor::AgentAi { .. } => 1,
+    };
+    (0..row_count)
+        .map(|row_index| {
+            fields
+                .iter()
+                .map(|field| fallback_field_value(field, row_index))
+                .collect()
+        })
+        .collect()
+}
+
+fn fallback_field_value(field: &BindingField, row_index: usize) -> String {
+    let ordinal = row_index + 1;
+    let name = field.name.to_ascii_uppercase();
+    match field.data_type {
+        BindingDataType::Integer => {
+            if name.contains("ID") {
+                format!("{ordinal}")
+            } else {
+                format!("{}", ordinal * 10)
+            }
+        }
+        BindingDataType::Decimal => format!("{}.00", ordinal * 100),
+        BindingDataType::Boolean => {
+            if row_index % 2 == 0 {
+                "Y".to_owned()
+            } else {
+                "N".to_owned()
+            }
+        }
+        BindingDataType::Date => format!("2026-06-{:02}", ordinal),
+        BindingDataType::DateTime => format!("2026-06-{:02} 09:00:00", ordinal),
+        BindingDataType::Text | BindingDataType::Json | BindingDataType::Unknown => {
+            fallback_text_field_value(field, ordinal)
+        }
+    }
+}
+
+fn fallback_text_field_value(field: &BindingField, ordinal: usize) -> String {
+    let label = if field.display_name.trim().is_empty() {
+        field.name.as_str()
+    } else {
+        field.display_name.as_str()
+    };
+    format!("{label} {ordinal}")
+}
+
+fn datagrid_column_type(data_type: &BindingDataType) -> &'static str {
+    match data_type {
+        BindingDataType::Integer | BindingDataType::Decimal => "number",
+        BindingDataType::Date | BindingDataType::DateTime => "datetime",
+        _ => "string",
+    }
+}
+
+fn binding_source_basic_label(source: &BindingSourceDescriptor) -> String {
+    match source {
+        BindingSourceDescriptor::IndexedFile {
+            definition_path,
+            record_name,
+            ..
+        } => {
+            if record_name.trim().is_empty() {
+                definition_path.clone()
+            } else {
+                format!("{definition_path} / {record_name}")
+            }
+        }
+        BindingSourceDescriptor::Sql {
+            source_control_id,
+            result_set_name,
+            ..
+        } => {
+            if result_set_name.trim().is_empty() {
+                source_control_id.clone()
+            } else {
+                format!("{source_control_id} / {result_set_name}")
+            }
+        }
+        BindingSourceDescriptor::CobolTable {
+            table_name,
+            occurs_item,
+            ..
+        } => {
+            if occurs_item.trim().is_empty() {
+                table_name.clone()
+            } else {
+                format!("{table_name} / {occurs_item}")
+            }
+        }
+        BindingSourceDescriptor::RestApi { endpoint_name, .. } => endpoint_name.clone(),
+        BindingSourceDescriptor::AgentAi { output_name, .. } => output_name.clone(),
+    }
+}
+
 #[cfg(test)]
 mod manifest_name_tests {
     use super::*;
+    use cobolt_forms::{
+        BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor, Control,
+        ControlType, EventBinding, FieldMapping,
+    };
 
     #[test]
     fn project_name_becomes_manifest_stem() {
@@ -5210,5 +6083,364 @@ mod manifest_name_tests {
         assert_eq!(sanitize_file_stem("  My/Project:v2  "), "My-Project-v2");
         assert_eq!(sanitize_file_stem("...."), "project");
         assert_eq!(sanitize_file_stem(""), "project");
+    }
+
+    #[test]
+    fn applying_grid_data_binding_updates_datagrid_basic_properties() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        form.add_control(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+        let fields = vec![
+            {
+                let mut field = BindingField::new("CUSTOMER-ID", BindingDataType::Integer);
+                field.display_name = "Customer ID".to_owned();
+                field.key = true;
+                field
+            },
+            {
+                let mut field = BindingField::new("CUSTOMER-NAME", BindingDataType::Text);
+                field.display_name = "Customer Name".to_owned();
+                field
+            },
+        ];
+        let binding = DataBindingDef::new(
+            "BIND-GRID",
+            "Customers",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-CUSTOMER-TABLE".to_owned(),
+                occurs_item: "WS-CUSTOMER-ROW".to_owned(),
+                fields,
+                key_fields: vec!["CUSTOMER-ID".to_owned()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".to_owned(),
+            },
+        );
+
+        apply_data_binding_to_form(&mut form, binding);
+
+        let grid = form.find_control("GRID-1").expect("grid should exist");
+        assert_eq!(
+            grid.get_prop("Columns").map(PropValue::as_str),
+            Some("Customer ID:number\nCustomer Name:string")
+        );
+        assert_eq!(
+            grid.get_prop("DataSource").map(PropValue::as_str),
+            Some("WS-CUSTOMER-TABLE / WS-CUSTOMER-ROW")
+        );
+        assert_eq!(
+            grid.get_prop("Rows").map(PropValue::as_str),
+            Some("1\tCustomer Name 1\n2\tCustomer Name 2\n3\tCustomer Name 3")
+        );
+        assert_eq!(form.data_bindings.len(), 1);
+    }
+
+    #[test]
+    fn applying_grid_data_binding_uses_cobol_table_initial_values_when_available() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        form.user_ws_source = "\
+01 WS-ACTOR-TABLE GLOBAL.
+   05 WS-ACTOR-ROW OCCURS 10 TIMES.
+      10 ACTOR-ID      PIC 9(06) VALUE 42.
+      10 ACTOR-CAPTION PIC X(20) VALUE \"Lead Actor\".
+      10 ACTOR-SALARY  PIC S9(9)V99 VALUE 1250.75.
+"
+        .to_owned();
+        form.add_control(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+        let fields = vec![
+            BindingField::new("ACTOR-ID", BindingDataType::Integer),
+            BindingField::new("ACTOR-CAPTION", BindingDataType::Text),
+            BindingField::new("ACTOR-SALARY", BindingDataType::Decimal),
+        ];
+        let binding = DataBindingDef::new(
+            "BIND-ACTOR",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields,
+                key_fields: vec!["ACTOR-ID".to_owned()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".to_owned(),
+            },
+        );
+
+        apply_data_binding_to_form(&mut form, binding);
+
+        let grid = form.find_control("GRID-1").expect("grid should exist");
+        assert_eq!(
+            grid.get_prop("Rows").map(PropValue::as_str),
+            Some("42\tLead Actor\t1250.75")
+        );
+    }
+
+    #[test]
+    fn datagrid_binding_metadata_preserves_advanced_column_identity() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        let mut grid = Control::new("ActorGrid", ControlType::DataGrid, 0, 0);
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "ACTOR_CAPTION".into(),
+            title: "Actor Caption".into(),
+            source_name: "ACTOR-CAPTION".into(),
+            width: 240.0,
+            background_color: "#112233".into(),
+            ..DataGridColumn::default()
+        });
+        advanced.columns.push(DataGridColumn {
+            id: "ACTOR_ID".into(),
+            title: "Actor Id".into(),
+            source_name: "ACTOR-ID".into(),
+            width: 90.0,
+            ..DataGridColumn::default()
+        });
+        grid.set_prop(
+            DATAGRID_ADVANCED_PROP,
+            PropValue::String(
+                advanced
+                    .to_json()
+                    .expect("advanced metadata should serialize"),
+            ),
+        );
+        form.add_control(grid);
+
+        let mut actor_id = BindingField::new("ACTOR-ID", BindingDataType::Integer);
+        actor_id.display_name = "Actor Id".to_owned();
+        let mut caption = BindingField::new("ACTOR-CAPTION", BindingDataType::Text);
+        caption.display_name = "Actor Caption".to_owned();
+        let mut salary = BindingField::new("ACTOR-SALARY", BindingDataType::Decimal);
+        salary.display_name = "Actor Salary".to_owned();
+        let binding = DataBindingDef::new(
+            "BIND-ACTORS",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields: vec![actor_id, caption, salary],
+                key_fields: vec!["ACTOR-ID".to_owned()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "ActorGrid".to_owned(),
+            },
+        )
+        .with_mappings(vec![
+            FieldMapping::new(
+                "ACTOR-ID",
+                BindingTargetPath::GridColumn {
+                    control_id: "ActorGrid".into(),
+                    column_id: "ACTOR_ID".into(),
+                },
+            ),
+            FieldMapping::new(
+                "ACTOR-CAPTION",
+                BindingTargetPath::GridColumn {
+                    control_id: "ActorGrid".into(),
+                    column_id: "ACTOR_CAPTION".into(),
+                },
+            ),
+            FieldMapping::new(
+                "ACTOR-SALARY",
+                BindingTargetPath::GridColumn {
+                    control_id: "ActorGrid".into(),
+                    column_id: "ACTOR_SALARY".into(),
+                },
+            ),
+        ]);
+
+        apply_data_binding_to_form(&mut form, binding);
+
+        let grid = form.find_control("ActorGrid").expect("grid should exist");
+        let parsed = DataGridAdvanced::from_control(grid);
+        assert_eq!(parsed.columns.len(), 3);
+        assert_eq!(parsed.columns[0].source_name, "ACTOR-CAPTION");
+        assert_eq!(parsed.columns[0].width, 240.0);
+        assert_eq!(parsed.columns[0].background_color, "#112233");
+        assert_eq!(parsed.columns[1].source_name, "ACTOR-ID");
+        assert_eq!(parsed.columns[1].width, 90.0);
+        assert_eq!(parsed.columns[2].id, "ACTOR_SALARY");
+        assert_eq!(parsed.columns[2].source_name, "ACTOR-SALARY");
+        assert_eq!(
+            grid.get_prop("Columns").map(PropValue::as_str),
+            Some("Actor Id:number\nActor Caption:string\nActor Salary:number")
+        );
+    }
+
+    #[test]
+    fn datagrid_binding_refresh_preserves_user_cobol_mask_override() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        let mut grid = Control::new("ActorGrid", ControlType::DataGrid, 0, 0);
+        // The user has already typed a custom mask on the salary column.
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "ACTOR_SALARY".into(),
+            title: "Actor Salary".into(),
+            source_name: "ACTOR-SALARY".into(),
+            cobol_mask: "ZZ9.99-".into(),
+            ..DataGridColumn::default()
+        });
+        grid.set_prop(
+            DATAGRID_ADVANCED_PROP,
+            PropValue::String(advanced.to_json().expect("advanced serializes")),
+        );
+        form.add_control(grid);
+
+        // Salary field carries a different PIC; the id field has no column yet.
+        let mut actor_id = BindingField::new("ACTOR-ID", BindingDataType::Integer);
+        actor_id.cobol_mask = "9(6)".to_owned();
+        let mut salary = BindingField::new("ACTOR-SALARY", BindingDataType::Decimal);
+        salary.cobol_mask = "S9(9)V99".to_owned();
+        let binding = DataBindingDef::new(
+            "BIND-ACTORS",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields: vec![actor_id, salary],
+                key_fields: vec!["ACTOR-ID".to_owned()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "ActorGrid".to_owned(),
+            },
+        );
+        apply_data_binding_to_form(&mut form, binding);
+
+        // Simulate the save/run refresh that previously wiped the override.
+        refresh_data_binding_target_properties(&mut form);
+
+        let grid = form.find_control("ActorGrid").expect("grid should exist");
+        let parsed = DataGridAdvanced::from_control(grid);
+        let salary_col = parsed
+            .columns
+            .iter()
+            .find(|c| c.source_name.eq_ignore_ascii_case("ACTOR-SALARY"))
+            .expect("salary column");
+        assert_eq!(
+            salary_col.cobol_mask, "ZZ9.99-",
+            "user's typed mask must survive binding refresh"
+        );
+        let id_col = parsed
+            .columns
+            .iter()
+            .find(|c| c.source_name.eq_ignore_ascii_case("ACTOR-ID"))
+            .expect("id column");
+        assert_eq!(
+            id_col.cobol_mask, "9(6)",
+            "a column with no mask is seeded from the bound field's PICTURE"
+        );
+    }
+
+    #[test]
+    fn applying_grid_data_binding_uses_indexed_move_rows_from_form_code() {
+        let mut form = Form::new("ActorForm", "ActorForm", 800, 600);
+        form.add_control(Control::new("ActorGrid", ControlType::DataGrid, 0, 0));
+        form.form_events.push(EventBinding {
+            event: "onShow".to_owned(),
+            paragraph: "ActorForm--onShow".to_owned(),
+            code: "\
+       PROCEDURE DIVISION.
+           MOVE 000000001 TO ACTOR-ID(1).
+           MOVE \"assets/images/photo000000001.jpg\" TO ACTOR-THUMB(1).
+           MOVE \"Leonardo DiCaprio\" TO ACTOR-CAPTION(1).
+           MOVE 30000000.00 TO ACTOR-SALARY(1).
+
+           MOVE 000000002 TO ACTOR-ID(2).
+           MOVE \"assets/images/photo000000002.jpg\" TO ACTOR-THUMB(2).
+           MOVE \"Joe Pesci\" TO ACTOR-CAPTION(2).
+           MOVE 12000000.00 TO ACTOR-SALARY(2).
+"
+            .to_owned(),
+        });
+
+        let mut actor_id = BindingField::new("ACTOR-ID", BindingDataType::Integer);
+        actor_id.display_name = "Actor Id".to_owned();
+        let mut thumb = BindingField::new("ACTOR-THUMB", BindingDataType::Text);
+        thumb.display_name = "Actor Thumb".to_owned();
+        let mut caption = BindingField::new("ACTOR-CAPTION", BindingDataType::Text);
+        caption.display_name = "Actor Caption".to_owned();
+        let mut salary = BindingField::new("ACTOR-SALARY", BindingDataType::Decimal);
+        salary.display_name = "Actor Salary".to_owned();
+        let binding = DataBindingDef::new(
+            "BIND-ACTORS",
+            "Actors",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-ACTOR-TABLE".to_owned(),
+                occurs_item: "WS-ACTOR-ROW".to_owned(),
+                fields: vec![actor_id, thumb, caption, salary],
+                key_fields: vec!["ACTOR-ID".to_owned()],
+                writable: true,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "ActorGrid".to_owned(),
+            },
+        );
+
+        apply_data_binding_to_form(&mut form, binding);
+
+        let grid = form.find_control("ActorGrid").expect("grid should exist");
+        assert_eq!(
+            grid.get_prop("Rows").map(PropValue::as_str),
+            Some(
+                "000000001\tassets/images/photo000000001.jpg\tLeonardo DiCaprio\t30000000.00\n\
+000000002\tassets/images/photo000000002.jpg\tJoe Pesci\t12000000.00"
+            )
+        );
+    }
+
+    #[test]
+    fn applying_grid_data_binding_replaces_existing_target_binding() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        form.add_control(Control::new("GRID-1", ControlType::DataGrid, 0, 0));
+
+        let first = DataBindingDef::new(
+            "BIND-OLD",
+            "Old",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-OLD".to_owned(),
+                occurs_item: "WS-OLD-ROW".to_owned(),
+                fields: vec![BindingField::new("OLD-FIELD", BindingDataType::Text)],
+                key_fields: Vec::new(),
+                writable: false,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".to_owned(),
+            },
+        );
+        let second = DataBindingDef::new(
+            "BIND-NEW",
+            "New",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "WS-NEW".to_owned(),
+                occurs_item: "WS-NEW-ROW".to_owned(),
+                fields: vec![BindingField::new("NEW-FIELD", BindingDataType::Text)],
+                key_fields: Vec::new(),
+                writable: false,
+            },
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".to_owned(),
+            },
+        );
+
+        apply_data_binding_to_form(&mut form, first);
+        apply_data_binding_to_form(&mut form, second);
+
+        assert_eq!(form.data_bindings.len(), 1);
+        assert_eq!(form.data_bindings[0].id, "BIND-NEW");
+        let grid = form.find_control("GRID-1").expect("grid should exist");
+        assert_eq!(
+            grid.get_prop("Columns").map(PropValue::as_str),
+            Some("NEW-FIELD:string")
+        );
+        assert_eq!(
+            grid.get_prop("DataSource").map(PropValue::as_str),
+            Some("WS-NEW / WS-NEW-ROW")
+        );
+        assert_eq!(
+            grid.get_prop("Rows").map(PropValue::as_str),
+            Some("NEW-FIELD 1\nNEW-FIELD 2\nNEW-FIELD 3")
+        );
     }
 }

@@ -7,6 +7,7 @@
 //! Core data model: `Form`, `Control`, `ControlType`, `EventBinding`, `AnimationDef`.
 
 use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +112,622 @@ impl From<bool> for PropValue {
 impl std::fmt::Display for PropValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_xml_string())
+    }
+}
+
+// ── Advanced DataGrid model (spec 023) ───────────────────────────────────────
+
+pub const DATAGRID_ADVANCED_PROP: &str = "AdvancedGrid";
+pub const DATAGRID_ADVANCED_SCHEMA_VERSION: u16 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataGridCsvExportMode {
+    Filtered,
+    AllRows,
+}
+
+impl Default for DataGridCsvExportMode {
+    fn default() -> Self {
+        Self::Filtered
+    }
+}
+
+impl DataGridCsvExportMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Filtered => "Filtered",
+            Self::AllRows => "AllRows",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "all" | "allrows" | "all_rows" => Self::AllRows,
+            _ => Self::Filtered,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataGridGridLineStyle {
+    Solid,
+    Dash,
+    Dots,
+    None,
+}
+
+impl Default for DataGridGridLineStyle {
+    fn default() -> Self {
+        Self::Solid
+    }
+}
+
+impl DataGridGridLineStyle {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Solid => "Solid",
+            Self::Dash => "Dash",
+            Self::Dots => "Dots",
+            Self::None => "None",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "dash" | "dashed" => Self::Dash,
+            "dot" | "dots" | "dotted" => Self::Dots,
+            "none" | "off" | "false" => Self::None,
+            _ => Self::Solid,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataGridTextAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+impl Default for DataGridTextAlignment {
+    fn default() -> Self {
+        Self::Left
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataGridCellFrame {
+    pub enabled: bool,
+    pub background_color: String,
+    pub foreground_color: String,
+    pub padding: u16,
+    pub corner_radius: u16,
+    #[serde(default = "DataGridCellFrame::default_shape")]
+    pub shape: String,
+}
+
+impl Default for DataGridCellFrame {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            background_color: "#1BC47D".into(),
+            foreground_color: "#FFFFFF".into(),
+            padding: 6,
+            corner_radius: 8,
+            shape: Self::default_shape(),
+        }
+    }
+}
+
+impl DataGridCellFrame {
+    fn default_shape() -> String {
+        "Pill".into()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataGridGauge {
+    pub enabled: bool,
+    pub min: f64,
+    pub max: f64,
+    pub fill_color: String,
+    pub background_color: String,
+    pub show_text: bool,
+}
+
+impl Default for DataGridGauge {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min: 0.0,
+            max: 100.0,
+            fill_color: "#3F86F5".into(),
+            background_color: "#22314A".into(),
+            show_text: true,
+        }
+    }
+}
+
+impl DataGridGauge {
+    pub fn fraction_for_value(&self, value: &str) -> Option<f32> {
+        if !self.enabled {
+            return None;
+        }
+        let parsed = value.trim().parse::<f64>().ok()?;
+        let span = self.max - self.min;
+        if span.abs() <= f64::EPSILON {
+            return Some(0.0);
+        }
+        Some(((parsed - self.min) / span).clamp(0.0, 1.0) as f32)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataGridValueStyleRule {
+    pub value: String,
+    pub foreground_color: String,
+    pub background_color: String,
+    pub frame_background_color: String,
+    pub frame_foreground_color: String,
+}
+
+impl Default for DataGridValueStyleRule {
+    fn default() -> Self {
+        Self {
+            value: String::new(),
+            foreground_color: "#FFFFFF".into(),
+            background_color: "#00000000".into(),
+            frame_background_color: "#1BC47D".into(),
+            frame_foreground_color: "#FFFFFF".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataGridColumn {
+    pub id: String,
+    pub title: String,
+    pub source_name: String,
+    pub value_type: String,
+    #[serde(default)]
+    pub cobol_mask: String,
+    #[serde(default = "DataGridColumn::default_edit_control")]
+    pub edit_control: String,
+    #[serde(default)]
+    pub control_kind: String,
+    pub width: f32,
+    pub visible: bool,
+    pub frozen: bool,
+    pub filter_enabled: bool,
+    pub sort_enabled: bool,
+    #[serde(default = "DataGridColumn::default_header_font_size")]
+    pub header_font_size: u16,
+    pub text_alignment: DataGridTextAlignment,
+    pub foreground_color: String,
+    pub background_color: String,
+    #[serde(default)]
+    pub background_pattern: String,
+    #[serde(default)]
+    pub background_image: String,
+    /// Corner radius (px) applied to an `Image` edit-control cell's picture.
+    #[serde(default)]
+    pub image_corner_radius: f32,
+    /// Draw a soft drop shadow behind an `Image` edit-control cell's picture.
+    #[serde(default)]
+    pub image_shadow: bool,
+    #[serde(default)]
+    pub font_name: String,
+    #[serde(default)]
+    pub font_size: u16,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    #[serde(default)]
+    pub underline: bool,
+    pub frame: Option<DataGridCellFrame>,
+    pub gauge: Option<DataGridGauge>,
+    pub value_style_rules: Vec<DataGridValueStyleRule>,
+}
+
+impl Default for DataGridColumn {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            source_name: String::new(),
+            value_type: "string".into(),
+            cobol_mask: String::new(),
+            edit_control: Self::default_edit_control(),
+            control_kind: String::new(),
+            width: 120.0,
+            visible: true,
+            frozen: false,
+            filter_enabled: false,
+            sort_enabled: true,
+            header_font_size: Self::default_header_font_size(),
+            text_alignment: DataGridTextAlignment::Left,
+            foreground_color: "#000000".into(),
+            background_color: "#00000000".into(),
+            background_pattern: String::new(),
+            background_image: String::new(),
+            image_corner_radius: 0.0,
+            image_shadow: false,
+            font_name: String::new(),
+            font_size: 0,
+            bold: false,
+            italic: false,
+            underline: false,
+            frame: None,
+            gauge: None,
+            value_style_rules: Vec::new(),
+        }
+    }
+}
+
+impl DataGridColumn {
+    fn default_edit_control() -> String {
+        "Textbox".into()
+    }
+
+    fn default_header_font_size() -> u16 {
+        12
+    }
+
+    pub fn value_style_rule_for(&self, value: &str) -> Option<&DataGridValueStyleRule> {
+        self.value_style_rules
+            .iter()
+            .find(|rule| rule.value.eq_ignore_ascii_case(value.trim()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DataGridRowHeightOverride {
+    pub row_index: usize,
+    pub height: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DataGridFilter {
+    pub column_id: String,
+    pub value: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataGridAdvanced {
+    pub schema_version: u16,
+    pub columns: Vec<DataGridColumn>,
+    pub frozen_columns: usize,
+    pub frozen_rows: usize,
+    pub row_height: u16,
+    pub row_overrides: Vec<DataGridRowHeightOverride>,
+    pub filters: Vec<DataGridFilter>,
+    pub csv_export_mode: DataGridCsvExportMode,
+    pub csv_delimiter: String,
+    pub grid_line_style: DataGridGridLineStyle,
+    pub selectable_text: bool,
+}
+
+impl Default for DataGridAdvanced {
+    fn default() -> Self {
+        Self {
+            schema_version: DATAGRID_ADVANCED_SCHEMA_VERSION,
+            columns: Vec::new(),
+            frozen_columns: 0,
+            frozen_rows: 0,
+            row_height: 22,
+            row_overrides: Vec::new(),
+            filters: Vec::new(),
+            csv_export_mode: DataGridCsvExportMode::Filtered,
+            csv_delimiter: ",".into(),
+            grid_line_style: DataGridGridLineStyle::Solid,
+            selectable_text: true,
+        }
+    }
+}
+
+impl DataGridAdvanced {
+    pub fn from_control(control: &Control) -> Self {
+        if let Some(raw) = control
+            .get_prop(DATAGRID_ADVANCED_PROP)
+            .map(PropValue::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if let Ok(mut advanced) = serde_json::from_str::<Self>(raw) {
+                if advanced.schema_version == 0 {
+                    advanced.schema_version = DATAGRID_ADVANCED_SCHEMA_VERSION;
+                }
+                advanced.apply_runtime_overrides(control);
+                return advanced;
+            }
+        }
+
+        let mut advanced = Self::default();
+        advanced.apply_property_defaults(control);
+        advanced.columns = control
+            .get_prop("Columns")
+            .map(PropValue::as_str)
+            .map(Self::columns_from_legacy_property)
+            .unwrap_or_default();
+        advanced.apply_runtime_overrides(control);
+        advanced
+    }
+
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    pub fn set_column_width(&mut self, column_index: usize, width: f32) {
+        if let Some(column) = self.columns.get_mut(column_index) {
+            column.width = width.max(32.0);
+        }
+    }
+
+    pub fn column_width(&self, column_index: usize) -> Option<f32> {
+        self.columns
+            .get(column_index)
+            .map(|column| column.width.max(1.0))
+    }
+
+    pub fn set_column_width_by_key(&mut self, column_key: &str, width: f32) -> bool {
+        if let Some(index) = self.column_index_for_key(column_key) {
+            self.set_column_width(index, width);
+            return true;
+        }
+        false
+    }
+
+    pub fn move_column(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.columns.len() || to >= self.columns.len() || from == to {
+            return false;
+        }
+        let column = self.columns.remove(from);
+        self.columns.insert(to, column);
+        true
+    }
+
+    pub fn move_column_left(&mut self, column_index: usize) -> bool {
+        if column_index == 0 {
+            return false;
+        }
+        self.move_column(column_index, column_index - 1)
+    }
+
+    pub fn move_column_right(&mut self, column_index: usize) -> bool {
+        self.move_column(column_index, column_index + 1)
+    }
+
+    pub fn set_filter(&mut self, column_id: impl Into<String>, value: impl Into<String>) {
+        let column_id = column_id.into();
+        let value = value.into();
+        if let Some(filter) = self
+            .filters
+            .iter_mut()
+            .find(|filter| filter.column_id.eq_ignore_ascii_case(&column_id))
+        {
+            filter.value = value;
+            filter.active = !filter.value.trim().is_empty();
+            return;
+        }
+        self.filters.push(DataGridFilter {
+            column_id,
+            active: !value.trim().is_empty(),
+            value,
+        });
+    }
+
+    pub fn filtered_row_indices(&self, rows: &[Vec<String>]) -> Vec<usize> {
+        let source_names: Vec<String> = self
+            .columns
+            .iter()
+            .map(|column| column.source_name.clone())
+            .collect();
+        self.filtered_row_indices_for_sources(rows, &source_names)
+    }
+
+    pub fn filtered_row_indices_for_sources(
+        &self,
+        rows: &[Vec<String>],
+        source_names: &[String],
+    ) -> Vec<usize> {
+        let active_filters: Vec<&DataGridFilter> = self
+            .filters
+            .iter()
+            .filter(|filter| filter.active && !filter.value.trim().is_empty())
+            .collect();
+        if active_filters.is_empty() {
+            return (0..rows.len()).collect();
+        }
+
+        rows.iter()
+            .enumerate()
+            .filter_map(|(row_index, row)| {
+                let keep = active_filters.iter().all(|filter| {
+                    let Some(column_index) =
+                        self.source_index_for_filter(filter.column_id.as_str(), source_names)
+                    else {
+                        return false;
+                    };
+                    row.get(column_index)
+                        .map(|value| {
+                            value
+                                .to_ascii_lowercase()
+                                .contains(&filter.value.to_ascii_lowercase())
+                        })
+                        .unwrap_or(false)
+                });
+                keep.then_some(row_index)
+            })
+            .collect()
+    }
+
+    fn source_index_for_filter(&self, column_id: &str, source_names: &[String]) -> Option<usize> {
+        let column = self.columns.iter().find(|column| {
+            column.id.eq_ignore_ascii_case(column_id)
+                || column.source_name.eq_ignore_ascii_case(column_id)
+                || column.title.eq_ignore_ascii_case(column_id)
+        })?;
+        source_names.iter().position(|source_name| {
+            source_name.eq_ignore_ascii_case(&column.source_name)
+                || source_name.eq_ignore_ascii_case(&column.title)
+                || source_name.eq_ignore_ascii_case(&column.id)
+        })
+    }
+
+    fn apply_property_defaults(&mut self, control: &Control) {
+        self.row_height = control
+            .get_prop("RowHeight")
+            .map(PropValue::as_i64)
+            .filter(|h| *h > 0)
+            .map(|h| h.min(u16::MAX as i64) as u16)
+            .unwrap_or(self.row_height);
+        self.frozen_columns = control
+            .get_prop("FrozenColumns")
+            .map(PropValue::as_i64)
+            .filter(|n| *n >= 0)
+            .map(|n| n as usize)
+            .unwrap_or(self.frozen_columns);
+        self.frozen_rows = control
+            .get_prop("FrozenRows")
+            .map(PropValue::as_i64)
+            .filter(|n| *n >= 0)
+            .map(|n| n as usize)
+            .unwrap_or(self.frozen_rows);
+        self.csv_export_mode = control
+            .get_prop("CSVExportMode")
+            .map(PropValue::as_str)
+            .map(DataGridCsvExportMode::from_str)
+            .unwrap_or(self.csv_export_mode);
+        self.csv_delimiter = control
+            .get_prop("CSVDelimiter")
+            .map(PropValue::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&self.csv_delimiter)
+            .to_string();
+        self.grid_line_style = control
+            .get_prop("GridLineStyle")
+            .map(PropValue::as_str)
+            .map(DataGridGridLineStyle::from_str)
+            .unwrap_or(self.grid_line_style);
+        self.selectable_text = control
+            .get_prop("SelectableText")
+            .map(PropValue::as_bool)
+            .unwrap_or(self.selectable_text);
+    }
+
+    fn apply_runtime_overrides(&mut self, control: &Control) {
+        if let Some(height) = control
+            .get_prop("_RuntimeRowHeight")
+            .map(PropValue::as_i64)
+            .filter(|height| *height > 0)
+        {
+            self.row_height = height.min(u16::MAX as i64) as u16;
+        }
+        if let Some(columns) = control
+            .get_prop("_RuntimeFrozenColumns")
+            .map(PropValue::as_i64)
+            .filter(|columns| *columns >= 0)
+        {
+            self.frozen_columns = columns as usize;
+        }
+        if let Some(rows) = control
+            .get_prop("_RuntimeFrozenRows")
+            .map(PropValue::as_i64)
+            .filter(|rows| *rows >= 0)
+        {
+            self.frozen_rows = rows as usize;
+        }
+        if let Some(raw) = control
+            .get_prop("_RuntimeColumnFilters")
+            .map(PropValue::as_str)
+        {
+            self.filters.clear();
+            for line in raw.lines() {
+                let Some((column, value)) = line.split_once('=') else {
+                    continue;
+                };
+                let column = column.trim();
+                if !column.is_empty() {
+                    self.set_filter(column, value.trim());
+                }
+            }
+        }
+        if let Some(raw) = control
+            .get_prop("_RuntimeColumnWidths")
+            .map(PropValue::as_str)
+        {
+            for line in raw.lines() {
+                let Some((column, width)) = line.split_once('=') else {
+                    continue;
+                };
+                let Ok(width) = width.trim().parse::<f32>() else {
+                    continue;
+                };
+                self.set_column_width_by_key(column.trim(), width);
+            }
+        }
+    }
+
+    fn column_index_for_key(&self, column_key: &str) -> Option<usize> {
+        let trimmed = column_key.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        if let Ok(index) = trimmed.parse::<usize>() {
+            if index < self.columns.len() {
+                return Some(index);
+            }
+            let one_based = index.saturating_sub(1);
+            if one_based < self.columns.len() {
+                return Some(one_based);
+            }
+        }
+        self.columns.iter().position(|column| {
+            column.id.eq_ignore_ascii_case(trimmed)
+                || column.source_name.eq_ignore_ascii_case(trimmed)
+                || column.title.eq_ignore_ascii_case(trimmed)
+        })
+    }
+
+    fn columns_from_legacy_property(raw: &str) -> Vec<DataGridColumn> {
+        raw.lines()
+            .filter_map(|line| {
+                let spec = line.trim();
+                if spec.is_empty() {
+                    return None;
+                }
+                let (name, value_type) = spec
+                    .split_once(':')
+                    .map(|(name, ty)| (name.trim(), ty.trim()))
+                    .unwrap_or((spec, "string"));
+                if name.is_empty() {
+                    return None;
+                }
+                let id = name
+                    .chars()
+                    .map(|ch| {
+                        if ch.is_ascii_alphanumeric() {
+                            ch.to_ascii_uppercase()
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                Some(DataGridColumn {
+                    id,
+                    title: name.to_string(),
+                    source_name: name.to_string(),
+                    value_type: if value_type.is_empty() {
+                        "string".into()
+                    } else {
+                        value_type.to_ascii_lowercase()
+                    },
+                    ..DataGridColumn::default()
+                })
+            })
+            .collect()
     }
 }
 
@@ -523,11 +1140,29 @@ pub fn event_linkage(_event: &str) -> (String, Vec<String>) {
 /// `PROCEDURE DIVISION` — the part the developer owns — with the event's data
 /// (if any) declared in the LINKAGE SECTION and bound via `USING`.
 pub fn event_handler_template(event: &str) -> String {
+    build_event_handler_template(event, None)
+}
+
+/// Like [`event_handler_template`] but for a control that belongs to a repeating
+/// group (control array). The handler additionally receives the **1-based array
+/// index** of the item that fired (`CONTROL-ARRAY-INDEX`), so it can address that
+/// item's controls as `Name(CONTROL-ARRAY-INDEX)::Property`.
+pub fn event_handler_template_indexed(event: &str, control_id: &str) -> String {
+    build_event_handler_template(event, Some(control_id))
+}
+
+fn build_event_handler_template(event: &str, array_control: Option<&str>) -> String {
     let (linkage_items, using) = event_linkage(event);
-    let using_clause = if using.is_empty() {
+
+    let mut using_names: Vec<String> = Vec::new();
+    if array_control.is_some() {
+        using_names.push("CONTROL-ARRAY-INDEX".to_string());
+    }
+    using_names.extend(using.iter().cloned());
+    let using_clause = if using_names.is_empty() {
         String::new()
     } else {
-        format!(" USING {}", using.join(" "))
+        format!(" USING {}", using_names.join(" "))
     };
 
     let mut t = String::new();
@@ -535,6 +1170,9 @@ pub fn event_handler_template(event: &str) -> String {
     t.push_str("       DATA DIVISION.\n");
     t.push_str("       WORKING-STORAGE SECTION.\n");
     t.push_str("       LINKAGE SECTION.\n");
+    if array_control.is_some() {
+        t.push_str("       01 CONTROL-ARRAY-INDEX              PIC S9(4) COMP-5.\n");
+    }
     let items = linkage_items.trim_end();
     if !items.is_empty() {
         for line in items.lines() {
@@ -544,6 +1182,19 @@ pub fn event_handler_template(event: &str) -> String {
     }
     t.push('\n');
     t.push_str(&format!("       PROCEDURE DIVISION{using_clause}.\n"));
+    if let Some(control_id) = array_control {
+        t.push_str(
+            "      *>    This control belongs to a repeating group (array). \
+             CONTROL-ARRAY-INDEX\n",
+        );
+        t.push_str(
+            "      *>    is the 1-based index of the item that fired — address that item's\n",
+        );
+        t.push_str("      *>    controls as Name(CONTROL-ARRAY-INDEX)::Property, e.g.\n");
+        t.push_str(&format!(
+            "      *>    DISPLAY {control_id}(CONTROL-ARRAY-INDEX)::BackgroundColor\n"
+        ));
+    }
     t.push_str("           CONTINUE.\n");
     t
 }
@@ -556,6 +1207,116 @@ pub fn derive_paragraph_name(control_id: &str, event: &str) -> String {
         control_id.to_ascii_uppercase(),
         event.to_ascii_uppercase().replace(' ', "-")
     )
+}
+
+/// A control id valid as a COBOL paragraph-name prefix / member-access root:
+/// starts with a letter, then letters / digits / hyphens.
+pub fn is_valid_control_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+fn is_id_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
+}
+
+/// Rewrite control references in handler/procedure COBOL where the control id is
+/// a member-access root: `Old::…` or `Old(idx)…`. Case-insensitive on the id;
+/// requires a non-identifier byte before it so `Old` inside a longer name is
+/// left alone. Bytes outside matches are copied verbatim (UTF-8 safe — matches
+/// only ever start on ASCII bytes).
+fn rename_control_refs_in_code(code: &mut String, old: &str, new: &str) {
+    let old_up = old.to_ascii_uppercase();
+    let hay_up = code.to_ascii_uppercase();
+    if old_up.is_empty() || !hay_up.contains(&old_up) {
+        return;
+    }
+    let bytes = code.as_bytes();
+    let hay = hay_up.as_bytes();
+    let needle = old_up.as_bytes();
+    let mut out = String::with_capacity(code.len());
+    let mut i = 0usize;
+    let mut last = 0usize;
+    while i + needle.len() <= bytes.len() {
+        if &hay[i..i + needle.len()] == needle {
+            let before_ok = i == 0 || !is_id_byte(bytes[i - 1]);
+            let j = i + needle.len();
+            let after_ok = (j + 1 < bytes.len() && &hay[j..j + 2] == b"::")
+                || (j < bytes.len() && bytes[j] == b'(');
+            if before_ok && after_ok {
+                out.push_str(&code[last..i]);
+                out.push_str(new);
+                i = j;
+                last = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if last == 0 {
+        return;
+    }
+    out.push_str(&code[last..]);
+    *code = out;
+}
+
+/// Update every control-id reference inside a data binding (source control,
+/// target control / array / members, and each mapping's target).
+fn rename_binding_control_refs(binding: &mut DataBindingDef, old: &str, new: &str) {
+    let ren = |s: &mut String| {
+        if s.eq_ignore_ascii_case(old) {
+            *s = new.to_owned();
+        }
+    };
+    match &mut binding.source {
+        BindingSourceDescriptor::Sql {
+            source_control_id, ..
+        }
+        | BindingSourceDescriptor::RestApi {
+            source_control_id, ..
+        }
+        | BindingSourceDescriptor::AgentAi {
+            source_control_id, ..
+        } => ren(source_control_id),
+        _ => {}
+    }
+    match &mut binding.target {
+        BindingTargetDescriptor::DataGrid { control_id }
+        | BindingTargetDescriptor::Chart { control_id, .. }
+        | BindingTargetDescriptor::ComboBox { control_id }
+        | BindingTargetDescriptor::ListBox { control_id } => ren(control_id),
+        BindingTargetDescriptor::ControlArray {
+            array_id,
+            member_control_ids,
+        } => {
+            ren(array_id);
+            for m in member_control_ids.iter_mut() {
+                ren(m);
+            }
+        }
+    }
+    for mapping in &mut binding.mappings {
+        match &mut mapping.target {
+            BindingTargetPath::GridColumn { control_id, .. }
+            | BindingTargetPath::ChartCategory { control_id }
+            | BindingTargetPath::ChartValueSeries { control_id, .. }
+            | BindingTargetPath::ChartSeriesLabel { control_id, .. }
+            | BindingTargetPath::ListDisplayItem { control_id }
+            | BindingTargetPath::ListValue { control_id } => ren(control_id),
+            BindingTargetPath::ControlProperty {
+                array_id,
+                control_id,
+                ..
+            } => {
+                ren(array_id);
+                ren(control_id);
+            }
+        }
+    }
 }
 
 // ── DeletedControlCode ────────────────────────────────────────────────────────
@@ -571,6 +1332,424 @@ pub struct DeletedControlCode {
     pub deleted_at: String,
     /// All event bindings that had code at the time of deletion.
     pub events: Vec<EventBinding>,
+}
+
+// ── Data binding ─────────────────────────────────────────────────────────────
+
+pub const DATA_BINDING_SCHEMA_VERSION: u16 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BindingMode {
+    ReadOnly,
+    Writable,
+}
+
+impl Default for BindingMode {
+    fn default() -> Self {
+        Self::ReadOnly
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BindingSourceKind {
+    IndexedFile,
+    Sql,
+    CobolTable,
+    RestApi,
+    AgentAi,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BindingDataType {
+    Text,
+    Integer,
+    Decimal,
+    Boolean,
+    Date,
+    DateTime,
+    Json,
+    Unknown,
+}
+
+impl Default for BindingDataType {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BindingField {
+    pub name: String,
+    pub display_name: String,
+    pub data_type: BindingDataType,
+    #[serde(default)]
+    pub cobol_mask: String,
+    #[serde(default = "BindingField::default_edit_control")]
+    pub edit_control: String,
+    pub nullable: bool,
+    pub key: bool,
+    pub multiple: bool,
+}
+
+impl BindingField {
+    pub fn new(name: impl Into<String>, data_type: BindingDataType) -> Self {
+        let name = name.into();
+        Self {
+            display_name: name.clone(),
+            name,
+            data_type,
+            cobol_mask: String::new(),
+            edit_control: Self::default_edit_control(),
+            nullable: true,
+            key: false,
+            multiple: false,
+        }
+    }
+
+    fn default_edit_control() -> String {
+        "Textbox".into()
+    }
+
+    pub fn key(mut self) -> Self {
+        self.key = true;
+        self.nullable = false;
+        self
+    }
+
+    pub fn required(mut self) -> Self {
+        self.nullable = false;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct BindingUpdateMetadata {
+    pub request_schema_name: String,
+    pub key_fields: Vec<String>,
+    pub approved_target_ids: Vec<String>,
+}
+
+impl BindingUpdateMetadata {
+    pub fn new(request_schema_name: impl Into<String>, key_fields: Vec<String>) -> Self {
+        Self {
+            request_schema_name: request_schema_name.into(),
+            key_fields,
+            approved_target_ids: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BindingSourceDescriptor {
+    IndexedFile {
+        definition_path: String,
+        record_name: String,
+        fields: Vec<BindingField>,
+        key_field: Option<String>,
+        writable: bool,
+    },
+    Sql {
+        source_control_id: String,
+        query_name: String,
+        result_set_name: String,
+        fields: Vec<BindingField>,
+        key_fields: Vec<String>,
+        writable: bool,
+    },
+    CobolTable {
+        table_name: String,
+        occurs_item: String,
+        fields: Vec<BindingField>,
+        key_fields: Vec<String>,
+        writable: bool,
+    },
+    RestApi {
+        source_control_id: String,
+        endpoint_name: String,
+        response_data_item: String,
+        fields: Vec<BindingField>,
+        update: Option<BindingUpdateMetadata>,
+    },
+    AgentAi {
+        source_control_id: String,
+        output_name: String,
+        fields: Vec<BindingField>,
+        update: Option<BindingUpdateMetadata>,
+    },
+}
+
+impl BindingSourceDescriptor {
+    pub fn kind(&self) -> BindingSourceKind {
+        match self {
+            BindingSourceDescriptor::IndexedFile { .. } => BindingSourceKind::IndexedFile,
+            BindingSourceDescriptor::Sql { .. } => BindingSourceKind::Sql,
+            BindingSourceDescriptor::CobolTable { .. } => BindingSourceKind::CobolTable,
+            BindingSourceDescriptor::RestApi { .. } => BindingSourceKind::RestApi,
+            BindingSourceDescriptor::AgentAi { .. } => BindingSourceKind::AgentAi,
+        }
+    }
+
+    pub fn fields(&self) -> &[BindingField] {
+        match self {
+            BindingSourceDescriptor::IndexedFile { fields, .. }
+            | BindingSourceDescriptor::Sql { fields, .. }
+            | BindingSourceDescriptor::CobolTable { fields, .. }
+            | BindingSourceDescriptor::RestApi { fields, .. }
+            | BindingSourceDescriptor::AgentAi { fields, .. } => fields,
+        }
+    }
+
+    pub fn is_writable(&self) -> bool {
+        match self {
+            BindingSourceDescriptor::IndexedFile { writable, .. }
+            | BindingSourceDescriptor::Sql { writable, .. }
+            | BindingSourceDescriptor::CobolTable { writable, .. } => *writable,
+            BindingSourceDescriptor::RestApi { update, .. }
+            | BindingSourceDescriptor::AgentAi { update, .. } => update.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BindingChartKind {
+    Bar,
+    Line,
+    Pie,
+    Area,
+    Scatter,
+    Donut,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApprovedBindingTargetKind {
+    DataGrid,
+    Chart(BindingChartKind),
+    ComboBox,
+    ListBox,
+    ControlArray,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BindingTargetDescriptor {
+    DataGrid {
+        control_id: String,
+    },
+    Chart {
+        control_id: String,
+        chart_kind: BindingChartKind,
+    },
+    ComboBox {
+        control_id: String,
+    },
+    ListBox {
+        control_id: String,
+    },
+    ControlArray {
+        array_id: String,
+        member_control_ids: Vec<String>,
+    },
+}
+
+impl BindingTargetDescriptor {
+    pub fn primary_control_id(&self) -> &str {
+        match self {
+            BindingTargetDescriptor::DataGrid { control_id }
+            | BindingTargetDescriptor::Chart { control_id, .. }
+            | BindingTargetDescriptor::ComboBox { control_id }
+            | BindingTargetDescriptor::ListBox { control_id } => control_id,
+            BindingTargetDescriptor::ControlArray { array_id, .. } => array_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BindingTargetPath {
+    GridColumn {
+        control_id: String,
+        column_id: String,
+    },
+    ChartCategory {
+        control_id: String,
+    },
+    ChartValueSeries {
+        control_id: String,
+        series_id: String,
+    },
+    ChartSeriesLabel {
+        control_id: String,
+        series_id: String,
+    },
+    ListDisplayItem {
+        control_id: String,
+    },
+    ListValue {
+        control_id: String,
+    },
+    ControlProperty {
+        array_id: String,
+        control_id: String,
+        property_name: String,
+    },
+}
+
+impl BindingTargetPath {
+    fn stable_key(&self) -> String {
+        match self {
+            BindingTargetPath::GridColumn {
+                control_id,
+                column_id,
+            } => format!("grid:{control_id}:{column_id}"),
+            BindingTargetPath::ChartCategory { control_id } => {
+                format!("chart-category:{control_id}")
+            }
+            BindingTargetPath::ChartValueSeries {
+                control_id,
+                series_id,
+            } => format!("chart-value:{control_id}:{series_id}"),
+            BindingTargetPath::ChartSeriesLabel {
+                control_id,
+                series_id,
+            } => format!("chart-label:{control_id}:{series_id}"),
+            BindingTargetPath::ListDisplayItem { control_id } => {
+                format!("list-display:{control_id}")
+            }
+            BindingTargetPath::ListValue { control_id } => format!("list-value:{control_id}"),
+            BindingTargetPath::ControlProperty {
+                array_id,
+                control_id,
+                property_name,
+            } => format!("array:{array_id}:{control_id}:{property_name}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MappingCompatibility {
+    Exact,
+    CoercibleWarning,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FieldMapping {
+    pub source_field: String,
+    pub target: BindingTargetPath,
+    pub compatibility: MappingCompatibility,
+}
+
+impl FieldMapping {
+    pub fn new(source_field: impl Into<String>, target: BindingTargetPath) -> Self {
+        Self {
+            source_field: source_field.into(),
+            target,
+            compatibility: MappingCompatibility::Exact,
+        }
+    }
+
+    fn stable_key(&self) -> String {
+        format!("{}:{}", self.source_field, self.target.stable_key())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GuardianSeverity {
+    Blocker,
+    Warning,
+    Info,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuardianFinding {
+    pub severity: GuardianSeverity,
+    pub code: String,
+    pub message: String,
+    pub binding_id: String,
+    pub source_field: Option<String>,
+    pub target_control_id: Option<String>,
+}
+
+impl GuardianFinding {
+    pub fn new(
+        severity: GuardianSeverity,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        binding_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            severity,
+            code: code.into(),
+            message: message.into(),
+            binding_id: binding_id.into(),
+            source_field: None,
+            target_control_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct BindingValidationSnapshot {
+    pub findings: Vec<GuardianFinding>,
+    pub source_signature: String,
+    pub validated_with_schema_version: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct BindingSourceMetadata {
+    pub fields: Vec<BindingField>,
+    pub schema_text: String,
+    pub sample_payload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DataBindingDef {
+    pub schema_version: u16,
+    pub id: String,
+    pub display_name: String,
+    pub source: BindingSourceDescriptor,
+    pub target: BindingTargetDescriptor,
+    pub mappings: Vec<FieldMapping>,
+    pub mode: BindingMode,
+    pub validation: BindingValidationSnapshot,
+    pub saved_source_metadata: BindingSourceMetadata,
+}
+
+impl DataBindingDef {
+    pub fn new(
+        id: impl Into<String>,
+        display_name: impl Into<String>,
+        source: BindingSourceDescriptor,
+        target: BindingTargetDescriptor,
+    ) -> Self {
+        let source_fields = source.fields().to_vec();
+        Self {
+            schema_version: DATA_BINDING_SCHEMA_VERSION,
+            id: id.into(),
+            display_name: display_name.into(),
+            source,
+            target,
+            mappings: Vec::new(),
+            mode: BindingMode::ReadOnly,
+            validation: BindingValidationSnapshot {
+                validated_with_schema_version: DATA_BINDING_SCHEMA_VERSION,
+                ..BindingValidationSnapshot::default()
+            },
+            saved_source_metadata: BindingSourceMetadata {
+                fields: source_fields,
+                ..BindingSourceMetadata::default()
+            },
+        }
+    }
+
+    pub fn with_mappings(mut self, mappings: Vec<FieldMapping>) -> Self {
+        self.mappings = mappings;
+        self
+    }
+
+    pub fn sorted_mapping_refs(&self) -> Vec<&FieldMapping> {
+        let mut mappings: Vec<&FieldMapping> = self.mappings.iter().collect();
+        mappings.sort_by_key(|mapping| mapping.stable_key());
+        mappings
+    }
 }
 
 // ── ControlType ───────────────────────────────────────────────────────────────
@@ -666,6 +1845,29 @@ pub const BASE_DRAG: &[&str] = &[
 pub const BASE_LIFECYCLE: &[&str] = &["onLoad", "onPropertyChanged"];
 
 impl ControlType {
+    pub fn chart_binding_kind(&self) -> Option<BindingChartKind> {
+        match self {
+            ControlType::BarChart => Some(BindingChartKind::Bar),
+            ControlType::LineChart => Some(BindingChartKind::Line),
+            ControlType::PieChart => Some(BindingChartKind::Pie),
+            ControlType::AreaChart => Some(BindingChartKind::Area),
+            ControlType::ScatterChart => Some(BindingChartKind::Scatter),
+            ControlType::DonutChart => Some(BindingChartKind::Donut),
+            _ => None,
+        }
+    }
+
+    pub fn approved_binding_target_kind(&self) -> Option<ApprovedBindingTargetKind> {
+        match self {
+            ControlType::DataGrid => Some(ApprovedBindingTargetKind::DataGrid),
+            ControlType::ComboBox => Some(ApprovedBindingTargetKind::ComboBox),
+            ControlType::ListBox => Some(ApprovedBindingTargetKind::ListBox),
+            _ => self
+                .chart_binding_kind()
+                .map(ApprovedBindingTargetKind::Chart),
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         match self {
             ControlType::Button => "Button",
@@ -1667,6 +2869,20 @@ pub struct Control {
     pub tab: Option<u32>,
 }
 
+/// Default `BackgroundColor` assigned to every new control. The glass renderer
+/// treats a control still on this value as having *no* explicit background. For
+/// the DataGrid (the one control with a solid grid background) this means the
+/// grid stays translucent Liquid Glass until the user picks a colour, which then
+/// paints solid beneath the frost. Kept as a named constant so `Control::new`
+/// and the renderer's gate can never drift apart.
+pub const DEFAULT_BACKGROUND_COLOR: &str = "#F0F0F0";
+
+/// Default `ForegroundColor` assigned to every new control. A DataGrid still on
+/// this value uses the subtle built-in grid-line colour; any other colour set in
+/// the Appearance section becomes the grid-line colour. Named so `Control::new`
+/// and the DataGrid renderer's gate can never drift apart.
+pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
+
 impl Control {
     pub fn new(id: impl Into<String>, control_type: ControlType, x: i32, y: i32) -> Self {
         let (w, h) = control_type.default_size();
@@ -1689,11 +2905,11 @@ impl Control {
         // ── Universal appearance props ─────────────────────────────────────────
         props.insert(
             "BackgroundColor".into(),
-            PropValue::String("#F0F0F0".into()),
+            PropValue::String(DEFAULT_BACKGROUND_COLOR.into()),
         );
         props.insert(
             "ForegroundColor".into(),
-            PropValue::String("#FFFFFF".into()),
+            PropValue::String(DEFAULT_FOREGROUND_COLOR.into()),
         );
         props.insert("FontName".into(), PropValue::String("Arial".into()));
         props.insert("FontSize".into(), PropValue::Int(10));
@@ -1907,6 +3123,10 @@ impl Control {
                     "AlternatingRowColor".into(),
                     PropValue::String("#F0F8FF".into()),
                 );
+                props.insert("AlternatingRowOpacity".into(), PropValue::Int(20));
+                // Axis the alternating highlight applies to: Rows (default,
+                // legacy), Columns, or None.
+                props.insert("AlternatingMode".into(), PropValue::String("Rows".into()));
                 props.insert(
                     "HeaderBackgroundColor".into(),
                     PropValue::String("#E0E0E0".into()),
@@ -1916,13 +3136,41 @@ impl Control {
                     PropValue::String("#000000".into()),
                 );
                 props.insert("GridLineColor".into(), PropValue::String("#CCCCCC".into()));
+                props.insert("GridBackgroundImage".into(), PropValue::String("".into()));
+                props.insert(
+                    "GridBackgroundPattern".into(),
+                    PropValue::String("None".into()),
+                );
+                props.insert(
+                    "RowBackgroundPattern".into(),
+                    PropValue::String("None".into()),
+                );
+                props.insert(
+                    "GridBackgroundImageMode".into(),
+                    PropValue::String("Fill".into()),
+                );
                 props.insert("SelectionMode".into(), PropValue::String("Row".into()));
                 props.insert("RowHeight".into(), PropValue::Int(22));
                 props.insert("AllowSorting".into(), PropValue::Bool(true));
                 props.insert("AllowColumnResize".into(), PropValue::Bool(true));
+                props.insert("AllowColumnReorder".into(), PropValue::Bool(true));
+                props.insert("AllowRowResize".into(), PropValue::Bool(true));
+                props.insert(DATAGRID_ADVANCED_PROP.into(), PropValue::String("".into()));
                 props.insert("ShowRowNumbers".into(), PropValue::Bool(false));
+                props.insert("ShowColumnFilters".into(), PropValue::Bool(false));
                 props.insert("ExportCSV".into(), PropValue::Bool(true));
+                props.insert("ShowCSVExportButton".into(), PropValue::Bool(true));
                 props.insert("CSVDelimiter".into(), PropValue::String(",".into()));
+                props.insert("CSVExportMode".into(), PropValue::String("Filtered".into()));
+                props.insert("FrozenColumns".into(), PropValue::Int(0));
+                props.insert("FrozenRows".into(), PropValue::Int(0));
+                // Soft shadow cast by the frozen rows/columns onto the scrolling
+                // content (a spreadsheet-style freeze cue).
+                props.insert("FrozenShadow".into(), PropValue::Bool(true));
+                props.insert("GridLineStyle".into(), PropValue::String("Solid".into()));
+                props.insert("RowHeightOverrides".into(), PropValue::String("".into()));
+                props.insert("ColumnFilters".into(), PropValue::String("".into()));
+                props.insert("SelectableText".into(), PropValue::Bool(true));
             }
             ControlType::TabControl => {
                 props.insert("Tabs".into(), PropValue::String("Tab1\nTab2".into()));
@@ -2235,6 +3483,67 @@ impl Control {
         )
     }
 
+    pub fn explicit_control_array_id(&self) -> Option<String> {
+        if !matches!(self.control_type, ControlType::GroupBox) {
+            return None;
+        }
+        if !self
+            .get_prop("IsRepeatingGroup")
+            .map(PropValue::as_bool)
+            .unwrap_or(false)
+        {
+            return None;
+        }
+
+        let array_name = self
+            .get_prop("ArrayName")
+            .map(PropValue::as_str)
+            .unwrap_or("")
+            .trim();
+        if array_name.is_empty() {
+            Some(self.id.clone())
+        } else {
+            Some(array_name.to_owned())
+        }
+    }
+
+    pub fn approved_binding_target_kind(&self) -> Option<ApprovedBindingTargetKind> {
+        if self.explicit_control_array_id().is_some() {
+            return Some(ApprovedBindingTargetKind::ControlArray);
+        }
+        self.control_type.approved_binding_target_kind()
+    }
+
+    pub fn binding_target_descriptor(&self) -> Option<BindingTargetDescriptor> {
+        match self.approved_binding_target_kind()? {
+            ApprovedBindingTargetKind::DataGrid => Some(BindingTargetDescriptor::DataGrid {
+                control_id: self.id.clone(),
+            }),
+            ApprovedBindingTargetKind::Chart(chart_kind) => Some(BindingTargetDescriptor::Chart {
+                control_id: self.id.clone(),
+                chart_kind,
+            }),
+            ApprovedBindingTargetKind::ComboBox => Some(BindingTargetDescriptor::ComboBox {
+                control_id: self.id.clone(),
+            }),
+            ApprovedBindingTargetKind::ListBox => Some(BindingTargetDescriptor::ListBox {
+                control_id: self.id.clone(),
+            }),
+            ApprovedBindingTargetKind::ControlArray => {
+                Some(BindingTargetDescriptor::ControlArray {
+                    array_id: self
+                        .explicit_control_array_id()
+                        .unwrap_or_else(|| self.id.clone()),
+                    member_control_ids: self
+                        .children
+                        .iter()
+                        .map(|child| child.id.clone())
+                        .collect(),
+                })
+            }
+        }
+    }
+
     /// The interior rectangle into which child controls are placed and clipped.
     /// Insets the control's `rect` for the border. Captions and TabControl tab
     /// titles are painted later as overlays, so they do not shrink the child
@@ -2504,6 +3813,8 @@ pub struct Form {
     /// How the background image is scaled / tiled.
     pub bg_image_mode: BgImageMode,
     pub controls: Vec<Control>,
+    /// Form-level data bindings. Missing in old `.cfrm` files means no bindings.
+    pub data_bindings: Vec<DataBindingDef>,
     /// Form-level animations (e.g. form entrance effect).
     pub animations: Vec<AnimationDef>,
     /// Designer grid dot spacing in pixels (4–64). Default 8.
@@ -2574,6 +3885,7 @@ impl Form {
             background_image: String::new(),
             bg_image_mode: BgImageMode::Stretch,
             controls: Vec::new(),
+            data_bindings: Vec::new(),
             animations: Vec::new(),
             grid_size: 8,
             snap_to_grid: true,
@@ -2613,6 +3925,52 @@ impl Form {
             .find_map(|c| find_in_mut(c, &upper))
     }
 
+    pub fn binding_target_descriptor_for_control(
+        &self,
+        id: &str,
+    ) -> Option<BindingTargetDescriptor> {
+        let control = self.find_control(id)?;
+        match control.approved_binding_target_kind()? {
+            ApprovedBindingTargetKind::ControlArray => {
+                let array_id = control.explicit_control_array_id()?;
+                let parent_upper = control.id.to_ascii_uppercase();
+                let mut member_control_ids: Vec<String> = self
+                    .controls
+                    .iter()
+                    .filter(|candidate| {
+                        candidate
+                            .parent
+                            .as_deref()
+                            .map(|parent| parent.eq_ignore_ascii_case(&parent_upper))
+                            .unwrap_or(false)
+                    })
+                    .map(|candidate| candidate.id.clone())
+                    .collect();
+                if member_control_ids.is_empty() {
+                    member_control_ids = control
+                        .children
+                        .iter()
+                        .map(|child| child.id.clone())
+                        .collect();
+                }
+                member_control_ids.sort_by_key(|id| id.to_ascii_uppercase());
+                Some(BindingTargetDescriptor::ControlArray {
+                    array_id,
+                    member_control_ids,
+                })
+            }
+            _ => control.binding_target_descriptor(),
+        }
+    }
+
+    pub fn array_binding_context_for_member(&self, id: &str) -> Option<(String, String)> {
+        let control = self.find_control(id)?;
+        let parent_id = control.parent.as_deref()?;
+        let parent = self.find_control(parent_id)?;
+        let array_id = parent.explicit_control_array_id()?;
+        Some((array_id, control.id.clone()))
+    }
+
     pub fn add_control(&mut self, mut ctrl: Control) {
         ctrl.tab_order = self.controls.len() as u32;
         ctrl.z_order = self.controls.len() as i32;
@@ -2637,6 +3995,67 @@ impl Form {
             .filter(|ev| ev.has_code())
             .map(|ev| (ev.event.clone(), ev.code_line_count()))
             .collect()
+    }
+
+    /// Rename a control's id throughout the form: children `parent` links,
+    /// `LabelFor` associations, the control's own event handler ids + paragraph
+    /// names, data-binding target/source references, and control references in
+    /// handler / procedure code (`Old::…` / `Old(i)…`). Returns `false` (no
+    /// change) when `new` is empty, unchanged, invalid, or already taken
+    /// (case-insensitive).
+    pub fn rename_control(&mut self, old: &str, new: &str) -> bool {
+        let new = new.trim();
+        if new.is_empty()
+            || new.eq_ignore_ascii_case(old)
+            || !is_valid_control_id(new)
+            || self
+                .controls
+                .iter()
+                .any(|c| c.id.eq_ignore_ascii_case(new) && !c.id.eq_ignore_ascii_case(old))
+        {
+            return false;
+        }
+        let new = new.to_owned();
+
+        for ctrl in &mut self.controls {
+            // Events live on their control, so the renamed control's handlers are
+            // exactly this control's events — re-derive their paragraph names.
+            let is_target = ctrl.id.eq_ignore_ascii_case(old);
+            if is_target {
+                ctrl.id = new.clone();
+            }
+            if ctrl
+                .parent
+                .as_deref()
+                .map(|p| p.eq_ignore_ascii_case(old))
+                .unwrap_or(false)
+            {
+                ctrl.parent = Some(new.clone());
+            }
+            if ctrl
+                .get_prop("LabelFor")
+                .map(|v| v.as_str().eq_ignore_ascii_case(old))
+                .unwrap_or(false)
+            {
+                ctrl.set_prop("LabelFor", PropValue::String(new.clone()));
+            }
+            for ev in &mut ctrl.events {
+                if is_target {
+                    ev.paragraph = derive_paragraph_name(&new, &ev.event);
+                }
+                rename_control_refs_in_code(&mut ev.code, old, &new);
+            }
+        }
+        for ev in &mut self.form_events {
+            rename_control_refs_in_code(&mut ev.code, old, &new);
+        }
+        for up in &mut self.user_procedures {
+            rename_control_refs_in_code(&mut up.code, old, &new);
+        }
+        for binding in &mut self.data_bindings {
+            rename_binding_control_refs(binding, old, &new);
+        }
+        true
     }
 
     /// Move a control's event code to the recycle bin, then remove the control.
@@ -2717,6 +4136,331 @@ fn find_in_mut<'a>(ctrl: &'a mut Control, id: &str) -> Option<&'a mut Control> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rename_control_updates_all_references() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let mut label = Control::new("Label-1", ControlType::Label, 0, 0);
+        // A handler on the control that also references it in code.
+        let mut ev = EventBinding::for_control("Label-1", "onClick");
+        ev.code = "       PROCEDURE DIVISION.\n           MOVE 1 TO Label-1::Caption.".to_owned();
+        label.events.push(ev);
+        let mut child = Control::new("Inner", ControlType::TextBox, 5, 5);
+        child.parent = Some("Label-1".into());
+        let mut assoc = Control::new("Assoc", ControlType::Label, 0, 40);
+        assoc.set_prop("LabelFor", PropValue::String("Label-1".into()));
+        let other = Control::new("Other", ControlType::Button, 0, 80);
+        form.controls = vec![label, child, assoc, other];
+
+        // Reject a taken name and an invalid name; accept a fresh one.
+        assert!(
+            !form.rename_control("Label-1", "Other"),
+            "taken name rejected"
+        );
+        assert!(
+            !form.rename_control("Label-1", "1bad"),
+            "invalid name rejected"
+        );
+        assert!(form.rename_control("Label-1", "NameLabel"));
+
+        assert!(form.find_control("NameLabel").is_some());
+        assert!(form.find_control("Label-1").is_none());
+        // Child parent, LabelFor, event paragraph, and code ref all updated.
+        assert_eq!(
+            form.find_control("Inner").unwrap().parent.as_deref(),
+            Some("NameLabel")
+        );
+        assert_eq!(
+            form.find_control("Assoc")
+                .unwrap()
+                .get_prop("LabelFor")
+                .unwrap()
+                .as_str(),
+            "NameLabel"
+        );
+        let lbl = form.find_control("NameLabel").unwrap();
+        assert_eq!(lbl.events[0].paragraph, "NAMELABEL--ONCLICK");
+        assert!(lbl.events[0].code.contains("NameLabel::Caption"));
+        assert!(!lbl.events[0].code.contains("Label-1::"));
+    }
+
+    fn sample_fields() -> Vec<BindingField> {
+        vec![
+            BindingField::new("CUSTOMER-ID", BindingDataType::Integer).key(),
+            BindingField::new("CUSTOMER-NAME", BindingDataType::Text).required(),
+        ]
+    }
+
+    #[test]
+    fn data_binding_model_covers_all_source_variants() {
+        let fields = sample_fields();
+        let sources = vec![
+            BindingSourceDescriptor::IndexedFile {
+                definition_path: "data/customers.cidx".into(),
+                record_name: "CUSTOMER-REC".into(),
+                fields: fields.clone(),
+                key_field: Some("CUSTOMER-ID".into()),
+                writable: true,
+            },
+            BindingSourceDescriptor::Sql {
+                source_control_id: "SQL-1".into(),
+                query_name: "CUSTOMERS".into(),
+                result_set_name: "CUSTOMERS-RS".into(),
+                fields: fields.clone(),
+                key_fields: vec!["CUSTOMER-ID".into()],
+                writable: true,
+            },
+            BindingSourceDescriptor::CobolTable {
+                table_name: "CUSTOMER-TABLE".into(),
+                occurs_item: "CUSTOMER-ROW".into(),
+                fields: fields.clone(),
+                key_fields: vec!["CUSTOMER-ID".into()],
+                writable: true,
+            },
+            BindingSourceDescriptor::RestApi {
+                source_control_id: "REST-1".into(),
+                endpoint_name: "GET-CUSTOMERS".into(),
+                response_data_item: "REST-RESPONSE".into(),
+                fields: fields.clone(),
+                update: None,
+            },
+            BindingSourceDescriptor::AgentAi {
+                source_control_id: "AGENT-1".into(),
+                output_name: "CUSTOMERS".into(),
+                fields: fields.clone(),
+                update: None,
+            },
+        ];
+
+        let kinds: Vec<BindingSourceKind> =
+            sources.iter().map(BindingSourceDescriptor::kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                BindingSourceKind::IndexedFile,
+                BindingSourceKind::Sql,
+                BindingSourceKind::CobolTable,
+                BindingSourceKind::RestApi,
+                BindingSourceKind::AgentAi,
+            ]
+        );
+
+        for source in sources {
+            let binding = DataBindingDef::new(
+                format!("{:?}", source.kind()),
+                "Customers",
+                source,
+                BindingTargetDescriptor::DataGrid {
+                    control_id: "GRID-1".into(),
+                },
+            );
+            assert_eq!(binding.schema_version, DATA_BINDING_SCHEMA_VERSION);
+            assert_eq!(binding.mode, BindingMode::ReadOnly);
+            assert_eq!(binding.saved_source_metadata.fields.len(), 2);
+            assert_eq!(
+                binding.validation.validated_with_schema_version,
+                DATA_BINDING_SCHEMA_VERSION
+            );
+        }
+    }
+
+    #[test]
+    fn data_binding_model_covers_all_target_variants() {
+        let source = BindingSourceDescriptor::CobolTable {
+            table_name: "SALES-TABLE".into(),
+            occurs_item: "SALES-ROW".into(),
+            fields: sample_fields(),
+            key_fields: vec!["CUSTOMER-ID".into()],
+            writable: true,
+        };
+        let targets = vec![
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".into(),
+            },
+            BindingTargetDescriptor::Chart {
+                control_id: "CHART-1".into(),
+                chart_kind: BindingChartKind::Bar,
+            },
+            BindingTargetDescriptor::ComboBox {
+                control_id: "COMBO-1".into(),
+            },
+            BindingTargetDescriptor::ListBox {
+                control_id: "LIST-1".into(),
+            },
+            BindingTargetDescriptor::ControlArray {
+                array_id: "CUSTOMER-ROWS".into(),
+                member_control_ids: vec!["CUSTOMER-NAME".into(), "CUSTOMER-ID".into()],
+            },
+        ];
+
+        let ids: Vec<String> = targets
+            .into_iter()
+            .map(|target| {
+                DataBindingDef::new("BINDING-1", "Sales", source.clone(), target)
+                    .target
+                    .primary_control_id()
+                    .to_string()
+            })
+            .collect();
+
+        assert_eq!(
+            ids,
+            vec!["GRID-1", "CHART-1", "COMBO-1", "LIST-1", "CUSTOMER-ROWS"]
+        );
+    }
+
+    #[test]
+    fn data_binding_model_sorts_mappings_deterministically() {
+        let source = BindingSourceDescriptor::IndexedFile {
+            definition_path: "data/customers.cidx".into(),
+            record_name: "CUSTOMER-REC".into(),
+            fields: sample_fields(),
+            key_field: Some("CUSTOMER-ID".into()),
+            writable: true,
+        };
+        let binding = DataBindingDef::new(
+            "CUSTOMER-BINDING",
+            "Customers",
+            source,
+            BindingTargetDescriptor::DataGrid {
+                control_id: "GRID-1".into(),
+            },
+        )
+        .with_mappings(vec![
+            FieldMapping::new(
+                "CUSTOMER-NAME",
+                BindingTargetPath::GridColumn {
+                    control_id: "GRID-1".into(),
+                    column_id: "NAME".into(),
+                },
+            ),
+            FieldMapping::new(
+                "CUSTOMER-ID",
+                BindingTargetPath::GridColumn {
+                    control_id: "GRID-1".into(),
+                    column_id: "ID".into(),
+                },
+            ),
+        ]);
+
+        let sorted: Vec<&str> = binding
+            .sorted_mapping_refs()
+            .iter()
+            .map(|mapping| mapping.source_field.as_str())
+            .collect();
+        assert_eq!(sorted, vec!["CUSTOMER-ID", "CUSTOMER-NAME"]);
+
+        let mut form = Form::new("MAIN-FORM", "Main", 800, 600);
+        form.data_bindings.push(binding);
+        assert_eq!(form.data_bindings.len(), 1);
+    }
+
+    #[test]
+    fn data_binding_targets_accept_only_approved_control_types() {
+        assert_eq!(
+            ControlType::DataGrid.approved_binding_target_kind(),
+            Some(ApprovedBindingTargetKind::DataGrid)
+        );
+        assert_eq!(
+            ControlType::ComboBox.approved_binding_target_kind(),
+            Some(ApprovedBindingTargetKind::ComboBox)
+        );
+        assert_eq!(
+            ControlType::ListBox.approved_binding_target_kind(),
+            Some(ApprovedBindingTargetKind::ListBox)
+        );
+
+        for (control_type, chart_kind) in [
+            (ControlType::BarChart, BindingChartKind::Bar),
+            (ControlType::LineChart, BindingChartKind::Line),
+            (ControlType::PieChart, BindingChartKind::Pie),
+            (ControlType::AreaChart, BindingChartKind::Area),
+            (ControlType::ScatterChart, BindingChartKind::Scatter),
+            (ControlType::DonutChart, BindingChartKind::Donut),
+        ] {
+            assert_eq!(
+                control_type.approved_binding_target_kind(),
+                Some(ApprovedBindingTargetKind::Chart(chart_kind))
+            );
+        }
+
+        for control_type in [
+            ControlType::TextBox,
+            ControlType::Label,
+            ControlType::Button,
+            ControlType::Slider,
+            ControlType::Panel,
+            ControlType::RestClient,
+            ControlType::AgentObject,
+            ControlType::SqlDatabase,
+        ] {
+            assert_eq!(control_type.approved_binding_target_kind(), None);
+        }
+    }
+
+    #[test]
+    fn data_binding_targets_accept_explicit_arrays() {
+        let mut group = Control::new("CUSTOMER-ROWS", ControlType::GroupBox, 0, 0);
+        assert_eq!(group.approved_binding_target_kind(), None);
+
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        assert_eq!(
+            group.approved_binding_target_kind(),
+            Some(ApprovedBindingTargetKind::ControlArray)
+        );
+        assert_eq!(
+            group.explicit_control_array_id().as_deref(),
+            Some("CUSTOMER-ROWS")
+        );
+
+        group.set_prop("ArrayName", PropValue::String("CUSTOMERS".into()));
+        assert_eq!(
+            group.explicit_control_array_id().as_deref(),
+            Some("CUSTOMERS")
+        );
+        assert_eq!(
+            group.binding_target_descriptor(),
+            Some(BindingTargetDescriptor::ControlArray {
+                array_id: "CUSTOMERS".into(),
+                member_control_ids: Vec::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn data_binding_targets_resolve_array_member_context_without_scalar_target() {
+        let mut form = Form::new("MAIN-FORM", "Main", 800, 600);
+        let mut group = Control::new("CUSTOMER-ROWS", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        group.set_prop("ArrayName", PropValue::String("CUSTOMERS".into()));
+
+        let mut text = Control::new("CUSTOMER-NAME", ControlType::TextBox, 10, 10);
+        text.parent = Some("CUSTOMER-ROWS".into());
+        let mut combo = Control::new("CUSTOMER-STATUS", ControlType::ComboBox, 10, 40);
+        combo.parent = Some("CUSTOMER-ROWS".into());
+
+        form.add_control(group);
+        form.add_control(combo);
+        form.add_control(text);
+
+        assert_eq!(
+            form.binding_target_descriptor_for_control("CUSTOMER-ROWS"),
+            Some(BindingTargetDescriptor::ControlArray {
+                array_id: "CUSTOMERS".into(),
+                member_control_ids: vec!["CUSTOMER-NAME".into(), "CUSTOMER-STATUS".into()],
+            })
+        );
+        assert_eq!(
+            form.array_binding_context_for_member("customer-name"),
+            Some(("CUSTOMERS".into(), "CUSTOMER-NAME".into()))
+        );
+        assert_eq!(
+            form.find_control("CUSTOMER-NAME")
+                .unwrap()
+                .approved_binding_target_kind(),
+            None
+        );
+    }
 
     #[test]
     fn property_names_for_reflects_control_model() {
@@ -2887,6 +4631,342 @@ mod tests {
         assert!(Control::new("T", ControlType::Timer, 0, 0)
             .get_prop("CornerRadius")
             .is_none());
+    }
+
+    #[test]
+    fn datagrid_alternating_row_opacity_defaults_to_subtle_highlight() {
+        let grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        assert_eq!(
+            grid.get_prop("AlternatingRowOpacity")
+                .expect("DataGrid missing alternating row opacity")
+                .as_i64(),
+            20
+        );
+        assert!(property_names_for("DataGrid").contains(&"AlternatingRowOpacity".to_string()));
+    }
+
+    #[test]
+    fn datagrid_advanced_model_defaults_023() {
+        let grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        let advanced = DataGridAdvanced::from_control(&grid);
+
+        assert_eq!(advanced.schema_version, DATAGRID_ADVANCED_SCHEMA_VERSION);
+        assert!(advanced.columns.is_empty());
+        assert_eq!(advanced.row_height, 22);
+        assert_eq!(advanced.frozen_columns, 0);
+        assert_eq!(advanced.frozen_rows, 0);
+        assert_eq!(advanced.csv_export_mode, DataGridCsvExportMode::Filtered);
+        assert_eq!(advanced.csv_delimiter, ",");
+        assert_eq!(advanced.grid_line_style, DataGridGridLineStyle::Solid);
+        assert!(advanced.selectable_text);
+
+        let names = property_names_for("DataGrid");
+        for expected in [
+            DATAGRID_ADVANCED_PROP,
+            "AllowColumnReorder",
+            "AllowRowResize",
+            "ColumnFilters",
+            "CSVExportMode",
+            "FrozenColumns",
+            "FrozenRows",
+            "GridLineStyle",
+            "RowBackgroundPattern",
+            "RowHeightOverrides",
+            "SelectableText",
+            "ShowColumnFilters",
+            "ShowCSVExportButton",
+        ] {
+            assert!(
+                names.contains(&expected.to_string()),
+                "DataGrid property list missing {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn datagrid_advanced_model_preserves_legacy_columns_023() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        grid.set_prop(
+            "Columns",
+            PropValue::String("Actor Id:number\nActor Thumb:string\nActor Caption:string".into()),
+        );
+        grid.set_prop("RowHeight", PropValue::Int(32));
+        grid.set_prop("FrozenColumns", PropValue::Int(1));
+        grid.set_prop("GridLineStyle", PropValue::String("Dots".into()));
+
+        let advanced = DataGridAdvanced::from_control(&grid);
+
+        assert_eq!(advanced.columns.len(), 3);
+        assert_eq!(advanced.columns[0].id, "ACTOR_ID");
+        assert_eq!(advanced.columns[0].title, "Actor Id");
+        assert_eq!(advanced.columns[0].source_name, "Actor Id");
+        assert_eq!(advanced.columns[0].value_type, "number");
+        assert_eq!(advanced.columns[1].title, "Actor Thumb");
+        assert_eq!(advanced.row_height, 32);
+        assert_eq!(advanced.frozen_columns, 1);
+        assert_eq!(advanced.grid_line_style, DataGridGridLineStyle::Dots);
+    }
+
+    #[test]
+    fn datagrid_advanced_model_reads_json_metadata_023() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "STATUS".into(),
+            title: "Status".into(),
+            source_name: "STATUS".into(),
+            value_type: "string".into(),
+            width: 160.0,
+            frame: Some(DataGridCellFrame {
+                enabled: true,
+                corner_radius: 14,
+                ..DataGridCellFrame::default()
+            }),
+            value_style_rules: vec![DataGridValueStyleRule {
+                value: "Active".into(),
+                frame_background_color: "#10B981".into(),
+                ..DataGridValueStyleRule::default()
+            }],
+            ..DataGridColumn::default()
+        });
+        advanced.frozen_rows = 1;
+        advanced.grid_line_style = DataGridGridLineStyle::Dash;
+        grid.set_prop(
+            DATAGRID_ADVANCED_PROP,
+            PropValue::String(advanced.to_json().unwrap()),
+        );
+
+        let parsed = DataGridAdvanced::from_control(&grid);
+
+        assert_eq!(parsed.columns.len(), 1);
+        assert_eq!(parsed.columns[0].id, "STATUS");
+        assert_eq!(parsed.columns[0].width, 160.0);
+        assert_eq!(parsed.columns[0].frame.as_ref().unwrap().corner_radius, 14);
+        assert_eq!(parsed.columns[0].value_style_rules[0].value, "Active");
+        assert_eq!(parsed.frozen_rows, 1);
+        assert_eq!(parsed.grid_line_style, DataGridGridLineStyle::Dash);
+    }
+
+    #[test]
+    fn datagrid_advanced_model_applies_runtime_overrides_023() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        let mut advanced = DataGridAdvanced::default();
+        advanced.columns.push(DataGridColumn {
+            id: "ACTOR_CAPTION".into(),
+            title: "Actor Caption".into(),
+            source_name: "Actor Caption".into(),
+            width: 120.0,
+            ..DataGridColumn::default()
+        });
+        advanced.filters.push(DataGridFilter {
+            column_id: "ACTOR_CAPTION".into(),
+            value: "old".into(),
+            active: true,
+        });
+        grid.set_prop(
+            DATAGRID_ADVANCED_PROP,
+            PropValue::String(
+                advanced
+                    .to_json()
+                    .expect("advanced metadata should serialize"),
+            ),
+        );
+        grid.set_prop("_RuntimeRowHeight", PropValue::Int(28));
+        grid.set_prop("_RuntimeFrozenColumns", PropValue::Int(1));
+        grid.set_prop("_RuntimeFrozenRows", PropValue::Int(2));
+        grid.set_prop(
+            "_RuntimeColumnFilters",
+            PropValue::String("Actor Caption=Joe".into()),
+        );
+        grid.set_prop(
+            "_RuntimeColumnWidths",
+            PropValue::String("Actor Caption=220".into()),
+        );
+
+        let parsed = DataGridAdvanced::from_control(&grid);
+
+        assert_eq!(parsed.row_height, 28);
+        assert_eq!(parsed.frozen_columns, 1);
+        assert_eq!(parsed.frozen_rows, 2);
+        assert_eq!(parsed.columns[0].width, 220.0);
+        assert_eq!(parsed.filters.len(), 1);
+        assert_eq!(parsed.filters[0].column_id, "Actor Caption");
+        assert_eq!(parsed.filters[0].value, "Joe");
+        assert!(parsed.filters[0].active);
+    }
+
+    #[test]
+    fn datagrid_resize_updates_width_without_losing_column_identity_023() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        grid.set_prop(
+            "Columns",
+            PropValue::String("CUSTOMER-ID:number\nCUSTOMER-NAME:string".into()),
+        );
+
+        let mut advanced = DataGridAdvanced::from_control(&grid);
+        advanced.set_column_width(1, 220.0);
+        grid.set_prop(
+            DATAGRID_ADVANCED_PROP,
+            PropValue::String(advanced.to_json().unwrap()),
+        );
+
+        let parsed = DataGridAdvanced::from_control(&grid);
+        assert_eq!(parsed.columns[0].id, "CUSTOMER_ID");
+        assert_eq!(parsed.columns[0].source_name, "CUSTOMER-ID");
+        assert_eq!(parsed.columns[0].width, 120.0);
+        assert_eq!(parsed.columns[1].id, "CUSTOMER_NAME");
+        assert_eq!(parsed.columns[1].source_name, "CUSTOMER-NAME");
+        assert_eq!(parsed.columns[1].width, 220.0);
+    }
+
+    #[test]
+    fn datagrid_filter_reorder_chains_active_filters_023() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        grid.set_prop(
+            "Columns",
+            PropValue::String("STATUS:string\nREGION:string\nNAME:string".into()),
+        );
+        let mut advanced = DataGridAdvanced::from_control(&grid);
+        advanced.set_filter("STATUS", "Active");
+        advanced.set_filter("REGION", "North");
+
+        let rows = vec![
+            vec!["Active".into(), "North".into(), "Acme".into()],
+            vec!["Active".into(), "South".into(), "Beta".into()],
+            vec!["Trial".into(), "North".into(), "Coda".into()],
+            vec!["Active".into(), "Northwest".into(), "Delta".into()],
+        ];
+        let sources = vec!["STATUS".into(), "REGION".into(), "NAME".into()];
+
+        assert_eq!(
+            advanced.filtered_row_indices_for_sources(&rows, &sources),
+            vec![0, 3]
+        );
+
+        advanced.set_filter("REGION", "");
+        assert_eq!(
+            advanced.filtered_row_indices_for_sources(&rows, &sources),
+            vec![0, 1, 3]
+        );
+    }
+
+    #[test]
+    fn datagrid_filter_reorder_preserves_metadata_on_move_023() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        grid.set_prop(
+            "Columns",
+            PropValue::String("ID:number\nSTATUS:string\nAMOUNT:number".into()),
+        );
+        let mut advanced = DataGridAdvanced::from_control(&grid);
+        advanced.columns[1].width = 180.0;
+        advanced.columns[1].filter_enabled = true;
+        advanced.columns[1].frame = Some(DataGridCellFrame {
+            enabled: true,
+            corner_radius: 10,
+            ..DataGridCellFrame::default()
+        });
+        advanced.set_filter("STATUS", "Active");
+
+        assert!(advanced.move_column_left(1));
+
+        assert_eq!(advanced.columns[0].id, "STATUS");
+        assert_eq!(advanced.columns[0].source_name, "STATUS");
+        assert_eq!(advanced.columns[0].width, 180.0);
+        assert!(advanced.columns[0].filter_enabled);
+        assert_eq!(
+            advanced.columns[0].frame.as_ref().unwrap().corner_radius,
+            10
+        );
+        assert_eq!(advanced.filters[0].column_id, "STATUS");
+
+        let rows = vec![
+            vec!["1".into(), "Active".into(), "10".into()],
+            vec!["2".into(), "Trial".into(), "20".into()],
+        ];
+        let sources = vec!["ID".into(), "STATUS".into(), "AMOUNT".into()];
+        assert_eq!(
+            advanced.filtered_row_indices_for_sources(&rows, &sources),
+            vec![0]
+        );
+    }
+
+    #[test]
+    fn datagrid_rich_cells_resolve_value_rules_and_gauges_023() {
+        let column = DataGridColumn {
+            id: "STATUS".into(),
+            title: "Status".into(),
+            source_name: "STATUS".into(),
+            frame: Some(DataGridCellFrame {
+                enabled: true,
+                corner_radius: 18,
+                ..DataGridCellFrame::default()
+            }),
+            value_style_rules: vec![
+                DataGridValueStyleRule {
+                    value: "Active".into(),
+                    frame_background_color: "#10B981".into(),
+                    frame_foreground_color: "#FFFFFF".into(),
+                    ..DataGridValueStyleRule::default()
+                },
+                DataGridValueStyleRule {
+                    value: "Churned".into(),
+                    frame_background_color: "#EF4444".into(),
+                    frame_foreground_color: "#FFFFFF".into(),
+                    ..DataGridValueStyleRule::default()
+                },
+            ],
+            ..DataGridColumn::default()
+        };
+
+        assert_eq!(
+            column
+                .value_style_rule_for("active")
+                .expect("active rule")
+                .frame_background_color,
+            "#10B981"
+        );
+        assert_eq!(
+            column
+                .value_style_rule_for("Churned")
+                .expect("churned rule")
+                .frame_background_color,
+            "#EF4444"
+        );
+        assert!(column.value_style_rule_for("Trial").is_none());
+
+        let gauge = DataGridGauge {
+            enabled: true,
+            min: 100.0,
+            max: 300.0,
+            ..DataGridGauge::default()
+        };
+        assert_eq!(gauge.fraction_for_value("100"), Some(0.0));
+        assert_eq!(gauge.fraction_for_value("200"), Some(0.5));
+        assert_eq!(gauge.fraction_for_value("500"), Some(1.0));
+    }
+
+    #[test]
+    fn datagrid_rich_cells_grid_line_style_defaults_023() {
+        assert_eq!(
+            DataGridGridLineStyle::from_str("solid"),
+            DataGridGridLineStyle::Solid
+        );
+        assert_eq!(
+            DataGridGridLineStyle::from_str("dashed"),
+            DataGridGridLineStyle::Dash
+        );
+        assert_eq!(
+            DataGridGridLineStyle::from_str("dotted"),
+            DataGridGridLineStyle::Dots
+        );
+        assert_eq!(
+            DataGridGridLineStyle::from_str("none"),
+            DataGridGridLineStyle::None
+        );
+        assert_eq!(
+            DataGridGridLineStyle::from_str("unknown"),
+            DataGridGridLineStyle::Solid
+        );
     }
 
     #[test]

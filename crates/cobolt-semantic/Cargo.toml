@@ -20,5 +20,7 @@ thiserror    = { workspace = true }
 indexmap     = { workspace = true }
 
 [dev-dependencies]
+cobolt-codegen   = { path = "../cobolt-codegen" }
+cobolt-forms     = { path = "../cobolt-forms" }
 cobolt-parser     = { path = "../cobolt-parser" }
 pretty_assertions = { workspace = true }

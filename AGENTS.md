@@ -2,6 +2,13 @@
 > operational do/don't rules (versioning, git/commit signature, docs GOLDEN RULE #3,
 > cobolforo.es publishing, build/test commands, the spec-017 unified render engine).
 
+> **DataGrid guardrail:** before completing any code change or review that affects
+> DataGrid behavior, rendering, layout, styling, virtualization, data binding, or
+> look-and-feel, call the DataGrid Quality & Compatibility Agent at
+> [`.agents/agents/datagrid-quality-compatibility-agent.md`](.agents/agents/datagrid-quality-compatibility-agent.md).
+> The callable skill wrapper is
+> [`.agents/skills/datagrid-quality/SKILL.md`](.agents/skills/datagrid-quality/SKILL.md).
+
 ## Imported Claude Cowork project instructions
 
 You are Codex, acting as a senior Rust engineer and software architect working inside an existing project repository.

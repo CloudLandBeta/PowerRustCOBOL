@@ -19,8 +19,23 @@
 //! When nothing is selected the panel shows Form Properties.
 
 use crate::i18n::Tr;
-use cobolt_forms::model::{AnimKind, AnimRepeat, AnimTrigger, BgImageMode, EasingKind, PropValue};
-use cobolt_forms::{Control, ControlType, Form};
+use crate::panels::data_binding::{
+    default_mappings_for_target, default_member_property, visibility_for_control,
+    BindingEditorSourceKind, DataBindingVisibility,
+};
+use cobolt_ast::data::{DataDecl, PicKind};
+use cobolt_ast::program::DataSection;
+use cobolt_forms::model::{
+    AnimKind, AnimRepeat, AnimTrigger, BgImageMode, DataGridAdvanced, DataGridCellFrame,
+    DataGridGauge, DataGridGridLineStyle, DataGridTextAlignment, DataGridValueStyleRule,
+    EasingKind, PropValue, DATAGRID_ADVANCED_PROP,
+};
+use cobolt_forms::{
+    BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor,
+    BindingTargetPath, Control, ControlType, DataBindingDef, FieldMapping, Form,
+};
+use cobolt_lexer::{tokenize, SourceFormat};
+use cobolt_parser::parse;
 use egui::{Color32, DragValue, RichText, ScrollArea, Ui};
 
 /// A colour-swatch button that opens egui's colour picker in a pinned popup with a
@@ -172,6 +187,2706 @@ pub struct InspectorAction {
     pub cs_del_proc: Option<usize>,
     /// Set when the "Edit Menu..." button is clicked for a MenuBar control.
     pub open_menu_editor: Option<String>,
+    /// Set when the data-binding editor creates a new form-level binding.
+    pub create_data_binding: Option<DataBindingDef>,
+    /// `(old_id, new_id)` — set when the user renames the selected control in the
+    /// Identity header. The caller renames it throughout the form.
+    pub rename_control: Option<(String, String)>,
+}
+
+/// A member control of a repeating-group target that a source field can map to.
+#[derive(Debug, Clone)]
+struct MemberTarget {
+    id: String,
+    property: String,
+    type_label: String,
+}
+
+struct BindingEditorState {
+    target_control_id: String,
+    /// Non-empty only for a control-array (repeating GroupBox) target: the member
+    /// controls a source field can be mapped onto.
+    member_controls: Vec<MemberTarget>,
+    selected_source: Option<BindingEditorSourceKind>,
+    binding_id: String,
+    display_name: String,
+    indexed_files: Vec<String>,
+    cobol_tables: Vec<CobolTableBindingMeta>,
+    selected_indexed_file: String,
+    selected_sql_control: String,
+    selected_cobol_table: String,
+    selected_cobol_field_to_add: String,
+    rest_endpoint: String,
+    rest_method: RestMethod,
+    rest_headers: Vec<HttpHeaderRow>,
+    rest_auth: RestAuth,
+    show_jsonpath_help: bool,
+    page: i64,
+    page_size: i64,
+    rows: Vec<BindingFieldRow>,
+    removed_rows: Vec<BindingFieldRow>,
+    dropdown_config_row: Option<usize>,
+    validation_error: Option<String>,
+    confirm_clear: bool,
+}
+
+impl BindingEditorState {
+    fn new(
+        form: &Form,
+        control: &Control,
+        source_kind: BindingEditorSourceKind,
+        indexed_files: &[String],
+    ) -> Option<Self> {
+        // Validate the control is a bindable target, but key the editor by the
+        // *control id*, not the target's primary id. For a ControlArray the
+        // primary id is the array **name** (not a control id), which broke both
+        // the "is this editor for the selected control?" match and the
+        // target-descriptor lookup at apply time — so the source button opened a
+        // modal that instantly closed and nothing happened.
+        let target = form.binding_target_descriptor_for_control(&control.id)?;
+        let target_id = control.id.to_owned();
+        // For a control array, gather the member controls a source field can map
+        // onto (with each control's default bindable property).
+        let member_controls = if let BindingTargetDescriptor::ControlArray {
+            member_control_ids,
+            ..
+        } = &target
+        {
+            member_control_ids
+                .iter()
+                .map(|member_id| MemberTarget {
+                    id: member_id.clone(),
+                    property: default_member_property(form, member_id),
+                    type_label: form
+                        .find_control(member_id)
+                        .map(|c| c.control_type.as_str().to_owned())
+                        .unwrap_or_default(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let binding_id = next_panel_binding_id(form, source_kind, &target_id);
+        let cobol_tables = cobol_table_binding_metadata(form);
+        let selected_source =
+            if source_kind == BindingEditorSourceKind::IndexedFile && indexed_files.is_empty() {
+                None
+            } else {
+                Some(source_kind)
+            };
+        let selected_cobol_table = String::new();
+        let rows = if source_kind == BindingEditorSourceKind::CobolTable {
+            Vec::new()
+        } else {
+            sample_rows_for_source(source_kind)
+        };
+        Some(Self {
+            target_control_id: target_id.clone(),
+            member_controls,
+            selected_source,
+            binding_id,
+            display_name: format!("{} -> {}", source_kind.id_fragment(), target_id),
+            indexed_files: indexed_files.to_vec(),
+            cobol_tables,
+            selected_indexed_file: indexed_files
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "CUSTOMER-DATA (CUSTDAT)".to_owned()),
+            selected_sql_control: "SQL-CUSTOMERS".to_owned(),
+            selected_cobol_table,
+            selected_cobol_field_to_add: String::new(),
+            rest_endpoint: "https://api.example.com/v1/products".to_owned(),
+            rest_method: RestMethod::Get,
+            rest_headers: Vec::new(),
+            rest_auth: RestAuth::default(),
+            show_jsonpath_help: true,
+            page: 1,
+            page_size: 50,
+            rows,
+            removed_rows: Vec::new(),
+            dropdown_config_row: None,
+            validation_error: None,
+            confirm_clear: false,
+        })
+    }
+
+    fn select_source(&mut self, source_kind: BindingEditorSourceKind) {
+        if self.selected_source == Some(source_kind) {
+            return;
+        }
+        self.selected_source = Some(source_kind);
+        self.page = 1;
+        self.validation_error = None;
+        self.rows = if source_kind == BindingEditorSourceKind::CobolTable {
+            self.rows_for_selected_cobol_table(&[])
+        } else {
+            sample_rows_for_source(source_kind)
+        };
+        self.removed_rows.clear();
+        self.dropdown_config_row = None;
+        if source_kind == BindingEditorSourceKind::IndexedFile
+            && self.selected_indexed_file.trim().is_empty()
+        {
+            self.selected_indexed_file = self
+                .indexed_files
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "CUSTOMER-DATA (CUSTDAT)".to_owned());
+        }
+        if source_kind == BindingEditorSourceKind::Sql
+            && self.selected_sql_control.trim().is_empty()
+        {
+            self.selected_sql_control = "SQL-CUSTOMERS".to_owned();
+        }
+        if source_kind == BindingEditorSourceKind::RestApi && self.rest_endpoint.trim().is_empty() {
+            self.rest_endpoint = "https://api.example.com/v1/products".to_owned();
+        }
+    }
+
+    /// Field → member-property mappings from the "Map fields to controls" grid
+    /// (control-array targets only). Unmapped fields are skipped.
+    fn control_array_mappings(&self, array_id: &str) -> Vec<FieldMapping> {
+        self.rows
+            .iter()
+            .filter(|row| !row.target_member.trim().is_empty())
+            .map(|row| {
+                let property = self
+                    .member_controls
+                    .iter()
+                    .find(|member| member.id == row.target_member)
+                    .map(|member| member.property.clone())
+                    .unwrap_or_else(|| "Text".to_owned());
+                FieldMapping::new(
+                    row.source_field.clone(),
+                    BindingTargetPath::ControlProperty {
+                        array_id: array_id.to_owned(),
+                        control_id: row.target_member.clone(),
+                        property_name: property,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn to_binding(&self, form: &Form) -> Option<DataBindingDef> {
+        let source_kind = self.selected_source?;
+        let target = form.binding_target_descriptor_for_control(&self.target_control_id)?;
+        let fields = self.binding_fields();
+        let source = self.to_source_descriptor(source_kind, fields.clone());
+        let mappings = match &target {
+            BindingTargetDescriptor::ControlArray { array_id, .. } => {
+                self.control_array_mappings(array_id)
+            }
+            _ => default_mappings_for_target(form, &target, &fields),
+        };
+        Some(
+            DataBindingDef::new(
+                clean_or_default(&self.binding_id, "BINDING"),
+                clean_or_default(&self.display_name, "Data binding"),
+                source,
+                target,
+            )
+            .with_mappings(mappings),
+        )
+    }
+
+    fn to_source_descriptor(
+        &self,
+        source_kind: BindingEditorSourceKind,
+        fields: Vec<BindingField>,
+    ) -> BindingSourceDescriptor {
+        let key_fields: Vec<String> = fields
+            .iter()
+            .filter(|field| field.key)
+            .map(|field| field.name.clone())
+            .collect();
+        match source_kind {
+            BindingEditorSourceKind::IndexedFile => BindingSourceDescriptor::IndexedFile {
+                definition_path: clean_or_default(
+                    &self.selected_indexed_file,
+                    "indexed/source.cidx",
+                ),
+                record_name: "CUSTOMER-RECORD".to_owned(),
+                key_field: key_fields.first().cloned(),
+                fields,
+                writable: true,
+            },
+            BindingEditorSourceKind::Sql => BindingSourceDescriptor::Sql {
+                source_control_id: clean_or_default(&self.selected_sql_control, "SQL-CUSTOMERS"),
+                query_name: "DEFAULT-QUERY".to_owned(),
+                result_set_name: "RESULT-SET".to_owned(),
+                fields,
+                key_fields,
+                writable: true,
+            },
+            BindingEditorSourceKind::CobolTable => BindingSourceDescriptor::CobolTable {
+                table_name: self.selected_cobol_table.trim().to_owned(),
+                occurs_item: self.selected_cobol_occurs_item(),
+                fields,
+                key_fields,
+                writable: true,
+            },
+            BindingEditorSourceKind::RestApi => BindingSourceDescriptor::RestApi {
+                source_control_id: "REST-API".to_owned(),
+                endpoint_name: clean_or_default(&self.rest_endpoint, "PRODUCTS-ENDPOINT"),
+                response_data_item: "REST-RESPONSE".to_owned(),
+                fields,
+                update: None,
+            },
+            BindingEditorSourceKind::AgentAi => BindingSourceDescriptor::AgentAi {
+                source_control_id: "AGENT-1".to_owned(),
+                output_name: "DEFAULT-OUTPUT".to_owned(),
+                fields,
+                update: None,
+            },
+        }
+    }
+
+    fn binding_fields(&self) -> Vec<BindingField> {
+        self.rows
+            .iter()
+            .map(|row| {
+                let mut field = BindingField::new(row.source_field.clone(), row.data_type.clone());
+                field.display_name = row.friendly_name.clone();
+                field.cobol_mask = row.cobol_mask.clone();
+                field.edit_control = row.edit_control.label().to_owned();
+                field.nullable = !row.required;
+                field.key = row.key;
+                field
+            })
+            .collect()
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        let source = self
+            .selected_source
+            .ok_or_else(|| "A binding source must be selected.".to_owned())?;
+        if source == BindingEditorSourceKind::IndexedFile
+            && self.selected_indexed_file.trim().is_empty()
+        {
+            return Err("Indexed file must be selected.".to_owned());
+        }
+        if source == BindingEditorSourceKind::Sql && self.selected_sql_control.trim().is_empty() {
+            return Err("SQL control must be selected.".to_owned());
+        }
+        if source == BindingEditorSourceKind::CobolTable {
+            self.validate_cobol_table_source()?;
+        }
+        if source == BindingEditorSourceKind::RestApi {
+            self.validate_rest_source()?;
+        }
+        if self.rows.is_empty() {
+            return Err("At least one source field must remain visible.".to_owned());
+        }
+        if !self.rows.iter().any(|row| row.visible) {
+            return Err("At least one source field must be visible.".to_owned());
+        }
+        for row in &self.rows {
+            if row.friendly_name.trim().is_empty() {
+                return Err(format!("{} needs a friendly name.", row.source_field));
+            }
+            if source == BindingEditorSourceKind::RestApi && row.source_field.trim().is_empty() {
+                return Err("Every REST source field needs a JSONPath expression.".to_owned());
+            }
+            if source == BindingEditorSourceKind::RestApi && !is_valid_jsonpath(&row.source_field) {
+                return Err(format!(
+                    "{} is not a valid JSONPath expression.",
+                    row.source_field
+                ));
+            }
+            if row.data_type != BindingDataType::Boolean && row.cobol_mask.trim().is_empty() {
+                return Err(format!("{} needs a COBOL mask.", row.source_field));
+            }
+            if source != BindingEditorSourceKind::RestApi
+                && row.edit_control == BindingEditControl::Dropdown
+            {
+                row.dropdown.validate(&row.source_field)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_rest_source(&self) -> Result<(), String> {
+        if self.rest_endpoint.trim().is_empty() {
+            return Err("REST API endpoint must be selected.".to_owned());
+        }
+        if !is_valid_url(&self.rest_endpoint) {
+            return Err("REST API endpoint must be a valid URL.".to_owned());
+        }
+        for header in &self.rest_headers {
+            if header.name.trim().is_empty() && !header.value.trim().is_empty() {
+                return Err("Header names must be filled when a value is provided.".to_owned());
+            }
+        }
+        self.rest_auth.validate()
+    }
+
+    fn validate_cobol_table_source(&self) -> Result<(), String> {
+        if self.selected_cobol_table.trim().is_empty() {
+            return Err("COBOL table must be selected.".to_owned());
+        }
+        if !self
+            .cobol_tables
+            .iter()
+            .any(|table| table.name == self.selected_cobol_table)
+        {
+            return Err(
+                "Selected COBOL table must resolve to a 01-level GLOBAL item with OCCURS."
+                    .to_owned(),
+            );
+        }
+        if self.selected_cobol_occurs_item().trim().is_empty() {
+            return Err("COBOL table occurs item must be resolved.".to_owned());
+        }
+        Ok(())
+    }
+
+    fn selected_cobol_occurs_item(&self) -> String {
+        self.cobol_tables
+            .iter()
+            .find(|table| table.name == self.selected_cobol_table)
+            .map(|table| table.occurs_item.clone())
+            .unwrap_or_default()
+    }
+
+    fn selected_cobol_table_meta(&self) -> Option<&CobolTableBindingMeta> {
+        self.cobol_tables
+            .iter()
+            .find(|table| table.name == self.selected_cobol_table)
+    }
+
+    fn rows_for_selected_cobol_table(
+        &self,
+        previous_rows: &[BindingFieldRow],
+    ) -> Vec<BindingFieldRow> {
+        let Some(table) = self.selected_cobol_table_meta() else {
+            return Vec::new();
+        };
+        table
+            .fields
+            .iter()
+            .map(|field| {
+                previous_rows
+                    .iter()
+                    .find(|row| row.source_field == field.name)
+                    .cloned()
+                    .unwrap_or_else(|| field.to_row())
+            })
+            .collect()
+    }
+
+    fn missing_cobol_table_fields(&self) -> Vec<CobolTableFieldMeta> {
+        let Some(table) = self.selected_cobol_table_meta() else {
+            return Vec::new();
+        };
+        table
+            .fields
+            .iter()
+            .filter(|field| {
+                !self
+                    .rows
+                    .iter()
+                    .any(|row| row.source_field.eq_ignore_ascii_case(&field.name))
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected_source = None;
+        self.selected_indexed_file.clear();
+        self.selected_sql_control.clear();
+        self.selected_cobol_table.clear();
+        self.rest_endpoint.clear();
+        self.rest_headers.clear();
+        self.selected_cobol_field_to_add.clear();
+        self.rows.clear();
+        self.removed_rows.clear();
+        self.dropdown_config_row = None;
+        self.validation_error = None;
+        self.confirm_clear = false;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BindingEditControl {
+    Textbox,
+    Dropdown,
+    Checkbox,
+}
+
+impl BindingEditControl {
+    const ALL: [Self; 3] = [Self::Textbox, Self::Dropdown, Self::Checkbox];
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Textbox => "Textbox",
+            Self::Dropdown => "Dropdown",
+            Self::Checkbox => "Checkbox",
+        }
+    }
+}
+
+const DATA_BINDING_MODAL_SOURCES: [BindingEditorSourceKind; 4] = [
+    BindingEditorSourceKind::IndexedFile,
+    BindingEditorSourceKind::Sql,
+    BindingEditorSourceKind::CobolTable,
+    BindingEditorSourceKind::RestApi,
+];
+
+const MOCK_SQL_CONTROLS: &[&str] = &[
+    "SQL-CUSTOMERS",
+    "SQL-COUNTRIES",
+    "SQL-ORDERS",
+    "SQL-INVOICES",
+];
+const MOCK_COBOL_TABLES: &[&str] = &[
+    "CUSTOMER_TIERS",
+    "PAYMENT_TERMS",
+    "ORDER_STATUS",
+    "WS-CATEGORY-TABLE",
+];
+const MOCK_INDEXED_LOOKUPS: &[&str] = &["COUNTRY-CODES (CNTRYIDX)", "REGION-CODES (REGIONST)"];
+const MOCK_REST_CONTROLS: &[&str] = &["REST-LOOKUP", "REST-COUNTRIES", "REST-STATUS"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CobolTableBindingMeta {
+    name: String,
+    occurs_item: String,
+    fields: Vec<CobolTableFieldMeta>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CobolTableFieldMeta {
+    name: String,
+    picture: String,
+    data_type: BindingDataType,
+}
+
+impl CobolTableFieldMeta {
+    fn to_row(&self) -> BindingFieldRow {
+        let mut row = BindingFieldRow::new(
+            self.name.clone(),
+            self.picture.clone(),
+            self.data_type.clone(),
+            friendly_name_from_cobol_name(&self.name),
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        );
+        row.cobol_mask = format!("PIC {}", normalize_pic_template(&self.picture));
+        row
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestMethod {
+    Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
+}
+
+impl RestMethod {
+    const ALL: [Self; 5] = [Self::Get, Self::Post, Self::Put, Self::Patch, Self::Delete];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Patch => "PATCH",
+            Self::Delete => "DELETE",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct HttpHeaderRow {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestAuthMode {
+    None,
+    ApiKey,
+    BearerToken,
+    BasicAuth,
+}
+
+impl RestAuthMode {
+    const ALL: [Self; 4] = [Self::None, Self::ApiKey, Self::BearerToken, Self::BasicAuth];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::ApiKey => "API key",
+            Self::BearerToken => "Bearer token",
+            Self::BasicAuth => "Basic auth",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApiKeyLocation {
+    Header,
+    Query,
+}
+
+impl ApiKeyLocation {
+    const ALL: [Self; 2] = [Self::Header, Self::Query];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Header => "Header",
+            Self::Query => "Query",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct RestAuth {
+    mode: RestAuthMode,
+    api_key_name: String,
+    api_key_value: String,
+    api_key_location: ApiKeyLocation,
+    bearer_token: String,
+    username: String,
+    password: String,
+}
+
+impl Default for RestAuth {
+    fn default() -> Self {
+        Self {
+            mode: RestAuthMode::None,
+            api_key_name: String::new(),
+            api_key_value: String::new(),
+            api_key_location: ApiKeyLocation::Header,
+            bearer_token: String::new(),
+            username: String::new(),
+            password: String::new(),
+        }
+    }
+}
+
+impl RestAuth {
+    fn validate(&self) -> Result<(), String> {
+        match self.mode {
+            RestAuthMode::None => Ok(()),
+            RestAuthMode::ApiKey => {
+                if self.api_key_name.trim().is_empty() || self.api_key_value.trim().is_empty() {
+                    Err("API key authentication needs key name and key value.".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
+            RestAuthMode::BearerToken => {
+                if self.bearer_token.trim().is_empty() {
+                    Err("Bearer token authentication needs a token.".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
+            RestAuthMode::BasicAuth => {
+                if self.username.trim().is_empty() || self.password.trim().is_empty() {
+                    Err("Basic auth needs username and password.".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DropdownOrigin {
+    IndexedFile,
+    SqlControl,
+    CobolTable,
+    RestApi,
+    StaticValues,
+}
+
+impl DropdownOrigin {
+    const ALL: [Self; 5] = [
+        Self::IndexedFile,
+        Self::SqlControl,
+        Self::CobolTable,
+        Self::RestApi,
+        Self::StaticValues,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::IndexedFile => "Indexed file",
+            Self::SqlControl => "SQL control (result set)",
+            Self::CobolTable => "COBOL table",
+            Self::RestApi => "REST API",
+            Self::StaticValues => "Static values",
+        }
+    }
+
+    fn summary(self) -> &'static str {
+        match self {
+            Self::IndexedFile => "Indexed file",
+            Self::SqlControl => "SQL control",
+            Self::CobolTable => "COBOL table",
+            Self::RestApi => "REST API",
+            Self::StaticValues => "Static values",
+        }
+    }
+
+    fn source_label(self) -> Option<&'static str> {
+        match self {
+            Self::IndexedFile => Some("Select indexed file"),
+            Self::SqlControl => Some("Select SQL control"),
+            Self::CobolTable => Some("Select COBOL table"),
+            Self::RestApi => Some("Select REST API control"),
+            Self::StaticValues => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DropdownConfig {
+    origin: Option<DropdownOrigin>,
+    source_ref: String,
+    display_field: String,
+    value_field: String,
+    line_limit: i64,
+    static_options: String,
+}
+
+impl DropdownConfig {
+    fn city() -> Self {
+        Self {
+            origin: Some(DropdownOrigin::IndexedFile),
+            source_ref: "CITY-MASTER (CITYMAST)".to_owned(),
+            display_field: "CITY-NAME (X(30))".to_owned(),
+            value_field: "CITY-ID (9(04))".to_owned(),
+            line_limit: 1000,
+            static_options: String::new(),
+        }
+    }
+
+    fn status() -> Self {
+        Self {
+            origin: Some(DropdownOrigin::IndexedFile),
+            source_ref: "STATUS-CODES (STATCDS)".to_owned(),
+            display_field: "STATUS-DESC (X(20))".to_owned(),
+            value_field: "STATUS-CODE (X(10))".to_owned(),
+            line_limit: 1000,
+            static_options: String::new(),
+        }
+    }
+
+    fn country_sql() -> Self {
+        Self {
+            origin: Some(DropdownOrigin::SqlControl),
+            source_ref: "SQL-COUNTRIES".to_owned(),
+            display_field: "COUNTRY_NAME (X(100))".to_owned(),
+            value_field: "COUNTRY_ID (9(5))".to_owned(),
+            line_limit: 1000,
+            static_options: String::new(),
+        }
+    }
+
+    fn tier_cobol_table() -> Self {
+        Self {
+            origin: Some(DropdownOrigin::CobolTable),
+            source_ref: "CUSTOMER_TIERS".to_owned(),
+            display_field: "TIER_NAME (X(30))".to_owned(),
+            value_field: "TIER_ID (9(2))".to_owned(),
+            line_limit: 1000,
+            static_options: String::new(),
+        }
+    }
+
+    fn category_cobol_table() -> Self {
+        Self {
+            origin: Some(DropdownOrigin::CobolTable),
+            source_ref: "WS-CATEGORY-TABLE".to_owned(),
+            display_field: "CATEGORY-NAME (X(30))".to_owned(),
+            value_field: "CATEGORY-ID (9(04))".to_owned(),
+            line_limit: 1000,
+            static_options: String::new(),
+        }
+    }
+
+    fn region_indexed_file() -> Self {
+        Self {
+            origin: Some(DropdownOrigin::IndexedFile),
+            source_ref: "REGION-CODES (REGIONST)".to_owned(),
+            display_field: "REGION-NAME (X(30))".to_owned(),
+            value_field: "REGION-ID (9(04))".to_owned(),
+            line_limit: 1000,
+            static_options: String::new(),
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            origin: Some(DropdownOrigin::IndexedFile),
+            source_ref: "CITY-MASTER (CITYMAST)".to_owned(),
+            display_field: "CITY-NAME (X(30))".to_owned(),
+            value_field: "CITY-ID (9(04))".to_owned(),
+            line_limit: 1000,
+            static_options: String::new(),
+        }
+    }
+
+    fn validate(&self, field_name: &str) -> Result<(), String> {
+        let origin = self
+            .origin
+            .ok_or_else(|| format!("{field_name} needs a dropdown origin."))?;
+        match origin {
+            DropdownOrigin::StaticValues => {
+                if self.static_options.trim().is_empty() {
+                    return Err(format!("{field_name} needs at least one static option."));
+                }
+            }
+            DropdownOrigin::IndexedFile
+            | DropdownOrigin::SqlControl
+            | DropdownOrigin::CobolTable
+            | DropdownOrigin::RestApi => {
+                if self.line_limit <= 0 {
+                    return Err(format!(
+                        "{field_name} needs a positive dropdown line limit."
+                    ));
+                }
+                if self.source_ref.trim().is_empty() {
+                    return Err(format!("{field_name} needs a dropdown source."));
+                }
+                if self.display_field.trim().is_empty() {
+                    return Err(format!("{field_name} needs a dropdown display field."));
+                }
+                if self.value_field.trim().is_empty() {
+                    return Err(format!("{field_name} needs a dropdown value field."));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn summary(&self) -> &'static str {
+        match self.origin {
+            Some(origin) => origin.summary(),
+            None => "-",
+        }
+    }
+
+    fn reset_for_origin(&mut self, origin: DropdownOrigin) {
+        self.origin = Some(origin);
+        self.source_ref.clear();
+        self.display_field.clear();
+        self.value_field.clear();
+        match origin {
+            DropdownOrigin::IndexedFile => {
+                self.source_ref = "COUNTRY-CODES (CNTRYIDX)".to_owned();
+                self.display_field = "COUNTRY_NAME (X(100))".to_owned();
+                self.value_field = "COUNTRY_ID (9(5))".to_owned();
+            }
+            DropdownOrigin::SqlControl => {
+                self.source_ref = "SQL-COUNTRIES".to_owned();
+                self.display_field = "COUNTRY_NAME (X(100))".to_owned();
+                self.value_field = "COUNTRY_ID (9(5))".to_owned();
+            }
+            DropdownOrigin::CobolTable => {
+                self.source_ref = "CUSTOMER_TIERS".to_owned();
+                self.display_field = "TIER_NAME (X(30))".to_owned();
+                self.value_field = "TIER_ID (9(2))".to_owned();
+            }
+            DropdownOrigin::RestApi => {
+                self.source_ref = "REST-LOOKUP".to_owned();
+                self.display_field = "NAME (X(100))".to_owned();
+                self.value_field = "ID (9(9))".to_owned();
+            }
+            DropdownOrigin::StaticValues => {
+                self.static_options = "Y=Yes\nN=No".to_owned();
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BindingFieldRow {
+    source_field: String,
+    picture: String,
+    cobol_mask: String,
+    data_type: BindingDataType,
+    key: bool,
+    required: bool,
+    visible: bool,
+    enabled: bool,
+    friendly_name: String,
+    edit_control: BindingEditControl,
+    dropdown: DropdownConfig,
+    /// For a control-array target: the member control id this field maps to
+    /// (empty = unmapped). Ignored for other target kinds.
+    target_member: String,
+}
+
+impl BindingFieldRow {
+    fn new(
+        source_field: impl Into<String>,
+        picture: impl Into<String>,
+        data_type: BindingDataType,
+        friendly_name: impl Into<String>,
+        edit_control: BindingEditControl,
+        dropdown: DropdownConfig,
+    ) -> Self {
+        let picture = picture.into();
+        Self {
+            source_field: source_field.into(),
+            picture: picture.clone(),
+            cobol_mask: picture,
+            data_type,
+            key: false,
+            required: true,
+            visible: true,
+            enabled: true,
+            friendly_name: friendly_name.into(),
+            edit_control,
+            dropdown,
+            target_member: String::new(),
+        }
+    }
+}
+
+fn sample_indexed_field_rows() -> Vec<BindingFieldRow> {
+    let mut rows = vec![
+        BindingFieldRow::new(
+            "CUSTOMER-ID",
+            "9(06)",
+            BindingDataType::Integer,
+            "Customer ID",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "CUSTOMER-NAME",
+            "X(40)",
+            BindingDataType::Text,
+            "Customer Name",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "BALANCE",
+            "S9(9)V99",
+            BindingDataType::Decimal,
+            "Balance",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "ACTIVE",
+            "X",
+            BindingDataType::Boolean,
+            "Active",
+            BindingEditControl::Checkbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "CITY-ID",
+            "9(04)",
+            BindingDataType::Integer,
+            "City",
+            BindingEditControl::Dropdown,
+            DropdownConfig::city(),
+        ),
+        BindingFieldRow::new(
+            "STATUS",
+            "X(10)",
+            BindingDataType::Text,
+            "Status",
+            BindingEditControl::Dropdown,
+            DropdownConfig::status(),
+        ),
+    ];
+    if let Some(id) = rows.get_mut(0) {
+        id.key = true;
+    }
+    rows
+}
+
+fn sample_sql_field_rows() -> Vec<BindingFieldRow> {
+    let mut rows = vec![
+        BindingFieldRow::new(
+            "CUSTOMER_ID",
+            "9(9)",
+            BindingDataType::Integer,
+            "Customer ID",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "CUSTOMER_NAME",
+            "X(100)",
+            BindingDataType::Text,
+            "Customer Name",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "CREDIT_LIMIT",
+            "9(15)V99",
+            BindingDataType::Decimal,
+            "Credit Limit",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "IS_ACTIVE",
+            "-",
+            BindingDataType::Boolean,
+            "Is Active",
+            BindingEditControl::Checkbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "COUNTRY_ID",
+            "9(5)",
+            BindingDataType::Integer,
+            "Country",
+            BindingEditControl::Dropdown,
+            DropdownConfig::country_sql(),
+        ),
+        BindingFieldRow::new(
+            "TIER_ID",
+            "9(2)",
+            BindingDataType::Integer,
+            "Customer Tier",
+            BindingEditControl::Dropdown,
+            DropdownConfig::tier_cobol_table(),
+        ),
+    ];
+    if let Some(id) = rows.get_mut(0) {
+        id.key = true;
+    }
+    if let Some(limit) = rows.get_mut(2) {
+        limit.required = false;
+    }
+    if let Some(tier) = rows.get_mut(5) {
+        tier.required = false;
+    }
+    rows
+}
+
+fn sample_rest_field_rows() -> Vec<BindingFieldRow> {
+    let mut rows = vec![
+        BindingFieldRow::new(
+            "$.[*].title",
+            "PIC X(60)",
+            BindingDataType::Text,
+            "Title",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "$.[*].price",
+            "PIC S9(9)V99",
+            BindingDataType::Decimal,
+            "Price",
+            BindingEditControl::Textbox,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "$.[*].category",
+            "PIC X(30)",
+            BindingDataType::Text,
+            "Category",
+            BindingEditControl::Dropdown,
+            DropdownConfig::empty(),
+        ),
+        BindingFieldRow::new(
+            "$.[*].available",
+            "PIC X",
+            BindingDataType::Boolean,
+            "Available",
+            BindingEditControl::Checkbox,
+            DropdownConfig::empty(),
+        ),
+    ];
+    rows[0].cobol_mask = "X(60)".to_owned();
+    rows[1].cobol_mask = "S9(9)V99".to_owned();
+    rows[2].cobol_mask = "X(30)".to_owned();
+    rows[2].required = false;
+    rows[3].cobol_mask = "X".to_owned();
+    rows[3].required = false;
+    rows
+}
+
+fn sample_rows_for_source(source_kind: BindingEditorSourceKind) -> Vec<BindingFieldRow> {
+    match source_kind {
+        BindingEditorSourceKind::Sql => sample_sql_field_rows(),
+        BindingEditorSourceKind::CobolTable => Vec::new(),
+        BindingEditorSourceKind::RestApi => sample_rest_field_rows(),
+        _ => sample_indexed_field_rows(),
+    }
+}
+
+fn cobol_table_binding_metadata(form: &Form) -> Vec<CobolTableBindingMeta> {
+    let ws = form.user_ws_source.trim();
+    if ws.is_empty() {
+        return Vec::new();
+    }
+    let source = format!(
+        "IDENTIFICATION DIVISION.\n\
+         PROGRAM-ID. BINDING-METADATA.\n\
+         DATA DIVISION.\n\
+         WORKING-STORAGE SECTION.\n\
+         {ws}\n\
+         PROCEDURE DIVISION.\n\
+         MAIN.\n\
+             STOP RUN.\n"
+    );
+    let result = parse(tokenize(&source, SourceFormat::Free));
+    let Some(program) = result.program else {
+        return Vec::new();
+    };
+    let Some(data) = program.data else {
+        return Vec::new();
+    };
+    data.sections
+        .iter()
+        .filter_map(|section| match section {
+            DataSection::WorkingStorage(items) => Some(items),
+            _ => None,
+        })
+        .flat_map(|items| items.iter())
+        .filter_map(cobol_table_meta_from_root)
+        .collect()
+}
+
+fn cobol_table_meta_from_root(root: &DataDecl) -> Option<CobolTableBindingMeta> {
+    if root.level != 1 || !root.is_global {
+        return None;
+    }
+    let name = root.name.as_ref()?.clone();
+    let occurs_item = if root.occurs.is_some() {
+        root
+    } else {
+        root.children.iter().find(|child| child.occurs.is_some())?
+    };
+    let occurs_name = occurs_item.name.as_ref()?.clone();
+    let mut fields = Vec::new();
+    collect_cobol_table_fields(occurs_item, &mut fields);
+    if fields.is_empty() {
+        return None;
+    }
+    Some(CobolTableBindingMeta {
+        name,
+        occurs_item: occurs_name,
+        fields,
+    })
+}
+
+fn collect_cobol_table_fields(item: &DataDecl, fields: &mut Vec<CobolTableFieldMeta>) {
+    for child in &item.children {
+        if let (Some(name), Some(pic)) = (&child.name, &child.picture) {
+            fields.push(CobolTableFieldMeta {
+                name: name.clone(),
+                picture: pic.template.clone(),
+                data_type: binding_data_type_from_pic(pic.kind, &pic.template),
+            });
+        }
+        if !child.children.is_empty() {
+            collect_cobol_table_fields(child, fields);
+        }
+    }
+}
+
+fn binding_data_type_from_pic(kind: PicKind, template: &str) -> BindingDataType {
+    match kind {
+        PicKind::Numeric | PicKind::NumericEdited => {
+            if template.contains('V') || template.contains('v') {
+                BindingDataType::Decimal
+            } else {
+                BindingDataType::Integer
+            }
+        }
+        PicKind::Alphabetic | PicKind::Alphanumeric | PicKind::AlphanumericEdited => {
+            BindingDataType::Text
+        }
+    }
+}
+
+fn normalize_pic_template(template: &str) -> String {
+    let mut normalized = String::with_capacity(template.len());
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '(' {
+            normalized.push(ch);
+            let mut digits = String::new();
+            while let Some(next) = chars.peek().copied() {
+                if next == ')' {
+                    break;
+                }
+                digits.push(next);
+                chars.next();
+            }
+            if digits.chars().all(|ch| ch.is_ascii_digit()) {
+                let trimmed = digits.trim_start_matches('0');
+                normalized.push_str(if trimmed.is_empty() { "0" } else { trimmed });
+            } else {
+                normalized.push_str(&digits);
+            }
+        } else {
+            normalized.push(ch);
+        }
+    }
+    normalized
+}
+
+fn friendly_name_from_cobol_name(name: &str) -> String {
+    name.split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            let Some(first) = chars.next() else {
+                return String::new();
+            };
+            let mut word = String::new();
+            word.push(first.to_ascii_uppercase());
+            for ch in chars {
+                word.push(ch.to_ascii_lowercase());
+            }
+            word
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn binding_data_type_label(data_type: &BindingDataType) -> &'static str {
+    match data_type {
+        BindingDataType::Text => "Text",
+        BindingDataType::Integer => "Integer",
+        BindingDataType::Decimal => "Decimal",
+        BindingDataType::Boolean => "Boolean",
+        BindingDataType::Date => "Date",
+        BindingDataType::DateTime => "DateTime",
+        BindingDataType::Json => "Json",
+        BindingDataType::Unknown => "Unknown",
+    }
+}
+
+fn rest_detected_type_label(data_type: &BindingDataType) -> &'static str {
+    match data_type {
+        BindingDataType::Text => "String",
+        BindingDataType::Integer | BindingDataType::Decimal => "Number",
+        BindingDataType::Boolean => "Boolean",
+        BindingDataType::Json => "Object",
+        BindingDataType::Date | BindingDataType::DateTime => "String",
+        BindingDataType::Unknown => "Unknown",
+    }
+}
+
+fn is_valid_url(value: &str) -> bool {
+    let trimmed = value.trim();
+    let Some(rest) = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or_default();
+    !host.is_empty() && host.contains('.')
+}
+
+fn is_valid_jsonpath(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.starts_with('$') && !trimmed.contains(' ')
+}
+
+fn rest_response_preview_json() -> &'static str {
+    r#"[
+  {
+    "title": "Wireless Headphones",
+    "price": 129.99,
+    "category": "Electronics",
+    "available": true
+  },
+  {
+    "title": "Bluetooth Speaker",
+    "price": 59.50,
+    "category": "Audio",
+    "available": true
+  }
+]"#
+}
+
+fn rest_help_sample_json() -> &'static str {
+    r#"[
+  {
+    "title": "Wireless Headphones",
+    "price": 129.99,
+    "category": "Electronics",
+    "available": true
+  }
+]"#
+}
+
+fn clean_or_default(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn next_panel_binding_id(
+    form: &Form,
+    source_kind: BindingEditorSourceKind,
+    target_control_id: &str,
+) -> String {
+    let mut normalized = String::with_capacity(target_control_id.len());
+    for ch in target_control_id.chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_uppercase());
+        } else {
+            normalized.push('-');
+        }
+    }
+    let normalized = normalized.trim_matches('-');
+    let base = format!("BIND-{}-{}", source_kind.id_fragment(), normalized);
+    if !form
+        .data_bindings
+        .iter()
+        .any(|binding| binding.id.eq_ignore_ascii_case(&base))
+    {
+        return base;
+    }
+    for n in 2.. {
+        let candidate = format!("{base}-{n}");
+        if !form
+            .data_bindings
+            .iter()
+            .any(|binding| binding.id.eq_ignore_ascii_case(&candidate))
+        {
+            return candidate;
+        }
+    }
+    unreachable!("unbounded suffix search must return")
+}
+
+fn show_binding_source_selector(ui: &mut Ui, editor: &mut BindingEditorState, tr: &Tr) {
+    let selected_fill = Color32::from_rgba_unmultiplied(44, 111, 210, 70);
+    let idle_fill = Color32::from_rgba_unmultiplied(16, 18, 22, 210);
+    let selected_stroke = egui::Stroke::new(1.5, Color32::from_rgb(70, 145, 255));
+    let idle_stroke = egui::Stroke::new(1.0, Color32::from_rgb(75, 80, 88));
+
+    ui.horizontal(|ui| {
+        for source_kind in DATA_BINDING_MODAL_SOURCES {
+            let enabled = source_kind != BindingEditorSourceKind::IndexedFile
+                || !editor.indexed_files.is_empty();
+            let selected = editor.selected_source == Some(source_kind);
+            let icon = match source_kind {
+                BindingEditorSourceKind::IndexedFile => "[file]",
+                BindingEditorSourceKind::Sql => "(db)",
+                BindingEditorSourceKind::CobolTable => "[grid]",
+                BindingEditorSourceKind::RestApi => "(cloud)",
+                BindingEditorSourceKind::AgentAi => "(ai)",
+            };
+            let text_color = if selected {
+                Color32::from_rgb(210, 230, 255)
+            } else {
+                Color32::from_rgb(205, 208, 216)
+            };
+            let button = egui::Button::new(
+                RichText::new(format!("{icon} {}", source_kind.label(tr))).color(text_color),
+            )
+            .min_size(egui::vec2(170.0, 42.0))
+            .fill(if selected { selected_fill } else { idle_fill })
+            .stroke(if selected {
+                selected_stroke
+            } else {
+                idle_stroke
+            });
+            if ui.add_enabled(enabled, button).clicked() {
+                editor.select_source(source_kind);
+            }
+        }
+    });
+}
+
+fn show_clear_selection_banner(ui: &mut Ui, editor: &mut BindingEditorState) {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(78, 31, 30, 130))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(112, 58, 56)))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.colored_label(Color32::from_rgb(255, 115, 100), "!");
+                ui.label("Clearing the selection will delete the previous binding configuration.");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(
+                            RichText::new("Clear selection")
+                                .color(Color32::from_rgb(255, 120, 110)),
+                        )
+                        .clicked()
+                    {
+                        editor.confirm_clear = true;
+                    }
+                });
+            });
+        });
+
+    if editor.confirm_clear {
+        let mut confirm_open = true;
+        egui::Window::new("Clear binding configuration?")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut confirm_open)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ui.ctx(), |ui| {
+                ui.label("The previous binding configuration will be deleted.");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        editor.confirm_clear = false;
+                    }
+                    if ui
+                        .button(
+                            RichText::new("Confirm clear").color(Color32::from_rgb(255, 120, 110)),
+                        )
+                        .clicked()
+                    {
+                        editor.clear_selection();
+                    }
+                });
+            });
+        if !confirm_open {
+            editor.confirm_clear = false;
+        }
+    }
+}
+
+fn show_indexed_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.heading("Indexed file source");
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.label("Indexed file:");
+        egui::ComboBox::from_id_salt("data_binding_indexed_file")
+            .selected_text(clean_or_default(
+                &editor.selected_indexed_file,
+                "CUSTOMER-DATA (CUSTDAT)",
+            ))
+            .width(330.0)
+            .show_ui(ui, |ui| {
+                let files: Vec<String> = if editor.indexed_files.is_empty() {
+                    vec!["CUSTOMER-DATA (CUSTDAT)".to_owned()]
+                } else {
+                    editor.indexed_files.clone()
+                };
+                for file in files {
+                    ui.selectable_value(&mut editor.selected_indexed_file, file.clone(), file);
+                }
+            });
+    });
+    ui.add_space(8.0);
+    ui.label(
+        RichText::new("File records are rows. Browse records below to preview data.")
+            .small()
+            .color(Color32::GRAY),
+    );
+    ui.add_space(12.0);
+    show_preview_pagination(ui, editor, "indexed", 42);
+    ui.add_space(10.0);
+    show_preview_grid(ui);
+}
+
+fn show_sql_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.heading("SQL control");
+    ui.add_space(8.0);
+    egui::ComboBox::from_id_salt("data_binding_sql_control")
+        .selected_text(clean_or_default(
+            &editor.selected_sql_control,
+            "SQL-CUSTOMERS",
+        ))
+        .width(330.0)
+        .show_ui(ui, |ui| {
+            for &control in MOCK_SQL_CONTROLS {
+                if ui
+                    .selectable_value(
+                        &mut editor.selected_sql_control,
+                        control.to_owned(),
+                        control,
+                    )
+                    .clicked()
+                {
+                    editor.page = 1;
+                    editor.rows = sample_sql_field_rows();
+                    editor.removed_rows.clear();
+                }
+            }
+        });
+    ui.add_space(8.0);
+    ui.label(
+        RichText::new(
+            "Records are fetched from the selected SQL control result set with pagination.",
+        )
+        .small()
+        .color(Color32::GRAY),
+    );
+    ui.add_space(16.0);
+    show_preview_pagination(ui, editor, "sql", 24);
+}
+
+fn show_preview_pagination(
+    ui: &mut Ui,
+    editor: &mut BindingEditorState,
+    id_suffix: &str,
+    total_pages: i64,
+) {
+    editor.page = editor.page.clamp(1, total_pages);
+    ui.horizontal(|ui| {
+        if ui.button("«").clicked() {
+            editor.page = 1;
+        }
+        if ui.button("‹").clicked() {
+            editor.page = (editor.page - 1).max(1);
+        }
+        ui.label("Page");
+        ui.add(
+            DragValue::new(&mut editor.page)
+                .speed(1)
+                .range(1..=total_pages)
+                .fixed_decimals(0),
+        );
+        ui.label(format!("of {total_pages}"));
+        if ui.button("›").clicked() {
+            editor.page = (editor.page + 1).min(total_pages);
+        }
+        if ui.button("»").clicked() {
+            editor.page = total_pages;
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let old_size = editor.page_size;
+            egui::ComboBox::from_id_salt(format!("data_binding_page_size_{id_suffix}"))
+                .selected_text(editor.page_size.to_string())
+                .width(90.0)
+                .show_ui(ui, |ui| {
+                    for size in [25, 50, 100, 250] {
+                        ui.selectable_value(&mut editor.page_size, size, size.to_string());
+                    }
+                });
+            if editor.page_size != old_size {
+                editor.page = 1;
+            }
+            ui.label("Page size:");
+        });
+    });
+}
+
+fn show_preview_grid(ui: &mut Ui) {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(15, 18, 22, 210))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(58, 64, 72)))
+        .rounding(egui::Rounding::same(5.0))
+        .show(ui, |ui| {
+            egui::Grid::new("data_binding_preview_grid")
+                .num_columns(6)
+                .spacing([34.0, 8.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    for header in [
+                        "CUSTOMER-ID",
+                        "CUSTOMER-NAME",
+                        "BALANCE",
+                        "ACTIVE",
+                        "CITY-ID",
+                        "STATUS",
+                    ] {
+                        ui.label(RichText::new(header).small().color(Color32::from_gray(190)));
+                    }
+                    ui.end_row();
+                    for value in [
+                        "100001",
+                        "Acme Corporation",
+                        "12500.75",
+                        "Y",
+                        "10",
+                        "ACTIVE",
+                    ] {
+                        ui.label(value);
+                    }
+                    ui.end_row();
+                });
+        });
+}
+
+fn show_rest_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.heading("REST API source");
+    ui.add_space(10.0);
+    egui::Grid::new("rest_api_source_settings")
+        .num_columns(2)
+        .spacing([18.0, 10.0])
+        .show(ui, |ui| {
+            ui.label("API endpoint");
+            ui.add(
+                egui::TextEdit::singleline(&mut editor.rest_endpoint)
+                    .desired_width(560.0)
+                    .hint_text("https://api.example.com/v1/products"),
+            );
+            ui.end_row();
+
+            ui.label("Method");
+            egui::ComboBox::from_id_salt("rest_api_method")
+                .selected_text(editor.rest_method.label())
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for method in RestMethod::ALL {
+                        ui.selectable_value(&mut editor.rest_method, method, method.label());
+                    }
+                });
+            ui.end_row();
+
+            ui.label("Headers (optional)");
+            ui.horizontal(|ui| {
+                if ui.button("+ Add header").clicked() {
+                    editor.rest_headers.push(HttpHeaderRow::default());
+                }
+            });
+            ui.end_row();
+
+            if !editor.rest_headers.is_empty() {
+                ui.label("");
+                ui.vertical(|ui| {
+                    let mut remove_header = None;
+                    for (index, header) in editor.rest_headers.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut header.name)
+                                    .desired_width(190.0)
+                                    .hint_text("Header name"),
+                            );
+                            ui.add(
+                                egui::TextEdit::singleline(&mut header.value)
+                                    .desired_width(250.0)
+                                    .hint_text("Header value"),
+                            );
+                            if ui.small_button("X").clicked() {
+                                remove_header = Some(index);
+                            }
+                        });
+                    }
+                    if let Some(index) = remove_header {
+                        editor.rest_headers.remove(index);
+                    }
+                });
+                ui.end_row();
+            }
+
+            ui.label("Authentication (optional)");
+            egui::ComboBox::from_id_salt("rest_api_auth")
+                .selected_text(editor.rest_auth.mode.label())
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for mode in RestAuthMode::ALL {
+                        ui.selectable_value(&mut editor.rest_auth.mode, mode, mode.label());
+                    }
+                });
+            ui.end_row();
+        });
+
+    show_rest_auth_fields(ui, &mut editor.rest_auth);
+    ui.add_space(12.0);
+    ui.label("API response preview");
+    ui.add_space(4.0);
+    show_json_code_preview(ui, rest_response_preview_json(), 220.0);
+    ui.add_space(8.0);
+    show_jsonpath_hint_row(ui, editor);
+    ui.add_space(16.0);
+    show_rest_source_fields_section(ui, editor);
+    ui.add_space(12.0);
+    show_rest_field_actions(ui, editor);
+    if editor.show_jsonpath_help {
+        ui.add_space(14.0);
+        show_jsonpath_help_panel(ui);
+    }
+}
+
+fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.heading("Configure COBOL table binding");
+    ui.add_space(10.0);
+    ui.label(
+        RichText::new("Table (01-level GLOBAL item with OCCURS)")
+            .small()
+            .color(Color32::GRAY),
+    );
+    let before_table = editor.selected_cobol_table.clone();
+    egui::ComboBox::from_id_salt("cobol_binding_table")
+        .selected_text(clean_or_default(&editor.selected_cobol_table, "None"))
+        .width(380.0)
+        .show_ui(ui, |ui| {
+            if editor.cobol_tables.is_empty() {
+                ui.label(RichText::new("None").color(Color32::GRAY));
+            }
+            for table in &editor.cobol_tables {
+                ui.selectable_value(
+                    &mut editor.selected_cobol_table,
+                    table.name.clone(),
+                    table.name.as_str(),
+                );
+            }
+        });
+    if before_table != editor.selected_cobol_table {
+        let previous_rows = std::mem::take(&mut editor.rows);
+        editor.rows = editor.rows_for_selected_cobol_table(&previous_rows);
+        editor.removed_rows.clear();
+        editor.dropdown_config_row = None;
+        editor.selected_cobol_field_to_add.clear();
+    }
+    ui.add_space(10.0);
+    ui.label(RichText::new("Occurs item").small().color(Color32::GRAY));
+    let mut occurs_item = editor.selected_cobol_occurs_item();
+    ui.add_enabled(
+        false,
+        egui::TextEdit::singleline(&mut occurs_item).desired_width(380.0),
+    );
+    ui.add_space(10.0);
+    let helper = if editor.selected_cobol_table.trim().is_empty() {
+        if editor.cobol_tables.is_empty() {
+            "No eligible 01-level GLOBAL working-storage table with OCCURS was found.".to_owned()
+        } else {
+            "Select a 01-level GLOBAL working-storage table with OCCURS. Pagination is not required."
+                .to_owned()
+        }
+    } else {
+        format!(
+            "Binding occurs to the COBOL table structure ({}) using the occurs item {}. Pagination is not required.",
+            editor.selected_cobol_table,
+            occurs_item
+        )
+    };
+    ui.label(RichText::new(helper).small().color(Color32::GRAY));
+}
+
+fn show_rest_auth_fields(ui: &mut Ui, auth: &mut RestAuth) {
+    match auth.mode {
+        RestAuthMode::None => {}
+        RestAuthMode::ApiKey => {
+            egui::Grid::new("rest_auth_api_key")
+                .num_columns(2)
+                .spacing([18.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut auth.api_key_name)
+                                .desired_width(160.0)
+                                .hint_text("Key name"),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut auth.api_key_value)
+                                .desired_width(220.0)
+                                .hint_text("Key value"),
+                        );
+                        egui::ComboBox::from_id_salt("rest_auth_api_key_location")
+                            .selected_text(auth.api_key_location.label())
+                            .width(100.0)
+                            .show_ui(ui, |ui| {
+                                for location in ApiKeyLocation::ALL {
+                                    ui.selectable_value(
+                                        &mut auth.api_key_location,
+                                        location,
+                                        location.label(),
+                                    );
+                                }
+                            });
+                    });
+                    ui.end_row();
+                });
+        }
+        RestAuthMode::BearerToken => {
+            egui::Grid::new("rest_auth_bearer")
+                .num_columns(2)
+                .spacing([18.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut auth.bearer_token)
+                            .desired_width(360.0)
+                            .hint_text("Bearer token"),
+                    );
+                    ui.end_row();
+                });
+        }
+        RestAuthMode::BasicAuth => {
+            egui::Grid::new("rest_auth_basic")
+                .num_columns(2)
+                .spacing([18.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut auth.username)
+                                .desired_width(180.0)
+                                .hint_text("Username"),
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut auth.password)
+                                .password(true)
+                                .desired_width(180.0)
+                                .hint_text("Password"),
+                        );
+                    });
+                    ui.end_row();
+                });
+        }
+    }
+}
+
+fn show_json_code_preview(ui: &mut Ui, json: &str, max_height: f32) {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(7, 10, 13, 235))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(55, 65, 78)))
+        .rounding(egui::Rounding::same(5.0))
+        .inner_margin(egui::Margin::symmetric(8.0, 8.0))
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(max_height)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for (index, line) in json.lines().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.add_sized(
+                                [28.0, 16.0],
+                                egui::Label::new(
+                                    RichText::new(format!("{:>2}", index + 1))
+                                        .monospace()
+                                        .color(Color32::from_gray(120)),
+                                ),
+                            );
+                            show_json_highlighted_line(ui, line);
+                        });
+                    }
+                });
+        });
+}
+
+fn show_json_highlighted_line(ui: &mut Ui, line: &str) {
+    ui.horizontal_wrapped(|ui| {
+        for token in line.split_inclusive([' ', ',', ':']) {
+            let trimmed =
+                token.trim_matches(|ch: char| ch == ',' || ch == ':' || ch.is_whitespace());
+            let color = if trimmed.starts_with('"') {
+                Color32::from_rgb(130, 220, 130)
+            } else if matches!(trimmed, "true" | "false") || trimmed.parse::<f64>().is_ok() {
+                Color32::from_rgb(135, 145, 255)
+            } else {
+                Color32::from_gray(210)
+            };
+            ui.label(RichText::new(token).monospace().color(color));
+        }
+    });
+}
+
+fn show_jsonpath_hint_row(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.horizontal(|ui| {
+        ui.colored_label(Color32::from_rgb(70, 145, 255), "i");
+        ui.label(
+            RichText::new(
+                "JSON keys are mapped to COBOL types using JSONPath syntax. Use the help panel for examples and guidance.",
+            )
+            .small()
+            .color(Color32::GRAY),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("ⓘ JSONPath help").clicked() {
+                editor.show_jsonpath_help = !editor.show_jsonpath_help;
+            }
+        });
+    });
+}
+
+fn show_rest_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.heading("Source fields");
+    ui.add_space(8.0);
+    egui::ScrollArea::horizontal()
+        .id_salt("rest_data_binding_source_fields_scroll")
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            egui::Frame::none()
+                .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
+                .rounding(egui::Rounding::same(6.0))
+                .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                .show(ui, |ui| {
+                    let mut remove_at = None;
+                    egui::Grid::new("rest_data_binding_source_fields")
+                        .num_columns(11)
+                        .spacing([8.0, 7.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            for header in [
+                                "",
+                                "",
+                                "Source field / JSONPath",
+                                "Detected type\nCOBOL type",
+                                "COBOL mask",
+                                "Required",
+                                "Visible",
+                                "Enabled",
+                                "Friendly name",
+                                "Edit control",
+                                "Extra notes",
+                            ] {
+                                ui.label(
+                                    RichText::new(header).small().color(Color32::from_gray(170)),
+                                );
+                            }
+                            ui.end_row();
+
+                            for row_index in 0..editor.rows.len() {
+                                let row = &mut editor.rows[row_index];
+                                ui.label(RichText::new("::").color(Color32::from_gray(130)));
+                                if ui.small_button("X").clicked() {
+                                    remove_at = Some(row_index);
+                                }
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut row.source_field)
+                                        .desired_width(120.0),
+                                );
+                                ui.label(format!(
+                                    "{}\n{}",
+                                    rest_detected_type_label(&row.data_type),
+                                    row.picture
+                                ));
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut row.cobol_mask)
+                                        .desired_width(85.0),
+                                );
+                                ui.checkbox(&mut row.required, "");
+                                ui.checkbox(&mut row.visible, "");
+                                ui.checkbox(&mut row.enabled, "");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut row.friendly_name)
+                                        .desired_width(95.0),
+                                );
+                                egui::ComboBox::from_id_salt(format!(
+                                    "rest_data_binding_edit_control_{}",
+                                    row_index
+                                ))
+                                .selected_text(row.edit_control.label())
+                                .width(90.0)
+                                .show_ui(ui, |ui| {
+                                    for control in BindingEditControl::ALL {
+                                        ui.selectable_value(
+                                            &mut row.edit_control,
+                                            control.clone(),
+                                            control.label(),
+                                        );
+                                    }
+                                });
+                                ui.label("-");
+                                ui.end_row();
+                            }
+                        });
+                    if let Some(index) = remove_at {
+                        if index < editor.rows.len() {
+                            let removed = editor.rows.remove(index);
+                            editor.removed_rows.push(removed);
+                        }
+                    }
+                });
+        });
+}
+
+fn show_rest_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.horizontal(|ui| {
+        if ui.button("+ Add field").clicked() {
+            let mut row = BindingFieldRow::new(
+                "",
+                "PIC X(255)",
+                BindingDataType::Unknown,
+                "",
+                BindingEditControl::Textbox,
+                DropdownConfig::empty(),
+            );
+            row.cobol_mask = "X(255)".to_owned();
+            row.required = false;
+            row.visible = true;
+            row.enabled = true;
+            editor.rows.push(row);
+        }
+        if ui.button("Restore removed fields").clicked() {
+            editor.rows.append(&mut editor.removed_rows);
+        }
+    });
+}
+
+fn show_cobol_table_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.horizontal(|ui| {
+        let missing_fields = editor.missing_cobol_table_fields();
+        if !missing_fields.is_empty() {
+            if !missing_fields
+                .iter()
+                .any(|field| field.name == editor.selected_cobol_field_to_add)
+            {
+                editor.selected_cobol_field_to_add = missing_fields[0].name.clone();
+            }
+            egui::ComboBox::from_id_salt("cobol_binding_add_field")
+                .selected_text(clean_or_default(
+                    &editor.selected_cobol_field_to_add,
+                    missing_fields[0].name.as_str(),
+                ))
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    for field in &missing_fields {
+                        ui.selectable_value(
+                            &mut editor.selected_cobol_field_to_add,
+                            field.name.clone(),
+                            field.name.as_str(),
+                        );
+                    }
+                });
+            if ui.button("+ Add field").clicked() {
+                if let Some(field) = missing_fields
+                    .iter()
+                    .find(|field| field.name == editor.selected_cobol_field_to_add)
+                    .or_else(|| missing_fields.first())
+                {
+                    editor.rows.push(field.to_row());
+                    editor.selected_cobol_field_to_add.clear();
+                }
+            }
+        }
+        if ui.button("Restore removed fields").clicked() {
+            let available_names = editor
+                .selected_cobol_table_meta()
+                .map(|table| {
+                    table
+                        .fields
+                        .iter()
+                        .map(|field| field.name.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let mut restored = Vec::new();
+            editor.removed_rows.retain(|row| {
+                let can_restore = available_names
+                    .iter()
+                    .any(|name| row.source_field.eq_ignore_ascii_case(name))
+                    && !editor
+                        .rows
+                        .iter()
+                        .any(|active| active.source_field.eq_ignore_ascii_case(&row.source_field));
+                if can_restore {
+                    restored.push(row.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            editor.rows.append(&mut restored);
+        }
+    });
+}
+
+fn show_jsonpath_help_panel(ui: &mut Ui) {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(14, 17, 21, 230))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .show(ui, |ui| {
+            ui.heading("JSONPath help");
+            ui.add_space(8.0);
+            ui.columns(2, |columns| {
+                columns[0].label(
+                    RichText::new(
+                        "Use JSONPath expressions to extract values from the JSON response. JSON keys are mapped to COBOL types based on the detected data type.",
+                    )
+                    .small()
+                    .color(Color32::from_gray(205)),
+                );
+                columns[0].add_space(8.0);
+                columns[0].label("Sample JSON response");
+                show_json_code_preview(&mut columns[0], rest_help_sample_json(), 130.0);
+
+                columns[1].label("Examples");
+                egui::Grid::new("jsonpath_examples")
+                    .num_columns(2)
+                    .spacing([28.0, 6.0])
+                    .striped(true)
+                    .show(&mut columns[1], |ui| {
+                        ui.label(RichText::new("Source field (JSONPath)").small());
+                        ui.label(RichText::new("Friendly name").small());
+                        ui.end_row();
+                        ui.monospace("$.[*].title");
+                        ui.label("Title");
+                        ui.end_row();
+                        ui.monospace("$.[*].price");
+                        ui.label("Price");
+                        ui.end_row();
+                    });
+                columns[1].add_space(8.0);
+                columns[1].label(RichText::new("- $ : Root of the JSON document").small());
+                columns[1].label(RichText::new("- [*] : All items in the root array").small());
+                columns[1].label(RichText::new("- .key : Select the key from each item").small());
+                columns[1].add_space(8.0);
+                let _ = columns[1].button(
+                    RichText::new("Learn more about JSONPath ↗")
+                        .color(Color32::from_rgb(85, 160, 255)),
+                );
+            });
+        });
+}
+
+fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    ui.heading("Source fields");
+    ui.add_space(8.0);
+    let show_sql_type = editor.selected_source == Some(BindingEditorSourceKind::Sql);
+    let show_cobol_table = editor.selected_source == Some(BindingEditorSourceKind::CobolTable);
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+        .show(ui, |ui| {
+            let mut remove_at = None;
+            egui::Grid::new("data_binding_source_fields")
+                .num_columns(12)
+                .spacing([10.0, 7.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    for header in [
+                        "",
+                        "",
+                        "Source field",
+                        if show_sql_type { "Type" } else { "Picture" },
+                        "COBOL mask",
+                        "Key",
+                        "Req.",
+                        "Visible",
+                        "Enabled",
+                        "Friendly name",
+                        "Edit control",
+                        "Extra configuration",
+                    ] {
+                        ui.label(RichText::new(header).small().color(Color32::from_gray(170)));
+                    }
+                    ui.end_row();
+
+                    for row_index in 0..editor.rows.len() {
+                        let row = &mut editor.rows[row_index];
+                        let mut row_clicked = false;
+                        let mut row_became_dropdown = false;
+                        let mut row_stopped_being_dropdown = false;
+
+                        if ui
+                            .add(egui::Label::new(
+                                RichText::new("::").color(Color32::from_gray(130)),
+                            ))
+                            .clicked()
+                        {
+                            row_clicked = true;
+                        }
+                        if ui.small_button("X").clicked() {
+                            remove_at = Some(row_index);
+                        }
+                        if ui
+                            .add(egui::Label::new(&row.source_field).sense(egui::Sense::click()))
+                            .clicked()
+                        {
+                            row_clicked = true;
+                        }
+                        let detail = if show_sql_type {
+                            binding_data_type_label(&row.data_type)
+                        } else {
+                            &row.picture
+                        };
+                        if ui
+                            .add(egui::Label::new(detail).sense(egui::Sense::click()))
+                            .clicked()
+                        {
+                            row_clicked = true;
+                        }
+                        ui.add(egui::TextEdit::singleline(&mut row.cobol_mask).desired_width(92.0));
+                        ui.checkbox(&mut row.key, "");
+                        ui.checkbox(&mut row.required, "");
+                        ui.checkbox(&mut row.visible, "");
+                        ui.checkbox(&mut row.enabled, "");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut row.friendly_name).desired_width(112.0),
+                        );
+                        let before_control = row.edit_control.clone();
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt(format!(
+                                "data_binding_edit_control_{}",
+                                row.source_field
+                            ))
+                            .selected_text(row.edit_control.label())
+                            .width(98.0)
+                            .show_ui(ui, |ui| {
+                                for control in BindingEditControl::ALL {
+                                    ui.selectable_value(
+                                        &mut row.edit_control,
+                                        control.clone(),
+                                        control.label(),
+                                    );
+                                }
+                            });
+                            if row.edit_control == BindingEditControl::Dropdown
+                                && ui.small_button("Edit...").clicked()
+                            {
+                                row_clicked = true;
+                            }
+                        });
+                        if before_control != row.edit_control {
+                            if row.edit_control == BindingEditControl::Dropdown {
+                                row.dropdown = default_dropdown_for_field(&row.source_field);
+                                row_became_dropdown = true;
+                            } else {
+                                row_stopped_being_dropdown = true;
+                            }
+                        }
+                        let summary = if show_cobol_table {
+                            "-"
+                        } else if row.edit_control == BindingEditControl::Dropdown {
+                            row.dropdown.summary()
+                        } else {
+                            "-"
+                        };
+                        if ui
+                            .add(egui::Label::new(summary).sense(egui::Sense::click()))
+                            .clicked()
+                        {
+                            row_clicked = true;
+                        }
+                        ui.end_row();
+
+                        let is_dropdown = row.edit_control == BindingEditControl::Dropdown;
+                        if row_stopped_being_dropdown
+                            && editor.dropdown_config_row == Some(row_index)
+                        {
+                            editor.dropdown_config_row = None;
+                        }
+                        if remove_at != Some(row_index)
+                            && is_dropdown
+                            && (row_became_dropdown || row_clicked)
+                        {
+                            editor.dropdown_config_row = Some(row_index);
+                        }
+                    }
+                });
+
+            if let Some(index) = remove_at {
+                if index < editor.rows.len() {
+                    let removed = editor.rows.remove(index);
+                    editor.removed_rows.push(removed);
+                    if let Some(open_index) = editor.dropdown_config_row {
+                        editor.dropdown_config_row = if open_index == index {
+                            None
+                        } else if open_index > index {
+                            Some(open_index - 1)
+                        } else {
+                            Some(open_index)
+                        };
+                    }
+                }
+            }
+        });
+    show_control_array_mapping_section(ui, editor);
+}
+
+/// For a repeating-group (control-array) target only: a compact "field → control"
+/// map. Each source field can be assigned to one member control; the control's
+/// default bindable property is shown and used on apply. Unmapped fields are
+/// skipped.
+fn show_control_array_mapping_section(ui: &mut Ui, editor: &mut BindingEditorState) {
+    if editor.member_controls.is_empty() {
+        return;
+    }
+    let members = editor.member_controls.clone();
+    ui.add_space(16.0);
+    ui.heading("Map fields to controls");
+    ui.label(
+        RichText::new(
+            "Each mapped source field fills a control's property in every repeated item.",
+        )
+        .small()
+        .color(Color32::GRAY),
+    );
+    ui.add_space(8.0);
+    egui::Grid::new("data_binding_member_map")
+        .num_columns(3)
+        .spacing([12.0, 6.0])
+        .striped(true)
+        .show(ui, |ui| {
+            for header in ["Source field", "Target control", "Property"] {
+                ui.label(RichText::new(header).small().color(Color32::from_gray(170)));
+            }
+            ui.end_row();
+
+            for row_index in 0..editor.rows.len() {
+                let field_name = editor.rows[row_index].source_field.clone();
+                ui.label(&field_name);
+
+                let current = editor.rows[row_index].target_member.clone();
+                let selected_text = if current.trim().is_empty() {
+                    "(none)".to_owned()
+                } else {
+                    current.clone()
+                };
+                egui::ComboBox::from_id_salt(format!("member_map_{row_index}"))
+                    .selected_text(selected_text)
+                    .width(180.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut editor.rows[row_index].target_member,
+                            String::new(),
+                            "(none)",
+                        );
+                        for member in &members {
+                            ui.selectable_value(
+                                &mut editor.rows[row_index].target_member,
+                                member.id.clone(),
+                                format!("{} — {}", member.id, member.type_label),
+                            );
+                        }
+                    });
+
+                let property = members
+                    .iter()
+                    .find(|member| member.id == editor.rows[row_index].target_member)
+                    .map(|member| member.property.clone())
+                    .unwrap_or_default();
+                ui.label(
+                    RichText::new(property)
+                        .small()
+                        .color(Color32::from_gray(150)),
+                );
+                ui.end_row();
+            }
+        });
+}
+
+fn show_dropdown_config_modal(ctx: &egui::Context, editor: &mut BindingEditorState) {
+    let Some(row_index) = editor.dropdown_config_row else {
+        return;
+    };
+    if row_index >= editor.rows.len()
+        || editor.rows[row_index].edit_control != BindingEditControl::Dropdown
+    {
+        editor.dropdown_config_row = None;
+        return;
+    }
+
+    let show_cobol_table = editor.selected_source == Some(BindingEditorSourceKind::CobolTable);
+    let title = format!(
+        "Dropdown configuration - {}",
+        editor.rows[row_index].source_field
+    );
+    let mut open = true;
+    egui::Window::new(title)
+        .id(egui::Id::new((
+            "data_binding_dropdown_config",
+            &editor.target_control_id,
+            row_index,
+        )))
+        .collapsible(false)
+        .resizable(true)
+        .default_size(egui::vec2(760.0, 340.0))
+        .max_size(egui::vec2(860.0, 560.0))
+        .open(&mut open)
+        .show(ctx, |ui| {
+            if show_cobol_table {
+                show_cobol_table_dropdown_config_body(ui, &mut editor.rows[row_index]);
+            } else {
+                show_dropdown_config_body(ui, &mut editor.rows[row_index]);
+            }
+        });
+    if !open {
+        editor.dropdown_config_row = None;
+    }
+}
+
+fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new("Dropdown configuration")
+                    .small()
+                    .color(Color32::from_gray(190)),
+            );
+            ui.separator();
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Origin of data").small().color(Color32::GRAY));
+                    for origin in [DropdownOrigin::CobolTable, DropdownOrigin::IndexedFile] {
+                        let selected = row.dropdown.origin == Some(origin);
+                        if ui.radio(selected, origin.summary()).clicked() && !selected {
+                            row.dropdown = match origin {
+                                DropdownOrigin::CobolTable => {
+                                    DropdownConfig::category_cobol_table()
+                                }
+                                DropdownOrigin::IndexedFile => {
+                                    DropdownConfig::region_indexed_file()
+                                }
+                                _ => DropdownConfig::empty(),
+                            };
+                        }
+                    }
+                });
+                ui.add_space(30.0);
+                ui.vertical(|ui| {
+                    let origin = row.dropdown.origin.unwrap_or(DropdownOrigin::CobolTable);
+                    let source_label = match origin {
+                        DropdownOrigin::IndexedFile => "Select source indexed file",
+                        _ => "Select source COBOL table",
+                    };
+                    ui.label(RichText::new(source_label).small().color(Color32::GRAY));
+                    egui::ComboBox::from_id_salt(format!(
+                        "cobol_dropdown_source_{}",
+                        row.source_field
+                    ))
+                    .selected_text(clean_or_default(
+                        &row.dropdown.source_ref,
+                        dropdown_source_options(origin)[0],
+                    ))
+                    .width(235.0)
+                    .show_ui(ui, |ui| {
+                        for &source in dropdown_source_options(origin) {
+                            ui.selectable_value(
+                                &mut row.dropdown.source_ref,
+                                source.to_owned(),
+                                source,
+                            );
+                        }
+                    });
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("Display / name field (shown in dropdown)")
+                            .small()
+                            .color(Color32::GRAY),
+                    );
+                    egui::ComboBox::from_id_salt(format!(
+                        "cobol_dropdown_display_{}",
+                        row.source_field
+                    ))
+                    .selected_text(&row.dropdown.display_field)
+                    .width(235.0)
+                    .show_ui(ui, |ui| {
+                        for &field in
+                            dropdown_field_options(row.dropdown.origin, &row.dropdown.source_ref)
+                        {
+                            ui.selectable_value(
+                                &mut row.dropdown.display_field,
+                                field.to_owned(),
+                                field,
+                            );
+                        }
+                    });
+                    ui.label(
+                        RichText::new("Displayed to the user.")
+                            .small()
+                            .color(Color32::GRAY),
+                    );
+                });
+                ui.add_space(24.0);
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("ID / value field (stored as bound value)")
+                            .small()
+                            .color(Color32::GRAY),
+                    );
+                    egui::ComboBox::from_id_salt(format!(
+                        "cobol_dropdown_value_{}",
+                        row.source_field
+                    ))
+                    .selected_text(&row.dropdown.value_field)
+                    .width(235.0)
+                    .show_ui(ui, |ui| {
+                        for &field in
+                            dropdown_field_options(row.dropdown.origin, &row.dropdown.source_ref)
+                        {
+                            ui.selectable_value(
+                                &mut row.dropdown.value_field,
+                                field.to_owned(),
+                                field,
+                            );
+                        }
+                    });
+                    ui.label(
+                        RichText::new("Stored as the selected value.")
+                            .small()
+                            .color(Color32::GRAY),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Line limit").small().color(Color32::GRAY));
+                    egui::ComboBox::from_id_salt(format!(
+                        "cobol_dropdown_line_limit_{}",
+                        row.source_field
+                    ))
+                    .selected_text(row.dropdown.line_limit.to_string())
+                    .width(92.0)
+                    .show_ui(ui, |ui| {
+                        for limit in [100, 500, 1000, 5000, 10000] {
+                            ui.selectable_value(
+                                &mut row.dropdown.line_limit,
+                                limit,
+                                limit.to_string(),
+                            );
+                        }
+                    });
+                });
+            });
+        });
+}
+
+fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new("Dropdown configuration")
+                    .small()
+                    .color(Color32::from_gray(190)),
+            );
+            ui.separator();
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Origin of data").small().color(Color32::GRAY));
+                    egui::ComboBox::from_id_salt(format!("dropdown_origin_{}", row.source_field))
+                        .selected_text(
+                            row.dropdown
+                                .origin
+                                .map(|origin| origin.label())
+                                .unwrap_or("Select origin"),
+                        )
+                        .width(220.0)
+                        .show_ui(ui, |ui| {
+                            for origin in DropdownOrigin::ALL {
+                                if ui
+                                    .selectable_value(
+                                        &mut row.dropdown.origin,
+                                        Some(origin),
+                                        origin.label(),
+                                    )
+                                    .clicked()
+                                {
+                                    row.dropdown.reset_for_origin(origin);
+                                }
+                            }
+                        });
+                });
+                ui.add_space(36.0);
+                if let Some(origin) = row.dropdown.origin {
+                    if let Some(source_label) = origin.source_label() {
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(source_label).small().color(Color32::GRAY));
+                            egui::ComboBox::from_id_salt(format!(
+                                "dropdown_source_{}",
+                                row.source_field
+                            ))
+                            .selected_text(clean_or_default(
+                                &row.dropdown.source_ref,
+                                dropdown_source_options(origin)[0],
+                            ))
+                            .width(350.0)
+                            .show_ui(ui, |ui| {
+                                for &source in dropdown_source_options(origin) {
+                                    ui.selectable_value(
+                                        &mut row.dropdown.source_ref,
+                                        source.to_owned(),
+                                        source,
+                                    );
+                                }
+                            });
+                        });
+                    } else {
+                        ui.vertical(|ui| {
+                            ui.label(
+                                RichText::new("Static value editor")
+                                    .small()
+                                    .color(Color32::GRAY),
+                            );
+                            ui.add(
+                                egui::TextEdit::multiline(&mut row.dropdown.static_options)
+                                    .desired_rows(2)
+                                    .desired_width(350.0)
+                                    .hint_text("CODE=Label"),
+                            );
+                        });
+                    }
+                }
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("Display / name field (shown in dropdown)")
+                            .small()
+                            .color(Color32::GRAY),
+                    );
+                    egui::ComboBox::from_id_salt(format!("dropdown_display_{}", row.source_field))
+                        .selected_text(&row.dropdown.display_field)
+                        .width(320.0)
+                        .show_ui(ui, |ui| {
+                            for &field in dropdown_field_options(
+                                row.dropdown.origin,
+                                &row.dropdown.source_ref,
+                            ) {
+                                ui.selectable_value(
+                                    &mut row.dropdown.display_field,
+                                    field.to_owned(),
+                                    field,
+                                );
+                            }
+                        });
+                    ui.label(
+                        RichText::new(format!(
+                            "{} will be displayed in the dropdown list.",
+                            field_name_only(&row.dropdown.display_field)
+                        ))
+                        .small()
+                        .color(Color32::GRAY),
+                    );
+                });
+                ui.add_space(20.0);
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("ID / value field (stored as option value)")
+                            .small()
+                            .color(Color32::GRAY),
+                    );
+                    egui::ComboBox::from_id_salt(format!("dropdown_value_{}", row.source_field))
+                        .selected_text(&row.dropdown.value_field)
+                        .width(320.0)
+                        .show_ui(ui, |ui| {
+                            for &field in dropdown_field_options(
+                                row.dropdown.origin,
+                                &row.dropdown.source_ref,
+                            ) {
+                                ui.selectable_value(
+                                    &mut row.dropdown.value_field,
+                                    field.to_owned(),
+                                    field,
+                                );
+                            }
+                        });
+                    ui.label(
+                        RichText::new(format!(
+                            "{} will be stored as the selected value.",
+                            field_name_only(&row.dropdown.value_field)
+                        ))
+                        .small()
+                        .color(Color32::GRAY),
+                    );
+                });
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Line limit").small().color(Color32::GRAY));
+                    egui::ComboBox::from_id_salt(format!(
+                        "dropdown_line_limit_{}",
+                        row.source_field
+                    ))
+                    .selected_text(row.dropdown.line_limit.to_string())
+                    .width(150.0)
+                    .show_ui(ui, |ui| {
+                        for limit in [100, 500, 1000, 5000, 10000] {
+                            ui.selectable_value(
+                                &mut row.dropdown.line_limit,
+                                limit,
+                                limit.to_string(),
+                            );
+                        }
+                    });
+                });
+                ui.add_space(10.0);
+                ui.label(
+                    RichText::new("Maximum number of items to retrieve.")
+                        .small()
+                        .color(Color32::GRAY),
+                );
+            });
+        });
+}
+
+fn default_dropdown_for_field(source_field: &str) -> DropdownConfig {
+    match source_field {
+        "COUNTRY_ID" => DropdownConfig::country_sql(),
+        "TIER_ID" => DropdownConfig::tier_cobol_table(),
+        "CITY-ID" => DropdownConfig::city(),
+        "STATUS" => DropdownConfig::status(),
+        "CATEGORY-ID" => DropdownConfig::category_cobol_table(),
+        "REGION-ID" => DropdownConfig::region_indexed_file(),
+        _ => DropdownConfig::empty(),
+    }
+}
+
+fn dropdown_source_options(origin: DropdownOrigin) -> &'static [&'static str] {
+    match origin {
+        DropdownOrigin::IndexedFile => MOCK_INDEXED_LOOKUPS,
+        DropdownOrigin::SqlControl => MOCK_SQL_CONTROLS,
+        DropdownOrigin::CobolTable => MOCK_COBOL_TABLES,
+        DropdownOrigin::RestApi => MOCK_REST_CONTROLS,
+        DropdownOrigin::StaticValues => &[""],
+    }
+}
+
+fn dropdown_field_options(
+    origin: Option<DropdownOrigin>,
+    source_ref: &str,
+) -> &'static [&'static str] {
+    match (origin, source_ref) {
+        (Some(DropdownOrigin::SqlControl), "SQL-COUNTRIES") => &[
+            "COUNTRY_ID (9(5))",
+            "COUNTRY_NAME (X(100))",
+            "COUNTRY_CODE (X(2))",
+        ],
+        (Some(DropdownOrigin::CobolTable), "CUSTOMER_TIERS") => &[
+            "TIER_ID (9(2))",
+            "TIER_NAME (X(30))",
+            "DISCOUNT_RATE (9(3)V99)",
+        ],
+        (Some(DropdownOrigin::CobolTable), "WS-CATEGORY-TABLE") => {
+            &["CATEGORY-ID (9(04))", "CATEGORY-NAME (X(30))"]
+        }
+        (Some(DropdownOrigin::IndexedFile), "REGION-CODES (REGIONST)") => {
+            &["REGION-ID (9(04))", "REGION-NAME (X(30))"]
+        }
+        (Some(DropdownOrigin::IndexedFile), _) => &[
+            "COUNTRY_ID (9(5))",
+            "COUNTRY_NAME (X(100))",
+            "COUNTRY_CODE (X(2))",
+        ],
+        (Some(DropdownOrigin::RestApi), _) => &["ID (9(9))", "NAME (X(100))"],
+        _ => &["VALUE (X(30))", "LABEL (X(100))"],
+    }
+}
+
+fn field_name_only(field: &str) -> &str {
+    field.split_whitespace().next().unwrap_or("Field")
+}
+
+fn source_placeholder(ui: &mut Ui, message: &str) {
+    egui::Frame::none()
+        .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
+        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .show(ui, |ui| {
+            ui.label(RichText::new(message).color(Color32::GRAY));
+        });
 }
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
@@ -183,6 +2898,8 @@ pub struct PropertiesPanel {
     anim_sel: std::collections::HashMap<String, usize>,
     /// new-animation staging fields
     new_anim_name: String,
+    binding_editor: Option<BindingEditorState>,
+    datagrid_editor: Option<String>,
 }
 
 impl PropertiesPanel {
@@ -192,6 +2909,8 @@ impl PropertiesPanel {
             form_bufs: Default::default(),
             anim_sel: Default::default(),
             new_anim_name: String::new(),
+            binding_editor: None,
+            datagrid_editor: None,
         }
     }
 
@@ -200,6 +2919,7 @@ impl PropertiesPanel {
         ui: &mut Ui,
         form: &Form,
         ctrl: Option<&Control>,
+        indexed_files: &[String],
         tr: &Tr,
     ) -> InspectorAction {
         let mut action = InspectorAction::default();
@@ -228,11 +2948,16 @@ impl PropertiesPanel {
                 // still tracking the pane as the developer resizes it.
                 ui.set_max_width(ui.available_width().min(panel_w));
                 if let Some(ctrl) = ctrl {
-                    self.show_control(ui, form, ctrl, &mut action, tr);
+                    self.show_control(ui, form, ctrl, indexed_files, &mut action, tr);
                 } else {
                     self.show_form(ui, form, &mut action, tr);
                 }
             });
+        if let Some(ctrl) = ctrl {
+            if ctrl.control_type == ControlType::DataGrid {
+                self.show_datagrid_editor_modal(ui.ctx(), ctrl, &mut action);
+            }
+        }
         action
     }
 
@@ -243,14 +2968,44 @@ impl PropertiesPanel {
         ui: &mut Ui,
         form: &Form,
         ctrl: &Control,
+        indexed_files: &[String],
         action: &mut InspectorAction,
         tr: &Tr,
     ) {
         let id = ctrl.id.clone();
 
         // ── Identity ──────────────────────────────────────────────────────────
+        // The control id is editable: rename it to a meaningful name (unique,
+        // valid identifier) and every reference is updated form-wide.
         ui.horizontal(|ui| {
-            ui.strong(&ctrl.id);
+            let buf_key = format!("rename::{id}");
+            let wid = egui::Id::new(&buf_key);
+            let editing = ui.memory(|m| m.has_focus(wid));
+            let buf = self
+                .text_bufs
+                .entry(buf_key.clone())
+                .or_insert_with(|| id.clone());
+            if !editing && *buf != id {
+                *buf = id.clone();
+            }
+            let resp = ui.add(
+                egui::TextEdit::singleline(buf)
+                    .id(wid)
+                    .desired_width(160.0)
+                    .font(egui::TextStyle::Monospace),
+            );
+            if resp.lost_focus() {
+                let new = buf.trim().to_owned();
+                let unique = !form
+                    .controls
+                    .iter()
+                    .any(|c| c.id.eq_ignore_ascii_case(&new) && !c.id.eq_ignore_ascii_case(&id));
+                if new != id && cobolt_forms::model::is_valid_control_id(&new) && unique {
+                    action.rename_control = Some((id.clone(), new));
+                } else {
+                    *buf = id.clone();
+                }
+            }
             ui.label(
                 RichText::new(format!("[{}]", ctrl.control_type.as_str()))
                     .color(Color32::GRAY)
@@ -354,7 +3109,7 @@ impl PropertiesPanel {
         // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase) only
         // show geometry + type-specific settings + events — no style, no animations.
         if ctrl.control_type.is_non_visual() {
-            self.show_type_specific(ui, ctrl, &id, action);
+            self.show_type_specific(ui, ctrl, &id, action, tr);
             Self::show_events(ui, ctrl, &id, action, tr);
             return;
         }
@@ -868,82 +3623,52 @@ impl PropertiesPanel {
             });
         ui.add_space(4.0);
 
-        // ── Data Binding ──────────────────────────────────────────────────────
-        section_header(ui, tr.sec_data_binding);
-        egui::Grid::new(format!("binding_{id}"))
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                ui.label(tr.lbl_cobol_data_item);
-                {
-                    let cur = ctrl
-                        .get_prop("DataItem")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    let buf_key = format!("{id}-DataItem");
-                    let wid = egui::Id::new(&buf_key);
-                    let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
-                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur;
+        match visibility_for_control(form, ctrl) {
+            DataBindingVisibility::Hidden => {}
+            DataBindingVisibility::ApprovedTarget(_) => {
+                section_header(ui, tr.sec_data_binding);
+                ui.label(
+                    RichText::new(tr.data_binding_target_ready)
+                        .color(Color32::GRAY)
+                        .small()
+                        .italics(),
+                );
+                ui.add_space(2.0);
+                ui.label(
+                    RichText::new(tr.data_binding_choose_source)
+                        .color(Color32::GRAY)
+                        .small(),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    for source_kind in DATA_BINDING_MODAL_SOURCES {
+                        let enabled = source_kind != BindingEditorSourceKind::IndexedFile
+                            || !indexed_files.is_empty();
+                        if ui
+                            .add_enabled(enabled, egui::Button::new(source_kind.label(tr)))
+                            .clicked()
+                        {
+                            self.binding_editor =
+                                BindingEditorState::new(form, ctrl, source_kind, indexed_files);
+                        }
                     }
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(buf)
-                                .id(wid)
-                                .hint_text("WS-FIELD-NAME")
-                                .desired_width(f32::INFINITY),
-                        )
-                        .lost_focus()
-                    {
-                        action.set_props.push((
-                            id.clone(),
-                            "DataItem".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                ui.label(tr.lbl_format_mask);
-                {
-                    let cur = ctrl
-                        .get_prop("DataFormat")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    let buf_key = format!("{id}-DataFormat");
-                    let wid = egui::Id::new(&buf_key);
-                    let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
-                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur;
-                    }
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(buf)
-                                .id(wid)
-                                .hint_text("e.g. 99/99/9999")
-                                .desired_width(f32::INFINITY),
-                        )
-                        .lost_focus()
-                    {
-                        action.set_props.push((
-                            id.clone(),
-                            "DataFormat".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
-                }
-                ui.end_row();
-            });
-        ui.label(
-            RichText::new("Control value syncs when the named COBOL data item changes at runtime.")
-                .color(Color32::GRAY)
-                .small()
-                .italics(),
-        );
-        ui.add_space(4.0);
+                });
+                self.show_binding_editor(ui, form, ctrl, indexed_files, action, tr);
+                ui.add_space(4.0);
+            }
+            DataBindingVisibility::ArrayMemberMapping { .. } => {
+                section_header(ui, tr.sec_data_binding);
+                ui.label(
+                    RichText::new(tr.data_binding_array_member)
+                        .color(Color32::GRAY)
+                        .small()
+                        .italics(),
+                );
+                ui.add_space(4.0);
+            }
+        }
 
         // ── Type-specific ─────────────────────────────────────────────────────
-        self.show_type_specific(ui, ctrl, &id, action);
+        self.show_type_specific(ui, ctrl, &id, action, tr);
 
         // ── Deployed User Control child properties ───────────────────────────
         self.show_user_control_children(ui, form, ctrl, action, tr);
@@ -1149,6 +3874,494 @@ impl PropertiesPanel {
                 }
             });
         ui.add_space(4.0);
+    }
+
+    fn show_datagrid_editor_modal(
+        &mut self,
+        ctx: &egui::Context,
+        ctrl: &Control,
+        action: &mut InspectorAction,
+    ) {
+        let Some(open_id) = self.datagrid_editor.clone() else {
+            return;
+        };
+        if !open_id.eq_ignore_ascii_case(&ctrl.id) {
+            self.datagrid_editor = None;
+            return;
+        }
+
+        let mut open = true;
+        egui::Window::new("Edit DataGrid settings")
+            .id(egui::Id::new(("datagrid_settings", &ctrl.id)))
+            .collapsible(false)
+            .resizable(true)
+            .default_size(egui::vec2(750.0, 550.0))
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                let id = ctrl.id.as_str();
+                ScrollArea::vertical()
+                    .id_salt(format!("datagrid_settings_scroll_{}", ctrl.id))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        section_header(ui, "Grid behavior");
+                        egui::Grid::new(format!("dg_modal_behavior_{id}"))
+                            .num_columns(2)
+                            .spacing([8.0, 4.0])
+                            .show(ui, |ui| {
+                                bool_row(ui, id, "ReadOnly", "Read only", ctrl, action);
+                                ui.end_row();
+                                bool_row(ui, id, "AllowSorting", "Allow sorting", ctrl, action);
+                                ui.end_row();
+                                bool_row(ui, id, "AllowColumnResize", "Allow column resize", ctrl, action);
+                                ui.end_row();
+                                bool_row(ui, id, "AllowColumnReorder", "Allow column reorder", ctrl, action);
+                                ui.end_row();
+                                bool_row(ui, id, "AllowRowResize", "Allow row resize", ctrl, action);
+                                ui.end_row();
+                                bool_row(ui, id, "ShowColumnFilters", "Show column filters", ctrl, action);
+                                ui.end_row();
+                                bool_row(ui, id, "SelectableText", "Selectable text", ctrl, action);
+                                ui.end_row();
+                                combo_row_labeled(ui, id, "SelectionMode", "Selection mode", ctrl, action, &["Row", "Cell", "Column"]);
+                                ui.end_row();
+                                datagrid_advanced_int_modal_row(ui, id, "RowHeight", "Row height", ctrl, action, 14..=120, 22);
+                                ui.end_row();
+                                datagrid_advanced_int_modal_row(ui, id, "FrozenColumns", "Frozen columns", ctrl, action, 0..=100, 0);
+                                ui.end_row();
+                                datagrid_advanced_int_modal_row(ui, id, "FrozenRows", "Frozen rows", ctrl, action, 0..=100, 0);
+                                ui.end_row();
+                                bool_row(ui, id, "FrozenShadow", "Frozen pane shadow", ctrl, action);
+                                ui.end_row();
+                                datagrid_grid_line_style_modal_row(ui, id, ctrl, action);
+                                ui.end_row();
+                            });
+
+                        section_header(ui, "Grid background");
+                        egui::Grid::new(format!("dg_modal_bg_{id}"))
+                            .num_columns(2)
+                            .spacing([8.0, 4.0])
+                            .show(ui, |ui| {
+                                datagrid_color_modal_row(ui, id, "BackgroundColor", "Background color", ctrl, action, "#1A203A");
+                                ui.end_row();
+                                datagrid_text_modal_row(ui, id, "GridBackgroundImage", "Background image", ctrl, action, "");
+                                ui.end_row();
+                                combo_row_labeled(ui, id, "GridBackgroundImageMode", "Image mode", ctrl, action, &["Fill", "Fit", "Stretch", "Tile", "Center"]);
+                                ui.end_row();
+                                combo_row_labeled(ui, id, "GridBackgroundPattern", "Pattern", ctrl, action, &["None", "Stripes", "Dots", "Cross", "X", "X Dots", "O"]);
+                                ui.end_row();
+                                combo_row_labeled(ui, id, "RowBackgroundPattern", "Row pattern", ctrl, action, &["None", "Stripes", "Dots", "Cross", "X", "X Dots", "O"]);
+                                ui.end_row();
+                                datagrid_color_modal_row(ui, id, "HeaderBackgroundColor", "Header background", ctrl, action, "#E0E0E0");
+                                ui.end_row();
+                                datagrid_color_modal_row(ui, id, "HeaderForegroundColor", "Header text", ctrl, action, "#000000");
+                                ui.end_row();
+                                datagrid_color_modal_row(ui, id, "AlternatingRowColor", "Alternating color", ctrl, action, "#F0F8FF");
+                                ui.end_row();
+                                datagrid_int_modal_row(ui, id, "AlternatingRowOpacity", "Alternating opacity %", ctrl, action, 0..=100, 20);
+                                ui.end_row();
+                                combo_row_labeled(ui, id, "AlternatingMode", "Alternating mode", ctrl, action, &["Rows", "Columns", "None"]);
+                                ui.end_row();
+                                // Grid-line colour now lives in the Appearance section as the
+                                // DataGrid's Fore color (see ForegroundColor). Kept out of this
+                                // modal so there is a single source of truth.
+                            });
+
+                        section_header(ui, "Columns");
+                        let mut advanced = DataGridAdvanced::from_control(ctrl);
+                        let mut changed_advanced = false;
+                        if advanced.columns.is_empty() {
+                            ui.label(RichText::new("No columns defined yet. Use data binding or the Columns property to create fields.").small().color(Color32::GRAY));
+                        }
+                        for (index, column) in advanced.columns.iter_mut().enumerate() {
+                            egui::CollapsingHeader::new(format!(
+                                "{} — {}",
+                                index + 1,
+                                if column.title.trim().is_empty() { &column.source_name } else { &column.title }
+                            ))
+                            .id_salt(format!("dg_column_modal_{}_{}", ctrl.id, column.id))
+                            .default_open(index == 0)
+                            .show(ui, |ui| {
+                                egui::Grid::new(format!("dg_column_grid_{}_{}", ctrl.id, index))
+                                    .num_columns(2)
+                                    .spacing([8.0, 4.0])
+                                    .show(ui, |ui| {
+                                        ui.label("Title");
+                                        changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.title).desired_width(180.0)).changed();
+                                        ui.end_row();
+                                        ui.label("Source field");
+                                        ui.label(RichText::new(&column.source_name).monospace().color(Color32::GRAY));
+                                        ui.end_row();
+                                        ui.label("COBOL mask");
+                                        changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.cobol_mask).desired_width(120.0)).changed();
+                                        ui.end_row();
+                                        ui.label("Edit control");
+                                        let before_edit = column.edit_control.clone();
+                                        egui::ComboBox::from_id_salt(format!("dg_col_edit_{}_{}", ctrl.id, index))
+                                            .selected_text(if column.edit_control.trim().is_empty() { "Textbox" } else { &column.edit_control })
+                                            .width(140.0)
+                                            .show_ui(ui, |ui| {
+                                                for opt in ["Textbox", "Dropdown", "Checkbox", "Button", "Gauge", "Image"] {
+                                                    ui.selectable_value(&mut column.edit_control, opt.to_owned(), opt);
+                                                }
+                                            });
+                                        changed_advanced |= before_edit != column.edit_control;
+                                        ui.end_row();
+                                        if column.edit_control.eq_ignore_ascii_case("Image") {
+                                            ui.label("Image corner radius");
+                                            changed_advanced |= ui
+                                                .add(
+                                                    DragValue::new(&mut column.image_corner_radius)
+                                                        .speed(0.5)
+                                                        .range(0.0..=200.0),
+                                                )
+                                                .changed();
+                                            ui.end_row();
+                                            ui.label("Image drop shadow");
+                                            changed_advanced |= ui
+                                                .checkbox(&mut column.image_shadow, "")
+                                                .changed();
+                                            ui.end_row();
+                                        }
+                                        ui.label("Column width");
+                                        changed_advanced |= ui.add(DragValue::new(&mut column.width).speed(1.0).range(32.0..=1600.0)).changed();
+                                        ui.end_row();
+                                        ui.label("Header font size");
+                                        let mut header_size = column.header_font_size as i64;
+                                        if ui.add(DragValue::new(&mut header_size).speed(1).range(6..=72)).changed() {
+                                            column.header_font_size = header_size as u16;
+                                            changed_advanced = true;
+                                        }
+                                        ui.end_row();
+                                        ui.label("Cell font size");
+                                        let mut cell_size = column.font_size as i64;
+                                        if ui.add(DragValue::new(&mut cell_size).speed(1).range(0..=72)).changed() {
+                                            column.font_size = cell_size as u16;
+                                            changed_advanced = true;
+                                        }
+                                        ui.end_row();
+                                        ui.label("Cell foreground");
+                                        let mut fg = hex_to_color32(&column.foreground_color);
+                                        if color_edit_button_closing(ui, &mut fg).changed() {
+                                            column.foreground_color = color32_to_hex(fg);
+                                            changed_advanced = true;
+                                        }
+                                        ui.end_row();
+                                        ui.label("Cell background");
+                                        let mut bg = hex_to_color32(&column.background_color);
+                                        if color_edit_button_closing(ui, &mut bg).changed() {
+                                            column.background_color = color32_to_hex(bg);
+                                            changed_advanced = true;
+                                        }
+                                        ui.end_row();
+                                        ui.label("Background pattern");
+                                        let before_pattern = column.background_pattern.clone();
+                                        egui::ComboBox::from_id_salt(format!("dg_col_pattern_{}_{}", ctrl.id, index))
+                                            .selected_text(if column.background_pattern.trim().is_empty() { "None" } else { &column.background_pattern })
+                                            .width(120.0)
+                                            .show_ui(ui, |ui| {
+                                                for opt in ["None", "Stripes", "Dots", "Cross", "X", "X Dots", "O"] {
+                                                    ui.selectable_value(&mut column.background_pattern, opt.to_owned(), opt);
+                                                }
+                                            });
+                                        changed_advanced |= before_pattern != column.background_pattern;
+                                        ui.end_row();
+                                        ui.label("Background image");
+                                        changed_advanced |= ui.add(egui::TextEdit::singleline(&mut column.background_image).desired_width(180.0)).changed();
+                                        ui.end_row();
+                                        ui.label("Text align");
+                                        let before_align = column.text_alignment;
+                                        egui::ComboBox::from_id_salt(format!("dg_col_align_{}_{}", ctrl.id, index))
+                                            .selected_text(match column.text_alignment {
+                                                DataGridTextAlignment::Left => "Left",
+                                                DataGridTextAlignment::Center => "Center",
+                                                DataGridTextAlignment::Right => "Right",
+                                            })
+                                            .width(120.0)
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut column.text_alignment, DataGridTextAlignment::Left, "Left");
+                                                ui.selectable_value(&mut column.text_alignment, DataGridTextAlignment::Center, "Center");
+                                                ui.selectable_value(&mut column.text_alignment, DataGridTextAlignment::Right, "Right");
+                                            });
+                                        changed_advanced |= before_align != column.text_alignment;
+                                        ui.end_row();
+                                        ui.label("Filter enabled");
+                                        changed_advanced |= ui.checkbox(&mut column.filter_enabled, "").changed();
+                                        ui.end_row();
+                                        ui.label("Inner shape");
+                                        if column.frame.is_none() {
+                                            column.frame = Some(DataGridCellFrame::default());
+                                        }
+                                        if let Some(frame) = column.frame.as_mut() {
+                                            changed_advanced |= ui.checkbox(&mut frame.enabled, "Enabled").changed();
+                                            ui.end_row();
+                                            ui.label("Shape padding");
+                                            let mut padding = frame.padding as i64;
+                                            if ui.add(DragValue::new(&mut padding).speed(1).range(0..=32)).changed() {
+                                                frame.padding = padding as u16;
+                                                changed_advanced = true;
+                                            }
+                                            ui.end_row();
+                                            ui.label("Shape radius");
+                                            let mut radius = frame.corner_radius as i64;
+                                            if ui.add(DragValue::new(&mut radius).speed(1).range(0..=64)).changed() {
+                                                frame.corner_radius = radius as u16;
+                                                changed_advanced = true;
+                                            }
+                                            ui.end_row();
+                                            ui.label("Shape color");
+                                            let mut frame_bg = hex_to_color32(&frame.background_color);
+                                            if color_edit_button_closing(ui, &mut frame_bg).changed() {
+                                                frame.background_color = color32_to_hex(frame_bg);
+                                                changed_advanced = true;
+                                            }
+                                            ui.end_row();
+                                            ui.label("Inner shape color");
+                                            ui.vertical(|ui| {
+                                                let mut remove_rule = None;
+                                                for (rule_index, rule) in column.value_style_rules.iter_mut().enumerate() {
+                                                    ui.horizontal(|ui| {
+                                                        let value_resp = ui.add(
+                                                            egui::TextEdit::singleline(&mut rule.value)
+                                                                .hint_text("Value")
+                                                                .desired_width(120.0),
+                                                        );
+                                                        changed_advanced |= value_resp.changed();
+                                                        let mut color = hex_to_color32(&rule.frame_background_color);
+                                                        if color_edit_button_closing(ui, &mut color).changed() {
+                                                            rule.frame_background_color = color32_to_hex(color);
+                                                            changed_advanced = true;
+                                                        }
+                                                        if ui.button("X").on_hover_text("Remove value color").clicked() {
+                                                            remove_rule = Some(rule_index);
+                                                        }
+                                                    });
+                                                }
+                                                if let Some(rule_index) = remove_rule {
+                                                    column.value_style_rules.remove(rule_index);
+                                                    changed_advanced = true;
+                                                }
+                                                if ui.button("New definition").clicked() {
+                                                    column.value_style_rules.push(DataGridValueStyleRule {
+                                                        value: String::new(),
+                                                        frame_background_color: "#1BC47D".to_owned(),
+                                                        frame_foreground_color: "#FFFFFF".to_owned(),
+                                                        ..DataGridValueStyleRule::default()
+                                                    });
+                                                    changed_advanced = true;
+                                                }
+                                            });
+                                            ui.end_row();
+                                        }
+                                        ui.label("Gauge");
+                                        if column.gauge.is_none() {
+                                            column.gauge = Some(DataGridGauge::default());
+                                        }
+                                        if let Some(gauge) = column.gauge.as_mut() {
+                                            changed_advanced |= ui.checkbox(&mut gauge.enabled, "Enabled").changed();
+                                            ui.end_row();
+                                            ui.label("Gauge min / max");
+                                            ui.horizontal(|ui| {
+                                                changed_advanced |= ui.add(DragValue::new(&mut gauge.min).speed(1.0)).changed();
+                                                changed_advanced |= ui.add(DragValue::new(&mut gauge.max).speed(1.0)).changed();
+                                            });
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+                            ui.add_space(6.0);
+                        }
+
+                        if changed_advanced {
+                            if let Ok(json) = advanced.to_json() {
+                                action.set_props.push((
+                                    ctrl.id.clone(),
+                                    DATAGRID_ADVANCED_PROP.to_owned(),
+                                    PropValue::String(json),
+                                ));
+                            }
+                        }
+
+                        section_header(ui, "CSV export");
+                        egui::Grid::new(format!("dg_modal_csv_{id}"))
+                            .num_columns(2)
+                            .spacing([8.0, 4.0])
+                            .show(ui, |ui| {
+                                bool_row(ui, id, "ExportCSV", "Enable CSV export", ctrl, action);
+                                ui.end_row();
+                                bool_row(ui, id, "ShowCSVExportButton", "Show CSV button", ctrl, action);
+                                ui.end_row();
+                                combo_row_labeled(ui, id, "CSVExportMode", "CSV mode", ctrl, action, &["Filtered", "AllRows"]);
+                                ui.end_row();
+                                datagrid_text_modal_row(ui, id, "CSVDelimiter", "Delimiter", ctrl, action, ",");
+                                ui.end_row();
+                            });
+                    });
+            });
+
+        if !open {
+            self.datagrid_editor = None;
+        }
+    }
+
+    fn show_binding_editor(
+        &mut self,
+        ui: &mut Ui,
+        form: &Form,
+        ctrl: &Control,
+        indexed_files: &[String],
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        let Some(editor) = self.binding_editor.as_mut() else {
+            return;
+        };
+        if !editor.target_control_id.eq_ignore_ascii_case(&ctrl.id) {
+            self.binding_editor = None;
+            return;
+        }
+
+        editor.indexed_files = indexed_files.to_vec();
+        if editor.selected_source == Some(BindingEditorSourceKind::IndexedFile)
+            && editor.selected_indexed_file.trim().is_empty()
+        {
+            editor.selected_indexed_file = indexed_files.first().cloned().unwrap_or_default();
+        }
+
+        let ctx = ui.ctx().clone();
+        let screen = ctx.screen_rect();
+        let modal_size = egui::vec2(
+            (screen.width() * 0.80).clamp(720.0, 1180.0),
+            (screen.height() * 0.84).max(560.0),
+        );
+        let mut open = true;
+        let mut close_editor = false;
+        let mut apply_binding = false;
+        egui::Window::new("Edit data binding settings")
+            .id(egui::Id::new((
+                "data_binding_settings",
+                &editor.target_control_id,
+            )))
+            .collapsible(false)
+            .resizable(true)
+            .default_size(modal_size)
+            .max_size(modal_size)
+            .min_size(egui::vec2(680.0, 500.0))
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .open(&mut open)
+            .show(&ctx, |ui| {
+                ui.set_max_width((modal_size.x - 34.0).max(640.0));
+                ui.add_space(6.0);
+                ui.label("Create binding from:");
+                ui.add_space(6.0);
+                show_binding_source_selector(ui, editor, tr);
+                ui.add_space(10.0);
+                show_clear_selection_banner(ui, editor);
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(10.0);
+
+                let scroll_height = (modal_size.y - 190.0).max(320.0);
+                egui::ScrollArea::vertical()
+                    .id_salt(format!("data_binding_settings_scroll_{}", ctrl.id))
+                    .max_height(scroll_height)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| match editor.selected_source {
+                        Some(BindingEditorSourceKind::IndexedFile) => {
+                            show_indexed_source_section(ui, editor);
+                            ui.add_space(16.0);
+                            show_source_fields_section(ui, editor);
+                        }
+                        Some(BindingEditorSourceKind::Sql) => {
+                            show_sql_source_section(ui, editor);
+                            ui.add_space(16.0);
+                            show_source_fields_section(ui, editor);
+                        }
+                        Some(BindingEditorSourceKind::CobolTable) => {
+                            show_cobol_table_source_section(ui, editor);
+                            ui.add_space(16.0);
+                            show_source_fields_section(ui, editor);
+                            ui.add_space(12.0);
+                            show_cobol_table_field_actions(ui, editor);
+                        }
+                        Some(BindingEditorSourceKind::RestApi) => {
+                            show_rest_source_section(ui, editor);
+                        }
+                        Some(BindingEditorSourceKind::AgentAi) | None => {
+                            source_placeholder(
+                                ui,
+                                "Select a binding source to configure settings.",
+                            );
+                        }
+                    });
+                show_dropdown_config_modal(&ctx, editor);
+
+                if let Some(message) = &editor.validation_error {
+                    ui.add_space(8.0);
+                    ui.colored_label(Color32::from_rgb(255, 120, 110), message);
+                }
+
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if editor.selected_source != Some(BindingEditorSourceKind::RestApi)
+                        && editor.selected_source != Some(BindingEditorSourceKind::CobolTable)
+                    {
+                        if ui.button("+ Add field").clicked() {
+                            let (field_prefix, mask, data_type) =
+                                if editor.selected_source == Some(BindingEditorSourceKind::Sql) {
+                                    ("SQL_FIELD", "X(30)", BindingDataType::Text)
+                                } else {
+                                    ("FIELD", "X(10)", BindingDataType::Text)
+                                };
+                            editor.rows.push(BindingFieldRow::new(
+                                format!("{field_prefix}_{}", editor.rows.len() + 1),
+                                mask,
+                                data_type,
+                                format!("Field {}", editor.rows.len() + 1),
+                                BindingEditControl::Textbox,
+                                DropdownConfig::empty(),
+                            ));
+                        }
+                        if ui.button("Restore removed fields").clicked() {
+                            editor.rows.append(&mut editor.removed_rows);
+                        }
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("Apply").color(Color32::WHITE).strong(),
+                                )
+                                .fill(Color32::from_rgb(45, 112, 230))
+                                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(80, 145, 255))),
+                            )
+                            .clicked()
+                        {
+                            match editor.validate() {
+                                Ok(()) => apply_binding = true,
+                                Err(err) => editor.validation_error = Some(err),
+                            }
+                        }
+                        if ui.button(tr.btn_cancel).clicked() {
+                            close_editor = true;
+                        }
+                    });
+                });
+            });
+        if !open {
+            close_editor = true;
+        }
+        if apply_binding {
+            action.create_data_binding = self
+                .binding_editor
+                .as_ref()
+                .and_then(|editor| editor.to_binding(form));
+            self.binding_editor = None;
+        } else if close_editor {
+            self.binding_editor = None;
+        }
     }
 
     // ── Events section ────────────────────────────────────────────────────────
@@ -1474,6 +4687,7 @@ impl PropertiesPanel {
         ctrl: &Control,
         id: &str,
         action: &mut InspectorAction,
+        tr: &Tr,
     ) {
         match ctrl.control_type {
             // ── Button ────────────────────────────────────────────────────────
@@ -2000,117 +5214,21 @@ impl PropertiesPanel {
 
             // ── DataGrid ─────────────────────────────────────────────────────
             ControlType::DataGrid => {
-                section_header(ui, "DataGrid");
-                {
-                    let cur = ctrl
-                        .get_prop("Columns")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    let buf_key = format!("{id}-Columns");
-                    let wid = egui::Id::new(&buf_key);
-                    let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
-                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur;
-                    }
-                    ui.label("Columns (comma-sep):");
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(buf)
-                                .id(wid)
-                                .desired_width(f32::INFINITY),
-                        )
-                        .lost_focus()
-                    {
-                        action.set_props.push((
-                            id.to_owned(),
-                            "Columns".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
-                }
-                egui::Grid::new(format!("dg_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        bool_row(ui, id, "ReadOnly", "ReadOnly", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "AllowSorting", "Allow sorting", ctrl, action);
-                        ui.end_row();
-                        bool_row(
-                            ui,
-                            id,
-                            "AllowColumnResize",
-                            "Allow col resize",
-                            ctrl,
-                            action,
-                        );
-                        ui.end_row();
-                        bool_row(ui, id, "ShowRowNumbers", "Show row numbers", ctrl, action);
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "SelectionMode",
-                            ctrl,
-                            action,
-                            &["Row", "Cell", "Column"],
-                        );
-                        ui.end_row();
-                        ui.label("Row height:");
-                        let mut rh = ctrl.get_prop("RowHeight").map(|v| v.as_i64()).unwrap_or(22);
-                        if ui
-                            .add(DragValue::new(&mut rh).speed(1).range(14..=120))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "RowHeight".into(),
-                                PropValue::Int(rh),
-                            ));
-                        }
-                        ui.end_row();
-                    });
-                color_row(ui, id, "HeaderBackgroundColor", ctrl, action);
-                color_row(ui, id, "HeaderForegroundColor", ctrl, action);
-                color_row(ui, id, "AlternatingRowColor", ctrl, action);
-                color_row(ui, id, "GridLineColor", ctrl, action);
-
-                section_header(ui, "📄 CSV Export");
-                egui::Grid::new(format!("dg_csv_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        bool_row(ui, id, "ExportCSV", "Enable CSV export", ctrl, action);
-                        ui.end_row();
-                        ui.label("Delimiter:");
-                        let cur_d = ctrl
-                            .get_prop("CSVDelimiter")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_else(|| ",".into());
-                        let buf_key = format!("{id}-CSVDelimiter");
-                        let wid = egui::Id::new(&buf_key);
-                        let buf = self.text_bufs.entry(buf_key).or_insert(cur_d.clone());
-                        if *buf != cur_d && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur_d;
-                        }
-                        if ui
-                            .add(egui::TextEdit::singleline(buf).id(wid).desired_width(30.0))
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "CSVDelimiter".into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                        ui.end_row();
-                    });
+                section_header(ui, tr.dg_section);
+                let advanced = DataGridAdvanced::from_control(ctrl);
                 ui.label(
-                    RichText::new("COBOL: INVOKE grid-id 'ExportCSV' USING WS-CSV-PATH")
-                        .small()
-                        .color(Color32::GRAY)
-                        .italics(),
+                    RichText::new(format!(
+                        "{} columns, {} frozen column(s), {} frozen row(s)",
+                        advanced.columns.len(),
+                        advanced.frozen_columns,
+                        advanced.frozen_rows
+                    ))
+                    .small()
+                    .color(Color32::GRAY),
                 );
+                if ui.button("Edit DataGrid settings...").clicked() {
+                    self.datagrid_editor = Some(id.to_owned());
+                }
                 ui.add_space(4.0);
             }
 
@@ -4473,6 +7591,159 @@ fn text_row_hint(
     });
 }
 
+fn datagrid_color_modal_row(
+    ui: &mut Ui,
+    id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    fallback: &str,
+) {
+    ui.label(label);
+    let hex = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| fallback.to_owned());
+    let mut color = hex_to_color32(&hex);
+    ui.horizontal(|ui| {
+        if color_edit_button_closing(ui, &mut color).changed() {
+            action.set_props.push((
+                id.to_owned(),
+                key.to_owned(),
+                PropValue::String(color32_to_hex(color)),
+            ));
+        }
+        ui.label(
+            RichText::new(color32_to_hex(color))
+                .monospace()
+                .small()
+                .color(Color32::GRAY),
+        );
+    });
+}
+
+fn datagrid_text_modal_row(
+    ui: &mut Ui,
+    id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    fallback: &str,
+) {
+    ui.label(label);
+    let mut value = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| fallback.to_owned());
+    if ui
+        .add(egui::TextEdit::singleline(&mut value).desired_width(180.0))
+        .changed()
+    {
+        action
+            .set_props
+            .push((id.to_owned(), key.to_owned(), PropValue::String(value)));
+    }
+}
+
+fn datagrid_int_modal_row(
+    ui: &mut Ui,
+    id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    range: std::ops::RangeInclusive<i64>,
+    fallback: i64,
+) {
+    ui.label(label);
+    let mut value = ctrl.get_prop(key).map(|v| v.as_i64()).unwrap_or(fallback);
+    if ui
+        .add(DragValue::new(&mut value).speed(1).range(range))
+        .changed()
+    {
+        action
+            .set_props
+            .push((id.to_owned(), key.to_owned(), PropValue::Int(value)));
+    }
+}
+
+fn datagrid_advanced_int_modal_row(
+    ui: &mut Ui,
+    id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    range: std::ops::RangeInclusive<i64>,
+    fallback: i64,
+) {
+    ui.label(label);
+    let advanced = DataGridAdvanced::from_control(ctrl);
+    let mut value = match key {
+        "RowHeight" => advanced.row_height as i64,
+        "FrozenColumns" => advanced.frozen_columns as i64,
+        "FrozenRows" => advanced.frozen_rows as i64,
+        _ => ctrl.get_prop(key).map(|v| v.as_i64()).unwrap_or(fallback),
+    };
+    if ui
+        .add(DragValue::new(&mut value).speed(1).range(range))
+        .changed()
+    {
+        action
+            .set_props
+            .push((id.to_owned(), key.to_owned(), PropValue::Int(value)));
+        let mut updated = DataGridAdvanced::from_control(ctrl);
+        match key {
+            "RowHeight" => updated.row_height = value.max(1).min(u16::MAX as i64) as u16,
+            "FrozenColumns" => updated.frozen_columns = value.max(0) as usize,
+            "FrozenRows" => updated.frozen_rows = value.max(0) as usize,
+            _ => {}
+        }
+        if let Ok(json) = updated.to_json() {
+            action.set_props.push((
+                id.to_owned(),
+                DATAGRID_ADVANCED_PROP.to_owned(),
+                PropValue::String(json),
+            ));
+        }
+    }
+}
+
+fn datagrid_grid_line_style_modal_row(
+    ui: &mut Ui,
+    id: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+) {
+    ui.label("Grid line style");
+    let current = DataGridAdvanced::from_control(ctrl).grid_line_style;
+    egui::ComboBox::from_id_salt(format!("cb_{id}_GridLineStyle"))
+        .selected_text(current.as_str())
+        .width(140.0)
+        .show_ui(ui, |ui| {
+            for opt in ["Solid", "Dash", "Dots", "None"] {
+                if ui.selectable_label(current.as_str() == opt, opt).clicked() {
+                    action.set_props.push((
+                        id.to_owned(),
+                        "GridLineStyle".to_owned(),
+                        PropValue::String(opt.to_owned()),
+                    ));
+                    let mut updated = DataGridAdvanced::from_control(ctrl);
+                    updated.grid_line_style = DataGridGridLineStyle::from_str(opt);
+                    if let Ok(json) = updated.to_json() {
+                        action.set_props.push((
+                            id.to_owned(),
+                            DATAGRID_ADVANCED_PROP.to_owned(),
+                            PropValue::String(json),
+                        ));
+                    }
+                }
+            }
+        });
+}
+
 /// Bool property — grid cell style (label in left col, checkbox in right).
 fn bool_row(
     ui: &mut Ui,
@@ -4546,6 +7817,36 @@ fn combo_row(
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| opts[0].to_owned());
     ui.label(key);
+    egui::ComboBox::from_id_salt(format!("cb_{ctrl_id}_{key}"))
+        .selected_text(&cur)
+        .width(140.0)
+        .show_ui(ui, |ui| {
+            for &opt in opts {
+                if ui.selectable_label(cur == opt, opt).clicked() {
+                    action.set_props.push((
+                        ctrl_id.to_owned(),
+                        key.to_owned(),
+                        PropValue::String(opt.to_owned()),
+                    ));
+                }
+            }
+        });
+}
+
+fn combo_row_labeled(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    opts: &[&str],
+) {
+    let cur = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| opts[0].to_owned());
+    ui.label(label);
     egui::ComboBox::from_id_salt(format!("cb_{ctrl_id}_{key}"))
         .selected_text(&cur)
         .width(140.0)
@@ -4857,6 +8158,425 @@ pub fn color32_to_hex(c: Color32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn form_with_cobol_binding_table() -> (Form, Control) {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        form.user_ws_source = "\
+01 WS-CUSTOMER-TABLE GLOBAL.
+   05 WS-CUSTOMER-ROW OCCURS 100 TIMES.
+      10 CUSTOMER-ID   PIC 9(06).
+      10 CUSTOMER-NAME PIC X(40).
+      10 BALANCE       PIC S9(9)V99.
+      10 ACTIVE        PIC X.
+      10 CATEGORY-ID   PIC 9(04).
+      10 REGION-ID     PIC 9(04).
+01 WS-SCALAR GLOBAL PIC X(10).
+"
+        .to_owned();
+        let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+        (form, grid)
+    }
+
+    fn select_customer_cobol_table(editor: &mut BindingEditorState) {
+        editor.selected_cobol_table = "WS-CUSTOMER-TABLE".to_owned();
+        editor.rows = editor.rows_for_selected_cobol_table(&[]);
+    }
+
+    #[test]
+    fn control_array_editor_maps_fields_to_member_properties() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let mut group = Control::new("CARD", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        let mut label = Control::new("NAME-LBL", ControlType::Label, 10, 10);
+        label.parent = Some("CARD".into());
+        let mut photo = Control::new("PHOTO", ControlType::PictureBox, 10, 40);
+        photo.parent = Some("CARD".into());
+        form.controls = vec![group.clone(), label, photo];
+
+        let mut editor = BindingEditorState::new(&form, &group, BindingEditorSourceKind::Sql, &[])
+            .expect("editor should open for a repeating GroupBox");
+        // Member controls are discovered with their default bindable property.
+        assert!(
+            editor
+                .member_controls
+                .iter()
+                .any(|m| m.id == "PHOTO" && m.property == "ImagePath"),
+            "PictureBox member should default to its ImagePath property"
+        );
+        assert!(editor.rows.len() >= 2, "sample SQL source should have rows");
+        editor.rows[0].target_member = "NAME-LBL".to_owned();
+        editor.rows[1].target_member = "PHOTO".to_owned();
+
+        let binding = editor.to_binding(&form).expect("binding builds");
+        // Only mapped fields produce mappings, each to the chosen member+property.
+        assert_eq!(binding.mappings.len(), 2);
+        let image = binding.mappings.iter().find_map(|m| match &m.target {
+            BindingTargetPath::ControlProperty {
+                control_id,
+                property_name,
+                ..
+            } if control_id == "PHOTO" => Some(property_name.clone()),
+            _ => None,
+        });
+        assert_eq!(image.as_deref(), Some("ImagePath"));
+    }
+
+    #[test]
+    fn source_button_opens_and_keeps_editor_for_repeating_groupbox() {
+        // A repeating GroupBox whose ArrayName differs from its control id used to
+        // key the editor by the array name, so the modal opened then instantly
+        // cleared (the source button "did nothing") and apply couldn't resolve the
+        // target. The editor must be keyed by the control id.
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let mut group = Control::new("CARD", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        group.set_prop("ArrayName", PropValue::String("CUSTOMERS".into()));
+        let mut member = Control::new("NAME", ControlType::TextBox, 10, 10);
+        member.parent = Some("CARD".into());
+        form.controls = vec![group.clone(), member];
+
+        let editor = BindingEditorState::new(&form, &group, BindingEditorSourceKind::Sql, &[])
+            .expect("editor should open for a repeating GroupBox");
+        assert_eq!(
+            editor.target_control_id, "CARD",
+            "editor must be keyed by the control id, not the array name"
+        );
+        let binding = editor
+            .to_binding(&form)
+            .expect("editor must build a binding at apply time");
+        assert!(matches!(
+            binding.target,
+            cobolt_forms::BindingTargetDescriptor::ControlArray { .. }
+        ));
+        assert_eq!(binding.target.primary_control_id(), "CUSTOMERS");
+    }
+
+    #[test]
+    fn data_binding_editor_requires_indexed_backend_for_indexed_source() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+
+        let without_files =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::IndexedFile, &[])
+                .expect("DataGrid should be an approved binding target");
+        assert_eq!(without_files.selected_source, None);
+
+        let with_files = BindingEditorState::new(
+            &form,
+            &grid,
+            BindingEditorSourceKind::IndexedFile,
+            &["CUSTOMER-DATA (CUSTDAT)".to_owned()],
+        )
+        .expect("DataGrid should be an approved binding target");
+        assert_eq!(
+            with_files.selected_source,
+            Some(BindingEditorSourceKind::IndexedFile)
+        );
+        assert_eq!(with_files.selected_indexed_file, "CUSTOMER-DATA (CUSTDAT)");
+    }
+
+    #[test]
+    fn data_binding_editor_validates_sample_dropdown_configuration() {
+        let rows = sample_indexed_field_rows();
+        assert_eq!(rows.len(), 6);
+        assert_eq!(rows[4].source_field, "CITY-ID");
+        assert_eq!(rows[4].edit_control, BindingEditControl::Dropdown);
+        assert_eq!(rows[4].dropdown.summary(), "Indexed file");
+        assert!(rows[4].dropdown.validate("CITY-ID").is_ok());
+        assert_eq!(rows[5].source_field, "STATUS");
+        assert_eq!(rows[5].dropdown.source_ref, "STATUS-CODES (STATCDS)");
+        assert!(rows[5].dropdown.validate("STATUS").is_ok());
+    }
+
+    #[test]
+    fn data_binding_editor_initializes_sql_source_rows_and_dropdowns() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+
+        let editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::Sql, &[])
+            .expect("DataGrid should be an approved binding target");
+
+        assert_eq!(editor.selected_source, Some(BindingEditorSourceKind::Sql));
+        assert_eq!(editor.selected_sql_control, "SQL-CUSTOMERS");
+        assert_eq!(editor.rows.len(), 6);
+        assert_eq!(editor.rows[0].source_field, "CUSTOMER_ID");
+        assert_eq!(editor.rows[0].cobol_mask, "9(9)");
+        assert!(editor.rows[0].key);
+        assert_eq!(editor.rows[4].source_field, "COUNTRY_ID");
+        assert_eq!(
+            editor.rows[4].dropdown.origin,
+            Some(DropdownOrigin::SqlControl)
+        );
+        assert_eq!(editor.rows[4].dropdown.source_ref, "SQL-COUNTRIES");
+        assert_eq!(editor.rows[4].dropdown.line_limit, 1000);
+        assert_eq!(editor.rows[5].source_field, "TIER_ID");
+        assert_eq!(
+            editor.rows[5].dropdown.origin,
+            Some(DropdownOrigin::CobolTable)
+        );
+        assert_eq!(editor.rows[5].dropdown.source_ref, "CUSTOMER_TIERS");
+        assert!(editor.validate().is_ok());
+    }
+
+    #[test]
+    fn data_binding_editor_initializes_cobol_table_source_rows_and_dropdowns() {
+        let (form, grid) = form_with_cobol_binding_table();
+
+        let mut editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[])
+                .expect("DataGrid should be an approved binding target");
+
+        assert_eq!(
+            editor.selected_source,
+            Some(BindingEditorSourceKind::CobolTable)
+        );
+        assert_eq!(editor.selected_cobol_table, "");
+        assert!(editor.rows.is_empty());
+        assert_eq!(editor.cobol_tables.len(), 1);
+        select_customer_cobol_table(&mut editor);
+        assert_eq!(editor.selected_cobol_occurs_item(), "WS-CUSTOMER-ROW");
+        assert_eq!(editor.rows.len(), 6);
+        assert_eq!(editor.rows[0].source_field, "CUSTOMER-ID");
+        assert_eq!(editor.rows[0].picture, "9(6)");
+        assert_eq!(editor.rows[0].cobol_mask, "PIC 9(6)");
+        assert_eq!(editor.rows[4].source_field, "CATEGORY-ID");
+        assert_eq!(editor.rows[4].edit_control, BindingEditControl::Textbox);
+        assert_eq!(editor.rows[5].source_field, "REGION-ID");
+        assert!(editor.validate().is_ok());
+    }
+
+    #[test]
+    fn data_binding_editor_rejects_invalid_cobol_table_settings() {
+        let (form, grid) = form_with_cobol_binding_table();
+        let mut editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[])
+                .expect("DataGrid should be an approved binding target");
+
+        editor.selected_cobol_table.clear();
+        assert_eq!(
+            editor.validate().unwrap_err(),
+            "COBOL table must be selected."
+        );
+
+        editor.selected_cobol_table = "WS-NOT-OCCURS".to_owned();
+        assert_eq!(
+            editor.validate().unwrap_err(),
+            "Selected COBOL table must resolve to a 01-level GLOBAL item with OCCURS."
+        );
+
+        editor.selected_cobol_table = "WS-CUSTOMER-TABLE".to_owned();
+        editor.rows = editor.rows_for_selected_cobol_table(&[]);
+        editor.rows[4].edit_control = BindingEditControl::Dropdown;
+        editor.rows[4].dropdown = DropdownConfig::category_cobol_table();
+        editor.rows[4].dropdown.value_field.clear();
+        assert_eq!(
+            editor.validate().unwrap_err(),
+            "CATEGORY-ID needs a dropdown value field."
+        );
+    }
+
+    #[test]
+    fn data_binding_editor_builds_cobol_table_descriptor_from_selected_table() {
+        let (form, grid) = form_with_cobol_binding_table();
+        let mut editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[])
+                .expect("DataGrid should be an approved binding target");
+        select_customer_cobol_table(&mut editor);
+        editor.rows[0].key = true;
+
+        let binding = editor
+            .to_binding(&form)
+            .expect("valid COBOL table editor should build a binding");
+
+        match binding.source {
+            BindingSourceDescriptor::CobolTable {
+                table_name,
+                occurs_item,
+                fields,
+                key_fields,
+                writable,
+            } => {
+                assert_eq!(table_name, "WS-CUSTOMER-TABLE");
+                assert_eq!(occurs_item, "WS-CUSTOMER-ROW");
+                assert_eq!(fields.len(), 6);
+                assert_eq!(fields[0].name, "CUSTOMER-ID");
+                assert_eq!(fields[4].display_name, "Category Id");
+                assert_eq!(key_fields, vec!["CUSTOMER-ID".to_owned()]);
+                assert!(writable);
+            }
+            other => panic!("expected COBOL table source, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn data_binding_editor_lists_only_missing_cobol_table_fields_for_add() {
+        let (form, grid) = form_with_cobol_binding_table();
+        let mut editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::CobolTable, &[])
+                .expect("DataGrid should be an approved binding target");
+        select_customer_cobol_table(&mut editor);
+
+        assert!(
+            editor.missing_cobol_table_fields().is_empty(),
+            "all table fields are mapped immediately after selecting the table"
+        );
+
+        let removed = editor.rows.remove(2);
+        assert_eq!(removed.source_field, "BALANCE");
+        editor.removed_rows.push(removed);
+        let missing = editor.missing_cobol_table_fields();
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].name, "BALANCE");
+
+        editor.rows.push(missing[0].to_row());
+        assert!(
+            editor.missing_cobol_table_fields().is_empty(),
+            "Add field choices disappear once the missing table field is mapped again"
+        );
+    }
+
+    #[test]
+    fn data_binding_editor_initializes_rest_source_rows_and_preview_state() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("ProductGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+
+        let editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::RestApi, &[])
+            .expect("DataGrid should be an approved binding target");
+
+        assert_eq!(
+            editor.selected_source,
+            Some(BindingEditorSourceKind::RestApi)
+        );
+        assert_eq!(editor.rest_endpoint, "https://api.example.com/v1/products");
+        assert_eq!(editor.rest_method, RestMethod::Get);
+        assert!(editor.rest_headers.is_empty());
+        assert_eq!(editor.rest_auth.mode, RestAuthMode::None);
+        assert!(editor.show_jsonpath_help);
+        assert_eq!(editor.rows.len(), 4);
+        assert_eq!(editor.rows[0].source_field, "$.[*].title");
+        assert_eq!(editor.rows[0].picture, "PIC X(60)");
+        assert_eq!(editor.rows[0].cobol_mask, "X(60)");
+        assert_eq!(editor.rows[2].source_field, "$.[*].category");
+        assert_eq!(editor.rows[2].edit_control, BindingEditControl::Dropdown);
+        assert_eq!(editor.rows[3].edit_control, BindingEditControl::Checkbox);
+        assert!(rest_response_preview_json().contains("\"Wireless Headphones\""));
+        assert!(editor.validate().is_ok());
+    }
+
+    #[test]
+    fn data_binding_editor_rejects_invalid_rest_settings() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("ProductGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+        let mut editor =
+            BindingEditorState::new(&form, &grid, BindingEditorSourceKind::RestApi, &[])
+                .expect("DataGrid should be an approved binding target");
+
+        editor.rest_endpoint = "not-a-url".to_owned();
+        assert_eq!(
+            editor.validate().unwrap_err(),
+            "REST API endpoint must be a valid URL."
+        );
+
+        editor.rest_endpoint = "https://api.example.com/v1/products".to_owned();
+        editor.rest_headers.push(HttpHeaderRow {
+            name: String::new(),
+            value: "application/json".to_owned(),
+        });
+        assert_eq!(
+            editor.validate().unwrap_err(),
+            "Header names must be filled when a value is provided."
+        );
+
+        editor.rest_headers.clear();
+        editor.rows[0].source_field = "title".to_owned();
+        assert_eq!(
+            editor.validate().unwrap_err(),
+            "title is not a valid JSONPath expression."
+        );
+
+        editor.rows[0].source_field = "$.[*].title".to_owned();
+        editor.rest_auth.mode = RestAuthMode::ApiKey;
+        assert_eq!(
+            editor.validate().unwrap_err(),
+            "API key authentication needs key name and key value."
+        );
+    }
+
+    #[test]
+    fn data_binding_editor_builds_rest_descriptor_from_endpoint() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("ProductGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+        let editor = BindingEditorState::new(&form, &grid, BindingEditorSourceKind::RestApi, &[])
+            .expect("DataGrid should be an approved binding target");
+
+        let binding = editor
+            .to_binding(&form)
+            .expect("valid REST editor should build a binding");
+
+        match binding.source {
+            BindingSourceDescriptor::RestApi {
+                source_control_id,
+                endpoint_name,
+                response_data_item,
+                fields,
+                update,
+            } => {
+                assert_eq!(source_control_id, "REST-API");
+                assert_eq!(endpoint_name, "https://api.example.com/v1/products");
+                assert_eq!(response_data_item, "REST-RESPONSE");
+                assert_eq!(fields.len(), 4);
+                assert_eq!(fields[0].name, "$.[*].title");
+                assert_eq!(fields[2].display_name, "Category");
+                assert!(update.is_none());
+            }
+            other => panic!("expected REST API source, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn data_binding_dropdown_origin_reset_uses_latest_indexed_lookup_mock() {
+        let mut config = DropdownConfig::country_sql();
+        config.reset_for_origin(DropdownOrigin::IndexedFile);
+
+        assert_eq!(config.source_ref, "COUNTRY-CODES (CNTRYIDX)");
+        assert_eq!(config.display_field, "COUNTRY_NAME (X(100))");
+        assert_eq!(config.value_field, "COUNTRY_ID (9(5))");
+        assert_eq!(
+            dropdown_source_options(DropdownOrigin::IndexedFile),
+            &["COUNTRY-CODES (CNTRYIDX)", "REGION-CODES (REGIONST)"]
+        );
+    }
+
+    #[test]
+    fn data_binding_editor_rejects_incomplete_field_mapping() {
+        let mut form = Form::new("CustomerForm", "CustomerForm", 800, 600);
+        let grid = Control::new("CustomerGrid", ControlType::DataGrid, 10, 10);
+        form.controls.push(grid.clone());
+        let mut editor = BindingEditorState::new(
+            &form,
+            &grid,
+            BindingEditorSourceKind::IndexedFile,
+            &["CUSTOMER-DATA (CUSTDAT)".to_owned()],
+        )
+        .expect("DataGrid should be an approved binding target");
+
+        editor.rows[0].friendly_name.clear();
+        assert!(editor.validate().is_err());
+
+        editor.rows[0].friendly_name = "Customer ID".to_owned();
+        editor.rows[4].dropdown.value_field.clear();
+        assert!(editor.validate().is_err());
+
+        editor.rows[4].dropdown.value_field = "CITY-ID (9(04))".to_owned();
+        editor.rows[4].dropdown.line_limit = 0;
+        assert!(editor.validate().is_err());
+    }
 
     #[test]
     fn user_control_child_controls_collects_nested_descendants() {

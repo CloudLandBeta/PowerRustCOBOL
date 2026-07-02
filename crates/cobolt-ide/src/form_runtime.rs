@@ -31,7 +31,7 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
-use cobolt_forms::Form;
+use cobolt_forms::{BindingSourceDescriptor, BindingTargetDescriptor, Form};
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 use cobolt_runtime::{FormEvent, Interpreter, StateUpdate};
@@ -247,6 +247,7 @@ impl FormRuntime {
                 props.push(("Width".into(), c.rect.w.to_string()));
                 props.push(("Height".into(), c.rect.h.to_string()));
                 props.push(("TabOrder".into(), c.tab_order.to_string()));
+                append_data_binding_seed_props(form, &c.id, &mut props);
                 (c.id.clone(), c.control_type.as_str().to_string(), props)
             })
             .collect();
@@ -256,6 +257,10 @@ impl FormRuntime {
 
         // Spawn interpreter thread.
         let handle = thread::spawn(move || {
+            // A clone kept alive to surface a fatal runtime error to the UI: the
+            // interpreter thread dies on the first error, so without this the run
+            // window would silently never appear (or vanish) with no feedback.
+            let err_tx = display_tx.clone();
             let mut interp =
                 Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
             interp.set_input_channel(input_rx);
@@ -263,7 +268,9 @@ impl FormRuntime {
             if stop_clone.load(Ordering::Relaxed) {
                 return;
             }
-            let _ = interp.run();
+            if let Err(e) = interp.run() {
+                let _ = err_tx.send(format!("⛔ Form runtime error: {e}"));
+            }
         });
 
         Ok(Self {
@@ -369,6 +376,34 @@ impl Drop for FormRuntime {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn append_data_binding_seed_props(
+    form: &Form,
+    control_id: &str,
+    props: &mut Vec<(String, String)>,
+) {
+    let Some(binding) = form.data_bindings.iter().find(|binding| {
+        matches!(
+            &binding.target,
+            BindingTargetDescriptor::DataGrid { control_id: target_id }
+                if target_id.eq_ignore_ascii_case(control_id)
+        )
+    }) else {
+        return;
+    };
+    let BindingSourceDescriptor::CobolTable { fields, .. } = &binding.source else {
+        return;
+    };
+    props.push(("_BindingKind".into(), "CobolTable".into()));
+    props.push((
+        "_BindingFields".into(),
+        fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ));
+}
 
 /// Flatten nested control tree into a flat Vec (pre-order).
 fn collect_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Control> {

@@ -18,4 +18,6 @@ cobolt-lexer = { path = "../cobolt-lexer" }
 cobolt-ast   = { path = "../cobolt-ast" }
 
 [dev-dependencies]
+cobolt-codegen = { path = "../cobolt-codegen" }
+cobolt-forms   = { path = "../cobolt-forms" }
 pretty_assertions = { workspace = true }

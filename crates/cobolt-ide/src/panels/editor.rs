@@ -403,7 +403,16 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
                 ("AddRow", "Append an empty row"),
                 ("DeleteRow", "Delete a row by index"),
                 ("ClearRows", "Remove all rows"),
+                ("RefreshBinding", "Reload rows from the bound data source"),
                 ("Sort", "Sort by a column"),
+                ("SetFilter", "Filter a column by text"),
+                ("ClearFilters", "Remove all active filters"),
+                ("FreezeColumns", "Freeze left columns"),
+                ("FreezeRows", "Freeze top rows"),
+                ("SetRowHeight", "Set the default row height"),
+                ("SetColumnWidth", "Set a column width"),
+                ("GetSelectedText", "Return selected cell text"),
+                ("CopySelection", "Copy selected cell text"),
             ],
         ),
         "TreeView" => (
@@ -782,7 +791,6 @@ struct AutoComplete {
 
 // ── Search / Find state ───────────────────────────────────────────────────────
 
-#[derive(Default)]
 struct SearchState {
     visible: bool,
     query: String,
@@ -794,6 +802,27 @@ struct SearchState {
     current: usize,
     /// Set to `true` when the next render should scroll to `current`.
     needs_scroll: bool,
+    /// Set to `true` only when the scroll comes from an explicit navigation
+    /// (next/prev/Enter) — then keyboard focus moves into the editor. Incremental
+    /// typing in the Find box scrolls but must NOT steal focus from the box.
+    focus_editor_on_scroll: bool,
+    /// When `true` (default) the query matches regardless of letter case.
+    case_insensitive: bool,
+}
+
+impl Default for SearchState {
+    fn default() -> Self {
+        Self {
+            visible: false,
+            query: String::new(),
+            replace: String::new(),
+            matches: Vec::new(),
+            current: 0,
+            needs_scroll: false,
+            focus_editor_on_scroll: false,
+            case_insensitive: true,
+        }
+    }
 }
 
 // ── EditorTab ─────────────────────────────────────────────────────────────────
@@ -1061,15 +1090,23 @@ impl EditorPanel {
         let Some(tab) = self.tabs.get(self.active) else {
             return;
         };
-        let lower_text = tab.content.to_lowercase();
-        let lower_query = self.search.query.to_lowercase();
-        let qlen = lower_query.len();
+        // ASCII-lowercase (not Unicode) so byte length is preserved and match
+        // offsets stay valid in the original content.
+        let (hay, needle) = if self.search.case_insensitive {
+            (
+                tab.content.to_ascii_lowercase(),
+                self.search.query.to_ascii_lowercase(),
+            )
+        } else {
+            (tab.content.clone(), self.search.query.clone())
+        };
+        let qlen = needle.len();
         if qlen == 0 {
             return;
         }
         let mut start = 0;
-        while start + qlen <= lower_text.len() {
-            if let Some(rel) = lower_text[start..].find(&lower_query) {
+        while start + qlen <= hay.len() {
+            if let Some(rel) = hay[start..].find(&needle) {
                 let pos = start + rel;
                 self.search.matches.push(pos);
                 start = pos + 1;
@@ -1133,6 +1170,7 @@ impl EditorPanel {
         }
         self.search.current = (self.search.current + 1) % self.search.matches.len();
         self.search.needs_scroll = true;
+        self.search.focus_editor_on_scroll = true;
     }
 
     fn search_prev(&mut self) {
@@ -1145,6 +1183,7 @@ impl EditorPanel {
             self.search.current - 1
         };
         self.search.needs_scroll = true;
+        self.search.focus_editor_on_scroll = true;
     }
 
     /// Replace the currently-highlighted match with the replacement text, then
@@ -1768,6 +1807,9 @@ impl EditorPanel {
 
         // ── Apply selected completion ──────────────────────────────────────
         let mut set_cursor_to: Option<usize> = None;
+        // Whether to move keyboard focus into the editor after repositioning the
+        // cursor. Autocomplete-apply always does; search only on navigation.
+        let mut focus_editor_after = false;
         if key_apply {
             if let Some(item) = self.ac.items.get(self.ac.selected).cloned() {
                 let tab = &mut self.tabs[self.active];
@@ -1785,6 +1827,7 @@ impl EditorPanel {
                 let insert_chars = item.insert.chars().count();
                 set_cursor_to = Some(self.ac.trigger_pos + insert_chars);
                 tab.dirty = true;
+                focus_editor_after = true;
             }
             self.ac.visible = false;
         }
@@ -1972,6 +2015,10 @@ impl EditorPanel {
                                 .chars()
                                 .count();
                             set_cursor_to = Some(char_idx);
+                            if self.search.focus_editor_on_scroll {
+                                self.search.focus_editor_on_scroll = false;
+                                focus_editor_after = true;
+                            }
                             // Scroll the viewport so the match is visible
                             let content_before = &tab.content[..byte_off.min(tab.content.len())];
                             let line_num = content_before.matches('\n').count();
@@ -1996,9 +2043,13 @@ impl EditorPanel {
                                 .set_char_range(Some(egui::text::CCursorRange::one(cc)));
                             state.store(ctx, te_out.response.id);
                         }
-                        // Move keyboard focus into the editor so the cursor
-                        // is visible and the user can type immediately.
-                        ctx.memory_mut(|m| m.request_focus(editor_id));
+                        // Move keyboard focus into the editor for autocomplete-apply
+                        // and explicit search navigation (next/prev/Enter) — but NOT
+                        // while typing in the Find box, or every keystroke would kick
+                        // the user out of it.
+                        if focus_editor_after {
+                            ctx.memory_mut(|m| m.request_focus(editor_id));
+                        }
                     }
 
                     // ── IntelliSense update ───────────────────────────────
@@ -2343,6 +2394,19 @@ impl EditorPanel {
                                     (format!("{cur}/{total}"), crate::theme::active().text_bright)
                                 };
                                 ui.label(egui::RichText::new(count_txt).small().color(count_col));
+
+                                ui.separator();
+
+                                // Case-insensitive toggle (on by default).
+                                if ui
+                                    .selectable_label(self.search.case_insensitive, "Aa")
+                                    .on_hover_text("Case-insensitive search")
+                                    .clicked()
+                                {
+                                    self.search.case_insensitive = !self.search.case_insensitive;
+                                    self.update_search_matches();
+                                    self.search.needs_scroll = !self.search.matches.is_empty();
+                                }
 
                                 ui.separator();
 
@@ -3640,6 +3704,24 @@ END-EVALUATE
         assert!(methods_for_type("BarChart")
             .iter()
             .any(|(n, _)| *n == "SetData"));
+        let grid: Vec<&str> = methods_for_type("DataGrid")
+            .iter()
+            .map(|(n, _)| *n)
+            .collect();
+        for expected in [
+            "RefreshBinding",
+            "SetFilter",
+            "ClearFilters",
+            "FreezeColumns",
+            "FreezeRows",
+            "SetRowHeight",
+            "SetColumnWidth",
+            "GetSelectedText",
+            "CopySelection",
+            "ExportCSV",
+        ] {
+            assert!(grid.contains(&expected), "DataGrid missing {expected}");
+        }
         // Non-visual widgets: no geometry methods, but specific + generic.
         let timer: Vec<&str> = methods_for_type("Timer").iter().map(|(n, _)| *n).collect();
         assert!(!timer.contains(&"MoveTo"));

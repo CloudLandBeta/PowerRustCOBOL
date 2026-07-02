@@ -25,10 +25,16 @@
 
 use std::collections::HashMap;
 
-use egui::{Color32, Rect, Vec2};
+use egui::{pos2, Color32, Rect, Stroke, Vec2};
 
 use crate::containers::{self, ActiveTabs};
-use crate::model::{BgImageMode, PropValue};
+use crate::datagrid::{
+    datagrid_copy_text, DataGridCellSelection, DataGridColumnMeasure, DataGridLayout,
+    DataGridLayoutInput,
+};
+use crate::model::{
+    BgImageMode, DataGridAdvanced, DataGridGridLineStyle, PropValue, DATAGRID_ADVANCED_PROP,
+};
 use crate::{Control, ControlType};
 
 /// Supplies live control state to the engine, source-agnostic.
@@ -361,6 +367,101 @@ fn draw_deferred_tabcontrol_tabs(
     }
 }
 
+/// A top-level GroupBox marked as a repeating group (spec 015 control array).
+fn is_repeating_instance_group(c: &Control) -> bool {
+    matches!(c.control_type, ControlType::GroupBox)
+        && c.parent.is_none()
+        && c.get_prop("IsRepeatingGroup")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+}
+
+/// How many runtime instances a repeating group renders: `ItemCount` when it has
+/// been populated (e.g. by a data binding), otherwise `PreviewItemCount`.
+fn repeating_instance_count(c: &Control) -> usize {
+    let item = c.get_prop("ItemCount").map(|v| v.as_i64()).unwrap_or(0);
+    let n = if item > 0 {
+        item
+    } else {
+        c.get_prop("PreviewItemCount")
+            .map(|v| v.as_i64())
+            .unwrap_or(1)
+    };
+    n.clamp(1, 500) as usize
+}
+
+/// The id of a member control in the `inst`-th (1-based) instance of an array.
+/// Instance 1 keeps the original id; later instances are suffixed so they render
+/// and interact independently.
+fn instance_member_id(base: &str, inst: usize) -> String {
+    if inst <= 1 {
+        base.to_owned()
+    } else {
+        format!("{base}#{inst}")
+    }
+}
+
+/// Expand each top-level repeating GroupBox into its N runtime instances so the
+/// shared render loop draws N cards. Instance 1 is the original template in place;
+/// instances 2..N are clones of the group's subtree, shifted by the group's
+/// layout (Vertical / Horizontal / Grid) with instance-unique ids. Returns `None`
+/// when there is nothing to expand.
+fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
+    let groups: Vec<usize> = (0..controls.len())
+        .filter(|&i| {
+            is_repeating_instance_group(&controls[i]) && repeating_instance_count(&controls[i]) > 1
+        })
+        .collect();
+    if groups.is_empty() {
+        return None;
+    }
+    let mut out: Vec<Control> = controls.to_vec();
+    for gi in groups {
+        let g = &controls[gi];
+        let n = repeating_instance_count(g);
+        let spacing = g
+            .get_prop("ItemSpacing")
+            .map(|v| v.as_i64())
+            .unwrap_or(8)
+            .max(0) as f32;
+        let dir = g
+            .get_prop("LayoutDirection")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Vertical".into());
+        let ipr = g
+            .get_prop("ItemsPerRow")
+            .map(|v| v.as_i64())
+            .unwrap_or(1)
+            .max(1) as usize;
+        let gw = g.rect.w as f32;
+        let gh = g.rect.h as f32;
+        let subtree: Vec<usize> = std::iter::once(gi)
+            .chain(crate::containers::collect_descendants(controls, gi))
+            .collect();
+        for inst in 2..=n {
+            let step = (inst - 1) as f32;
+            let (dx, dy) = match dir.as_str() {
+                "Horizontal" => (step * (gw + spacing), 0.0),
+                "Grid" => {
+                    let col = ((inst - 1) % ipr) as f32;
+                    let row = ((inst - 1) / ipr) as f32;
+                    (col * (gw + spacing), row * (gh + spacing))
+                }
+                _ => (0.0, step * (gh + spacing)),
+            };
+            for &si in &subtree {
+                let mut clone = controls[si].clone();
+                clone.rect.x += dx as i32;
+                clone.rect.y += dy as i32;
+                clone.id = instance_member_id(&clone.id, inst);
+                clone.parent = clone.parent.as_deref().map(|p| instance_member_id(p, inst));
+                out.push(clone);
+            }
+        }
+    }
+    Some(out)
+}
+
 /// Render a whole form into `ui` at its content origin. The caller sets up the
 /// `CentralPanel` / `ScrollArea` and `ui.set_min_size(form_size)` first.
 pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
@@ -394,7 +495,10 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     });
 
     // ── Controls: designer order, clipped + faded by container ancestry. ──────
-    let controls = input.controls;
+    // Expand repeating groups (spec 015 / 024) into their N runtime instances so
+    // the render loop below draws one card per item.
+    let expanded = expand_repeating_groups(input.controls);
+    let controls: &[Control] = expanded.as_deref().unwrap_or(input.controls);
     let order = containers::render_order(controls);
     let interactive = input.mode == RenderMode::Interactive;
     // ComboBox dropdowns are drawn in a second pass so they float above every
@@ -814,6 +918,152 @@ fn sv(c: &Control, key: &str) -> String {
         .unwrap_or_default()
 }
 
+fn prop_bool(c: &Control, key: &str, default: bool) -> bool {
+    c.get_prop(key).map(PropValue::as_bool).unwrap_or(default)
+}
+
+fn datagrid_filter_property(advanced: &DataGridAdvanced) -> String {
+    advanced
+        .filters
+        .iter()
+        .filter(|filter| filter.active && !filter.value.trim().is_empty())
+        .map(|filter| format!("{}={}", filter.column_id.trim(), filter.value.trim()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Which edge of a frozen-pane shadow rectangle is dark (fading to transparent
+/// across the rest).
+enum FrozenShadowEdge {
+    /// Dark on the left edge → for the vertical shadow cast rightward by frozen
+    /// columns.
+    Left,
+    /// Dark on the top edge → for the horizontal shadow cast downward by the
+    /// frozen header/rows.
+    Top,
+}
+
+/// A soft one-directional shadow gradient quad (dark on `dark_edge`, fading to
+/// transparent) used as the frozen-pane freeze cue.
+fn frozen_shadow_shape(rect: Rect, dark_edge: FrozenShadowEdge, max_alpha: u8) -> egui::Shape {
+    use egui::epaint::{Mesh, Vertex, WHITE_UV};
+    let dark = Color32::from_black_alpha(max_alpha);
+    let clear = Color32::TRANSPARENT;
+    let (ctl, ctr, cbr, cbl) = match dark_edge {
+        FrozenShadowEdge::Left => (dark, clear, clear, dark),
+        FrozenShadowEdge::Top => (dark, dark, clear, clear),
+    };
+    let mut mesh = Mesh::default();
+    for (pos, color) in [
+        (rect.left_top(), ctl),
+        (rect.right_top(), ctr),
+        (rect.right_bottom(), cbr),
+        (rect.left_bottom(), cbl),
+    ] {
+        mesh.vertices.push(Vertex {
+            pos,
+            uv: WHITE_UV,
+            color,
+        });
+    }
+    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+    egui::Shape::mesh(mesh)
+}
+
+/// Evenly distributed tile-center coordinates across `[start, end]` for a
+/// nominal spacing. Instead of a fixed start offset with a ragged trailing gap,
+/// this picks the tile count that best matches `nominal`, then spreads the tiles
+/// so the leading and trailing margins are equal (half a cell) — an even
+/// automatic-tile layout that adapts to the available extent.
+fn even_tile_centers(start: f32, end: f32, nominal: f32) -> Vec<f32> {
+    let len = end - start;
+    if len <= 0.0 || nominal <= 0.0 {
+        return Vec::new();
+    }
+    let count = (len / nominal).round().max(1.0) as usize;
+    let spacing = len / count as f32;
+    (0..count)
+        .map(|i| start + spacing * (i as f32 + 0.5))
+        .collect()
+}
+
+fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, color: Color32) {
+    let pattern = pattern.trim().to_ascii_lowercase();
+    if pattern.is_empty() || pattern == "none" {
+        return;
+    }
+
+    match pattern.as_str() {
+        "stripes" | "stripe" => {
+            // Horizontal bands, evenly distributed with balanced top/bottom margins.
+            for cy in even_tile_centers(rect.min.y, rect.max.y, 12.0) {
+                painter.rect_filled(
+                    Rect::from_min_max(
+                        pos2(rect.min.x, (cy - 3.0).max(rect.min.y)),
+                        pos2(rect.max.x, (cy + 3.0).min(rect.max.y)),
+                    ),
+                    0.0,
+                    color,
+                );
+            }
+        }
+        "dots" | "dot" => {
+            for cy in even_tile_centers(rect.min.y, rect.max.y, 12.0) {
+                for cx in even_tile_centers(rect.min.x, rect.max.x, 12.0) {
+                    painter.circle_filled(pos2(cx, cy), 1.0, color);
+                }
+            }
+        }
+        "cross" | "plus" => {
+            let stroke = Stroke::new(1.0, color);
+            for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
+                for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    painter.line_segment([pos2(cx - 3.0, cy), pos2(cx + 3.0, cy)], stroke);
+                    painter.line_segment([pos2(cx, cy - 3.0), pos2(cx, cy + 3.0)], stroke);
+                }
+            }
+        }
+        "x" | "diagonal-cross" => {
+            let stroke = Stroke::new(1.0, color);
+            for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
+                for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    painter
+                        .line_segment([pos2(cx - 3.0, cy - 3.0), pos2(cx + 3.0, cy + 3.0)], stroke);
+                    painter
+                        .line_segment([pos2(cx - 3.0, cy + 3.0), pos2(cx + 3.0, cy - 3.0)], stroke);
+                }
+            }
+        }
+        "x dots" | "xdots" | "x-dots" | "x with dots" => {
+            let stroke = Stroke::new(1.0, color);
+            for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
+                for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    let points = [
+                        pos2(cx - 3.0, cy - 3.0),
+                        pos2(cx + 3.0, cy - 3.0),
+                        pos2(cx - 3.0, cy + 3.0),
+                        pos2(cx + 3.0, cy + 3.0),
+                    ];
+                    painter.line_segment([points[0], points[3]], stroke);
+                    painter.line_segment([points[2], points[1]], stroke);
+                    for point in points {
+                        painter.circle_filled(point, 1.0, color);
+                    }
+                }
+            }
+        }
+        "o" | "circle" | "circles" => {
+            let stroke = Stroke::new(1.0, color);
+            for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
+                for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    painter.circle_stroke(pos2(cx, cy), 3.0, stroke);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Universal pointer/gesture events for one control, derived purely from pointer
 /// geometry (no extra interactable, so it never steals the control's own
 /// interaction). Emits only the events the control declares in `supported_events`
@@ -981,6 +1231,41 @@ fn control_pointer_events(
     }
 }
 
+fn draw_datagrid_line(
+    painter: &egui::Painter,
+    points: [egui::Pos2; 2],
+    stroke: egui::Stroke,
+    style: DataGridGridLineStyle,
+) {
+    match style {
+        DataGridGridLineStyle::None => {}
+        DataGridGridLineStyle::Solid => {
+            painter.line_segment(points, stroke);
+        }
+        DataGridGridLineStyle::Dash | DataGridGridLineStyle::Dots => {
+            let start = points[0];
+            let end = points[1];
+            let delta = end - start;
+            let length = delta.length();
+            if length <= 0.5 {
+                return;
+            }
+            let dir = delta / length;
+            let (segment, gap) = match style {
+                DataGridGridLineStyle::Dash => (6.0, 4.0),
+                DataGridGridLineStyle::Dots => (1.0, 4.0),
+                _ => unreachable!(),
+            };
+            let mut offset = 0.0;
+            while offset < length {
+                let next = (offset + segment).min(length);
+                painter.line_segment([start + dir * offset, start + dir * next], stroke);
+                offset += segment + gap;
+            }
+        }
+    }
+}
+
 /// Render one control as a live, interactive egui widget (Interactive mode),
 /// accumulating events + property updates. Faces reuse `draw_control` /
 /// `draw_animator` / `draw_picturebox` so the running widget matches the designer
@@ -1046,7 +1331,7 @@ fn render_interactive(
                 1.0,
                 None,
             );
-            let corner = sv(ctrl, "CornerRadius").parse::<f32>().unwrap_or(4.0);
+            let corner = paint::corner_radius(ctrl);
             if pressed {
                 painter.rect_filled(draw_rect, corner, Color32::from_black_alpha(70));
             } else if hovered {
@@ -1269,7 +1554,7 @@ fn render_interactive(
                 &painter,
                 screen,
                 Color32::from_rgb(30, 40, 80),
-                6.0,
+                paint::corner_radius(ctrl),
                 false,
                 alpha,
             );
@@ -1318,7 +1603,7 @@ fn render_interactive(
                 &painter,
                 screen,
                 Color32::from_rgb(30, 40, 80),
-                6.0,
+                paint::corner_radius(ctrl),
                 false,
                 alpha,
             );
@@ -1469,8 +1754,11 @@ fn render_interactive(
             ui.data_mut(|d| d.insert_temp(ctrl_id, cal));
         }
         CT::DataGrid => {
+            let painter = painter.with_clip_rect(painter.clip_rect().intersect(screen));
             let cell_fg = Color32::from_rgb(225, 230, 250);
-            let cols: Vec<(String, String)> = sv(ctrl, "Columns")
+            let columns_raw = sv(ctrl, "Columns");
+            let rows_raw = sv(ctrl, "Rows");
+            let cols: Vec<(String, String)> = columns_raw
                 .lines()
                 .filter_map(|l| {
                     let mut it = l.splitn(2, ':');
@@ -1482,8 +1770,7 @@ fn render_interactive(
                     Some((name, ty))
                 })
                 .collect();
-            let ncols = cols.len().max(1);
-            let rows: Vec<Vec<String>> = sv(ctrl, "Rows")
+            let rows: Vec<Vec<String>> = rows_raw
                 .lines()
                 .filter(|l| !l.is_empty())
                 .map(|l| l.split('\t').map(|c| c.to_owned()).collect())
@@ -1492,52 +1779,1090 @@ fn render_interactive(
                 .parse::<f32>()
                 .unwrap_or(22.0)
                 .clamp(14.0, 60.0);
+            let advanced_grid = DataGridAdvanced::from_control(ctrl);
+            let display_cols: Vec<(usize, String, String)> = if advanced_grid.columns.is_empty() {
+                cols.iter()
+                    .enumerate()
+                    .map(|(i, (name, ty))| (i, name.clone(), ty.clone()))
+                    .collect()
+            } else {
+                advanced_grid
+                    .columns
+                    .iter()
+                    .filter_map(|column| {
+                        cols.iter()
+                            .position(|(name, _)| {
+                                name.eq_ignore_ascii_case(&column.source_name)
+                                    || name.eq_ignore_ascii_case(&column.title)
+                                    || name.eq_ignore_ascii_case(&column.id)
+                            })
+                            .map(|source_index| {
+                                (
+                                    source_index,
+                                    column.title.clone(),
+                                    cols[source_index].1.clone(),
+                                )
+                            })
+                    })
+                    .collect()
+            };
+            let display_cols: Vec<(usize, String, String)> = if display_cols.is_empty() {
+                vec![(0, String::new(), "string".into())]
+            } else {
+                display_cols
+            };
+            let source_names: Vec<String> = cols.iter().map(|(name, _)| name.clone()).collect();
+            let displayed_row_indices =
+                advanced_grid.filtered_row_indices_for_sources(&rows, &source_names);
+            let ncols = display_cols.len().max(1);
             let col_w = screen.width() / ncols as f32;
+            let frozen_columns = advanced_grid.frozen_columns.min(ncols);
+            let frozen_rows = advanced_grid.frozen_rows.min(displayed_row_indices.len());
+            let column_measures: Vec<DataGridColumnMeasure> = (0..ncols)
+                .map(|i| DataGridColumnMeasure {
+                    width: advanced_grid.column_width(i).unwrap_or(col_w).max(32.0),
+                    frozen: advanced_grid
+                        .columns
+                        .get(i)
+                        .map(|column| column.frozen)
+                        .unwrap_or(false),
+                })
+                .collect();
+            let column_widths: Vec<f32> =
+                column_measures.iter().map(|column| column.width).collect();
             let header_bg = paint::parse_hex(&sv(ctrl, "HeaderBackgroundColor"))
                 .unwrap_or(Color32::from_rgb(60, 66, 96));
             let header_fg = paint::parse_hex(&sv(ctrl, "HeaderForegroundColor"))
                 .unwrap_or(Color32::from_rgb(235, 238, 250));
-            let alt_bg = paint::parse_hex(&sv(ctrl, "AlternatingRowColor"))
+            // The DataGrid is the one control that supports a solid grid background
+            // (grid/column/row/cell fine control). A user-chosen colour paints solid
+            // beneath the glass; a grid still on the default sentinel stays fully
+            // translucent Liquid Glass like every other control.
+            let raw_grid_bg = sv(ctrl, "BackgroundColor");
+            let default_bg = crate::model::DEFAULT_BACKGROUND_COLOR.trim_start_matches('#');
+            let grid_bg_underlay = paint::parse_hex(&raw_grid_bg).filter(|c| {
+                c.a() > 0
+                    && !raw_grid_bg
+                        .trim()
+                        .trim_start_matches('#')
+                        .eq_ignore_ascii_case(default_bg)
+            });
+            let grid_bg = grid_bg_underlay.unwrap_or(Color32::from_rgb(26, 32, 58));
+            let alt_bg_base = paint::parse_hex(&sv(ctrl, "AlternatingRowColor"))
                 .unwrap_or(Color32::from_rgb(38, 44, 72));
-            let grid_c = paint::parse_hex(&sv(ctrl, "GridLineColor"))
+            let alt_bg_opacity = sv(ctrl, "AlternatingRowOpacity")
+                .parse::<u8>()
+                .unwrap_or(20)
+                .min(100);
+            let alt_bg = Color32::from_rgba_unmultiplied(
+                alt_bg_base.r(),
+                alt_bg_base.g(),
+                alt_bg_base.b(),
+                ((alt_bg_opacity as u16 * 255) / 100) as u8,
+            );
+            // Which axis the alternating highlight is applied to: every other row
+            // (default / legacy), every other column, or off. Unknown values fall
+            // back to rows so existing forms are unchanged.
+            let alt_axis = sv(ctrl, "AlternatingMode").trim().to_ascii_lowercase();
+            let alt_none = matches!(alt_axis.as_str(), "none" | "off");
+            let alt_cols = matches!(alt_axis.as_str(), "columns" | "column");
+            let alt_rows = !alt_none && !alt_cols;
+            // Grid-line colour is the DataGrid's "foreground": the Appearance
+            // section's Fore color drives it. A grid still on the default
+            // foreground sentinel uses the subtle built-in colour; the legacy
+            // per-grid `GridLineColor` is honoured as a fallback for older forms.
+            let raw_fg = sv(ctrl, "ForegroundColor");
+            let default_fg = crate::model::DEFAULT_FOREGROUND_COLOR.trim_start_matches('#');
+            let fg_line_color = paint::parse_hex(&raw_fg).filter(|c| {
+                c.a() > 0
+                    && !raw_fg
+                        .trim()
+                        .trim_start_matches('#')
+                        .eq_ignore_ascii_case(default_fg)
+            });
+            let grid_c = fg_line_color
+                .or_else(|| paint::parse_hex(&sv(ctrl, "GridLineColor")))
                 .unwrap_or(Color32::from_rgba_premultiplied(150, 160, 200, 90));
+            let grid_line_style = advanced_grid.grid_line_style;
+            let font_size = sv(ctrl, "FontSize")
+                .parse::<f32>()
+                .unwrap_or(12.0)
+                .clamp(6.0, 72.0);
+            let show_filters = prop_bool(ctrl, "ShowColumnFilters", false);
+            let header_h = if show_filters {
+                (row_h * 1.85).max(row_h + 18.0)
+            } else {
+                row_h
+            };
+            let frozen_rows_height = row_h * frozen_rows as f32;
+            let scrollable_row_count = displayed_row_indices.len().saturating_sub(frozen_rows);
 
-            paint::draw_glass_auto(
+            paint::draw_glass_auto_bg(
                 &painter,
                 screen,
-                Color32::from_rgb(26, 32, 58),
-                4.0,
+                grid_bg,
+                grid_bg_underlay,
+                paint::corner_radius(ctrl),
                 false,
-                alpha * 0.7,
+                alpha,
             );
-            let header_rect = Rect::from_min_size(screen.min, vec2(screen.width(), row_h));
-            painter.rect_filled(header_rect, 0.0, header_bg);
-            for (i, (name, _)) in cols.iter().enumerate() {
-                let x = screen.min.x + i as f32 * col_w;
-                painter.text(
-                    pos2(x + 6.0, header_rect.center().y),
-                    Align2::LEFT_CENTER,
+            let bg_image = sv(ctrl, "GridBackgroundImage");
+            if !bg_image.trim().is_empty() {
+                let image_id = egui::Id::new(("dg_bg_img", &ctrl.id, bg_image.as_str()));
+                let tex = match ui.data(|d| d.get_temp::<Option<egui::TextureHandle>>(image_id)) {
+                    Some(t) => t,
+                    None => {
+                        let loaded = paint::load_image_texture(ui.ctx(), bg_image.trim());
+                        ui.data_mut(|d| d.insert_temp(image_id, loaded.clone()));
+                        loaded
+                    }
+                };
+                if let Some(tex) = tex {
+                    let mode = BgImageMode::from_str(&sv(ctrl, "GridBackgroundImageMode"));
+                    let dest = image_dest(screen, tex.size_vec2(), mode);
+                    painter.image(
+                        tex.id(),
+                        dest,
+                        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                        Color32::from_rgba_unmultiplied(255, 255, 255, (alpha * 255.0) as u8),
+                    );
+                }
+            }
+            draw_datagrid_pattern(
+                &painter,
+                screen,
+                &sv(ctrl, "GridBackgroundPattern"),
+                Color32::from_rgba_unmultiplied(255, 255, 255, 24),
+            );
+            let scroll_id = ctrl_id.with("datagrid-scroll-y");
+            let scroll_x_id = ctrl_id.with("datagrid-scroll-x");
+            let selection_id = ctrl_id.with("datagrid-selection");
+            let mut scroll_y = ui
+                .ctx()
+                .memory(|m| m.data.get_temp::<f32>(scroll_id).unwrap_or(0.0));
+            let mut scroll_x = ui
+                .ctx()
+                .memory(|m| m.data.get_temp::<f32>(scroll_x_id).unwrap_or(0.0));
+            let mut layout = DataGridLayout::compute(&DataGridLayoutInput {
+                width: screen.width(),
+                height: (screen.height() - frozen_rows_height).max(header_h),
+                row_count: scrollable_row_count,
+                columns: column_measures.clone(),
+                row_height: row_h,
+                header_height: header_h,
+                frozen_columns,
+                frozen_rows: 0,
+                scroll_x,
+                scroll_y,
+                row_buffer: 2,
+            });
+            scroll_y = layout.scroll_y;
+            scroll_x = layout.scroll_x;
+            let header_rect = Rect::from_min_size(screen.min, vec2(screen.width(), header_h));
+            let body_rect = Rect::from_min_max(pos2(screen.min.x, header_rect.max.y), screen.max);
+            if (layout.max_scroll_y > 0.0 || layout.max_scroll_x > 0.0)
+                && ui.rect_contains_pointer(body_rect)
+            {
+                let (wheel_delta_x, wheel_delta_y) = ui.input(|i| {
+                    i.events
+                        .iter()
+                        .fold((0.0_f32, 0.0_f32), |(x, y), event| match event {
+                            egui::Event::MouseWheel { delta, .. } => (x + delta.x, y + delta.y),
+                            _ => (x, y),
+                        })
+                });
+                if wheel_delta_y != 0.0 {
+                    scroll_y = (scroll_y - wheel_delta_y).clamp(0.0, layout.max_scroll_y);
+                }
+                if wheel_delta_x != 0.0 {
+                    scroll_x = (scroll_x - wheel_delta_x).clamp(0.0, layout.max_scroll_x);
+                }
+            }
+            layout = DataGridLayout::compute(&DataGridLayoutInput {
+                width: screen.width(),
+                height: (screen.height() - frozen_rows_height).max(header_h),
+                row_count: scrollable_row_count,
+                columns: column_measures.clone(),
+                row_height: row_h,
+                header_height: header_h,
+                frozen_columns,
+                frozen_rows: 0,
+                scroll_x,
+                scroll_y,
+                row_buffer: 2,
+            });
+            scroll_y = layout.scroll_y;
+            scroll_x = layout.scroll_x;
+            ui.ctx()
+                .memory_mut(|m| m.data.insert_temp(scroll_id, scroll_y));
+            ui.ctx()
+                .memory_mut(|m| m.data.insert_temp(scroll_x_id, scroll_x));
+            let selected_cell = ui
+                .ctx()
+                .memory(|m| m.data.get_temp::<DataGridCellSelection>(selection_id));
+            if let Some(selected_cell) = selected_cell {
+                if ui.input(|i| i.key_pressed(egui::Key::C) && i.modifiers.command) {
+                    let visible_source_columns: Vec<usize> = display_cols
+                        .iter()
+                        .map(|(source_index, _, _)| *source_index)
+                        .collect();
+                    if let Some(text) = datagrid_copy_text(
+                        &rows,
+                        &visible_source_columns,
+                        selected_cell,
+                        &sv(ctrl, "SelectionMode"),
+                        &sv(ctrl, "CSVDelimiter"),
+                    ) {
+                        ui.output_mut(|o| o.copied_text = text);
+                    }
+                }
+            }
+
+            let grid_focus = ui.interact(screen, ctrl_id.with("datagrid-focus"), Sense::click());
+            if grid_focus.clicked() {
+                grid_focus.request_focus();
+            }
+            if enabled && grid_focus.has_focus() && !displayed_row_indices.is_empty() && ncols > 0 {
+                let key_state = ui.input(|i| {
+                    (
+                        i.key_pressed(egui::Key::ArrowUp),
+                        i.key_pressed(egui::Key::ArrowDown),
+                        i.key_pressed(egui::Key::ArrowLeft),
+                        i.key_pressed(egui::Key::ArrowRight),
+                        i.key_pressed(egui::Key::PageUp),
+                        i.key_pressed(egui::Key::PageDown),
+                        i.key_pressed(egui::Key::Home),
+                        i.key_pressed(egui::Key::End),
+                        i.modifiers.command || i.modifiers.ctrl,
+                        i.modifiers.shift,
+                    )
+                });
+                let (
+                    up,
+                    down,
+                    left,
+                    right_key,
+                    page_up,
+                    page_down,
+                    home,
+                    end,
+                    command_or_ctrl,
+                    shift,
+                ) = key_state;
+                if up || down || left || right_key || page_up || page_down || home || end {
+                    let selected = ui
+                        .ctx()
+                        .memory(|m| m.data.get_temp::<DataGridCellSelection>(selection_id))
+                        .unwrap_or(DataGridCellSelection {
+                            row_index: displayed_row_indices[0],
+                            display_column_index: 0,
+                        });
+                    let mut display_row = displayed_row_indices
+                        .iter()
+                        .position(|row_index| *row_index == selected.row_index)
+                        .unwrap_or(0);
+                    let mut display_col = selected.display_column_index.min(ncols - 1);
+                    let page_rows = ((body_rect.height() / row_h).floor() as usize).max(1);
+
+                    if command_or_ctrl && up {
+                        display_row = 0;
+                    } else if up {
+                        display_row = display_row.saturating_sub(1);
+                    }
+                    if command_or_ctrl && down {
+                        display_row = displayed_row_indices.len() - 1;
+                    } else if down {
+                        display_row = (display_row + 1).min(displayed_row_indices.len() - 1);
+                    }
+                    if command_or_ctrl && left {
+                        display_col = 0;
+                    } else if left {
+                        display_col = display_col.saturating_sub(1);
+                    }
+                    if command_or_ctrl && right_key {
+                        display_col = ncols - 1;
+                    } else if right_key {
+                        display_col = (display_col + 1).min(ncols - 1);
+                    }
+                    if page_up {
+                        display_row = display_row.saturating_sub(page_rows);
+                    }
+                    if page_down {
+                        display_row =
+                            (display_row + page_rows).min(displayed_row_indices.len() - 1);
+                    }
+                    if command_or_ctrl && home {
+                        display_row = 0;
+                        display_col = 0;
+                    } else if home {
+                        display_col = 0;
+                    }
+                    if command_or_ctrl && end {
+                        display_row = displayed_row_indices.len() - 1;
+                        display_col = ncols - 1;
+                    } else if end {
+                        display_col = ncols - 1;
+                    }
+
+                    let new_selection = DataGridCellSelection {
+                        row_index: displayed_row_indices[display_row],
+                        display_column_index: display_col,
+                    };
+                    if shift && selected == new_selection {
+                        ui.ctx()
+                            .memory_mut(|m| m.data.remove::<DataGridCellSelection>(selection_id));
+                    } else {
+                        ui.ctx()
+                            .memory_mut(|m| m.data.insert_temp(selection_id, new_selection));
+                    }
+
+                    if display_row >= frozen_rows {
+                        let scroll_row = display_row - frozen_rows;
+                        let visible_rows = (((body_rect.height() - frozen_rows_height).max(row_h)
+                            / row_h)
+                            .floor() as usize)
+                            .max(1);
+                        if scroll_row < layout.first_row {
+                            scroll_y = scroll_row as f32 * row_h;
+                        } else if scroll_row >= layout.first_row + visible_rows {
+                            scroll_y = ((scroll_row + 1) as f32 * row_h
+                                - (body_rect.height() - frozen_rows_height))
+                                .max(0.0);
+                        }
+                    }
+
+                    if display_col >= frozen_columns {
+                        let target_left: f32 = column_widths.iter().take(display_col).sum();
+                        let target_right = target_left + column_widths[display_col];
+                        let visible_left = layout.frozen_columns_width + scroll_x;
+                        let visible_right = screen.width() + scroll_x;
+                        if target_left < visible_left {
+                            scroll_x = (target_left - layout.frozen_columns_width).max(0.0);
+                        } else if target_right > visible_right {
+                            scroll_x = (target_right - screen.width()).max(0.0);
+                        }
+                    }
+
+                    layout = DataGridLayout::compute(&DataGridLayoutInput {
+                        width: screen.width(),
+                        height: (screen.height() - frozen_rows_height).max(header_h),
+                        row_count: scrollable_row_count,
+                        columns: column_measures.clone(),
+                        row_height: row_h,
+                        header_height: header_h,
+                        frozen_columns,
+                        frozen_rows: 0,
+                        scroll_x,
+                        scroll_y,
+                        row_buffer: 2,
+                    });
+                    scroll_y = layout.scroll_y;
+                    scroll_x = layout.scroll_x;
+                    ui.ctx()
+                        .memory_mut(|m| m.data.insert_temp(scroll_id, scroll_y));
+                    ui.ctx()
+                        .memory_mut(|m| m.data.insert_temp(scroll_x_id, scroll_x));
+                }
+            }
+
+            if enabled && prop_bool(ctrl, "AllowColumnResize", true) {
+                for col in layout
+                    .frozen_columns
+                    .iter()
+                    .chain(layout.scrollable_columns.iter())
+                {
+                    let edge_x = screen.min.x + col.x + col.width;
+                    if edge_x <= screen.min.x || edge_x >= screen.max.x {
+                        continue;
+                    }
+                    let handle = Rect::from_min_max(
+                        pos2(edge_x - 3.0, header_rect.min.y),
+                        pos2(edge_x + 3.0, body_rect.max.y),
+                    );
+                    let resp = ui.interact(
+                        handle,
+                        ctrl_id.with(("dg-col-resize", col.index)),
+                        Sense::drag(),
+                    );
+                    if resp.hovered() || resp.dragged() {
+                        ui.ctx()
+                            .output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeHorizontal);
+                    }
+                    if resp.dragged() {
+                        let mut resized = DataGridAdvanced::from_control(ctrl);
+                        let new_width = (col.width + resp.drag_delta().x).clamp(32.0, 1600.0);
+                        resized.set_column_width(col.index, new_width);
+                        if let Ok(json) = resized.to_json() {
+                            out.prop_updates.push((
+                                id.to_owned(),
+                                DATAGRID_ADVANCED_PROP.to_owned(),
+                                json,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            if enabled && prop_bool(ctrl, "AllowRowResize", true) {
+                let mut row_handles = Vec::new();
+                row_handles.push((None, screen.min.y + layout.header_rect.max_y()));
+                for frozen_row in 0..frozen_rows {
+                    let edge_y = body_rect.min.y + row_h * (frozen_row + 1) as f32;
+                    if edge_y > body_rect.min.y && edge_y < body_rect.max.y {
+                        row_handles.push((Some(frozen_row), edge_y));
+                    }
+                }
+                let scroll_rows_min_y = (body_rect.min.y + frozen_rows_height).min(body_rect.max.y);
+                for r in layout.first_row..layout.last_row_exclusive {
+                    let display_row = frozen_rows + r;
+                    let edge_y = scroll_rows_min_y + row_h * (r + 1) as f32 - scroll_y;
+                    if edge_y > body_rect.min.y && edge_y < body_rect.max.y {
+                        row_handles.push((Some(display_row), edge_y));
+                    }
+                }
+                for (row_index, edge_y) in row_handles {
+                    let handle = Rect::from_min_max(
+                        pos2(screen.min.x, edge_y - 3.0),
+                        pos2(screen.max.x, edge_y + 3.0),
+                    );
+                    let resp = ui.interact(
+                        handle,
+                        ctrl_id.with(("dg-row-resize", row_index)),
+                        Sense::drag(),
+                    );
+                    if resp.hovered() || resp.dragged() {
+                        ui.ctx()
+                            .output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeVertical);
+                    }
+                    if resp.dragged() {
+                        let new_height = (row_h + resp.drag_delta().y).clamp(14.0, 120.0);
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "RowHeight".to_owned(),
+                            format!("{:.0}", new_height),
+                        ));
+                    }
+                }
+            }
+
+            let header_radius = paint::corner_radius(ctrl) as f32;
+            painter.rect_filled(
+                header_rect,
+                egui::Rounding {
+                    nw: header_radius,
+                    ne: header_radius,
+                    sw: 0.0,
+                    se: 0.0,
+                },
+                header_bg,
+            );
+            for col in layout
+                .frozen_columns
+                .iter()
+                .chain(layout.scrollable_columns.iter())
+            {
+                let (_, name, _) = &display_cols[col.index];
+                let column_meta = advanced_grid.columns.get(col.index);
+                let x = screen.min.x + col.x;
+                // Clip a scrollable header cell to the region right of the frozen
+                // band so it scrolls behind the frozen columns (matches the body).
+                let painter = if col.frozen {
+                    painter.clone()
+                } else {
+                    painter.with_clip_rect(Rect::from_min_max(
+                        pos2(
+                            screen.min.x + layout.frozen_columns_width,
+                            header_rect.min.y,
+                        ),
+                        pos2(screen.max.x, header_rect.max.y),
+                    ))
+                };
+                let cell_rect =
+                    Rect::from_min_size(pos2(x, header_rect.min.y), vec2(col.width, header_h))
+                        .shrink2(vec2(2.0, 0.0));
+                let title_y = if show_filters {
+                    header_rect.min.y + (header_h * 0.32)
+                } else {
+                    header_rect.center().y
+                };
+                let header_font_size = column_meta
+                    .map(|column| column.header_font_size.max(6) as f32)
+                    .unwrap_or(12.0);
+                painter.with_clip_rect(cell_rect).text(
+                    pos2(x + col.width * 0.5, title_y),
+                    Align2::CENTER_CENTER,
                     name,
-                    FontId::proportional(12.0),
+                    FontId::proportional(header_font_size),
                     header_fg,
                 );
+                if show_filters {
+                    let filter_key = column_meta
+                        .map(|column| {
+                            if !column.id.trim().is_empty() {
+                                column.id.as_str()
+                            } else if !column.source_name.trim().is_empty() {
+                                column.source_name.as_str()
+                            } else {
+                                name.as_str()
+                            }
+                        })
+                        .unwrap_or(name.as_str());
+                    let filter_value = advanced_grid
+                        .filters
+                        .iter()
+                        .find(|filter| {
+                            filter.column_id.eq_ignore_ascii_case(filter_key)
+                                || filter.column_id.eq_ignore_ascii_case(name)
+                                || column_meta
+                                    .map(|column| {
+                                        filter.column_id.eq_ignore_ascii_case(&column.id)
+                                            || filter
+                                                .column_id
+                                                .eq_ignore_ascii_case(&column.source_name)
+                                    })
+                                    .unwrap_or(false)
+                        })
+                        .map(|filter| filter.value.as_str())
+                        .unwrap_or("");
+                    let filter_rect = Rect::from_center_size(
+                        pos2(x + col.width * 0.5, header_rect.min.y + header_h * 0.72),
+                        vec2((col.width - 12.0).max(16.0), (row_h * 0.68).max(14.0)),
+                    );
+                    painter.rect_filled(
+                        filter_rect,
+                        3.0,
+                        Color32::from_rgba_unmultiplied(0, 0, 0, 120),
+                    );
+                    let mut filter_text = filter_value.to_owned();
+                    // The filter input is an egui widget (not painter-drawn), so it
+                    // isn't covered by the header painter clip. For a scrollable
+                    // column, restrict the ui clip to the region right of the frozen
+                    // band so the input scrolls behind the frozen columns instead of
+                    // drawing over them.
+                    let prev_clip = ui.clip_rect();
+                    if !col.frozen {
+                        let scrollable = Rect::from_min_max(
+                            pos2(
+                                screen.min.x + layout.frozen_columns_width,
+                                header_rect.min.y,
+                            ),
+                            pos2(screen.max.x, header_rect.max.y),
+                        );
+                        ui.set_clip_rect(prev_clip.intersect(scrollable));
+                    }
+                    let filter_response = ui.put(
+                        filter_rect.shrink2(vec2(4.0, 1.0)),
+                        egui::TextEdit::singleline(&mut filter_text)
+                            .hint_text("Filter...")
+                            .font(FontId::proportional((font_size - 1.0).max(8.0)))
+                            .desired_width((col.width - 18.0).max(16.0))
+                            .frame(false),
+                    );
+                    if !col.frozen {
+                        ui.set_clip_rect(prev_clip);
+                    }
+                    if filter_response.changed() {
+                        let mut updated = advanced_grid.clone();
+                        updated.set_filter(filter_key.to_owned(), filter_text);
+                        if let Ok(json) = updated.to_json() {
+                            out.prop_updates.push((
+                                id.to_owned(),
+                                DATAGRID_ADVANCED_PROP.to_owned(),
+                                json,
+                            ));
+                        }
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "ColumnFilters".to_owned(),
+                            datagrid_filter_property(&updated),
+                        ));
+                    }
+                }
+                if enabled
+                    && ncols > 1
+                    && prop_bool(ctrl, "AllowColumnReorder", true)
+                    && col.width >= 58.0
+                {
+                    let left_rect = Rect::from_min_size(
+                        pos2(x + col.width - 34.0, header_rect.min.y + 3.0),
+                        vec2(14.0, (row_h - 6.0).max(10.0)),
+                    );
+                    let right_rect = Rect::from_min_size(
+                        pos2(x + col.width - 18.0, header_rect.min.y + 3.0),
+                        vec2(14.0, (row_h - 6.0).max(10.0)),
+                    );
+                    if col.index > 0 {
+                        let resp = ui.interact(
+                            left_rect,
+                            ctrl_id.with(("dg-col-left", col.index)),
+                            Sense::click(),
+                        );
+                        painter.with_clip_rect(left_rect).text(
+                            left_rect.center(),
+                            Align2::CENTER_CENTER,
+                            "‹",
+                            FontId::proportional(12.0),
+                            header_fg,
+                        );
+                        if resp.clicked() {
+                            let mut reordered = DataGridAdvanced::from_control(ctrl);
+                            if reordered.move_column_left(col.index) {
+                                if let Ok(json) = reordered.to_json() {
+                                    out.prop_updates.push((
+                                        id.to_owned(),
+                                        DATAGRID_ADVANCED_PROP.to_owned(),
+                                        json,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    if col.index + 1 < ncols {
+                        let resp = ui.interact(
+                            right_rect,
+                            ctrl_id.with(("dg-col-right", col.index)),
+                            Sense::click(),
+                        );
+                        painter.with_clip_rect(right_rect).text(
+                            right_rect.center(),
+                            Align2::CENTER_CENTER,
+                            "›",
+                            FontId::proportional(12.0),
+                            header_fg,
+                        );
+                        if resp.clicked() {
+                            let mut reordered = DataGridAdvanced::from_control(ctrl);
+                            if reordered.move_column_right(col.index) {
+                                if let Ok(json) = reordered.to_json() {
+                                    out.prop_updates.push((
+                                        id.to_owned(),
+                                        DATAGRID_ADVANCED_PROP.to_owned(),
+                                        json,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            for (r, row) in rows.iter().enumerate() {
-                let y = screen.min.y + row_h * (r as f32 + 1.0);
-                if y >= screen.max.y {
-                    break;
+            if enabled
+                && prop_bool(ctrl, "ShowCSVExportButton", false)
+                && header_rect.width() >= 64.0
+            {
+                let button_rect = Rect::from_min_size(
+                    pos2(header_rect.max.x - 54.0, header_rect.min.y + 3.0),
+                    vec2(48.0, (row_h - 6.0).max(14.0)),
+                );
+                if ui
+                    .put(button_rect, egui::Button::new("CSV").small())
+                    .on_hover_text("Export CSV")
+                    .clicked()
+                {
+                    out.prop_updates.push((
+                        id.to_owned(),
+                        "_ExportCSVRequested".to_owned(),
+                        "1".to_owned(),
+                    ));
+                    out.events.push(UiEvent::ev(id, "onExportCSV"));
                 }
+            }
+            let scroll_body_rect = Rect::from_min_max(
+                pos2(
+                    body_rect.min.x,
+                    (body_rect.min.y + frozen_rows_height).min(body_rect.max.y),
+                ),
+                body_rect.max,
+            );
+            let body_painter_base = painter.with_clip_rect(body_rect);
+            let scroll_body_painter = painter.with_clip_rect(scroll_body_rect);
+            let mut rows_to_draw = Vec::new();
+            for display_row in 0..frozen_rows {
+                let y = body_rect.min.y + row_h * display_row as f32;
+                rows_to_draw.push((display_row, y, false));
+            }
+            for layout_row in layout.first_row..layout.last_row_exclusive {
+                let display_row = frozen_rows + layout_row;
+                if display_row >= displayed_row_indices.len() {
+                    continue;
+                }
+                let y = scroll_body_rect.min.y + row_h * layout_row as f32 - scroll_y;
+                if y + row_h < scroll_body_rect.min.y || y > scroll_body_rect.max.y {
+                    continue;
+                }
+                rows_to_draw.push((display_row, y, true));
+            }
+            for (display_row, y, scroll_clipped) in rows_to_draw {
+                let Some(&row_index) = displayed_row_indices.get(display_row) else {
+                    continue;
+                };
+                let Some(row) = rows.get(row_index) else {
+                    continue;
+                };
+                let body_painter = if scroll_clipped {
+                    scroll_body_painter.clone()
+                } else {
+                    body_painter_base.clone()
+                };
                 let rrect = Rect::from_min_size(pos2(screen.min.x, y), vec2(screen.width(), row_h));
-                if r % 2 == 1 {
-                    painter.rect_filled(rrect, 0.0, alt_bg);
+                if alt_rows && display_row % 2 == 1 {
+                    body_painter.rect_filled(rrect, 0.0, alt_bg);
                 }
-                for (i, (_, ty)) in cols.iter().enumerate() {
-                    let raw = row.get(i).map(|s| s.as_str()).unwrap_or("");
-                    let x0 = screen.min.x + i as f32 * col_w;
+                draw_datagrid_pattern(
+                    &body_painter,
+                    rrect,
+                    &sv(ctrl, "RowBackgroundPattern"),
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 18),
+                );
+                for col in layout
+                    .frozen_columns
+                    .iter()
+                    .chain(layout.scrollable_columns.iter())
+                {
+                    // A scrollable column is clipped to the region right of the
+                    // frozen band, so horizontal scrolling slides it *behind* the
+                    // frozen columns instead of painting over them.
+                    let body_painter = if col.frozen {
+                        body_painter.clone()
+                    } else {
+                        body_painter.with_clip_rect(Rect::from_min_max(
+                            pos2(screen.min.x + layout.frozen_columns_width, body_rect.min.y),
+                            pos2(screen.max.x, body_rect.max.y),
+                        ))
+                    };
+                    let (source_index, _, ty) = &display_cols[col.index];
+                    let raw = row.get(*source_index).map(|s| s.as_str()).unwrap_or("");
+                    let x0 = screen.min.x + col.x;
+                    let cell_rect =
+                        Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h))
+                            .shrink2(vec2(2.0, 0.0));
+                    // Alternating-column highlight: fill every other column's full
+                    // width for this row segment, beneath any per-cell/column colour.
+                    if alt_cols && col.index % 2 == 1 {
+                        body_painter.rect_filled(
+                            Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h)),
+                            0.0,
+                            alt_bg,
+                        );
+                    }
+                    let mut cell_selected = false;
+                    if prop_bool(ctrl, "SelectableText", true) {
+                        let cell_resp = ui.interact(
+                            cell_rect,
+                            ctrl_id.with(("dg-cell", row_index, col.index)),
+                            Sense::click(),
+                        );
+                        if cell_resp.clicked() {
+                            ui.ctx().memory_mut(|m| {
+                                m.data.insert_temp(
+                                    selection_id,
+                                    DataGridCellSelection {
+                                        row_index,
+                                        display_column_index: col.index,
+                                    },
+                                );
+                            });
+                        }
+                        cell_selected = ui.ctx().memory(|m| {
+                            m.data
+                                .get_temp::<DataGridCellSelection>(selection_id)
+                                .map(|selection| {
+                                    selection.row_index == row_index
+                                        && selection.display_column_index == col.index
+                                })
+                                .unwrap_or(false)
+                        });
+                    }
+                    let column_meta = advanced_grid.columns.get(col.index);
+                    let value_rule =
+                        column_meta.and_then(|column| column.value_style_rule_for(raw));
+                    let cell_bg = value_rule
+                        .and_then(|rule| paint::parse_hex(&rule.background_color))
+                        .or_else(|| {
+                            column_meta
+                                .and_then(|column| paint::parse_hex(&column.background_color))
+                        });
+                    if let Some(bg) = cell_bg {
+                        if bg.a() > 0 {
+                            body_painter.rect_filled(cell_rect, 0.0, bg);
+                        }
+                    }
+                    if let Some(column) = column_meta {
+                        draw_datagrid_pattern(
+                            &body_painter,
+                            cell_rect,
+                            &column.background_pattern,
+                            Color32::from_rgba_unmultiplied(255, 255, 255, 26),
+                        );
+                        if !column.background_image.trim().is_empty() {
+                            let image_id = egui::Id::new((
+                                "dg_col_bg_img",
+                                &ctrl.id,
+                                &column.id,
+                                column.background_image.as_str(),
+                            ));
+                            let tex = match ui
+                                .data(|d| d.get_temp::<Option<egui::TextureHandle>>(image_id))
+                            {
+                                Some(t) => t,
+                                None => {
+                                    let loaded = paint::load_image_texture(
+                                        ui.ctx(),
+                                        column.background_image.trim(),
+                                    );
+                                    ui.data_mut(|d| d.insert_temp(image_id, loaded.clone()));
+                                    loaded
+                                }
+                            };
+                            if let Some(tex) = tex {
+                                let dest =
+                                    image_dest(cell_rect, tex.size_vec2(), BgImageMode::Fill);
+                                body_painter.image(
+                                    tex.id(),
+                                    dest,
+                                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                                    Color32::from_rgba_unmultiplied(255, 255, 255, 160),
+                                );
+                            }
+                        }
+                    }
+                    if let Some((gauge, fraction)) = column_meta
+                        .and_then(|column| column.gauge.as_ref())
+                        .and_then(|gauge| {
+                            gauge
+                                .fraction_for_value(raw)
+                                .map(|fraction| (gauge, fraction))
+                        })
+                    {
+                        let gauge_rect = cell_rect.shrink2(vec2(3.0, 5.0));
+                        body_painter.rect_filled(
+                            gauge_rect,
+                            3.0,
+                            paint::parse_hex(&gauge.background_color)
+                                .unwrap_or(Color32::from_rgba_premultiplied(0, 0, 0, 70)),
+                        );
+                        let fill_width = gauge_rect.width() * fraction;
+                        if fill_width > 0.5 {
+                            let fill = Rect::from_min_size(
+                                gauge_rect.min,
+                                vec2(fill_width, gauge_rect.height()),
+                            );
+                            body_painter.rect_filled(
+                                fill,
+                                3.0,
+                                paint::parse_hex(&gauge.fill_color)
+                                    .unwrap_or(Color32::from_rgb(63, 134, 245)),
+                            );
+                        }
+                    }
+                    let edit_control = column_meta
+                        .map(|column| {
+                            if column.control_kind.trim().is_empty() {
+                                column.edit_control.as_str()
+                            } else {
+                                column.control_kind.as_str()
+                            }
+                        })
+                        .unwrap_or("");
+                    if edit_control.eq_ignore_ascii_case("image") {
+                        // Render the cell value as an image path (alphanumeric
+                        // fields whose value is a file path, e.g. a thumbnail).
+                        let path = raw.trim();
+                        if !path.is_empty() {
+                            let image_id = egui::Id::new(("dg_cell_img", &ctrl.id, path));
+                            let tex = match ui
+                                .data(|d| d.get_temp::<Option<egui::TextureHandle>>(image_id))
+                            {
+                                Some(t) => t,
+                                None => {
+                                    let loaded = paint::load_image_texture(ui.ctx(), path);
+                                    ui.data_mut(|d| d.insert_temp(image_id, loaded.clone()));
+                                    loaded
+                                }
+                            };
+                            let img_rect = cell_rect.shrink2(vec2(3.0, 3.0));
+                            if let Some(tex) = tex {
+                                let dest = image_dest(img_rect, tex.size_vec2(), BgImageMode::Fit);
+                                let corner = column_meta
+                                    .map(|column| column.image_corner_radius)
+                                    .unwrap_or(0.0)
+                                    .clamp(0.0, dest.width().min(dest.height()) * 0.5);
+                                let shadow = column_meta
+                                    .map(|column| column.image_shadow)
+                                    .unwrap_or(false);
+                                let img_painter = body_painter.with_clip_rect(cell_rect);
+                                let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                                if shadow {
+                                    // Soft two-layer drop shadow beneath the image.
+                                    img_painter.rect_filled(
+                                        dest.translate(vec2(0.0, 2.0)).expand(1.0),
+                                        egui::Rounding::same(corner + 1.0),
+                                        Color32::from_black_alpha(55),
+                                    );
+                                    img_painter.rect_filled(
+                                        dest.translate(vec2(0.0, 4.0)).expand(2.5),
+                                        egui::Rounding::same(corner + 2.0),
+                                        Color32::from_black_alpha(28),
+                                    );
+                                }
+                                if corner > 0.0 {
+                                    img_painter.add(egui::Shape::Rect(egui::epaint::RectShape {
+                                        rect: dest,
+                                        rounding: egui::Rounding::same(corner),
+                                        fill: Color32::WHITE,
+                                        stroke: Stroke::NONE,
+                                        blur_width: 0.0,
+                                        fill_texture_id: tex.id(),
+                                        uv,
+                                    }));
+                                } else {
+                                    img_painter.image(tex.id(), dest, uv, Color32::WHITE);
+                                }
+                            } else {
+                                // Missing/undecodable image → show the path so the
+                                // cell isn't silently blank.
+                                body_painter.with_clip_rect(cell_rect).text(
+                                    pos2(cell_rect.min.x + 4.0, rrect.center().y),
+                                    Align2::LEFT_CENTER,
+                                    path,
+                                    FontId::proportional(font_size * 0.8),
+                                    Color32::from_rgb(200, 160, 160),
+                                );
+                            }
+                        }
+                        if cell_selected {
+                            body_painter.rect_filled(
+                                cell_rect,
+                                0.0,
+                                Color32::from_rgba_unmultiplied(80, 145, 255, 55),
+                            );
+                        }
+                        continue;
+                    }
+                    if edit_control.eq_ignore_ascii_case("button") {
+                        let button_rect = cell_rect.shrink2(vec2(5.0, 4.0));
+                        body_painter.rect_filled(
+                            button_rect,
+                            4.0,
+                            Color32::from_rgba_unmultiplied(40, 92, 170, 210),
+                        );
+                        body_painter.rect_stroke(
+                            button_rect,
+                            4.0,
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(130, 175, 255, 210)),
+                        );
+                        body_painter.with_clip_rect(button_rect.shrink(3.0)).text(
+                            button_rect.center(),
+                            Align2::CENTER_CENTER,
+                            raw,
+                            FontId::proportional(
+                                column_meta
+                                    .map(|column| column.font_size)
+                                    .filter(|size| *size > 0)
+                                    .map(|size| size as f32)
+                                    .unwrap_or(font_size),
+                            ),
+                            Color32::WHITE,
+                        );
+                        if cell_selected {
+                            body_painter.rect_filled(
+                                cell_rect,
+                                0.0,
+                                Color32::from_rgba_unmultiplied(80, 145, 255, 55),
+                            );
+                        }
+                        continue;
+                    }
+                    if edit_control.eq_ignore_ascii_case("checkbox") {
+                        let box_size = (row_h - 8.0).clamp(12.0, 22.0);
+                        let check_rect =
+                            Rect::from_center_size(cell_rect.center(), vec2(box_size, box_size));
+                        body_painter.rect_filled(
+                            check_rect,
+                            3.0,
+                            Color32::from_rgba_unmultiplied(0, 0, 0, 100),
+                        );
+                        body_painter.rect_stroke(
+                            check_rect,
+                            3.0,
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 180)),
+                        );
+                        let truthy = matches!(
+                            raw.trim().to_ascii_lowercase().as_str(),
+                            "y" | "yes" | "true" | "1" | "x" | "checked"
+                        );
+                        if truthy {
+                            body_painter.line_segment(
+                                [
+                                    pos2(check_rect.min.x + 3.0, check_rect.center().y),
+                                    pos2(check_rect.center().x - 1.0, check_rect.max.y - 4.0),
+                                ],
+                                Stroke::new(2.0, Color32::from_rgb(120, 210, 150)),
+                            );
+                            body_painter.line_segment(
+                                [
+                                    pos2(check_rect.center().x - 1.0, check_rect.max.y - 4.0),
+                                    pos2(check_rect.max.x - 3.0, check_rect.min.y + 4.0),
+                                ],
+                                Stroke::new(2.0, Color32::from_rgb(120, 210, 150)),
+                            );
+                        }
+                        if cell_selected {
+                            body_painter.rect_filled(
+                                cell_rect,
+                                0.0,
+                                Color32::from_rgba_unmultiplied(80, 145, 255, 55),
+                            );
+                        }
+                        continue;
+                    }
+                    if edit_control.eq_ignore_ascii_case("dropdown") {
+                        let dropdown_rect = cell_rect.shrink2(vec2(4.0, 4.0));
+                        body_painter.rect_filled(
+                            dropdown_rect,
+                            4.0,
+                            Color32::from_rgba_unmultiplied(0, 0, 0, 95),
+                        );
+                        body_painter.rect_stroke(
+                            dropdown_rect,
+                            4.0,
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 120)),
+                        );
+                        let text_clip = Rect::from_min_max(
+                            dropdown_rect.min + vec2(6.0, 0.0),
+                            pos2(dropdown_rect.max.x - 18.0, dropdown_rect.max.y),
+                        );
+                        body_painter.with_clip_rect(text_clip).text(
+                            pos2(text_clip.min.x, dropdown_rect.center().y),
+                            Align2::LEFT_CENTER,
+                            raw,
+                            FontId::proportional(
+                                column_meta
+                                    .map(|column| column.font_size)
+                                    .filter(|size| *size > 0)
+                                    .map(|size| size as f32)
+                                    .unwrap_or(font_size),
+                            ),
+                            cell_fg,
+                        );
+                        body_painter.text(
+                            pos2(dropdown_rect.max.x - 9.0, dropdown_rect.center().y),
+                            Align2::CENTER_CENTER,
+                            "▼",
+                            FontId::proportional(10.0),
+                            cell_fg,
+                        );
+                        if cell_selected {
+                            body_painter.rect_filled(
+                                cell_rect,
+                                0.0,
+                                Color32::from_rgba_unmultiplied(80, 145, 255, 55),
+                            );
+                        }
+                        continue;
+                    }
                     if matches!(ty.as_str(), "image" | "img" | "picture") {
                         let path = raw.trim();
-                        let cell = Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col_w, row_h))
-                            .shrink(2.0);
+                        let cell = cell_rect.shrink(2.0);
                         if !path.is_empty() {
                             let cid = egui::Id::new(("dg_img", path));
                             let tex =
@@ -1556,56 +2881,176 @@ fn render_interactive(
                                     .min(1.0)
                                     .max(0.01);
                                 let irect = Rect::from_center_size(cell.center(), sz * scale);
-                                painter.image(
+                                body_painter.image(
                                     t.id(),
                                     irect,
                                     Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
                                     Color32::WHITE,
                                 );
                             } else {
-                                painter.rect_stroke(
+                                body_painter.rect_stroke(
                                     cell,
                                     2.0,
                                     Stroke::new(1.0, Color32::from_rgb(110, 120, 160)),
                                 );
                             }
                         }
+                        if cell_selected {
+                            body_painter.rect_filled(
+                                cell_rect,
+                                0.0,
+                                Color32::from_rgba_unmultiplied(80, 145, 255, 55),
+                            );
+                        }
                         continue;
                     }
-                    let (text, right) = paint::format_cell(raw, ty);
-                    if right {
-                        painter.text(
-                            pos2(x0 + col_w - 6.0, rrect.center().y),
-                            Align2::RIGHT_CENTER,
-                            &text,
-                            FontId::proportional(12.0),
-                            cell_fg,
-                        );
-                    } else {
-                        painter.text(
-                            pos2(x0 + 6.0, rrect.center().y),
-                            Align2::LEFT_CENTER,
-                            &text,
-                            FontId::proportional(12.0),
-                            cell_fg,
+                    let cobol_mask = column_meta
+                        .map(|column| column.cobol_mask.as_str())
+                        .unwrap_or("");
+                    let (text, _numeric_right_hint) =
+                        paint::format_cell_with_cobol_mask(raw, ty, cobol_mask);
+                    let cell_painter = body_painter.with_clip_rect(cell_rect);
+                    let column_font_size = column_meta
+                        .map(|column| column.font_size)
+                        .filter(|size| *size > 0)
+                        .map(|size| size as f32)
+                        .unwrap_or(font_size);
+                    let mut text_color = value_rule
+                        .and_then(|rule| paint::parse_hex(&rule.foreground_color))
+                        .or_else(|| {
+                            column_meta
+                                .and_then(|column| paint::parse_hex(&column.foreground_color))
+                        })
+                        .unwrap_or(cell_fg);
+                    let mut text_rect = cell_rect;
+                    if let Some(frame) = column_meta.and_then(|column| column.frame.as_ref()) {
+                        if frame.enabled {
+                            let frame_bg = value_rule
+                                .and_then(|rule| paint::parse_hex(&rule.frame_background_color))
+                                .or_else(|| paint::parse_hex(&frame.background_color))
+                                .unwrap_or(Color32::from_rgb(27, 196, 125));
+                            text_color = value_rule
+                                .and_then(|rule| paint::parse_hex(&rule.frame_foreground_color))
+                                .or_else(|| paint::parse_hex(&frame.foreground_color))
+                                .unwrap_or(text_color);
+                            text_rect = cell_rect.shrink2(vec2(frame.padding as f32, 4.0));
+                            cell_painter.rect_filled(
+                                text_rect,
+                                frame.corner_radius as f32,
+                                frame_bg,
+                            );
+                        }
+                    }
+                    let alignment = column_meta
+                        .map(|column| column.text_alignment)
+                        .unwrap_or_default();
+                    match alignment {
+                        crate::model::DataGridTextAlignment::Right => {
+                            cell_painter.text(
+                                pos2(text_rect.max.x - 6.0, rrect.center().y),
+                                Align2::RIGHT_CENTER,
+                                &text,
+                                FontId::proportional(column_font_size),
+                                text_color,
+                            );
+                        }
+                        crate::model::DataGridTextAlignment::Center => {
+                            cell_painter.text(
+                                text_rect.center(),
+                                Align2::CENTER_CENTER,
+                                &text,
+                                FontId::proportional(column_font_size),
+                                text_color,
+                            );
+                        }
+                        crate::model::DataGridTextAlignment::Left => {
+                            cell_painter.text(
+                                pos2(text_rect.min.x + 6.0, rrect.center().y),
+                                Align2::LEFT_CENTER,
+                                &text,
+                                FontId::proportional(column_font_size),
+                                text_color,
+                            );
+                        }
+                    }
+                    if cell_selected {
+                        body_painter.rect_filled(
+                            cell_rect,
+                            0.0,
+                            Color32::from_rgba_unmultiplied(80, 145, 255, 55),
                         );
                     }
                 }
             }
-            for i in 1..ncols {
-                let x = screen.min.x + i as f32 * col_w;
-                painter.line_segment(
-                    [pos2(x, screen.min.y), pos2(x, screen.max.y)],
-                    Stroke::new(1.0, grid_c),
-                );
+            for col in layout
+                .frozen_columns
+                .iter()
+                .chain(layout.scrollable_columns.iter())
+            {
+                let x = screen.min.x + col.x + col.width;
+                // A scrollable column's separator must not intrude into the frozen
+                // band as it scrolls left behind the frozen columns.
+                let min_x = if col.frozen {
+                    screen.min.x
+                } else {
+                    screen.min.x + layout.frozen_columns_width
+                };
+                if x > min_x && x < screen.max.x {
+                    draw_datagrid_line(
+                        &painter,
+                        [pos2(x, screen.min.y), pos2(x, screen.max.y)],
+                        Stroke::new(1.0, grid_c),
+                        grid_line_style,
+                    );
+                }
             }
-            painter.line_segment(
+            draw_datagrid_line(
+                &painter,
                 [
-                    pos2(screen.min.x, screen.min.y + row_h),
-                    pos2(screen.max.x, screen.min.y + row_h),
+                    pos2(screen.min.x, screen.min.y + header_h),
+                    pos2(screen.max.x, screen.min.y + header_h),
                 ],
                 Stroke::new(1.0, grid_c),
+                grid_line_style,
             );
+            // Frozen-pane drop shadow: the frozen columns / header+rows cast a soft
+            // shadow onto the content that scrolls behind them (a spreadsheet cue).
+            if prop_bool(ctrl, "FrozenShadow", true) {
+                if layout.frozen_columns_width > 0.0 && layout.max_scroll_x > 0.0 {
+                    let x0 = screen.min.x + layout.frozen_columns_width;
+                    let shadow = Rect::from_min_max(
+                        pos2(x0, screen.min.y),
+                        pos2((x0 + 11.0).min(screen.max.x), screen.max.y),
+                    );
+                    painter.add(frozen_shadow_shape(shadow, FrozenShadowEdge::Left, 55));
+                }
+                if layout.max_scroll_y > 0.0 {
+                    let y0 = body_rect.min.y + frozen_rows as f32 * row_h;
+                    let shadow = Rect::from_min_max(
+                        pos2(screen.min.x, y0),
+                        pos2(screen.max.x, (y0 + 9.0).min(screen.max.y)),
+                    );
+                    painter.add(frozen_shadow_shape(shadow, FrozenShadowEdge::Top, 55));
+                }
+            }
+            if layout.max_scroll_y > 0.0 && body_rect.height() > 8.0 {
+                let track = Rect::from_min_max(
+                    pos2(screen.max.x - 5.0, body_rect.min.y + 2.0),
+                    pos2(screen.max.x - 2.0, body_rect.max.y - 2.0),
+                );
+                let thumb_h = (body_rect.height() / layout.total_rows_height * track.height())
+                    .clamp(12.0, track.height());
+                let thumb_y =
+                    track.min.y + (track.height() - thumb_h) * (scroll_y / layout.max_scroll_y);
+                let thumb =
+                    Rect::from_min_size(pos2(track.min.x, thumb_y), vec2(track.width(), thumb_h));
+                painter.rect_filled(track, 2.0, Color32::from_rgba_premultiplied(0, 0, 0, 55));
+                painter.rect_filled(
+                    thumb,
+                    2.0,
+                    Color32::from_rgba_premultiplied(230, 235, 255, 150),
+                );
+            }
         }
         CT::TabControl => {
             let tabs: Vec<String> = sv(ctrl, "Tabs").lines().map(|s| s.to_owned()).collect();
@@ -1616,9 +3061,9 @@ fn render_interactive(
                 &painter,
                 content,
                 Color32::from_rgb(34, 40, 70),
-                6.0,
+                paint::corner_radius(ctrl),
                 false,
-                alpha * 0.6,
+                alpha,
             );
             let mut x = screen.min.x;
             for (i, tab) in tabs.iter().enumerate() {
@@ -1658,7 +3103,7 @@ fn render_interactive(
             }
             painter.rect_stroke(
                 content,
-                6.0,
+                paint::corner_radius(ctrl),
                 Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 110)),
             );
         }
@@ -1667,9 +3112,9 @@ fn render_interactive(
                 &painter,
                 screen,
                 Color32::from_rgb(28, 36, 64),
-                6.0,
+                paint::corner_radius(ctrl),
                 false,
-                alpha * 0.7,
+                alpha,
             );
             let fg = Color32::from_rgb(220, 226, 250);
             let mut y = screen.min.y + 12.0;
@@ -1698,7 +3143,7 @@ fn render_interactive(
                 &painter,
                 screen,
                 Color32::from_rgb(60, 66, 96),
-                3.0,
+                paint::corner_radius(ctrl),
                 false,
                 alpha,
             );
@@ -1719,7 +3164,14 @@ fn render_interactive(
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::TRANSPARENT);
             if menu_bg.a() > 0 {
-                paint::draw_glass_auto(&painter, screen, menu_bg, 4.0, false, alpha * 0.85);
+                paint::draw_glass_auto(
+                    &painter,
+                    screen,
+                    menu_bg,
+                    paint::corner_radius(ctrl),
+                    false,
+                    alpha,
+                );
             }
             let fg = ctrl
                 .get_prop("ForegroundColor")
@@ -1957,9 +3409,9 @@ fn render_interactive(
                 &painter,
                 screen,
                 Color32::from_rgb(40, 46, 76),
-                4.0,
+                paint::corner_radius(ctrl),
                 false,
-                alpha * 0.85,
+                alpha,
             );
             let fg = Color32::from_rgb(225, 230, 250);
             let mut x = screen.min.x + 8.0;
@@ -2060,6 +3512,65 @@ mod tests {
         let mut c = Control::new(id, t, x, y);
         c.rect = MRect::new(x, y, w, h);
         c
+    }
+
+    #[test]
+    fn repeating_group_expands_into_runtime_instances() {
+        use crate::model::PropValue;
+        let mut group = ctrl("CARD", ControlType::GroupBox, 0, 0, 200, 60);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        group.set_prop("ItemCount", PropValue::Int(3));
+        group.set_prop("LayoutDirection", PropValue::String("Vertical".into()));
+        group.set_prop("ItemSpacing", PropValue::Int(10));
+        let mut member = ctrl("NAME", ControlType::Label, 10, 10, 80, 20);
+        member.parent = Some("CARD".into());
+        let controls = vec![group, member];
+
+        let expanded = expand_repeating_groups(&controls).expect("should expand");
+        // 3 instances × 2 controls.
+        assert_eq!(expanded.len(), 6);
+        // Instance 1 keeps the original ids in place.
+        assert!(expanded.iter().any(|c| c.id == "CARD" && c.rect.y == 0));
+        // Instance 2 is shifted down by group height + spacing (60 + 10) and its
+        // member's parent points at the cloned group.
+        let g2 = expanded.iter().find(|c| c.id == "CARD#2").expect("CARD#2");
+        assert_eq!(g2.rect.y, 70);
+        let m2 = expanded.iter().find(|c| c.id == "NAME#2").expect("NAME#2");
+        assert_eq!(m2.parent.as_deref(), Some("CARD#2"));
+        assert_eq!(m2.rect.y, 10 + 70);
+        // Instance 3 shifted twice.
+        assert_eq!(
+            expanded.iter().find(|c| c.id == "CARD#3").unwrap().rect.y,
+            140
+        );
+
+        // A form without a repeating group is left untouched.
+        let plain = vec![ctrl("BTN", ControlType::Button, 0, 0, 40, 20)];
+        assert!(expand_repeating_groups(&plain).is_none());
+    }
+
+    #[test]
+    fn even_tile_centers_balances_margins() {
+        // 100px wide, nominal 12 → round(8.33)=8 cells, spacing 12.5.
+        let centers = even_tile_centers(0.0, 100.0, 12.0);
+        assert_eq!(centers.len(), 8);
+        // Leading and trailing margins are equal (half a cell), not a fixed offset.
+        let leading = centers[0];
+        let trailing = 100.0 - centers[centers.len() - 1];
+        assert!((leading - trailing).abs() < 0.001, "margins must match");
+        assert!((leading - 6.25).abs() < 0.001);
+        // Spacing between adjacent centers is uniform.
+        assert!((centers[1] - centers[0] - 12.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn even_tile_centers_degenerate_inputs() {
+        assert!(even_tile_centers(10.0, 10.0, 12.0).is_empty());
+        assert!(even_tile_centers(0.0, 100.0, 0.0).is_empty());
+        // A rect smaller than the nominal spacing still yields one centered tile.
+        let centers = even_tile_centers(0.0, 5.0, 12.0);
+        assert_eq!(centers.len(), 1);
+        assert!((centers[0] - 2.5).abs() < 0.001);
     }
 
     #[test]
@@ -2282,6 +3793,23 @@ mod tests {
         c
     }
 
+    fn ctrlp_events(
+        id: &str,
+        t: ControlType,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        props: &[(&str, &str)],
+        events: &[&str],
+    ) -> Control {
+        let mut c = ctrlp(id, t, x, y, w, h, props);
+        for event in events {
+            c.ensure_event(event);
+        }
+        c
+    }
+
     fn press(p: Pos2) -> Event {
         Event::PointerButton {
             pos: p,
@@ -2489,7 +4017,7 @@ mod tests {
 
     #[test]
     fn engine_button_click_fires_onclick() {
-        let c = [ctrlp(
+        let c = [ctrlp_events(
             "Btn",
             ControlType::Button,
             0,
@@ -2497,6 +4025,7 @@ mod tests {
             80,
             30,
             &[("Caption", "OK")],
+            &["onClick"],
         )];
         let p = pos2(40.0, 15.0);
         let (evs, _) = drive(
@@ -2516,7 +4045,7 @@ mod tests {
 
     #[test]
     fn engine_button_right_click_fires_context_events() {
-        let c = [ctrlp(
+        let c = [ctrlp_events(
             "Btn",
             ControlType::Button,
             0,
@@ -2524,6 +4053,7 @@ mod tests {
             80,
             30,
             &[("Caption", "OK")],
+            &["onRightClick", "onContextMenu"],
         )];
         let p = pos2(40.0, 15.0);
         let (evs, _) = drive(&c, vec![(0.0, vec![]), (1.0, right_click(p))]);
@@ -2540,7 +4070,7 @@ mod tests {
 
     #[test]
     fn engine_label_hover_and_load_fire_events() {
-        let c = [ctrlp(
+        let c = [ctrlp_events(
             "Lbl",
             ControlType::Label,
             0,
@@ -2548,6 +4078,7 @@ mod tests {
             80,
             24,
             &[("Caption", "Name")],
+            &["onLoad", "onHoverEnter", "onHoverLeave"],
         )];
         let p = pos2(40.0, 12.0);
         let (evs, _) = drive(
