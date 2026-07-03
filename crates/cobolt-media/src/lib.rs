@@ -235,9 +235,12 @@ pub fn play(
         0
     };
 
-    // Keep animating: repaint until the last frame of a non-looping clip.
+    // Keep animating: schedule next repaint at the next frame time (or half the current delay
+    // as a safe upper bound). This prevents pegging the CPU at max FPS for every Animator.
     if auto_play && cache.textures.len() > 1 && (looping || elapsed < cache.total_ms as f64) {
-        ctx.request_repaint();
+        let delay_ms = cache.delays_ms.get(idx).copied().unwrap_or(16) as f64;
+        let remaining = (delay_ms / 1000.0 * 0.6).max(0.008); // ~60% of frame time, min 8ms
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(remaining));
     }
 
     let tex = &cache.textures[idx.min(cache.textures.len() - 1)];

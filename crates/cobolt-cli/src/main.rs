@@ -43,8 +43,9 @@ use serde::Deserialize;
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
-use cobolt_runtime::{IndexedEngine, Interpreter};
+use cobolt_runtime::{channels::FormIpcMessage, IndexedEngine, Interpreter, FormEvent, StateUpdate};
 use cobolt_semantic::{analyze, Severity};
+use std::io::{self, Read, Write};
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,7 @@ fn main() {
 
     match args.get(1).map(|s| s.as_str()) {
         Some("run") => cmd_run(&args[2..]),
+        Some("run-form-ipc") => cmd_run_form_ipc(),
         Some("check") => cmd_check(&args[2..]),
         Some("build") => cmd_build(&args[2..]),
         Some("package") => cmd_package(&args[2..]),
@@ -158,6 +160,128 @@ fn cmd_run(args: &[String]) {
             process::exit(1);
         }
     }
+}
+
+/// Run a form interpreter in IPC mode (for IDE Run Form isolation).
+/// 
+/// Wire protocol (framed bincode on stdin/stdout):
+/// - Parent sends one init message: bincode of (Program, seed)
+/// - Then bidirectional FormIpcMessage
+fn cmd_run_form_ipc() {
+    fn read_framed<R: Read>(r: &mut R) -> io::Result<Vec<u8>> {
+        let mut len_buf = [0u8; 4];
+        r.read_exact(&mut len_buf)?;
+        let len = u32::from_le_bytes(len_buf) as usize;
+        let mut buf = vec![0u8; len];
+        r.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn write_framed<W: Write>(w: &mut W, data: &[u8]) -> io::Result<()> {
+        let len = (data.len() as u32).to_le_bytes();
+        w.write_all(&len)?;
+        w.write_all(data)?;
+        w.flush()?;
+        Ok(())
+    }
+
+    let mut stdin = io::stdin();
+
+    // Read init: (cobol_source, seed)
+    let init_bytes = read_framed(&mut stdin)
+        .expect("failed to read init from stdin");
+    let (cobol_source, seed): (String, Vec<(String, String, Vec<(String, String)>)>) =
+        bincode::deserialize(&init_bytes)
+            .expect("failed to deserialize init payload");
+
+    let tokens = tokenize(&cobol_source, SourceFormat::Free);
+    let parse_result = parse(tokens);
+    let program = match parse_result.program {
+        Some(p) => p,
+        None => {
+            eprintln!("run-form-ipc: parse failed in child");
+            process::exit(1);
+        }
+    };
+
+    // Local channels for the real Interpreter
+    let (event_tx, event_rx) = std::sync::mpsc::channel::<FormEvent>();
+    let (input_tx, input_rx) = std::sync::mpsc::channel::<StateUpdate>();
+    let (state_tx, state_rx) = std::sync::mpsc::channel::<StateUpdate>();
+    let (display_tx, display_rx) = std::sync::mpsc::channel::<String>();
+
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.set_input_channel(input_rx);
+    interp.seed_objects(seed);
+
+    // Pump thread: stdin → local channels
+    let pump_event = event_tx.clone();
+    let pump_input = input_tx.clone();
+    std::thread::spawn(move || {
+        let mut r = io::stdin();
+        loop {
+            match read_framed(&mut r) {
+                Ok(bytes) => {
+                    if let Ok(msg) = bincode::deserialize::<FormIpcMessage>(&bytes) {
+                        match msg {
+                            FormIpcMessage::Event(ev) => { let _ = pump_event.send(ev); }
+                            FormIpcMessage::Input(inp) => { let _ = pump_input.send(inp); }
+                            FormIpcMessage::Quit => {
+                                let _ = pump_event.send(FormEvent::quit());
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Output pump: local channels → stdout (use fresh stdout each time to avoid move issues)
+    std::thread::spawn(move || {
+        loop {
+            let msg = match state_rx.try_recv() {
+                Ok(s) => Some(FormIpcMessage::State(s)),
+                Err(_) => match display_rx.try_recv() {
+                    Ok(d) => Some(FormIpcMessage::Display(d)),
+                    Err(_) => {
+                        std::thread::sleep(std::time::Duration::from_millis(2));
+                        None
+                    }
+                }
+            };
+            if let Some(m) = msg {
+                if let Ok(bytes) = bincode::serialize(&m) {
+                    let _ = write_framed(&mut io::stdout(), &bytes);
+                }
+            }
+        }
+    });
+
+    // Run interpreter (blocks on event channel)
+    match interp.run() {
+        Ok(()) => {
+            if let Ok(b) = bincode::serialize(&FormIpcMessage::Done) {
+                let _ = write_framed(&mut io::stdout(), &b);
+            }
+        }
+        Err(e) if e.is_exit_signal() => {
+            if let Ok(b) = bincode::serialize(&FormIpcMessage::Done) {
+                let _ = write_framed(&mut io::stdout(), &b);
+            }
+        }
+        Err(e) => {
+            let err = FormIpcMessage::Error(format!("runtime: {e}"));
+            if let Ok(b) = bincode::serialize(&err) {
+                let _ = write_framed(&mut io::stdout(), &b);
+            }
+        }
+    }
+
+    // Give pumps a moment
+    std::thread::sleep(std::time::Duration::from_millis(50));
 }
 
 fn cmd_check(args: &[String]) {

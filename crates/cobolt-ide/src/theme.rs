@@ -60,7 +60,10 @@ impl Theme {
     /// so dividers are visible against the dark chrome; light themes use a
     /// mid-grey.
     pub fn line(&self) -> Color32 {
-        if self.dark {
+        if self.id == "greens" {
+            // White lines for the greens theme
+            Color32::from_rgb(255, 255, 255)
+        } else if self.dark {
             Color32::from_rgb(150, 153, 160)
         } else {
             Color32::from_rgb(168, 168, 174)
@@ -442,6 +445,37 @@ pub const GRUVBOX_DARK: Theme = Theme {
     ed_string: rgb(184, 187, 38),
     ed_comment: rgb(146, 131, 116),
     ed_generated: rgb(131, 165, 152),
+};
+
+/// The Greens — dark green glass with yellow/lime accents (yellow icons,
+/// white lines, green text, lime data highlights).
+pub const GREENS: Theme = Theme {
+    id: "greens",
+    name: "The Greens",
+    dark: true,
+    bg_panel: rgba(10, 30, 18, 210),
+    bg_control: rgba(16, 40, 24, 200),
+    bg_hover: rgba(24, 55, 32, 220),
+    bg_active: rgba(60, 140, 75, 235),
+    bg_extreme: rgba(5, 18, 10, 215),
+    faint_bg: rgba(8, 24, 14, 150),
+    code_bg: rgba(9, 26, 15, 190),
+    accent: rgb(255, 225, 60),     // yellow icons / accents
+    border_dim: rgba(255, 255, 255, 55),
+    border_hi: rgba(255, 255, 255, 190),
+    text_dim: rgb(70, 170, 85),
+    text_bright: rgb(110, 220, 125), // green text
+    selection: rgba(45, 105, 55, 165),
+    hyperlink: rgb(160, 240, 180),
+    warn: rgb(255, 210, 70),
+    error: rgb(255, 90, 90),
+    ed_plain: rgb(120, 210, 130),
+    ed_keyword: rgb(255, 230, 70),   // yellow
+    ed_data: rgb(140, 255, 110),     // lime
+    ed_paragraph: rgb(200, 255, 140),
+    ed_string: rgb(255, 195, 80),
+    ed_comment: rgb(65, 135, 75),
+    ed_generated: rgb(90, 195, 110),
 };
 
 /// Tokyo Night.
@@ -968,6 +1002,7 @@ pub const THEMES: &[Theme] = &[
     NORD,
     ONE_DARK,
     GRUVBOX_DARK,
+    GREENS,
     TOKYO_NIGHT,
     NIGHT_OWL,
     COBALT2,

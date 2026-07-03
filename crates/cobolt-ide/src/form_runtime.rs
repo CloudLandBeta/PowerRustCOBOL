@@ -23,7 +23,9 @@
 //!  - The channel is dropped (UI drops `FormRuntime`)
 
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc::{self, Receiver, Sender},
@@ -101,6 +103,13 @@ pub struct FormRuntime {
     /// `ctrl_id → (property → value)`. Runtime *data* is never captured here.
     pub pending_design_props:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+
+    /// When running in isolated process mode (recommended path).
+    child: Option<Child>,
+    child_stdin: Option<Mutex<Option<ChildStdin>>>,
+
+    /// True once the child process (or legacy thread) has exited.
+    finished: Arc<AtomicBool>,
 }
 
 /// Per-control metadata needed for rendering (type + rect + initial props).
@@ -181,19 +190,12 @@ impl FormRuntime {
     ///
     /// Returns `Err(String)` if parse/semantic fails.
     pub fn launch(form: &Form, form_path: PathBuf) -> Result<Self, String> {
-        crate::app::tdbg("  launch.a: generate begin");
         // Generate COBOL source from the form model.
         let cobol_source = cobolt_codegen::generate(form);
-        crate::app::tdbg(&format!(
-            "  launch.b: generate done ({} bytes); tokenize begin",
-            cobol_source.len()
-        ));
 
         // Lex → parse → semantic.
         let tokens = tokenize(&cobol_source, SourceFormat::Free);
-        crate::app::tdbg("  launch.c: tokenize done; parse begin");
         let parse_result = parse(tokens);
-        crate::app::tdbg("  launch.d: parse done");
 
         let parse_has_errors = parse_result
             .diagnostics
@@ -209,9 +211,7 @@ impl FormRuntime {
         }
         let program = parse_result.program.unwrap();
 
-        crate::app::tdbg("  launch.e: analyze begin");
         let sem = analyze(&program);
-        crate::app::tdbg("  launch.f: analyze done");
         if !sem.is_ok() {
             let msgs: Vec<_> = sem
                 .diagnostics
@@ -220,13 +220,6 @@ impl FormRuntime {
                 .collect();
             return Err(format!("Semantic errors:\n{}", msgs.join("\n")));
         }
-
-        crate::app::tdbg("  launch.g: building seed/snapshots begin");
-        // Build channel pairs.
-        let (event_tx, event_rx) = mpsc::channel::<FormEvent>();
-        let (input_tx, input_rx) = mpsc::channel::<StateUpdate>();
-        let (state_tx, state_rx) = mpsc::channel::<StateUpdate>();
-        let (display_tx, display_rx) = mpsc::channel::<String>();
 
         // Snapshot the form layout for the UI renderer.
         let ctrl_state: HashMap<String, CtrlState> = collect_controls(&form.controls)
@@ -280,38 +273,80 @@ impl FormRuntime {
             .collect();
 
         let stop_flag = Arc::new(AtomicBool::new(false));
-        let stop_clone = Arc::clone(&stop_flag);
         let pending = Arc::new(AtomicUsize::new(0));
-        let pending_clone = Arc::clone(&pending);
         let error_slot = Arc::new(Mutex::new(None));
-        let error_clone = Arc::clone(&error_slot);
+        let finished = Arc::new(AtomicBool::new(false));
 
-        crate::app::tdbg("  launch.h: spawning interpreter thread");
-        // Spawn interpreter thread.
-        let handle = thread::spawn(move || {
-            crate::app::tdbg("  launch.i: interpreter thread started (interp.run next)");
-            // A clone kept alive to surface a fatal runtime error to the UI: the
-            // interpreter thread dies on the first error, so without this the run
-            // window would silently never appear (or vanish) with no feedback.
-            let err_tx = display_tx.clone();
-            let mut interp =
-                Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
-            interp.set_input_channel(input_rx);
-            // Cooperative cancellation + tick back-pressure so a non-visual
-            // control (Timer) or a heavy handler can never freeze the UI.
-            interp.set_cancel_flag(Arc::clone(&stop_clone));
-            interp.set_event_counter(pending_clone);
-            interp.seed_objects(seed);
-            if stop_clone.load(Ordering::Relaxed) {
-                return;
-            }
-            crate::app::tdbg("  launch.j: interp.run() begin (onLoad → event loop)");
-            // A `Cancelled` abort returns `Ok`, so only genuine faults land here.
-            if let Err(e) = interp.run() {
-                let msg = format!("⛔ Form runtime error: {e}");
-                let _ = err_tx.send(msg.clone());
-                if let Ok(mut slot) = error_clone.lock() {
-                    *slot = Some(msg);
+        // Find the rcrun binary next to the current executable (works in debug + release)
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("failed to get current exe: {e}"))?;
+        let rcrun_path = exe.with_file_name("rcrun");
+
+        let mut child = Command::new(&rcrun_path)
+            .arg("run-form-ipc")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .or_else(|_| Command::new("rcrun")
+                .arg("run-form-ipc")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .spawn())
+            .map_err(|e| {
+                format!(
+                    "failed to spawn rcrun run-form-ipc: {e}. Make sure `cargo build -p cobolt-cli` (produces target/debug/rcrun) or rcrun is in PATH."
+                )
+            })?;
+
+        let mut child_stdin = child.stdin.take().expect("stdin");
+        let mut child_stdout = child.stdout.take().expect("stdout");
+
+        // Send init (cobol_source, seed) -- runner will parse
+        let cobol_source_for_runner = cobolt_codegen::generate(form);
+        let init = (cobol_source_for_runner, seed);
+        let init_bytes = bincode::serialize(&init).map_err(|e| format!("serialize init: {e}"))?;
+        write_framed(&mut child_stdin, &init_bytes).map_err(|e| format!("write init: {e}"))?;
+
+        // Create the channels the IDE code expects
+        let (event_tx, _event_rx) = mpsc::channel::<FormEvent>();
+        let (input_tx, _input_rx) = mpsc::channel::<StateUpdate>();
+        let (state_tx, state_rx) = mpsc::channel::<StateUpdate>();
+        let (display_tx, display_rx) = mpsc::channel::<String>();
+
+        // Pump: child stdout → local channels
+        let p_state = state_tx.clone();
+        let p_display = display_tx.clone();
+        let p_err = Arc::clone(&error_slot);
+        let p_stop = Arc::clone(&stop_flag);
+        let p_finished = Arc::clone(&finished);
+        std::thread::spawn(move || {
+            loop {
+                if p_stop.load(Ordering::Relaxed) {
+                    p_finished.store(true, Ordering::Relaxed);
+                    break;
+                }
+                if let Ok(bytes) = read_framed(&mut child_stdout) {
+                    if let Ok(msg) = bincode::deserialize::<cobolt_runtime::FormIpcMessage>(&bytes) {
+                        match msg {
+                            cobolt_runtime::FormIpcMessage::State(s) => { let _ = p_state.send(s); }
+                            cobolt_runtime::FormIpcMessage::Display(d) => { let _ = p_display.send(d); }
+                            cobolt_runtime::FormIpcMessage::Error(e) => {
+                                if let Ok(mut slot) = p_err.lock() { *slot = Some(e); }
+                                p_finished.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                            cobolt_runtime::FormIpcMessage::Done => {
+                                p_finished.store(true, Ordering::Relaxed);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
+                    p_finished.store(true, Ordering::Relaxed);
+                    break;
                 }
             }
         });
@@ -336,16 +371,32 @@ impl FormRuntime {
             stop_flag,
             pending,
             error_slot,
-            handle: Some(handle),
+            handle: None,
             combo_open: HashMap::new(),
             glass: true,
             pending_design_props: std::collections::BTreeMap::new(),
+            child: Some(child),
+            child_stdin: Some(Mutex::new(Some(child_stdin))),
+            finished,
         })
     }
 
     /// Send a UI event to the interpreter. Tracks queue depth so timer ticks
     /// can be coalesced against a backlog (see [`pending_events`]).
-    pub fn send_event(&self, event: FormEvent) {
+    pub fn send_event(&mut self, event: FormEvent) {
+        if let Some(ref stdin_mutex) = self.child_stdin {
+            if let Ok(mut guard) = stdin_mutex.lock() {
+                if let Some(ref mut stdin) = *guard {
+                    let msg = cobolt_runtime::FormIpcMessage::Event(event);
+                    if let Ok(bytes) = bincode::serialize(&msg) {
+                        let _ = write_framed(stdin, &bytes);
+                        self.pending.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            return;
+        }
+        // legacy in-process
         if self.event_tx.send(event).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
         }
@@ -356,7 +407,15 @@ impl FormRuntime {
     /// slower than the tick interval can never flood the queue (WinForms-style
     /// tick coalescing) — which is what kept the UI responsive.
     pub fn pending_events(&self) -> usize {
-        self.pending.load(Ordering::Relaxed)
+        if self.child.is_some() {
+            // For isolated process, we don't have accurate cross-process queue depth.
+            // Return 0 so that timer ticks are never coalesced (they will be sent).
+            // This keeps forms with Timers working. If a handler is very slow the
+            // queue may grow, but stop_flag still aborts it.
+            0
+        } else {
+            self.pending.load(Ordering::Relaxed)
+        }
     }
 
     /// Take any fatal runtime error reported by the interpreter thread. Returns
@@ -369,7 +428,18 @@ impl FormRuntime {
     /// combo selection, …) to the interpreter so an event handler reads the live
     /// value. Send this BEFORE the matching event so `COBOL-WAIT-EVENT` folds it
     /// into the object registry ahead of dispatch.
-    pub fn send_input(&self, ctrl_id: &str, prop: &str, value: &str) {
+    pub fn send_input(&mut self, ctrl_id: &str, prop: &str, value: &str) {
+        if let Some(ref stdin_mutex) = self.child_stdin {
+            if let Ok(mut guard) = stdin_mutex.lock() {
+                if let Some(ref mut stdin) = *guard {
+                    let msg = cobolt_runtime::FormIpcMessage::Input(StateUpdate::new(ctrl_id, prop, value));
+                    if let Ok(bytes) = bincode::serialize(&msg) {
+                        let _ = write_framed(stdin, &bytes);
+                    }
+                }
+            }
+            return;
+        }
         let _ = self.input_tx.send(StateUpdate::new(ctrl_id, prop, value));
     }
 
@@ -415,10 +485,13 @@ impl FormRuntime {
 
     /// `true` while the interpreter thread is still running.
     pub fn is_running(&self) -> bool {
-        self.handle
-            .as_ref()
-            .map(|h| !h.is_finished())
-            .unwrap_or(false)
+        if let Some(h) = &self.handle {
+            return !h.is_finished();
+        }
+        if self.child.is_some() {
+            return !self.finished.load(Ordering::Relaxed);
+        }
+        false
     }
 
     /// Non-blocking stop request: raise the cooperative cancellation flag and
@@ -428,7 +501,19 @@ impl FormRuntime {
     /// finished runtime is reaped (and joined, cheaply) on a later frame.
     pub fn request_stop(&self) {
         self.stop_flag.store(true, Ordering::Relaxed);
-        let _ = self.event_tx.send(FormEvent::quit());
+        self.finished.store(true, Ordering::Relaxed);
+        if let Some(ref stdin_mutex) = self.child_stdin {
+            if let Ok(mut guard) = stdin_mutex.lock() {
+                if let Some(ref mut stdin) = *guard {
+                    let quit = cobolt_runtime::FormIpcMessage::Quit;
+                    if let Ok(bytes) = bincode::serialize(&quit) {
+                        let _ = write_framed(stdin, &bytes);
+                    }
+                }
+            }
+        } else {
+            let _ = self.event_tx.send(FormEvent::quit());
+        }
     }
 
     /// Request the interpreter to stop and clean up.
@@ -442,8 +527,23 @@ impl FormRuntime {
     /// exits within a couple of milliseconds.
     pub fn stop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
-        // Unblock COBOL-WAIT-EVENT by sending a quit sentinel.
-        let _ = self.event_tx.send(FormEvent::quit());
+        self.finished.store(true, Ordering::Relaxed);
+
+        // Send quit via IPC if we have a child
+        if let Some(ref stdin_mutex) = self.child_stdin {
+            if let Ok(mut guard) = stdin_mutex.lock() {
+                if let Some(ref mut stdin) = *guard {
+                    let quit = cobolt_runtime::FormIpcMessage::Quit;
+                    if let Ok(bytes) = bincode::serialize(&quit) {
+                        let _ = write_framed(stdin, &bytes);
+                    }
+                }
+            }
+        } else {
+            // legacy in-process path
+            let _ = self.event_tx.send(FormEvent::quit());
+        }
+
         if let Some(h) = self.handle.take() {
             let deadline = Instant::now() + Duration::from_millis(300);
             loop {
@@ -452,13 +552,18 @@ impl FormRuntime {
                     return;
                 }
                 if Instant::now() >= deadline {
-                    // Detach: drop the handle without joining. The cancelled
-                    // thread will unwind on its next statement/syscall boundary.
                     return;
                 }
                 thread::sleep(Duration::from_millis(2));
             }
         }
+
+        // Kill child process if present
+        if let Some(mut c) = self.child.take() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+        self.child_stdin = None;
     }
 }
 
@@ -515,6 +620,24 @@ fn collect_rec<'a>(ctrl: &'a cobolt_forms::Control, out: &mut Vec<&'a cobolt_for
 }
 
 // ── Generated-form pipeline regression test ─────────────────────────────────────
+// Framed I/O helpers for the isolated runner (length u32 LE + bincode payload).
+fn write_framed<W: std::io::Write>(w: &mut W, data: &[u8]) -> std::io::Result<()> {
+    let len = (data.len() as u32).to_le_bytes();
+    w.write_all(&len)?;
+    w.write_all(data)?;
+    w.flush()?;
+    Ok(())
+}
+
+fn read_framed<R: std::io::Read>(r: &mut R) -> std::io::Result<Vec<u8>> {
+    let mut len_buf = [0u8; 4];
+    r.read_exact(&mut len_buf)?;
+    let len = u32::from_le_bytes(len_buf) as usize;
+    let mut buf = vec![0u8; len];
+    r.read_exact(&mut buf)?;
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod form_codegen_roundtrip_tests {
     use super::CtrlState;

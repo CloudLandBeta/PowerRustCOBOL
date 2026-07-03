@@ -8,6 +8,42 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.79] — 2026-07-03
+
+### Fixed
+
+- **IDE: the running form now runs in its own process.** "Run Form" no longer
+  drives the form's interpreter and viewport inside the IDE's own event loop;
+  it spawns an isolated `rcrun run-form-ipc` child that hosts the interpreter and
+  talks to the IDE over a framed IPC channel (stdin/stdout). A busy or spinning
+  form can no longer peg the IDE's UI thread — the IDE stays responsive while the
+  form window carries its own cost.
+- **Forms/DataGrid: appearance background now rules the whole grid interior.**
+  Regions with no explicit cell/column colour — the gap around a framed "pill"
+  cell, the filler area right of the last column, and the gutter beneath the
+  vertical separators — now fall back to the DataGrid's appearance
+  `BackgroundColor` instead of showing the translucent glass (which read as a grey
+  wash over the form backdrop). A fully-transparent column colour is treated as
+  "unset" so the fallback applies.
+- **Forms/DataGrid: column background image honours its configured opacity.** The
+  per-column background image was painted at a fixed alpha; it now scales by the
+  column's "Cell background" opacity and the control's own Opacity.
+- **Forms/DataGrid: rounded corners are kept while running.** Opaque cell/row
+  fills no longer poke a square corner past the grid's rounded background — the
+  corner-notch mask now trims the DataGrid the same way it trims Panels/GroupBoxes.
+- **Forms/Panel: rounded corners keep their border line.** The corner-notch mask
+  repainted the backdrop over each rounded corner, erasing the container's
+  border/rim there (border visible on the straight edges, missing at the corners).
+  The outline is now restored on all four corner arcs.
+
+### Changed
+
+- **Themes: asset-based theme packs.** Added a Neumorphic form theme option and
+  bundled theme assets (updated cobalt-steel control skins; new emerald-glass and
+  neumorphic packs).
+- **Chore: removed the temporary `[TIMER-DBG]`/`tdbg` diagnostic instrumentation**
+  left over from the idle-CPU investigation.
+
 ## [PowerRustCOBOL 1.27.78] — 2026-07-01
 
 ### Fixed

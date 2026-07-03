@@ -942,6 +942,7 @@ dependencies = [
 name = "cobolt-cli"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "cobolt-ast",
  "cobolt-compiler",
  "cobolt-lexer",
@@ -1008,6 +1009,7 @@ name = "cobolt-ide"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "bincode",
  "cobolt-ast",
  "cobolt-codegen",
  "cobolt-compiler",
@@ -1102,6 +1104,7 @@ dependencies = [
  "pretty_assertions",
  "redb",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",

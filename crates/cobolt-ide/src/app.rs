@@ -71,24 +71,6 @@ use crate::data_binding_guardian::{
     validate_binding_action, BindingActionGate, BindingActionGateReport,
 };
 
-/// [TIMER-DBG] Append a diagnostic breadcrumb to `/tmp/prc_dbg.log` AND stderr.
-/// File logging means it's captured no matter how the app is launched (Dock or
-/// terminal). Silence with `PRC_QUIET=1`. Remove once the timer hang is fixed.
-pub(crate) fn tdbg(msg: &str) {
-    if std::env::var("PRC_QUIET").is_ok() {
-        return;
-    }
-    use std::io::Write as _;
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/prc_dbg.log")
-    {
-        let _ = writeln!(f, "{msg}");
-    }
-    eprintln!("{msg}");
-}
-
 /// Whitelist of *design-intent* control properties that an interactive Run-Form
 /// adjustment may write back into the form definition (the control's new
 /// defaults). Deliberately narrow: layout only, never runtime data (Rows,
@@ -859,7 +841,6 @@ impl CoboltApp {
     /// Saves + regenerates COBOL first so the interpreter always runs the
     /// latest version of the form.
     fn do_run_form(&mut self, idx: usize) {
-        tdbg(&format!("do_run_form ENTRY (v{VERSION}) idx={idx}"));
         if idx >= self.designers.len() {
             return;
         }
@@ -870,22 +851,16 @@ impl CoboltApp {
             .and_then(|name| name.to_str())
             .unwrap_or("form")
             .to_owned();
-        tdbg("do_run_form 1: binding-gate begin");
         if !self.allow_data_binding_form_action(BindingActionGate::RunForm, &form, &label) {
-            tdbg("do_run_form: blocked by binding gate — returning");
             return;
         }
-        tdbg("do_run_form 2: refresh_data_binding_target_properties begin");
         refresh_data_binding_target_properties(&mut self.designers[idx].1.form);
         // Save the form and regenerate COBOL first (silently — Run should not
         // pop a "saved" alert).
-        tdbg("do_run_form 3: do_save_designer begin");
         self.do_save_designer(idx);
         self.save_alert_msg = None;
         self.save_alert_designer = None;
-        tdbg("do_run_form 4: do_generate_cobol begin");
         self.do_generate_cobol(idx);
-        tdbg("do_run_form 5: codegen done");
 
         let form_path = self.designers[idx].0.clone();
         let form = self.designers[idx].1.form.clone();
@@ -900,7 +875,6 @@ impl CoboltApp {
         ));
 
         // Kill any existing runtime for this form first.
-        tdbg("do_run_form 6: stop existing runtime begin");
         self.form_runtimes.retain_mut(|rt| {
             if rt.form_path == form_path {
                 rt.stop();
@@ -909,19 +883,16 @@ impl CoboltApp {
                 true
             }
         });
-        tdbg("do_run_form 7: FormRuntime::launch begin");
 
         let glass = self.designers[idx].1.glass_mode;
         match FormRuntime::launch(&form, form_path.clone()) {
             Ok(mut rt) => {
-                tdbg("do_run_form 8: launch OK, pushing runtime");
                 rt.glass = glass;
                 self.form_runtimes.push(rt);
                 // The form's code compiled clean → green semaphore.
                 self.set_element_status(&form_path, ElementStatus::Tested);
             }
             Err(e) => {
-                tdbg(&format!("do_run_form 8: launch ERR: {e}"));
                 // Parse / semantic (syntax) errors: log to the console, mark the
                 // form red in the tree, AND show a modal so the failure is
                 // impossible to miss. Execution is refused until it is fixed.
@@ -3085,7 +3056,17 @@ impl CoboltApp {
     /// using the exact requested format and timings.
     fn show_welcome_pane(&mut self, ctx: &Context, tr: &Tr) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ctx.request_repaint(); // ensure continuous animation for quote rotation
+            const CYCLE: f64 = 7.5;
+            // Schedule the next repaint only when the quote cycle or fade requires it.
+            // Avoids continuous max-FPS repaints when the welcome pane is visible.
+            let now = ctx.input(|i| i.time);
+            let elapsed = if self.welcome_quote_start_time == 0.0 {
+                0.0
+            } else {
+                now - self.welcome_quote_start_time
+            };
+            let remaining = (CYCLE - elapsed).max(0.05);
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(remaining));
 
             // ── Daily background image (assets/images/bg<day>.jpg) ────────────
             // One image per day of the month; bg1.jpg is the fallback when the
@@ -3108,7 +3089,6 @@ impl CoboltApp {
             if self.welcome_quote_start_time == 0.0 {
                 self.welcome_quote_start_time = now;
             }
-            const CYCLE: f64 = 7.5;
             if now - self.welcome_quote_start_time > CYCLE {
                 self.welcome_quote_index = rand::thread_rng().gen_range(0..pool.len());
                 self.welcome_quote_start_time = now;
@@ -4490,49 +4470,16 @@ impl eframe::App for CoboltApp {
 
         // ── Running form viewports (Phase 6) ─────────────────────────────────────
         // Drain display output and state updates from every running runtime each frame.
-        // [TIMER-DBG] breadcrumbs (only while a form runs): the LAST line printed
-        // before a freeze localises the hang. Remove after diagnosis.
-        static TDBG_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let tdbg_on = !self.form_runtimes.is_empty();
-        let tf = if tdbg_on {
-            TDBG_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        } else {
-            0
-        };
-        if tdbg_on {
-            // File-logged so it's captured even for a Dock launch; only the
-            // FIRST few frames to avoid spamming the file at 60fps.
-            if tf < 5 {
-                tdbg(&format!(
-                    "[TIMER-DBG] f{tf} A drain-begin ({} runtimes)",
-                    self.form_runtimes.len()
-                ));
-            } else {
-                eprintln!("[TIMER-DBG] f{tf} A drain-begin");
-            }
-        }
         let mut display_lines: Vec<String> = Vec::new();
         let mut fatal_error: Option<String> = None;
-        for (ri, rt) in self.form_runtimes.iter_mut().enumerate() {
-            let d = rt.drain_display();
-            if tdbg_on {
-                eprintln!(
-                    "[TIMER-DBG] f{tf}   rt{ri} display+={} pending={} running={}",
-                    d.len(),
-                    rt.pending_events(),
-                    rt.is_running()
-                );
-            }
-            display_lines.extend(d);
+        for rt in self.form_runtimes.iter_mut() {
+            display_lines.extend(rt.drain_display());
             rt.drain_state();
             // Surface a fatal runtime error (already logged to the console by the
             // interpreter thread) in a modal dialog — the IDE stays open.
             if fatal_error.is_none() {
                 fatal_error = rt.take_error();
             }
-        }
-        if tdbg_on {
-            eprintln!("[TIMER-DBG] f{tf} B drain-end (display_lines={})", display_lines.len());
         }
         for line in display_lines {
             self.output.push_line(line);
@@ -4552,9 +4499,6 @@ impl eframe::App for CoboltApp {
             let fw = self.form_runtimes[i].form_width as f32;
             let fh = self.form_runtimes[i].form_height as f32;
 
-            if tdbg_on {
-                eprintln!("[TIMER-DBG] f{tf} C viewport-show-begin idx={i}");
-            }
             ctx.show_viewport_immediate(
                 vp_id,
                 ViewportBuilder::default()
@@ -4567,13 +4511,11 @@ impl eframe::App for CoboltApp {
                         // User closed the window → cooperatively cancel + quit so
                         // even a looping handler aborts and the window can close.
                         self.form_runtimes[i].request_stop();
+                        vp_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     self.show_running_form_window(vp_ctx, i);
                 },
             );
-            if tdbg_on {
-                eprintln!("[TIMER-DBG] f{tf} D viewport-show-end idx={i}");
-            }
         }
 
         // Reap finished runtimes.
@@ -4915,10 +4857,10 @@ impl CoboltApp {
             self.designers[idx].1.preview_state.insert(id, val);
         }
 
-        // Ensure the separate live preview viewport keeps receiving frames for
-        // its animation ticker and interactive simulation even if the main
-        // IDE window is idle (e.g. viewing the indexed inspector).
-        ctx.request_repaint();
+        // Use a conservative heartbeat for the preview viewport. The animation
+        // block inside already advances on dt and only needs repaints during
+        // active entrance animations. This prevents max-FPS CPU spin.
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 }
 
@@ -5163,9 +5105,6 @@ impl CoboltApp {
         if idx >= self.form_runtimes.len() {
             return;
         }
-        if std::env::var("PRC_QUIET").is_err() {
-            eprintln!("[TIMER-DBG]   E render-window-begin idx={idx}");
-        }
 
         // Match the designer's glass toggle live so the running form tracks the
         // canvas (WYSIWYG, spec 003). Resolve the owning designer by path first,
@@ -5376,13 +5315,6 @@ impl CoboltApp {
                         output = cobolt_forms::render::render_form(ui, &input);
                     });
             });
-        if std::env::var("PRC_QUIET").is_err() {
-            eprintln!(
-                "[TIMER-DBG]   F render-done idx={idx} events={} prop_updates={}",
-                output.events.len(),
-                output.prop_updates.len()
-            );
-        }
 
         // Apply value updates back to CtrlState, sync them to the interpreter (so
         // an event handler reads the live value), then map UI events -> FormEvent
@@ -5417,23 +5349,12 @@ impl CoboltApp {
             // like a WinForms timer skips ticks when the app is busy. User
             // events (clicks, edits, focus, quit) are never dropped.
             let busy = rt.pending_events() > 0;
-            let ev_total = output.events.len();
-            let mut sent = 0u32;
-            let mut coalesced = 0u32;
             for ev in output.events {
                 let is_tick = ev.event.eq_ignore_ascii_case("onTick");
                 if is_tick && busy {
-                    coalesced += 1;
                     continue;
                 }
                 rt.send_event(FormEvent::new(ev.ctrl_id, ev.event));
-                sent += 1;
-            }
-            if std::env::var("PRC_QUIET").is_err() {
-                eprintln!(
-                    "[TIMER-DBG]   G forward idx={idx} events={ev_total} sent={sent} coalesced={coalesced} pending_now={}",
-                    rt.pending_events()
-                );
             }
         }
 
@@ -5566,7 +5487,8 @@ impl CoboltApp {
         }
 
         if !self.indexed_grids.is_empty() || self.settings_form.is_some() {
-            ctx.request_repaint();
+            // Slow heartbeat when these auxiliary viewports are open.
+            ctx.request_repaint_after(std::time::Duration::from_millis(150));
         }
     }
 
@@ -5599,7 +5521,9 @@ impl CoboltApp {
                 self.output.push_status(msg);
             }
         }
-        ctx.request_repaint();
+        // Indexed grids are mostly static; use a slow heartbeat instead of
+        // unconditional repaint every frame.
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
 }
 

@@ -1,0 +1,25 @@
+name = "neumorphic"
+scale = 3
+material = "soft neumorphism (extruded clay / soft UI)"
+
+[background]
+mode = "stretch"
+file = "background.png"
+
+[chart_style]
+stroke_width = 2
+fill_texture = "chart_fill.png"
+
+[palette]
+foreground = "#2c3e50"
+chart = ["#5d6d7e", "#7f8c8d", "#95a5a6", "#bdc3c7"]
+
+[grain]
+top_bottom_edges = "soft outer shadow / highlight for raised effect"
+left_right_edges = "subtle vertical bevel"
+centers = "flat fill with slight gradient for depth (raised or inset depending on state)"
+
+[notes]
+reassembly = "Resizable framed controls use 9-slice assets: tl, t, tr, l, c, r, bl, b, br. Corners remain fixed; edges stretch on their primary axis; centers stretch freely. Neumorphic look relies on baked soft shadows/highlights in the source slices (light top-left, dark bottom-right for raised; reverse for pressed/inset)."
+exclusions = "Text labels, captions, runtime values, dynamic glows, LEDs, and application-specific content are intentionally excluded. This is a soft, monochromatic style — pair with light or soft-gray background images for best effect."
+description = "Neumorphic theme for forms: soft 3D extruded appearance with subtle shadows and highlights. Elements feel pressed into or raised from the surface. Ideal for modern, tactile UIs without hard borders."

@@ -4154,6 +4154,81 @@ pub fn draw_container_notch_mask(
     }
 }
 
+/// Restore a rounded container's own outline on its four corner arcs after
+/// [`draw_container_notch_mask`] repainted the backdrop over them. The notch mask
+/// paints the backdrop right up to (and, with anti-aliased tessellation, over) the
+/// corner edge, so a Panel/GroupBox otherwise loses its border/rim on every rounded
+/// corner — the straight edges survive but the corners show the backdrop. This
+/// redraws the same outline `draw_control` paints for a container — the glass rim
+/// plus any explicit BorderColor/BorderWidth/BorderStyle border — clipped to each
+/// corner square so the straight edges are not double-stroked.
+pub fn restore_container_outline(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    rect: egui::Rect,
+    radius: f32,
+    glass: bool,
+) {
+    if radius < 0.5 {
+        return;
+    }
+    let rnd = egui::Rounding::same(radius);
+
+    // The explicit user border (Panel/GroupBox honour BorderColor/Width/Style).
+    let border_style = ctrl
+        .get_prop("BorderStyle")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "Single".into());
+    let user_border_width = ctrl
+        .get_prop("BorderWidth")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(1.0);
+    let user_border = (border_style != "None" && user_border_width > 0.5).then(|| {
+        let (_, default_border, _) = control_colors(&ctrl.control_type, false);
+        let bc = ctrl
+            .get_prop("BorderColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(default_border);
+        (user_border_width, bc)
+    });
+
+    // Draw the container outline (glass rim first, user border on top), matching
+    // draw_control. Called once per corner, clipped to that corner's square.
+    let draw_outline = |clip: egui::Rect| {
+        let p = painter.with_clip_rect(clip);
+        if glass {
+            // Matches draw_glass's default Classic rim: 1.4px, white 170, inset by
+            // half its width so it sits inside the rect like the original.
+            let bw = 1.4_f32;
+            let half = bw * 0.5;
+            p.rect_stroke(
+                rect.shrink(half),
+                round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
+                Stroke::new(bw, Color32::from_rgba_premultiplied(170, 170, 170, 170)),
+            );
+        }
+        if let Some((bw, bc)) = user_border {
+            let half = bw * 0.5;
+            p.rect_stroke(
+                rect.shrink(half),
+                round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
+                Stroke::new(bw, bc),
+            );
+        }
+    };
+
+    let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    let corners = [
+        egui::Rect::from_min_size(rect.min, egui::vec2(r, r)),
+        egui::Rect::from_min_size(egui::pos2(rect.max.x - r, rect.min.y), egui::vec2(r, r)),
+        egui::Rect::from_min_size(egui::pos2(rect.max.x - r, rect.max.y - r), egui::vec2(r, r)),
+        egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.max.y - r), egui::vec2(r, r)),
+    ];
+    for clip in corners {
+        draw_outline(clip);
+    }
+}
+
 /// Per-corner rounding for a control's own rect: its uniform `own` radius, lifted
 /// to the container radius on any corner that lands on the parent's rounded border
 /// (when `ctrl` carries a `_ContainerClip`). Used for non-image fills/strokes that

@@ -3944,12 +3944,6 @@ impl Interpreter {
                     let recvd = self.event_rx.as_ref().unwrap().recv();
                     match recvd {
                         Ok(ev) => {
-                            if std::env::var("PRC_QUIET").is_err() {
-                                eprintln!(
-                                    "[TIMER-DBG] interp WAIT-EVENT got '{}' / '{}'",
-                                    ev.event_id, ev.ctrl_id
-                                );
-                            }
                             // One event left the queue — let the host coalesce
                             // timer ticks against the now-shallower backlog.
                             if let Some(c) = &self.event_pending {
@@ -4004,13 +3998,6 @@ impl Interpreter {
                 // GUI mode: notify the UI thread so the form window updates.
                 if let Some(tx) = &self.state_tx {
                     let _ = tx.send(StateUpdate::new(obj_t.clone(), prop_t.clone(), val_t));
-                    // [TIMER-DBG] throttled: a runaway SET-PROPERTY flood is the
-                    // classic way the interpreter starves the UI drain.
-                    static SP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                    let n = SP.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                    if n % 200 == 0 && std::env::var("PRC_QUIET").is_err() {
-                        eprintln!("[TIMER-DBG] interp SET-PROPERTY count={n} (last {obj_t}::{prop_t})");
-                    }
                 }
             }
 

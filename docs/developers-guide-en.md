@@ -993,7 +993,8 @@ pressed  = "button_pressed.png"
 Images use **9-slice** scaling: the four corners keep their size while the edges
 and centre stretch, so one image fits any control size. Drop the folder in,
 restart the IDE, and the theme appears in the picker. (The bundled
-`cobalt-steel` pack is a small, procedurally generated reference you can copy.)
+`cobalt-steel` pack is a small, procedurally generated reference you can copy.
+A `neumorphic` soft-UI pack is also included as an example of extruded 3D styling.)
 
 ---
 

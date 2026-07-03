@@ -262,9 +262,13 @@ fn mask_container_notches(
 ) {
     let controls = input.controls;
     for (idx, base) in controls.iter().enumerate() {
+        // Rounded containers whose children/cells can bleed past the corner arc.
+        // A DataGrid rounds only via its background fill (its outer border is
+        // straight line segments), so its opaque cell/row fills otherwise poke a
+        // square corner past the rounded backdrop — the notch mask trims them.
         if !matches!(
             base.control_type,
-            ControlType::GroupBox | ControlType::Panel
+            ControlType::GroupBox | ControlType::Panel | ControlType::DataGrid
         ) {
             continue;
         }
@@ -296,6 +300,14 @@ fn mask_container_notches(
             image,
             img_alpha,
         );
+        // The notch mask repaints the backdrop over the corner arcs, erasing the
+        // container's own border/rim there. Restore it so all four rounded corners
+        // keep their outline (otherwise a Panel shows a border on its straight
+        // edges but a gap at every corner). A DataGrid has no rounded rim — its
+        // outline is straight edge lines — so it needs no restore.
+        if matches!(base.control_type, ControlType::GroupBox | ControlType::Panel) {
+            crate::paint::restore_container_outline(painter, &live, screen, rad, input.glass);
+        }
     }
 }
 
@@ -1786,23 +1798,26 @@ fn render_interactive(
                     .map(|(i, (name, ty))| (i, name.clone(), ty.clone()))
                     .collect()
             } else {
+                // Include ALL advanced columns so that "non-data-bound" columns
+                // (those without a matching source in the bound Columns data) are
+                // still rendered and receive their appearance settings (background etc).
                 advanced_grid
                     .columns
                     .iter()
-                    .filter_map(|column| {
-                        cols.iter()
+                    .map(|column| {
+                        let source_index = cols.iter()
                             .position(|(name, _)| {
                                 name.eq_ignore_ascii_case(&column.source_name)
                                     || name.eq_ignore_ascii_case(&column.title)
                                     || name.eq_ignore_ascii_case(&column.id)
                             })
-                            .map(|source_index| {
-                                (
-                                    source_index,
-                                    column.title.clone(),
-                                    cols[source_index].1.clone(),
-                                )
-                            })
+                            .unwrap_or(usize::MAX);
+                        let ty = if source_index < cols.len() {
+                            cols[source_index].1.clone()
+                        } else {
+                            "string".to_string()
+                        };
+                        (source_index, column.title.clone(), ty)
                     })
                     .collect()
             };
@@ -1871,6 +1886,8 @@ fn render_interactive(
             // section's Fore color drives it. A grid still on the default
             // foreground sentinel uses the subtle built-in colour; the legacy
             // per-grid `GridLineColor` is honoured as a fallback for older forms.
+            // (The grid background from appearance is used for the under-fill
+            // and column areas; separators use this line colour.)
             let raw_fg = sv(ctrl, "ForegroundColor");
             let default_fg = crate::model::DEFAULT_FOREGROUND_COLOR.trim_start_matches('#');
             let fg_line_color = paint::parse_hex(&raw_fg).filter(|c| {
@@ -2544,11 +2561,20 @@ fn render_interactive(
                         ))
                     };
                     let (source_index, _, ty) = &display_cols[col.index];
-                    let raw = row.get(*source_index).map(|s| s.as_str()).unwrap_or("");
+                    let raw = if *source_index < row.len() {
+                        row.get(*source_index).map(|s| s.as_str()).unwrap_or("")
+                    } else {
+                        ""
+                    };
                     let x0 = screen.min.x + col.x;
-                    let cell_rect =
-                        Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h))
-                            .shrink2(vec2(2.0, 0.0));
+                    // Full column-width band for this row: the background layer
+                    // (appearance/column colour) fills this so the inter-column
+                    // gutter under each vertical separator obeys the appearance
+                    // background instead of revealing the grid backdrop image.
+                    let col_rect =
+                        Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h));
+                    // Content/image/frame stay inset so cells keep a small gutter.
+                    let cell_rect = col_rect.shrink2(vec2(2.0, 0.0));
                     // Alternating-column highlight: fill every other column's full
                     // width for this row segment, beneath any per-cell/column colour.
                     if alt_cols && col.index % 2 == 1 {
@@ -2589,15 +2615,34 @@ fn render_interactive(
                     let column_meta = advanced_grid.columns.get(col.index);
                     let value_rule =
                         column_meta.and_then(|column| column.value_style_rule_for(raw));
+                    // Cell background fallback chain: value-rule colour → column
+                    // colour → the grid's own appearance BackgroundColor (its flat
+                    // underlay). The last step matters for cells whose visible
+                    // content doesn't cover the whole cell — a framed "pill" column
+                    // (the inner-shape is inset), or plain text. Without it those
+                    // gaps fall through to the frosted glass sheen and read grey
+                    // instead of the solid appearance colour the user configured.
+                    // When the grid is on the default (translucent) background,
+                    // `grid_bg_underlay` is `None` and the gap stays glass.
+                    // A fully-transparent colour (the column default `#00000000`)
+                    // is "unset", not "paint nothing" — filter it out at each step
+                    // so the chain falls through to the grid's appearance
+                    // background instead of short-circuiting on a 0-alpha colour.
                     let cell_bg = value_rule
                         .and_then(|rule| paint::parse_hex(&rule.background_color))
+                        .filter(|c| c.a() > 0)
                         .or_else(|| {
                             column_meta
                                 .and_then(|column| paint::parse_hex(&column.background_color))
-                        });
+                                .filter(|c| c.a() > 0)
+                        })
+                        .or(grid_bg_underlay);
                     if let Some(bg) = cell_bg {
                         if bg.a() > 0 {
-                            body_painter.rect_filled(cell_rect, 0.0, bg);
+                            // Full column width (not the inset cell) so the gutter
+                            // beneath the vertical separators is the appearance
+                            // background, not the grid backdrop showing through.
+                            body_painter.rect_filled(col_rect, 0.0, bg);
                         }
                     }
                     if let Some(column) = column_meta {
@@ -2630,11 +2675,25 @@ fn render_interactive(
                             if let Some(tex) = tex {
                                 let dest =
                                     image_dest(cell_rect, tex.size_vec2(), BgImageMode::Fill);
+                                // Honour the opacity the user defined for the
+                                // column background: the alpha of the "Cell
+                                // background" colour drives how opaque the column
+                                // background image is, scaled by the control's own
+                                // Opacity. A fully-transparent cell colour (the
+                                // default) means "no explicit opacity", so the
+                                // image shows at the control opacity alone — a
+                                // column that only sets an image still renders.
+                                let col_alpha = paint::parse_hex(&column.background_color)
+                                    .map(|c| c.a())
+                                    .filter(|a| *a > 0)
+                                    .map(|a| a as f32 / 255.0)
+                                    .unwrap_or(1.0);
+                                let img_a = (alpha * col_alpha * 255.0).clamp(0.0, 255.0) as u8;
                                 body_painter.image(
                                     tex.id(),
                                     dest,
                                     Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                                    Color32::from_rgba_unmultiplied(255, 255, 255, 160),
+                                    Color32::from_rgba_unmultiplied(255, 255, 255, img_a),
                                 );
                             }
                         }
@@ -2996,6 +3055,34 @@ fn render_interactive(
                     }
                 }
             }
+            // Filler area to the right of the last column (when the columns are
+            // narrower than the grid). It carries no cell, so it otherwise shows
+            // the frosted glass sheen and reads grey. When an appearance
+            // BackgroundColor is set (flat underlay = `grid_bg_underlay`), paint
+            // that filler solid so the non-bound region obeys the datagrid's
+            // appearance background instead of the glass. Rounded only on the
+            // bottom-right, matching the grid's own corner. Drawn after the rows
+            // (covers glass + alternating tint) and before the separators.
+            if let Some(fill) = grid_bg_underlay {
+                let filler_x0 = screen.min.x + layout.total_columns_width;
+                if filler_x0 < screen.max.x - 0.5 {
+                    let filler_rect = Rect::from_min_max(
+                        pos2(filler_x0, body_rect.min.y),
+                        pos2(screen.max.x, screen.max.y),
+                    );
+                    let r = paint::corner_radius(ctrl);
+                    painter.rect_filled(
+                        filler_rect,
+                        egui::Rounding {
+                            nw: 0.0,
+                            ne: 0.0,
+                            sw: 0.0,
+                            se: r,
+                        },
+                        fill,
+                    );
+                }
+            }
             for col in layout
                 .frozen_columns
                 .iter()
@@ -3027,6 +3114,19 @@ fn render_interactive(
                 Stroke::new(1.0, grid_c),
                 grid_line_style,
             );
+
+            // Outer border of the whole DataGrid (left and bottom especially, since
+            // right-of-last and header-bottom are drawn above). Use the DataGrid's
+            // own GridLineStyle and line colour (from appearance Foreground or
+            // GridLineColor settings) so the outer obeys the datagrid line settings.
+            {
+                let o_stroke = Stroke::new(1.0, grid_c);
+                let o_style = grid_line_style;
+                // left outer
+                draw_datagrid_line(&painter, [pos2(screen.min.x, screen.min.y), pos2(screen.min.x, screen.max.y)], o_stroke, o_style);
+                // bottom outer (below all rows)
+                draw_datagrid_line(&painter, [pos2(screen.min.x, screen.max.y), pos2(screen.max.x, screen.max.y)], o_stroke, o_style);
+            }
             // Frozen-pane drop shadow: the frozen columns / header+rows cast a soft
             // shadow onto the content that scrolls behind them (a spreadsheet cue).
             if prop_bool(ctrl, "FrozenShadow", true) {

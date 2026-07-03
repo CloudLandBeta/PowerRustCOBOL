@@ -29,7 +29,7 @@
 /// The interpreter thread blocks in `COBOL-WAIT-EVENT` until one of these
 /// arrives.  It then populates `COBOL-CONTROL-ID` and `COBOL-EVENT-ID`
 /// from this struct and returns, letting the COBOL event loop dispatch.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FormEvent {
     /// The COBOL control ID (e.g. `"BTN-OK"`).
     pub ctrl_id: String,
@@ -68,7 +68,7 @@ impl FormEvent {
 ///
 /// The UI thread reads these each frame and updates its local control-state
 /// map, so the form window reflects COBOL-driven mutations immediately.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StateUpdate {
     /// The COBOL control ID.
     pub ctrl_id: String,
@@ -90,4 +90,25 @@ impl StateUpdate {
             value: value.into(),
         }
     }
+}
+
+// ── IPC messages for out-of-process form runner (Approach 1) ──────────────────
+
+/// Binary messages exchanged over stdio pipes between the IDE and a
+/// separate interpreter process for "Run Form".
+///
+/// Length-prefixed bincode encoding is used on both sides.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum FormIpcMessage {
+    // IDE → Runner
+    Event(FormEvent),
+    Input(StateUpdate),
+    Quit,
+
+    // Runner → IDE
+    State(StateUpdate),
+    Display(String),
+    Error(String),
+    /// Interpreter has exited cleanly.
+    Done,
 }

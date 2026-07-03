@@ -1,0 +1,94 @@
+# Neumorphic — soft extruded 3D UI style (spec 007). 
+# Classic neumorphism: elements appear raised or inset from the background
+# with soft shadows and highlights, minimal borders, rounded corners.
+# Light mode by default for the soft "clay" or "soft UI" feel.
+# Palette and style tuned for professional COBOL forms.
+id = "neumorphic"
+display_name = "Neumorphic"
+
+[background]
+image = "background.png"
+tile = false
+
+[palette]
+foreground = "#2c3e50"
+chart = ["#5d6d7e", "#7f8c8d", "#95a5a6", "#bdc3c7"]
+
+[chart_style]
+stroke_width = 2.0
+
+# Neumorphic typically uses the same base image for states, with the engine
+# or images providing the shadow/highlight differentiation.
+# Here we point to the structure; for true neumorph, images should have
+# baked soft shadows (outer for raised, inner for pressed).
+[controls.panel]
+image = "panel/panel_normal_ref.png"
+slice = [20, 20, 20, 20]
+
+[controls.groupbox]
+image = "groupbox/groupbox_normal_ref.png"
+slice = [20, 20, 20, 20]
+
+[controls.button]
+image = "button/button_normal_ref.png"
+slice = [16, 16, 16, 16]
+hover = "button/button_hover_ref.png"
+pressed = "button/button_pressed_ref.png"
+disabled = "button/button_disabled_ref.png"
+focused = "button/button_focused_ref.png"
+
+[controls.textbox]
+image = "textbox/textbox_normal_ref.png"
+slice = [12, 12, 12, 12]
+disabled = "textbox/textbox_disabled_ref.png"
+focused = "textbox/textbox_focused_ref.png"
+
+[controls.listbox]
+image = "listbox/listbox_normal_ref.png"
+slice = [12, 12, 12, 12]
+disabled = "listbox/listbox_disabled_ref.png"
+focused = "listbox/listbox_focused_ref.png"
+
+[controls.datagrid]
+image = "datagrid/datagrid_normal_ref.png"
+slice = [12, 12, 12, 12]
+
+[controls.treeview]
+image = "treeview/treeview_normal_ref.png"
+slice = [12, 12, 12, 12]
+
+[controls.tabcontrol]
+image = "tabcontrol/tabcontrol_normal_ref.png"
+slice = [16, 16, 16, 16]
+
+[controls.progressbar]
+image = "progressbar/progressbar_normal_ref.png"
+slice = [10, 10, 10, 10]
+
+[controls.picturebox]
+image = "picturebox/picturebox_normal_ref.png"
+slice = [12, 12, 12, 12]
+
+[controls.barchart]
+image = "chart/chart_normal_ref.png"
+slice = [16, 16, 16, 16]
+
+[controls.linechart]
+image = "chart/chart_normal_ref.png"
+slice = [16, 16, 16, 16]
+
+[controls.piechart]
+image = "chart/chart_normal_ref.png"
+slice = [16, 16, 16, 16]
+
+[controls.areachart]
+image = "chart/chart_normal_ref.png"
+slice = [16, 16, 16, 16]
+
+[controls.scatterchart]
+image = "chart/chart_normal_ref.png"
+slice = [16, 16, 16, 16]
+
+[controls.donutchart]
+image = "chart/chart_normal_ref.png"
+slice = [16, 16, 16, 16]

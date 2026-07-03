@@ -1,0 +1,91 @@
+# Emerald Glass — engine manifest (007). Modern glassmorphic form theme inspired
+# by the provided Dribbble reference (sleek dark UI with green glass effects,
+# yellow/lime accents, white structural lines, green text). Uses the copied
+# 9-slice structure from the reference pack (assets will be refined to match the
+# exact visual style). Falls back gracefully.
+id = "emerald-glass"
+display_name = "Emerald Glass"
+
+[background]
+image = "background.png"
+tile = false
+
+[palette]
+foreground = "#a8ff9e"
+chart = ["#a8ff9e", "#f4e26e", "#5de2a6", "#b8ff6e", "#7be8b8", "#e8f46e"]
+
+[chart_style]
+stroke_width = 2.0
+fill_texture = "chart_fill.png"
+
+[controls.button]
+slice = [54, 54, 54, 54]
+image = "button/button_normal_ref.png"
+hover = "button/button_hover_ref.png"
+pressed = "button/button_pressed_ref.png"
+disabled = "button/button_disabled_ref.png"
+focused = "button/button_focused_ref.png"
+
+[controls.panel]
+slice = [84, 84, 84, 84]
+image = "panel/panel_normal_ref.png"
+
+[controls.groupbox]
+slice = [84, 84, 84, 84]
+image = "groupbox/groupbox_normal_ref.png"
+
+[controls.textbox]
+slice = [36, 36, 36, 36]
+image = "textbox/textbox_normal_ref.png"
+disabled = "textbox/textbox_disabled_ref.png"
+focused = "textbox/textbox_focused_ref.png"
+
+[controls.listbox]
+slice = [42, 42, 42, 42]
+image = "listbox/listbox_normal_ref.png"
+disabled = "listbox/listbox_disabled_ref.png"
+focused = "listbox/listbox_focused_ref.png"
+
+[controls.datagrid]
+slice = [42, 42, 42, 42]
+image = "datagrid/datagrid_normal_ref.png"
+
+[controls.treeview]
+slice = [42, 42, 42, 42]
+image = "treeview/treeview_normal_ref.png"
+
+[controls.tabcontrol]
+slice = [60, 60, 60, 60]
+image = "tabcontrol/tabcontrol_normal_ref.png"
+
+[controls.progressbar]
+slice = [36, 36, 36, 36]
+image = "progressbar/progressbar_normal_ref.png"
+
+[controls.picturebox]
+slice = [42, 42, 42, 42]
+image = "picturebox/picturebox_normal_ref.png"
+
+[controls.barchart]
+slice = [72, 72, 72, 72]
+image = "chart/chart_normal_ref.png"
+
+[controls.linechart]
+slice = [72, 72, 72, 72]
+image = "chart/chart_normal_ref.png"
+
+[controls.piechart]
+slice = [72, 72, 72, 72]
+image = "chart/chart_normal_ref.png"
+
+[controls.areachart]
+slice = [72, 72, 72, 72]
+image = "chart/chart_normal_ref.png"
+
+[controls.scatterchart]
+slice = [72, 72, 72, 72]
+image = "chart/chart_normal_ref.png"
+
+[controls.donutchart]
+slice = [72, 72, 72, 72]
+image = "chart/chart_normal_ref.png"
