@@ -552,5 +552,8 @@ fn malformed_function_argument_terminates_with_diagnostic() {
         !result.diagnostics.is_empty(),
         "malformed FUNCTION argument should produce a diagnostic"
     );
-    assert!(result.program.is_some(), "parser should still yield a program");
+    assert!(
+        result.program.is_some(),
+        "parser should still yield a program"
+    );
 }

@@ -460,7 +460,7 @@ pub const GREENS: Theme = Theme {
     bg_extreme: rgba(5, 18, 10, 215),
     faint_bg: rgba(8, 24, 14, 150),
     code_bg: rgba(9, 26, 15, 190),
-    accent: rgb(255, 225, 60),     // yellow icons / accents
+    accent: rgb(255, 225, 60), // yellow icons / accents
     border_dim: rgba(255, 255, 255, 55),
     border_hi: rgba(255, 255, 255, 190),
     text_dim: rgb(70, 170, 85),
@@ -470,8 +470,8 @@ pub const GREENS: Theme = Theme {
     warn: rgb(255, 210, 70),
     error: rgb(255, 90, 90),
     ed_plain: rgb(120, 210, 130),
-    ed_keyword: rgb(255, 230, 70),   // yellow
-    ed_data: rgb(140, 255, 110),     // lime
+    ed_keyword: rgb(255, 230, 70), // yellow
+    ed_data: rgb(140, 255, 110),   // lime
     ed_paragraph: rgb(200, 255, 140),
     ed_string: rgb(255, 195, 80),
     ed_comment: rgb(65, 135, 75),

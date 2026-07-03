@@ -278,8 +278,7 @@ impl FormRuntime {
         let finished = Arc::new(AtomicBool::new(false));
 
         // Find the rcrun binary next to the current executable (works in debug + release)
-        let exe = std::env::current_exe()
-            .map_err(|e| format!("failed to get current exe: {e}"))?;
+        let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = exe.with_file_name("rcrun");
 
         let mut child = Command::new(&rcrun_path)
@@ -321,33 +320,37 @@ impl FormRuntime {
         let p_err = Arc::clone(&error_slot);
         let p_stop = Arc::clone(&stop_flag);
         let p_finished = Arc::clone(&finished);
-        std::thread::spawn(move || {
-            loop {
-                if p_stop.load(Ordering::Relaxed) {
-                    p_finished.store(true, Ordering::Relaxed);
-                    break;
-                }
-                if let Ok(bytes) = read_framed(&mut child_stdout) {
-                    if let Ok(msg) = bincode::deserialize::<cobolt_runtime::FormIpcMessage>(&bytes) {
-                        match msg {
-                            cobolt_runtime::FormIpcMessage::State(s) => { let _ = p_state.send(s); }
-                            cobolt_runtime::FormIpcMessage::Display(d) => { let _ = p_display.send(d); }
-                            cobolt_runtime::FormIpcMessage::Error(e) => {
-                                if let Ok(mut slot) = p_err.lock() { *slot = Some(e); }
-                                p_finished.store(true, Ordering::Relaxed);
-                                break;
-                            }
-                            cobolt_runtime::FormIpcMessage::Done => {
-                                p_finished.store(true, Ordering::Relaxed);
-                                break;
-                            }
-                            _ => {}
+        std::thread::spawn(move || loop {
+            if p_stop.load(Ordering::Relaxed) {
+                p_finished.store(true, Ordering::Relaxed);
+                break;
+            }
+            if let Ok(bytes) = read_framed(&mut child_stdout) {
+                if let Ok(msg) = bincode::deserialize::<cobolt_runtime::FormIpcMessage>(&bytes) {
+                    match msg {
+                        cobolt_runtime::FormIpcMessage::State(s) => {
+                            let _ = p_state.send(s);
                         }
+                        cobolt_runtime::FormIpcMessage::Display(d) => {
+                            let _ = p_display.send(d);
+                        }
+                        cobolt_runtime::FormIpcMessage::Error(e) => {
+                            if let Ok(mut slot) = p_err.lock() {
+                                *slot = Some(e);
+                            }
+                            p_finished.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                        cobolt_runtime::FormIpcMessage::Done => {
+                            p_finished.store(true, Ordering::Relaxed);
+                            break;
+                        }
+                        _ => {}
                     }
-                } else {
-                    p_finished.store(true, Ordering::Relaxed);
-                    break;
                 }
+            } else {
+                p_finished.store(true, Ordering::Relaxed);
+                break;
             }
         });
 
@@ -432,7 +435,9 @@ impl FormRuntime {
         if let Some(ref stdin_mutex) = self.child_stdin {
             if let Ok(mut guard) = stdin_mutex.lock() {
                 if let Some(ref mut stdin) = *guard {
-                    let msg = cobolt_runtime::FormIpcMessage::Input(StateUpdate::new(ctrl_id, prop, value));
+                    let msg = cobolt_runtime::FormIpcMessage::Input(StateUpdate::new(
+                        ctrl_id, prop, value,
+                    ));
                     if let Ok(bytes) = bincode::serialize(&msg) {
                         let _ = write_framed(stdin, &bytes);
                     }

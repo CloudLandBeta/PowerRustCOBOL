@@ -257,3 +257,36 @@ Planned additions, to keep this document the single observability reference:
   SQLite/PostgreSQL/MySQL engines (see [`database-runtime.md`](database-runtime.md)).
 - **HTTP client** — request/latency/status logging for the REST built-ins.
 - **Aggregate run summary** — an optional end-of-run report across all files.
+
+## 3. Run-Form inspector (IDE)
+
+When **Run Form** is active, the IDE can open a **Run-Form Inspector** (separate
+viewport) that samples the isolated child process:
+
+- Per-sample CPU %, RSS bytes, child process count, system memory used.
+- Anomaly detection (sudden growth, high children, etc.).
+- Live sparklines + process tree.
+- Uses the IPC channel from the isolated `rcrun` (see developers-guide for
+  process isolation details).
+
+This is opt-in in the IDE and does not affect the running form. Sampling is
+throttled when idle. Logs and metrics are for diagnostics only.
+
+Mermaid overview:
+
+```mermaid
+sequenceDiagram
+    participant IDE
+    participant Child as rcrun (isolated)
+    participant Form as running form
+
+    IDE->>Child: spawn + init (source + seed)
+    Child->>Form: interpret
+    loop samples
+        IDE->>Child: (via stdout pump) request state?
+        Child-->>IDE: State / Display / metrics
+    end
+    IDE->>Child: Quit
+    Child-->>IDE: Done
+    Note over IDE: inspector shows CPU/RSS tree + anomalies
+```

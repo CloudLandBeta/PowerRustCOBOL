@@ -477,6 +477,27 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // ── Backdrop: solid colour, then optional image. ──────────────────────────
     let form_rect = Rect::from_min_size(origin, input.form_size);
     let bg = backdrop_color(&input.backdrop.color_hex, input.backdrop.transparency);
+    // When Neumorphic glass style is active, default the page to the recipe's
+    // very light neutral background (#ECEFF4) so cards pop with the dual-shadow
+    // relief. Respect an explicit non-default colour and any transparency.
+    let bg = {
+        let mut b = bg;
+        if crate::paint::is_neumorphic_style(ui.ctx()) {
+            let hex = input.backdrop.color_hex.trim().trim_start_matches('#');
+            let looks_default_dark = hex.is_empty()
+                || hex.eq_ignore_ascii_case("000000")
+                || hex.eq_ignore_ascii_case("000")
+                || (b.r() < 55 && b.g() < 58 && b.b() < 82);
+            if looks_default_dark {
+                let ba = b.a();
+                let rr = (236.0 * (ba as f32) / 255.0) as u8;
+                let gg = (239.0 * (ba as f32) / 255.0) as u8;
+                let bb = (244.0 * (ba as f32) / 255.0) as u8;
+                b = Color32::from_rgba_premultiplied(rr, gg, bb, ba);
+            }
+        }
+        b
+    };
     painter.rect_filled(form_rect, 0.0, bg);
     // The notch mask is drawn *after* children. If the form background is
     // translucent, repainting `bg` would darken the corner wedges; skipping it
@@ -1798,7 +1819,8 @@ fn render_interactive(
                     .columns
                     .iter()
                     .map(|column| {
-                        let source_index = cols.iter()
+                        let source_index = cols
+                            .iter()
                             .position(|(name, _)| {
                                 name.eq_ignore_ascii_case(&column.source_name)
                                     || name.eq_ignore_ascii_case(&column.title)
@@ -3166,8 +3188,24 @@ fn render_interactive(
                     );
                 } else {
                     // Square grid: left + bottom outer lines (obey GridLineStyle).
-                    draw_datagrid_line(&painter, [pos2(screen.min.x, screen.min.y), pos2(screen.min.x, screen.max.y)], o_stroke, o_style);
-                    draw_datagrid_line(&painter, [pos2(screen.min.x, screen.max.y), pos2(screen.max.x, screen.max.y)], o_stroke, o_style);
+                    draw_datagrid_line(
+                        &painter,
+                        [
+                            pos2(screen.min.x, screen.min.y),
+                            pos2(screen.min.x, screen.max.y),
+                        ],
+                        o_stroke,
+                        o_style,
+                    );
+                    draw_datagrid_line(
+                        &painter,
+                        [
+                            pos2(screen.min.x, screen.max.y),
+                            pos2(screen.max.x, screen.max.y),
+                        ],
+                        o_stroke,
+                        o_style,
+                    );
                 }
             }
             // Frozen-pane drop shadow: the frozen columns / header+rows cast a soft
@@ -4148,7 +4186,10 @@ mod tests {
         ];
         for (i, evs) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
-            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.screen_rect = Some(Rect::from_min_size(
+                pos2(0.0, 0.0),
+                Vec2::new(1000.0, 800.0),
+            ));
             input.focused = true;
             input.time = Some(i as f64 * 0.05);
             input.events = evs;
@@ -4157,23 +4198,24 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::none())
                     .show(ctx, |ui| {
-                        let out = egui::ScrollArea::both()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                // Content larger than the viewport → the outer area
-                                // has room to (wrongly) scroll if the grid bleeds.
-                                ui.set_min_size(Vec2::new(2000.0, 2000.0));
-                                let inp = RenderInput {
-                                    controls,
-                                    state: &st,
-                                    form_size: Vec2::new(2000.0, 2000.0),
-                                    glass: true,
-                                    mode: RenderMode::Interactive,
-                                    active_tabs: &active,
-                                    backdrop: Backdrop::default(),
-                                };
-                                render_form(ui, &inp);
-                            });
+                        let out =
+                            egui::ScrollArea::both()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    // Content larger than the viewport → the outer area
+                                    // has room to (wrongly) scroll if the grid bleeds.
+                                    ui.set_min_size(Vec2::new(2000.0, 2000.0));
+                                    let inp = RenderInput {
+                                        controls,
+                                        state: &st,
+                                        form_size: Vec2::new(2000.0, 2000.0),
+                                        glass: true,
+                                        mode: RenderMode::Interactive,
+                                        active_tabs: &active,
+                                        backdrop: Backdrop::default(),
+                                    };
+                                    render_form(ui, &inp);
+                                });
                         outer_offset_y = out.state.offset.y;
                     });
             });
@@ -4628,7 +4670,13 @@ mod tests {
             1,
             &[("Interval", "10"), ("Enabled", "true")],
         )];
-        let evs = drive_state(&ChromeState { chrome_enabled: false }, &on, 2);
+        let evs = drive_state(
+            &ChromeState {
+                chrome_enabled: false,
+            },
+            &on,
+            2,
+        );
         assert!(
             names(&evs).contains(&"onTick"),
             "Timer with Enabled=true must tick even when chrome enabled=false; got {:?}",
@@ -4646,7 +4694,13 @@ mod tests {
             1,
             &[("Interval", "10"), ("Enabled", "false")],
         )];
-        let evs_off = drive_state(&ChromeState { chrome_enabled: true }, &off, 2);
+        let evs_off = drive_state(
+            &ChromeState {
+                chrome_enabled: true,
+            },
+            &off,
+            2,
+        );
         assert!(
             !names(&evs_off).contains(&"onTick"),
             "Timer with Enabled=false must not tick; got {:?}",

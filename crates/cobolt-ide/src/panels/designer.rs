@@ -2416,6 +2416,67 @@ impl DesignerPanel {
                 self.form.use_theme_background = value == "true" || value == "1";
                 self.dirty = true;
             }
+            // Neumorphic-only tuning (form properties)
+            "NeumorphicIllumGradientStart" => {
+                self.form.neumorphic_params.illum_gradient_start =
+                    value.trim_start_matches('#').to_string();
+                self.dirty = true;
+            }
+            "NeumorphicIllumGradientEnd" => {
+                self.form.neumorphic_params.illum_gradient_end =
+                    value.trim_start_matches('#').to_string();
+                self.dirty = true;
+            }
+            "NeumorphicShadowGradientStart" => {
+                self.form.neumorphic_params.shadow_gradient_start =
+                    value.trim_start_matches('#').to_string();
+                self.dirty = true;
+            }
+            "NeumorphicShadowGradientEnd" => {
+                self.form.neumorphic_params.shadow_gradient_end =
+                    value.trim_start_matches('#').to_string();
+                self.dirty = true;
+            }
+            "NeumorphicIllumBlur" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    self.form.neumorphic_params.illum_blur = v.clamp(0.0, 8.0);
+                    self.dirty = true;
+                }
+            }
+            "NeumorphicShadowBlur" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    self.form.neumorphic_params.shadow_blur = v.clamp(0.0, 8.0);
+                    self.dirty = true;
+                }
+            }
+            "NeumorphicTransparency" => {
+                if let Ok(v) = value.parse::<u8>() {
+                    self.form.neumorphic_params.transparency = v.min(100);
+                    self.dirty = true;
+                }
+            }
+            "NeumorphicDistance" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    self.form.neumorphic_params.distance = v.clamp(0.0, 40.0);
+                    self.dirty = true;
+                }
+            }
+            "NeumorphicRimTint" => {
+                self.form.neumorphic_params.rim_tint = value.trim_start_matches('#').to_string();
+                self.dirty = true;
+            }
+            "NeumorphicRimWeight" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    self.form.neumorphic_params.rim_weight = v.clamp(0.0, 8.0);
+                    self.dirty = true;
+                }
+            }
+            "NeumorphicRimBlur" => {
+                if let Ok(v) = value.parse::<f32>() {
+                    self.form.neumorphic_params.rim_blur = v.clamp(0.0, 8.0);
+                    self.dirty = true;
+                }
+            }
             _ => {}
         }
     }
@@ -2508,6 +2569,7 @@ impl DesignerPanel {
         // ⇒ procedural Liquid Glass.
         cobolt_forms::paint::set_active_theme(ui.ctx(), self.active_theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ui.ctx(), self.form.glass_style);
+        cobolt_forms::paint::set_neumorphic_params(ui.ctx(), self.form.neumorphic_params.clone());
 
         // Load menu YAML files for any MenuBar controls and cache them
         if let Some(dir) = &self.cfrm_dir {

@@ -354,7 +354,10 @@ mod tests {
         insp.test_feed(idle(100.0, 1.0, 0)); // baseline
         assert!(insp.last_anomaly.is_none(), "flat baseline is healthy");
         insp.test_feed(idle(120.0, 1.0, 0)); // +20 MB, below 50 threshold
-        assert!(insp.last_anomaly.is_none(), "small growth is not yet a leak");
+        assert!(
+            insp.last_anomaly.is_none(),
+            "small growth is not yet a leak"
+        );
         insp.test_feed(idle(170.0, 1.0, 0)); // +70 MB from baseline → leak
         let a = insp.last_anomaly.as_deref().unwrap_or("");
         assert!(a.contains("memory grew"), "expected a leak flag, got {a:?}");
@@ -401,6 +404,9 @@ mod tests {
         let mut insp = inspector();
         insp.test_feed(idle(100.0, 1.0, 9)); // 9 > max_children(4)
         let a = insp.last_anomaly.as_deref().unwrap_or("");
-        assert!(a.contains("child processes"), "expected a rogue-subprocess flag, got {a:?}");
+        assert!(
+            a.contains("child processes"),
+            "expected a rogue-subprocess flag, got {a:?}"
+        );
     }
 }

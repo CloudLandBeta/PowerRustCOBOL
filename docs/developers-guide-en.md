@@ -478,8 +478,8 @@ flowchart LR
   Image, Size, Events). Drag its edge to widen it.
 
 Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
-(a non-interactive render), **Run Form** (live, interactive), grid toggle, glass
-toggle, alignment tools, undo/redo.
+(a non-interactive render), **Run Form** (live, interactive), grid toggle, **Theme**
+( procedural style: Classic / Enhanced / Neumorphic ), alignment tools, undo/redo.
 
 > **WYSIWYG — one renderer for every surface.** The Form Designer canvas, the
 > live Preview, the Run Form, and the compiled binary all draw through a **single
@@ -491,9 +491,21 @@ toggle, alignment tools, undo/redo.
 > live values through the `FormState` trait (designer = the designed form,
 > preview = a value map, run = `CtrlState`, binary = compiled state). The result:
 > the same form + state always produces the same pixels — what you style on the
-> canvas is exactly what runs. The runtime surfaces only add live behaviour
-> (press feedback, focus, text input, slider drag), and the designer adds its
-> editor overlay (selection handles, badges, drop hints) on top.
+> canvas is exactly what runs.
+
+> **Run Form isolation (performance).** To keep the IDE responsive and avoid CPU
+> spikes while a form is running (especially with timers, loops, or heavy
+> rendering), `Run Form` spawns an isolated child `rcrun` process. The IDE and
+> child communicate over a framed bincode IPC channel on stdio (`FormIpcMessage`
+> for events, input, state snapshots, display, errors, done). The IDE pumps
+> stdout to local channels and forwards UI events back via stdin. This also
+> enables the **Run-Form Inspector** (CPU %, RSS, children, system mem, process
+> tree, anomaly detection). The same binary path resolution is used for "rcrun"
+> next to the IDE executable.
+
+The runtime surfaces only add live behaviour (press feedback, focus, text input,
+slider drag), and the designer adds its editor overlay (selection handles,
+badges, drop hints) on top.
 
 ### Target devices
 
@@ -505,7 +517,7 @@ form's width/height to the chosen profile.
 > 📷 **Screenshot needed — `form-designer-full.png`.** The Designer with the
 > toolbox, a canvas containing several controls (a label, a text box, a button,
 > and a chart), and the properties pane showing the section cards. Ideally use
-> a project with a background image so the glass styling is visible.
+> a project with a background image so the Neumorphic or glass styling is visible.
 
 > **Note (non-visual controls).** Timer, AI Agent, REST Client, and SQL Database
 > are **non-visual**: they appear on the canvas as labelled glass "chips" at
@@ -747,43 +759,33 @@ Repair actions are metadata-only and preserve visual layout and event handlers:
 The **DataGrid** is the row-oriented binding target for tabular data and the
 highest-density visual control in the designer. It keeps the legacy `Columns`
 and `Rows` properties for compatibility, while newer layout and formatting
-settings are stored as advanced metadata on the grid.
+settings are stored as advanced metadata on the grid (including per-column
+background/foreground).
 
-Important behaviors:
+**Appearance & border rules (unified across all surfaces)**
 
-- **Virtual scrolling** renders only visible rows and columns, so very large
-  datasets stay responsive and content is clipped inside the grid bounds.
-- **Resizable columns and rows** update grid metadata instead of changing the
-  binding field identity.
-- **Column reorder controls** change display order only. The source field name
-  remains attached to each column, so data binding and `RefreshBinding()` still
-  know which COBOL field supplies the value.
-- **Column filters** are AND-chained. `CSVExportMode = Filtered` exports the
-  filtered view; `CSVExportMode = AllRows` exports every row.
-- **Frozen columns and rows** keep left/top panes visible while the rest of the
-  grid scrolls.
-- **Rich cells** can use per-column foreground/background colors, value style
-  rules, rounded framed content, and optional numeric gauges.
-- **Grid fonts** apply to the whole grid in the designer and preview surfaces.
-- **Grid line styles** support `Solid`, `Dash`, `Dots`, and `None`.
-- **Selectable text** lets users copy a selected cell/row/range. When no partial
-  text selection is active, the grid falls back to the configured selection
-  mode.
-- **CSV export** can be shown as a small header command button and can also be
-  invoked from COBOL with `ExportCSV`.
+- Background defined in appearance now correctly applies to the **last
+  data-bound column** and all **non-data-bound columns** that follow it.
+- **Grid line backgrounds** (the fills separating columns/rows) obey the
+  background set in the grid's appearance settings.
+- The **outer border** uses the `GridLineStyle` (Solid/Dash/Dots/None) from the
+  DataGrid settings and is rendered as an inset rounded stroke when radius > 0.
+- All appearance, line style, and border behaviour is identical in the designer
+  canvas, Preview, Run Form, and compiled binary (unified render engine).
 
-When a binding is applied to a DataGrid, the basic `Columns`, `Rows`, and
-`DataSource` properties are filled automatically from the binding source. If the
-grid already has advanced column metadata, PowerRustCOBOL preserves widths,
-styles, filters, gauges, and display order for fields that still exist, and
-appends new fields after the existing columns. The Data Binding Guardian blocks
-advanced metadata drift where a displayed column points to a different source
-field than its binding mapping.
+**Other features**
 
-For COBOL-table bindings, `RefreshBinding()` reloads rows from the current
-working-storage table values. This works in the live interpreter and in
-generated code because generated forms seed the grid's `_BindingKind` and
-`_BindingFields` identity before population.
+- Virtual scrolling, resizable columns/rows, reorder (display order only; source
+  field identity preserved), AND-chained filters, freeze panes, gauges, style
+  rules, selectable text + `CopySelection`, `ExportCSV`, `RefreshBinding()`,
+  etc.
+- **Grid fonts** and **Grid line styles**.
+- Honours the control/container `CornerRadius` (content + borders clipped).
+- For table bindings, `RefreshBinding()` repopulates from working-storage.
+
+When binding, advanced metadata (widths, styles, order, filters…) is preserved
+for matching fields; the Data Binding Guardian prevents drift. See the
+properties pane for the complete set.
 
 #### User Controls
 
@@ -864,7 +866,7 @@ as a YAML file alongside the `.cfrm`.
 reorder items up to 3 levels deep. Each item has:
 
 - **Label** — the text shown in the menu.
-- **Icon** — an optional vector icon from the built-in catalogue (120+ icons
+- **Icon** — an optional vector icon from the built-in catalogue (122+ icons
   covering documents, editing, navigation, communication, media, commerce,
   and more).
 - **Accelerator** — a keyboard shortcut (e.g. `Cmd+N`, `Shift+Ctrl+S`).
@@ -931,70 +933,91 @@ abbreviations). A few you will use constantly:
 > (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
 > digits, hyphens; no leading/trailing hyphen).
 
-### Form themes
+### Form themes and styles
 
 A **theme** gives your forms a distinctive look without styling every control by
-hand. Themes are applied by the same renderer the designer, the preview, and the
-compiled app all use, so a themed form looks identical everywhere.
+hand. Themes are applied by the same renderer the designer, the preview, the
+Run Form, and the compiled app all use (`cobolt-forms` unified render engine per
+spec 017), so a themed form looks identical everywhere.
 
-There are two kinds of theme, listed together in one picker:
+The **Theme** dropdown (in form *Appearance*) now selects the procedural surface
+style:
 
-- **Liquid Glass** — the built-in, default look, drawn procedurally. Existing
-  forms use it and are unchanged.
-- **Asset-pack themes** — photoreal "skins" supplied as a folder of images. The
-  catalogue grows simply by dropping a new pack into `assets/themes/` — no rebuild.
+- **Classic** — original frosted-glass look.
+- **Enhanced** — adds inner stroke, highlight band, micro-noise, and structural
+  states (the full Liquid Glass recipe).
+- **Neumorphic** — 100 % procedural soft-UI "clay" / extruded relief (no images).
+  Light from top-left. Low-contrast, large radii, soft layered shadows (highlight
+  top-left, shadow bottom-right), subtle inner rims, and an optional extra 3-sided
+  tinted border (top-right → bottom-right → bottom-left) that obeys the control's
+  `CornerRadius`.
 
-**Choosing a theme.** A theme is selected at two levels:
+Asset-pack "skins" (9-slice PNGs from `assets/themes/<id>/`) are still supported
+for full photoreal looks and can be combined at project level; selecting a
+procedural style clears any per-form pack override for that form.
 
-- **Project default** — *Settings → Appearance → Default form theme*. Every form
-  in the project uses it unless overridden.
-- **Per-form override** — in the Designer, the form's *Appearance → Form theme*
-  property. Leave it on **Inherit project default** to follow the project, or pick
-  a specific theme for this one form.
+**Choosing.** 
 
-The effective theme is resolved as **per-form override → project default → Liquid
-Glass**. The designer re-renders immediately when you change either.
+- Project default: *Settings → Appearance → Default form theme*.
+- Per-form: Designer form *Appearance → Theme* (or leave to inherit).
 
-**Themed background.** A pack may include a background image. Switch on the form's
-*Appearance → Use theme background* to show it; otherwise the form's own Back color
-/ Background image applies.
+Resolution: per-form → project default → Classic/Liquid Glass.
 
-**What gets themed.** A theme skins all the standard controls (panels, buttons,
-text fields, lists, …) and their states, **including the chart controls** — pie
-slices, line strokes, and bars take on the theme's palette and material. A control
-a pack doesn't cover falls back to Liquid Glass, so a partial pack never breaks a
-form. A control's own explicit *Foreground/Background color* still wins over the
-theme's defaults.
+When **Neumorphic** is active, the form page auto-defaults to the recipe's very
+light neutral background (#ECEFF4) unless you set an explicit background colour.
 
-**Adding a theme pack.** A pack is a self-describing folder
-`assets/themes/<id>/` containing a `theme.toml` manifest plus its images:
+**Neumorphic-specific properties** (appear only when Theme = Neumorphic):
+
+- **Illum. grad.** — two colours for the top-left illumination (highlight) effect
+  gradient.
+- **Shadow grad.** — two colours for the bottom-right shadow gradient.
+- **Illum. blur** / **Shadow blur** — softness / layer count for each.
+- **Transparency** — master alpha for all relief elements (0–100 %).
+- **Distance** — base shadow/illum offset (like drop-shadow distance).
+- **Rim tint** — colour for the extra 3-sided border.
+- **Rim weight** — thickness of that border.
+- **Rim blur** — softness of the extra border (layered offsets).
+
+These use the control's `CornerRadius` so rounded panels, charts, etc. get correct
+curved relief at BR/BL (and the extra rim reaches the top-right and bottom-left
+border junctions properly). The illumination and shadow effects are implemented
+with multiple expanded rounded rects + alpha falloff for convincing softness
+without real blur.
+
+**Themed backgrounds and packs.** Packs may supply a background PNG. Use *Use
+theme background*. Packs also supply chart palettes. Controls with explicit
+Foreground/Background colours override the pack.
+
+**Adding packs.** Drop `assets/themes/<id>/` with `theme.toml` + 9-slice images.
+See the `cobalt-steel` reference or `neumorphic` example pack.
+
+Example `theme.toml` excerpt (packs are additive; procedural Neumorphic does not
+load images):
 
 ```toml
-id = "stainless-steel"
-display_name = "Stainless Steel"
+id = "my-neumorphic"
+display_name = "My Neumorphic"
 
-[background]
-image = "background.png"      # optional themed background
-
-[palette]
-foreground = "#dfe7ff"
-chart = ["#4C9BE8", "#E87A4C", "#4CE87A", "#E84C9B"]   # chart data palette
-
-[chart_style]
-stroke_width = 2.0
-
-[controls.button]             # one entry per control kind
-image    = "button.png"
-slice    = [12, 12, 12, 12]   # 9-slice insets: left, top, right, bottom
-hover    = "button_hover.png" # optional per-state images
-pressed  = "button_pressed.png"
+[controls.panel]
+image = "panel/panel_normal_ref.png"
+slice = [20, 20, 20, 20]
 ```
 
-Images use **9-slice** scaling: the four corners keep their size while the edges
-and centre stretch, so one image fits any control size. Drop the folder in,
-restart the IDE, and the theme appears in the picker. (The bundled
-`cobalt-steel` pack is a small, procedurally generated reference you can copy.
-A `neumorphic` soft-UI pack is also included as an example of extruded 3D styling.)
+(Full details and 9-slice rules in the bundled reference packs.)
+
+> **Mermaid diagram: theme resolution**
+>
+> ```mermaid
+> flowchart TD
+>     A[Form Appearance → Theme] --> B{Procedural?}
+>     B -->|Classic/Enhanced/Neumorphic| C[draw_neumorphic or glass]
+>     B -->|pack id| D[9-slice from assets/themes/id/ + palette]
+>     E[Project default] -->|fallback| F[Liquid Glass / Classic]
+>     C --> G[unified renderer]
+>     D --> G
+>     F --> G
+>     G --> H[Designer canvas / Preview / Run Form / binary]
+> ```
 
 ---
 
@@ -1991,6 +2014,10 @@ A consolidated list so you are never surprised:
 - **Generated code is read-only.** Edit forms or Common Code, never `generated/`.
 - **`dist/` is reserved**, not yet populated by tooling.
 - **Secrets** must not be embedded in shipped forms.
+- **Form Theme / procedural styles.** The Appearance "Theme" dropdown selects
+  Classic / Enhanced / Neumorphic (procedural relief with full gradient, blur,
+  distance, rim controls). Asset-pack selection is project / toml driven; some
+  per-form pack UI is still evolving.
 
 ---
 

@@ -8,6 +8,63 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.82] — 2026-07-03
+
+### Added
+
+- **Neumorphic form properties (illumination & shadows).** When Theme=Neumorphic the
+  Form Properties panel (Appearance section) now shows style-specific editors:
+  gradient colors for the illumination effect and for the shadow effect; separate
+  blur strength sliders for each; transparency intensity; distance (shadow offset);
+  tint color + line weight + blur strength for the extra 3-sided border
+  (top-right → bottom-right → bottom-left). All are per-form, stored in .cfrm,
+  round-tripped, and affect every render surface. Other themes are unaffected.
+  Defaults preserve the previous recipe look.
+
+### Fixed
+
+- **Neumorphic illumination no longer darkens the highlight sides.** The gradient
+  color lerp ignored the stops' alpha, so a "transparent" stop (stored as
+  transparent black) dragged the highlight toward black — the top/left edges and
+  top-left corner rendered dark, like a second shadow. The RGB lerp is now
+  alpha-weighted and the layer opacity scales with the interpolated stop alpha, so
+  transparent stops fade the effect out instead of darkening it.
+- **Neumorphic illumination color pickers were missing from the Appearance grid.**
+  A bare separator consumed the first cell of the two-column grid, shifting the
+  "Illum. grad." row's pickers into a clipped third column. The separator now
+  occupies its own full row.
+- **Neumorphic tinted rim now lands on the corner junctions.** The extra 3-sided
+  border is drawn as a single connected polyline that begins at the 45° midpoint
+  of the top-right corner arc and ends at the 45° midpoint of the bottom-left arc,
+  following each corner's own radius (± the per-layer blur offset) — it no longer
+  passes half a corner, wraps onto the left edge, or leaves square smudges from the
+  old rectangular top/left masks. The outer contour and inner bevel share the same
+  path so all three accents stay aligned.
+
+## [PowerRustCOBOL 1.27.81] — 2026-07-03
+
+### Fixed
+
+- **Procedural Neumorphic (soft-UI) effect now fully functional.** The four-layer relief
+  (very light neutral bg, raised panel, opposite soft shadows via translate+expand
+  rounded rects for highlight top-left / shadow bottom-right, plus two subtle inset
+  inner rims) is implemented following the reference recipe. Uses only egui 0.29
+  drawing primitives. When Neumorphic glass style is active the form page defaults
+  to the recipe bg (#ECEFF4) unless the designer set a distinct colour. Buttons
+  suppress incompatible specular overlays. All forms tests and renders remain
+  pixel-parity compliant.
+- **Charts adapt to the Neumorphic style.** Light chart face (instead of the dark
+  navy glass face), soft pastel data palette, faint gray-blue grid/axis lines,
+  gray-blue badge/hint text, an engraved inner "tray" contour on the card, molded
+  (gently domed) pie slices and bars, white sector separators, and a soft drop
+  shadow under the pie disc. The preview and Run-Form viewports also switch to
+  light soft-UI widget visuals with gray-blue text (the glass near-white text was
+  invisible on the light surface). The dual soft shadows are now truly
+  directional — highlight up-left, shadow down-right — instead of a uniform halo.
+- **Charts: `BarCornerRadius` is honoured again.** The bar chart's corner-radius
+  property existed in the inspector but the renderer hardcoded the radius; both
+  the flat and gradient bar paths now apply it (clamped per bar).
+
 ## [PowerRustCOBOL 1.27.80] — 2026-07-03
 
 ### Changed

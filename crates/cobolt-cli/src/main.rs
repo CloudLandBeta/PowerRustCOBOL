@@ -43,7 +43,9 @@ use serde::Deserialize;
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
-use cobolt_runtime::{channels::FormIpcMessage, IndexedEngine, Interpreter, FormEvent, StateUpdate};
+use cobolt_runtime::{
+    channels::FormIpcMessage, FormEvent, IndexedEngine, Interpreter, StateUpdate,
+};
 use cobolt_semantic::{analyze, Severity};
 use std::io::{self, Read, Write};
 
@@ -163,7 +165,7 @@ fn cmd_run(args: &[String]) {
 }
 
 /// Run a form interpreter in IPC mode (for IDE Run Form isolation).
-/// 
+///
 /// Wire protocol (framed bincode on stdin/stdout):
 /// - Parent sends one init message: bincode of (Program, seed)
 /// - Then bidirectional FormIpcMessage
@@ -188,11 +190,9 @@ fn cmd_run_form_ipc() {
     let mut stdin = io::stdin();
 
     // Read init: (cobol_source, seed)
-    let init_bytes = read_framed(&mut stdin)
-        .expect("failed to read init from stdin");
+    let init_bytes = read_framed(&mut stdin).expect("failed to read init from stdin");
     let (cobol_source, seed): (String, Vec<(String, String, Vec<(String, String)>)>) =
-        bincode::deserialize(&init_bytes)
-            .expect("failed to deserialize init payload");
+        bincode::deserialize(&init_bytes).expect("failed to deserialize init payload");
 
     let tokens = tokenize(&cobol_source, SourceFormat::Free);
     let parse_result = parse(tokens);
@@ -224,8 +224,12 @@ fn cmd_run_form_ipc() {
                 Ok(bytes) => {
                     if let Ok(msg) = bincode::deserialize::<FormIpcMessage>(&bytes) {
                         match msg {
-                            FormIpcMessage::Event(ev) => { let _ = pump_event.send(ev); }
-                            FormIpcMessage::Input(inp) => { let _ = pump_input.send(inp); }
+                            FormIpcMessage::Event(ev) => {
+                                let _ = pump_event.send(ev);
+                            }
+                            FormIpcMessage::Input(inp) => {
+                                let _ = pump_input.send(inp);
+                            }
                             FormIpcMessage::Quit => {
                                 let _ = pump_event.send(FormEvent::quit());
                                 break;
@@ -240,22 +244,20 @@ fn cmd_run_form_ipc() {
     });
 
     // Output pump: local channels → stdout (use fresh stdout each time to avoid move issues)
-    std::thread::spawn(move || {
-        loop {
-            let msg = match state_rx.try_recv() {
-                Ok(s) => Some(FormIpcMessage::State(s)),
-                Err(_) => match display_rx.try_recv() {
-                    Ok(d) => Some(FormIpcMessage::Display(d)),
-                    Err(_) => {
-                        std::thread::sleep(std::time::Duration::from_millis(2));
-                        None
-                    }
+    std::thread::spawn(move || loop {
+        let msg = match state_rx.try_recv() {
+            Ok(s) => Some(FormIpcMessage::State(s)),
+            Err(_) => match display_rx.try_recv() {
+                Ok(d) => Some(FormIpcMessage::Display(d)),
+                Err(_) => {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                    None
                 }
-            };
-            if let Some(m) = msg {
-                if let Ok(bytes) = bincode::serialize(&m) {
-                    let _ = write_framed(&mut io::stdout(), &bytes);
-                }
+            },
+        };
+        if let Some(m) = msg {
+            if let Ok(bytes) = bincode::serialize(&m) {
+                let _ = write_framed(&mut io::stdout(), &bytes);
             }
         }
     });

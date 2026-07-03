@@ -71,6 +71,40 @@ use crate::data_binding_guardian::{
     validate_binding_action, BindingActionGate, BindingActionGateReport,
 };
 
+/// Widget visuals for a live form viewport (preview + Run-Form) whose form uses
+/// the Neumorphic style: light gray-blue fills, faint strokes, gray-blue text,
+/// large rounding — per the soft-UI recipe. Replaces the dark frosted-glass
+/// visuals those viewports otherwise apply (whose near-white text override
+/// would be invisible on the light neumorphic surface).
+fn apply_neumo_form_visuals(ctx: &egui::Context) {
+    use egui::Color32;
+    let mut v = ctx.style().visuals.clone();
+    let fill = Color32::from_rgb(239, 242, 247);
+    let stroke = egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(210, 217, 227, 140));
+    v.widgets.noninteractive.bg_fill = fill;
+    v.widgets.noninteractive.bg_stroke = stroke;
+    v.widgets.inactive.bg_fill = fill;
+    v.widgets.inactive.bg_stroke = stroke;
+    v.widgets.hovered.bg_fill = Color32::from_rgb(242, 245, 249);
+    v.widgets.hovered.bg_stroke =
+        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(200, 208, 220, 170));
+    v.widgets.active.bg_fill = Color32::from_rgb(232, 237, 244);
+    v.widgets.active.bg_stroke =
+        egui::Stroke::new(1.2, Color32::from_rgba_unmultiplied(185, 193, 205, 190));
+    let rnd = egui::Rounding::same(12.0);
+    v.widgets.noninteractive.rounding = rnd;
+    v.widgets.inactive.rounding = rnd;
+    v.widgets.hovered.rounding = rnd;
+    v.widgets.active.rounding = rnd;
+    // Gray-blue text — never black, never the glass near-white.
+    v.override_text_color = Some(Color32::from_rgb(45, 55, 70));
+    // The render engine owns the (light) backdrop.
+    v.panel_fill = Color32::TRANSPARENT;
+    v.window_fill = Color32::TRANSPARENT;
+    v.extreme_bg_color = Color32::from_rgb(230, 234, 240);
+    ctx.set_visuals(v);
+}
+
 /// Whitelist of *design-intent* control properties that an interactive Run-Form
 /// adjustment may write back into the form definition (the control's new
 /// defaults). Deliberately narrow: layout only, never runtime data (Rows,
@@ -4656,8 +4690,10 @@ impl CoboltApp {
 
         // Apply the designer's active theme pack to this preview viewport's context
         // (a separate egui Context) so themed controls and charts match the canvas.
+        let dform = &self.designers[idx].1.form;
         cobolt_forms::paint::set_active_theme(ctx, self.designers[idx].1.active_theme_pack.clone());
-        cobolt_forms::paint::set_glass_style(ctx, self.designers[idx].1.form.glass_style);
+        cobolt_forms::paint::set_glass_style(ctx, dform.glass_style);
+        cobolt_forms::paint::set_neumorphic_params(ctx, dform.neumorphic_params.clone());
 
         // ── Animation tick ────────────────────────────────────────────────────
         {
@@ -4736,7 +4772,9 @@ impl CoboltApp {
         // NOTE: egui 0.29 shares visuals globally across all viewports.
         // We override here for the preview, and show_designer_window re-applies
         // the IDE glass visuals on every frame to counteract this.
-        {
+        if cobolt_forms::paint::is_neumorphic_style(ctx) {
+            apply_neumo_form_visuals(ctx);
+        } else {
             // Start from the current IDE glass visuals so we inherit the base
             // colour scheme, then layer in the preview-specific transparency.
             let mut visuals = ctx.style().visuals.clone();
@@ -4902,110 +4940,131 @@ impl CoboltApp {
             ]);
             self.inspector_sized = true;
         }
-        ctx.show_viewport_immediate(
-            vp_id,
-            builder,
-            |vp_ctx, _class| {
-                if vp_ctx.input(|i| i.viewport().close_requested()) {
-                    self.show_inspector = false;
-                }
-                // Animate the charts only while a form is being sampled; when no
-                // form runs the window is static and requests no repaints (idle).
-                if form_running {
-                    vp_ctx.request_repaint_after(std::time::Duration::from_millis(250));
-                }
-                egui::CentralPanel::default().show(vp_ctx, |ui| {
-                    self.inspector_body(ui, form_running);
-                });
-            },
-        );
+        ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
+            if vp_ctx.input(|i| i.viewport().close_requested()) {
+                self.show_inspector = false;
+            }
+            // Animate the charts only while a form is being sampled; when no
+            // form runs the window is static and requests no repaints (idle).
+            if form_running {
+                vp_ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
+            egui::CentralPanel::default().show(vp_ctx, |ui| {
+                self.inspector_body(ui, form_running);
+            });
+        });
     }
 
     /// The inspector window contents: health header + the four sparklines.
     fn inspector_body(&mut self, ui: &mut egui::Ui, form_running: bool) {
         {
-                ui.horizontal(|ui| {
-                    ui.strong("📊 Run-Form Inspector");
-                    ui.separator();
-                    if !form_running {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(200, 170, 90),
-                            "no form running — start Run Form to sample",
-                        );
-                    } else if let Some(a) = &self.inspector.last_anomaly {
-                        ui.colored_label(egui::Color32::from_rgb(240, 100, 100), format!("⚠ {a}"));
-                    } else {
-                        ui.colored_label(egui::Color32::from_rgb(120, 200, 120), "healthy");
+            ui.horizontal(|ui| {
+                ui.strong("📊 Run-Form Inspector");
+                ui.separator();
+                if !form_running {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 170, 90),
+                        "no form running — start Run Form to sample",
+                    );
+                } else if let Some(a) = &self.inspector.last_anomaly {
+                    ui.colored_label(egui::Color32::from_rgb(240, 100, 100), format!("⚠ {a}"));
+                } else {
+                    ui.colored_label(egui::Color32::from_rgb(120, 200, 120), "healthy");
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("✕ close").clicked() {
+                        self.show_inspector = false;
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("✕ close").clicked() {
-                            self.show_inspector = false;
-                        }
-                        let dumping = self.inspector.config.dump_enabled;
-                        ui.label(if dumping {
-                            format!("dumps → {}", self.inspector.config.dump_path)
-                        } else {
-                            "dumps off (Settings)".to_string()
-                        });
+                    let dumping = self.inspector.config.dump_enabled;
+                    ui.label(if dumping {
+                        format!("dumps → {}", self.inspector.config.dump_path)
+                    } else {
+                        "dumps off (Settings)".to_string()
                     });
                 });
-                ui.separator();
+            });
+            ui.separator();
 
-                let hist = self.inspector.history();
-                let latest = self.inspector.latest().unwrap_or_default();
-                let n = hist.len();
-                let cpu: Vec<f32> = hist.iter().map(|s| s.cpu_pct).collect();
-                let rss: Vec<f32> =
-                    hist.iter().map(|s| s.rss_bytes as f32 / (1024.0 * 1024.0)).collect();
-                let kids: Vec<f32> = hist.iter().map(|s| s.children as f32).collect();
-                // System memory used (MB) as a chart — replaces the redundant
-                // second CPU% metric (System CPU) with a distinct signal.
-                let sysmem: Vec<f32> = hist
-                    .iter()
-                    .map(|s| s.sys_mem_used as f32 / (1024.0 * 1024.0))
-                    .collect();
-                let sysmem_total = (latest.sys_mem_total as f32 / (1024.0 * 1024.0)).max(1.0);
+            let hist = self.inspector.history();
+            let latest = self.inspector.latest().unwrap_or_default();
+            let n = hist.len();
+            let cpu: Vec<f32> = hist.iter().map(|s| s.cpu_pct).collect();
+            let rss: Vec<f32> = hist
+                .iter()
+                .map(|s| s.rss_bytes as f32 / (1024.0 * 1024.0))
+                .collect();
+            let kids: Vec<f32> = hist.iter().map(|s| s.children as f32).collect();
+            // System memory used (MB) as a chart — replaces the redundant
+            // second CPU% metric (System CPU) with a distinct signal.
+            let sysmem: Vec<f32> = hist
+                .iter()
+                .map(|s| s.sys_mem_used as f32 / (1024.0 * 1024.0))
+                .collect();
+            let sysmem_total = (latest.sys_mem_total as f32 / (1024.0 * 1024.0)).max(1.0);
 
-                let avail = ui.available_size();
-                let chart_w = (avail.x - 24.0) / 4.0;
-                // Reserve the top ~55% for the four charts; the process tree
-                // (5th panel) fills the rest of the window below.
-                let chart_h = (avail.y * 0.55).clamp(64.0, 190.0);
-                ui.horizontal(|ui| {
-                    Self::sparkline(
-                        ui, chart_w, chart_h, "Process CPU", "%",
-                        &cpu, latest.cpu_pct, Some(100.0),
-                        egui::Color32::from_rgb(120, 200, 255),
-                    );
-                    Self::sparkline(
-                        ui, chart_w, chart_h, "Memory (RSS)", "MB",
-                        &rss, latest.rss_bytes as f32 / (1024.0 * 1024.0), None,
-                        egui::Color32::from_rgb(150, 230, 150),
-                    );
-                    Self::sparkline(
-                        ui, chart_w, chart_h, "Child procs", "",
-                        &kids, latest.children as f32, None,
-                        egui::Color32::from_rgb(240, 200, 120),
-                    );
-                    Self::sparkline(
-                        ui, chart_w, chart_h, "System Mem", "MB",
-                        &sysmem, latest.sys_mem_used as f32 / (1024.0 * 1024.0),
-                        Some(sysmem_total),
-                        egui::Color32::from_rgb(200, 160, 240),
-                    );
-                });
-                if n == 0 && form_running {
-                    ui.weak("sampling…");
-                }
+            let avail = ui.available_size();
+            let chart_w = (avail.x - 24.0) / 4.0;
+            // Reserve the top ~55% for the four charts; the process tree
+            // (5th panel) fills the rest of the window below.
+            let chart_h = (avail.y * 0.55).clamp(64.0, 190.0);
+            ui.horizontal(|ui| {
+                Self::sparkline(
+                    ui,
+                    chart_w,
+                    chart_h,
+                    "Process CPU",
+                    "%",
+                    &cpu,
+                    latest.cpu_pct,
+                    Some(100.0),
+                    egui::Color32::from_rgb(120, 200, 255),
+                );
+                Self::sparkline(
+                    ui,
+                    chart_w,
+                    chart_h,
+                    "Memory (RSS)",
+                    "MB",
+                    &rss,
+                    latest.rss_bytes as f32 / (1024.0 * 1024.0),
+                    None,
+                    egui::Color32::from_rgb(150, 230, 150),
+                );
+                Self::sparkline(
+                    ui,
+                    chart_w,
+                    chart_h,
+                    "Child procs",
+                    "",
+                    &kids,
+                    latest.children as f32,
+                    None,
+                    egui::Color32::from_rgb(240, 200, 120),
+                );
+                Self::sparkline(
+                    ui,
+                    chart_w,
+                    chart_h,
+                    "System Mem",
+                    "MB",
+                    &sysmem,
+                    latest.sys_mem_used as f32 / (1024.0 * 1024.0),
+                    Some(sysmem_total),
+                    egui::Color32::from_rgb(200, 160, 240),
+                );
+            });
+            if n == 0 && form_running {
+                ui.weak("sampling…");
+            }
 
-                // ── 5th panel: application process tree ───────────────────────
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.strong("Process tree");
-                    ui.weak("(this app + any child processes)");
-                });
-                let tree = self.inspector.process_tree();
-                egui::ScrollArea::vertical()
+            // ── 5th panel: application process tree ───────────────────────
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.strong("Process tree");
+                ui.weak("(this app + any child processes)");
+            });
+            let tree = self.inspector.process_tree();
+            egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         if tree.is_empty() {
@@ -5147,6 +5206,14 @@ impl CoboltApp {
                 .unwrap_or_default();
             cobolt_forms::paint::set_active_theme(ctx, pack);
             cobolt_forms::paint::set_glass_style(ctx, glass_style);
+            if let Some(d) = self
+                .designers
+                .iter()
+                .find(|(_, dd)| dd.form.name == fname)
+                .or_else(|| self.designers.first())
+            {
+                cobolt_forms::paint::set_neumorphic_params(ctx, d.1.form.neumorphic_params.clone());
+            }
         }
 
         // ── Form-level lifecycle events ───────────────────────────────────────
@@ -5177,8 +5244,11 @@ impl CoboltApp {
             }
         }
 
-        // Apply glass visuals identical to the preview window.
-        {
+        // Apply glass visuals identical to the preview window (or the light
+        // soft-UI visuals when the form's style is Neumorphic).
+        if cobolt_forms::paint::is_neumorphic_style(ctx) {
+            apply_neumo_form_visuals(ctx);
+        } else {
             let mut vis = ctx.style().visuals.clone();
             let gf = Color32::from_rgba_premultiplied(50, 55, 90, 55);
             let gs = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
@@ -5427,7 +5497,11 @@ impl CoboltApp {
             .designers
             .iter()
             .position(|(p, _)| *p == form_path)
-            .or_else(|| self.designers.iter().position(|(_, d)| d.form.name == fname));
+            .or_else(|| {
+                self.designers
+                    .iter()
+                    .position(|(_, d)| d.form.name == fname)
+            });
         let Some(pos) = pos else {
             self.output.push_status(
                 "Apply layout: the form's designer is not open — reopen the form, run, and try again.",

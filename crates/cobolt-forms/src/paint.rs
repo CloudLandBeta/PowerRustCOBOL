@@ -1673,7 +1673,10 @@ pub fn draw_control(
         // hard user border is suppressed in that style.
         if border_style != "None"
             && user_border_width > 0.5
-            && !matches!(active_glass_style(painter.ctx()), crate::model::GlassStyle::Neumorphic)
+            && !matches!(
+                active_glass_style(painter.ctx()),
+                crate::model::GlassStyle::Neumorphic
+            )
         {
             let bw = if selected {
                 2.0_f32.max(user_border_width)
@@ -1701,7 +1704,12 @@ pub fn draw_control(
         // Buttons get a subtle top specular — a soft vertical light reflection
         // that visually separates a clickable Button from flat fields like a
         // TextBox. Two stacked translucent bands fading downward.
-        if matches!(ctrl.control_type, CT::Button) && rect.height() > 10.0 {
+        // Suppressed under Neumorphic (the dual soft shadows + rims already give
+        // the relief; the band would fight the top-left lighting assumption).
+        if matches!(ctrl.control_type, CT::Button)
+            && rect.height() > 10.0
+            && !is_neumorphic_style(painter.ctx())
+        {
             let inset = (corner + 3.0).min(rect.width() * 0.25);
             let spec_h = (rect.height() * 0.30).clamp(3.0, 9.0);
             let band = |h: f32, alpha: u8| {
@@ -3189,6 +3197,62 @@ fn grad_rect_mesh(rect: egui::Rect, top: Color32, bottom: Color32) -> egui::epai
     m
 }
 
+/// Like [`grad_rect_mesh`] but with rounded corners (`radius` px, clamped to half
+/// the smaller side). Triangle-fan from the centre to a rounded perimeter; each
+/// vertex is coloured by its vertical position so the top→bottom gradient is
+/// preserved. `radius == 0` degenerates to a plain rectangle.
+fn grad_round_rect_mesh(
+    rect: egui::Rect,
+    top: Color32,
+    bottom: Color32,
+    radius: f32,
+) -> egui::epaint::Mesh {
+    use std::f32::consts::PI;
+    let uv = egui::epaint::WHITE_UV;
+    let mut m = egui::epaint::Mesh::default();
+    let r = radius
+        .max(0.0)
+        .min(rect.width() * 0.5)
+        .min(rect.height() * 0.5);
+    let h = rect.height().max(1.0);
+    let color_at = |y: f32| lerp_color(top, bottom, (y - rect.min.y) / h);
+
+    let center = rect.center();
+    m.vertices.push(egui::epaint::Vertex {
+        pos: center,
+        uv,
+        color: color_at(center.y),
+    });
+
+    // Rounded perimeter (clockwise), a few segments per corner arc.
+    let seg = 4usize;
+    let mut perim: Vec<Pos2> = Vec::new();
+    let mut arc = |cx: f32, cy: f32, a0: f32, a1: f32| {
+        for k in 0..=seg {
+            let t = a0 + (a1 - a0) * (k as f32 / seg as f32);
+            perim.push(Pos2::new(cx + r * t.cos(), cy + r * t.sin()));
+        }
+    };
+    arc(rect.min.x + r, rect.min.y + r, PI, 1.5 * PI); // top-left
+    arc(rect.max.x - r, rect.min.y + r, 1.5 * PI, 2.0 * PI); // top-right
+    arc(rect.max.x - r, rect.max.y - r, 0.0, 0.5 * PI); // bottom-right
+    arc(rect.min.x + r, rect.max.y - r, 0.5 * PI, PI); // bottom-left
+
+    let base = m.vertices.len() as u32;
+    for p in &perim {
+        m.vertices.push(egui::epaint::Vertex {
+            pos: *p,
+            uv,
+            color: color_at(p.y),
+        });
+    }
+    let count = perim.len() as u32;
+    for k in 0..count {
+        m.indices.extend([0, base + k, base + (k + 1) % count]);
+    }
+    m
+}
+
 /// Lerp two colours in straight component space (`t` clamped to 0..=1).
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
@@ -3407,20 +3471,31 @@ pub fn draw_chart_preview(
         .unwrap_or(false);
     // Per-corner rounding (spec 016 default 8, lifted to a container's border by the
     // caller so the chart card never bleeds past a rounded GroupBox/Panel corner).
-    let bg = Color32::from_rgba_premultiplied(15, 20, 45, a);
+    // Neumorphic charts sit on the light soft-UI surface: the face is the light
+    // panel tone (draw_neumorphic uses it as its surface colour) — never the dark
+    // navy glass face, which would punch a dark hole in the soft light card.
+    let neumo = is_neumorphic_style(painter.ctx());
+    let face = if neumo {
+        Color32::from_rgb(239, 242, 247)
+    } else {
+        Color32::from_rgb(15, 20, 45)
+    };
+    let bg = Color32::from_rgba_premultiplied(
+        (face.r() as f32 * a as f32 / 255.0) as u8,
+        (face.g() as f32 * a as f32 / 255.0) as u8,
+        (face.b() as f32 * a as f32 / 255.0) as u8,
+        a,
+    );
     if !hide_bg {
         if glass {
-            draw_glass_auto(
-                painter,
-                rect,
-                Color32::from_rgb(15, 20, 45),
-                rounding,
-                false,
-                alpha_mul,
-            );
+            draw_glass_auto(painter, rect, face, rounding, false, alpha_mul);
         } else {
             painter.rect_filled(rect, rounding, bg);
-            let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
+            let border = if neumo {
+                Color32::from_rgba_unmultiplied(210, 217, 227, 140)
+            } else {
+                Color32::from_rgba_premultiplied(60, 80, 160, a)
+            };
             painter.rect_stroke(rect, rounding, Stroke::new(1.0, border));
         }
     }
@@ -3429,6 +3504,24 @@ pub fn draw_chart_preview(
     // outside the rounded-corner frame.  We inset by 1 px so the border stroke
     // itself is never covered.
     let painter = &painter.with_clip_rect(rect.shrink(1.0));
+
+    // Neumorphic double panel (soft-UI recipe §4): an engraved inner contour a
+    // few px inside the card edge — the molded "tray" around the chart content
+    // in the reference card. A darker groove line with a white light-catch
+    // offset toward the light's opposite side reads as pressed-in relief.
+    if neumo && !hide_bg {
+        // The white "light-catch" stroke on the tray was creating thick white
+        // lines on the top and left (inside the chart area) that messed up the
+        // layout. Only the darker groove is kept for subtle relief if desired.
+        let inset = 10.0_f32.min(rect.width() * 0.06).min(rect.height() * 0.06);
+        let tray = rect.shrink(inset);
+        let tray_rnd = round_map(rounding, |c| (c - inset * 0.5).max(4.0));
+        painter.rect_stroke(
+            tray,
+            tray_rnd,
+            Stroke::new(1.0, Color32::from_rgba_unmultiplied(185, 193, 205, 120)),
+        );
+    }
 
     // 007 chart-style hook — an asset-pack theme supplies the data palette and
     // stroke width for the data marks (pie slices / lines / bars), so charts take
@@ -3447,8 +3540,19 @@ pub fn draw_chart_preview(
         .filter(|v| !v.is_empty())
         .map(|v| v.iter().map(|s| parse_color(s)).collect::<Vec<_>>())
         .unwrap_or_else(|| {
-            pal_raw
-                .iter()
+            // Neumorphic uses soft pastels (low saturation is the whole look);
+            // Liquid Glass keeps the saturated accent palette.
+            let raw: &[(u8, u8, u8)] = if neumo {
+                &[
+                    (164, 198, 238), // soft blue
+                    (245, 186, 119), // soft orange
+                    (156, 220, 169), // soft green
+                    (240, 179, 208), // soft pink
+                ]
+            } else {
+                pal_raw
+            };
+            raw.iter()
                 .map(|&(r, g, b)| Color32::from_rgb(r, g, b))
                 .collect()
         });
@@ -3528,8 +3632,11 @@ pub fn draw_chart_preview(
         .unwrap_or(true);
     if show_grid {
         // Monochrome: grid lines use a soft pastel of the base colour (spec 013 R5).
+        // Neumorphic: faint gray-blue on the light face (strong blue reads harsh).
         let grid_c = if mono {
             pastel_of(mono_base)
+        } else if neumo {
+            Color32::from_rgba_unmultiplied(185, 193, 205, 150)
         } else {
             Color32::from_rgb(118, 142, 225)
         };
@@ -3556,6 +3663,9 @@ pub fn draw_chart_preview(
     // Axes (monochrome: a pastel/slightly-stronger variant of the base — spec 013 R5)
     let ax_c = if mono {
         axis_variant(mono_base)
+    } else if neumo {
+        // Slightly stronger than the grid, still muted gray-blue.
+        Color32::from_rgb(150, 160, 178)
     } else {
         Color32::from_rgb(84, 104, 190)
     };
@@ -3609,6 +3719,13 @@ pub fn draw_chart_preview(
             let bar_total = plot.width() / n as f32;
             let bar_w = bar_total * 0.38;
             let gap = bar_total * 0.05;
+            // Per-bar corner radius from the BarCornerRadius property (default 3),
+            // clamped per-bar to half the smaller side so short/thin bars stay sane.
+            let bar_corner = ctrl
+                .get_prop("BarCornerRadius")
+                .map(|v| v.as_i64() as f32)
+                .unwrap_or(3.0)
+                .max(0.0);
             for (si, series) in [series1, series2].iter().enumerate() {
                 for (i, &v) in series.iter().enumerate() {
                     let br = if horizontal {
@@ -3623,15 +3740,28 @@ pub fn draw_chart_preview(
                         let h = v * plot.height();
                         egui::Rect::from_min_size(Pos2::new(x, plot.max.y - h), Vec2::new(bar_w, h))
                     };
+                    let r = bar_corner.min(br.width() * 0.5).min(br.height() * 0.5);
                     if gradient {
-                        // Each bar gets its own light→dark vertical gradient.
-                        painter.add(egui::Shape::mesh(grad_rect_mesh(
+                        // Each bar gets its own light→dark vertical gradient, with
+                        // the configured rounded corners.
+                        painter.add(egui::Shape::mesh(grad_round_rect_mesh(
                             br,
                             shade(mono_base, 0.20),
                             shade(mono_base, -0.20),
+                            r,
+                        )));
+                    } else if neumo {
+                        // Soft molded bar: its own pastel, faintly lit from the
+                        // top so it reads gently extruded (like the pie dome).
+                        let c = pal[si % pal.len()];
+                        painter.add(egui::Shape::mesh(grad_round_rect_mesh(
+                            br,
+                            shade(c, 0.10),
+                            shade(c, -0.07),
+                            r,
                         )));
                     } else {
-                        painter.rect_filled(br, 2.0, pal[si % pal.len()]);
+                        painter.rect_filled(br, r, pal[si % pal.len()]);
                     }
                 }
             }
@@ -3749,6 +3879,17 @@ pub fn draw_chart_preview(
                 0.0
             };
 
+            // Neumorphic: the pie sits ON the soft surface, so give it a faint
+            // blue-gray drop shadow toward the light's opposite corner (drawn
+            // first, so only the offset crescent peeks out under the disc).
+            if neumo {
+                painter.circle_filled(
+                    center + Vec2::new(3.0, 4.0),
+                    outer_r,
+                    Color32::from_rgba_unmultiplied(150, 160, 175, 60),
+                );
+            }
+
             let slices: &[f32] = &[0.30, 0.20, 0.25, 0.25]; // proportions
             let mut start = -std::f32::consts::FRAC_PI_2; // top
             for (i, &frac) in slices.iter().enumerate() {
@@ -3785,7 +3926,16 @@ pub fn draw_chart_preview(
                 }
                 // Monochrome: slice borders use a lighter variant of the base so
                 // adjacent slices separate on the dark face (spec 013 R6).
-                let slice_stroke = if mono { mono_border } else { bg };
+                // Neumorphic: thin white separators — a soft "molded" sheen
+                // between pastel sectors instead of the dark face colour.
+                let slice_stroke = if mono {
+                    mono_border
+                } else if neumo {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 160)
+                } else {
+                    bg
+                };
+                let sep_w = if neumo { 1.5 } else { 0.8 };
                 if gradient {
                     // Each slice gets its own radial gradient (light inner → dark outer).
                     painter.add(egui::Shape::mesh(grad_slice_mesh(
@@ -3799,21 +3949,39 @@ pub fn draw_chart_preview(
                     )));
                     painter.add(egui::Shape::closed_line(
                         pts,
-                        Stroke::new(0.8, slice_stroke),
+                        Stroke::new(sep_w, slice_stroke),
                     ));
                 } else {
                     let c = pal[i % pal.len()];
-                    let fill = Color32::from_rgba_premultiplied(
-                        c.r(),
-                        c.g(),
-                        c.b(),
-                        (a as f32 * 0.85) as u8,
-                    );
-                    painter.add(egui::Shape::convex_polygon(
-                        pts,
-                        fill,
-                        Stroke::new(0.8, slice_stroke),
-                    ));
+                    if neumo {
+                        // Soft dome per slice: lighter centre → slightly darker
+                        // rim (its own pastel), like the molded reference pie.
+                        painter.add(egui::Shape::mesh(grad_slice_mesh(
+                            center,
+                            start,
+                            sweep,
+                            inner_r,
+                            outer_r,
+                            shade(c, 0.14),
+                            shade(c, -0.06),
+                        )));
+                        painter.add(egui::Shape::closed_line(
+                            pts,
+                            Stroke::new(sep_w, slice_stroke),
+                        ));
+                    } else {
+                        let fill = Color32::from_rgba_premultiplied(
+                            c.r(),
+                            c.g(),
+                            c.b(),
+                            (a as f32 * 0.85) as u8,
+                        );
+                        painter.add(egui::Shape::convex_polygon(
+                            pts,
+                            fill,
+                            Stroke::new(sep_w, slice_stroke),
+                        ));
+                    }
                 }
                 start = end;
             }
@@ -3827,12 +3995,17 @@ pub fn draw_chart_preview(
         .map(|v| v.as_str().to_owned())
         .unwrap_or_default();
     if !ds.is_empty() {
+        let hint_c = if neumo {
+            Color32::from_rgba_unmultiplied(100, 112, 132, a)
+        } else {
+            Color32::from_rgba_premultiplied(130, 160, 220, a)
+        };
         painter.text(
             Pos2::new(rect.center().x, rect.max.y - margin_b * 0.4),
             egui::Align2::CENTER_CENTER,
             format!("⬡ {ds}"),
             egui::FontId::proportional(8.5),
-            Color32::from_rgba_premultiplied(130, 160, 220, a),
+            hint_c,
         );
     }
 
@@ -3847,12 +4020,18 @@ pub fn draw_chart_preview(
         _ => "",
     };
     if !badge.is_empty() {
+        let badge_c = if neumo {
+            // Gray-blue text on the light face (recipe: keep text gray-blue).
+            Color32::from_rgba_unmultiplied(60, 72, 88, a)
+        } else {
+            Color32::from_rgba_premultiplied(80, 100, 180, a)
+        };
         painter.text(
             Pos2::new(rect.max.x - margin_r - 2.0, rect.min.y + margin_t * 0.45),
             egui::Align2::RIGHT_CENTER,
             badge,
             egui::FontId::proportional(8.0),
-            Color32::from_rgba_premultiplied(80, 100, 180, a),
+            badge_c,
         );
     }
 }
@@ -4179,6 +4358,31 @@ pub fn restore_container_outline(
     }
     let rnd = egui::Rounding::same(radius);
 
+    // Neumorphic surfaces have no glass rim and no hard user border — their
+    // edge accents (outer contour, inner bevel, tinted rim) live only on the
+    // TR→BR→BL path. The rect-clipped notch mask can only have erased the parts
+    // inside the rect at the two BOTTOM corners, so redraw the accents there,
+    // clipped to those corner squares; the top corners carry no lines at all
+    // (redrawing full-perimeter strokes here was re-introducing top/left arcs).
+    if is_neumorphic_style(painter.ctx()) {
+        let n = active_neumorphic_params(painter.ctx());
+        let master_t = (n.transparency as f32 / 100.0).clamp(0.0, 1.0);
+        let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+        let corners = [
+            egui::Rect::from_min_size(
+                egui::pos2(rect.max.x - r, rect.max.y - r),
+                egui::vec2(r, r),
+            ),
+            egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.max.y - r), egui::vec2(r, r)),
+        ];
+        for clip in corners {
+            // Expand so the outside contour and blurred rim layers fit the clip.
+            let p = painter.with_clip_rect(clip.expand(5.0));
+            draw_neumorphic_edge_accents(&p, rect, rnd, &n, master_t, 1.0);
+        }
+        return;
+    }
+
     // The explicit user border (Panel/GroupBox honour BorderColor/Width/Style).
     let border_style = ctrl
         .get_prop("BorderStyle")
@@ -4409,15 +4613,184 @@ fn active_glass_style(ctx: &egui::Context) -> crate::model::GlassStyle {
         .unwrap_or(crate::model::GlassStyle::Classic)
 }
 
-/// Neumorphic (soft-UI) control surface — 100% procedural, no images. The element
-/// shares the background colour and "emerges" from it via a dual soft shadow: a
-/// dark shadow offset toward the bottom-right and a light one toward the top-left,
-/// so it reads as gently extruded relief. There is no frost and no hard border —
-/// illumination (dark/light) does all the shaping.
+/// Stroke the "shadow side" of a rounded rect: the partial outline that starts
+/// at the MIDPOINT of the top-right corner arc (its 45° diagonal — the junction
+/// where the illuminated top half hands over to the shadowed right half), runs
+/// down the right edge, follows the full bottom-right arc, crosses the bottom,
+/// and ends at the MIDPOINT of the bottom-left corner arc. It never passes half
+/// of either terminal corner, so the line always fades out exactly on the
+/// TR/BL diagonal. Nothing is ever drawn on the top or left — the illuminated
+/// sides carry no lines, so there is nothing to mask (rectangular masks were
+/// what cut the arcs and left square smudges at the rounded corners).
 ///
-/// `base` is the control's own colour; `bg_underlay` (set only when the user chose
-/// an explicit BackgroundColor) overrides the surface. `selected` adds a soft
-/// accent ring for the designer.
+/// `off` displaces the path outward (positive) or inward (negative); the arc
+/// radii follow the control's per-corner rounding (`rnd.ne`/`se`/`sw`) so every
+/// segment lands exactly on the junctions whatever the radius.
+fn stroke_tr_br_bl(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rnd: egui::Rounding,
+    off: f32,
+    stroke: Stroke,
+) {
+    let pts = shadow_side_path(rect, rnd, off);
+    if pts.len() >= 2 {
+        // One connected polyline (not separate segments) so the arc↔straight
+        // transitions get proper joins instead of butt-cap seams.
+        painter.add(egui::Shape::line(pts, stroke));
+    }
+}
+
+/// The polyline for [`stroke_tr_br_bl`], as a pure function so the endpoint
+/// geometry is unit-testable: first point = the TR corner arc's 45° midpoint,
+/// last point = the BL corner arc's 45° midpoint, arcs at each corner's own
+/// radius (± `off`).
+fn shadow_side_path(rect: egui::Rect, rnd: egui::Rounding, off: f32) -> Vec<Pos2> {
+    use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
+    let mut pts: Vec<Pos2> = Vec::new();
+    let mut push = |pts: &mut Vec<Pos2>, p: Pos2| {
+        if pts.last().map_or(true, |l| (*l - p).length() > 0.05) {
+            pts.push(p);
+        }
+    };
+    let arc = |pts: &mut Vec<Pos2>,
+               push: &mut dyn FnMut(&mut Vec<Pos2>, Pos2),
+               cx: f32,
+               cy: f32,
+               r: f32,
+               a0: f32,
+               a1: f32| {
+        if r <= 0.1 || a1 <= a0 {
+            return;
+        }
+        let steps = ((r * 0.7) as usize).clamp(6, 24);
+        for j in 0..=steps {
+            let a = a0 + (j as f32 / steps as f32) * (a1 - a0);
+            push(pts, egui::pos2(cx + r * a.cos(), cy + r * a.sin()));
+        }
+    };
+    // Half TR arc: from the corner's 45° midpoint down to the right edge —
+    // the visible start of the shadow side (never passes half the corner).
+    arc(
+        &mut pts,
+        &mut push,
+        rect.max.x - rnd.ne,
+        rect.min.y + rnd.ne,
+        (rnd.ne + off).max(0.0),
+        -FRAC_PI_4,
+        0.0,
+    );
+    // Right straight: bottom of the TR arc down to the top of the BR arc.
+    push(&mut pts, egui::pos2(rect.max.x + off, rect.min.y + rnd.ne));
+    push(&mut pts, egui::pos2(rect.max.x + off, rect.max.y - rnd.se));
+    // Full BR arc (centre is the rect's own corner-arc centre; radius shifts by off).
+    arc(
+        &mut pts,
+        &mut push,
+        rect.max.x - rnd.se,
+        rect.max.y - rnd.se,
+        (rnd.se + off).max(0.0),
+        0.0,
+        FRAC_PI_2,
+    );
+    // Bottom straight: BR arc to the BL arc.
+    push(&mut pts, egui::pos2(rect.max.x - rnd.se, rect.max.y + off));
+    push(&mut pts, egui::pos2(rect.min.x + rnd.sw, rect.max.y + off));
+    // Half BL arc: stops at the corner's 45° midpoint — the visible end of the
+    // shadow side (never wraps onto the left edge).
+    arc(
+        &mut pts,
+        &mut push,
+        rect.min.x + rnd.sw,
+        rect.max.y - rnd.sw,
+        (rnd.sw + off).max(0.0),
+        FRAC_PI_2,
+        PI * 0.75,
+    );
+    pts
+}
+
+/// The Neumorphic shadow-side edge accents: the subtle outer contour, the darker
+/// inner bevel, and the optional user-tinted rim (weight/blur/tint from
+/// [`crate::model::NeumorphicParams`]) — all drawn ONLY on the TR→BR→BL path via
+/// [`stroke_tr_br_bl`], so they obey the per-corner radius and land on the
+/// junctions with no masking. Shared by `draw_neumorphic` and the corner restore
+/// that runs after the container notch mask.
+fn draw_neumorphic_edge_accents(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rnd: egui::Rounding,
+    n: &crate::model::NeumorphicParams,
+    master_t: f32,
+    am: f32,
+) {
+    let a8 = |a: f32| (a * am * master_t).clamp(0.0, 255.0) as u8;
+    // Subtle outer contour, just outside the silhouette.
+    stroke_tr_br_bl(
+        painter,
+        rect,
+        rnd,
+        0.5,
+        Stroke::new(
+            1.0,
+            Color32::from_rgba_unmultiplied(210, 217, 227, a8(135.0)),
+        ),
+    );
+    // Darker inner bevel, inset on the shadow side only.
+    stroke_tr_br_bl(
+        painter,
+        rect,
+        rnd,
+        -3.0,
+        Stroke::new(
+            1.0,
+            Color32::from_rgba_unmultiplied(185, 193, 205, a8(95.0)),
+        ),
+    );
+    // Extra tinted rim: thickness = rim_weight, softness = rim_blur (layer count
+    // + per-layer outward offset), colour/alpha = rim_tint.
+    if n.rim_weight > 0.05 {
+        let rim = parse_color(&n.rim_tint);
+        let weight = n.rim_weight.clamp(0.2, 5.0);
+        let layers = ((n.rim_blur.max(0.0) * 1.6).round() as usize).clamp(1, 7);
+        for i in 0..layers {
+            let t = if layers <= 1 {
+                0.0
+            } else {
+                i as f32 / (layers as f32 - 1.0)
+            };
+            let off = i as f32 * 0.75;
+            let aa = a8(rim.a() as f32 * (1.0 - t * 0.68));
+            if aa < 5 {
+                continue;
+            }
+            let c = Color32::from_rgba_unmultiplied(rim.r(), rim.g(), rim.b(), aa);
+            stroke_tr_br_bl(painter, rect, rnd, off, Stroke::new(weight, c));
+        }
+    }
+}
+
+/// Neumorphic (soft-UI) control surface — 100% procedural, no images.
+///
+/// Reproduces a classic low-contrast relief / extruded "clay" look using four
+/// layers (as described for soft light neumorphic cards):
+///
+/// 1. Very light neutral background (the caller usually paints this).
+/// 2. Rounded panel fill slightly raised from the background.
+/// 3. Two soft opposite shadows:
+///    - Highlight (semi-transparent white) offset toward top-left.
+///    - Shadow (soft gray-blue) offset toward bottom-right.
+/// 4. Slightly inset inner border/rim (faint white top-left + faint darker
+///    bottom-right) to reinforce the molded look.
+///
+/// The style uses subtle tonal differences, large corner radii, soft layered
+/// shadows (cheap Gaussian via multiple expanded rects), and very thin inner
+/// strokes. Almost no hard outlines. Light is assumed from top-left.
+///
+/// `base` is the control's own colour (used as fallback). `bg_underlay` (only
+/// when the user explicitly set BackgroundColor) becomes the surface colour.
+/// `selected` adds a soft accent for the designer. `alpha_mul` is the control
+/// alpha (from the main alpha property).
 pub fn draw_neumorphic(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -4431,99 +4804,135 @@ pub fn draw_neumorphic(
         return;
     }
     let am = alpha_mul.clamp(0.0, 1.0);
+
+    let rnd0: egui::Rounding = rounding.into();
     let w = rect.width().max(1.0);
     let h = rect.height().max(1.0);
-    let rnd0: egui::Rounding = rounding.into();
     let cap = (w * 0.5).min(h * 0.5);
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
 
-    // Surface colour: the element shares the background so only the relief shows.
-    // Prefer the user background; else the control's own colour; else a neutral
-    // soft-UI panel tone. Forced OPAQUE — neumorphism reads as solid extruded
-    // material, so the default translucent glass tint must not show through.
+    // Surface colour + panel brightening (same as before).
     let src = bg_underlay
         .filter(|c| c.a() > 0)
         .or(Some(base).filter(|c| c.a() > 0))
-        .unwrap_or(Color32::from_rgb(224, 229, 236));
+        .unwrap_or(Color32::from_rgb(236, 239, 244));
     let surface = Color32::from_rgb(src.r(), src.g(), src.b());
 
-    // Dual soft shadow. Offset + blur scale with the element so small controls
-    // aren't swallowed. Drawn (blurred) BEHIND the surface: dark toward the
-    // bottom-right, light toward the top-left.
-    let d = (h.min(w) * 0.12).clamp(3.0, 11.0);
-    let blur = d * 1.7;
-    let dark = Color32::from_black_alpha((95.0 * am) as u8);
-    let light = Color32::from_rgba_premultiplied(
-        (255.0 * am) as u8,
-        (255.0 * am) as u8,
-        (255.0 * am) as u8,
-        (60.0 * am) as u8,
-    );
-    let soft = |r: egui::Rect, fill: Color32| {
-        painter.add(egui::Shape::Rect(egui::epaint::RectShape {
-            rect: r,
-            rounding: rnd,
-            fill,
-            stroke: Stroke::NONE,
-            blur_width: blur,
-            fill_texture_id: Default::default(),
-            uv: egui::Rect::ZERO,
-        }));
-    };
-    soft(rect.translate(Vec2::new(d, d)), dark);
-    soft(rect.translate(Vec2::new(-d, -d)), light);
+    let s = (w.min(h) / 300.0).clamp(0.12, 1.2);
+    let radius = rnd.nw.max(rnd.ne).max(rnd.sw).max(rnd.se);
+    let a8 = |a: f32| (a * am).clamp(0.0, 255.0) as u8;
 
-    // The surface itself, opaque, on top of the shadows.
-    let surf = Color32::from_rgba_premultiplied(
-        (surface.r() as f32 * am) as u8,
-        (surface.g() as f32 * am) as u8,
-        (surface.b() as f32 * am) as u8,
-        (surface.a() as f32 * am) as u8,
-    );
-    painter.rect_filled(rect, rnd, surf);
+    // Read live per-form Neumorphic tuning (falls back to recipe defaults).
+    let n = active_neumorphic_params(painter.ctx());
+    let master_t = (n.transparency as f32 / 100.0).clamp(0.0, 1.0);
 
-    // Soft inner illumination (NOT a border): a faint light gradient hugging the
-    // top-left inner edge and a faint dark one hugging the bottom-right, faked with
-    // two blurred rects clipped to the surface. This reinforces the extrusion
-    // without any hard outline.
-    let inner = rect.shrink(1.0);
-    let clip = painter.with_clip_rect(inner);
-    let io = (d * 0.6).clamp(2.0, 7.0);
-    let iblur = io * 1.6;
-    let inner_light = Color32::from_rgba_premultiplied(
-        (255.0 * am) as u8,
-        (255.0 * am) as u8,
-        (255.0 * am) as u8,
-        (26.0 * am) as u8,
-    );
-    let inner_dark = Color32::from_black_alpha((34.0 * am) as u8);
-    let inner_soft = |p: &egui::Painter, r: egui::Rect, fill: Color32| {
-        p.add(egui::Shape::Rect(egui::epaint::RectShape {
-            rect: r,
-            rounding: rnd,
-            fill,
-            stroke: Stroke::NONE,
-            blur_width: iblur,
-            fill_texture_id: Default::default(),
-            uv: egui::Rect::ZERO,
-        }));
+    let illum1 = parse_color(&n.illum_gradient_start);
+    let illum2 = parse_color(&n.illum_gradient_end);
+    let shad1 = parse_color(&n.shadow_gradient_start);
+    let shad2 = parse_color(&n.shadow_gradient_end);
+
+    // Distance + blur control the classic recipe offsets/spreads/layers.
+    let dist = n.distance.max(0.0);
+    let illum_bl = n.illum_blur.clamp(0.1, 4.0);
+    let shad_bl = n.shadow_blur.clamp(0.1, 4.0);
+
+    let hi_off = egui::Vec2::new(-dist * s, -dist * s * 1.1);
+    let hi_spread = 14.0 * s * illum_bl;
+    let hi_layers = ((12.0 * illum_bl).round() as usize).clamp(5, 24); // more layers + stronger for blur
+
+    let lo_off = egui::Vec2::new(dist * s, dist * s * 1.1);
+    let lo_spread = 16.0 * s * shad_bl;
+    let lo_layers = ((8.0 * shad_bl).round() as usize).clamp(3, 16);
+
+    // Build per-layer gradient colours (start = strong/inner layer, end =
+    // faint/outer layer). The stops' ALPHA channels matter: a "transparent"
+    // picker value is stored as 00000000 — transparent BLACK — so a plain RGB
+    // lerp drags the hue toward black and paints the illumination dark, like a
+    // second shadow (the classic symptom: illum set to transparent→white turns
+    // the top/left edges dark). The RGB lerp is therefore weighted by each
+    // stop's alpha (a transparent stop contributes no colour), and the layer's
+    // opacity scales with the interpolated stop alpha, so a transparent stop
+    // fades the effect out instead of darkening it.
+    let make_layer_color = |c1: Color32, c2: Color32, t: f32, base_a: f32| -> Color32 {
+        let tt = t.clamp(0.0, 1.0);
+        let a1 = c1.a() as f32 / 255.0;
+        let a2 = c2.a() as f32 / 255.0;
+        let w1 = (1.0 - tt) * a1;
+        let w2 = tt * a2;
+        let ws = w1 + w2;
+        let (r, g, b) = if ws > f32::EPSILON {
+            (
+                ((c1.r() as f32 * w1 + c2.r() as f32 * w2) / ws) as u8,
+                ((c1.g() as f32 * w1 + c2.g() as f32 * w2) / ws) as u8,
+                ((c1.b() as f32 * w1 + c2.b() as f32 * w2) / ws) as u8,
+            )
+        } else {
+            (255, 255, 255)
+        };
+        let stop_a = a1 * (1.0 - tt) + a2 * tt;
+        let aa = ((base_a * (1.0 - tt * 0.5)) * stop_a * master_t).clamp(0.0, 255.0) as u8;
+        Color32::from_rgba_unmultiplied(r, g, b, aa)
     };
-    // Light rect pushed toward top-left; dark toward bottom-right — both clipped
-    // inside the surface so only the inner edge sheen shows.
-    inner_soft(&clip, inner.translate(Vec2::new(-io, -io)), inner_light);
-    inner_soft(&clip, inner.translate(Vec2::new(io, io)), inner_dark);
+
+    // Illumination (top-left) and shadow (bottom-right) share ONE implementation
+    // — the UI exposes symmetric controls for both, so the drawing is symmetric
+    // too, differing only in the per-form gradient colours, blur, offset
+    // direction, and base strength. Directional: the strongest layer is
+    // un-expanded (expansion = spread·t from 0), so each glow stays on its own
+    // side and only the faint outer layers wrap, like a true Gaussian.
+    let soft_side =
+        |off: egui::Vec2, spread: f32, layers: usize, c1: Color32, c2: Color32, base: f32| {
+            for i in 0..layers {
+                let t = if layers <= 1 {
+                    0.0
+                } else {
+                    i as f32 / (layers as f32 - 1.0)
+                };
+                let expansion = spread * t;
+                let f = (1.0 - t).powf(2.2);
+                let col = make_layer_color(c1, c2, t, base * f);
+                if col.a() < 3 {
+                    continue;
+                }
+                painter.rect_filled(
+                    rect.translate(off).expand(expansion),
+                    egui::Rounding::same((radius + expansion).max(0.5)),
+                    col,
+                );
+            }
+        };
+    soft_side(hi_off, hi_spread, hi_layers, illum1, illum2, 80.0 * am);
+    soft_side(lo_off, lo_spread, lo_layers, shad1, shad2, 105.0 * am);
+
+    // 3. Main panel (slightly brighter surface).
+    let panel_fill = {
+        let r = (surface.r() as i32 + 3).clamp(0, 255) as u8;
+        let g = (surface.g() as i32 + 3).clamp(0, 255) as u8;
+        let b = (surface.b() as i32 + 3).clamp(0, 255) as u8;
+        Color32::from_rgba_unmultiplied(r, g, b, a8(255.0 * master_t))
+    };
+    painter.rect_filled(rect, rnd, panel_fill);
+
+    // Edge accents — outer contour, inner bevel, and the user-tinted rim — all
+    // drawn ONLY on the top-right → bottom-right → bottom-left path, as partial
+    // paths with arcs at the control's own per-corner radii. Nothing is drawn on
+    // the top/left (the illumination gradient does the shaping there), so no
+    // masking is needed: the old full-perimeter strokes + rectangular masks were
+    // exactly what produced the hard top/left lines, the square smudges outside
+    // the rounded corners, and segments that stopped short of the junctions.
+    draw_neumorphic_edge_accents(painter, rect, rnd, &n, master_t, am);
 
     if selected {
         painter.rect_stroke(
             rect.shrink(1.0),
             round_map(rnd, |c| (c - 1.0).max(0.0)),
-            Stroke::new(
+            egui::Stroke::new(
                 2.0,
                 Color32::from_rgba_premultiplied(
-                    (60.0 * am) as u8,
-                    (120.0 * am) as u8,
-                    (230.0 * am) as u8,
-                    (230.0 * am) as u8,
+                    (60.0 * am * master_t) as u8,
+                    (120.0 * am * master_t) as u8,
+                    (230.0 * am * master_t) as u8,
+                    (180.0 * am * master_t) as u8,
                 ),
             ),
         );
@@ -4596,7 +5005,27 @@ pub fn draw_glass_auto_bg(
 /// True when the active control style is Neumorphic — callers suppress hard
 /// borders/rims so elements read as illuminated relief, not outlined boxes.
 pub fn is_neumorphic_style(ctx: &egui::Context) -> bool {
-    matches!(active_glass_style(ctx), crate::model::GlassStyle::Neumorphic)
+    matches!(
+        active_glass_style(ctx),
+        crate::model::GlassStyle::Neumorphic
+    )
+}
+
+// ── Neumorphic params context (per-frame, like glass style) ───────────────────
+
+fn neumo_params_id() -> egui::Id {
+    egui::Id::new("cobolt-active-neumorphic-params")
+}
+
+/// Set the Neumorphic tuning parameters for the current frame. Call together with
+/// set_glass_style on every rendering surface when the form may use Neumorphic.
+pub fn set_neumorphic_params(ctx: &egui::Context, params: crate::model::NeumorphicParams) {
+    ctx.data_mut(|d| d.insert_temp(neumo_params_id(), params));
+}
+
+fn active_neumorphic_params(ctx: &egui::Context) -> crate::model::NeumorphicParams {
+    ctx.data(|d| d.get_temp::<crate::model::NeumorphicParams>(neumo_params_id()))
+        .unwrap_or_default()
 }
 
 // ── Menu definition cache (per control ID, set by the designer) ──────────────
@@ -4807,6 +5236,34 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
 #[cfg(test)]
 mod theme_render_tests {
     use super::*;
+
+    #[test]
+    fn neumorphic_shadow_side_path_ends_at_corner_midpoints() {
+        // 200×100 rect, radius 40, no blur offset.
+        let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(200.0, 100.0));
+        let rnd = egui::Rounding::same(40.0);
+        let pts = shadow_side_path(rect, rnd, 0.0);
+        assert!(pts.len() > 4);
+        let first = pts[0];
+        let last = *pts.last().unwrap();
+        let d = 40.0 * std::f32::consts::FRAC_1_SQRT_2; // 45° chord component
+        // Start: the 45° midpoint of the TR corner arc (never passes half of it).
+        let tr = Pos2::new(200.0 - 40.0 + d, 40.0 - d);
+        // End: the 45° midpoint of the BL corner arc (never wraps onto the left).
+        let bl = Pos2::new(40.0 - d, 100.0 - 40.0 + d);
+        assert!(
+            (first - tr).length() < 0.01,
+            "path starts at {first:?}, expected TR midpoint {tr:?}"
+        );
+        assert!(
+            (last - bl).length() < 0.01,
+            "path ends at {last:?}, expected BL midpoint {bl:?}"
+        );
+        // No point may pass the midpoints: nothing higher than the TR midpoint,
+        // nothing further left than the BL midpoint.
+        assert!(pts.iter().all(|p| p.y >= tr.y - 0.01), "passes TR midpoint");
+        assert!(pts.iter().all(|p| p.x >= bl.x - 0.01), "passes BL midpoint");
+    }
 
     #[test]
     fn nine_slice_produces_nine_cells_covering_dest() {
