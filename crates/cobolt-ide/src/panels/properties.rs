@@ -7206,33 +7206,26 @@ impl PropertiesPanel {
                     }
                     ui.end_row();
 
-                    // Theme (repurposed from glass style for form theme selection)
+                    // Theme / surface style. All three are procedural glass styles
+                    // now — Neumorphic is shadow-based (no image pack), so selecting
+                    // it just sets the glass style and clears any theme-pack override.
                     ui.label("Theme");
                     {
-                        let cur = if form.theme.as_deref() == Some("neumorphic") {
-                            "Neumorphic"
-                        } else {
-                            form.glass_style.as_str()
-                        };
+                        let cur = form.glass_style.as_str();
                         egui::ComboBox::from_id_salt("form_glass_style")
                             .selected_text(cur)
                             .width(120.0)
                             .show_ui(ui, |ui| {
                                 for opt in &["Classic", "Enhanced", "Neumorphic"] {
                                     if ui.selectable_label(cur == *opt, *opt).clicked() {
-                                        if *opt == "Neumorphic" {
-                                            action
-                                                .form_props
-                                                .push(("Theme".into(), "neumorphic".to_string()));
-                                        } else {
-                                            // Clear any neumorphic override and set glass style
-                                            action
-                                                .form_props
-                                                .push(("Theme".into(), String::new()));
-                                            action
-                                                .form_props
-                                                .push(("GlassStyle".into(), opt.to_string()));
-                                        }
+                                        // Drop any image theme-pack override, then
+                                        // set the procedural glass style.
+                                        action
+                                            .form_props
+                                            .push(("Theme".into(), String::new()));
+                                        action
+                                            .form_props
+                                            .push(("GlassStyle".into(), opt.to_string()));
                                     }
                                 }
                             });

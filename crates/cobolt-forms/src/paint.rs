@@ -1668,8 +1668,13 @@ pub fn draw_control(
         draw_glass_auto(painter, rect, fill, frame_round, selected, alpha_mul);
         // When the control has an explicit BorderStyle + BorderWidth, draw the
         // user border on top of the glass frame so containers (Panel, GroupBox)
-        // honour the same border properties as non-glass controls.
-        if border_style != "None" && user_border_width > 0.5 {
+        // honour the same border properties as non-glass controls. Neumorphic is
+        // borderless by design — its relief comes from illumination alone — so the
+        // hard user border is suppressed in that style.
+        if border_style != "None"
+            && user_border_width > 0.5
+            && !matches!(active_glass_style(painter.ctx()), crate::model::GlassStyle::Neumorphic)
+        {
             let bw = if selected {
                 2.0_f32.max(user_border_width)
             } else {
@@ -4396,14 +4401,133 @@ pub fn set_glass_style(ctx: &egui::Context, style: crate::model::GlassStyle) {
 /// Read the active glass style (defaults to Classic).
 fn active_glass_style(ctx: &egui::Context) -> crate::model::GlassStyle {
     ctx.data(|d| d.get_temp::<u8>(glass_style_id()))
-        .map(|v| {
-            if v == 1 {
-                crate::model::GlassStyle::Enhanced
-            } else {
-                crate::model::GlassStyle::Classic
-            }
+        .map(|v| match v {
+            1 => crate::model::GlassStyle::Enhanced,
+            2 => crate::model::GlassStyle::Neumorphic,
+            _ => crate::model::GlassStyle::Classic,
         })
         .unwrap_or(crate::model::GlassStyle::Classic)
+}
+
+/// Neumorphic (soft-UI) control surface — 100% procedural, no images. The element
+/// shares the background colour and "emerges" from it via a dual soft shadow: a
+/// dark shadow offset toward the bottom-right and a light one toward the top-left,
+/// so it reads as gently extruded relief. There is no frost and no hard border —
+/// illumination (dark/light) does all the shaping.
+///
+/// `base` is the control's own colour; `bg_underlay` (set only when the user chose
+/// an explicit BackgroundColor) overrides the surface. `selected` adds a soft
+/// accent ring for the designer.
+pub fn draw_neumorphic(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,
+    bg_underlay: Option<Color32>,
+    rounding: impl Into<egui::Rounding>,
+    selected: bool,
+    alpha_mul: f32,
+) {
+    if alpha_mul <= 0.0 {
+        return;
+    }
+    let am = alpha_mul.clamp(0.0, 1.0);
+    let w = rect.width().max(1.0);
+    let h = rect.height().max(1.0);
+    let rnd0: egui::Rounding = rounding.into();
+    let cap = (w * 0.5).min(h * 0.5);
+    let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
+
+    // Surface colour: the element shares the background so only the relief shows.
+    // Prefer the user background; else the control's own colour; else a neutral
+    // soft-UI panel tone. Forced OPAQUE — neumorphism reads as solid extruded
+    // material, so the default translucent glass tint must not show through.
+    let src = bg_underlay
+        .filter(|c| c.a() > 0)
+        .or(Some(base).filter(|c| c.a() > 0))
+        .unwrap_or(Color32::from_rgb(224, 229, 236));
+    let surface = Color32::from_rgb(src.r(), src.g(), src.b());
+
+    // Dual soft shadow. Offset + blur scale with the element so small controls
+    // aren't swallowed. Drawn (blurred) BEHIND the surface: dark toward the
+    // bottom-right, light toward the top-left.
+    let d = (h.min(w) * 0.12).clamp(3.0, 11.0);
+    let blur = d * 1.7;
+    let dark = Color32::from_black_alpha((95.0 * am) as u8);
+    let light = Color32::from_rgba_premultiplied(
+        (255.0 * am) as u8,
+        (255.0 * am) as u8,
+        (255.0 * am) as u8,
+        (60.0 * am) as u8,
+    );
+    let soft = |r: egui::Rect, fill: Color32| {
+        painter.add(egui::Shape::Rect(egui::epaint::RectShape {
+            rect: r,
+            rounding: rnd,
+            fill,
+            stroke: Stroke::NONE,
+            blur_width: blur,
+            fill_texture_id: Default::default(),
+            uv: egui::Rect::ZERO,
+        }));
+    };
+    soft(rect.translate(Vec2::new(d, d)), dark);
+    soft(rect.translate(Vec2::new(-d, -d)), light);
+
+    // The surface itself, opaque, on top of the shadows.
+    let surf = Color32::from_rgba_premultiplied(
+        (surface.r() as f32 * am) as u8,
+        (surface.g() as f32 * am) as u8,
+        (surface.b() as f32 * am) as u8,
+        (surface.a() as f32 * am) as u8,
+    );
+    painter.rect_filled(rect, rnd, surf);
+
+    // Soft inner illumination (NOT a border): a faint light gradient hugging the
+    // top-left inner edge and a faint dark one hugging the bottom-right, faked with
+    // two blurred rects clipped to the surface. This reinforces the extrusion
+    // without any hard outline.
+    let inner = rect.shrink(1.0);
+    let clip = painter.with_clip_rect(inner);
+    let io = (d * 0.6).clamp(2.0, 7.0);
+    let iblur = io * 1.6;
+    let inner_light = Color32::from_rgba_premultiplied(
+        (255.0 * am) as u8,
+        (255.0 * am) as u8,
+        (255.0 * am) as u8,
+        (26.0 * am) as u8,
+    );
+    let inner_dark = Color32::from_black_alpha((34.0 * am) as u8);
+    let inner_soft = |p: &egui::Painter, r: egui::Rect, fill: Color32| {
+        p.add(egui::Shape::Rect(egui::epaint::RectShape {
+            rect: r,
+            rounding: rnd,
+            fill,
+            stroke: Stroke::NONE,
+            blur_width: iblur,
+            fill_texture_id: Default::default(),
+            uv: egui::Rect::ZERO,
+        }));
+    };
+    // Light rect pushed toward top-left; dark toward bottom-right — both clipped
+    // inside the surface so only the inner edge sheen shows.
+    inner_soft(&clip, inner.translate(Vec2::new(-io, -io)), inner_light);
+    inner_soft(&clip, inner.translate(Vec2::new(io, io)), inner_dark);
+
+    if selected {
+        painter.rect_stroke(
+            rect.shrink(1.0),
+            round_map(rnd, |c| (c - 1.0).max(0.0)),
+            Stroke::new(
+                2.0,
+                Color32::from_rgba_premultiplied(
+                    (60.0 * am) as u8,
+                    (120.0 * am) as u8,
+                    (230.0 * am) as u8,
+                    (230.0 * am) as u8,
+                ),
+            ),
+        );
+    }
 }
 
 /// Dispatch to the correct glass renderer based on the active style.
@@ -4444,6 +4568,17 @@ pub fn draw_glass_auto_bg(
                 alpha_mul,
             );
         }
+        crate::model::GlassStyle::Neumorphic => {
+            draw_neumorphic(
+                painter,
+                rect,
+                base,
+                bg_underlay,
+                rounding,
+                selected,
+                alpha_mul,
+            );
+        }
         crate::model::GlassStyle::Classic => {
             draw_glass(
                 painter,
@@ -4456,6 +4591,12 @@ pub fn draw_glass_auto_bg(
             );
         }
     }
+}
+
+/// True when the active control style is Neumorphic — callers suppress hard
+/// borders/rims so elements read as illuminated relief, not outlined boxes.
+pub fn is_neumorphic_style(ctx: &egui::Context) -> bool {
+    matches!(active_glass_style(ctx), crate::model::GlassStyle::Neumorphic)
 }
 
 // ── Menu definition cache (per control ID, set by the designer) ──────────────

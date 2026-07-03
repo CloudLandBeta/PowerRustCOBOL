@@ -8,6 +8,28 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.80] — 2026-07-03
+
+### Changed
+
+- **Neumorphic theme is now 100% procedural — no images.** Neumorphic is a third
+  surface style alongside Classic/Enhanced Liquid Glass: elements share the
+  background colour and "emerge" from it via a dual soft shadow (dark toward the
+  bottom-right, light toward the top-left), with no frost and no hard border.
+  Selecting it sets the glass style and clears any image theme-pack override, so
+  the neumorphic look no longer loads PNG assets.
+
+### Fixed
+
+- **Forms/DataGrid: rounded corners render correctly while running, even nested.**
+  A DataGrid with a corner radius rendered square: its opaque cell/row fills and
+  its straight outer-border lines painted over the rounded background, and the
+  corner-notch mask (used for Panels) skips nested containers. The grid's own
+  fills are now clamped to the grid rect and rounded at the bottom corners (the
+  header already rounds the top), and the outer border is drawn as an inset
+  rounded stroke — so nothing square pokes past the radius and the outline no
+  longer bleeds a light rim outside the corner.
+
 ## [PowerRustCOBOL 1.27.79] — 2026-07-03
 
 ### Fixed

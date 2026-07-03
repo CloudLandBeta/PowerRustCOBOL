@@ -262,13 +262,9 @@ fn mask_container_notches(
 ) {
     let controls = input.controls;
     for (idx, base) in controls.iter().enumerate() {
-        // Rounded containers whose children/cells can bleed past the corner arc.
-        // A DataGrid rounds only via its background fill (its outer border is
-        // straight line segments), so its opaque cell/row fills otherwise poke a
-        // square corner past the rounded backdrop — the notch mask trims them.
         if !matches!(
             base.control_type,
-            ControlType::GroupBox | ControlType::Panel | ControlType::DataGrid
+            ControlType::GroupBox | ControlType::Panel
         ) {
             continue;
         }
@@ -303,11 +299,8 @@ fn mask_container_notches(
         // The notch mask repaints the backdrop over the corner arcs, erasing the
         // container's own border/rim there. Restore it so all four rounded corners
         // keep their outline (otherwise a Panel shows a border on its straight
-        // edges but a gap at every corner). A DataGrid has no rounded rim — its
-        // outline is straight edge lines — so it needs no restore.
-        if matches!(base.control_type, ControlType::GroupBox | ControlType::Panel) {
-            crate::paint::restore_container_outline(painter, &live, screen, rad, input.glass);
-        }
+        // edges but a gap at every corner).
+        crate::paint::restore_container_outline(painter, &live, screen, rad, input.glass);
     }
 }
 
@@ -2522,6 +2515,39 @@ fn render_interactive(
                 }
                 rows_to_draw.push((display_row, y, true));
             }
+            // Confine the grid's own opaque fills to its rounded shape at the two
+            // BOTTOM corners (the header owns the rounded top corners). A fill that
+            // reaches the grid's bottom-left / bottom-right corner is CLAMPED to the
+            // grid rect and rounded to the grid radius, so nothing square pokes past
+            // the rounded background — this is what makes a DataGrid render rounded
+            // even when nested inside another container (where the backdrop
+            // notch-mask can't be used).
+            //
+            // Clamping is essential: the last row's rect usually extends *past*
+            // `screen.max.y` and is cut square by the body clip. Rounding that
+            // off-clip rect is invisible — so we intersect with the grid rect first,
+            // then round the now-on-edge bottom corners.
+            let grid_cr = paint::corner_radius(ctrl);
+            let confine_bottom = move |r: Rect| -> (Rect, egui::Rounding) {
+                let c = r.intersect(screen);
+                let eps = 0.5;
+                let at_bottom = (c.max.y - screen.max.y).abs() < eps;
+                let rnd = egui::Rounding {
+                    nw: 0.0,
+                    ne: 0.0,
+                    sw: if at_bottom && (c.min.x - screen.min.x).abs() < eps {
+                        grid_cr
+                    } else {
+                        0.0
+                    },
+                    se: if at_bottom && (c.max.x - screen.max.x).abs() < eps {
+                        grid_cr
+                    } else {
+                        0.0
+                    },
+                };
+                (c, rnd)
+            };
             for (display_row, y, scroll_clipped) in rows_to_draw {
                 let Some(&row_index) = displayed_row_indices.get(display_row) else {
                     continue;
@@ -2536,7 +2562,8 @@ fn render_interactive(
                 };
                 let rrect = Rect::from_min_size(pos2(screen.min.x, y), vec2(screen.width(), row_h));
                 if alt_rows && display_row % 2 == 1 {
-                    body_painter.rect_filled(rrect, 0.0, alt_bg);
+                    let (ar, arnd) = confine_bottom(rrect);
+                    body_painter.rect_filled(ar, arnd, alt_bg);
                 }
                 draw_datagrid_pattern(
                     &body_painter,
@@ -2578,11 +2605,8 @@ fn render_interactive(
                     // Alternating-column highlight: fill every other column's full
                     // width for this row segment, beneath any per-cell/column colour.
                     if alt_cols && col.index % 2 == 1 {
-                        body_painter.rect_filled(
-                            Rect::from_min_size(pos2(x0, rrect.min.y), vec2(col.width, row_h)),
-                            0.0,
-                            alt_bg,
-                        );
+                        let (acr, acrnd) = confine_bottom(col_rect);
+                        body_painter.rect_filled(acr, acrnd, alt_bg);
                     }
                     let mut cell_selected = false;
                     if prop_bool(ctrl, "SelectableText", true) {
@@ -2642,7 +2666,11 @@ fn render_interactive(
                             // Full column width (not the inset cell) so the gutter
                             // beneath the vertical separators is the appearance
                             // background, not the grid backdrop showing through.
-                            body_painter.rect_filled(col_rect, 0.0, bg);
+                            // Clamped + rounded at the grid's bottom corners so the
+                            // last row's fill follows the grid radius instead of
+                            // squaring past it.
+                            let (cr_rect, cr_rnd) = confine_bottom(col_rect);
+                            body_painter.rect_filled(cr_rect, cr_rnd, bg);
                         }
                     }
                     if let Some(column) = column_meta {
@@ -3122,10 +3150,25 @@ fn render_interactive(
             {
                 let o_stroke = Stroke::new(1.0, grid_c);
                 let o_style = grid_line_style;
-                // left outer
-                draw_datagrid_line(&painter, [pos2(screen.min.x, screen.min.y), pos2(screen.min.x, screen.max.y)], o_stroke, o_style);
-                // bottom outer (below all rows)
-                draw_datagrid_line(&painter, [pos2(screen.min.x, screen.max.y), pos2(screen.max.x, screen.max.y)], o_stroke, o_style);
+                if grid_cr >= 0.5 {
+                    // Rounded grid: trace the whole outline as a rounded-rect stroke
+                    // so the bottom corners follow the radius (the header already
+                    // rounds the top corners to the same radius). egui can't dash a
+                    // rounded corner, so a rounded grid uses a solid outline. Inset
+                    // by half the stroke width so the line sits INSIDE the grid rect
+                    // — a centred stroke spills half a pixel past the edge, which
+                    // shows as a light rim bleeding outside the rounded corner.
+                    let half = o_stroke.width * 0.5;
+                    painter.rect_stroke(
+                        screen.shrink(half),
+                        egui::Rounding::same((grid_cr - half).max(0.0)),
+                        o_stroke,
+                    );
+                } else {
+                    // Square grid: left + bottom outer lines (obey GridLineStyle).
+                    draw_datagrid_line(&painter, [pos2(screen.min.x, screen.min.y), pos2(screen.min.x, screen.max.y)], o_stroke, o_style);
+                    draw_datagrid_line(&painter, [pos2(screen.min.x, screen.max.y), pos2(screen.max.x, screen.max.y)], o_stroke, o_style);
+                }
             }
             // Frozen-pane drop shadow: the frozen columns / header+rows cast a soft
             // shadow onto the content that scrolls behind them (a spreadsheet cue).
