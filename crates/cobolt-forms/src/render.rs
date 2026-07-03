@@ -424,6 +424,7 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
     for gi in groups {
         let g = &controls[gi];
         let n = repeating_instance_count(g);
+        // (per-group expand debug now emitted only for databound arrays from IDE)
         let spacing = g
             .get_prop("ItemSpacing")
             .map(|v| v.as_i64())
@@ -524,6 +525,8 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // Expand repeating groups (spec 015 / 024) into their N runtime instances so
     // the render loop below draws one card per item.
     let expanded = expand_repeating_groups(input.controls);
+    // (debug prints for repeating groups are now limited to databound ControlArrays
+    // in the IDE layer)
     let controls: &[Control] = expanded.as_deref().unwrap_or(input.controls);
     let order = containers::render_order(controls);
     let interactive = input.mode == RenderMode::Interactive;

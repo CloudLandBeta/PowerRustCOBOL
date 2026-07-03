@@ -21,13 +21,13 @@ use cobolt_forms::model::{
     derive_paragraph_name, AnimKind, AnimRepeat, AnimTrigger, AnimationDef, BgImageMode,
     EasingKind, PropValue,
 };
-use cobolt_forms::{Control, ControlType, Form};
+use cobolt_forms::{BindingTargetDescriptor, Control, ControlType, Form};
 use egui::{Color32, CursorIcon, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2};
 use std::collections::{HashMap, HashSet};
 
 use super::properties::PropertiesPanel;
 use super::toolbox::ToolboxPanel;
-use crate::app::DesignerClipboard;
+use crate::app::{refresh_data_binding_target_properties, seed_control_array_binding_preview_values, DesignerClipboard};
 use crate::project_model::{UserControlDef, UserControlEntry};
 
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
@@ -3068,6 +3068,19 @@ impl DesignerPanel {
                     }
                 }
 
+                // Refresh all databindings (so DataGrids get updated Rows etc. live in canvas too)
+                // + special array seeding for counts + per-row preview_state for ghosts.
+                refresh_data_binding_target_properties(&mut self.form);
+                {
+                    let array_bindings: Vec<_> = self.form.data_bindings.iter()
+                        .filter(|b| matches!(&b.target, BindingTargetDescriptor::ControlArray { .. }))
+                        .cloned()
+                        .collect();
+                    for b in &array_bindings {
+                        seed_control_array_binding_preview_values(self, b);
+                    }
+                }
+
                 // ── Design-time preview clones for repeating groups (spec 015) ──
                 // Render-only ghosts of each top-level repeating GroupBox + its
                 // subtree, laid out per LayoutDirection. They never enter the form
@@ -3140,6 +3153,23 @@ impl DesignerPanel {
                                 let mut clone = controls[si].clone();
                                 clone.rect.x += dx as i32;
                                 clone.rect.y += dy as i32;
+                                // For ControlArray + databinding: inject preview row values into
+                                // the ghost clones using the same instanced id scheme as expand + seed.
+                                if si != gi {
+                                    let logical_inst = (k + 1) as usize;
+                                    let base_mid = &controls[si].id;
+                                    let inst_id = if logical_inst <= 1 { base_mid.clone() } else { format!("{}#{}", base_mid, logical_inst) };
+                                    if let Some(val) = self.preview_state.get(&inst_id) {
+                                        let pkey = match clone.control_type {
+                                            ControlType::TextBox => "Text",
+                                            ControlType::PictureBox => "ImagePath",
+                                            ControlType::CheckBox | ControlType::RadioButton => "Checked",
+                                            ControlType::ComboBox | ControlType::ListBox | ControlType::Slider | ControlType::ProgressBar | ControlType::NumericUpDown | ControlType::DateTimePicker => "Value",
+                                            _ => "Caption",
+                                        };
+                                        clone.set_prop(pkey.to_string(), PropValue::String(val.clone()));
+                                    }
+                                }
                                 let dp = if si == gi {
                                     painter.clone()
                                 } else {

@@ -1254,31 +1254,61 @@ pub fn draw_control(
             painter.add(egui::Shape::mesh(mesh));
         };
 
-        // Glass track colors
-        let track_body = Color32::from_rgba_premultiplied(
-            (100.0 * alpha_mul) as u8,
-            (110.0 * alpha_mul) as u8,
-            (135.0 * alpha_mul) as u8,
-            (90.0 * alpha_mul) as u8,
-        );
-        let track_rim = Color32::from_rgba_premultiplied(
-            (180.0 * alpha_mul) as u8,
-            (185.0 * alpha_mul) as u8,
-            (210.0 * alpha_mul) as u8,
-            (120.0 * alpha_mul) as u8,
-        );
-        let thumb_body = Color32::from_rgba_premultiplied(
-            (150.0 * alpha_mul) as u8,
-            (160.0 * alpha_mul) as u8,
-            (195.0 * alpha_mul) as u8,
-            (140.0 * alpha_mul) as u8,
-        );
-        let thumb_rim = Color32::from_rgba_premultiplied(
-            (220.0 * alpha_mul) as u8,
-            (225.0 * alpha_mul) as u8,
-            (245.0 * alpha_mul) as u8,
-            (180.0 * alpha_mul) as u8,
-        );
+        // Fore color drives the KNOB (thumb); Back color drives the track BODY
+        // (along the scale). Only override the Liquid Glass defaults when the user
+        // set a *non-default* colour; otherwise keep the frosted-glass look.
+        let non_default = |prop: &str, default_hex: &str| -> Option<Color32> {
+            let raw = ctrl.get_prop(prop).map(|v| v.as_str().to_owned())?;
+            let t = raw.trim().trim_start_matches('#');
+            if t.is_empty() || t.eq_ignore_ascii_case(default_hex.trim_start_matches('#')) {
+                return None;
+            }
+            let c = parse_color(&raw);
+            (c.a() > 0).then_some(c)
+        };
+        let user_track = non_default("BackgroundColor", crate::model::DEFAULT_BACKGROUND_COLOR);
+        let user_thumb = non_default("ForegroundColor", crate::model::DEFAULT_FOREGROUND_COLOR);
+        let tint = |c: Color32, a: f32| {
+            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (a * alpha_mul).clamp(0.0, 255.0) as u8)
+        };
+
+        // Glass track/knob colours (defaults), overridden by Back/Fore colour.
+        let track_body = user_track.map(|c| tint(c, 210.0)).unwrap_or_else(|| {
+            Color32::from_rgba_premultiplied(
+                (100.0 * alpha_mul) as u8,
+                (110.0 * alpha_mul) as u8,
+                (135.0 * alpha_mul) as u8,
+                (90.0 * alpha_mul) as u8,
+            )
+        });
+        let track_rim = user_track
+            .map(|c| tint(shade(c, 0.45), 190.0))
+            .unwrap_or_else(|| {
+                Color32::from_rgba_premultiplied(
+                    (180.0 * alpha_mul) as u8,
+                    (185.0 * alpha_mul) as u8,
+                    (210.0 * alpha_mul) as u8,
+                    (120.0 * alpha_mul) as u8,
+                )
+            });
+        let thumb_body = user_thumb.map(|c| tint(c, 235.0)).unwrap_or_else(|| {
+            Color32::from_rgba_premultiplied(
+                (150.0 * alpha_mul) as u8,
+                (160.0 * alpha_mul) as u8,
+                (195.0 * alpha_mul) as u8,
+                (140.0 * alpha_mul) as u8,
+            )
+        });
+        let thumb_rim = user_thumb
+            .map(|c| tint(shade(c, 0.5), 210.0))
+            .unwrap_or_else(|| {
+                Color32::from_rgba_premultiplied(
+                    (220.0 * alpha_mul) as u8,
+                    (225.0 * alpha_mul) as u8,
+                    (245.0 * alpha_mul) as u8,
+                    (180.0 * alpha_mul) as u8,
+                )
+            });
 
         if vertical {
             // ── Vertical glass slider ────────────────────────────────────────

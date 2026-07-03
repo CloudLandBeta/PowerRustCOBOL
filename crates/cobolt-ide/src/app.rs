@@ -27,7 +27,7 @@ use cobolt_ast::program::DataSection;
 use cobolt_forms::{
     load_form, save_form, BindingDataType, BindingField, BindingSourceDescriptor,
     BindingTargetDescriptor, BindingTargetPath, DataBindingDef, DataGridAdvanced, DataGridColumn,
-    Form, PropValue, DATAGRID_ADVANCED_PROP,
+    ControlType, Form, PropValue, DATAGRID_ADVANCED_PROP,
 };
 // The run/preview per-control draw loops are gone — the unified render engine
 // owns control rendering (spec 017) — so only the form-level background-image
@@ -871,6 +871,24 @@ impl CoboltApp {
 
     // ── Form Runtime Engine (Phase 6) ─────────────────────────────────────────
 
+    /// Remove data bindings whose target/source control no longer exists from the
+    /// designer form at `idx`. Self-heals a form whose orphan predates delete-time
+    /// pruning, so the guardian can't block Run/Save with `missing-target-control`.
+    /// Marks the designer dirty and reports the cleanup when anything is removed.
+    fn autoclean_orphaned_bindings(&mut self, idx: usize) -> usize {
+        if idx >= self.designers.len() {
+            return 0;
+        }
+        let removed = self.designers[idx].1.form.prune_orphaned_data_bindings();
+        if removed > 0 {
+            self.designers[idx].1.dirty = true;
+            self.output.push_status(format!(
+                "Removed {removed} orphaned data-binding item(s) whose target/source control no longer exists."
+            ));
+        }
+        removed
+    }
+
     /// Launch a `FormRuntime` for the designer at `idx`.
     /// Saves + regenerates COBOL first so the interpreter always runs the
     /// latest version of the form.
@@ -878,6 +896,10 @@ impl CoboltApp {
         if idx >= self.designers.len() {
             return;
         }
+        // Self-heal orphaned data bindings (target/source control since deleted)
+        // before the guardian runs, so a stale config can't block Run with
+        // `missing-target-control`.
+        self.autoclean_orphaned_bindings(idx);
         let form = self.designers[idx].1.form.clone();
         let label = self.designers[idx]
             .0
@@ -1787,6 +1809,9 @@ impl CoboltApp {
         if idx >= self.designers.len() {
             return;
         }
+        // Drop data bindings orphaned by a since-deleted target/source control so
+        // the saved .cfrm stays clean and Save is never blocked on a stale config.
+        self.autoclean_orphaned_bindings(idx);
         let path = self.designers[idx].0.clone();
         let form = self.designers[idx].1.form.clone();
         let label = path
@@ -2032,7 +2057,9 @@ impl CoboltApp {
                 changed = true;
             }
             if let Some(binding) = action.create_data_binding {
+                let b = binding.clone();
                 apply_data_binding_to_form(&mut st.designer.form, binding);
+                seed_control_array_binding_preview_values(&mut st.designer, &b);
                 st.designer.dirty = true;
                 changed = true;
             }
@@ -4586,17 +4613,17 @@ impl eframe::App for CoboltApp {
 
 /// The property key that holds a control's live preview value, by type. The
 /// preview keeps one value per control; this maps it to the key the engine reads.
-fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str {
+pub(crate) fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str {
     use cobolt_forms::ControlType as CT;
     match ct {
         CT::TextBox => "Text",
+        CT::PictureBox => "ImagePath",
+        CT::CheckBox | CT::RadioButton => "Checked",
         CT::ComboBox
         | CT::ListBox
         | CT::Slider
         | CT::ProgressBar
-        | CT::NumericUpDown
-        | CT::CheckBox
-        | CT::RadioButton => "Value",
+        | CT::NumericUpDown => "Value",
         _ => "Caption",
     }
 }
@@ -4614,10 +4641,12 @@ impl cobolt_forms::render::FormState for PreviewState<'_> {
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
         let mut c = base.clone();
         if let Some(v) = self.values.get(&base.id) {
-            c.set_prop(
-                preview_value_key(&base.control_type).to_owned(),
-                cobolt_forms::PropValue::String(v.clone()),
-            );
+            let key = preview_value_key(&base.control_type).to_owned();
+            c.set_prop(key, cobolt_forms::PropValue::String(v.clone()));
+            // Ensure ControlArray-mapped properties that are not the type's primary
+            // preview key (ImagePath for thumbs, Checked for bools) still receive data.
+            c.set_prop("ImagePath".to_string(), cobolt_forms::PropValue::String(v.clone()));
+            c.set_prop("Checked".to_string(), cobolt_forms::PropValue::String(v.clone()));
         }
         c
     }
@@ -4837,6 +4866,18 @@ impl CoboltApp {
         // interactive widgets. The old preview control loop + per-type branches
         // are gone.
         let glass_v = glass;
+        // Refresh ALL databindings first (DataGrids get fresh Rows/DataSource etc.; arrays get counts).
+        // Then do array-specific seeding of preview_state values for #N instances.
+        refresh_data_binding_target_properties(&mut self.designers[idx].1.form);
+        {
+            let array_bindings: Vec<_> = self.designers[idx].1.form.data_bindings.iter()
+                .filter(|b| matches!(&b.target, BindingTargetDescriptor::ControlArray { .. }))
+                .cloned()
+                .collect();
+            for b in &array_bindings {
+                seed_control_array_binding_preview_values(&mut self.designers[idx].1, b);
+            }
+        }
         let controls = self.designers[idx].1.form.controls.clone();
         let values_snap = self.designers[idx].1.preview_state.clone();
         let backdrop = {
@@ -5959,7 +6000,9 @@ impl CoboltApp {
         }
         if let Some(binding) = inspector_action.create_data_binding {
             let d = &mut self.designers[idx].1;
+            let b = binding.clone();
             apply_data_binding_to_form(&mut d.form, binding);
+            seed_control_array_binding_preview_values(d, &b);
             d.dirty = true;
         }
         if let Some((old, new)) = inspector_action.rename_control {
@@ -6145,7 +6188,7 @@ fn apply_data_binding_to_form(form: &mut Form, binding: DataBindingDef) {
     form.data_bindings.push(binding);
 }
 
-fn refresh_data_binding_target_properties(form: &mut Form) {
+pub(crate) fn refresh_data_binding_target_properties(form: &mut Form) {
     let bindings = form.data_bindings.clone();
     for binding in &bindings {
         apply_data_binding_target_properties(form, binding);
@@ -6157,11 +6200,13 @@ fn same_binding_target(left: &BindingTargetDescriptor, right: &BindingTargetDesc
         .eq_ignore_ascii_case(right.primary_control_id())
 }
 
+
+
+
 fn apply_data_binding_target_properties(form: &mut Form, binding: &DataBindingDef) {
     if let BindingTargetDescriptor::DataGrid { control_id } = &binding.target {
-        let columns = binding
-            .source
-            .fields()
+        let fields = binding.source.fields();
+        let columns = fields
             .iter()
             .map(|field| {
                 let display_name = field.display_name.trim();
@@ -6181,11 +6226,77 @@ fn apply_data_binding_target_properties(form: &mut Form, binding: &DataBindingDe
             control.set_prop("Columns", PropValue::String(columns));
             control.set_prop("DataSource", PropValue::String(data_source));
             control.set_prop("Rows", PropValue::String(preview_rows));
-            if let Some(advanced_grid) = advanced_grid {
-                control.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(advanced_grid));
+            if let Some(adv) = advanced_grid {
+                control.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(adv));
             }
         }
     }
+    if let BindingTargetDescriptor::ControlArray { array_id, .. } = &binding.target {
+        let data_source = binding_source_basic_label(&binding.source);
+        let fields = binding.source.fields();
+        let rows_str = data_binding_preview_rows(form, binding);
+        let occurs_n = get_cobol_table_occurs_count(form, &binding.source);
+        let n = if let Some(sz) = occurs_n {
+            sz as i64
+        } else if rows_str.trim().is_empty() {
+            3i64
+        } else {
+            rows_str.lines().count() as i64
+        };
+        // find by explicit array id because array_id may be the ArrayName, not the GroupBox .id
+        if let Some(group) = form.controls.iter_mut().find(|g| {
+            matches!(g.control_type, ControlType::GroupBox) &&
+            g.explicit_control_array_id().as_deref() == Some(array_id.as_str())
+        }) {
+            group.set_prop("DataSource", PropValue::String(data_source));
+            group.set_prop("ItemCount", PropValue::Int(n));
+            group.set_prop("PreviewItemCount", PropValue::Int(n));
+        }
+    }
+}
+
+pub(crate) fn seed_control_array_binding_preview_values(d: &mut DesignerPanel, binding: &DataBindingDef) {
+    let BindingTargetDescriptor::ControlArray { array_id, member_control_ids: _ } = &binding.target else { return; };
+    let fields = binding.source.fields();
+    if fields.is_empty() { return; }
+    let rows = cobol_table_move_rows(&d.form, &binding.source, fields)
+        .or_else(|| cobol_table_value_rows(&d.form, &binding.source, fields))
+        .unwrap_or_else(|| Vec::new());
+    let n = if let Some(sz) = get_cobol_table_occurs_count(&d.form, &binding.source) {
+        sz
+    } else {
+        rows.len().clamp(1, 20)
+    };
+    if let Some(g) = d.form.controls.iter_mut().find(|g| {
+        matches!(g.control_type, ControlType::GroupBox) &&
+        g.explicit_control_array_id().as_deref() == Some(array_id.as_str())
+    }) {
+        g.set_prop("ItemCount", PropValue::Int(n as i64));
+        g.set_prop("PreviewItemCount", PropValue::Int(n as i64));
+    }
+    let num_data = rows.len();
+    for i in 0..n {
+        let inst = i + 1;
+        let row = if i < num_data {
+            &rows[i]
+        } else {
+            &fields.iter().map(|f| format!("{}#{}", f.name, inst)).collect::<Vec<String>>()
+        };
+        for mapping in &binding.mappings {
+            if let BindingTargetPath::ControlProperty { control_id: member_id, property_name, .. } = &mapping.target {
+                let src_field = &mapping.source_field;
+                if let Some(fidx) = fields.iter().position(|f| &f.name == src_field) {
+                    let val = if fidx < row.len() { row[fidx].clone() } else { format!("{}#{}", src_field, inst) };
+                    let inst_id = instance_member_id(member_id, inst);
+                    d.preview_state.insert(inst_id, val);
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn instance_member_id(base: &str, inst: usize) -> String {
+    if inst <= 1 { base.to_owned() } else { format!("{}#{}", base, inst) }
 }
 
 fn datagrid_advanced_for_binding(
@@ -6307,9 +6418,9 @@ fn data_binding_preview_rows(form: &Form, binding: &DataBindingDef) -> String {
     if fields.is_empty() {
         return String::new();
     }
-    let rows = cobol_table_move_rows(form, &binding.source, fields)
-        .or_else(|| cobol_table_value_rows(form, &binding.source, fields))
-        .unwrap_or_else(|| fallback_binding_preview_rows(&binding.source, fields));
+    let move_rows = cobol_table_move_rows(form, &binding.source, fields);
+    let value_rows = if move_rows.is_none() { cobol_table_value_rows(form, &binding.source, fields) } else { None };
+    let rows = move_rows.or(value_rows).unwrap_or_else(|| fallback_binding_preview_rows(&binding.source, fields));
     rows.into_iter()
         .filter(|row| !row.is_empty())
         .map(|row| row.join("\t"))
@@ -6357,6 +6468,50 @@ fn cobol_table_move_rows(
     } else {
         Some(rows)
     }
+}
+
+fn get_cobol_table_occurs_count(form: &Form, source: &BindingSourceDescriptor) -> Option<usize> {
+    let BindingSourceDescriptor::CobolTable { table_name, occurs_item, .. } = source else {
+        return None;
+    };
+    let ws = form.user_ws_source.trim();
+    if ws.is_empty() {
+        return None;
+    }
+    let source_code = format!(
+        "IDENTIFICATION DIVISION.\n\
+         PROGRAM-ID. GET-OCCURS.\n\
+         DATA DIVISION.\n\
+         WORKING-STORAGE SECTION.\n\
+         {ws}\n\
+         PROCEDURE DIVISION.\n\
+         MAIN.\n\
+             STOP RUN.\n"
+    );
+    let result = parse(tokenize(&source_code, SourceFormat::Free));
+    let program = result.program?;
+    let data = program.data?;
+    for section in &data.sections {
+        if let DataSection::WorkingStorage(items) = section {
+            for root in items {
+                if root.level == 1
+                    && root.name.as_deref().map_or(false, |name| name.eq_ignore_ascii_case(table_name))
+                {
+                    let item = if root.name.as_deref().map_or(false, |name| name.eq_ignore_ascii_case(occurs_item)) {
+                        Some(root)
+                    } else {
+                        find_data_decl_by_name(root, occurs_item)
+                    };
+                    if let Some(item) = item {
+                        if let Some(occ) = &item.occurs {
+                            return Some(occ.max as usize);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn form_binding_code_blocks(form: &Form) -> Vec<String> {
@@ -6588,7 +6743,8 @@ fn cobol_table_value_rows(
                 .unwrap_or_default()
         })
         .collect::<Vec<_>>();
-    if row.iter().any(|value| !value.trim().is_empty()) {
+    let has_data = row.iter().any(|value| !value.trim().is_empty());
+    if has_data {
         Some(vec![row])
     } else {
         None

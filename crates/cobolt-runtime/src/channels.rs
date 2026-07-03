@@ -31,10 +31,14 @@
 /// from this struct and returns, letting the COBOL event loop dispatch.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FormEvent {
-    /// The COBOL control ID (e.g. `"BTN-OK"`).
+    /// The COBOL control ID (e.g. `"BTN-OK"`). For repeating group members this is
+    /// the base id (without #N suffix); the instance index is in `instance_index`.
     pub ctrl_id: String,
     /// The event name (e.g. `"onClick"`, `"onChange"`, `"onGotFocus"`, `"onLostFocus"`).
     pub event_id: String,
+    /// 1-based instance index when the control is inside a repeating GroupBox
+    /// (ControlArray). 0 means scalar (not array member).
+    pub instance_index: usize,
 }
 
 impl FormEvent {
@@ -42,7 +46,13 @@ impl FormEvent {
         Self {
             ctrl_id: ctrl_id.into(),
             event_id: event_id.into(),
+            instance_index: 0,
         }
+    }
+
+    pub fn with_index(mut self, idx: usize) -> Self {
+        self.instance_index = idx;
+        self
     }
 
     /// Convenience: an `"onClick"` event on `ctrl_id`.

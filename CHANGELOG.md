@@ -8,6 +8,42 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.83] — 2026-07-03
+
+### Fixed
+
+- **Control Array (repeating GroupBox) databinding now produces instances.** When a
+  GroupBox is marked IsRepeatingGroup and bound as ControlArray to a CobolTable (or
+  other) source, `apply_data_binding_target_properties` + `seed` now correctly drive
+  `ItemCount`/`PreviewItemCount` from `OCCURS` (preferred) or row count. Preview render
+  snapshots controls *after* seeding so `expand_repeating_groups` (and designer ghosts)
+  see n>1. `PreviewState::live` and designer ghost clones now inject per-instance
+  `#N` values for mapped member controls (including non-default props like ImagePath,
+  Checked via extra writes + updated `preview_value_key`). Added richer `[DB-ARRAY]`,
+  `[DB-ARRAY live]`, `[DESIGNER-DB]` instrumentation. Unmapped source fields no longer
+  affect general binding or count logic (mappings are a subset). DataGrid and scalar
+  bindings unaffected.
+- **Deleting a databound control no longer leaves an orphaned binding that blocks
+  Run.** When a control (or an array member/host GroupBox) is deleted, its data
+  binding — and any dangling field mapping — is pruned automatically. Forms whose
+  orphan predates this are self-healed: the binding is dropped before the guardian
+  runs, so a since-deleted target no longer triggers `missing-target-control`.
+- **The data-binding editor reopens a control's saved configuration.** A control
+  that is already bound now offers "Edit current binding", and re-selecting its
+  saved source pre-fills the source selection, field rows, and (for control arrays)
+  the field→member mappings — instead of starting blank every time.
+
+### Changed
+
+- **Slider: Fore color drives the knob, Back color the track body.** The Appearance
+  section's Fore/Back colour now tints the thumb and the track along the scale
+  (overriding the Liquid Glass default only when set to a non-default colour). The
+  legacy Track/Thumb/Fill colour pickers — which the renderer never used — were
+  removed from the inspector.
+- **COBOL-table binding no longer asks for a separate occurs item.** A 01-level
+  table with OCCURS is enough; the occurs item is derived from the selected 01
+  automatically, so the redundant (read-only) occurs-item field is gone.
+
 ## [PowerRustCOBOL 1.27.82] — 2026-07-03
 
 ### Added

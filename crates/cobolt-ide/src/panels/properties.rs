@@ -310,6 +310,90 @@ impl BindingEditorState {
         })
     }
 
+    /// Open the editor pre-filled from an **existing** binding so a databound
+    /// control's settings can be edited instead of re-entered from scratch. Starts
+    /// from [`new`] (to seed member-control targets, indexed files, cobol-table
+    /// metadata) then overrides the source selection, id/name, field rows, and
+    /// control-array member mappings from the persisted binding.
+    fn from_existing(
+        form: &Form,
+        control: &Control,
+        binding: &DataBindingDef,
+        indexed_files: &[String],
+    ) -> Option<Self> {
+        use cobolt_forms::BindingSourceDescriptor as Src;
+        let source_kind = match &binding.source {
+            Src::IndexedFile { .. } => BindingEditorSourceKind::IndexedFile,
+            Src::Sql { .. } => BindingEditorSourceKind::Sql,
+            Src::CobolTable { .. } => BindingEditorSourceKind::CobolTable,
+            Src::RestApi { .. } => BindingEditorSourceKind::RestApi,
+            Src::AgentAi { .. } => BindingEditorSourceKind::AgentAi,
+        };
+        let mut s = Self::new(form, control, source_kind, indexed_files)?;
+        s.binding_id = binding.id.clone();
+        if !binding.display_name.trim().is_empty() {
+            s.display_name = binding.display_name.clone();
+        }
+        match &binding.source {
+            Src::IndexedFile {
+                definition_path, ..
+            } if !definition_path.trim().is_empty() => {
+                s.selected_indexed_file = definition_path.clone();
+            }
+            Src::Sql {
+                source_control_id, ..
+            } if !source_control_id.trim().is_empty() => {
+                s.selected_sql_control = source_control_id.clone();
+            }
+            Src::CobolTable { table_name, .. } => {
+                s.selected_cobol_table = table_name.clone();
+            }
+            Src::RestApi { endpoint_name, .. } if !endpoint_name.trim().is_empty() => {
+                s.rest_endpoint = endpoint_name.clone();
+            }
+            _ => {}
+        }
+        // Rebuild the field rows from the persisted source fields.
+        s.rows = binding
+            .source
+            .fields()
+            .iter()
+            .map(|f| {
+                let friendly = if f.display_name.trim().is_empty() {
+                    f.name.clone()
+                } else {
+                    f.display_name.clone()
+                };
+                let mut row = BindingFieldRow::new(
+                    f.name.clone(),
+                    f.cobol_mask.clone(),
+                    f.data_type.clone(),
+                    friendly,
+                    BindingEditControl::from_label(&f.edit_control),
+                    DropdownConfig::empty(),
+                );
+                row.required = !f.nullable;
+                row.key = f.key;
+                row.visible = true;
+                row.enabled = true;
+                row
+            })
+            .collect();
+        // Restore which source field maps onto which member control (arrays).
+        for mapping in &binding.mappings {
+            if let BindingTargetPath::ControlProperty { control_id, .. } = &mapping.target {
+                if let Some(row) = s
+                    .rows
+                    .iter_mut()
+                    .find(|r| r.source_field.eq_ignore_ascii_case(&mapping.source_field))
+                {
+                    row.target_member = control_id.clone();
+                }
+            }
+        }
+        Some(s)
+    }
+
     fn select_source(&mut self, source_kind: BindingEditorSourceKind) {
         if self.selected_source == Some(source_kind) {
             return;
@@ -623,6 +707,16 @@ impl BindingEditControl {
             Self::Textbox => "Textbox",
             Self::Dropdown => "Dropdown",
             Self::Checkbox => "Checkbox",
+        }
+    }
+
+    /// Reverse of [`label`] — parse a persisted `BindingField::edit_control` string
+    /// back into the editor's enum (defaults to Textbox for anything unknown).
+    fn from_label(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "dropdown" => Self::Dropdown,
+            "checkbox" => Self::Checkbox,
+            _ => Self::Textbox,
         }
     }
 }
@@ -1843,13 +1937,8 @@ fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState)
         editor.selected_cobol_field_to_add.clear();
     }
     ui.add_space(10.0);
-    ui.label(RichText::new("Occurs item").small().color(Color32::GRAY));
-    let mut occurs_item = editor.selected_cobol_occurs_item();
-    ui.add_enabled(
-        false,
-        egui::TextEdit::singleline(&mut occurs_item).desired_width(380.0),
-    );
-    ui.add_space(10.0);
+    // The occurs item is derived from the selected 01 automatically — a 01-level
+    // table with OCCURS is enough to bind to, so we no longer ask the user for it.
     let helper = if editor.selected_cobol_table.trim().is_empty() {
         if editor.cobol_tables.is_empty() {
             "No eligible 01-level GLOBAL working-storage table with OCCURS was found.".to_owned()
@@ -1859,9 +1948,8 @@ fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState)
         }
     } else {
         format!(
-            "Binding occurs to the COBOL table structure ({}) using the occurs item {}. Pagination is not required.",
+            "Binding occurs to the COBOL table structure ({}). Pagination is not required.",
             editor.selected_cobol_table,
-            occurs_item
         )
     };
     ui.label(RichText::new(helper).small().color(Color32::GRAY));
@@ -3634,6 +3722,20 @@ impl PropertiesPanel {
                         .italics(),
                 );
                 ui.add_space(2.0);
+                // If this control is already bound, offer to edit the saved
+                // configuration (pre-filled) instead of forcing a fresh setup.
+                let existing = form.binding_for_control(&ctrl.id).cloned();
+                if let Some(binding) = &existing {
+                    if ui
+                        .button(format!("✎ Edit current binding ({})", binding.display_name))
+                        .on_hover_text("Reopen this control's saved binding configuration")
+                        .clicked()
+                    {
+                        self.binding_editor =
+                            BindingEditorState::from_existing(form, ctrl, binding, indexed_files);
+                    }
+                    ui.add_space(2.0);
+                }
                 ui.label(
                     RichText::new(tr.data_binding_choose_source)
                         .color(Color32::GRAY)
@@ -3647,8 +3749,26 @@ impl PropertiesPanel {
                             .add_enabled(enabled, egui::Button::new(source_kind.label(tr)))
                             .clicked()
                         {
-                            self.binding_editor =
-                                BindingEditorState::new(form, ctrl, source_kind, indexed_files);
+                            // Re-selecting the SAME source as the saved binding
+                            // pre-fills from it; a different source starts fresh.
+                            self.binding_editor = existing
+                                .as_ref()
+                                .filter(|b| {
+                                    matches!(
+                                        (&b.source, source_kind),
+                                        (cobolt_forms::BindingSourceDescriptor::IndexedFile { .. }, BindingEditorSourceKind::IndexedFile)
+                                        | (cobolt_forms::BindingSourceDescriptor::Sql { .. }, BindingEditorSourceKind::Sql)
+                                        | (cobolt_forms::BindingSourceDescriptor::CobolTable { .. }, BindingEditorSourceKind::CobolTable)
+                                        | (cobolt_forms::BindingSourceDescriptor::RestApi { .. }, BindingEditorSourceKind::RestApi)
+                                        | (cobolt_forms::BindingSourceDescriptor::AgentAi { .. }, BindingEditorSourceKind::AgentAi)
+                                    )
+                                })
+                                .and_then(|b| {
+                                    BindingEditorState::from_existing(form, ctrl, b, indexed_files)
+                                })
+                                .or_else(|| {
+                                    BindingEditorState::new(form, ctrl, source_kind, indexed_files)
+                                });
                         }
                     }
                 });
@@ -5151,9 +5271,9 @@ impl PropertiesPanel {
                         bool_row(ui, id, "ShowValue", "Show value label", ctrl, action);
                         ui.end_row();
                     });
-                color_row(ui, id, "TrackColor", ctrl, action);
-                color_row(ui, id, "ThumbColor", ctrl, action);
-                color_row(ui, id, "FillColor", ctrl, action);
+                // Slider colours are the standard Appearance Back color (track
+                // body) and Fore color (knob). The legacy Track/Thumb/Fill colour
+                // pickers are gone — the renderer never used them.
                 ui.add_space(4.0);
             }
 
@@ -8379,6 +8499,47 @@ mod tests {
             _ => None,
         });
         assert_eq!(image.as_deref(), Some("ImagePath"));
+    }
+
+    #[test]
+    fn from_existing_reopens_saved_binding_config_for_editing() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let mut group = Control::new("CARD", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        let mut label = Control::new("NAME-LBL", ControlType::Label, 10, 10);
+        label.parent = Some("CARD".into());
+        form.controls = vec![group.clone(), label];
+
+        // Configure + save a binding through the editor.
+        let mut editor = BindingEditorState::new(&form, &group, BindingEditorSourceKind::Sql, &[])
+            .expect("editor opens");
+        editor.display_name = "Customers -> CARD".to_owned();
+        editor.binding_id = "BND-CARD".to_owned();
+        editor.selected_sql_control = "SQL-CUST".to_owned();
+        let field = editor.rows[0].source_field.clone();
+        editor.rows[0].target_member = "NAME-LBL".to_owned();
+        let binding = editor.to_binding(&form).expect("binding builds");
+        form.data_bindings.push(binding);
+
+        // Reopening the editor must restore the saved config, not start blank.
+        let existing = form
+            .binding_for_control("CARD")
+            .cloned()
+            .expect("existing binding found for the bound control");
+        let reopened = BindingEditorState::from_existing(&form, &group, &existing, &[])
+            .expect("editor reopens from the saved binding");
+        assert_eq!(reopened.binding_id, "BND-CARD");
+        assert_eq!(reopened.display_name, "Customers -> CARD");
+        assert_eq!(reopened.selected_source, Some(BindingEditorSourceKind::Sql));
+        assert_eq!(reopened.selected_sql_control, "SQL-CUST");
+        assert!(
+            reopened.rows.iter().any(|r| r.source_field == field),
+            "persisted source fields should be restored as rows"
+        );
+        assert!(
+            reopened.rows.iter().any(|r| r.target_member == "NAME-LBL"),
+            "the field→member mapping should be restored"
+        );
     }
 
     #[test]

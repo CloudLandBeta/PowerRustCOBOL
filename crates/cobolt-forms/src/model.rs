@@ -3301,6 +3301,19 @@ impl Control {
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into())); // Horizontal | Vertical
                 props.insert("TickFrequency".into(), PropValue::Int(10)); // Draw a tick every N units
                 props.insert("TickStyle".into(), PropValue::String("Bottom".into())); // None | Top | Bottom | Both
+                // Back color → track body (along the scale); Fore color → knob.
+                // Defaulting to the standard sentinels keeps the Liquid Glass look
+                // until the user picks a colour (the renderer only overrides on a
+                // non-default value). Exposing these makes the Appearance section's
+                // Back/Fore colour rows appear for the Slider.
+                props.insert(
+                    "BackgroundColor".into(),
+                    PropValue::String(DEFAULT_BACKGROUND_COLOR.into()),
+                );
+                props.insert(
+                    "ForegroundColor".into(),
+                    PropValue::String(DEFAULT_FOREGROUND_COLOR.into()),
+                );
                 props.insert("TrackColor".into(), PropValue::String("#AAAAAA".into()));
                 props.insert("ThumbColor".into(), PropValue::String("#0078D7".into()));
                 props.insert("FillColor".into(), PropValue::String("#0078D7".into())); // filled portion of track
@@ -3983,6 +3996,25 @@ impl Form {
             .find_map(|c| find_in_mut(c, &upper))
     }
 
+    /// The existing data binding whose target is `control_id` (or, for a control
+    /// array, the GroupBox hosting `control_id`'s array). Lets the binding editor
+    /// re-open an already-configured control's settings for editing instead of
+    /// starting blank. `None` when the control has no binding.
+    pub fn binding_for_control(&self, control_id: &str) -> Option<&DataBindingDef> {
+        let array_id = self
+            .find_control(control_id)
+            .and_then(|c| c.explicit_control_array_id());
+        self.data_bindings.iter().find(|b| match &b.target {
+            BindingTargetDescriptor::DataGrid { control_id: c }
+            | BindingTargetDescriptor::Chart { control_id: c, .. }
+            | BindingTargetDescriptor::ComboBox { control_id: c }
+            | BindingTargetDescriptor::ListBox { control_id: c } => c.eq_ignore_ascii_case(control_id),
+            BindingTargetDescriptor::ControlArray { array_id: a, .. } => array_id
+                .as_deref()
+                .is_some_and(|aid| a.eq_ignore_ascii_case(aid)),
+        })
+    }
+
     pub fn binding_target_descriptor_for_control(
         &self,
         id: &str,
@@ -4136,6 +4168,85 @@ impl Form {
             }
         }
         self.controls.retain(|c| c.id.to_ascii_uppercase() != upper);
+        // A deleted control must not leave dangling data-binding info behind:
+        // drop any binding whose target control (or its host GroupBox for a
+        // control array) or control-based source no longer exists, and drop any
+        // per-field mapping pointing at a now-deleted member/column control.
+        self.prune_orphaned_data_bindings();
+    }
+
+    /// Remove data bindings orphaned by a control deletion. A whole binding is
+    /// dropped when its **target** control is gone (for a control array, its host
+    /// GroupBox — resolved by array id), or when its control-based **source**
+    /// (SQL / REST / Agent host control) is gone. Surviving bindings additionally
+    /// lose any field mapping that points at a deleted member/column control, so
+    /// a repeating-group or grid binding never keeps a dangling mapping after one
+    /// of its member controls is removed. Idempotent — safe to call after every
+    /// single-control delete in a cascade, and safe to call before Run/Save to
+    /// self-heal a form whose orphan was created before delete-time pruning
+    /// existed (the guardian would otherwise block on `missing-target-control`).
+    ///
+    /// Returns the number of orphaned items removed (whole bindings + dangling
+    /// mappings on survivors); `0` means nothing changed.
+    pub fn prune_orphaned_data_bindings(&mut self) -> usize {
+        use std::collections::HashSet;
+        let ctrl_ids: HashSet<String> = self
+            .controls
+            .iter()
+            .map(|c| c.id.to_ascii_uppercase())
+            .collect();
+        let array_ids: HashSet<String> = self
+            .controls
+            .iter()
+            .filter_map(|c| c.explicit_control_array_id())
+            .map(|a| a.to_ascii_uppercase())
+            .collect();
+        let has_ctrl = |id: &str| ctrl_ids.contains(&id.to_ascii_uppercase());
+        let has_array = |id: &str| array_ids.contains(&id.to_ascii_uppercase());
+
+        // 1. Drop whole bindings whose target (or control-based source) is gone.
+        let before_bindings = self.data_bindings.len();
+        self.data_bindings.retain(|binding| {
+            let target_ok = match &binding.target {
+                BindingTargetDescriptor::DataGrid { control_id }
+                | BindingTargetDescriptor::Chart { control_id, .. }
+                | BindingTargetDescriptor::ComboBox { control_id }
+                | BindingTargetDescriptor::ListBox { control_id } => has_ctrl(control_id),
+                BindingTargetDescriptor::ControlArray { array_id, .. } => has_array(array_id),
+            };
+            let source_ok = match &binding.source {
+                BindingSourceDescriptor::Sql {
+                    source_control_id, ..
+                }
+                | BindingSourceDescriptor::RestApi {
+                    source_control_id, ..
+                }
+                | BindingSourceDescriptor::AgentAi {
+                    source_control_id, ..
+                } => source_control_id.trim().is_empty() || has_ctrl(source_control_id),
+                _ => true,
+            };
+            target_ok && source_ok
+        });
+        let mut removed = before_bindings - self.data_bindings.len();
+
+        // 2. On surviving bindings, drop dangling per-field mappings (a
+        //    member/column control deleted while its host grid/array survives).
+        for binding in &mut self.data_bindings {
+            let before = binding.mappings.len();
+            binding.mappings.retain(|m| match &m.target {
+                BindingTargetPath::GridColumn { control_id, .. }
+                | BindingTargetPath::ChartCategory { control_id }
+                | BindingTargetPath::ChartValueSeries { control_id, .. }
+                | BindingTargetPath::ChartSeriesLabel { control_id, .. }
+                | BindingTargetPath::ListDisplayItem { control_id }
+                | BindingTargetPath::ListValue { control_id }
+                | BindingTargetPath::ControlProperty { control_id, .. } => has_ctrl(control_id),
+            });
+            removed += before - binding.mappings.len();
+        }
+
+        removed
     }
 
     /// Restore a recycled control's code entries back into an existing control
@@ -5025,6 +5136,105 @@ mod tests {
             DataGridGridLineStyle::from_str("unknown"),
             DataGridGridLineStyle::Solid
         );
+    }
+
+    #[test]
+    fn deleting_a_bound_control_prunes_its_data_binding() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        form.controls
+            .push(Control::new("DG", ControlType::DataGrid, 0, 0));
+        form.controls
+            .push(Control::new("KEEP", ControlType::DataGrid, 0, 0));
+
+        let table = |name: &str| BindingSourceDescriptor::CobolTable {
+            table_name: name.into(),
+            occurs_item: "ROW".into(),
+            fields: vec![BindingField::new("F", BindingDataType::Text)],
+            key_fields: vec![],
+            writable: false,
+        };
+        form.data_bindings.push(DataBindingDef::new(
+            "b1",
+            "Grid binding",
+            table("T1"),
+            BindingTargetDescriptor::DataGrid {
+                control_id: "DG".into(),
+            },
+        ));
+        form.data_bindings.push(DataBindingDef::new(
+            "b2",
+            "Keep binding",
+            table("T2"),
+            BindingTargetDescriptor::DataGrid {
+                control_id: "KEEP".into(),
+            },
+        ));
+        assert_eq!(form.data_bindings.len(), 2);
+
+        // Deleting DG must remove b1 but leave b2 (targets a surviving control).
+        form.recycle_control("DG", "test-delete");
+        assert_eq!(form.data_bindings.len(), 1);
+        assert_eq!(form.data_bindings[0].id, "b2");
+    }
+
+    #[test]
+    fn deleting_an_array_member_prunes_its_mapping_but_keeps_binding() {
+        let mut form = Form::new("MAIN", "Main", 800, 600);
+        let mut group = Control::new("CARD", ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        form.controls.push(group);
+        form.controls
+            .push(Control::new("LBL-A", ControlType::Label, 0, 0));
+        form.controls
+            .push(Control::new("LBL-B", ControlType::Label, 0, 0));
+
+        let mut binding = DataBindingDef::new(
+            "arr",
+            "Array binding",
+            BindingSourceDescriptor::CobolTable {
+                table_name: "T".into(),
+                occurs_item: "ROW".into(),
+                fields: vec![
+                    BindingField::new("FA", BindingDataType::Text),
+                    BindingField::new("FB", BindingDataType::Text),
+                ],
+                key_fields: vec![],
+                writable: false,
+            },
+            BindingTargetDescriptor::ControlArray {
+                array_id: "CARD".into(),
+                member_control_ids: vec!["LBL-A".into(), "LBL-B".into()],
+            },
+        );
+        binding.mappings = vec![
+            FieldMapping::new(
+                "FA",
+                BindingTargetPath::ControlProperty {
+                    array_id: "CARD".into(),
+                    control_id: "LBL-A".into(),
+                    property_name: "Caption".into(),
+                },
+            ),
+            FieldMapping::new(
+                "FB",
+                BindingTargetPath::ControlProperty {
+                    array_id: "CARD".into(),
+                    control_id: "LBL-B".into(),
+                    property_name: "Caption".into(),
+                },
+            ),
+        ];
+        form.data_bindings.push(binding);
+
+        // Delete one member: its mapping goes, the binding (array host survives) stays.
+        form.recycle_control("LBL-A", "d1");
+        assert_eq!(form.data_bindings.len(), 1);
+        assert_eq!(form.data_bindings[0].mappings.len(), 1);
+        assert_eq!(form.data_bindings[0].mappings[0].source_field, "FB");
+
+        // Delete the host GroupBox: the whole array binding is pruned.
+        form.recycle_control("CARD", "d2");
+        assert!(form.data_bindings.is_empty());
     }
 
     #[test]
