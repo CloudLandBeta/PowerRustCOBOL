@@ -4876,12 +4876,40 @@ impl Interpreter {
 
     /// Assign `val` to a member chain used as a receiving field. A method-call
     /// tail is not a receiving field (spec 011) → a runtime error.
+    /// The 1-based repeating-group instance index of a `Member(idx)::Prop` write,
+    /// i.e. a subscript applied **directly to the control identifier** at the root
+    /// of the member chain (`Button-1(I)::Caption`). A subscript deeper in the
+    /// chain (`Grid::Rows(2)::Value`) is a collection index, not an instance, so it
+    /// is ignored. `0` when the target is a plain scalar control member.
+    fn member_instance_index(&mut self, target: &Expr) -> usize {
+        let mut root = target;
+        while let Expr::Member { recv, .. } = root {
+            root = recv;
+        }
+        if let Expr::Subscript { base, indices, .. } = root {
+            if matches!(base.as_ref(), Expr::Identifier(..)) {
+                if let Some(first) = indices.first() {
+                    if let Ok(v) = self.eval_expr(first, target.span()) {
+                        return v
+                            .as_display_string()
+                            .trim()
+                            .parse::<i64>()
+                            .unwrap_or(0)
+                            .max(0) as usize;
+                    }
+                }
+            }
+        }
+        0
+    }
+
     fn assign_member(&mut self, target: &Expr, val: &CobolValue) -> Result<(), RuntimeError> {
+        let instance = self.member_instance_index(target);
         let (root, res) = self.resolve_member(target)?;
         match res {
             Resolved::Path(path) => {
                 let v = val.as_display_string().trim().to_owned();
-                self.set_member(&root, &path, v);
+                self.set_member_indexed(&root, &path, v, instance);
                 Ok(())
             }
             Resolved::Method { method, .. } => Err(RuntimeError::General {
@@ -4965,6 +4993,13 @@ impl Interpreter {
     /// `[Prop(name)]` path emits `StateUpdate(control, name, value)` so existing
     /// UI bindings update; a deeper path emits a best-effort joined key.
     fn set_member(&mut self, root: &str, path: &[PathSeg], val: String) {
+        self.set_member_indexed(root, path, val, 0);
+    }
+
+    /// As [`set_member`], but tags the UI notification with a repeating-group
+    /// `instance` (1-based) so the host routes `Member(idx)::Prop` writes to the
+    /// right cloned card. `instance == 0` is a scalar control (unchanged).
+    fn set_member_indexed(&mut self, root: &str, path: &[PathSeg], val: String, instance: usize) {
         self.objects
             .set_path(root, path, PropertyValue::String(val.clone()));
         if let Some(tx) = &self.state_tx {
@@ -4972,7 +5007,7 @@ impl Interpreter {
                 [PathSeg::Prop(name)] => name.clone(),
                 _ => path_display(path),
             };
-            let _ = tx.send(StateUpdate::new(root.to_string(), key, val));
+            let _ = tx.send(StateUpdate::new(root.to_string(), key, val).with_index(instance));
         }
     }
 
@@ -7153,6 +7188,43 @@ MAIN.
             "Actor Id,Actor Caption,Actor Salary\n1,Leonardo DiCaprio,30000000\n2,Leo,12000000"
         );
         assert_eq!(interp.obj_get("ActorGrid", "_RuntimeColumnFilters"), "");
+    }
+
+    #[test]
+    fn array_member_write_carries_instance_index() {
+        // `Member(idx)::Prop = v` must tag its UI notification with the 1-based
+        // repeating-group instance index (idx), while a scalar member stays 0 —
+        // this is what lets the host route each write to the right cloned card.
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. ARR.
+PROCEDURE DIVISION.
+MAIN.
+    MOVE \"Bob\" TO Button-1(2)::Caption.
+    MOVE \"Al\"  TO Button-1(1)::Caption.
+    MOVE \"flat\" TO Label-9::Caption.
+    STOP RUN.
+";
+        let program = parse(tokenize(source, SourceFormat::Free))
+            .program
+            .expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([
+            ("Button-1".to_owned(), "Button".to_owned(), vec![]),
+            ("Label-9".to_owned(), "Label".to_owned(), vec![]),
+        ]);
+        let _ = interp.run();
+
+        let ups: Vec<_> = state_rx.try_iter().collect();
+        let by_val = |v: &str| ups.iter().find(|u| u.value == v).expect("update present");
+        let bob = by_val("Bob");
+        // COBOL upper-cases the member name; the routing is what matters here.
+        assert!(bob.prop.eq_ignore_ascii_case("Caption"));
+        assert_eq!(bob.instance_index, 2, "Button-1(2) → instance 2");
+        assert_eq!(by_val("Al").instance_index, 1, "Button-1(1) → instance 1");
+        assert_eq!(by_val("flat").instance_index, 0, "scalar member → 0");
     }
 
     #[test]

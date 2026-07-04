@@ -3108,6 +3108,14 @@ impl Control {
                 );
                 props.insert("ItemSpacing".into(), PropValue::Int(8));
                 props.insert("ItemsPerRow".into(), PropValue::Int(1));
+                // How each card appears as the data binds: None (instant),
+                // Deal (all stacked on the first card, then dealt to their final
+                // spots one after another), or FadeIn (fades in at its final spot,
+                // each after the previous finishes). See render's card-appear logic.
+                props.insert(
+                    "PlacementEffect".into(),
+                    PropValue::String("None".into()),
+                );
                 props.insert("AutoScrollParent".into(), PropValue::Bool(true));
                 props.insert("CloneEvents".into(), PropValue::Bool(true));
                 props.insert("PreviewItemCount".into(), PropValue::Int(1));

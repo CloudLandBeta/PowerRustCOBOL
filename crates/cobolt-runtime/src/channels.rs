@@ -80,12 +80,17 @@ impl FormEvent {
 /// map, so the form window reflects COBOL-driven mutations immediately.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StateUpdate {
-    /// The COBOL control ID.
+    /// The COBOL control ID. For a repeating-group (ControlArray) member this is
+    /// the **base** id (no instance suffix); the instance is `instance_index`.
     pub ctrl_id: String,
     /// The property name (e.g. `"Caption"`, `"Text"`, `"Enabled"`, `"Visible"`).
     pub prop: String,
     /// The new value as a string (booleans: `"0"`/`"1"`).
     pub value: String,
+    /// 1-based instance index when the control is a member of a repeating GroupBox
+    /// (ControlArray), i.e. written as `Member(idx)::Prop`. 0 = scalar control.
+    #[serde(default)]
+    pub instance_index: usize,
 }
 
 impl StateUpdate {
@@ -98,7 +103,14 @@ impl StateUpdate {
             ctrl_id: ctrl_id.into(),
             prop: prop.into(),
             value: value.into(),
+            instance_index: 0,
         }
+    }
+
+    /// Set the 1-based repeating-group instance index for an array-member write.
+    pub fn with_index(mut self, idx: usize) -> Self {
+        self.instance_index = idx;
+        self
     }
 }
 

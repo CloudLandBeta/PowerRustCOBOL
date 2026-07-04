@@ -5518,6 +5518,15 @@ impl PropertiesPanel {
                             action,
                             1..=100,
                         );
+                        // How each card appears as its row binds.
+                        combo_row_inline(
+                            ui,
+                            id,
+                            "PlacementEffect",
+                            ctrl,
+                            action,
+                            &["None", "Deal", "FadeIn"],
+                        );
                         bool_row_inline(
                             ui,
                             id,

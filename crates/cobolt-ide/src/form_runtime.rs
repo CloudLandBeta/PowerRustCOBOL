@@ -455,16 +455,28 @@ impl FormRuntime {
         loop {
             match self.state_rx.try_recv() {
                 Ok(upd) => {
-                    // COBOL upper-cases unquoted control identifiers (`Label-1`
-                    // becomes `LABEL-1`), but `ctrl_state` is keyed by the
-                    // designer's original-case id. Resolve case-insensitively so
-                    // property/method updates land on the rendered control.
-                    let key = self
-                        .ctrl_state
-                        .keys()
-                        .find(|k| k.eq_ignore_ascii_case(&upd.ctrl_id))
-                        .cloned()
-                        .unwrap_or_else(|| upd.ctrl_id.clone());
+                    // A repeating-group member write (`Member(idx)::Prop`) carries a
+                    // 1-based instance index. Route it to the cloned instance's id
+                    // (`<group>.<group>-<idx>.<member>`) that the renderer produced,
+                    // so each card shows its own row's value.
+                    let key = if upd.instance_index > 0 {
+                        match self.array_member_group(&upd.ctrl_id) {
+                            Some((member_id, group_id)) => {
+                                cobolt_forms::render::member_instance_id(
+                                    &group_id,
+                                    &member_id,
+                                    upd.instance_index,
+                                )
+                            }
+                            // Not resolvable as an array member — fall back to base.
+                            None => self.resolve_ctrl_key(&upd.ctrl_id),
+                        }
+                    } else {
+                        // COBOL upper-cases unquoted control identifiers (`Label-1`
+                        // becomes `LABEL-1`), but `ctrl_state` is keyed by the
+                        // designer's original-case id. Resolve case-insensitively.
+                        self.resolve_ctrl_key(&upd.ctrl_id)
+                    };
                     let entry = self.ctrl_state.entry(key).or_default();
                     entry.set(&upd.prop, upd.value);
                     changed = true;
@@ -473,6 +485,44 @@ impl FormRuntime {
             }
         }
         changed
+    }
+
+    /// Resolve an interpreter control id (often upper-cased) to the matching
+    /// `ctrl_state` key (original case), or return it unchanged if unknown.
+    fn resolve_ctrl_key(&self, id: &str) -> String {
+        self.ctrl_state
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(id))
+            .cloned()
+            .unwrap_or_else(|| id.to_owned())
+    }
+
+    /// For a repeating-group member id (case-insensitive), return its original-case
+    /// id and the id of its repeating-GroupBox ancestor. `None` when the control
+    /// isn't a member of a repeating group.
+    fn array_member_group(&self, ctrl_id: &str) -> Option<(String, String)> {
+        let member = self
+            .controls
+            .iter()
+            .find(|c| c.id.eq_ignore_ascii_case(ctrl_id))?;
+        let member_id = member.id.clone();
+        let mut cur = member;
+        loop {
+            let parent_id = cur.parent.as_deref()?;
+            let parent = self
+                .controls
+                .iter()
+                .find(|c| c.id.eq_ignore_ascii_case(parent_id))?;
+            let is_repeating = matches!(parent.control_type, cobolt_forms::ControlType::GroupBox)
+                && parent
+                    .get_prop("IsRepeatingGroup")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(false);
+            if is_repeating {
+                return Some((member_id, parent.id.clone()));
+            }
+            cur = parent;
+        }
     }
 
     /// Drain all pending DISPLAY output lines. Caller pushes them to the

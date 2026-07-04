@@ -1739,27 +1739,44 @@ fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase>
             || p.at(&Token::Period)
             || is_stmt_start(p.peek())
     };
+    let is_line = |p: &Parser| p.at(&Token::Line) || is_word(p.peek(), "LINE");
+    let is_col = |p: &Parser| is_word(p.peek(), "COLUMN") || is_word(p.peek(), "COL");
     let mut sp = ScreenPhrase::default();
     let mut got = false;
     loop {
-        if is_word(p.peek(), "AT") {
+        // `AT` is OPTIONAL before a position: `LINE n [COL n]` and `COL n` are
+        // accepted with or without a leading AT (many dialects allow the bare
+        // form, e.g. `ACCEPT ITEM LINE A + B COL C + D`). The position operands
+        // are full expressions, so arithmetic works there like everywhere else.
+        let has_at = is_word(p.peek(), "AT");
+        if has_at {
             p.advance(); // AT
             got = true;
-            if p.at(&Token::Line) || is_word(p.peek(), "LINE") {
+        }
+        if is_line(p) {
+            p.advance();
+            got = true;
+            sp.line = Some(parse_expr(p));
+            if is_col(p) {
                 p.advance();
-                sp.line = Some(parse_expr(p));
-                if is_word(p.peek(), "COLUMN") || is_word(p.peek(), "COL") {
-                    p.advance();
-                    sp.col = Some(parse_expr(p));
-                }
-            } else if is_expr_start(p) {
-                // AT nnnn — a combined row*100+col position.
-                sp.at = Some(parse_expr(p));
+                sp.col = Some(parse_expr(p));
             }
-        } else if p.at(&Token::With) && !is_word(p.peek_at(1), "NO") {
+        } else if is_col(p) {
+            p.advance();
+            got = true;
+            sp.col = Some(parse_expr(p));
+        } else if has_at && is_expr_start(p) {
+            // AT nnnn — a combined row*100+col position.
+            sp.at = Some(parse_expr(p));
+        } else if !has_at && p.at(&Token::With) && !is_word(p.peek_at(1), "NO") {
             p.advance(); // WITH
             got = true;
-            while !stop(p) && !p.at(&Token::With) && !is_word(p.peek(), "AT") {
+            while !stop(p)
+                && !p.at(&Token::With)
+                && !is_word(p.peek(), "AT")
+                && !is_line(p)
+                && !is_col(p)
+            {
                 match ident_upper(p).as_deref() {
                     Some("HIGHLIGHT") | Some("BOLD") => sp.highlight = true,
                     Some("REVERSE-VIDEO") | Some("REVERSE") => sp.reverse = true,
@@ -1769,6 +1786,7 @@ fn parse_screen_phrase(p: &mut Parser) -> Option<cobolt_ast::stmt::ScreenPhrase>
                 p.advance();
             }
         } else {
+            // Nothing (more) to consume. A lone `AT` still counts as a phrase.
             break;
         }
     }
@@ -1851,12 +1869,18 @@ fn parse_display(p: &mut Parser) -> Stmt {
     p.advance(); // DISPLAY
 
     let mut operands = Vec::new();
-    // Collect operands until UPON, WITH, NO, AT (screen position), or end.
+    // Collect operands until UPON, WITH, NO, a screen position (AT / LINE / COL),
+    // or end. LINE is a keyword, but COLUMN/COL lex as identifiers, so they must
+    // be excluded explicitly or a bare `DISPLAY X COL 5` would eat COL.
     while is_expr_start(p)
         && !p.at(&Token::Upon)
         && !p.at(&Token::With)
         && !p.at(&Token::No)
         && !is_word(p.peek(), "AT")
+        && !p.at(&Token::Line)
+        && !is_word(p.peek(), "LINE")
+        && !is_word(p.peek(), "COLUMN")
+        && !is_word(p.peek(), "COL")
     {
         operands.push(parse_expr(p));
     }

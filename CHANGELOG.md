@@ -8,6 +8,33 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.84] — 2026-07-04
+
+### Fixed
+
+- **Arrayed-control (repeating GroupBox) data binding now shows each row at runtime.**
+  A `Member(idx)::Prop` write no longer drops its subscript: `StateUpdate` carries a
+  1-based `instance_index`, the interpreter tags array-member writes with it, and the
+  IDE routes each write to the matching cloned card. Cloned ids use a collision-safe,
+  group-prefixed scheme (`<group>.<group>-<n>.<member>`) shared by the renderer, the
+  preview seed, and the runtime router.
+- **Numeric expressions parse in the last remaining position.** DISPLAY/MOVE/IF/
+  subscripts already accepted arithmetic; the screen-position phrase now accepts a
+  bare `LINE`/`COL` (no leading `AT`) with expression operands, e.g.
+  `ACCEPT ITEM LINE A + B COL C + D`.
+
+### Changed
+
+- **Repeating-group cards: layout, indexing, and empty-source behavior.** Instances
+  start at index 1 and are placed by direction — full height+spacing down (Vertical)
+  or width+spacing across (Horizontal), Grid wrapping every `ItemsPerRow`. A databound
+  group with **0 rows renders no card at all**; an unbound group still shows its
+  template.
+- **New `PlacementEffect` for card appearance** (repeating GroupBox): `None` (instant),
+  `Deal` (all cards start stacked on the first card, then deal out to their final spots
+  one after another — off-screen cards are placed instantly, no phantom fly-in), or
+  `FadeIn` (each fades in at its final spot, 200 ms, one after the previous finishes).
+
 ## [PowerRustCOBOL 1.27.83] — 2026-07-03
 
 ### Fixed

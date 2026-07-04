@@ -381,50 +381,210 @@ fn is_repeating_instance_group(c: &Control) -> bool {
             .unwrap_or(false)
 }
 
-/// How many runtime instances a repeating group renders: `ItemCount` when it has
-/// been populated (e.g. by a data binding), otherwise `PreviewItemCount`.
+/// How many runtime instances a repeating group renders.
+///
+/// A **databound** group (its `DataSource` is set) treats `ItemCount` as
+/// authoritative — including **0**, which renders NO card at all (an empty data
+/// source shows nothing; task 3). An **unbound** template group falls back to
+/// `PreviewItemCount` (clamped ≥1) so the designer always has one card to edit.
 fn repeating_instance_count(c: &Control) -> usize {
-    let item = c.get_prop("ItemCount").map(|v| v.as_i64()).unwrap_or(0);
-    let n = if item > 0 {
-        item
+    let bound = c
+        .get_prop("DataSource")
+        .map(|v| !v.as_str().trim().is_empty())
+        .unwrap_or(false);
+    if bound {
+        c.get_prop("ItemCount")
+            .map(|v| v.as_i64())
+            .unwrap_or(0)
+            .clamp(0, 500) as usize
     } else {
         c.get_prop("PreviewItemCount")
             .map(|v| v.as_i64())
             .unwrap_or(1)
-    };
-    n.clamp(1, 500) as usize
+            .clamp(1, 500) as usize
+    }
 }
 
-/// The id of a member control in the `inst`-th (1-based) instance of an array.
-/// Instance 1 keeps the original id; later instances are suffixed so they render
-/// and interact independently.
-fn instance_member_id(base: &str, inst: usize) -> String {
-    if inst <= 1 {
-        base.to_owned()
-    } else {
-        format!("{base}#{inst}")
+/// Id of the `inst`-th (**1-based**) clone of repeating group `group_id`:
+/// `"<group>.<group>-<inst>"`. Every instance — including the first — is prefixed,
+/// so a member's runtime id can never collide with the designed base id or with a
+/// same-named member of a different group (task 1).
+pub fn group_instance_id(group_id: &str, inst: usize) -> String {
+    format!("{group_id}.{group_id}-{inst}")
+}
+
+/// Id of member `member_id` inside the `inst`-th clone of `group_id`:
+/// `"<group>.<group>-<inst>.<member>"`.
+pub fn member_instance_id(group_id: &str, member_id: &str, inst: usize) -> String {
+    format!("{group_id}.{group_id}-{inst}.{member_id}")
+}
+
+/// How each card of a repeating group appears as its row binds (`PlacementEffect`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PlacementEffect {
+    /// Cards appear instantly at their final spot as the data binds.
+    None,
+    /// All cards start stacked on the first card, then deal out to their final
+    /// spots one after another. A card whose final spot is off-screen is placed
+    /// there instantly (no phantom fly-in).
+    Deal,
+    /// Each card fades in (200 ms) at its final spot, one after the previous.
+    FadeIn,
+}
+
+impl PlacementEffect {
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "deal" => Self::Deal,
+            "fadein" | "fade-in" | "fade in" => Self::FadeIn,
+            _ => Self::None,
+        }
+    }
+}
+
+/// Duration (seconds) of one card's appearance; cards animate sequentially so the
+/// stagger between card `i` and `i+1` is also this long.
+pub const CARD_APPEAR_DUR: f32 = 0.2;
+
+/// Fold a repeating-group card's appearance effect into its base transform `tf`.
+/// Reads the `_Card*` metadata stamped by [`expand_repeating_groups`], derives the
+/// per-group appear clock from egui memory (the ctx time the cards first showed),
+/// and requests a repaint while the animation runs. `viewport` is the visible area
+/// used for the Deal off-screen (no-phantom) test. Non-card controls pass through.
+fn apply_card_appear(
+    base: &Control,
+    tf: RenderTransform,
+    final_screen: Rect,
+    viewport: Rect,
+    ctx: &egui::Context,
+) -> RenderTransform {
+    let effect = match base.get_prop("_CardEffect") {
+        Some(v) => PlacementEffect::parse(v.as_str()),
+        None => return tf,
+    };
+    if effect == PlacementEffect::None {
+        return tf;
+    }
+    let inst = base
+        .get_prop("_CardInstance")
+        .map(|v| v.as_i64())
+        .unwrap_or(1)
+        .max(1) as usize;
+    let from = (
+        base.get_prop("_CardFromDx").map(|v| v.as_i64()).unwrap_or(0) as f32,
+        base.get_prop("_CardFromDy").map(|v| v.as_i64()).unwrap_or(0) as f32,
+    );
+    let group = base
+        .get_prop("_CardGroup")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_default();
+    // Per-group clock: seconds since these cards first appeared. Stored in egui
+    // memory keyed by the group id, set on the first frame the cards render.
+    let now = ctx.input(|i| i.time);
+    let key = egui::Id::new(("card-appear-start", group));
+    let start = ctx.memory_mut(|m| *m.data.get_temp_mut_or_insert_with(key, || now));
+    let elapsed = (now - start).max(0.0) as f32;
+    // Deal skips the fly-in for a card whose final spot is outside the viewport.
+    let clipped = !viewport.intersects(final_screen);
+    let (card_tf, animating) = card_appear_transform(effect, inst, elapsed, from, clipped);
+    if animating {
+        ctx.request_repaint();
+    }
+    RenderTransform {
+        dx: tf.dx + card_tf.dx,
+        dy: tf.dy + card_tf.dy,
+        scale: tf.scale * card_tf.scale,
+        alpha: tf.alpha * card_tf.alpha,
+    }
+}
+
+/// The transform for one repeating-group card as it appears, plus whether it is
+/// still animating (so the caller can keep requesting frames).
+///
+/// `inst` is 1-based; `elapsed` is seconds since the group's cards first appeared;
+/// `from` is the vector from the card's FINAL screen position back to the first
+/// card (used by Deal). `clipped` = the card's final spot is outside the visible
+/// viewport, so Deal skips its fly-in. Card `inst` animates during
+/// `[(inst-1)·DUR, inst·DUR]`.
+pub fn card_appear_transform(
+    effect: PlacementEffect,
+    inst: usize,
+    elapsed: f32,
+    from: (f32, f32),
+    clipped: bool,
+) -> (RenderTransform, bool) {
+    let dur = CARD_APPEAR_DUR;
+    let start = inst.saturating_sub(1) as f32 * dur;
+    let local = ((elapsed - start) / dur).clamp(0.0, 1.0);
+    let done = elapsed >= start + dur;
+    match effect {
+        PlacementEffect::None => (RenderTransform::IDENTITY, false),
+        PlacementEffect::FadeIn => {
+            // Invisible until its turn, then fade 0→1 in place.
+            let alpha = if elapsed < start { 0.0 } else { local };
+            (
+                RenderTransform {
+                    alpha,
+                    ..RenderTransform::IDENTITY
+                },
+                !done,
+            )
+        }
+        PlacementEffect::Deal => {
+            if clipped {
+                // Off-screen: place at the final spot immediately (no phantom).
+                (RenderTransform::IDENTITY, false)
+            } else {
+                // Smoothstep from the first-card position (factor 1) to final (0).
+                let e = local * local * (3.0 - 2.0 * local);
+                let f = 1.0 - e;
+                (
+                    RenderTransform {
+                        dx: from.0 * f,
+                        dy: from.1 * f,
+                        ..RenderTransform::IDENTITY
+                    },
+                    !done,
+                )
+            }
+        }
     }
 }
 
 /// Expand each top-level repeating GroupBox into its N runtime instances so the
-/// shared render loop draws N cards. Instance 1 is the original template in place;
-/// instances 2..N are clones of the group's subtree, shifted by the group's
-/// layout (Vertical / Horizontal / Grid) with instance-unique ids. Returns `None`
-/// when there is nothing to expand.
+/// shared render loop draws one card per row. The original template subtree is
+/// removed and replaced by instances `1..=N`, each a clone shifted by the group's
+/// layout (Vertical / Horizontal / Grid) and re-id'd under the group-prefixed
+/// scheme. A databound group with 0 rows produces no instances at all. Returns
+/// `None` when there is no repeating group to expand.
 fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
     let groups: Vec<usize> = (0..controls.len())
-        .filter(|&i| {
-            is_repeating_instance_group(&controls[i]) && repeating_instance_count(&controls[i]) > 1
-        })
+        .filter(|&i| is_repeating_instance_group(&controls[i]))
         .collect();
     if groups.is_empty() {
         return None;
     }
-    let mut out: Vec<Control> = controls.to_vec();
-    for gi in groups {
+    // Indices belonging to ANY repeating group (the group + its descendants) —
+    // these originals are dropped and re-emitted as numbered instances.
+    let mut in_group: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for &gi in &groups {
+        in_group.insert(gi);
+        for d in crate::containers::collect_descendants(controls, gi) {
+            in_group.insert(d);
+        }
+    }
+    // Every control that is NOT part of a repeating group stays as designed.
+    let mut out: Vec<Control> = controls
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !in_group.contains(i))
+        .map(|(_, c)| c.clone())
+        .collect();
+
+    for &gi in &groups {
         let g = &controls[gi];
+        let group_id = g.id.clone();
         let n = repeating_instance_count(g);
-        // (per-group expand debug now emitted only for databound arrays from IDE)
         let spacing = g
             .get_prop("ItemSpacing")
             .map(|v| v.as_i64())
@@ -439,12 +599,24 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
             .map(|v| v.as_i64())
             .unwrap_or(1)
             .max(1) as usize;
+        // Placement step per instance: the group's own size plus the item spacing
+        // (task 2) — full HEIGHT+padding down for Vertical, full WIDTH+padding
+        // across for Horizontal, and a Grid wraps every `ItemsPerRow`.
         let gw = g.rect.w as f32;
         let gh = g.rect.h as f32;
         let subtree: Vec<usize> = std::iter::once(gi)
             .chain(crate::containers::collect_descendants(controls, gi))
             .collect();
-        for inst in 2..=n {
+        // Card-appear effect (PlacementEffect). Stamped on every clone so the
+        // render loop can animate the whole card; `None` skips stamping entirely.
+        let effect = g
+            .get_prop("PlacementEffect")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let animated = PlacementEffect::parse(&effect) != PlacementEffect::None;
+        // Instances start at 1 (task 3). `n == 0` (empty databound source) skips
+        // the loop entirely, so the group and its children never render.
+        for inst in 1..=n {
             let step = (inst - 1) as f32;
             let (dx, dy) = match dir.as_str() {
                 "Horizontal" => (step * (gw + spacing), 0.0),
@@ -455,12 +627,28 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
                 }
                 _ => (0.0, step * (gh + spacing)),
             };
+            let reid = |orig: &str| -> String {
+                if orig == group_id {
+                    group_instance_id(&group_id, inst)
+                } else {
+                    member_instance_id(&group_id, orig, inst)
+                }
+            };
             for &si in &subtree {
                 let mut clone = controls[si].clone();
                 clone.rect.x += dx as i32;
                 clone.rect.y += dy as i32;
-                clone.id = instance_member_id(&clone.id, inst);
-                clone.parent = clone.parent.as_deref().map(|p| instance_member_id(p, inst));
+                clone.id = reid(&controls[si].id);
+                clone.parent = controls[si].parent.as_deref().map(reid);
+                if animated {
+                    // The card starts stacked on the first card (Deal), so the
+                    // "from" vector is the delta from its final spot back there.
+                    clone.set_prop("_CardEffect", crate::model::PropValue::String(effect.clone()));
+                    clone.set_prop("_CardGroup", crate::model::PropValue::String(group_id.clone()));
+                    clone.set_prop("_CardInstance", crate::model::PropValue::Int(inst as i64));
+                    clone.set_prop("_CardFromDx", crate::model::PropValue::Int(-(dx as i64)));
+                    clone.set_prop("_CardFromDy", crate::model::PropValue::Int(-(dy as i64)));
+                }
                 out.push(clone);
             }
         }
@@ -549,6 +737,14 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // surfaces (preview now, designer later) supply entrance effects this way;
         // the default is identity (run / compiled / static designer).
         let tf = input.state.transform(base);
+        // The card's FINAL (un-animated) screen rect — used to decide whether a
+        // Deal card is off-screen (no phantom fly-in) before adding the effect.
+        let final_screen = Rect::from_min_size(
+            origin + Vec2::new(r.x as f32 + tf.dx, r.y as f32 + tf.dy),
+            Vec2::new(r.w as f32, r.h as f32),
+        );
+        // Fold the repeating-group card-appear effect (Deal / FadeIn) into `tf`.
+        let tf = apply_card_appear(base, tf, final_screen, form_rect, ui.ctx());
         let base_screen = Rect::from_min_size(
             origin + Vec2::new(r.x as f32 + tf.dx, r.y as f32 + tf.dy),
             Vec2::new(r.w as f32, r.h as f32),
@@ -3722,39 +3918,105 @@ mod tests {
         c
     }
 
-    #[test]
-    fn repeating_group_expands_into_runtime_instances() {
+    fn bound_repeating_group(count: i64) -> Vec<Control> {
         use crate::model::PropValue;
         let mut group = ctrl("CARD", ControlType::GroupBox, 0, 0, 200, 60);
         group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
-        group.set_prop("ItemCount", PropValue::Int(3));
+        group.set_prop("DataSource", PropValue::String("Customers".into()));
+        group.set_prop("ItemCount", PropValue::Int(count));
         group.set_prop("LayoutDirection", PropValue::String("Vertical".into()));
         group.set_prop("ItemSpacing", PropValue::Int(10));
         let mut member = ctrl("NAME", ControlType::Label, 10, 10, 80, 20);
         member.parent = Some("CARD".into());
-        let controls = vec![group, member];
+        vec![group, member]
+    }
 
-        let expanded = expand_repeating_groups(&controls).expect("should expand");
+    #[test]
+    fn repeating_group_expands_into_runtime_instances() {
+        let expanded = expand_repeating_groups(&bound_repeating_group(3)).expect("should expand");
         // 3 instances × 2 controls.
         assert_eq!(expanded.len(), 6);
-        // Instance 1 keeps the original ids in place.
-        assert!(expanded.iter().any(|c| c.id == "CARD" && c.rect.y == 0));
-        // Instance 2 is shifted down by group height + spacing (60 + 10) and its
-        // member's parent points at the cloned group.
-        let g2 = expanded.iter().find(|c| c.id == "CARD#2").expect("CARD#2");
+        // Every instance — including the first — uses the group-prefixed scheme
+        // (task 1): no clone keeps the bare designed id.
+        assert!(expanded.iter().all(|c| c.id != "CARD" && c.id != "NAME"));
+        // Instance 1 at the origin; group id "CARD.CARD-1", member "CARD.CARD-1.NAME".
+        let g1 = expanded.iter().find(|c| c.id == "CARD.CARD-1").expect("g1");
+        assert_eq!(g1.rect.y, 0);
+        let m1 = expanded
+            .iter()
+            .find(|c| c.id == "CARD.CARD-1.NAME")
+            .expect("m1");
+        assert_eq!(m1.parent.as_deref(), Some("CARD.CARD-1"));
+        // Instance 2 shifted down by group height + spacing (60 + 10 = 70) (task 2).
+        let g2 = expanded.iter().find(|c| c.id == "CARD.CARD-2").expect("g2");
         assert_eq!(g2.rect.y, 70);
-        let m2 = expanded.iter().find(|c| c.id == "NAME#2").expect("NAME#2");
-        assert_eq!(m2.parent.as_deref(), Some("CARD#2"));
+        let m2 = expanded
+            .iter()
+            .find(|c| c.id == "CARD.CARD-2.NAME")
+            .expect("m2");
+        assert_eq!(m2.parent.as_deref(), Some("CARD.CARD-2"));
         assert_eq!(m2.rect.y, 10 + 70);
         // Instance 3 shifted twice.
         assert_eq!(
-            expanded.iter().find(|c| c.id == "CARD#3").unwrap().rect.y,
+            expanded
+                .iter()
+                .find(|c| c.id == "CARD.CARD-3")
+                .unwrap()
+                .rect
+                .y,
             140
         );
 
         // A form without a repeating group is left untouched.
         let plain = vec![ctrl("BTN", ControlType::Button, 0, 0, 40, 20)];
         assert!(expand_repeating_groups(&plain).is_none());
+    }
+
+    #[test]
+    fn card_appear_effects_stagger_and_place() {
+        let d = CARD_APPEAR_DUR;
+        // None: always identity, never animating.
+        let (t, a) = card_appear_transform(PlacementEffect::None, 3, 0.05, (10.0, 20.0), false);
+        assert!(!a && t.dx == 0.0 && t.alpha == 1.0);
+
+        // FadeIn: card 2 is invisible before its window, mid-fade during, done after.
+        let (t0, _) = card_appear_transform(PlacementEffect::FadeIn, 2, 0.0, (0.0, 0.0), false);
+        assert_eq!(t0.alpha, 0.0, "card 2 hidden before its turn");
+        let (tm, anim) = card_appear_transform(PlacementEffect::FadeIn, 2, d + d * 0.5, (0.0, 0.0), false);
+        assert!(tm.alpha > 0.3 && tm.alpha < 0.7 && anim, "card 2 mid-fade");
+        let (tf, done) = card_appear_transform(PlacementEffect::FadeIn, 2, 2.0 * d + 0.01, (0.0, 0.0), false);
+        assert!(tf.alpha == 1.0 && !done, "card 2 fully faded in");
+
+        // Deal: card 2 starts fully offset (on the first card) and ends at final.
+        let (ds, _) = card_appear_transform(PlacementEffect::Deal, 2, d, (0.0, -70.0), false);
+        assert_eq!(ds.dy, -70.0, "card 2 begins stacked on the first card");
+        let (de, done) = card_appear_transform(PlacementEffect::Deal, 2, 2.0 * d + 0.01, (0.0, -70.0), false);
+        assert!(de.dy == 0.0 && !done, "card 2 dealt to its final spot");
+        // Deal off-screen: no phantom fly-in — placed at final immediately.
+        let (dc, anim) = card_appear_transform(PlacementEffect::Deal, 5, d, (0.0, -280.0), true);
+        assert!(dc.dy == 0.0 && !anim, "clipped card is placed, not animated");
+    }
+
+    #[test]
+    fn databound_group_with_zero_rows_renders_no_instances() {
+        // 0 rows (task 3): the group and its children disappear entirely.
+        let expanded = expand_repeating_groups(&bound_repeating_group(0)).expect("still processed");
+        assert!(expanded.is_empty(), "0 rows must produce no cards");
+    }
+
+    #[test]
+    fn unbound_repeating_group_shows_one_template() {
+        use crate::model::PropValue;
+        // No DataSource → ItemCount is ignored; PreviewItemCount governs (default 1).
+        let mut group = ctrl("CARD", ControlType::GroupBox, 0, 0, 200, 60);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        group.set_prop("ItemCount", PropValue::Int(0));
+        group.set_prop("PreviewItemCount", PropValue::Int(1));
+        let mut member = ctrl("NAME", ControlType::Label, 10, 10, 80, 20);
+        member.parent = Some("CARD".into());
+        let expanded = expand_repeating_groups(&vec![group, member]).expect("expand");
+        assert_eq!(expanded.len(), 2, "unbound group still shows its template");
+        assert!(expanded.iter().any(|c| c.id == "CARD.CARD-1.NAME"));
     }
 
     #[test]

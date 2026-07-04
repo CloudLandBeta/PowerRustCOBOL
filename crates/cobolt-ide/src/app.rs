@@ -6267,10 +6267,21 @@ pub(crate) fn seed_control_array_binding_preview_values(d: &mut DesignerPanel, b
     } else {
         rows.len().clamp(1, 20)
     };
-    if let Some(g) = d.form.controls.iter_mut().find(|g| {
-        matches!(g.control_type, ControlType::GroupBox) &&
-        g.explicit_control_array_id().as_deref() == Some(array_id.as_str())
-    }) {
+    // The clone-id scheme keys off the GroupBox's own control id (`g.id`), which
+    // is what the renderer's `expand_repeating_groups` uses — not the array name.
+    let group_ctrl_id = d
+        .form
+        .controls
+        .iter()
+        .find(|g| {
+            matches!(g.control_type, ControlType::GroupBox)
+                && g.explicit_control_array_id().as_deref() == Some(array_id.as_str())
+        })
+        .map(|g| g.id.clone());
+    let Some(group_ctrl_id) = group_ctrl_id else {
+        return;
+    };
+    if let Some(g) = d.form.controls.iter_mut().find(|g| g.id == group_ctrl_id) {
         g.set_prop("ItemCount", PropValue::Int(n as i64));
         g.set_prop("PreviewItemCount", PropValue::Int(n as i64));
     }
@@ -6287,16 +6298,13 @@ pub(crate) fn seed_control_array_binding_preview_values(d: &mut DesignerPanel, b
                 let src_field = &mapping.source_field;
                 if let Some(fidx) = fields.iter().position(|f| &f.name == src_field) {
                     let val = if fidx < row.len() { row[fidx].clone() } else { format!("{}#{}", src_field, inst) };
-                    let inst_id = instance_member_id(member_id, inst);
+                    let inst_id =
+                        cobolt_forms::render::member_instance_id(&group_ctrl_id, member_id, inst);
                     d.preview_state.insert(inst_id, val);
                 }
             }
         }
     }
-}
-
-pub(crate) fn instance_member_id(base: &str, inst: usize) -> String {
-    if inst <= 1 { base.to_owned() } else { format!("{}#{}", base, inst) }
 }
 
 fn datagrid_advanced_for_binding(

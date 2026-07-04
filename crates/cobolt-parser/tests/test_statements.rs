@@ -557,3 +557,32 @@ fn malformed_function_argument_terminates_with_diagnostic() {
         "parser should still yield a program"
     );
 }
+
+#[test]
+fn arithmetic_expressions_are_allowed_in_common_positions() {
+    // DISPLAY operands, MOVE source, IF condition operands, and subscripts (incl.
+    // inside a `::` member chain) all accept full arithmetic expressions.
+    parse_stmts(&prog("    DISPLAY \"IDX\" CONTROL-ARRAY-INDEX + 1.\n"));
+    parse_stmts(&prog("    MOVE CONTROL-ARRAY-INDEX / 10 TO X.\n"));
+    parse_stmts(&prog(
+        "    IF (CONTROL-ARRAY-INDEX + 1 > 0) DISPLAY \"y\" END-IF.\n",
+    ));
+    parse_stmts(&prog(
+        "    DISPLAY BTN-1(CONTROL-ARRAY-INDEX + 1)::BackgroundColor.\n",
+    ));
+}
+
+#[test]
+fn screen_position_line_col_parse_without_at_and_with_arithmetic() {
+    // Bare LINE/COL (no leading AT) with arithmetic operands must parse for both
+    // ACCEPT and DISPLAY — the reported gap. The AT form and WITH attributes,
+    // and plain (position-less) ACCEPT/DISPLAY, keep working.
+    parse_stmts(&prog("    ACCEPT ITM LINE A + B COL C + D.\n"));
+    parse_stmts(&prog("    ACCEPT ITM COL C + D.\n"));
+    parse_stmts(&prog("    DISPLAY ITM LINE A + 1 COL C.\n"));
+    parse_stmts(&prog("    DISPLAY ITM COL 5.\n"));
+    parse_stmts(&prog("    ACCEPT ITM AT LINE A + B COL C + D.\n"));
+    parse_stmts(&prog("    ACCEPT ITM LINE A COL B WITH HIGHLIGHT.\n"));
+    parse_stmts(&prog("    DISPLAY A B.\n"));
+    parse_stmts(&prog("    ACCEPT ITM.\n"));
+}
