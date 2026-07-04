@@ -188,6 +188,15 @@ fn write_data_division(out: &mut String, form: &Form) {
 
     let all_controls = collect_all_controls(&form.controls);
 
+    // Declare the array index var in main WS if any member control has events.
+    // The runtime will populate it from the incoming FormEvent's instance_index
+    // before the EVALUATE/CALL in the event loop.
+    if all_controls.iter().any(|c| {
+        form.array_binding_context_for_member(&c.id).is_some() && !c.events.is_empty()
+    }) {
+        out.push_str("       01 CONTROL-ARRAY-INDEX     PIC S9(4) COMP-5 VALUE 0.\n");
+    }
+
     // ── REST / HTTP infrastructure (emitted when any RestClient exists) ─────
     let has_rest = all_controls
         .iter()
@@ -1446,11 +1455,20 @@ fn write_event_loop(out: &mut String, form: &Form) {
                     "                           WHEN \"{}\"\n",
                     ev.event
                 ));
-                // Dispatch to nested program via CALL (not PERFORM)
-                out.push_str(&format!(
-                    "                               CALL \"{}\"\n",
-                    ev.paragraph
-                ));
+                // Dispatch to nested program via CALL (not PERFORM).
+                // For repeating-group (array) member controls, pass the index
+                // so the handler's CONTROL-ARRAY-INDEX linkage item is populated.
+                if form.array_binding_context_for_member(&ctrl.id).is_some() {
+                    out.push_str(&format!(
+                        "                               CALL \"{}\" USING CONTROL-ARRAY-INDEX\n",
+                        ev.paragraph
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "                               CALL \"{}\"\n",
+                        ev.paragraph
+                    ));
+                }
             }
             out.push_str("                       END-EVALUATE\n");
         }

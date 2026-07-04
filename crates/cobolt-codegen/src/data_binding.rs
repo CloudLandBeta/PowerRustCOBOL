@@ -89,7 +89,7 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
             binding.id,
             target_label(&binding.target)
         ));
-        write_datagrid_refresh_seed(out, binding);
+        write_binding_refresh_seed(out, binding);
         out.push_str(&format!(
             "           CALL \"COBOL-BINDING-POPULATE\" USING \"{}\" {}-STATUS\n",
             binding.id, pfx
@@ -138,9 +138,11 @@ fn sorted_mappings(binding: &DataBindingDef) -> Vec<&cobolt_forms::FieldMapping>
     binding.sorted_mapping_refs()
 }
 
-fn write_datagrid_refresh_seed(out: &mut String, binding: &DataBindingDef) {
-    let BindingTargetDescriptor::DataGrid { control_id } = &binding.target else {
-        return;
+fn write_binding_refresh_seed(out: &mut String, binding: &DataBindingDef) {
+    let (control_id, is_array) = match &binding.target {
+        BindingTargetDescriptor::DataGrid { control_id } => (control_id.as_str(), false),
+        BindingTargetDescriptor::ControlArray { array_id, .. } => (array_id.as_str(), true),
+        _ => return,
     };
     let BindingSourceDescriptor::CobolTable { fields, .. } = &binding.source else {
         return;
@@ -148,7 +150,7 @@ fn write_datagrid_refresh_seed(out: &mut String, binding: &DataBindingDef) {
     if fields.is_empty() {
         return;
     }
-    let fields = fields
+    let fields_joined = fields
         .iter()
         .map(|field| field.name.as_str())
         .collect::<Vec<_>>()
@@ -157,8 +159,45 @@ fn write_datagrid_refresh_seed(out: &mut String, binding: &DataBindingDef) {
         "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\"\n"
     ));
     out.push_str(&format!(
-        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"{fields}\"\n"
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"{fields_joined}\"\n"
     ));
+    if is_array {
+        // For arrayed GroupBox, also seed the array name if different, for runtime lookup
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingArray\" BY CONTENT \"1\"\n"
+        ));
+        // Seed target mappings so REFRESHBINDING can hydrate per-instance member values
+        // from the source table (format: sourceField\tmemberControlId\tpropName per line).
+        let maps: Vec<String> = binding
+            .mappings
+            .iter()
+            .filter_map(|m| {
+                if let BindingTargetPath::ControlProperty {
+                    control_id: member,
+                    property_name: prop,
+                    ..
+                } = &m.target
+                {
+                    Some(format!("{}\t{}\t{}", m.source_field, member, prop))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !maps.is_empty() {
+            let joined = maps.join("\n");
+            out.push_str(&format!(
+                "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingMappings\" BY CONTENT \"{}\"\n",
+                joined
+            ));
+        }
+        // Trigger full bind (count + member hydration + effects) during initial POPULATE
+        // so databound repeating GroupBox cards appear with row data on load, just like
+        // DataGrids. User can also CALL/INVOKE RefreshBinding later to re-sync.
+        out.push_str(&format!(
+            "           INVOKE {control_id} 'RefreshBinding'\n"
+        ));
+    }
 }
 
 fn binding_prefix(id: &str) -> String {

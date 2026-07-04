@@ -211,12 +211,17 @@ fn clips_to_container_border(ct: &ControlType) -> bool {
 /// exceeds the parent's border is cut by the parent — not by the child's own bounds
 /// (spec 017, the container-clip rule). `None` when the parent isn't rounded.
 fn picturebox_container_border(
-    input: &RenderInput<'_>,
+    controls: &[Control],
+    state: &dyn FormState,
     idx: usize,
     origin: egui::Pos2,
+    scroll: egui::Vec2,
 ) -> Option<(Rect, f32)> {
-    let controls = input.controls;
-    let parent_id = controls[idx].parent.as_ref()?;
+    // Use the caller's effective controls list (may be the expanded list from
+    // live+expand_repeating_groups in render_form). This prevents OOB when
+    // instanced members (after databound ControlArray expansion) are indexed
+    // and their (instanced) parents must be looked up in the same list.
+    let parent_id = controls.get(idx).and_then(|c| c.parent.as_ref())?;
     let parent = controls.iter().find(|c| &c.id == parent_id)?;
     if !matches!(
         parent.control_type,
@@ -224,15 +229,15 @@ fn picturebox_container_border(
     ) {
         return None;
     }
-    let plive = input.state.live(parent);
+    let plive = state.live(parent);
     let rad = crate::paint::corner_radius(&plive);
     if rad < 0.5 {
         return None;
     }
     let v = plive.rect; // visual (border) rect in form coords
     let border = Rect::from_min_max(
-        origin + Vec2::new(v.x as f32, v.y as f32),
-        origin + Vec2::new((v.x + v.w) as f32, (v.y + v.h) as f32),
+        origin + Vec2::new(v.x as f32, v.y as f32) - scroll,
+        origin + Vec2::new((v.x + v.w) as f32, (v.y + v.h) as f32) - scroll,
     );
     Some((border, rad))
 }
@@ -372,10 +377,10 @@ fn draw_deferred_tabcontrol_tabs(
     }
 }
 
-/// A top-level GroupBox marked as a repeating group (spec 015 control array).
+/// A GroupBox marked as a repeating group (spec 015 control array).
+/// It may be placed inside other containers (parent may be set).
 fn is_repeating_instance_group(c: &Control) -> bool {
     matches!(c.control_type, ControlType::GroupBox)
-        && c.parent.is_none()
         && c.get_prop("IsRepeatingGroup")
             .map(|v| v.as_bool())
             .unwrap_or(false)
@@ -444,7 +449,7 @@ impl PlacementEffect {
 
 /// Duration (seconds) of one card's appearance; cards animate sequentially so the
 /// stagger between card `i` and `i+1` is also this long.
-pub const CARD_APPEAR_DUR: f32 = 0.2;
+pub const CARD_APPEAR_DUR: f32 = 0.2; // default when CardAppearDuration not set
 
 /// Fold a repeating-group card's appearance effect into its base transform `tf`.
 /// Reads the `_Card*` metadata stamped by [`expand_repeating_groups`], derives the
@@ -471,22 +476,37 @@ fn apply_card_appear(
         .unwrap_or(1)
         .max(1) as usize;
     let from = (
-        base.get_prop("_CardFromDx").map(|v| v.as_i64()).unwrap_or(0) as f32,
-        base.get_prop("_CardFromDy").map(|v| v.as_i64()).unwrap_or(0) as f32,
+        base.get_prop("_CardFromDx")
+            .map(|v| v.as_i64())
+            .unwrap_or(0) as f32,
+        base.get_prop("_CardFromDy")
+            .map(|v| v.as_i64())
+            .unwrap_or(0) as f32,
     );
     let group = base
         .get_prop("_CardGroup")
         .map(|v| v.as_str().to_owned())
         .unwrap_or_default();
     // Per-group clock: seconds since these cards first appeared. Stored in egui
-    // memory keyed by the group id, set on the first frame the cards render.
+    // memory keyed by the group id + the batch N (from expansion at bind time).
+    // Including N ensures that RefreshBinding which changes ItemCount gets a
+    // fresh clock so deployment effects replay on the recreated cards.
     let now = ctx.input(|i| i.time);
-    let key = egui::Id::new(("card-appear-start", group));
+    let batch_n = base.get_prop("_CardN").map(|v| v.as_i64()).unwrap_or(0);
+    let bind_seq = base
+        .get_prop("_CardBindSeq")
+        .map(|v| v.as_i64())
+        .unwrap_or(0);
+    let key = egui::Id::new(("card-appear-start", group, batch_n, bind_seq));
     let start = ctx.memory_mut(|m| *m.data.get_temp_mut_or_insert_with(key, || now));
     let elapsed = (now - start).max(0.0) as f32;
     // Deal skips the fly-in for a card whose final spot is outside the viewport.
     let clipped = !viewport.intersects(final_screen);
-    let (card_tf, animating) = card_appear_transform(effect, inst, elapsed, from, clipped);
+    let dur = base
+        .get_prop("_CardDuration")
+        .map(|v| v.as_i64() as f32 / 1000.0)
+        .unwrap_or(CARD_APPEAR_DUR);
+    let (card_tf, animating) = card_appear_transform(effect, inst, elapsed, from, clipped, dur);
     if animating {
         ctx.request_repaint();
     }
@@ -512,8 +532,8 @@ pub fn card_appear_transform(
     elapsed: f32,
     from: (f32, f32),
     clipped: bool,
+    dur: f32,
 ) -> (RenderTransform, bool) {
-    let dur = CARD_APPEAR_DUR;
     let start = inst.saturating_sub(1) as f32 * dur;
     let local = ((elapsed - start) / dur).clamp(0.0, 1.0);
     let done = elapsed >= start + dur;
@@ -585,6 +605,14 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
         let g = &controls[gi];
         let group_id = g.id.clone();
         let n = repeating_instance_count(g);
+        let subtree: Vec<usize> = std::iter::once(gi)
+            .chain(crate::containers::collect_descendants(controls, gi))
+            .collect();
+        if group_id.eq_ignore_ascii_case("GroupBox-2")
+            || group_id.to_ascii_lowercase().contains("groupbox-2")
+        {
+            // debug was here during troubleshooting
+        }
         let spacing = g
             .get_prop("ItemSpacing")
             .map(|v| v.as_i64())
@@ -604,9 +632,6 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
         // across for Horizontal, and a Grid wraps every `ItemsPerRow`.
         let gw = g.rect.w as f32;
         let gh = g.rect.h as f32;
-        let subtree: Vec<usize> = std::iter::once(gi)
-            .chain(crate::containers::collect_descendants(controls, gi))
-            .collect();
         // Card-appear effect (PlacementEffect). Stamped on every clone so the
         // render loop can animate the whole card; `None` skips stamping entirely.
         let effect = g
@@ -634,26 +659,85 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
                     member_instance_id(&group_id, orig, inst)
                 }
             };
+
+            // Collect the ids that belong to this subtree so we only remap parents
+            // that pointed inside the original repeating group. External parents
+            // (e.g. a Panel that contains the template GroupBox) must be kept as-is
+            // so that the instanced cards remain children of the original parent
+            // for clipping, visibility, render order, etc.
+            let subtree_ids: std::collections::HashSet<&str> =
+                subtree.iter().map(|&si| controls[si].id.as_str()).collect();
+
             for &si in &subtree {
                 let mut clone = controls[si].clone();
                 clone.rect.x += dx as i32;
                 clone.rect.y += dy as i32;
                 clone.id = reid(&controls[si].id);
-                clone.parent = controls[si].parent.as_deref().map(reid);
+                clone.parent = controls[si].parent.as_deref().map(|p| {
+                    if subtree_ids.contains(p) {
+                        reid(p)
+                    } else {
+                        p.to_string()
+                    }
+                });
                 if animated {
                     // The card starts stacked on the first card (Deal), so the
                     // "from" vector is the delta from its final spot back there.
-                    clone.set_prop("_CardEffect", crate::model::PropValue::String(effect.clone()));
-                    clone.set_prop("_CardGroup", crate::model::PropValue::String(group_id.clone()));
+                    clone.set_prop(
+                        "_CardEffect",
+                        crate::model::PropValue::String(effect.clone()),
+                    );
+                    clone.set_prop(
+                        "_CardGroup",
+                        crate::model::PropValue::String(group_id.clone()),
+                    );
                     clone.set_prop("_CardInstance", crate::model::PropValue::Int(inst as i64));
                     clone.set_prop("_CardFromDx", crate::model::PropValue::Int(-(dx as i64)));
                     clone.set_prop("_CardFromDy", crate::model::PropValue::Int(-(dy as i64)));
+                    clone.set_prop("_CardN", crate::model::PropValue::Int(n as i64));
+                    // Bind seq (bumped on each RefreshBinding) makes the clock key unique
+                    // so effects replay even for same ItemCount.
+                    if let Some(seqv) = g.get_prop("_BindSeq") {
+                        clone.set_prop("_CardBindSeq", seqv.clone());
+                    }
+                    // Duration from property (ms), for Deal/FadeIn.
+                    let dur_ms = g
+                        .get_prop("CardAppearDuration")
+                        .map(|v| v.as_i64())
+                        .unwrap_or(200);
+                    clone.set_prop("_CardDuration", crate::model::PropValue::Int(dur_ms));
                 }
                 out.push(clone);
             }
         }
+        if group_id.eq_ignore_ascii_case("GroupBox-2")
+            || group_id.to_ascii_lowercase().contains("groupbox-2")
+        {
+            // debug was here during troubleshooting
+        }
     }
     Some(out)
+}
+
+fn ancestor_auto_scroll_offset(controls: &[Control], idx: usize, ctx: &egui::Context) -> egui::Vec2 {
+    let mut off = egui::Vec2::ZERO;
+    let mut cur = idx;
+    while let Some(pid) = controls[cur].parent.clone() {
+        if let Some(p) = controls.iter().position(|c| c.id == pid) {
+            let has_h = controls[p].get_prop("HScroll").map_or(false, |v| v.as_bool());
+            let has_v = controls[p].get_prop("VScroll").map_or(false, |v| v.as_bool());
+            if has_h || has_v {
+                let sid = egui::Id::new(("autoscr", pid));
+                if let Some(o) = ctx.data(|d| d.get_temp::<egui::Vec2>(sid)) {
+                    off += o;
+                }
+            }
+            cur = p;
+        } else {
+            break;
+        }
+    }
+    off
 }
 
 /// Render a whole form into `ui` at its content origin. The caller sets up the
@@ -712,7 +796,10 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // ── Controls: designer order, clipped + faded by container ancestry. ──────
     // Expand repeating groups (spec 015 / 024) into their N runtime instances so
     // the render loop below draws one card per item.
-    let expanded = expand_repeating_groups(input.controls);
+    // Use live state so that runtime-updated ItemCount / IsRepeatingGroup (e.g. from
+    // RefreshBinding on a databound ControlArray) are seen for expansion.
+    let live_controls: Vec<Control> = input.controls.iter().map(|c| input.state.live(c)).collect();
+    let expanded = expand_repeating_groups(&live_controls);
     // (debug prints for repeating groups are now limited to databound ControlArrays
     // in the IDE layer)
     let controls: &[Control] = expanded.as_deref().unwrap_or(input.controls);
@@ -723,6 +810,14 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let mut open_combos: Vec<(String, Vec<String>, Rect, String)> = Vec::new();
     for &idx in &order {
         let base = &controls[idx];
+        if base
+            .id
+            .to_ascii_lowercase()
+            .starts_with("groupbox-2.groupbox-2-")
+            || base.id.eq_ignore_ascii_case("GroupBox-2")
+        {
+            // debug removed
+        }
         if !input.state.visible(base) {
             continue;
         }
@@ -733,6 +828,12 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // Live control (designer source-of-truth face via draw_control).
         let live = input.state.live(base);
         let r = live.rect;
+
+        // Apply ancestor AutoScroll offsets (if any) so children of a Panel with
+        // AutoScroll=true are shifted, making the property actually scroll the
+        // content.
+        let scroll = ancestor_auto_scroll_offset(controls, idx, ui.ctx());
+
         // Animation transform: shift then scale about the control centre. Both
         // surfaces (preview now, designer later) supply entrance effects this way;
         // the default is identity (run / compiled / static designer).
@@ -740,24 +841,51 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // The card's FINAL (un-animated) screen rect — used to decide whether a
         // Deal card is off-screen (no phantom fly-in) before adding the effect.
         let final_screen = Rect::from_min_size(
-            origin + Vec2::new(r.x as f32 + tf.dx, r.y as f32 + tf.dy),
+            origin + Vec2::new(r.x as f32 + tf.dx - scroll.x, r.y as f32 + tf.dy - scroll.y),
             Vec2::new(r.w as f32, r.h as f32),
         );
         // Fold the repeating-group card-appear effect (Deal / FadeIn) into `tf`.
         let tf = apply_card_appear(base, tf, final_screen, form_rect, ui.ctx());
         let base_screen = Rect::from_min_size(
-            origin + Vec2::new(r.x as f32 + tf.dx, r.y as f32 + tf.dy),
+            origin + Vec2::new(r.x as f32 + tf.dx - scroll.x, r.y as f32 + tf.dy - scroll.y),
             Vec2::new(r.w as f32, r.h as f32),
         );
         let screen = crate::paint::scale_rect_about_center(base_screen, tf.scale);
         out.control_rects.insert(live.id.clone(), screen);
+
+        // Drive AutoScroll for Panels (interactive only). We show a ScrollArea at
+        // the panel rect (with oversized content to enable bars/input). The
+        // offset is stored in egui data and subtracted from descendant screens
+        // above, so children appear scrolled inside the panel.
+        if interactive
+            && matches!(base.control_type, ControlType::Panel)
+        {
+            let hscroll = base.get_prop("HScroll").map_or(false, |v| v.as_bool());
+            let vscroll = base.get_prop("VScroll").map_or(false, |v| v.as_bool());
+            if hscroll || vscroll {
+                let sid = egui::Id::new(("autoscr", &base.id));
+                let _ = ui.allocate_ui_at_rect(screen, |ui| {
+                    let sa = egui::ScrollArea::new([hscroll, vscroll])
+                        .id_source(sid)
+                        .auto_shrink([false, false]);
+                    let res = sa.show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(
+                            screen.width() + 400.0,
+                            screen.height() + 400.0,
+                        ));
+                    });
+                    let offset = res.state.offset;
+                    ui.ctx().data_mut(|d| d.insert_temp(sid, offset));
+                });
+            }
+        }
 
         // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
         // BORDER path, so any overflow is cut by the container shape rather than the
         // image's own bounds (spec 017). The image is allowed to reach the parent's
         // border (not just its inset content area), so the clip widens to the border.
         let pic_border = if clips_to_container_border(&base.control_type) {
-            picturebox_container_border(input, idx, origin)
+            picturebox_container_border(controls, input.state, idx, origin, scroll)
         } else {
             None
         };
@@ -786,9 +914,11 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             screen.width().round() as i32,
             screen.height().round() as i32,
         );
+
         if matches!(face.control_type, ControlType::GroupBox) {
             face.set_prop("_DeferCaption", PropValue::Bool(true));
         }
+
         if matches!(face.control_type, ControlType::TabControl) {
             face.set_prop("_DeferTabs", PropValue::Bool(true));
         }
@@ -910,7 +1040,7 @@ pub fn render_faces(
         // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
         // BORDER path (spec 017) — see `render_form`.
         let pic_border = if clips_to_container_border(&base.control_type) {
-            picturebox_container_border(input, idx, origin)
+            picturebox_container_border(input.controls, input.state, idx, origin, egui::Vec2::ZERO)
         } else {
             None
         };
@@ -3976,25 +4106,43 @@ mod tests {
     fn card_appear_effects_stagger_and_place() {
         let d = CARD_APPEAR_DUR;
         // None: always identity, never animating.
-        let (t, a) = card_appear_transform(PlacementEffect::None, 3, 0.05, (10.0, 20.0), false);
+        let (t, a) = card_appear_transform(PlacementEffect::None, 3, 0.05, (10.0, 20.0), false, CARD_APPEAR_DUR);
         assert!(!a && t.dx == 0.0 && t.alpha == 1.0);
 
         // FadeIn: card 2 is invisible before its window, mid-fade during, done after.
-        let (t0, _) = card_appear_transform(PlacementEffect::FadeIn, 2, 0.0, (0.0, 0.0), false);
+        let (t0, _) = card_appear_transform(PlacementEffect::FadeIn, 2, 0.0, (0.0, 0.0), false, CARD_APPEAR_DUR);
         assert_eq!(t0.alpha, 0.0, "card 2 hidden before its turn");
-        let (tm, anim) = card_appear_transform(PlacementEffect::FadeIn, 2, d + d * 0.5, (0.0, 0.0), false);
+        let (tm, anim) =
+            card_appear_transform(PlacementEffect::FadeIn, 2, d + d * 0.5, (0.0, 0.0), false, d);
         assert!(tm.alpha > 0.3 && tm.alpha < 0.7 && anim, "card 2 mid-fade");
-        let (tf, done) = card_appear_transform(PlacementEffect::FadeIn, 2, 2.0 * d + 0.01, (0.0, 0.0), false);
+        let (tf, done) = card_appear_transform(
+            PlacementEffect::FadeIn,
+            2,
+            2.0 * d + 0.01,
+            (0.0, 0.0),
+            false,
+            d,
+        );
         assert!(tf.alpha == 1.0 && !done, "card 2 fully faded in");
 
         // Deal: card 2 starts fully offset (on the first card) and ends at final.
-        let (ds, _) = card_appear_transform(PlacementEffect::Deal, 2, d, (0.0, -70.0), false);
+        let (ds, _) = card_appear_transform(PlacementEffect::Deal, 2, d, (0.0, -70.0), false, d);
         assert_eq!(ds.dy, -70.0, "card 2 begins stacked on the first card");
-        let (de, done) = card_appear_transform(PlacementEffect::Deal, 2, 2.0 * d + 0.01, (0.0, -70.0), false);
+        let (de, done) = card_appear_transform(
+            PlacementEffect::Deal,
+            2,
+            2.0 * d + 0.01,
+            (0.0, -70.0),
+            false,
+            d,
+        );
         assert!(de.dy == 0.0 && !done, "card 2 dealt to its final spot");
         // Deal off-screen: no phantom fly-in — placed at final immediately.
-        let (dc, anim) = card_appear_transform(PlacementEffect::Deal, 5, d, (0.0, -280.0), true);
-        assert!(dc.dy == 0.0 && !anim, "clipped card is placed, not animated");
+        let (dc, anim) = card_appear_transform(PlacementEffect::Deal, 5, d, (0.0, -280.0), true, d);
+        assert!(
+            dc.dy == 0.0 && !anim,
+            "clipped card is placed, not animated"
+        );
     }
 
     #[test]
@@ -4089,16 +4237,7 @@ mod tests {
         // Build a fresh static RenderInput per probe and clip child #1 (avoids
         // moving the non-Copy Backdrop across reuses).
         let mk = |controls: &[Control]| -> Option<(Rect, f32)> {
-            let input = RenderInput {
-                controls,
-                state: &DesignedState,
-                form_size: Vec2::new(400.0, 400.0),
-                glass: true,
-                mode: RenderMode::Static,
-                active_tabs: &active,
-                backdrop: Backdrop::default(),
-            };
-            picturebox_container_border(&input, 1, egui::pos2(0.0, 0.0))
+            picturebox_container_border(controls, &DesignedState, 1, egui::pos2(0.0, 0.0), egui::Vec2::ZERO)
         };
         let (border, rad) = mk(&controls).expect("rounded parent → border clip");
         assert_eq!(

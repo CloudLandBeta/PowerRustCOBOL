@@ -868,6 +868,44 @@ pub struct KnownControl {
     pub ctrl_type: String,
     /// Property names this control exposes (for `"Prop" OF Ctrl` completion).
     pub properties: Vec<String>,
+    /// Extra methods available only for this specific control instance
+    /// (e.g. "RefreshBinding" when a GroupBox is databound as a ControlArray / repeating group).
+    pub extra_methods: Vec<String>,
+}
+
+/// Build KnownControl list from a form, enriching with dynamic methods
+/// (e.g. RefreshBinding for databound repeating GroupBoxes).
+pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
+    form.controls
+        .iter()
+        .map(|c| {
+            let type_name = format!("{:?}", c.control_type);
+            let mut extra_methods = vec![];
+            if matches!(c.control_type, cobolt_forms::ControlType::GroupBox) {
+                let is_array = form.data_bindings.iter().any(|b| {
+                    if let cobolt_forms::BindingTargetDescriptor::ControlArray {
+                        array_id, ..
+                    } = &b.target
+                    {
+                        c.explicit_control_array_id().as_deref() == Some(array_id.as_str())
+                            || c.id.eq_ignore_ascii_case(array_id)
+                    } else {
+                        false
+                    }
+                });
+                if is_array {
+                    extra_methods.push("RefreshBinding".to_string());
+                }
+            }
+            let props = cobolt_forms::model::property_names_for(&type_name);
+            KnownControl {
+                id: c.id.clone(),
+                ctrl_type: type_name,
+                properties: props,
+                extra_methods,
+            }
+        })
+        .collect()
 }
 
 // ── EditorPanel ───────────────────────────────────────────────────────────────
@@ -2079,14 +2117,19 @@ impl EditorPanel {
                         let prop_ref = detect_property_ref(line_to_cursor);
 
                         // Detect INVOKE … ' context → method completions
-                        let invoke = if prop_ref.is_none() {
+                        let invoke = if prop_ref.is_none()
+                            && !is_inside_plain_string_literal(&tab.content, char_idx)
+                        {
                             detect_invoke_context(&tab.content, char_idx, &self.known_controls)
                         } else {
                             None
                         };
 
                         // Detect exact control ID → member (property+method) popup
-                        let member_ctrl = if invoke.is_none() && prop_ref.is_none() {
+                        let member_ctrl = if invoke.is_none()
+                            && prop_ref.is_none()
+                            && !is_inside_plain_string_literal(&tab.content, char_idx)
+                        {
                             detect_control_exact(&prefix, &self.known_controls)
                         } else {
                             None
@@ -2122,17 +2165,61 @@ impl EditorPanel {
                                 // list the control's properties (green) + methods
                                 // (light-blue), filtered by the typed prefix
                                 // (spec 010 R10/R11).
-                                let _ = ctrl_id;
-                                (member_completions(ctrl_type, member_pfx), true)
-                            } else if let Some((ctrl_type, member_pfx)) = &member_ctrl {
-                                // Exact control ID typed → show EVERY property
-                                // (derived from the canonical control model) + methods.
-                                (member_completions(ctrl_type, member_pfx), true)
+                                if let Some(k) = self
+                                    .known_controls
+                                    .iter()
+                                    .find(|k| k.id.eq_ignore_ascii_case(ctrl_id))
+                                {
+                                    (member_completions(k, member_pfx), true)
+                                } else {
+                                    (
+                                        member_completions(
+                                            &KnownControl {
+                                                id: ctrl_id.clone(),
+                                                ctrl_type: ctrl_type.clone(),
+                                                properties: vec![],
+                                                extra_methods: vec![],
+                                            },
+                                            member_pfx,
+                                        ),
+                                        true,
+                                    )
+                                }
+                            } else if let Some((ctrl_id, ctrl_type, member_pfx)) = &member_ctrl {
+                                // Exact control ID typed → show EVERY property + methods, using the specific instance's extra_methods.
+                                if let Some(k) = self
+                                    .known_controls
+                                    .iter()
+                                    .find(|k| k.id.eq_ignore_ascii_case(ctrl_id))
+                                {
+                                    (member_completions(k, member_pfx), true)
+                                } else {
+                                    (
+                                        member_completions(
+                                            &KnownControl {
+                                                id: ctrl_id.clone(),
+                                                ctrl_type: ctrl_type.clone(),
+                                                properties: vec![],
+                                                extra_methods: vec![],
+                                            },
+                                            member_pfx,
+                                        ),
+                                        true,
+                                    )
+                                }
                             } else {
-                                (
-                                    build_completions(&prefix, &tab.content, &self.known_controls),
-                                    false,
-                                )
+                                if is_inside_plain_string_literal(&tab.content, char_idx) {
+                                    (vec![], false)
+                                } else {
+                                    (
+                                        build_completions(
+                                            &prefix,
+                                            &tab.content,
+                                            &self.known_controls,
+                                        ),
+                                        false,
+                                    )
+                                }
                             };
 
                             if !items.is_empty() {
@@ -2835,12 +2922,66 @@ fn word_before_cursor(text: &str, cursor_char: usize) -> (usize, String) {
 fn detect_control_exact<'a>(
     prefix: &str,
     controls: &'a [KnownControl],
-) -> Option<(String, String)> {
+) -> Option<(
+    String, /*ctrl_id*/
+    String, /*type*/
+    String, /*member_pfx*/
+)> {
     // Case 1: the currently typed word IS a known control ID exactly.
     if let Some(ctrl) = controls.iter().find(|c| c.id.eq_ignore_ascii_case(prefix)) {
-        return Some((ctrl.ctrl_type.clone(), String::new()));
+        return Some((ctrl.id.clone(), ctrl.ctrl_type.clone(), String::new()));
     }
     None
+}
+
+/// Returns true if the cursor is inside a plain string literal ( "..." or '...' )
+/// whose opening quote was **not** immediately preceded by `::` (or `:: ` etc).
+/// The special `id::"method"` / `id::'method'` syntax is allowed for member completion.
+/// Also returns true if the cursor is exactly at the closing quote of such a plain string.
+fn is_inside_plain_string_literal(text: &str, cursor_char: usize) -> bool {
+    let char_indices: Vec<(usize, char)> = text.char_indices().collect();
+    if cursor_char > char_indices.len() {
+        return false;
+    }
+    let cursor_byte = if cursor_char < char_indices.len() {
+        char_indices[cursor_char].0
+    } else {
+        text.len()
+    };
+    let line_start = text[..cursor_byte].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let line_up_to_cursor = &text[line_start..cursor_byte];
+
+    // Scan to see if we are inside a string, tracking if the current open was special.
+    let mut current_open_is_special = false;
+    let mut in_plain_string = false;
+    for (i, c) in line_up_to_cursor.char_indices() {
+        if in_plain_string {
+            // We are in a plain (we only enter for non-special)
+            if c == '"' || c == '\'' {
+                // closing a plain one
+                in_plain_string = false;
+                // if cursor is at or after this closer, consider it "at end quote of plain"
+                if i >= cursor_byte - (if cursor_byte > 0 { 1 } else { 0 }) {
+                    // rough for at the quote
+                    return true;
+                }
+            }
+        } else if c == '"' || c == '\'' {
+            let before = &line_up_to_cursor[..i].trim_end();
+            let is_special = before.ends_with("::");
+            if !is_special {
+                in_plain_string = true;
+                current_open_is_special = false;
+            }
+            // else special, we allow member completion, do not set in_plain
+        }
+    }
+
+    if in_plain_string {
+        return true;
+    }
+
+    false
 }
 
 /// Detect `INVOKE ctrl-id '` or `ctrl-id::` patterns.
@@ -2911,22 +3052,29 @@ fn detect_invoke_context(
     None
 }
 
-/// Build the member-completion list for a control type, filtered by `member_pfx`:
-/// the control's **properties (green)** followed by its **methods (light-blue)**
-/// (spec 010 R10/R11). Shared by the `INVOKE ctrl '…'`, `ctrl::`, and `ctrl::"`
-/// contexts so all three list the same members.
-fn member_completions(ctrl_type: &str, member_pfx: &str) -> Vec<AcItem> {
+/// Build the member-completion list for a specific control instance, filtered by `member_pfx`.
+/// Includes type methods + any extra_methods on the instance (e.g. RefreshBinding for
+/// databound array/repeating GroupBoxes).
+fn member_completions(known: &KnownControl, member_pfx: &str) -> Vec<AcItem> {
     let up = member_pfx.to_ascii_uppercase();
-    let mut v: Vec<AcItem> = cobolt_forms::model::property_names_for(ctrl_type)
+    let mut v: Vec<AcItem> = cobolt_forms::model::property_names_for(&known.ctrl_type)
         .into_iter()
         .filter(|p| p.to_ascii_uppercase().starts_with(&up))
         .map(|p| AcItem::prop(&p, "property"))
         .collect();
-    for (m, d) in methods_for_type(ctrl_type)
+    for (m, d) in methods_for_type(&known.ctrl_type)
         .iter()
         .filter(|(m, _)| m.to_ascii_uppercase().starts_with(&up))
     {
         v.push(AcItem::method(m, d));
+    }
+    for m in &known.extra_methods {
+        if m.to_ascii_uppercase().starts_with(&up) {
+            v.push(AcItem::method(
+                m,
+                "Refresh / recreate databound array instances and re-apply effects",
+            ));
+        }
     }
     v
 }
@@ -3580,16 +3728,19 @@ END-EVALUATE
                 id: "Button-1".into(),
                 ctrl_type: "Button".into(),
                 properties: vec!["Caption".into(), "FontSize".into()],
+                extra_methods: vec![],
             },
             KnownControl {
                 id: "Label-1".into(),
                 ctrl_type: "Label".into(),
                 properties: vec!["Text".into(), "FontSize".into()],
+                extra_methods: vec![],
             },
             KnownControl {
                 id: "Button-2".into(),
                 ctrl_type: "Button".into(),
                 properties: vec!["Caption".into()],
+                extra_methods: vec![],
             },
         ];
         // union, sorted, deduped, prefix-filtered
@@ -3623,6 +3774,7 @@ END-EVALUATE
             id: "Button-1".into(),
             ctrl_type: "Button".into(),
             properties: vec!["Caption".into()],
+            extra_methods: vec![],
         }];
         let ctx = |line: &str| {
             let n = line.chars().count();
@@ -3649,6 +3801,7 @@ END-EVALUATE
             id: "Grid".into(),
             ctrl_type: "DataGrid".into(),
             properties: vec!["Rows".into()],
+            extra_methods: vec![],
         }];
         let ctx = |line: &str| {
             let n = line.chars().count();
@@ -3669,7 +3822,13 @@ END-EVALUATE
         // Spec 010 R10/R11: the `::` / `::"` (and INVOKE) member list must contain
         // BOTH properties (green ●) and methods (light-blue M) — the regression was
         // a list that showed only methods.
-        let items = member_completions("Slider", "");
+        let dummy = KnownControl {
+            id: "s".into(),
+            ctrl_type: "Slider".into(),
+            properties: vec![],
+            extra_methods: vec![],
+        };
+        let items = member_completions(&dummy, "");
         assert!(
             items.iter().any(|i| i.kind == AcKind::Property),
             "member list must contain property items: {:?}",
@@ -3688,7 +3847,13 @@ END-EVALUATE
             .iter()
             .any(|i| i.label == "Visible" && i.kind == AcKind::Property));
         // The prefix filters both kinds case-insensitively.
-        let v = member_completions("Slider", "vis");
+        let dummy = KnownControl {
+            id: "s".into(),
+            ctrl_type: "Slider".into(),
+            properties: vec![],
+            extra_methods: vec![],
+        };
+        let v = member_completions(&dummy, "vis");
         assert!(v
             .iter()
             .all(|i| i.label.to_ascii_uppercase().starts_with("VIS")));

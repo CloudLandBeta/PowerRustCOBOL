@@ -8,6 +8,47 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.87] — 2026-07-04
+
+### Fixed
+
+- **Databound repeating GroupBox (ControlArray) now shows per-row data on cards (not clones of the first/template).**
+  - Codegen now emits `INVOKE array 'RefreshBinding'` during `COBOL-DATA-BINDINGS-POPULATE` for ControlArray targets. Combined with load order (LOAD before POPULATE), this automatically computes live ItemCount from the table, recreates the N visual instances, re-applies PlacementEffects, *and* pushes the current row values into each instanced member's properties.
+  - Runtime hydration in `refresh_control_array_binding` now also directly pushes StateUpdates under the exact instanced ids (`Group.Group-N.Member`) in addition to the indexed Member path. Guarantees `RunState` / `live(instanced)` in render sees distinct per-card values even across timing or id-resolution edges.
+  - Setting `ItemCount` on a `_BindingArray` group now auto-rehydrates current table rows (hook in `obj_set`).
+  - Cards with data now appear on initial form load / after RefreshBinding exactly as requested.
+
+## [PowerRustCOBOL 1.27.86] — 2026-07-04
+
+### Fixed
+
+- **"index out of bounds: the len is 26 but the index is 26" crash when running a form containing a databound repeating GroupBox (ControlArray) + ~26 total controls.**
+  Root cause: `render_form` performed live+`expand_repeating_groups` producing an expanded control list, then passed indices from its `render_order` (into the expanded list) to `picturebox_container_border`, which always indexed `input.controls` (the original designed list, len=26). Instanced members therefore OOB'd when looking up their (instanced) parent's border for `_ContainerClip`.
+  Fix: `picturebox_container_border` now receives the effective `controls` slice + `&dyn FormState` explicitly. Callers in `render_form` (post-expand) and `render_faces` (unchanged) pass the right list. Parent lookup and clip now work for cards inside rounded repeating groups.
+  Also removed last stray `[RUN-FORM-DATABIND]` eprintln (converted to targeted tracing debug).
+
+- **RefreshBinding on databound ControlArray/GroupBox-2 now fully recreates cards, reapplies PlacementEffect, and hydrates member values.**
+  `refresh_control_array_binding` now:
+  - Sets live `ItemCount` (drives re-expansion in render using live state).
+  - Bumps `_BindSeq` (forces appear-clock key change).
+  - Re-hydrates every mapped member prop for 1..N from the current COBOL table rows (via `_BindingMappings` seeded at codegen/launch time + `set_member_indexed` + subscript values) so cards show fresh data.
+  - Stamps `_CardEffect` / `_Card*` metadata during next `expand_repeating_groups` (using live props).
+  The appear clock key now incorporates N + seq so deployment (Deal/FadeIn) replays on refresh exactly like first load.
+  Codegen emits the `_BindingMappings` seed for ControlArray targets; IDE launch path seeds it too.
+
+- **No more 0-instanced cards after SEED with positive ItemCount on nested or top-level databound GroupBox-2.**
+  (Follow-up to prior live_controls + removal of parent guard; expansion now consistently produces instances for IsRepeatingGroup + ItemCount>0.)
+
+## [PowerRustCOBOL 1.27.85] — 2026-07-04
+
+### Fixed / Diagnostics
+
+- **Data-binding instrumentation restricted to run-form execution only (no RAD/designer noise).**
+  Removed unconditional `[DATABIND]` output from designer apply/seed/refresh, preview row helpers, canvas ghosts, render expand, and codegen.
+  Focused debug now only in the run-form path: interpreter `binding_load`/`binding_populate`/`refresh_datagrid_binding` + REFRESHBINDING (emits `[RUN-FORM-DATABIND]` on stderr during actual "Run Form").
+  Includes note highlighting that ControlArray/GroupBox databind has no auto member hydration in `POPULATE` (unlike DataGrid's `_Binding*` + refresh path). Use the same data source on datagrid-1 vs groupbox-2 and observe the difference at runtime.
+  Tracing debug remains available with `COBOLT_LOG=debug`. No behavior changes.
+
 ## [PowerRustCOBOL 1.27.84] — 2026-07-04
 
 ### Fixed

@@ -803,9 +803,16 @@ impl Interpreter {
     {
         for (id, class, props) in controls {
             if !self.objects.contains(&id) {
-                self.objects.register(&id, class);
+                self.objects.register(&id, class.clone());
             }
-            for (k, v) in props {
+            // Run-form: seed props for GroupBox (including databound repeating ones)
+            let props_vec: Vec<(String, String)> = props.into_iter().collect();
+            if class.eq_ignore_ascii_case("GroupBox")
+                || id.to_ascii_lowercase().contains("groupbox")
+            {
+                tracing::debug!(target: "databinding", "RUN-FORM seed GroupBox {} with databind props if any", id);
+            }
+            for (k, v) in props_vec {
                 self.objects.set_property(&id, &k, v);
             }
         }
@@ -3907,6 +3914,7 @@ impl Interpreter {
             }
             "COBOL-BINDING-POPULATE" if using.len() >= 2 => {
                 let binding_id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                tracing::debug!(target: "databinding", "RUN-FORM CALL COBOL-BINDING-POPULATE \"{}\"", binding_id);
                 let status_name = self.expr_to_name(call_arg_expr(&using[1]));
                 let status = self.binding_populate(binding_id.trim());
                 self.env.set_str(&status_name, &status);
@@ -3956,6 +3964,10 @@ impl Interpreter {
                             // text edit that produced this event, etc.) into the
                             // object registry so the handler reads the live value.
                             self.drain_input();
+                            // For array member events, make the 1-based card index
+                            // available to the handler (generated as CONTROL-ARRAY-INDEX
+                            // in LINKAGE for array-member event handlers).
+                            self.env.set_str("CONTROL-ARRAY-INDEX", &ev.instance_index.to_string());
                             // Populate COBOL-EVENT-ID and COBOL-CONTROL-ID (args 0 and 1).
                             if using.len() >= 1 {
                                 let n = self.expr_to_name(call_arg_expr(&using[0]));
@@ -4362,6 +4374,8 @@ impl Interpreter {
     }
 
     fn binding_load(&mut self, binding_id: &str) -> String {
+        eprintln!("[RUN-FORM-DATABIND] LOAD {}", binding_id);
+        tracing::debug!(target: "databinding", "RUN-FORM BINDING-LOAD id={}", binding_id);
         let state = self.binding_state_mut(binding_id);
         state.loaded = true;
         state.last_status.clear();
@@ -4374,6 +4388,8 @@ impl Interpreter {
     }
 
     fn binding_populate(&mut self, binding_id: &str) -> String {
+        tracing::debug!(target: "databinding", "RUN-FORM POPULATE {}", binding_id);
+        tracing::debug!(target: "databinding", "RUN-FORM BINDING-POPULATE id={}", binding_id);
         let state = self.binding_state_mut(binding_id);
         if !state.loaded {
             state.last_status = "NOT-LOADED".into();
@@ -4418,6 +4434,8 @@ impl Interpreter {
     }
 
     fn refresh_datagrid_binding(&mut self, control_id: &str) -> usize {
+        // Run-form only (for comparing datagrid-1 success vs groupbox failure with same data).
+        tracing::debug!(target: "databinding", "RUN-FORM refresh_datagrid_binding {}", control_id);
         if !self
             .obj_get(control_id, "_BindingKind")
             .eq_ignore_ascii_case("CobolTable")
@@ -4462,7 +4480,150 @@ impl Interpreter {
             }
         }
         let row_count = rows.len();
-        self.obj_set(control_id, "Rows", rows.join("\n"));
+        let rows_joined = rows.join("\n");
+        tracing::debug!(target: "databinding", "RUN-FORM DataGrid {} set Rows ({} rows)", control_id, row_count);
+        self.obj_set(control_id, "Rows", rows_joined);
+        row_count
+    }
+
+    fn refresh_binding(&mut self, control_id: &str) -> usize {
+        if !self
+            .obj_get(control_id, "_BindingKind")
+            .eq_ignore_ascii_case("CobolTable")
+        {
+            return 0;
+        }
+        // Prefer explicit array flag (seeded for ControlArray) or IsRepeatingGroup
+        let is_array = self.obj_get(control_id, "_BindingArray") == "1"
+            || self.obj_get(control_id, "IsRepeatingGroup") == "1";
+        if is_array {
+            return self.refresh_control_array_binding(control_id);
+        }
+        // default to datagrid logic
+        self.refresh_datagrid_binding(control_id)
+    }
+
+    fn refresh_control_array_binding(&mut self, group_id: &str) -> usize {
+        // Run-form refresh for databound repeating GroupBox (ControlArray).
+        // Recomputes ItemCount from the current COBOL table (like DataGrid does for Rows),
+        // so that render will destroy old instances and recreate the correct number,
+        // re-stamping PlacementEffect / deployment animations on the new cards.
+        tracing::debug!(target: "databinding", "RUN-FORM refresh_control_array for {}", group_id);
+        let fields: Vec<String> = self
+            .obj_get(group_id, "_BindingFields")
+            .split(|ch| matches!(ch, '\n' | '\r' | ',' | ';' | '\t'))
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if fields.is_empty() {
+            return 0;
+        }
+        let row_count = fields
+            .iter()
+            .filter_map(|field| self.env.symbol(field))
+            .filter_map(|symbol| symbol.dims.last().copied())
+            .max()
+            .unwrap_or(0);
+        // Set ItemCount directly (bypass the obj_set hook that would re-enter
+        // refresh_control_array_binding and cause recursion on the count set).
+        if !self.objects.contains(group_id) {
+            self.objects.register(group_id, "Control");
+        }
+        self.objects.set_property(group_id, "ItemCount", row_count.to_string());
+        if let Some(tx) = &self.state_tx {
+            let _ = tx.send(StateUpdate::new(
+                group_id.to_string(),
+                "ItemCount".to_string(),
+                row_count.to_string(),
+            ));
+        }
+
+        // Force re-application of card effects on next expansion (like initial load)
+        let placement = self.obj_get(group_id, "PlacementEffect");
+        if !placement.trim().is_empty() && row_count > 0 {
+            self.obj_set(group_id, "_CardEffect", placement.clone());
+        }
+        // Bump bind seq so that the appear clock key (group+N+seq) changes even
+        // when ItemCount is the same number; this makes RefreshBinding replay
+        // PlacementEffect animations on the recreated cards.
+        let seq = self
+            .obj_get(group_id, "_BindSeq")
+            .parse::<i64>()
+            .unwrap_or(0)
+            + 1;
+        self.obj_set(group_id, "_BindSeq", seq.to_string());
+
+        // Hydrate per-instance member values from the live COBOL table rows (using
+        // the seeded _BindingMappings). This ensures cards show current data after
+        // RefreshBinding, exactly as they would after initial POPULATE.
+        let maps = self.obj_get(group_id, "_BindingMappings");
+        if !maps.trim().is_empty() && row_count > 0 {
+            for line in maps.lines() {
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() != 3 {
+                    continue;
+                }
+                let src = parts[0].trim();
+                let member = parts[1].trim();
+                let prop = parts[2].trim();
+                if src.is_empty() || member.is_empty() || prop.is_empty() {
+                    continue;
+                }
+                // First pass: collect all values (to support cycling real data for
+                // all cards, including ones "beyond initial view" or with unset
+                // high indices in the table).
+                let mut all_vals: Vec<String> = Vec::new();
+                for r in 1..=row_count {
+                    let key = crate::environment::subscript_key(src, &[r as i64]);
+                    let v = self
+                        .env
+                        .get(&key)
+                        .map(|v| v.as_display_string().trim_end().to_owned())
+                        .unwrap_or_default();
+                    all_vals.push(v);
+                }
+                let real_vals: Vec<String> = all_vals
+                    .into_iter()
+                    .filter(|v| !v.trim().is_empty())
+                    .collect();
+                // Second pass: push (cycling reals if any, so all cards get databound
+                // data analogous to the preview seed fix).
+                for r in 1..=row_count {
+                    let val = if !real_vals.is_empty() {
+                        real_vals[(r - 1) % real_vals.len()].clone()
+                    } else {
+                        // re-compute (will be default/empty)
+                        let key = crate::environment::subscript_key(src, &[r as i64]);
+                        self.env
+                            .get(&key)
+                            .map(|v| v.as_display_string().trim_end().to_owned())
+                            .unwrap_or_default()
+                    };
+
+                    self.set_member_indexed(member, &[PathSeg::Prop(prop.to_owned())], val.clone(), r);
+
+                    if let Some(tx) = &self.state_tx {
+                        let indexed_member =
+                            format!("{group_id}.{group_id}-{r}.{member}");
+                        let _ = tx.send(
+                            StateUpdate::new(
+                                member.to_string(),
+                                prop.to_owned(),
+                                val.clone(),
+                            )
+                            .with_index(r),
+                        );
+                        let _ = tx.send(StateUpdate::new(
+                            indexed_member,
+                            prop.to_owned(),
+                            val.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+
         row_count
     }
 
@@ -4757,7 +4918,18 @@ impl Interpreter {
         }
         self.objects.set_property(obj, prop, val.clone());
         if let Some(tx) = &self.state_tx {
-            let _ = tx.send(StateUpdate::new(obj.to_string(), prop.to_string(), val));
+            let _ = tx.send(StateUpdate::new(obj.to_string(), prop.to_string(), val.clone()));
+        }
+        // For a databound ControlArray, any set of ItemCount should re-hydrate
+        // the current table rows into the (new) instances so cards aren't just
+        // clones of the template/first row.
+        if prop.eq_ignore_ascii_case("ItemCount")
+            && (self.obj_get(obj, "_BindingArray") == "1"
+                || self.obj_get(obj, "IsRepeatingGroup") == "1")
+        {
+            // Recompute + push member values for current env data. Safe to call;
+            // it will read the (just-set or prior) count from dims.
+            let _ = self.refresh_control_array_binding(obj);
         }
     }
 
@@ -5375,8 +5547,9 @@ impl Interpreter {
             }
             "EXPORTCSV" => val(self.datagrid_export_csv(obj)),
             "REFRESHBINDING" => {
-                let rows = self.refresh_datagrid_binding(obj);
-                val(rows.to_string())
+                tracing::debug!(target: "databinding", "RUN-FORM {} REFRESHBINDING", obj);
+                let n = self.refresh_binding(obj);
+                val(n.to_string())
             }
             // ── Timer ──
             "START" => {
@@ -6679,7 +6852,9 @@ fn is_known_method(name: &str) -> bool {
             | "GETROWCOUNT" | "GETCELLVALUE" | "SETCELLVALUE" | "ADDROW"
             | "DELETEROW" | "CLEARROWS" | "SORT" | "SETFILTER" | "CLEARFILTERS"
             | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH"
-            | "GETSELECTEDTEXT" | "COPYSELECTION" | "EXPORTCSV" | "REFRESHBINDING"
+            | "GETSELECTEDTEXT" | "COPYSELECTION" | "EXPORTCSV"
+        // Databound controls (DataGrid + repeating GroupBox/ControlArray)
+            | "REFRESHBINDING"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"

@@ -1269,7 +1269,12 @@ pub fn draw_control(
         let user_track = non_default("BackgroundColor", crate::model::DEFAULT_BACKGROUND_COLOR);
         let user_thumb = non_default("ForegroundColor", crate::model::DEFAULT_FOREGROUND_COLOR);
         let tint = |c: Color32, a: f32| {
-            Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (a * alpha_mul).clamp(0.0, 255.0) as u8)
+            Color32::from_rgba_unmultiplied(
+                c.r(),
+                c.g(),
+                c.b(),
+                (a * alpha_mul).clamp(0.0, 255.0) as u8,
+            )
         };
 
         // Glass track/knob colours (defaults), overridden by Back/Fore colour.
@@ -4399,10 +4404,7 @@ pub fn restore_container_outline(
         let master_t = (n.transparency as f32 / 100.0).clamp(0.0, 1.0);
         let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
         let corners = [
-            egui::Rect::from_min_size(
-                egui::pos2(rect.max.x - r, rect.max.y - r),
-                egui::vec2(r, r),
-            ),
+            egui::Rect::from_min_size(egui::pos2(rect.max.x - r, rect.max.y - r), egui::vec2(r, r)),
             egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.max.y - r), egui::vec2(r, r)),
         ];
         for clip in corners {
@@ -5277,7 +5279,7 @@ mod theme_render_tests {
         let first = pts[0];
         let last = *pts.last().unwrap();
         let d = 40.0 * std::f32::consts::FRAC_1_SQRT_2; // 45° chord component
-        // Start: the 45° midpoint of the TR corner arc (never passes half of it).
+                                                        // Start: the 45° midpoint of the TR corner arc (never passes half of it).
         let tr = Pos2::new(200.0 - 40.0 + d, 40.0 - d);
         // End: the 45° midpoint of the BL corner arc (never wraps onto the left).
         let bl = Pos2::new(40.0 - d, 100.0 - 40.0 + d);

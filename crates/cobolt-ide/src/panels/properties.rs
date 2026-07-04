@@ -5390,7 +5390,8 @@ impl PropertiesPanel {
                     &["Top", "Bottom", "Left", "Right"],
                 );
                 // Container behaviour (spec 012).
-                bool_row_inline(ui, id, "AutoScroll", "Auto-scroll", ctrl, action);
+                bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
+                bool_row_inline(ui, id, "VScroll", "V-Scroll", ctrl, action);
                 ui.add_space(4.0);
             }
 
@@ -5398,7 +5399,8 @@ impl PropertiesPanel {
             ControlType::Panel | ControlType::GroupBox => {
                 section_header(ui, "Basic properties");
                 // Auto-scroll overflowing children vs clip them (spec 012).
-                bool_row_inline(ui, id, "AutoScroll", "Auto-scroll", ctrl, action);
+                bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
+                bool_row_inline(ui, id, "VScroll", "V-Scroll", ctrl, action);
                 // Container visual properties (shared by GroupBox and Panel).
                 // Caption props only for GroupBox.
                 if matches!(ctrl.control_type, ControlType::GroupBox) {
@@ -5526,14 +5528,6 @@ impl PropertiesPanel {
                             ctrl,
                             action,
                             &["None", "Deal", "FadeIn"],
-                        );
-                        bool_row_inline(
-                            ui,
-                            id,
-                            "AutoScrollParent",
-                            "Auto-scroll parent",
-                            ctrl,
-                            action,
                         );
                         bool_row_inline(ui, id, "CloneEvents", "Clone events", ctrl, action);
                         int_row_inline(

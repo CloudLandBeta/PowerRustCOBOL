@@ -268,6 +268,10 @@ impl FormRuntime {
                 props.push(("Height".into(), c.rect.h.to_string()));
                 props.push(("TabOrder".into(), c.tab_order.to_string()));
                 append_data_binding_seed_props(form, &c.id, &mut props);
+                // Run-form only: detailed dump for repeating GroupBoxes (ControlArray databind) to debug why no cards generated.
+                if matches!(c.control_type, cobolt_forms::ControlType::GroupBox) {
+                    // (debug instrumentation for databind removed; RefreshBinding support is now in place)
+                }
                 (c.id.clone(), c.control_type.as_str().to_string(), props)
             })
             .collect();
@@ -477,8 +481,19 @@ impl FormRuntime {
                         // designer's original-case id. Resolve case-insensitively.
                         self.resolve_ctrl_key(&upd.ctrl_id)
                     };
+                    let log_key = key.clone();
+                    let log_prop = upd.prop.clone();
+                    let log_val = upd.value.clone();
+                    let log_inst = upd.instance_index;
                     let entry = self.ctrl_state.entry(key).or_default();
                     entry.set(&upd.prop, upd.value);
+                    // Run-form detail (kept minimal)
+                    if log_key.to_ascii_lowercase().contains("groupbox")
+                        || log_prop.eq_ignore_ascii_case("ItemCount")
+                        || log_prop.eq_ignore_ascii_case("DataSource")
+                    {
+                        tracing::debug!(target: "databinding", "RUN-FORM STATE_UPDATE {} {}", log_key, log_prop);
+                    }
                     changed = true;
                 }
                 Err(_) => break,
@@ -635,13 +650,26 @@ fn append_data_binding_seed_props(
     control_id: &str,
     props: &mut Vec<(String, String)>,
 ) {
-    let Some(binding) = form.data_bindings.iter().find(|binding| {
-        matches!(
-            &binding.target,
-            BindingTargetDescriptor::DataGrid { control_id: target_id }
-                if target_id.eq_ignore_ascii_case(control_id)
-        )
-    }) else {
+    // Seeds _Binding* props for DataGrid and for databound repeating GroupBoxes (ControlArray).
+    // This allows RefreshBinding() at runtime for both.
+    let binding = form.data_bindings.iter().find(|binding| {
+        match &binding.target {
+            BindingTargetDescriptor::DataGrid {
+                control_id: target_id,
+            } => target_id.eq_ignore_ascii_case(control_id),
+            BindingTargetDescriptor::ControlArray { array_id, .. } => {
+                // The control_id here may be the group id or we match by checking if this control is the array host
+                // For simplicity, if the control looks like a repeating group and array_id matches its id or explicit
+                array_id.eq_ignore_ascii_case(control_id)
+                    || form.controls.iter().any(|c| {
+                        c.id.eq_ignore_ascii_case(control_id)
+                            && c.explicit_control_array_id().as_deref() == Some(array_id.as_str())
+                    })
+            }
+            _ => false,
+        }
+    });
+    let Some(binding) = binding else {
         return;
     };
     let BindingSourceDescriptor::CobolTable { fields, .. } = &binding.source else {
@@ -656,6 +684,33 @@ fn append_data_binding_seed_props(
             .collect::<Vec<_>>()
             .join("\n"),
     ));
+    if matches!(
+        &binding.target,
+        BindingTargetDescriptor::ControlArray { .. }
+    ) {
+        props.push(("_BindingArray".into(), "1".into()));
+        // Seed mappings (sourceField<TAB>memberId<TAB>prop) so RefreshBinding can
+        // hydrate live row values into the instanced member controls.
+        let maps: Vec<String> = binding
+            .mappings
+            .iter()
+            .filter_map(|m| {
+                if let cobolt_forms::BindingTargetPath::ControlProperty {
+                    control_id: member,
+                    property_name: prop,
+                    ..
+                } = &m.target
+                {
+                    Some(format!("{}\t{}\t{}", m.source_field, member, prop))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !maps.is_empty() {
+            props.push(("_BindingMappings".into(), maps.join("\n")));
+        }
+    }
 }
 
 /// Flatten nested control tree into a flat Vec (pre-order).

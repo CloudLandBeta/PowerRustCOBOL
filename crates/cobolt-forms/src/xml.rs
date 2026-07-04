@@ -462,7 +462,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     form.seed_repository_if_empty();
     // Containers (spec 012): flatten any legacy <Children> nesting into the flat
     // editing list with `parent` links, and migrate the old Panel `Scrollable`
-    // flag to the unified `AutoScroll` property.
+    // flag to the unified `HScroll`/`VScroll` properties.
     normalize_containers(&mut form);
     seed_missing_props(&mut form);
     Ok(form)
@@ -549,9 +549,10 @@ fn normalize_containers(form: &mut Form) {
     }
     form.controls = flat;
     for c in &mut form.controls {
-        if c.is_container() && c.get_prop("AutoScroll").is_none() {
+        if c.is_container() && c.get_prop("HScroll").is_none() && c.get_prop("VScroll").is_none() {
             if let Some(scroll) = c.get_prop("Scrollable").map(|v| v.as_bool()) {
-                c.set_prop("AutoScroll", PropValue::Bool(scroll));
+                c.set_prop("HScroll", PropValue::Bool(scroll));
+                c.set_prop("VScroll", PropValue::Bool(scroll));
             }
         }
     }
@@ -1553,7 +1554,8 @@ Actor Caption:string</Property>
         let mut form = Form::new("F", "F", 640, 480);
         let mut pnl = Control::new("Pnl", ControlType::Panel, 10, 10);
         pnl.set_prop("BorderRadius", PropValue::Int(8));
-        pnl.set_prop("AutoScroll", PropValue::Bool(true));
+        pnl.set_prop("HScroll", PropValue::Bool(true));
+        pnl.set_prop("VScroll", PropValue::Bool(true));
         let mut grp = Control::new("Grp", ControlType::GroupBox, 20, 20);
         grp.parent = Some("Pnl".into());
         let mut tabs = Control::new("Tabs", ControlType::TabControl, 25, 25);
@@ -1572,7 +1574,8 @@ Actor Caption:string</Property>
         assert_eq!(find("Txt").parent.as_deref(), Some("Tabs"));
         assert_eq!(find("Txt").tab, Some(1));
         assert_eq!(find("Pnl").get_prop("BorderRadius").unwrap().as_i64(), 8);
-        assert!(find("Pnl").get_prop("AutoScroll").unwrap().as_bool());
+        assert!(find("Pnl").get_prop("HScroll").unwrap().as_bool());
+        assert!(find("Pnl").get_prop("VScroll").unwrap().as_bool());
         let _ = std::fs::remove_file(&path);
     }
 
@@ -1697,10 +1700,13 @@ Actor Caption:string</Property>
         );
         let pnl = loaded.controls.iter().find(|c| c.id == "Pnl").unwrap();
         assert!(
-            pnl.get_prop("AutoScroll")
+            pnl.get_prop("HScroll")
                 .map(|v| v.as_bool())
-                .unwrap_or(false),
-            "Scrollable must migrate to AutoScroll"
+                .unwrap_or(false)
+                && pnl.get_prop("VScroll")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(false),
+            "Scrollable must migrate to HScroll/VScroll"
         );
     }
 

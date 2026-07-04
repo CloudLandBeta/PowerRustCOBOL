@@ -27,7 +27,10 @@ use std::collections::{HashMap, HashSet};
 
 use super::properties::PropertiesPanel;
 use super::toolbox::ToolboxPanel;
-use crate::app::{refresh_data_binding_target_properties, seed_control_array_binding_preview_values, DesignerClipboard};
+use crate::app::{
+    refresh_data_binding_target_properties, seed_control_array_binding_preview_values,
+    DesignerClipboard,
+};
 use crate::project_model::{UserControlDef, UserControlEntry};
 
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
@@ -2135,19 +2138,7 @@ impl DesignerPanel {
             std::path::PathBuf::from(format!("{program_id}.handler")),
             source.clone(),
         );
-        self.event_editor.known_controls = self
-            .form
-            .controls
-            .iter()
-            .map(|c| {
-                let type_name = format!("{:?}", c.control_type);
-                super::editor::KnownControl {
-                    properties: cobolt_forms::model::property_names_for(&type_name),
-                    ctrl_type: type_name,
-                    id: c.id.clone(),
-                }
-            })
-            .collect();
+        self.event_editor.known_controls = super::editor::build_known_controls(&self.form);
 
         self.event_modal = Some(EventEditorModal::new(
             ctrl_id, display, event_name, program_id, source,
@@ -3072,8 +3063,13 @@ impl DesignerPanel {
                 // + special array seeding for counts + per-row preview_state for ghosts.
                 refresh_data_binding_target_properties(&mut self.form);
                 {
-                    let array_bindings: Vec<_> = self.form.data_bindings.iter()
-                        .filter(|b| matches!(&b.target, BindingTargetDescriptor::ControlArray { .. }))
+                    let array_bindings: Vec<_> = self
+                        .form
+                        .data_bindings
+                        .iter()
+                        .filter(|b| {
+                            matches!(&b.target, BindingTargetDescriptor::ControlArray { .. })
+                        })
                         .cloned()
                         .collect();
                     for b in &array_bindings {
@@ -3158,16 +3154,30 @@ impl DesignerPanel {
                                 if si != gi {
                                     let logical_inst = (k + 1) as usize;
                                     let base_mid = &controls[si].id;
-                                    let inst_id = if logical_inst <= 1 { base_mid.clone() } else { format!("{}#{}", base_mid, logical_inst) };
+                                    let inst_id = if logical_inst <= 1 {
+                                        base_mid.clone()
+                                    } else {
+                                        format!("{}#{}", base_mid, logical_inst)
+                                    };
                                     if let Some(val) = self.preview_state.get(&inst_id) {
                                         let pkey = match clone.control_type {
                                             ControlType::TextBox => "Text",
                                             ControlType::PictureBox => "ImagePath",
-                                            ControlType::CheckBox | ControlType::RadioButton => "Checked",
-                                            ControlType::ComboBox | ControlType::ListBox | ControlType::Slider | ControlType::ProgressBar | ControlType::NumericUpDown | ControlType::DateTimePicker => "Value",
+                                            ControlType::CheckBox | ControlType::RadioButton => {
+                                                "Checked"
+                                            }
+                                            ControlType::ComboBox
+                                            | ControlType::ListBox
+                                            | ControlType::Slider
+                                            | ControlType::ProgressBar
+                                            | ControlType::NumericUpDown
+                                            | ControlType::DateTimePicker => "Value",
                                             _ => "Caption",
                                         };
-                                        clone.set_prop(pkey.to_string(), PropValue::String(val.clone()));
+                                        clone.set_prop(
+                                            pkey.to_string(),
+                                            PropValue::String(val.clone()),
+                                        );
                                     }
                                 }
                                 let dp = if si == gi {
@@ -3513,8 +3523,8 @@ impl DesignerPanel {
         if ctx.input(|i| i.key_pressed(egui::Key::Z) && i.modifiers.command && i.modifiers.shift) {
             self.redo();
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::A) && i.modifiers.command) {
-            // Select all
+        if no_text_focus && ctx.input(|i| i.key_pressed(egui::Key::A) && i.modifiers.command) {
+            // Select all — but only when not editing a property textbox etc.
             self.selected_ids = self.form.controls.iter().map(|c| c.id.clone()).collect();
             selection_changed = true;
         }
@@ -4903,19 +4913,7 @@ impl DesignerPanel {
                 std::path::PathBuf::from(format!("cobol-structure/{}", target.buffer_key())),
                 text,
             );
-            self.cs_editor.known_controls = self
-                .form
-                .controls
-                .iter()
-                .map(|c| {
-                    let type_name = format!("{:?}", c.control_type);
-                    super::editor::KnownControl {
-                        properties: cobolt_forms::model::property_names_for(&type_name),
-                        ctrl_type: type_name,
-                        id: c.id.clone(),
-                    }
-                })
-                .collect();
+            self.cs_editor.known_controls = super::editor::build_known_controls(&self.form);
             self.cs_loaded = Some(target);
         }
 

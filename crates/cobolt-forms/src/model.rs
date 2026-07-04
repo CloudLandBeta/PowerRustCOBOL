@@ -3044,7 +3044,8 @@ impl Control {
                 props.insert("BorderWidth".into(), PropValue::Int(1));
                 // Container behaviour (spec 012): rounded corners + clip radius,
                 // and optional auto-scroll of overflowing children.
-                props.insert("AutoScroll".into(), PropValue::Bool(false));
+                props.insert("HScroll".into(), PropValue::Bool(false));
+                props.insert("VScroll".into(), PropValue::Bool(false));
                 // Panel shares the same visual model as GroupBox (minus caption).
                 props.insert("HideBackground".into(), PropValue::Bool(false));
                 props.insert("BackgroundGradientEnabled".into(), PropValue::Bool(false));
@@ -3066,7 +3067,8 @@ impl Control {
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
                 props.insert("BorderWidth".into(), PropValue::Int(1));
                 // Container behaviour (spec 012).
-                props.insert("AutoScroll".into(), PropValue::Bool(false));
+                props.insert("HScroll".into(), PropValue::Bool(false));
+                props.insert("VScroll".into(), PropValue::Bool(false));
                 // Project-scoped composite-control marker (spec 020). Empty for
                 // normal GroupBoxes; deployed User Controls store the definition
                 // name here.
@@ -3112,11 +3114,8 @@ impl Control {
                 // Deal (all stacked on the first card, then dealt to their final
                 // spots one after another), or FadeIn (fades in at its final spot,
                 // each after the previous finishes). See render's card-appear logic.
-                props.insert(
-                    "PlacementEffect".into(),
-                    PropValue::String("None".into()),
-                );
-                props.insert("AutoScrollParent".into(), PropValue::Bool(true));
+                props.insert("PlacementEffect".into(), PropValue::String("None".into()));
+                props.insert("CardAppearDuration".into(), PropValue::Int(200));
                 props.insert("CloneEvents".into(), PropValue::Bool(true));
                 props.insert("PreviewItemCount".into(), PropValue::Int(1));
             }
@@ -3185,7 +3184,8 @@ impl Control {
                 props.insert("TabPosition".into(), PropValue::String("Top".into()));
                 props.insert("SelectedTab".into(), PropValue::Int(0));
                 // Container behaviour (spec 012).
-                props.insert("AutoScroll".into(), PropValue::Bool(false));
+                props.insert("HScroll".into(), PropValue::Bool(false));
+                props.insert("VScroll".into(), PropValue::Bool(false));
             }
             ControlType::MenuBar => {
                 props.insert(
@@ -3309,11 +3309,11 @@ impl Control {
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into())); // Horizontal | Vertical
                 props.insert("TickFrequency".into(), PropValue::Int(10)); // Draw a tick every N units
                 props.insert("TickStyle".into(), PropValue::String("Bottom".into())); // None | Top | Bottom | Both
-                // Back color → track body (along the scale); Fore color → knob.
-                // Defaulting to the standard sentinels keeps the Liquid Glass look
-                // until the user picks a colour (the renderer only overrides on a
-                // non-default value). Exposing these makes the Appearance section's
-                // Back/Fore colour rows appear for the Slider.
+                                                                                      // Back color → track body (along the scale); Fore color → knob.
+                                                                                      // Defaulting to the standard sentinels keeps the Liquid Glass look
+                                                                                      // until the user picks a colour (the renderer only overrides on a
+                                                                                      // non-default value). Exposing these makes the Appearance section's
+                                                                                      // Back/Fore colour rows appear for the Slider.
                 props.insert(
                     "BackgroundColor".into(),
                     PropValue::String(DEFAULT_BACKGROUND_COLOR.into()),
@@ -4016,7 +4016,9 @@ impl Form {
             BindingTargetDescriptor::DataGrid { control_id: c }
             | BindingTargetDescriptor::Chart { control_id: c, .. }
             | BindingTargetDescriptor::ComboBox { control_id: c }
-            | BindingTargetDescriptor::ListBox { control_id: c } => c.eq_ignore_ascii_case(control_id),
+            | BindingTargetDescriptor::ListBox { control_id: c } => {
+                c.eq_ignore_ascii_case(control_id)
+            }
             BindingTargetDescriptor::ControlArray { array_id: a, .. } => array_id
                 .as_deref()
                 .is_some_and(|aid| a.eq_ignore_ascii_case(aid)),
@@ -4740,9 +4742,14 @@ mod tests {
             // Unified corner radius (spec 016) replaces the old BorderRadius default.
             assert!(c.get_prop("CornerRadius").is_some(), "missing CornerRadius");
             assert_eq!(
-                c.get_prop("AutoScroll").unwrap().as_bool(),
+                c.get_prop("HScroll").unwrap().as_bool(),
                 false,
-                "AutoScroll default off"
+                "HScroll default off"
+            );
+            assert_eq!(
+                c.get_prop("VScroll").unwrap().as_bool(),
+                false,
+                "VScroll default off"
             );
             assert!(c.get_prop("Opacity").is_some(), "missing Opacity");
             let cr = c.content_rect();
@@ -4754,7 +4761,8 @@ mod tests {
         // A non-container keeps a plain content_rect and gains no container props.
         let b = Control::new("B", ControlType::Button, 10, 20);
         assert!(!b.is_container());
-        assert!(b.get_prop("AutoScroll").is_none());
+        assert!(b.get_prop("HScroll").is_none());
+        assert!(b.get_prop("VScroll").is_none());
         assert_eq!(b.content_rect(), b.rect);
         // parent/tab default to None.
         assert!(b.parent.is_none() && b.tab.is_none());
@@ -5271,7 +5279,7 @@ mod tests {
         assert_eq!(g.get_prop("LayoutDirection").unwrap().as_str(), "Vertical");
         assert_eq!(g.get_prop("ItemSpacing").unwrap().as_i64(), 8);
         assert_eq!(g.get_prop("ItemsPerRow").unwrap().as_i64(), 1);
-        assert_eq!(g.get_prop("AutoScrollParent").unwrap().as_bool(), true);
+        // AutoScrollParent removed per user request; parent decides scroll via its HScroll/VScroll.
         assert_eq!(g.get_prop("CloneEvents").unwrap().as_bool(), true);
         assert_eq!(g.get_prop("PreviewItemCount").unwrap().as_i64(), 1);
         // Not leaked onto Panel/TabControl or plain controls.
