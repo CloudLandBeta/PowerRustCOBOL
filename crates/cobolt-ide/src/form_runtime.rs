@@ -126,12 +126,21 @@ pub struct CtrlMeta {
     pub tab: Option<u32>,
 }
 
-/// Mutable state of a single control as seen by the UI thread.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct CtrlState {
     pub props: HashMap<String, String>,
     pub visible: bool,
     pub enabled: bool,
+}
+
+impl Default for CtrlState {
+    fn default() -> Self {
+        Self {
+            props: HashMap::new(),
+            visible: true,
+            enabled: true,
+        }
+    }
 }
 
 impl CtrlState {
@@ -502,14 +511,18 @@ impl FormRuntime {
         changed
     }
 
-    /// Resolve an interpreter control id (often upper-cased) to the matching
-    /// `ctrl_state` key (original case), or return it unchanged if unknown.
     fn resolve_ctrl_key(&self, id: &str) -> String {
-        self.ctrl_state
-            .keys()
-            .find(|k| k.eq_ignore_ascii_case(id))
-            .cloned()
-            .unwrap_or_else(|| id.to_owned())
+        if let Some(k) = self.ctrl_state.keys().find(|k| k.eq_ignore_ascii_case(id)) {
+            return k.clone();
+        }
+        if let Some(c) = self.controls.iter().find(|c| {
+            c.explicit_control_array_id()
+                .map(|aid| aid.eq_ignore_ascii_case(id))
+                .unwrap_or(false)
+        }) {
+            return c.id.clone();
+        }
+        id.to_owned()
     }
 
     /// For a repeating-group member id (case-insensitive), return its original-case
@@ -661,7 +674,7 @@ fn append_data_binding_seed_props(
                 // The control_id here may be the group id or we match by checking if this control is the array host
                 // For simplicity, if the control looks like a repeating group and array_id matches its id or explicit
                 array_id.eq_ignore_ascii_case(control_id)
-                    || form.controls.iter().any(|c| {
+                    || collect_controls(&form.controls).iter().any(|c| {
                         c.id.eq_ignore_ascii_case(control_id)
                             && c.explicit_control_array_id().as_deref() == Some(array_id.as_str())
                     })

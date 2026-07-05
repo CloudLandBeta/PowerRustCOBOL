@@ -556,7 +556,9 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     // ── COBOL-MAIN ──────────────────────────────────────────────────────
     out.push_str("       COBOL-MAIN.\n");
     out.push_str("           CALL \"COBOL-INIT-FORM\" USING FORM-NAME\n");
-    data_binding::write_data_binding_bootstrap(out, form);
+    if !form.data_bindings.is_empty() {
+        out.push_str("           PERFORM COBOL-DATA-BINDINGS-LOAD\n");
+    }
 
     // Kick off timer dispatcher if any timers exist
     let has_timers = all_controls
@@ -569,6 +571,11 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     // Call OnLoad nested program
     if let Some(ev) = form.form_events.iter().find(|e| e.event == "onLoad") {
         out.push_str(&format!("           CALL \"{}\"\n", ev.paragraph));
+    }
+
+    if !form.data_bindings.is_empty() {
+        out.push_str("           PERFORM COBOL-DATA-BINDINGS-POPULATE\n");
+        out.push_str("           PERFORM COBOL-DATA-BINDINGS-MARK-CLEAN\n");
     }
 
     out.push_str("           PERFORM COBOL-EVENT-LOOP\n");

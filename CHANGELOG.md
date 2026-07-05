@@ -8,6 +8,20 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.88] — 2026-07-04
+
+### Fixed
+
+- **Transparency / "growing frame with no content" over inner controls inside databound repeating GroupBox cards (ControlArray) when the parent Panel is scrolled.**
+  The symptom (visible in screenshot.png): rounded card frames appeared and moved on scroll, but Labels, Buttons, PictureBoxes and bound data inside the cards were missing or only partially visible; the card's own gradient/fill showed through as if a clip rect or mask was applying full transparency over the children. Upper cards sometimes showed partial data; scrolled-in cards showed "[Loading...]" at bottom of the empty frame area.
+  Root cause: in `render_form`, control `screen` rects for cards and members were correctly shifted by `ancestor_auto_scroll_offset` (`-scroll`), and `picturebox_container_border` subtracted scroll for `_ContainerClip`. However, the axis-aligned `clip` passed to `painter.with_clip_rect(...)` (and thus to `draw_control`) was always built from `containers::clip_rect` at raw form-space positions (`origin + cm`) with no scroll adjustment. For a label inside a card inside a VScroll Panel, the card's `content_rect` contribution to clip stayed at its laid-out y while the label drew at y - scroll → draw happened outside the active clip → nothing (or only bg) rendered inside the moved card.
+  Fix (minimal, unified engine only):
+  - Added `ancestor_clip_rect` (modeled on the existing ancestor scroll walk): walks parents, subtracts scroll *only* for non-scroller ancestors (the repeating cards live in scrolled content space); keeps scroller Panel clips fixed so content does not escape the viewport.
+  - Updated `picturebox_container_border` to skip the scroll subtraction when the *immediate* parent itself carries HScroll/VScroll (correct fixed border clip for direct PictureBox children of a rounded scrolling Panel).
+  - The general clip site in the render loop now calls the new helper.
+  Affects Preview and Run Form (both use `render_form`). Designer canvas (`render_faces`) is unaffected (scroll always zero). Databinding, expansion, PlacementEffect, and H/VScroll drive are unchanged. Backward compatible.
+  Guardrail note: per AGENTS.md DataGrid guardrail (this fixes databound repeating visual "cards" that were designed to act like databound lists/grids, plus render/clip/rounded/embedded controls in `render.rs`), the datagrid-quality checklist was applied (see below).
+
 ## [PowerRustCOBOL 1.27.87] — 2026-07-04
 
 ### Fixed

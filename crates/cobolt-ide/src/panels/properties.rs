@@ -5529,6 +5529,15 @@ impl PropertiesPanel {
                             action,
                             &["None", "Deal", "FadeIn"],
                         );
+                        int_row_inline(
+                            ui,
+                            id,
+                            "CardAppearDuration",
+                            "Effect duration (ms)",
+                            ctrl,
+                            action,
+                            0..=5000,
+                        );
                         bool_row_inline(ui, id, "CloneEvents", "Clone events", ctrl, action);
                         int_row_inline(
                             ui,

@@ -235,9 +235,26 @@ fn picturebox_container_border(
         return None;
     }
     let v = plive.rect; // visual (border) rect in form coords
+    // If the immediate parent itself is the scroller (HScroll/VScroll), its
+    // border rect stays fixed on screen; only subtract scroll for non-scroller
+    // ancestors (e.g. a rounded GroupBox card that lives inside a scrolling
+    // Panel). This keeps _ContainerClip correct for PictureBox children both
+    // directly under a scroll panel and deep inside databound repeating cards.
+    let parent_has_scroll = matches!(parent.control_type, ControlType::Panel)
+        && (plive
+            .get_prop("HScroll")
+            .map_or(false, |vv| vv.as_bool())
+            || plive
+                .get_prop("VScroll")
+                .map_or(false, |vv| vv.as_bool()));
+    let off = if parent_has_scroll {
+        egui::Vec2::ZERO
+    } else {
+        scroll
+    };
     let border = Rect::from_min_max(
-        origin + Vec2::new(v.x as f32, v.y as f32) - scroll,
-        origin + Vec2::new((v.x + v.w) as f32, (v.y + v.h) as f32) - scroll,
+        origin + Vec2::new(v.x as f32, v.y as f32) - off,
+        origin + Vec2::new((v.x + v.w) as f32, (v.y + v.h) as f32) - off,
     );
     Some((border, rad))
 }
@@ -724,8 +741,9 @@ fn ancestor_auto_scroll_offset(controls: &[Control], idx: usize, ctx: &egui::Con
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
         if let Some(p) = controls.iter().position(|c| c.id == pid) {
-            let has_h = controls[p].get_prop("HScroll").map_or(false, |v| v.as_bool());
-            let has_v = controls[p].get_prop("VScroll").map_or(false, |v| v.as_bool());
+            let is_panel = matches!(controls[p].control_type, ControlType::Panel);
+            let has_h = is_panel && controls[p].get_prop("HScroll").map_or(false, |v| v.as_bool());
+            let has_v = is_panel && controls[p].get_prop("VScroll").map_or(false, |v| v.as_bool());
             if has_h || has_v {
                 let sid = egui::Id::new(("autoscr", pid));
                 if let Some(o) = ctx.data(|d| d.get_temp::<egui::Vec2>(sid)) {
@@ -738,6 +756,88 @@ fn ancestor_auto_scroll_offset(controls: &[Control], idx: usize, ctx: &egui::Con
         }
     }
     off
+}
+
+/// Compute the ancestor content clip rect in *screen* coordinates for `idx`,
+/// honouring ancestor HScroll/VScroll. Container rects contributed by scrolling
+/// ancestors (e.g. the Panel) are placed at their fixed on-screen position.
+/// Container rects for non-scroller ancestors that live in the scrolled content
+/// space (e.g. a databound repeating GroupBox card inside a scrolling Panel) are
+/// shifted by the cumulative scroll so that children draw inside the moved card
+/// bounds. This fixes "frame transparency" / missing inners when scrolling
+/// repeating GroupBoxes (ControlArrays) that act as databound card lists.
+fn ancestor_clip_rect(
+    controls: &[Control],
+    idx: usize,
+    origin: egui::Pos2,
+    scroll: egui::Vec2,
+    state: &dyn FormState,
+) -> Option<Rect> {
+    let mut clip: Option<Rect> = None;
+    let mut cur = idx;
+    // Start assuming we are in "content space" under scroll; once we cross a
+    // scrolling container we stop shifting (higher clips are viewport-fixed).
+    let mut apply_scroll = true;
+    while let Some(pid) = controls.get(cur).and_then(|c| c.parent.clone()) {
+        if let Some(p) = controls.iter().position(|c| c.id == pid) {
+            let pctrl = &controls[p];
+            let plive = state.live(pctrl);
+            let cr = plive.content_rect();
+            let has_scroll = matches!(pctrl.control_type, ControlType::Panel)
+                && (plive
+                    .get_prop("HScroll")
+                    .map_or(false, |v| v.as_bool())
+                    || plive
+                        .get_prop("VScroll")
+                        .map_or(false, |v| v.as_bool()));
+            let off = if apply_scroll && !has_scroll {
+                scroll
+            } else {
+                egui::Vec2::ZERO
+            };
+            let r = Rect::from_min_size(
+                origin + Vec2::new(cr.x as f32, cr.y as f32) - off,
+                Vec2::new(cr.w as f32, cr.h as f32),
+            );
+            clip = Some(match clip {
+                Some(c) => c.intersect(r),
+                None => r,
+            });
+            if has_scroll {
+                apply_scroll = false;
+            }
+            cur = p;
+        } else {
+            break;
+        }
+    }
+    clip
+}
+
+fn panel_content_size(controls: &[Control], panel_idx: usize, panel_size: egui::Vec2) -> egui::Vec2 {
+    let panel = &controls[panel_idx];
+    let mut max_w = panel_size.x;
+    let mut max_h = panel_size.y;
+    for c in controls {
+        let mut cur = c.parent.as_ref();
+        let mut is_descendant = false;
+        while let Some(pid) = cur {
+            if pid.eq_ignore_ascii_case(&panel.id) {
+                is_descendant = true;
+                break;
+            }
+            if let Some(p) = controls.iter().find(|x| x.id.eq_ignore_ascii_case(pid)) {
+                cur = p.parent.as_ref();
+            } else {
+                break;
+            }
+        }
+        if is_descendant {
+            max_w = max_w.max((c.rect.x + c.rect.w - panel.rect.x) as f32);
+            max_h = max_h.max((c.rect.y + c.rect.h - panel.rect.y) as f32);
+        }
+    }
+    egui::vec2(max_w, max_h)
 }
 
 /// Render a whole form into `ui` at its content origin. The caller sets up the
@@ -864,18 +964,70 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             let vscroll = base.get_prop("VScroll").map_or(false, |v| v.as_bool());
             if hscroll || vscroll {
                 let sid = egui::Id::new(("autoscr", &base.id));
+                let overscroll_id = egui::Id::new(("overscroll", &base.id));
+                
+                // Read and decay overscroll
+                let mut overscroll = ui.data(|d| d.get_temp::<egui::Vec2>(overscroll_id)).unwrap_or(egui::Vec2::ZERO);
+                let dt = ui.input(|i| i.stable_dt).min(0.1);
+                let decay = (-15.0 * dt).exp();
+                overscroll *= decay;
+                if overscroll.length() < 0.1 {
+                    overscroll = egui::Vec2::ZERO;
+                }
+
                 let _ = ui.allocate_ui_at_rect(screen, |ui| {
                     let sa = egui::ScrollArea::new([hscroll, vscroll])
                         .id_source(sid)
                         .auto_shrink([false, false]);
+                    
+                    let content_size = panel_content_size(controls, idx, screen.size());
+                    
                     let res = sa.show(ui, |ui| {
-                        ui.set_min_size(egui::vec2(
-                            screen.width() + 400.0,
-                            screen.height() + 400.0,
-                        ));
+                        ui.set_min_size(content_size);
                     });
+                    
                     let offset = res.state.offset;
-                    ui.ctx().data_mut(|d| d.insert_temp(sid, offset));
+                    let max_scroll = (content_size - screen.size()).max(egui::Vec2::ZERO);
+                    
+                    // Accumulate overscroll from input wheel delta when at boundaries
+                    if ui.rect_contains_pointer(screen) {
+                        let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
+                        if scroll_delta != egui::Vec2::ZERO {
+                            // Check vertical boundaries
+                            if vscroll {
+                                if offset.y <= 0.0 && scroll_delta.y > 0.0 {
+                                    overscroll.y = (overscroll.y + scroll_delta.y * 0.4).clamp(-40.0, 40.0);
+                                } else if offset.y >= max_scroll.y && scroll_delta.y < 0.0 {
+                                    overscroll.y = (overscroll.y + scroll_delta.y * 0.4).clamp(-40.0, 40.0);
+                                }
+                            }
+                            // Check horizontal boundaries
+                            if hscroll {
+                                if offset.x <= 0.0 && scroll_delta.x > 0.0 {
+                                    overscroll.x = (overscroll.x + scroll_delta.x * 0.4).clamp(-40.0, 40.0);
+                                } else if offset.x >= max_scroll.x && scroll_delta.x < 0.0 {
+                                    overscroll.x = (overscroll.x + scroll_delta.x * 0.4).clamp(-40.0, 40.0);
+                                }
+                            }
+                        }
+                    }
+
+                    // Save new overscroll and request repaint if animating
+                    if overscroll != egui::Vec2::ZERO {
+                        ui.ctx().request_repaint();
+                    }
+                    ui.data_mut(|d| d.insert_temp(overscroll_id, overscroll));
+
+                    let effective_scroll = offset - overscroll;
+                    ui.ctx().data_mut(|d| d.insert_temp(sid, effective_scroll));
+
+                    if ui.rect_contains_pointer(screen) {
+                        ui.input_mut(|i| {
+                            i.events.retain(|event| !matches!(event, egui::Event::MouseWheel { .. }));
+                            i.smooth_scroll_delta = egui::Vec2::ZERO;
+                            i.raw_scroll_delta = egui::Vec2::ZERO;
+                        });
+                    }
                 });
             }
         }
@@ -893,13 +1045,15 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // Clip to ancestor container content areas (rounded clipping is cosmetic;
         // egui clips to the axis-aligned rect — spec 012/016). Start from the whole
         // form so a top-level control is never clipped to its own bounds.
-        let clip = match containers::clip_rect(controls, idx) {
-            Some(cm) => form_rect.intersect(Rect::from_min_size(
-                origin + Vec2::new(cm.x as f32, cm.y as f32),
-                Vec2::new(cm.w as f32, cm.h as f32),
-            )),
+        // Use scroll-aware placement so that clips contributed by non-scroller
+        // containers (the instanced cards) move with -scroll while scroller
+        // Panel clips stay fixed. Prevents the "growing transparent frame" over
+        // databound card content on scroll.
+        let clip = match ancestor_clip_rect(controls, idx, origin, scroll, input.state) {
+            Some(c) => form_rect.intersect(c),
             None => form_rect,
         };
+
 
         let anc = containers::ancestor_opacity(controls, idx);
         let enabled = input.state.enabled(base);
@@ -4260,6 +4414,217 @@ mod tests {
         let mut lone = ctrl("Pic", ControlType::PictureBox, 10, 10, 50, 50);
         lone.parent = None;
         assert_eq!(mk(&[spacer, lone]), None);
+    }
+
+    #[test]
+    fn ancestor_clip_rect_shifts_only_inner_nonscroller_containers() {
+        // Simulate: outer scrolling Panel (fixed clip) containing a rounded
+        // databound-style GroupBox card (its clip must shift with -scroll so
+        // children inside the card are not clipped away). Verifies the fix for
+        // transparency/frame over card inners on scroll.
+        let mut panel = ctrl("Pnl", ControlType::Panel, 0, 0, 300, 200);
+        panel.set_prop("VScroll", crate::model::PropValue::Bool(true));
+        let mut card = ctrl("GB", ControlType::GroupBox, 10, 20, 250, 60);
+        card.set_prop("CornerRadius", crate::model::PropValue::Int(8));
+        card.parent = Some("Pnl".into());
+        let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
+        inner.parent = Some("GB".into());
+        let controls = vec![panel, card, inner];
+        let origin = egui::pos2(5.0, 5.0);
+        let scroll = egui::vec2(0.0, 42.0);
+
+        // For the inner label (inside card), clip should be intersection of:
+        // - panel's content rect (fixed, because it is the scroller)
+        // - card's content rect shifted by -scroll (card is non-scroller container in content space)
+        let clip = ancestor_clip_rect(&controls, 2, origin, scroll, &DesignedState).expect("clip");
+
+        // Compute expected using same content_rects + rules.
+        let p_cr = controls[0].content_rect();
+        let fixed_panel = Rect::from_min_size(
+            origin + egui::vec2(p_cr.x as f32, p_cr.y as f32),
+            egui::vec2(p_cr.w as f32, p_cr.h as f32),
+        );
+        let c_cr = controls[1].content_rect();
+        let shifted_card = Rect::from_min_size(
+            origin + egui::vec2(c_cr.x as f32, c_cr.y as f32) - scroll,
+            egui::vec2(c_cr.w as f32, c_cr.h as f32),
+        );
+        let expected = fixed_panel.intersect(shifted_card);
+
+        assert!(
+            (clip.min.x - expected.min.x).abs() < 0.01
+                && (clip.min.y - expected.min.y).abs() < 0.01
+                && (clip.max.x - expected.max.x).abs() < 0.01
+                && (clip.max.y - expected.max.y).abs() < 0.01,
+            "clip must match fixed_panel ∩ (card_content - scroll)"
+        );
+
+        // Prove the shift was applied to the card part: an unshifted card clip
+        // would produce a different rect (higher y).
+        let unshifted_card = Rect::from_min_size(
+            origin + egui::vec2(c_cr.x as f32, c_cr.y as f32),
+            egui::vec2(c_cr.w as f32, c_cr.h as f32),
+        );
+        let would_be_unshifted = fixed_panel.intersect(unshifted_card);
+        assert!(
+            (would_be_unshifted.min.y - clip.min.y).abs() > 0.1,
+            "without shift the clip y would be different (higher)"
+        );
+    }
+
+    #[test]
+    fn ancestor_clip_rect_repeating_group_instance_shifting() {
+        use crate::model::PropValue;
+        let mut panel = ctrl("Pnl", ControlType::Panel, 0, 0, 300, 400);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        let mut card = ctrl("GB", ControlType::GroupBox, 10, 20, 250, 100);
+        card.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        card.set_prop("DataSource", PropValue::String("MyTable".into()));
+        card.set_prop("ItemCount", PropValue::Int(3));
+        card.set_prop("LayoutDirection", PropValue::String("Vertical".into()));
+        card.set_prop("ItemSpacing", PropValue::Int(10));
+        card.parent = Some("Pnl".into());
+        let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
+        inner.parent = Some("GB".into());
+        
+        let designed = vec![panel, card, inner];
+        let controls = expand_repeating_groups(&designed).expect("expand");
+        
+        // Find "GB.GB-2" (instance 2 of card) and "GB.GB-2.Lbl" (instance 2 of label)
+        let lbl_idx = controls.iter().position(|c| c.id == "GB.GB-2.Lbl").unwrap_or_else(|| {
+            let ids: Vec<String> = controls.iter().map(|c| c.id.clone()).collect();
+            panic!("Could not find GB.GB-2.Lbl. Available IDs: {:?}", ids);
+        });
+        
+        let origin = egui::pos2(0.0, 0.0);
+        let scroll = egui::vec2(0.0, 30.0);
+        
+        let clip = ancestor_clip_rect(&controls, lbl_idx, origin, scroll, &DesignedState).expect("clip");
+        
+        // Card height is 100, spacing is 10. Instance 2 is shifted down by dy = 110.
+        // Scroll is 30.
+        // Expected card content rect for instance 2 is (10 + 2, 20 + 110 + 2) = (12, 132).
+        // Since scroll is 30, the card's clip rect should shift to 132 - 30 = 102.
+        assert_eq!(clip.min.y, 102.0);
+    }
+
+    #[test]
+    fn test_panel_content_size_calculation() {
+        use crate::model::PropValue;
+        let mut panel = ctrl("Pnl", ControlType::Panel, 0, 0, 300, 400);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        let mut card = ctrl("GB", ControlType::GroupBox, 10, 20, 250, 100);
+        card.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        card.set_prop("DataSource", PropValue::String("MyTable".into()));
+        card.set_prop("ItemCount", PropValue::Int(3));
+        card.set_prop("LayoutDirection", PropValue::String("Vertical".into()));
+        card.set_prop("ItemSpacing", PropValue::Int(10));
+        card.parent = Some("Pnl".into());
+        let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
+        inner.parent = Some("GB".into());
+        
+        let designed = vec![panel, card, inner];
+        let controls = expand_repeating_groups(&designed).expect("expand");
+        
+        let pnl_idx = controls.iter().position(|c| c.id == "Pnl").unwrap();
+        let size = panel_content_size(&controls, pnl_idx, egui::vec2(300.0, 400.0));
+        
+        assert_eq!(size.y, 400.0);
+        
+        let mut card_5 = designed[1].clone();
+        card_5.set_prop("ItemCount", PropValue::Int(5));
+        let controls_5 = expand_repeating_groups(&vec![designed[0].clone(), card_5, designed[2].clone()]).expect("expand");
+        let p_idx = controls_5.iter().position(|c| c.id == "Pnl").unwrap();
+        let size_5 = panel_content_size(&controls_5, p_idx, egui::vec2(300.0, 400.0));
+        assert_eq!(size_5.y, 560.0);
+    }
+
+    #[test]
+    fn render_form_scroll_smoke() {
+        use crate::model::PropValue;
+        let mut panel = ctrl("Pnl", ControlType::Panel, 0, 0, 300, 400);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        let mut card = ctrl("GB", ControlType::GroupBox, 10, 20, 250, 100);
+        card.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        card.set_prop("DataSource", PropValue::String("MyTable".into()));
+        card.set_prop("ItemCount", PropValue::Int(3));
+        card.set_prop("LayoutDirection", PropValue::String("Vertical".into()));
+        card.set_prop("ItemSpacing", PropValue::Int(10));
+        card.parent = Some("Pnl".into());
+        let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
+        inner.parent = Some("GB".into());
+        
+        let controls = vec![panel, card, inner];
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let _ = ctx.run(Default::default(), |ctx| {
+            // Seed scroll offset in temp data
+            let sid = egui::Id::new(("autoscr", "Pnl"));
+            ctx.data_mut(|d| d.insert_temp(sid, egui::vec2(0.0, 30.0)));
+
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.set_min_size(Vec2::new(400.0, 500.0));
+                let input = RenderInput {
+                    controls: &controls,
+                    state: &DesignedState,
+                    form_size: Vec2::new(400.0, 500.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let _ = render_form(ui, &input);
+            });
+        });
+    }
+
+    #[test]
+    fn render_form_scroll_runstate_overwrite_smoke() {
+        use crate::model::PropValue;
+        let mut panel = ctrl("Pnl", ControlType::Panel, 0, 0, 300, 400);
+        panel.set_prop("VScroll", PropValue::Bool(true));
+        let mut card = ctrl("GB", ControlType::GroupBox, 10, 20, 250, 100);
+        card.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        card.set_prop("DataSource", PropValue::String("MyTable".into()));
+        card.set_prop("ItemCount", PropValue::Int(3));
+        card.set_prop("LayoutDirection", PropValue::String("Vertical".into()));
+        card.set_prop("ItemSpacing", PropValue::Int(10));
+        card.parent = Some("Pnl".into());
+        let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
+        inner.parent = Some("GB".into());
+        
+        let controls = vec![panel, card, inner];
+        
+        // Simulate RunState state snap.
+        let mut states_snap = Map::new();
+        let mut card_state = Map::new();
+        card_state.insert("Y".to_string(), "20".to_string());
+        states_snap.insert("GB.GB-2".to_string(), card_state);
+        
+        let state_cell = std::cell::RefCell::new(states_snap);
+        let state = MapState(&state_cell);
+        
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let _ = ctx.run(Default::default(), |ctx| {
+            // Seed scroll offset in temp data
+            let sid = egui::Id::new(("autoscr", "Pnl"));
+            ctx.data_mut(|d| d.insert_temp(sid, egui::vec2(0.0, 30.0)));
+
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.set_min_size(Vec2::new(400.0, 500.0));
+                let input = RenderInput {
+                    controls: &controls,
+                    state: &state,
+                    form_size: Vec2::new(400.0, 500.0),
+                    glass: true,
+                    mode: RenderMode::Static,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let _ = render_form(ui, &input);
+            });
+        });
     }
 
     #[test]

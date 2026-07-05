@@ -9,6 +9,14 @@
 > The callable skill wrapper is
 > [`.agents/skills/datagrid-quality/SKILL.md`](.agents/skills/datagrid-quality/SKILL.md).
 
+> **GUI Border Validation guardrail:** before completing any code change or review
+> that modifies geometry, rendering, radius, stroke, shadow, glow, inset, padding,
+> clipping, or visual effects on a control border (including rounded corners and
+> how border segments connect), call the GUI Border Validation Agent at
+> [`.agents/agents/gui-border-validation-agent.md`](.agents/agents/gui-border-validation-agent.md).
+> The callable skill wrapper is
+> [`.agents/skills/gui-border-validation/SKILL.md`](.agents/skills/gui-border-validation/SKILL.md).
+
 ## Imported Claude Cowork project instructions
 
 You are Codex, acting as a senior Rust engineer and software architect working inside an existing project repository.

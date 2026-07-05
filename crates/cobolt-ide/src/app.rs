@@ -4708,10 +4708,12 @@ impl cobolt_forms::render::FormState for RunState<'_> {
         }
     }
     fn visible(&self, base: &cobolt_forms::Control) -> bool {
-        self.state.get(&base.id).map(|s| s.visible).unwrap_or(true)
+        let key = self.state.keys().find(|k| k.eq_ignore_ascii_case(&base.id));
+        key.and_then(|k| self.state.get(k)).map(|s| s.visible).unwrap_or(true)
     }
     fn enabled(&self, base: &cobolt_forms::Control) -> bool {
-        self.state.get(&base.id).map(|s| s.enabled).unwrap_or(true)
+        let key = self.state.keys().find(|k| k.eq_ignore_ascii_case(&base.id));
+        key.and_then(|k| self.state.get(k)).map(|s| s.enabled).unwrap_or(true)
     }
 }
 
@@ -6319,11 +6321,27 @@ fn apply_data_binding_target_properties(form: &mut Form, binding: &DataBindingDe
         };
         tracing::debug!(target: "databinding", "[ControlArray] array_id={} n={} source_fields={:?}",
             array_id, n, fields.iter().map(|f| &f.name).collect::<Vec<_>>());
-        // find by explicit array id because array_id may be the ArrayName, not the GroupBox .id
-        if let Some(group) = form.controls.iter_mut().find(|g| {
-            matches!(g.control_type, ControlType::GroupBox)
-                && g.explicit_control_array_id().as_deref() == Some(array_id.as_str())
-        }) {
+        fn find_group_mut<'a>(ctrl: &'a mut cobolt_forms::Control, array_id: &str) -> Option<&'a mut cobolt_forms::Control> {
+            if matches!(ctrl.control_type, ControlType::GroupBox)
+                && ctrl.explicit_control_array_id().as_deref() == Some(array_id)
+            {
+                return Some(ctrl);
+            }
+            for child in &mut ctrl.children {
+                if let Some(res) = find_group_mut(child, array_id) {
+                    return Some(res);
+                }
+            }
+            None
+        }
+        let mut group = None;
+        for c in &mut form.controls {
+            if let Some(res) = find_group_mut(c, array_id.as_str()) {
+                group = Some(res);
+                break;
+            }
+        }
+        if let Some(group) = group {
             group.set_prop("DataSource", PropValue::String(data_source.clone()));
             group.set_prop("ItemCount", PropValue::Int(n));
             group.set_prop("PreviewItemCount", PropValue::Int(n));
@@ -6362,21 +6380,30 @@ pub(crate) fn seed_control_array_binding_preview_values(
     } else {
         rows.len().clamp(1, 20)
     };
-    // The clone-id scheme keys off the GroupBox's own control id (`g.id`), which
-    // is what the renderer's `expand_repeating_groups` uses — not the array name.
-    let group_ctrl_id = d
-        .form
-        .controls
-        .iter()
-        .find(|g| {
-            matches!(g.control_type, ControlType::GroupBox)
-                && g.explicit_control_array_id().as_deref() == Some(array_id.as_str())
-        })
-        .map(|g| g.id.clone());
+    fn find_group_ref<'a>(ctrl: &'a cobolt_forms::Control, array_id: &str) -> Option<&'a cobolt_forms::Control> {
+        if matches!(ctrl.control_type, ControlType::GroupBox)
+            && ctrl.explicit_control_array_id().as_deref() == Some(array_id)
+        {
+            return Some(ctrl);
+        }
+        for child in &ctrl.children {
+            if let Some(res) = find_group_ref(child, array_id) {
+                return Some(res);
+            }
+        }
+        None
+    }
+    let mut group_ctrl_id = None;
+    for c in &d.form.controls {
+        if let Some(res) = find_group_ref(c, array_id.as_str()) {
+            group_ctrl_id = Some(res.id.clone());
+            break;
+        }
+    }
     let Some(group_ctrl_id) = group_ctrl_id else {
         return;
     };
-    if let Some(g) = d.form.controls.iter_mut().find(|g| g.id == group_ctrl_id) {
+    if let Some(g) = d.form.find_control_mut(&group_ctrl_id) {
         g.set_prop("ItemCount", PropValue::Int(n as i64));
         g.set_prop("PreviewItemCount", PropValue::Int(n as i64));
     }

@@ -812,8 +812,31 @@ impl Interpreter {
             {
                 tracing::debug!(target: "databinding", "RUN-FORM seed GroupBox {} with databind props if any", id);
             }
-            for (k, v) in props_vec {
-                self.objects.set_property(&id, &k, v);
+            for (k, v) in &props_vec {
+                self.objects.set_property(&id, &k, v.clone());
+            }
+
+            // Double seed repeating GroupBoxes under their ArrayName
+            let is_repeating = props_vec.iter().any(|(k, v)| k.eq_ignore_ascii_case("IsRepeatingGroup") && (v == "1" || v.eq_ignore_ascii_case("true")));
+            if class.eq_ignore_ascii_case("GroupBox") && is_repeating {
+                let array_name = props_vec.iter().find(|(k, _)| k.eq_ignore_ascii_case("ArrayName")).map(|(_, v)| v.trim()).unwrap_or("");
+                let array_id = if array_name.is_empty() {
+                    id.clone()
+                } else {
+                    array_name.to_string()
+                };
+                let log_msg = format!("Seeding repeating GroupBox array_id={}, design_id={}\n", array_id, id);
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+                    use std::io::Write;
+                    let _ = f.write_all(log_msg.as_bytes());
+                }
+                if !self.objects.contains(&array_id) {
+                    self.objects.register(&array_id, class.clone());
+                }
+                self.objects.set_property(&array_id, "_DesignControlId", id.clone());
+                for (k, v) in &props_vec {
+                    self.objects.set_property(&array_id, k, v.clone());
+                }
             }
         }
     }
@@ -4509,6 +4532,10 @@ impl Interpreter {
         // so that render will destroy old instances and recreate the correct number,
         // re-stamping PlacementEffect / deployment animations on the new cards.
         tracing::debug!(target: "databinding", "RUN-FORM refresh_control_array for {}", group_id);
+        
+        let design_id = self.obj_get(group_id, "_DesignControlId");
+        let group_for_id = if !design_id.is_empty() { &design_id } else { group_id };
+
         let fields: Vec<String> = self
             .obj_get(group_id, "_BindingFields")
             .split(|ch| matches!(ch, '\n' | '\r' | ',' | ';' | '\t'))
@@ -4517,6 +4544,10 @@ impl Interpreter {
             .map(str::to_owned)
             .collect();
         if fields.is_empty() {
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+                use std::io::Write;
+                let _ = writeln!(f, "refresh_control_array_binding: group_id={} fields is empty!", group_id);
+            }
             return 0;
         }
         let row_count = fields
@@ -4525,15 +4556,27 @@ impl Interpreter {
             .filter_map(|symbol| symbol.dims.last().copied())
             .max()
             .unwrap_or(0);
+
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+            use std::io::Write;
+            let _ = writeln!(f, "refresh_control_array_binding: group_id={}, design_id={}, row_count={}, fields={:?}", group_id, design_id, row_count, fields);
+        }
+
         // Set ItemCount directly (bypass the obj_set hook that would re-enter
         // refresh_control_array_binding and cause recursion on the count set).
         if !self.objects.contains(group_id) {
             self.objects.register(group_id, "Control");
         }
         self.objects.set_property(group_id, "ItemCount", row_count.to_string());
+        if !design_id.is_empty() {
+            if !self.objects.contains(&design_id) {
+                self.objects.register(&design_id, "Control");
+            }
+            self.objects.set_property(&design_id, "ItemCount", row_count.to_string());
+        }
         if let Some(tx) = &self.state_tx {
             let _ = tx.send(StateUpdate::new(
-                group_id.to_string(),
+                group_for_id.to_string(),
                 "ItemCount".to_string(),
                 row_count.to_string(),
             ));
@@ -4603,9 +4646,15 @@ impl Interpreter {
 
                     self.set_member_indexed(member, &[PathSeg::Prop(prop.to_owned())], val.clone(), r);
 
+                    let indexed_member =
+                        format!("{group_for_id}.{group_for_id}-{r}.{member}");
+
+                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+                        use std::io::Write;
+                        let _ = writeln!(f, "  r={}, member={}, prop={}, val={:?}, indexed_member={}", r, member, prop, val, indexed_member);
+                    }
+
                     if let Some(tx) = &self.state_tx {
-                        let indexed_member =
-                            format!("{group_id}.{group_id}-{r}.{member}");
                         let _ = tx.send(
                             StateUpdate::new(
                                 member.to_string(),
@@ -7469,5 +7518,48 @@ MAIN.
         // 2024-01-01: 54 years since 1970 (with leap years)
         let d = days_to_ymd(19723); // 19723 days = 2024-01-01
         assert!(d.starts_with("202"), "got {d}");
+    }
+
+    #[test]
+    fn test_control_array_refresh() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. CTRL-ARRAY-TEST.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-ACTOR-TABLE.
+   05 WS-ACTOR-ROW OCCURS 2 TIMES.
+      10 ACTOR-ID      PIC 9(09).
+      10 ACTOR-CAPTION PIC X(40).
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let (state_tx, state_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.state_tx = Some(state_tx);
+        interp.seed_objects([(
+            "groupbox-2".to_owned(),
+            "GroupBox".to_owned(),
+            vec![
+                ("IsRepeatingGroup".to_owned(), "true".to_owned()),
+                ("ArrayName".to_owned(), "ActorArray".to_owned()),
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                ("_BindingFields".to_owned(), "ACTOR-ID\nACTOR-CAPTION".to_owned()),
+                ("_BindingMappings".to_owned(), "ACTOR-CAPTION\tlabel-3\tCaption".to_owned()),
+                ("_BindingArray".to_owned(), "1".to_owned()),
+            ],
+        )]);
+        interp.env.set_str("ACTOR-ID(1)", "000000001");
+        interp.env.set_str("ACTOR-CAPTION(1)", "Leonardo DiCaprio");
+        interp.env.set_str("ACTOR-ID(2)", "000000002");
+        interp.env.set_str("ACTOR-CAPTION(2)", "Joe Pesci");
+
+        assert_eq!(interp.refresh_control_array_binding("ActorArray"), 2);
+        
+        let updates: Vec<_> = state_rx.try_iter().collect();
+        println!("UPDATES: {:?}", updates);
     }
 }

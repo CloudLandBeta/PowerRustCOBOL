@@ -1071,7 +1071,7 @@ mod tests {
 
     #[test]
     fn ships_twenty_eight_themes() {
-        assert_eq!(THEMES.len(), 28, "17 original + 10 light + Classic");
+        assert_eq!(THEMES.len(), 29, "17 original + 11 light + Classic");
     }
 
     #[test]
