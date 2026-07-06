@@ -787,14 +787,10 @@ impl ProjectPanel {
                     ui.add_space(8.0);
                     status_dot(ui, status);
                     tree_icon(ui, draw_indexed_icon);
-                    let resp = full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(4.0);
-                        if ui.small_button("🗑").on_hover_text("Remove indexed file from project").clicked() {
-                            remove_clicked = true;
-                        }
-                    });
-                    resp
+                    if ui.small_button("🗑").on_hover_text("Remove indexed file from project").clicked() {
+                        remove_clicked = true;
+                    }
+                    full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel)
                 })
                 .body(|ui| {
                     let Some(def) = &def else {
