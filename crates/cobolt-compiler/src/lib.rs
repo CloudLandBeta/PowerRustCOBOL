@@ -113,6 +113,14 @@ struct ProjectMeta {
     name: String,
     version: String,
     main: String,
+    #[serde(default)]
+    destination_folder: String,
+    #[serde(default = "default_debug_compilation")]
+    debug_compilation: bool,
+}
+
+fn default_debug_compilation() -> bool {
+    true
 }
 
 #[derive(Deserialize, Default)]
@@ -260,6 +268,8 @@ pub fn build_single_file(
             name,
             version: "1.0.0".into(),
             main,
+            destination_folder: String::new(),
+            debug_compilation: true,
         },
         files: ProjectFiles::default(),
     };
@@ -469,8 +479,12 @@ fn build_core(
     // shows the crate currently building.
     report(0.60, "Compiling…");
     use std::io::{BufRead as _, BufReader};
+    let mut args = vec!["build"];
+    if !proj.project.debug_compilation {
+        args.push("--release");
+    }
     let mut child = std::process::Command::new("cargo")
-        .args(["build", "--release"])
+        .args(&args)
         .current_dir(&build_dir)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -511,7 +525,8 @@ fn build_core(
         bin_name.clone()
     };
 
-    let src_bin = build_dir.join("target").join("release").join(&exe_name);
+    let profile_dir = if proj.project.debug_compilation { "debug" } else { "release" };
+    let src_bin = build_dir.join("target").join(profile_dir).join(&exe_name);
     let dst_bin = bin_dir.join(&exe_name);
     std::fs::copy(&src_bin, &dst_bin)?;
 
@@ -561,6 +576,72 @@ fn build_core(
     // distribution carries them.
     if let Err(e) = write_license_notices(&bin_dir) {
         log(&format!("⚠️  Could not write license notices to bin/: {e}"));
+    }
+
+    // ── 11c. Copy to destination folder ───────────────────────────────────────
+    let dest_name = if proj.project.destination_folder.trim().is_empty() {
+        if let Some(stripped) = proj.project.name.strip_suffix(".project") {
+            stripped.to_string()
+        } else {
+            proj.project.name.clone()
+        }
+    } else {
+        proj.project.destination_folder.trim().to_string()
+    };
+
+    let dest_path = if Path::new(&dest_name).is_absolute() {
+        PathBuf::from(&dest_name)
+    } else {
+        project_dir.join(&dest_name)
+    };
+
+    log(&format!("📂 Creating destination folder: {}", dest_path.display()));
+    let _ = std::fs::create_dir_all(&dest_path);
+
+    // Copy project binary to destination folder
+    let dest_bin = dest_path.join(&exe_name);
+    if let Err(e) = std::fs::copy(&dst_bin, &dest_bin) {
+        log(&format!("⚠️  Failed to copy binary to destination folder: {e}"));
+    } else {
+        // Make executable on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&dest_bin) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = std::fs::set_permissions(&dest_bin, perms);
+            }
+        }
+    }
+    
+    // Deep copy assets folder (if it exists) to destination folder
+    let assets_src = project_dir.join("assets");
+    if assets_src.exists() && assets_src.is_dir() {
+        let assets_dst = dest_path.join("assets");
+        let _ = copy_dir_all(&assets_src, &assets_dst);
+    }
+
+    // Copy rcrun binary to destination folder
+    if let Some(rcrun_src) = find_rcrun() {
+        let rcrun_name = if cfg!(windows) { "rcrun.exe" } else { "rcrun" };
+        let dest_rcrun = dest_path.join(rcrun_name);
+        if let Err(e) = std::fs::copy(&rcrun_src, &dest_rcrun) {
+            log(&format!("⚠️  Failed to copy rcrun to destination: {e}"));
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&dest_rcrun) {
+                    let mut perms = meta.permissions();
+                    perms.set_mode(0o755);
+                    let _ = std::fs::set_permissions(&dest_rcrun, perms);
+                }
+            }
+            log(&format!("rcrun binary copied to {}", dest_rcrun.display()));
+        }
+    } else {
+        log("⚠️  rcrun binary not found, skipped copying rcrun.");
     }
 
     report(1.0, "Done");
@@ -961,6 +1042,46 @@ fn find_workspace_root(start: &Path) -> Option<PathBuf> {
         dir = dir.parent()?;
     }
 }
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+    std::fs::create_dir_all(&dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+fn find_rcrun() -> Option<PathBuf> {
+    let rcrun_name = if cfg!(windows) { "rcrun.exe" } else { "rcrun" };
+    if let Ok(current_exe) = std::env::current_exe() {
+        let p = current_exe.with_file_name(rcrun_name);
+        if p.exists() {
+            return Some(p);
+        }
+        if let Some(parent) = current_exe.parent() {
+            let p2 = parent.parent().map(|p| p.join(rcrun_name));
+            if let Some(p2) = p2 {
+                if p2.exists() {
+                    return Some(p2);
+                }
+            }
+        }
+    }
+    if let Ok(path_val) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_val) {
+            let p = dir.join(rcrun_name);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
 
 #[cfg(test)]
 mod resolve_main_tests {
@@ -984,6 +1105,8 @@ mod resolve_main_tests {
                 name: "Demo".into(),
                 version: "1.0.0".into(),
                 main: main.into(),
+                destination_folder: String::new(),
+                debug_compilation: true,
             },
             files: ProjectFiles {
                 sources: sources.into_iter().map(String::from).collect(),

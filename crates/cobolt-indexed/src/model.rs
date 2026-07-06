@@ -327,4 +327,31 @@ impl IndexedDefinition {
             RecordFormatDef::Variable { max_length, .. } => max_length,
         }
     }
+
+    /// Recursively recompute leaf field offsets sequentially, updating the record format length.
+    pub fn recompute_offsets(&mut self) -> u32 {
+        let Some(root) = self.fields.first_mut() else {
+            return 0;
+        };
+        let mut off = 0u32;
+        fn walk(node: &mut IndexedField, off: &mut u32) {
+            if node.offset.is_some() {
+                node.offset = Some(*off);
+                *off += node.length.unwrap_or(0);
+            }
+            for child in &mut node.children {
+                walk(child, off);
+            }
+        }
+        walk(root, &mut off);
+        match &mut self.record_format {
+            RecordFormatDef::Fixed { length } => {
+                *length = off;
+            }
+            RecordFormatDef::Variable { max_length, .. } => {
+                *max_length = off;
+            }
+        }
+        off
+    }
 }

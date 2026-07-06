@@ -41,8 +41,9 @@ pub fn record_to_text(def: &IndexedDefinition) -> String {
                 line.push_str(" SYNCHRONIZED");
             }
         }
+        line.push_str(".");
         if !f.comment.is_empty() {
-            line.push_str(&format!(" . {}", f.comment));
+            line.push_str(&format!(" *> {}", f.comment));
         }
         lines.push(line);
     }
@@ -66,6 +67,7 @@ fn usage_token(u: FieldUsage) -> &'static str {
 pub fn text_to_record(def: &mut IndexedDefinition, text: &str) -> Result<(), String> {
     let flat = parse_record_text(text)?;
     def.fields = rebuild_record(&flat)?;
+    def.recompute_offsets();
     Ok(())
 }
 
@@ -77,8 +79,23 @@ pub fn parse_record_text(text: &str) -> Result<Vec<FlatEntry>, String> {
             continue;
         }
         let depth = raw.chars().take_while(|c| *c == ' ').count() / INDENT.len();
-        let trimmed = line.split("/*").next().unwrap_or("").trim();
-        let trimmed = trimmed.trim_start();
+        let mut line_no_comment = line;
+        let mut comment = String::new();
+        if let Some(pos) = line.find("*>") {
+            comment = line[pos + 2..].trim().to_string();
+            line_no_comment = &line[..pos];
+        } else if let Some(pos) = line.find("/*") {
+            comment = line[pos + 2..].trim().to_string();
+            line_no_comment = &line[..pos];
+        } else if let Some(pos) = line.find(" . ") {
+            comment = line[pos + 3..].trim().to_string();
+            line_no_comment = &line[..pos];
+        }
+        let line_no_comment = line_no_comment.trim();
+        if !line_no_comment.ends_with('.') {
+            return Err(err_line(lineno, "data item description must end with a period '.'"));
+        }
+        let trimmed = line_no_comment.strip_suffix('.').unwrap().trim();
         let mut parts = trimmed.splitn(2, char::is_whitespace);
         let level_s = parts
             .next()
@@ -98,7 +115,7 @@ pub fn parse_record_text(text: &str) -> Result<Vec<FlatEntry>, String> {
             usage: FieldUsage::Display,
             offset: None,
             length: None,
-            comment: String::new(),
+            comment,
             grid_control: None,
             occurs: None,
             redefines: None,
@@ -152,8 +169,13 @@ fn split_name_clauses(rest: &str) -> (&str, &str) {
 
 fn parse_clauses(field: &mut IndexedField, mut clauses: &str, lineno: usize) -> Result<(), String> {
     if let Some(dot) = clauses.rfind('.') {
-        field.comment = clauses[dot + 1..].trim().to_string();
+        if field.comment.is_empty() {
+            field.comment = clauses[dot + 1..].trim().to_string();
+        }
         clauses = clauses[..dot].trim();
+    }
+    if clauses.ends_with('.') {
+        clauses = clauses.strip_suffix('.').unwrap().trim();
     }
     let upper = clauses.to_ascii_uppercase();
     if let Some(pic) = extract_pic(&upper) {
@@ -240,7 +262,7 @@ mod tests {
 
     #[test]
     fn parse_assigns_depth_from_level() {
-        let flat = parse_record_text("01 ROOT\n    05 A PIC X(8)").unwrap();
+        let flat = parse_record_text("01 ROOT.\n    05 A PIC X(8).").unwrap();
         assert_eq!(flat.len(), 2);
         assert_eq!(flat[0].depth, 0);
         assert_eq!(flat[1].depth, 1);
@@ -282,5 +304,12 @@ mod tests {
         text_to_record(&mut def2, &text).expect(&text);
         assert_eq!(def2.fields[0].children.len(), 1, "from:\n{text}");
         assert_eq!(def2.fields[0].children[0].pic, "X(8)");
+    }
+
+    #[test]
+    fn parse_fails_on_missing_period() {
+        let res = parse_record_text("01 ROOT\n    05 A PIC X(8).");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("must end with a period"));
     }
 }

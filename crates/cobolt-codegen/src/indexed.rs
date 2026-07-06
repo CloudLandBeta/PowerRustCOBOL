@@ -29,6 +29,80 @@ fn write_indexed_header(out: &mut String) {
     out.push_str("      *> ───────────────────────────────────────────────────────────\n\n");
 }
 
+pub fn generate_indexed_select(def: &IndexedDefinition) -> String {
+    let mut out = String::with_capacity(512);
+    out.push_str(&format!(
+        "           SELECT {} ASSIGN TO \"{}\"\n",
+        def.name, def.assign_path
+    ));
+    out.push_str("               ORGANIZATION IS INDEXED\n");
+    out.push_str(&format!(
+        "               ACCESS MODE IS {}\n",
+        access_mode_cobol(def.access_mode)
+    ));
+    if let Some(key_field) = def.keys.primary.parts.first() {
+        out.push_str(&format!(
+            "               RECORD KEY IS {}\n",
+            key_field.field_name
+        ));
+    }
+    for alt in &def.keys.alternates {
+        let name = alt
+            .name
+            .as_deref()
+            .or_else(|| alt.parts.first().map(|p| p.field_name.as_str()))
+            .unwrap_or("ALT-KEY");
+        if alt.duplicates_allowed {
+            out.push_str(&format!(
+                "               ALTERNATE RECORD KEY IS {} WITH DUPLICATES\n",
+                name
+            ));
+        } else {
+            out.push_str(&format!(
+                "               ALTERNATE RECORD KEY IS {}\n",
+                name
+            ));
+        }
+    }
+    let mut clauses = String::new();
+    match def.storage {
+        StorageMode::Memory => clauses.push_str("STORAGE MODE IS MEMORY"),
+        StorageMode::Disk => clauses.push_str("STORAGE MODE IS DISK"),
+    }
+    if def.compression {
+        clauses.push_str(" WITH DATA COMPRESSION");
+    }
+    if def.persistence && def.storage == StorageMode::Memory {
+        clauses.push_str(" WITH PERSISTENCE");
+    }
+    out.push_str(&format!("               {clauses}.\n"));
+    out
+}
+
+pub fn generate_indexed_fd(def: &IndexedDefinition) -> String {
+    let mut out = String::with_capacity(1024);
+    out.push_str(&format!("       FD  {}.\n", def.name));
+    match def.record_format {
+        RecordFormatDef::Fixed { length } => {
+            out.push_str(&format!(
+                "           RECORD CONTAINS {length} CHARACTERS.\n"
+            ));
+        }
+        RecordFormatDef::Variable {
+            min_length,
+            max_length,
+        } => {
+            out.push_str(&format!(
+                "           RECORD CONTAINS {min_length} TO {max_length} CHARACTERS.\n"
+            ));
+        }
+    }
+    for field in &def.fields {
+        write_field(&mut out, field, 11);
+    }
+    out
+}
+
 fn write_environment(out: &mut String, def: &IndexedDefinition) {
     out.push_str("       ENVIRONMENT DIVISION.\n");
     out.push_str("       INPUT-OUTPUT SECTION.\n");

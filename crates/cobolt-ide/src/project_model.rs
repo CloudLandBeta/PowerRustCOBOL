@@ -136,6 +136,10 @@ fn default_inspector_dump_path() -> String {
     "/tmp/prc_inspector_dump.txt".to_string()
 }
 
+fn default_debug_compilation() -> bool {
+    true
+}
+
 impl Default for IdeSettings {
     fn default() -> Self {
         Self {
@@ -165,6 +169,12 @@ pub struct ProjectMeta {
     /// Full license text (editable).
     #[serde(default)]
     pub license_text: String,
+    /// Destination folder of the project.
+    #[serde(default)]
+    pub destination_folder: String,
+    /// Is this a debug or release compilation
+    #[serde(default = "default_debug_compilation")]
+    pub debug_compilation: bool,
 }
 
 impl ProjectMeta {
@@ -223,14 +233,22 @@ impl Default for RuntimeConfig {
 impl CoboltProject {
     /// Create a blank project with sensible defaults.
     pub fn new(name: impl Into<String>, main: impl Into<String>) -> Self {
+        let name_str = name.into();
+        let destination_folder = if let Some(stripped) = name_str.strip_suffix(".project") {
+            stripped.to_string()
+        } else {
+            name_str.clone()
+        };
         Self {
             project: ProjectMeta {
-                name: name.into(),
+                name: name_str,
                 version: "1.0.0".into(),
                 main: main.into(),
                 copyright: String::new(),
                 license_model: String::new(),
                 license_text: String::new(),
+                destination_folder,
+                debug_compilation: true,
             },
             files: ProjectFiles::default(),
             runtime: RuntimeConfig::default(),

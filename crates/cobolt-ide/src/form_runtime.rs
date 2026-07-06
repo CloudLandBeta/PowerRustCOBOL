@@ -110,6 +110,9 @@ pub struct FormRuntime {
 
     /// True once the child process (or legacy thread) has exited.
     finished: Arc<AtomicBool>,
+    
+    /// Unique run ID for this form execution instance to reset animation clocks.
+    pub run_id: u64,
 }
 
 /// Per-control metadata needed for rendering (type + rect + initial props).
@@ -394,6 +397,10 @@ impl FormRuntime {
             child: Some(child),
             child_stdin: Some(Mutex::new(Some(child_stdin))),
             finished,
+            run_id: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64,
         })
     }
 

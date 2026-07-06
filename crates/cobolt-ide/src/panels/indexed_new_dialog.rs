@@ -21,14 +21,19 @@ use crate::i18n::Tr;
 ///
 /// Once the user switches to Code mode for a file, the form is no longer
 /// offered for that creation (locked to editor as requested).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewAlternateKey {
+    pub name: String,
+    pub offset: String,
+    pub length: String,
+    pub duplicates: bool,
+}
+
 pub struct NewIndexedDialog {
     pub open: bool,
     pub name: String,
     pub assign_path: String,
     pub variable: bool,
-    pub record_length: String,
-    pub min_length: String,
-    pub max_length: String,
     pub access_mode: AccessMode,
     pub storage: StorageMode,
     pub compression: bool,
@@ -36,6 +41,7 @@ pub struct NewIndexedDialog {
     pub key_field: String,
     pub key_offset: String,
     pub key_length: String,
+    pub alternates: Vec<NewAlternateKey>,
 
     /// When true, the user is editing via the built-in COBOL text editor
     /// instead of the properties form. Once true for this dialog session,
@@ -54,9 +60,6 @@ impl NewIndexedDialog {
             name: "CUSTOMER-FILE".into(),
             assign_path: "data/customers.idx".into(),
             variable: false,
-            record_length: "80".into(),
-            min_length: "10".into(),
-            max_length: "256".into(),
             access_mode: AccessMode::Dynamic,
             storage: StorageMode::Disk,
             compression: false,
@@ -64,6 +67,7 @@ impl NewIndexedDialog {
             key_field: "RECORD-KEY".into(),
             key_offset: "0".into(),
             key_length: "8".into(),
+            alternates: Vec::new(),
             raw_mode: false,
             raw_text: String::new(),
             raw_error: None,
@@ -76,34 +80,46 @@ impl NewIndexedDialog {
         if name.is_empty() {
             return None;
         }
-        let record_format = if self.variable {
-            let min = self.min_length.parse().ok()?;
-            let max = self.max_length.parse().ok()?;
-            if min == 0 || max < min {
-                return None;
-            }
-            RecordFormatDef::Variable {
-                min_length: min,
-                max_length: max,
-            }
-        } else {
-            let len = self.record_length.parse().ok()?;
-            if len == 0 {
-                return None;
-            }
-            RecordFormatDef::Fixed { length: len }
-        };
-        let key_off = self.key_offset.parse().ok()?;
-        let key_len = self.key_length.parse().ok()?;
+        let key_off: u32 = self.key_offset.parse().ok()?;
+        let key_len: u32 = self.key_length.parse().ok()?;
         if key_len == 0 {
             return None;
         }
+        let record_len = key_off + key_len;
+        let record_format = if self.variable {
+            RecordFormatDef::Variable {
+                min_length: key_len,
+                max_length: record_len,
+            }
+        } else {
+            RecordFormatDef::Fixed { length: record_len }
+        };
         let key_name = if self.key_field.trim().is_empty() {
             "RECORD-KEY".into()
         } else {
             self.key_field.trim().to_ascii_uppercase().replace(' ', "-")
         };
-        let record_len = record_format.max_len();
+        let mut alternates = Vec::new();
+        for alt in &self.alternates {
+            let alt_name = alt.name.trim();
+            if alt_name.is_empty() {
+                continue;
+            }
+            let alt_off = alt.offset.parse().unwrap_or(0);
+            let alt_len = alt.length.parse().unwrap_or(1);
+            let alt_key_name = alt_name.to_ascii_uppercase().replace(' ', "-");
+            alternates.push(KeyDef {
+                name: Some(alt_key_name.clone()),
+                parts: vec![KeyPartDef {
+                    field_name: alt_key_name.clone(),
+                    offset: alt_off,
+                    length: alt_len,
+                    encoding: KeyEncodingDef::Bytes,
+                }],
+                duplicates_allowed: alt.duplicates,
+                ordering: KeyOrderingDef::Ascending,
+            });
+        }
         let logical = name.to_ascii_uppercase().replace(' ', "-");
         let mut def = IndexedDefinition {
             name: logical.clone(),
@@ -126,7 +142,7 @@ impl NewIndexedDialog {
                     duplicates_allowed: false,
                     ordering: KeyOrderingDef::Ascending,
                 },
-                alternates: Vec::new(),
+                alternates,
             },
             fields: vec![IndexedField {
                 level: 1,
@@ -140,60 +156,51 @@ impl NewIndexedDialog {
                 occurs: None,
                 redefines: None,
                 synchronized: false,
-                children: vec![IndexedField {
-                    level: 5,
-                    name: key_name,
-                    pic: format!("X({key_len})"),
-                    usage: cobolt_indexed::FieldUsage::Display,
-                    offset: Some(key_off),
-                    length: Some(key_len),
-                    comment: String::new(),
-                    grid_control: None,
-                    occurs: None,
-                    redefines: None,
-                    synchronized: false,
-                    children: Vec::new(),
-                }],
+                children: {
+                    let mut children = vec![IndexedField {
+                        level: 5,
+                        name: key_name,
+                        pic: format!("X({key_len})"),
+                        usage: cobolt_indexed::FieldUsage::Display,
+                        offset: Some(key_off),
+                        length: Some(key_len),
+                        comment: String::new(),
+                        grid_control: None,
+                        occurs: None,
+                        redefines: None,
+                        synchronized: false,
+                        children: Vec::new(),
+                    }];
+                    for alt in &self.alternates {
+                        let alt_name = alt.name.trim();
+                        if alt_name.is_empty() {
+                            continue;
+                        }
+                        let alt_off = alt.offset.parse().unwrap_or(0);
+                        let alt_len = alt.length.parse().unwrap_or(1);
+                        let alt_key_name = alt_name.to_ascii_uppercase().replace(' ', "-");
+                        children.push(IndexedField {
+                            level: 5,
+                            name: alt_key_name.clone(),
+                            pic: format!("X({alt_len})"),
+                            usage: cobolt_indexed::FieldUsage::Display,
+                            offset: Some(alt_off),
+                            length: Some(alt_len),
+                            comment: String::new(),
+                            grid_control: None,
+                            occurs: None,
+                            redefines: None,
+                            synchronized: false,
+                            children: Vec::new(),
+                        });
+                    }
+                    children
+                },
             }],
             finalized: false,
         };
-        // Filler for remainder of fixed record
-        if let RecordFormatDef::Fixed { length } = def.record_format {
-            let end = key_off + key_len;
-            if end < length {
-                def.fields[0].children.push(IndexedField {
-                    level: 5,
-                    name: "FILLER-1".into(),
-                    pic: format!("X({})", length - end),
-                    usage: cobolt_indexed::FieldUsage::Display,
-                    offset: Some(end),
-                    length: Some(length - end),
-                    comment: String::new(),
-                    grid_control: None,
-                    occurs: None,
-                    redefines: None,
-                    synchronized: false,
-                    children: Vec::new(),
-                });
-            }
-        } else if record_len > key_off + key_len {
-            let end = key_off + key_len;
-            def.fields[0].children.push(IndexedField {
-                level: 5,
-                name: "FILLER-1".into(),
-                pic: format!("X({})", record_len - end),
-                usage: cobolt_indexed::FieldUsage::Display,
-                offset: Some(end),
-                length: Some(record_len - end),
-                comment: String::new(),
-                grid_control: None,
-                occurs: None,
-                redefines: None,
-                synchronized: false,
-                children: Vec::new(),
-            });
-        }
         cobolt_indexed::apply_default_controls(&mut def.fields);
+        def.recompute_offsets();
         Some(def)
     }
 
@@ -220,21 +227,12 @@ impl NewIndexedDialog {
             return None;
         }
         let record_format = if self.variable {
-            let min = self.min_length.parse().ok()?;
-            let max = self.max_length.parse().ok()?;
-            if min == 0 || max < min {
-                return None;
-            }
             RecordFormatDef::Variable {
-                min_length: min,
-                max_length: max,
+                min_length: 0,
+                max_length: 0,
             }
         } else {
-            let len = self.record_length.parse().ok()?;
-            if len == 0 {
-                return None;
-            }
-            RecordFormatDef::Fixed { length: len }
+            RecordFormatDef::Fixed { length: 0 }
         };
         let key_off = self.key_offset.parse().ok()?;
         let key_len = self.key_length.parse().ok()?;
@@ -246,6 +244,27 @@ impl NewIndexedDialog {
         } else {
             self.key_field.trim().to_ascii_uppercase().replace(' ', "-")
         };
+        let mut alternates = Vec::new();
+        for alt in &self.alternates {
+            let alt_name = alt.name.trim();
+            if alt_name.is_empty() {
+                continue;
+            }
+            let alt_off = alt.offset.parse().unwrap_or(0);
+            let alt_len = alt.length.parse().unwrap_or(1);
+            let alt_key_name = alt_name.to_ascii_uppercase().replace(' ', "-");
+            alternates.push(KeyDef {
+                name: Some(alt_key_name.clone()),
+                parts: vec![KeyPartDef {
+                    field_name: alt_key_name.clone(),
+                    offset: alt_off,
+                    length: alt_len,
+                    encoding: KeyEncodingDef::Bytes,
+                }],
+                duplicates_allowed: alt.duplicates,
+                ordering: KeyOrderingDef::Ascending,
+            });
+        }
         let logical = name.to_ascii_uppercase().replace(' ', "-");
         let mut def = IndexedDefinition {
             name: logical.clone(),
@@ -268,7 +287,7 @@ impl NewIndexedDialog {
                     duplicates_allowed: false,
                     ordering: KeyOrderingDef::Ascending,
                 },
-                alternates: Vec::new(),
+                alternates,
             },
             fields: vec![],
             finalized: false,
@@ -289,20 +308,38 @@ impl NewIndexedDialog {
         if !has_group || !has_key {
             return None;
         }
-        // Ensure the declared key field actually exists in the record layout
-        // (by name, as is conventional for RECORD KEY).
-        let key_exists = def.keys.primary.name.as_ref().map_or(false, |kn| {
-            def.fields.iter().any(|f| f.name.eq_ignore_ascii_case(kn))
+        // Ensure the declared primary and alternate key fields actually exist in the record layout
+        let mut keys_exist = true;
+        if let Some(kn) = &def.keys.primary.name {
+            let exists = def.fields.iter().any(|f| f.name.eq_ignore_ascii_case(kn))
                 || def
                     .fields
                     .iter()
                     .flat_map(|f| &f.children)
-                    .any(|c| c.name.eq_ignore_ascii_case(kn))
-        });
-        if !key_exists {
+                    .any(|c| c.name.eq_ignore_ascii_case(kn));
+            if !exists {
+                keys_exist = false;
+            }
+        }
+        for alt in &def.keys.alternates {
+            if let Some(kn) = &alt.name {
+                let exists = def.fields.iter().any(|f| f.name.eq_ignore_ascii_case(kn))
+                    || def
+                        .fields
+                        .iter()
+                        .flat_map(|f| &f.children)
+                        .any(|c| c.name.eq_ignore_ascii_case(kn));
+                if !exists {
+                    keys_exist = false;
+                    break;
+                }
+            }
+        }
+        if !keys_exist {
             return None;
         }
         cobolt_indexed::apply_default_controls(&mut def.fields);
+        def.recompute_offsets();
         Some(def)
     }
 
@@ -324,11 +361,11 @@ impl NewIndexedDialog {
                 access_mode: self.access_mode,
                 record_format: if self.variable {
                     RecordFormatDef::Variable {
-                        min_length: 1,
-                        max_length: 256,
+                        min_length: 0,
+                        max_length: 0,
                     }
                 } else {
-                    RecordFormatDef::Fixed { length: 80 }
+                    RecordFormatDef::Fixed { length: 0 }
                 },
                 storage: self.storage,
                 compression: self.compression,
@@ -348,6 +385,7 @@ impl NewIndexedDialog {
             };
             match cobolt_indexed::raw_text::text_to_record(&mut temp, &self.raw_text) {
                 Ok(()) => {
+                    temp.recompute_offsets();
                     if let Err(e) = cobolt_indexed::validate_definition(&temp) {
                         self.raw_error = Some(e);
                     } else {
@@ -473,19 +511,7 @@ impl NewIndexedDialog {
                 ui.radio_value(&mut self.variable, false, tr.dlg_record_fixed);
                 ui.radio_value(&mut self.variable, true, tr.dlg_record_variable);
             });
-            if self.variable {
-                ui.horizontal(|ui| {
-                    ui.label(tr.dlg_record_min_len);
-                    ui.text_edit_singleline(&mut self.min_length);
-                    ui.label(tr.dlg_record_max_len);
-                    ui.text_edit_singleline(&mut self.max_length);
-                });
-            } else {
-                ui.horizontal(|ui| {
-                    ui.label(tr.dlg_record_length);
-                    ui.text_edit_singleline(&mut self.record_length);
-                });
-            }
+
             ui.label(tr.dlg_storage_mode);
             ui.horizontal(|ui| {
                 ui.radio_value(&mut self.storage, StorageMode::Disk, tr.dlg_storage_disk);
@@ -499,18 +525,75 @@ impl NewIndexedDialog {
             if self.storage == StorageMode::Memory {
                 ui.checkbox(&mut self.persistence, tr.dlg_persistence);
             }
-            ui.separator();
-            ui.label(tr.dlg_primary_key);
-            ui.horizontal(|ui| {
-                ui.label(tr.dlg_primary_key_field);
-                ui.text_edit_singleline(&mut self.key_field);
+        }
+
+        ui.separator();
+        ui.label(tr.dlg_primary_key);
+        let mut key_changed = false;
+        ui.horizontal(|ui| {
+            ui.label(tr.dlg_primary_key_field);
+            if ui.text_edit_singleline(&mut self.key_field).changed() {
+                key_changed = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label(tr.dlg_primary_key_offset);
+            if ui.text_edit_singleline(&mut self.key_offset).changed() {
+                key_changed = true;
+            }
+            ui.label(tr.dlg_primary_key_length);
+            if ui.text_edit_singleline(&mut self.key_length).changed() {
+                key_changed = true;
+            }
+        });
+
+        ui.separator();
+        ui.label("Alternate Keys");
+        let mut remove_idx = None;
+        for (idx, alt) in self.alternates.iter_mut().enumerate() {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(format!("Alt Key #{}:", idx + 1));
+                    if ui.button("🗑").clicked() {
+                        remove_idx = Some(idx);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Field name:");
+                    if ui.text_edit_singleline(&mut alt.name).changed() {
+                        key_changed = true;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Offset:");
+                    if ui.text_edit_singleline(&mut alt.offset).changed() {
+                        key_changed = true;
+                    }
+                    ui.label("Length:");
+                    if ui.text_edit_singleline(&mut alt.length).changed() {
+                        key_changed = true;
+                    }
+                    if ui.checkbox(&mut alt.duplicates, "Duplicates").changed() {
+                        key_changed = true;
+                    }
+                });
             });
-            ui.horizontal(|ui| {
-                ui.label(tr.dlg_primary_key_offset);
-                ui.text_edit_singleline(&mut self.key_offset);
-                ui.label(tr.dlg_primary_key_length);
-                ui.text_edit_singleline(&mut self.key_length);
+        }
+        if let Some(idx) = remove_idx {
+            self.alternates.remove(idx);
+            key_changed = true;
+        }
+        if ui.button("+ Add Alternate Key").clicked() {
+            self.alternates.push(NewAlternateKey {
+                name: format!("ALT-KEY-{}", self.alternates.len() + 1),
+                offset: "0".into(),
+                length: "8".into(),
+                duplicates: true,
             });
+            key_changed = true;
+        }
+        if key_changed && self.raw_mode {
+            self.validate_raw();
         }
 
         ui.separator();

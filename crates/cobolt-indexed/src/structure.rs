@@ -88,6 +88,7 @@ fn build_subtree(flat: &[FlatEntry], pos: &mut usize) -> Result<IndexedField, St
 /// Apply changes from flat list back into a definition.
 pub fn apply_flat(def: &mut IndexedDefinition, flat: &[FlatEntry]) -> Result<(), String> {
     def.fields = rebuild_record(flat)?;
+    def.recompute_offsets();
     Ok(())
 }
 

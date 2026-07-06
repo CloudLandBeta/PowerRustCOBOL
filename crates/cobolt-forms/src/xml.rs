@@ -155,18 +155,6 @@ enum OwnedEvent {
         theme: Option<String>,
         use_theme_background: bool,
         glass_style: crate::model::GlassStyle,
-        // Neumorphic procedural params (only meaningful for that glass style)
-        neumo_illum_start: String,
-        neumo_illum_end: String,
-        neumo_shadow_start: String,
-        neumo_shadow_end: String,
-        neumo_illum_blur: f32,
-        neumo_shadow_blur: f32,
-        neumo_transparency: u8,
-        neumo_distance: f32,
-        neumo_rim_tint: String,
-        neumo_rim_weight: f32,
-        neumo_rim_blur: f32,
     },
     ControlStart(AttrPairs),
     PropertyStart(String), // property name
@@ -234,36 +222,6 @@ fn next_owned<R: std::io::BufRead>(
                         .map(|v| crate::model::GlassStyle::from_str(&v))
                         .unwrap_or_default();
 
-                    // Neumorphic params — default to recipe values when absent (old .cfrm compatibility)
-                    let neumo_illum_start =
-                        get_attr(e, b"neumorphic-illum-start")?.unwrap_or_else(|| "ffffff".into());
-                    let neumo_illum_end =
-                        get_attr(e, b"neumorphic-illum-end")?.unwrap_or_else(|| "ffffff".into());
-                    let neumo_shadow_start =
-                        get_attr(e, b"neumorphic-shadow-start")?.unwrap_or_else(|| "aab4c3".into());
-                    let neumo_shadow_end =
-                        get_attr(e, b"neumorphic-shadow-end")?.unwrap_or_else(|| "aab4c3".into());
-                    let neumo_illum_blur = get_attr(e, b"neumorphic-illum-blur")?
-                        .and_then(|v| v.parse::<f32>().ok())
-                        .unwrap_or(1.0);
-                    let neumo_shadow_blur = get_attr(e, b"neumorphic-shadow-blur")?
-                        .and_then(|v| v.parse::<f32>().ok())
-                        .unwrap_or(1.0);
-                    let neumo_transparency = get_attr(e, b"neumorphic-transparency")?
-                        .and_then(|v| v.parse::<u8>().ok())
-                        .unwrap_or(100);
-                    let neumo_distance = get_attr(e, b"neumorphic-distance")?
-                        .and_then(|v| v.parse::<f32>().ok())
-                        .unwrap_or(5.0);
-                    let neumo_rim_tint =
-                        get_attr(e, b"neumorphic-rim-tint")?.unwrap_or_else(|| "d2d9e3".into());
-                    let neumo_rim_weight = get_attr(e, b"neumorphic-rim-weight")?
-                        .and_then(|v| v.parse::<f32>().ok())
-                        .unwrap_or(1.0);
-                    let neumo_rim_blur = get_attr(e, b"neumorphic-rim-blur")?
-                        .and_then(|v| v.parse::<f32>().ok())
-                        .unwrap_or(1.0);
-
                     Ok(OwnedEvent::FormStart {
                         name,
                         title,
@@ -279,17 +237,6 @@ fn next_owned<R: std::io::BufRead>(
                         theme,
                         use_theme_background,
                         glass_style,
-                        neumo_illum_start,
-                        neumo_illum_end,
-                        neumo_shadow_start,
-                        neumo_shadow_end,
-                        neumo_illum_blur,
-                        neumo_shadow_blur,
-                        neumo_transparency,
-                        neumo_distance,
-                        neumo_rim_tint,
-                        neumo_rim_weight,
-                        neumo_rim_blur,
                     })
                 }
                 b"Control" => {
@@ -409,17 +356,6 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 theme,
                 use_theme_background,
                 glass_style,
-                neumo_illum_start,
-                neumo_illum_end,
-                neumo_shadow_start,
-                neumo_shadow_end,
-                neumo_illum_blur,
-                neumo_shadow_blur,
-                neumo_transparency,
-                neumo_distance,
-                neumo_rim_tint,
-                neumo_rim_weight,
-                neumo_rim_blur,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -433,19 +369,6 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.theme = theme;
                 f.use_theme_background = use_theme_background;
                 f.glass_style = glass_style;
-                f.neumorphic_params = crate::model::NeumorphicParams {
-                    illum_gradient_start: neumo_illum_start,
-                    illum_gradient_end: neumo_illum_end,
-                    shadow_gradient_start: neumo_shadow_start,
-                    shadow_gradient_end: neumo_shadow_end,
-                    illum_blur: neumo_illum_blur,
-                    shadow_blur: neumo_shadow_blur,
-                    transparency: neumo_transparency,
-                    distance: neumo_distance,
-                    rim_tint: neumo_rim_tint,
-                    rim_weight: neumo_rim_weight,
-                    rim_blur: neumo_rim_blur,
-                };
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -1028,26 +951,6 @@ pub fn save_form(form: &Form, path: &Path) -> Result<(), FormError> {
         if form.glass_style != crate::model::GlassStyle::Classic {
             elem.push_attribute(("glass-style", form.glass_style.as_str()));
         }
-        // Neumorphic params (written always so designer choices survive round-trips;
-        // ignored by other styles and old loaders fall back to defaults).
-        let np = &form.neumorphic_params;
-        elem.push_attribute(("neumorphic-illum-start", np.illum_gradient_start.as_str()));
-        elem.push_attribute(("neumorphic-illum-end", np.illum_gradient_end.as_str()));
-        elem.push_attribute(("neumorphic-shadow-start", np.shadow_gradient_start.as_str()));
-        elem.push_attribute(("neumorphic-shadow-end", np.shadow_gradient_end.as_str()));
-        elem.push_attribute(("neumorphic-illum-blur", np.illum_blur.to_string().as_str()));
-        elem.push_attribute((
-            "neumorphic-shadow-blur",
-            np.shadow_blur.to_string().as_str(),
-        ));
-        elem.push_attribute((
-            "neumorphic-transparency",
-            np.transparency.to_string().as_str(),
-        ));
-        elem.push_attribute(("neumorphic-distance", np.distance.to_string().as_str()));
-        elem.push_attribute(("neumorphic-rim-tint", np.rim_tint.as_str()));
-        elem.push_attribute(("neumorphic-rim-weight", np.rim_weight.to_string().as_str()));
-        elem.push_attribute(("neumorphic-rim-blur", np.rim_blur.to_string().as_str()));
         if !form.background_image.is_empty() {
             elem.push_attribute(("background-image", form.background_image.as_str()));
             elem.push_attribute(("bg-image-mode", form.bg_image_mode.as_str()));

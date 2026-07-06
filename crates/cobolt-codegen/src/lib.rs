@@ -67,7 +67,7 @@ use cobolt_forms::{Control, ControlType, Form};
 
 pub mod data_binding;
 pub mod indexed;
-pub use indexed::generate_indexed;
+pub use indexed::{generate_indexed, generate_indexed_select, generate_indexed_fd};
 
 // ── Public API ────────────────────────────────────────────────────────────────
 

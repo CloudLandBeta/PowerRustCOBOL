@@ -183,11 +183,9 @@ impl IndexedPropertiesPanel {
             });
         });
         value_row(ui, PROP_ROW_H, |ui| {
-            ui.label(if def.finalized {
-                tr.lbl_idx_yes
-            } else {
-                tr.lbl_idx_no
-            });
+            if ui.checkbox(&mut def.finalized, "").changed() {
+                changed = true;
+            }
         });
         value_row(ui, PROP_ROW_H, |ui| {
             if ui
@@ -232,7 +230,7 @@ impl IndexedPropertiesPanel {
             .map(|f| f.is_leaf())
             .unwrap_or(false);
         if is_leaf {
-            recompute_leaf_offsets(def);
+            def.recompute_offsets();
         }
 
         let sibling_names = sibling_field_names(def, field_id);
@@ -660,7 +658,7 @@ fn finish_field_edit(
     is_leaf: bool,
 ) -> PropertyEdit {
     if changed && is_leaf {
-        recompute_leaf_offsets(def);
+        def.recompute_offsets();
     }
     if let Some(new_name) = rename {
         sync_key_field_name(def, old_name, &new_name);
@@ -722,24 +720,6 @@ fn truncate_comment(field: &mut IndexedField) {
     }
 }
 
-fn recompute_leaf_offsets(def: &mut IndexedDefinition) {
-    let Some(root) = def.fields.first_mut() else {
-        return;
-    };
-    let mut off = 0u32;
-    recompute_offsets_walk(root, &mut off);
-}
-
-fn recompute_offsets_walk(node: &mut IndexedField, off: &mut u32) {
-    if node.offset.is_some() {
-        node.offset = Some(*off);
-        *off += node.length.unwrap_or(0);
-    }
-    for child in &mut node.children {
-        recompute_offsets_walk(child, off);
-    }
-}
-
 fn sync_key_field_name(def: &mut IndexedDefinition, old: &str, new: &str) {
     for part in &mut def.keys.primary.parts {
         if part.field_name == old {
@@ -751,19 +731,12 @@ fn sync_key_field_name(def: &mut IndexedDefinition, old: &str, new: &str) {
     }
 }
 
-fn show_record_format_values(ui: &mut egui::Ui, def: &mut IndexedDefinition, tr: &Tr) -> bool {
-    let mut changed = false;
-    match &mut def.record_format {
+fn show_record_format_values(ui: &mut egui::Ui, def: &IndexedDefinition, tr: &Tr) -> bool {
+    match &def.record_format {
         RecordFormatDef::Fixed { length } => {
             ui.horizontal(|ui| {
                 ui.label(tr.dlg_record_fixed);
-                let mut s = length.to_string();
-                if ui.text_edit_singleline(&mut s).changed() {
-                    if let Ok(v) = s.parse() {
-                        *length = v;
-                        changed = true;
-                    }
-                }
+                ui.label(length.to_string());
             });
         }
         RecordFormatDef::Variable {
@@ -772,26 +745,14 @@ fn show_record_format_values(ui: &mut egui::Ui, def: &mut IndexedDefinition, tr:
         } => {
             ui.horizontal(|ui| {
                 ui.label(tr.dlg_record_variable);
-                let mut min_s = min_length.to_string();
-                let mut max_s = max_length.to_string();
                 ui.label(tr.dlg_record_min_len);
-                if ui.text_edit_singleline(&mut min_s).changed() {
-                    if let Ok(v) = min_s.parse() {
-                        *min_length = v;
-                        changed = true;
-                    }
-                }
+                ui.label(min_length.to_string());
                 ui.label(tr.dlg_record_max_len);
-                if ui.text_edit_singleline(&mut max_s).changed() {
-                    if let Ok(v) = max_s.parse() {
-                        *max_length = v;
-                        changed = true;
-                    }
-                }
+                ui.label(max_length.to_string());
             });
         }
     }
-    changed
+    false
 }
 
 fn find_field<'a>(def: &'a IndexedDefinition, id: &str) -> Option<&'a IndexedField> {

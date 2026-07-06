@@ -43,6 +43,10 @@ use crate::{Control, ControlType};
 /// designer wants). Callers with live state override [`FormState::live`] to merge
 /// their values onto the base control before it is drawn.
 pub trait FormState {
+    /// Unique run ID for this form execution instance (used to clear anim clocks).
+    fn run_id(&self) -> u64 {
+        0
+    }
     /// The control to actually draw: the designed `base` with any live overrides
     /// (text/value/checked, moved/resized geometry, SET-PROPERTY changes) applied.
     fn live(&self, base: &Control) -> Control {
@@ -479,6 +483,7 @@ fn apply_card_appear(
     final_screen: Rect,
     viewport: Rect,
     ctx: &egui::Context,
+    state: &dyn FormState,
 ) -> RenderTransform {
     let effect = match base.get_prop("_CardEffect") {
         Some(v) => PlacementEffect::parse(v.as_str()),
@@ -514,7 +519,7 @@ fn apply_card_appear(
         .get_prop("_CardBindSeq")
         .map(|v| v.as_i64())
         .unwrap_or(0);
-    let key = egui::Id::new(("card-appear-start", group, batch_n, bind_seq));
+    let key = egui::Id::new(("card-appear-start", group, batch_n, bind_seq, state.run_id()));
     let start = ctx.memory_mut(|m| *m.data.get_temp_mut_or_insert_with(key, || now));
     let elapsed = (now - start).max(0.0) as f32;
     // Deal skips the fly-in for a card whose final spot is outside the viewport.
@@ -850,27 +855,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // ── Backdrop: solid colour, then optional image. ──────────────────────────
     let form_rect = Rect::from_min_size(origin, input.form_size);
     let bg = backdrop_color(&input.backdrop.color_hex, input.backdrop.transparency);
-    // When Neumorphic glass style is active, default the page to the recipe's
-    // very light neutral background (#ECEFF4) so cards pop with the dual-shadow
-    // relief. Respect an explicit non-default colour and any transparency.
-    let bg = {
-        let mut b = bg;
-        if crate::paint::is_neumorphic_style(ui.ctx()) {
-            let hex = input.backdrop.color_hex.trim().trim_start_matches('#');
-            let looks_default_dark = hex.is_empty()
-                || hex.eq_ignore_ascii_case("000000")
-                || hex.eq_ignore_ascii_case("000")
-                || (b.r() < 55 && b.g() < 58 && b.b() < 82);
-            if looks_default_dark {
-                let ba = b.a();
-                let rr = (236.0 * (ba as f32) / 255.0) as u8;
-                let gg = (239.0 * (ba as f32) / 255.0) as u8;
-                let bb = (244.0 * (ba as f32) / 255.0) as u8;
-                b = Color32::from_rgba_premultiplied(rr, gg, bb, ba);
-            }
-        }
-        b
-    };
+
     painter.rect_filled(form_rect, 0.0, bg);
     // The notch mask is drawn *after* children. If the form background is
     // translucent, repainting `bg` would darken the corner wedges; skipping it
@@ -945,7 +930,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             Vec2::new(r.w as f32, r.h as f32),
         );
         // Fold the repeating-group card-appear effect (Deal / FadeIn) into `tf`.
-        let tf = apply_card_appear(base, tf, final_screen, form_rect, ui.ctx());
+        let tf = apply_card_appear(base, tf, final_screen, form_rect, ui.ctx(), input.state);
         let base_screen = Rect::from_min_size(
             origin + Vec2::new(r.x as f32 + tf.dx - scroll.x, r.y as f32 + tf.dy - scroll.y),
             Vec2::new(r.w as f32, r.h as f32),

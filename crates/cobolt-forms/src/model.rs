@@ -3660,10 +3660,6 @@ pub enum GlassStyle {
     /// Enhanced stack: adds inner stroke, full highlight band, micro-noise,
     /// and structural state changes per the Liquid Glass spec.
     Enhanced,
-    /// Neumorphic (soft-UI): 100% procedural — no images. Elements share the
-    /// background colour and "emerge" from it via a dual soft shadow (dark toward
-    /// the bottom-right, light toward the top-left). No frost, no hard border.
-    Neumorphic,
 }
 
 impl GlassStyle {
@@ -3671,62 +3667,12 @@ impl GlassStyle {
         match self {
             GlassStyle::Classic => "Classic",
             GlassStyle::Enhanced => "Enhanced",
-            GlassStyle::Neumorphic => "Neumorphic",
         }
     }
     pub fn from_str(s: &str) -> Self {
         match s {
             "Enhanced" => GlassStyle::Enhanced,
-            "Neumorphic" => GlassStyle::Neumorphic,
             _ => GlassStyle::Classic,
-        }
-    }
-}
-
-/// Per-form tuning parameters for the Neumorphic (procedural soft relief) style only.
-/// These control illumination gradients, shadow gradients, blur, distance, overall
-/// transparency, and an optional 3-sided rim border (top-right → bottom-right → bottom-left).
-/// Other glass styles ignore them. Defaults reproduce the original recipe look.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NeumorphicParams {
-    /// Gradient start (top-left side) for the highlight/illumination soft shadow.
-    pub illum_gradient_start: String,
-    /// Gradient end for the illumination effect.
-    pub illum_gradient_end: String,
-    /// Gradient start for the dark shadow soft layers.
-    pub shadow_gradient_start: String,
-    pub shadow_gradient_end: String,
-    /// Blur / softness multiplier for illumination layers (affects spread + layer count).
-    pub illum_blur: f32,
-    /// Blur / softness multiplier for shadow layers.
-    pub shadow_blur: f32,
-    /// Master transparency for all neumorphic relief elements (0..100, like form transparency).
-    pub transparency: u8,
-    /// Base distance/offset of the soft shadows from the control rect (like drop-shadow distance).
-    pub distance: f32,
-    /// Tint color for the extra 3-sided border (drawn only TR→BR→BL sides).
-    pub rim_tint: String,
-    /// Stroke width of the extra rim border.
-    pub rim_weight: f32,
-    /// Blur/softness strength (layer count + offset) for the extra rim.
-    pub rim_blur: f32,
-}
-
-impl Default for NeumorphicParams {
-    fn default() -> Self {
-        Self {
-            // Recipe solids as start==end (no visible gradient until user sets different colors)
-            illum_gradient_start: "ffffff".into(),
-            illum_gradient_end: "ffffff".into(),
-            shadow_gradient_start: "aab4c3".into(),
-            shadow_gradient_end: "aab4c3".into(),
-            illum_blur: 1.0,
-            shadow_blur: 1.0,
-            transparency: 100,
-            distance: 5.0,
-            rim_tint: "d2d9e3".into(),
-            rim_weight: 1.0,
-            rim_blur: 1.0,
         }
     }
 }
@@ -3931,9 +3877,6 @@ pub struct Form {
     pub use_theme_background: bool,
     /// Which Liquid Glass recipe to apply to control surfaces.
     pub glass_style: GlassStyle,
-
-    // ── Neumorphic-specific tuning (only used when glass_style == Neumorphic) ──
-    pub neumorphic_params: NeumorphicParams,
 }
 
 impl Form {
@@ -3976,7 +3919,6 @@ impl Form {
             theme: None,
             use_theme_background: false,
             glass_style: GlassStyle::default(),
-            neumorphic_params: NeumorphicParams::default(),
         };
         form.seed_repository_if_empty();
         form

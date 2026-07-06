@@ -35,6 +35,8 @@ pub struct SettingsDraft {
     pub ver_fix: u32,
     pub main: String,
     pub copyright: String,
+    pub destination_folder: String,
+    pub debug_compilation: bool,
     // ── License ──
     pub license_model: String,
     pub license_text: String,
@@ -66,6 +68,8 @@ impl SettingsDraft {
             ver_fix: fix,
             main: p.project.main.clone(),
             copyright: p.project.copyright.clone(),
+            destination_folder: p.project.destination_folder.clone(),
+            debug_compilation: p.project.debug_compilation,
             license_model: p.project.license_model.clone(),
             license_text: p.project.license_text.clone(),
             theme_id: p.ide.theme.clone(),
@@ -89,6 +93,8 @@ impl SettingsDraft {
             .set_version_parts(self.ver_major, self.ver_minor, self.ver_fix);
         p.project.main = self.main.clone();
         p.project.copyright = self.copyright.clone();
+        p.project.destination_folder = self.destination_folder.clone();
+        p.project.debug_compilation = self.debug_compilation;
         p.project.license_model = self.license_model.clone();
         p.project.license_text = self.license_text.clone();
         p.ide.theme = self.theme_id.clone();
@@ -362,6 +368,54 @@ impl SettingsForm {
                                         .hint_text("© 2026 …")
                                         .desired_width(w),
                                 );
+                            });
+                        });
+
+                        // Destination Folder
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.lbl_destination_folder).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.draft.destination_folder)
+                                        .desired_width(w),
+                                );
+                            });
+                        });
+
+                        // Debug Compilation
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.lbl_debug_compilation).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.checkbox(&mut self.draft.debug_compilation, "");
                             });
                         });
 

@@ -71,39 +71,7 @@ use crate::data_binding_guardian::{
     validate_binding_action, BindingActionGate, BindingActionGateReport,
 };
 
-/// Widget visuals for a live form viewport (preview + Run-Form) whose form uses
-/// the Neumorphic style: light gray-blue fills, faint strokes, gray-blue text,
-/// large rounding — per the soft-UI recipe. Replaces the dark frosted-glass
-/// visuals those viewports otherwise apply (whose near-white text override
-/// would be invisible on the light neumorphic surface).
-fn apply_neumo_form_visuals(ctx: &egui::Context) {
-    use egui::Color32;
-    let mut v = ctx.style().visuals.clone();
-    let fill = Color32::from_rgb(239, 242, 247);
-    let stroke = egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(210, 217, 227, 140));
-    v.widgets.noninteractive.bg_fill = fill;
-    v.widgets.noninteractive.bg_stroke = stroke;
-    v.widgets.inactive.bg_fill = fill;
-    v.widgets.inactive.bg_stroke = stroke;
-    v.widgets.hovered.bg_fill = Color32::from_rgb(242, 245, 249);
-    v.widgets.hovered.bg_stroke =
-        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(200, 208, 220, 170));
-    v.widgets.active.bg_fill = Color32::from_rgb(232, 237, 244);
-    v.widgets.active.bg_stroke =
-        egui::Stroke::new(1.2, Color32::from_rgba_unmultiplied(185, 193, 205, 190));
-    let rnd = egui::Rounding::same(12.0);
-    v.widgets.noninteractive.rounding = rnd;
-    v.widgets.inactive.rounding = rnd;
-    v.widgets.hovered.rounding = rnd;
-    v.widgets.active.rounding = rnd;
-    // Gray-blue text — never black, never the glass near-white.
-    v.override_text_color = Some(Color32::from_rgb(45, 55, 70));
-    // The render engine owns the (light) backdrop.
-    v.panel_fill = Color32::TRANSPARENT;
-    v.window_fill = Color32::TRANSPARENT;
-    v.extreme_bg_color = Color32::from_rgb(230, 234, 240);
-    ctx.set_visuals(v);
-}
+
 
 /// Whitelist of *design-intent* control properties that an interactive Run-Form
 /// adjustment may write back into the form definition (the control's new
@@ -438,7 +406,7 @@ const PROJECT_FOLDERS: &[&str] = &[
     "temp",
     "dist",
     "data",
-    "copybooks",
+    "COPYBOOKS",
 ];
 
 /// Inline indexed-file inspector in the Main Pane.
@@ -1238,7 +1206,10 @@ impl CoboltApp {
     }
 
     fn create_new_project(&mut self) {
-        // The manifest is named after the project (e.g. "Inventory System.toml")
+        if !self.new_project.name.ends_with(".project") {
+            self.new_project.name.push_str(".project");
+        }
+        // The manifest is named after the project (e.g. "Inventory System.project.toml")
         // rather than a fixed "cobolt.toml", so the file is self-describing.
         let file_name = format!("{}.toml", sanitize_file_stem(&self.new_project.name));
         self.begin_file_dialog(
@@ -1728,6 +1699,7 @@ impl CoboltApp {
     }
 
     fn new_indexed_file_dialog(&mut self) {
+        self.new_indexed = NewIndexedDialog::new();
         self.new_indexed.open = true;
     }
 
@@ -2288,7 +2260,7 @@ impl CoboltApp {
     fn indexed_fd_copybook_path(&self, indexed_name: &str) -> Option<PathBuf> {
         let dir = self.project_dir()?;
         Some(
-            dir.join("copybooks")
+            dir.join("COPYBOOKS")
                 .join(format!("{}.fd.cpy", indexed_name)),
         )
     }
@@ -2365,6 +2337,17 @@ impl CoboltApp {
         }
         if std::fs::write(&cbl, generate_indexed(def)).is_err() {
             return false;
+        }
+        if let Some(dir) = self.project_dir() {
+            let copybooks_dir = dir.join("COPYBOOKS");
+            let _ = std::fs::create_dir_all(&copybooks_dir);
+            let stem = cidx.file_stem().and_then(|s| s.to_str()).unwrap_or(&def.name);
+            let sel_path = copybooks_dir.join(format!("{}.SEL", stem));
+            let fd_path = copybooks_dir.join(format!("{}.FD", stem));
+            let sel_content = cobolt_codegen::generate_indexed_select(def);
+            let fd_content = cobolt_codegen::generate_indexed_fd(def);
+            let _ = std::fs::write(sel_path, sel_content);
+            let _ = std::fs::write(fd_path, fd_content);
         }
         if let Some(rel) = self
             .project_path
@@ -4690,8 +4673,12 @@ impl cobolt_forms::render::FormState for PreviewState<'_> {
 /// unified engine renders the run window exactly like the designer (spec 017 T5).
 struct RunState<'a> {
     state: &'a std::collections::HashMap<String, crate::form_runtime::CtrlState>,
+    run_id: u64,
 }
 impl cobolt_forms::render::FormState for RunState<'_> {
+    fn run_id(&self) -> u64 {
+        self.run_id
+    }
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
         if base
             .id
@@ -4735,7 +4722,6 @@ impl CoboltApp {
         let dform = &self.designers[idx].1.form;
         cobolt_forms::paint::set_active_theme(ctx, self.designers[idx].1.active_theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, dform.glass_style);
-        cobolt_forms::paint::set_neumorphic_params(ctx, dform.neumorphic_params.clone());
 
         // ── Animation tick ────────────────────────────────────────────────────
         {
@@ -4814,40 +4800,36 @@ impl CoboltApp {
         // NOTE: egui 0.29 shares visuals globally across all viewports.
         // We override here for the preview, and show_designer_window re-applies
         // the IDE glass visuals on every frame to counteract this.
-        if cobolt_forms::paint::is_neumorphic_style(ctx) {
-            apply_neumo_form_visuals(ctx);
-        } else {
-            // Start from the current IDE glass visuals so we inherit the base
-            // colour scheme, then layer in the preview-specific transparency.
-            let mut visuals = ctx.style().visuals.clone();
-            // Control backgrounds — translucent frosted glass
-            let glass_fill = Color32::from_rgba_premultiplied(50, 55, 90, 55);
-            let glass_stroke =
-                egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
-            visuals.widgets.noninteractive.bg_fill = glass_fill;
-            visuals.widgets.noninteractive.bg_stroke = glass_stroke;
-            visuals.widgets.inactive.bg_fill = glass_fill;
-            visuals.widgets.inactive.bg_stroke = glass_stroke;
-            visuals.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(70, 80, 130, 80);
-            visuals.widgets.hovered.bg_stroke =
-                egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 210, 255, 120));
-            visuals.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
-            visuals.widgets.active.bg_stroke =
-                egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
-            // Rounding
-            let rnd = egui::Rounding::same(8.0);
-            visuals.widgets.noninteractive.rounding = rnd;
-            visuals.widgets.inactive.rounding = rnd;
-            visuals.widgets.hovered.rounding = rnd;
-            visuals.widgets.active.rounding = rnd;
-            // Text
-            visuals.override_text_color = Some(Color32::from_rgb(230, 235, 255));
-            // Window / panel background — transparent so the OS shows through
-            visuals.panel_fill = Color32::TRANSPARENT;
-            visuals.window_fill = Color32::TRANSPARENT;
-            visuals.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
-            ctx.set_visuals(visuals);
-        }
+        // Start from the current IDE glass visuals so we inherit the base
+        // colour scheme, then layer in the preview-specific transparency.
+        let mut visuals = ctx.style().visuals.clone();
+        // Control backgrounds — translucent frosted glass
+        let glass_fill = Color32::from_rgba_premultiplied(50, 55, 90, 55);
+        let glass_stroke =
+            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
+        visuals.widgets.noninteractive.bg_fill = glass_fill;
+        visuals.widgets.noninteractive.bg_stroke = glass_stroke;
+        visuals.widgets.inactive.bg_fill = glass_fill;
+        visuals.widgets.inactive.bg_stroke = glass_stroke;
+        visuals.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(70, 80, 130, 80);
+        visuals.widgets.hovered.bg_stroke =
+            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 210, 255, 120));
+        visuals.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
+        visuals.widgets.active.bg_stroke =
+            egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
+        // Rounding
+        let rnd = egui::Rounding::same(8.0);
+        visuals.widgets.noninteractive.rounding = rnd;
+        visuals.widgets.inactive.rounding = rnd;
+        visuals.widgets.hovered.rounding = rnd;
+        visuals.widgets.active.rounding = rnd;
+        // Text
+        visuals.override_text_color = Some(Color32::from_rgb(230, 235, 255));
+        // Window / panel background — transparent so the OS shows through
+        visuals.panel_fill = Color32::TRANSPARENT;
+        visuals.window_fill = Color32::TRANSPARENT;
+        visuals.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
+        ctx.set_visuals(visuals);
 
         // Read-only snapshot of what the engine's transform hook needs (the form
         // background is now owned by the engine's Backdrop, below).
@@ -5267,14 +5249,6 @@ impl CoboltApp {
                 .unwrap_or_default();
             cobolt_forms::paint::set_active_theme(ctx, pack);
             cobolt_forms::paint::set_glass_style(ctx, glass_style);
-            if let Some(d) = self
-                .designers
-                .iter()
-                .find(|(_, dd)| dd.form.name == fname)
-                .or_else(|| self.designers.first())
-            {
-                cobolt_forms::paint::set_neumorphic_params(ctx, d.1.form.neumorphic_params.clone());
-            }
         }
 
         // ── Form-level lifecycle events ───────────────────────────────────────
@@ -5307,33 +5281,29 @@ impl CoboltApp {
 
         // Apply glass visuals identical to the preview window (or the light
         // soft-UI visuals when the form's style is Neumorphic).
-        if cobolt_forms::paint::is_neumorphic_style(ctx) {
-            apply_neumo_form_visuals(ctx);
-        } else {
-            let mut vis = ctx.style().visuals.clone();
-            let gf = Color32::from_rgba_premultiplied(50, 55, 90, 55);
-            let gs = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
-            vis.widgets.noninteractive.bg_fill = gf;
-            vis.widgets.noninteractive.bg_stroke = gs;
-            vis.widgets.inactive.bg_fill = gf;
-            vis.widgets.inactive.bg_stroke = gs;
-            vis.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(70, 80, 130, 80);
-            vis.widgets.hovered.bg_stroke =
-                egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 210, 255, 120));
-            vis.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
-            vis.widgets.active.bg_stroke =
-                egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
-            let rnd = egui::Rounding::same(8.0);
-            vis.widgets.noninteractive.rounding = rnd;
-            vis.widgets.inactive.rounding = rnd;
-            vis.widgets.hovered.rounding = rnd;
-            vis.widgets.active.rounding = rnd;
-            vis.override_text_color = Some(Color32::from_rgb(230, 235, 255));
-            vis.panel_fill = Color32::TRANSPARENT;
-            vis.window_fill = Color32::TRANSPARENT;
-            vis.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
-            ctx.set_visuals(vis);
-        }
+        let mut vis = ctx.style().visuals.clone();
+        let gf = Color32::from_rgba_premultiplied(50, 55, 90, 55);
+        let gs = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
+        vis.widgets.noninteractive.bg_fill = gf;
+        vis.widgets.noninteractive.bg_stroke = gs;
+        vis.widgets.inactive.bg_fill = gf;
+        vis.widgets.inactive.bg_stroke = gs;
+        vis.widgets.hovered.bg_fill = Color32::from_rgba_premultiplied(70, 80, 130, 80);
+        vis.widgets.hovered.bg_stroke =
+            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(200, 210, 255, 120));
+        vis.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
+        vis.widgets.active.bg_stroke =
+            egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
+        let rnd = egui::Rounding::same(8.0);
+        vis.widgets.noninteractive.rounding = rnd;
+        vis.widgets.inactive.rounding = rnd;
+        vis.widgets.hovered.rounding = rnd;
+        vis.widgets.active.rounding = rnd;
+        vis.override_text_color = Some(Color32::from_rgb(230, 235, 255));
+        vis.panel_fill = Color32::TRANSPARENT;
+        vis.window_fill = Color32::TRANSPARENT;
+        vis.extreme_bg_color = Color32::from_rgba_premultiplied(20, 20, 40, 180);
+        ctx.set_visuals(vis);
 
         // Snapshot what we need (avoids borrow-split issues with self).
         let bg_image = self.form_runtimes[idx].background_image.clone();
@@ -5423,6 +5393,7 @@ impl CoboltApp {
             .collect();
         let st = RunState {
             state: &states_snap,
+            run_id: self.form_runtimes[idx].run_id,
         };
 
         let mut output = cobolt_forms::render::RenderOutput::default();
