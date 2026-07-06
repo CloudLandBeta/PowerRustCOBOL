@@ -3823,14 +3823,16 @@ impl CoboltApp {
     /// Drain a finished app-level file dialog (call once per frame). Returns
     /// whether a dialog is still open (so the caller keeps repainting).
     fn poll_file_dialog(&mut self) -> bool {
+        let mut rep = false;
         if let Some(result) = crate::file_dialog::take(APP_FILE_KEY) {
             if let Some(request) = self.pending_file.take() {
                 if let Some(path) = result {
                     self.apply_file_result(request, path);
                 }
             }
+            rep = true;
         }
-        self.pending_file.is_some()
+        rep || self.pending_file.is_some()
     }
 
     /// Perform the action associated with a completed file dialog.
