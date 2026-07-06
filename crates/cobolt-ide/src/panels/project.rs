@@ -768,7 +768,7 @@ impl ProjectPanel {
         tr: &Tr,
     ) {
         let name = Path::new(rel)
-            .file_name()
+            .file_stem()
             .and_then(|n| n.to_str())
             .unwrap_or(rel);
         let abs = root.as_ref().map(|d| d.join(rel));
