@@ -197,7 +197,7 @@ impl NewIndexedDialog {
                     children
                 },
             }],
-            finalized: false,
+            finalized: true,
         };
         cobolt_indexed::apply_default_controls(&mut def.fields);
         def.recompute_offsets();
@@ -290,7 +290,7 @@ impl NewIndexedDialog {
                 alternates,
             },
             fields: vec![],
-            finalized: false,
+            finalized: true,
         };
         // Parse the user's raw COBOL-85-like record text into the fields.
         // This enforces the record description syntax (levels, PIC, REDEFINES,
@@ -381,7 +381,7 @@ impl NewIndexedDialog {
                     alternates: vec![],
                 },
                 fields: vec![],
-                finalized: false,
+                finalized: true,
             };
             match cobolt_indexed::raw_text::text_to_record(&mut temp, &self.raw_text) {
                 Ok(()) => {
