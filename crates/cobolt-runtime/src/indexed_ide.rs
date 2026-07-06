@@ -10,7 +10,7 @@ use std::path::Path;
 
 use cobolt_indexed::{IndexedDefinition, RecordFormatDef, StorageMode};
 
-use crate::indexed::{status, IndexedFile, IndexedFileInfo, KeySpec, OpenMode, ReadDir};
+use crate::indexed::{status, IndexedFile, IndexedFileInfo, KeySpec, OpenMode, ReadDir, IndexedStore, StartOp};
 
 /// Schema comparison result for drift detection (R26).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,13 +97,24 @@ pub fn create_empty_from_definition(def: &IndexedDefinition, path: &Path) -> std
         RecordFormatDef::Variable { max_length, .. } => max_length as usize,
     };
     let (primary, alternates) = key_specs_from_def(def);
-    let mut file = IndexedFile::new(path, record_len, primary, alternates);
-    file.set_compressing(def.compression);
-    file.set_persist(def.persistence && def.storage == StorageMode::Memory);
-    let names: Vec<Option<String>> = std::iter::once(def.keys.primary.name.clone())
-        .chain(def.keys.alternates.iter().map(|k| k.name.clone()))
-        .collect();
-    file.set_key_names(names);
+
+    let mut file: Box<dyn IndexedStore> = match def.storage {
+        StorageMode::Disk => {
+            let f = crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
+            Box::new(f)
+        }
+        StorageMode::Memory => {
+            let mut f = IndexedFile::new(path, record_len, primary, alternates);
+            f.set_compressing(def.compression);
+            f.set_persist(def.persistence);
+            let names: Vec<Option<String>> = std::iter::once(def.keys.primary.name.clone())
+                .chain(def.keys.alternates.iter().map(|k| k.name.clone()))
+                .collect();
+            f.set_key_names(names);
+            Box::new(f)
+        }
+    };
+
     let st = file.open(OpenMode::Output);
     if st != status::OK {
         return Err(std::io::Error::new(
@@ -123,7 +134,7 @@ pub fn create_empty_from_definition(def: &IndexedDefinition, path: &Path) -> std
 
 /// In-memory grid session over an indexed file (IDE grid browser).
 pub struct GridSession {
-    file: IndexedFile,
+    file: Box<dyn IndexedStore>,
     rows: Vec<Vec<u8>>,
     primary_offset: usize,
     primary_len: usize,
@@ -138,8 +149,19 @@ impl GridSession {
         let (primary, alternates) = key_specs_from_def(def);
         let primary_offset = primary.offset;
         let primary_len = primary.len;
-        let mut file = IndexedFile::new(path, record_len, primary, alternates);
-        file.set_strict_metadata(false);
+
+        let mut file: Box<dyn IndexedStore> = match def.storage {
+            StorageMode::Disk => {
+                let f = crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
+                Box::new(f)
+            }
+            StorageMode::Memory => {
+                let mut f = IndexedFile::new(path, record_len, primary, alternates);
+                f.set_strict_metadata(false);
+                Box::new(f)
+            }
+        };
+
         let st = file.open(OpenMode::Io);
         if st != status::OK {
             return Err(format!("OPEN I-O failed: FILE STATUS {st}"));
@@ -214,7 +236,7 @@ impl GridSession {
     fn reload_rows(&mut self) {
         self.rows.clear();
         self.file.set_key_of_reference(0);
-        self.file.reset_cursor();
+        let _ = self.file.start(StartOp::Ge, &[]);
         loop {
             let (rec, st) = self.file.read_seq(ReadDir::Next);
             if st == status::EOF {
@@ -290,7 +312,7 @@ mod tests {
         let path = dir.path().join("t.idx");
         let def = test_def();
         create_empty_from_definition(&def, &path).unwrap();
-        let info = IndexedFile::inspect_path(&path).unwrap();
+        let info = crate::indexed_import::inspect_any_path(&path).unwrap();
         assert!(info.is_some());
     }
 

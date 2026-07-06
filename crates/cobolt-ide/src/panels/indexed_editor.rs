@@ -36,6 +36,7 @@ pub struct IndexedEditorPanel {
     pub request_raw_dialog: bool,
     pub show_indent_alert: bool,
     pub indent_error: Option<String>,
+    pub apply_success_msg: Option<String>,
 }
 
 impl IndexedEditorPanel {
@@ -48,6 +49,7 @@ impl IndexedEditorPanel {
             request_raw_dialog: false,
             show_indent_alert: false,
             indent_error: None,
+            apply_success_msg: None,
         }
     }
 
@@ -255,20 +257,32 @@ impl IndexedEditorPanel {
             .code_editor()
             .desired_rows(20)
             .desired_width(f32::INFINITY);
-        ui.add(te);
+        let te_resp = ui.add(te);
+        if te_resp.changed() {
+            self.apply_success_msg = None;
+        }
 
         ui.horizontal(|ui| {
             if ui.button(tr.btn_apply_raw).clicked() {
+                let old_len = def.record_length();
                 match text_to_record(def, &self.raw_text) {
                     Ok(()) => {
                         self.sync_from_def(def);
                         self.indent_error = None;
                         self.show_indent_alert = false;
+                        let new_len = def.record_length();
+                        let msg = if old_len != new_len {
+                            format!("Record structure updated successfully. Record length changed from {} to {} characters.", old_len, new_len)
+                        } else {
+                            format!("Record structure updated successfully. Record length remains {} characters.", new_len)
+                        };
+                        self.apply_success_msg = Some(msg);
                         applied = true;
                     }
                     Err(e) => {
                         self.indent_error = Some(e);
                         self.show_indent_alert = true;
+                        self.apply_success_msg = None;
                     }
                 }
             }
@@ -276,6 +290,7 @@ impl IndexedEditorPanel {
                 self.raw_text = record_to_text(def);
                 self.indent_error = None;
                 self.show_indent_alert = false;
+                self.apply_success_msg = None;
             }
         });
 
@@ -283,6 +298,12 @@ impl IndexedEditorPanel {
             ui.colored_label(
                 egui::Color32::from_rgb(220, 80, 80),
                 format!("COBOL-85 validation error: {}", e),
+            );
+        }
+        if let Some(msg) = &self.apply_success_msg {
+            ui.colored_label(
+                egui::Color32::from_rgb(80, 220, 80),
+                msg,
             );
         }
 
