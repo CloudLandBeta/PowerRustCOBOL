@@ -2820,14 +2820,22 @@ impl CoboltApp {
                             ui.vertical(|ui| {
                                 ui.set_min_width(140.0);
                                 ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
-                                st.panel.show_property_labels(ui, &st.def, tr);
+                                if st.prefer_raw_editor {
+                                    crate::panels::indexed_properties::IndexedPropertiesPanel::show_file_labels(ui, tr);
+                                } else {
+                                    st.panel.show_property_labels(ui, &st.def, tr);
+                                }
                             });
 
                             ui.separator();
 
                             ui.vertical(|ui| {
                                 ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
-                                property_edit = st.panel.show_property_values(ui, &mut st.def, tr);
+                                if st.prefer_raw_editor {
+                                    property_edit = crate::panels::indexed_properties::IndexedPropertiesPanel::show_file_values(ui, &mut st.def, tr);
+                                } else {
+                                    property_edit = st.panel.show_property_values(ui, &mut st.def, tr);
+                                }
                             });
                         });
                     });
