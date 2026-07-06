@@ -31,7 +31,7 @@ pub struct IndexedGridPanel {
     pub error: Option<String>,
     pub selected_row: Option<usize>,
     pub page_start: usize,
-    pub writes_blocked: bool,
+    pub drift_mismatch: Option<String>,
     pub edit_cells: Vec<EditCell>,
     pub new_row_mode: bool,
 }
@@ -43,14 +43,14 @@ impl IndexedGridPanel {
             error: None,
             selected_row: None,
             page_start: 0,
-            writes_blocked: false,
+            drift_mismatch: None,
             edit_cells: Vec::new(),
             new_row_mode: false,
         }
     }
 
-    pub fn open(&mut self, def: &IndexedDefinition, data_path: &Path, writes_blocked: bool) {
-        self.writes_blocked = writes_blocked;
+    pub fn open(&mut self, def: &IndexedDefinition, data_path: &Path, drift_mismatch: Option<String>) {
+        self.drift_mismatch = drift_mismatch;
         match GridSession::open(def, data_path) {
             Ok(s) => {
                 self.session = Some(s);
@@ -79,15 +79,18 @@ impl IndexedGridPanel {
         if let Some(err) = &self.error {
             ui.colored_label(ui.visuals().error_fg_color, err);
         }
-        if self.writes_blocked {
-            ui.colored_label(ui.visuals().warn_fg_color, tr.grid_writes_blocked);
+        if let Some(detail) = &self.drift_mismatch {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                format!("{} ({})", tr.grid_writes_blocked, detail),
+            );
         }
 
         ui.horizontal(|ui| {
             if ui.button(tr.grid_btn_refresh).clicked() {
                 action = GridAction::Refresh;
             }
-            if !self.writes_blocked {
+            if self.drift_mismatch.is_none() {
                 if ui.button(tr.grid_btn_add).clicked() {
                     action = GridAction::AddRow;
                 }
@@ -162,7 +165,7 @@ impl IndexedGridPanel {
             });
         });
 
-        if !self.writes_blocked && (self.new_row_mode || self.selected_row.is_some()) {
+        if self.drift_mismatch.is_none() && (self.new_row_mode || self.selected_row.is_some()) {
             ui.separator();
             ui.heading(if self.new_row_mode {
                 tr.grid_new_row

@@ -2327,19 +2327,19 @@ impl CoboltApp {
     }
 
     fn open_grid_for_indexed(&mut self, cidx_path: &Path, def: &IndexedDefinition) {
-        let (drift, _) = self.check_schema_drift(def);
+        let (_, detail) = self.check_schema_drift(def);
         let data_path = match self.resolve_assign_path(def) {
             Some(p) => p,
             None => return,
         };
         if let Some((_, st)) = self.indexed_grids.iter_mut().find(|(p, _)| p == cidx_path) {
-            st.panel.open(def, &data_path, drift);
+            st.panel.open(def, &data_path, detail.clone());
             st.def = def.clone();
             st.close_requested = false;
             return;
         }
         let mut panel = IndexedGridPanel::new();
-        panel.open(def, &data_path, drift);
+        panel.open(def, &data_path, detail);
         self.indexed_grids.push((
             cidx_path.to_path_buf(),
             IndexedGridState {
@@ -2356,26 +2356,27 @@ impl CoboltApp {
         def: &IndexedDefinition,
         data_path: &Path,
     ) {
-        let drift = if data_path.exists() {
+        let detail = if data_path.exists() {
             if let Ok(Some(info)) = inspect_any_path(data_path) {
                 match compare_schema(def, &info) {
-                    SchemaDrift::Ok => false,
-                    _ => true,
+                    SchemaDrift::Ok => None,
+                    SchemaDrift::Mismatch { detail } => Some(detail),
+                    SchemaDrift::NoSchemaOnDisk => Some("no schema on disk".into()),
                 }
             } else {
-                false
+                None
             }
         } else {
-            false
+            None
         };
         if let Some((_, st)) = self.indexed_grids.iter_mut().find(|(p, _)| p == cidx_path) {
-            st.panel.open(def, data_path, drift);
+            st.panel.open(def, data_path, detail.clone());
             st.def = def.clone();
             st.close_requested = false;
             return;
         }
         let mut panel = IndexedGridPanel::new();
-        panel.open(def, data_path, drift);
+        panel.open(def, data_path, detail);
         self.indexed_grids.push((
             cidx_path.to_path_buf(),
             IndexedGridState {

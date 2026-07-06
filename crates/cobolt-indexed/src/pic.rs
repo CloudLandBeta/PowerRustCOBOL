@@ -55,22 +55,68 @@ pub fn parse_pic(pic: &str) -> ParsedPic {
         .to_ascii_uppercase();
     let signed = upper.starts_with('S');
     let body = if signed { &upper[1..] } else { &upper[..] };
-    let (category, width) = if body == "9" {
-        (PicCategory::Indicator, 1)
-    } else if let Some(rest) = body.strip_prefix('X') {
-        (PicCategory::Alphanumeric, pic_width(rest, 1))
-    } else if let Some(rest) = body.strip_prefix('A') {
-        (PicCategory::Alphabetic, pic_width(rest, 1))
-    } else if let Some(rest) = body.strip_prefix('9') {
-        let w = pic_width(rest, 1);
-        if w == 1 {
-            (PicCategory::Indicator, 1)
-        } else {
-            (PicCategory::Numeric, w)
+
+    // Compute total width by parsing body
+    let mut width = 0;
+    let mut category = PicCategory::Alphanumeric;
+
+    let chars: Vec<char> = body.chars().collect();
+    let mut i = 0;
+    let mut has_numeric = false;
+    let mut has_alphabetic = false;
+    let mut has_alphanumeric = false;
+
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            '9' => {
+                has_numeric = true;
+                let (count, next_i) = parse_count(&chars, i + 1);
+                width += count;
+                i = next_i;
+            }
+            'X' => {
+                has_alphanumeric = true;
+                let (count, next_i) = parse_count(&chars, i + 1);
+                width += count;
+                i = next_i;
+            }
+            'A' => {
+                has_alphabetic = true;
+                let (count, next_i) = parse_count(&chars, i + 1);
+                width += count;
+                i = next_i;
+            }
+            'V' => {
+                // V is implicit decimal point, it consumes 0 bytes of disk space
+                i += 1;
+            }
+            '.' | ',' | '$' | '+' | '-' | 'Z' | 'C' | 'D' | 'R' => {
+                // editing/insertion characters
+                width += 1;
+                i += 1;
+            }
+            _ => {
+                // fallback: count it as 1 character
+                width += 1;
+                i += 1;
+            }
         }
-    } else {
-        (PicCategory::Alphanumeric, 1)
-    };
+    }
+
+    // Determine category
+    if has_alphanumeric {
+        category = PicCategory::Alphanumeric;
+    } else if has_alphabetic {
+        category = PicCategory::Alphabetic;
+    } else if has_numeric {
+        if width == 1 {
+            category = PicCategory::Indicator;
+        } else {
+            category = PicCategory::Numeric;
+        }
+    }
+
     ParsedPic {
         category,
         width,
@@ -78,16 +124,23 @@ pub fn parse_pic(pic: &str) -> ParsedPic {
     }
 }
 
-fn pic_width(rest: &str, default: usize) -> usize {
-    let rest = rest.trim();
-    if rest.is_empty() {
-        return default;
+fn parse_count(chars: &[char], mut i: usize) -> (usize, usize) {
+    if i < chars.len() && chars[i] == '(' {
+        i += 1;
+        let start = i;
+        while i < chars.len() && chars[i] != ')' {
+            i += 1;
+        }
+        let end = i;
+        if i < chars.len() && chars[i] == ')' {
+            i += 1;
+        }
+        let inner_str: String = chars[start..end].iter().collect();
+        if let Ok(count) = inner_str.trim().parse::<usize>() {
+            return (count, i);
+        }
     }
-    if rest.starts_with('(') {
-        let inner = rest.trim_start_matches('(').trim_end_matches(')');
-        return inner.parse().unwrap_or(default);
-    }
-    default
+    (1, i)
 }
 
 /// Format raw DISPLAY bytes for a grid cell (AC7).
