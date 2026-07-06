@@ -1728,7 +1728,12 @@ impl EditorPanel {
         if self.tabs.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    egui::RichText::new("Select an item in the project tree to see its details.")
+                    egui::RichText::new(
+                        "Open a COBOL file to get started.\n\n\
+                             File → Open  or  toolbar 📂\n\n\
+                             Ctrl+Space — trigger completion\n\
+                             Cmd+F / Ctrl+F — find in file",
+                    )
                     .color(Color32::from_gray(150))
                     .size(15.0),
                 );
