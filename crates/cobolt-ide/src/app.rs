@@ -2736,24 +2736,19 @@ impl CoboltApp {
             let remaining_rect = ui.available_rect_before_wrap();
 
             ui.allocate_ui_at_rect(remaining_rect, |ui| {
-                if st.prefer_raw_editor {
-                    // The embedded COBOL editor (raw record descriptor) is now the primary/visible
-                    // form for this file's file descriptor. The tree + property pane form is
-                    // replaced (per the requirement: once the user has made changes via the
-                    // raw editor, they can no longer edit the descriptor information via the
-                    // properties form; the editor remains the surface).
-                    let applied = st.panel.show_raw_editor_inline(ui, &mut st.def, tr);
-                    if applied {
-                        did_add_remove = true;
-                    }
-                } else {
-                    ui.horizontal_top(|ui| {
-                        // Left: record structure tree - tall and wide (the main area for the data-items list).
-                        // We explicitly set full height here so the ScrollArea inside show_structure
-                        // gets the large red-rect size.
-                        ui.vertical(|ui| {
-                            ui.set_min_width(320.0);
-                            ui.set_height(remaining_rect.height());
+                ui.horizontal_top(|ui| {
+                    // Left column: either raw text editor or the tree structure
+                    ui.vertical(|ui| {
+                        let left_w = (remaining_rect.width() - 320.0).max(350.0);
+                        ui.set_min_width(left_w);
+                        ui.set_height(remaining_rect.height());
+
+                        if st.prefer_raw_editor {
+                            let applied = st.panel.show_raw_editor_inline(ui, &mut st.def, tr);
+                            if applied {
+                                did_add_remove = true;
+                            }
+                        } else {
                             ui.spacing_mut().item_spacing.y = 0.0;
 
                             // When the data file does not exist yet (!finalized), allow adding/removing
@@ -2793,36 +2788,31 @@ impl CoboltApp {
 
                             st.panel.sync_from_def(&st.def);
                             structure_action = st.panel.show_structure(ui, &st.def, tr);
-                        });
+                        }
+                    });
 
-                        ui.separator();
+                    ui.separator();
 
-                        // Right: properties area - we make this column tall too (to match the structure
-                        // height), but put the actual labels+values content at the very top using
-                        // horizontal_top + the row allocations already use Align::TOP.
-                        // This ensures all property value controls (and labels) are top-aligned
-                        // within their tall column instead of appearing vertically centered in the middle
-                        // of the available area.
-                        ui.vertical(|ui| {
-                            ui.set_min_width(300.0);  // total width for the labels+values block
-                            ui.set_height(remaining_rect.height());
-                            ui.horizontal_top(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.set_min_width(140.0);
-                                    ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
-                                    st.panel.show_property_labels(ui, &st.def, tr);
-                                });
+                    // Right column: properties area - always shown!
+                    ui.vertical(|ui| {
+                        ui.set_min_width(300.0);  // total width for the labels+values block
+                        ui.set_height(remaining_rect.height());
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| {
+                                ui.set_min_width(140.0);
+                                ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
+                                st.panel.show_property_labels(ui, &st.def, tr);
+                            });
 
-                                ui.separator();
+                            ui.separator();
 
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
-                                    property_edit = st.panel.show_property_values(ui, &mut st.def, tr);
-                                });
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 4.0;  // blank line gap so rows don't touch neighbors
+                                property_edit = st.panel.show_property_values(ui, &mut st.def, tr);
                             });
                         });
                     });
-                }
+                });
             });
         }); // close the CentralPanel |ui| and .show(...)
 
