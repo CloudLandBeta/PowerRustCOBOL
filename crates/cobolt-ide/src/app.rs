@@ -292,6 +292,8 @@ pub struct CoboltApp {
     project_path: Option<PathBuf>,
     pending_user_control_delete: Option<String>,
     pending_indexed_delete: Option<String>,
+    delete_cidx_file: bool,
+    delete_data_file: bool,
 
     // 007 Form themes — discovered asset packs (id → pack), loaded once.
     theme_packs:
@@ -538,6 +540,8 @@ impl CoboltApp {
             project_path: None,
             pending_user_control_delete: None,
             pending_indexed_delete: None,
+            delete_cidx_file: false,
+            delete_data_file: false,
             theme_packs: std::collections::HashMap::new(),
             theme_packs_loaded: false,
 
@@ -1710,8 +1714,22 @@ impl CoboltApp {
     }
 
     fn do_remove_file_from_project(&mut self, rel: String) {
+        let mut abs_path = None;
+        if let Some(dir) = self.project_dir() {
+            abs_path = Some(dir.join(&rel));
+        }
         if let Some(proj) = &mut self.cobolt_project {
             proj.remove_file(&rel);
+        }
+        if let Some(abs) = abs_path {
+            // Close inspector if it is showing this file
+            if let Some(st) = &self.indexed_inspect {
+                if st.path == abs {
+                    self.indexed_inspect = None;
+                }
+            }
+            // Close grid browser window if it is showing this file
+            self.indexed_grids.retain(|(p, _)| p != &abs);
         }
         self.do_save_project();
     }
@@ -5789,6 +5807,11 @@ impl CoboltApp {
         let mut cancel = false;
         let mut confirm = false;
 
+        // Resolve paths on disk
+        let cidx_path = self.project_dir().map(|d| d.join(&rel));
+        let def = cidx_path.as_ref().and_then(|p| load_indexed(p).ok());
+        let data_path = def.as_ref().and_then(|d| self.resolve_assign_path(d));
+
         egui::Window::new("Confirm removal")
             .collapsible(false)
             .resizable(false)
@@ -5796,6 +5819,29 @@ impl CoboltApp {
             .show(ctx, |ui| {
                 ui.label(format!("Remove indexed file '{}' from the project?", stem));
                 ui.add_space(8.0);
+
+                // Option to delete configuration file (.cidx)
+                if let Some(p) = &cidx_path {
+                    let text = format!("Delete configuration file from disk\n  ({})", p.display());
+                    ui.checkbox(&mut self.delete_cidx_file, text);
+                    ui.add_space(4.0);
+                }
+
+                // Option to delete data file (.idx)
+                if let Some(p) = &data_path {
+                    if p.exists() {
+                        let text = format!("Delete data file from disk\n  ({})", p.display());
+                        ui.checkbox(&mut self.delete_data_file, text);
+                    } else {
+                        ui.add_enabled_ui(false, |ui| {
+                            let text = format!("Delete data file from disk (file not found)\n  ({})", p.display());
+                            let mut dummy = false;
+                            ui.checkbox(&mut dummy, text);
+                        });
+                    }
+                    ui.add_space(8.0);
+                }
+
                 ui.horizontal(|ui| {
                     if ui.button(tr.btn_cancel).clicked() {
                         cancel = true;
@@ -5808,9 +5854,38 @@ impl CoboltApp {
 
         if cancel {
             self.pending_indexed_delete = None;
+            self.delete_cidx_file = false;
+            self.delete_data_file = false;
         }
         if confirm {
             self.pending_indexed_delete = None;
+            let del_cidx = self.delete_cidx_file;
+            let del_data = self.delete_data_file;
+            self.delete_cidx_file = false;
+            self.delete_data_file = false;
+
+            // Delete configuration file on disk
+            if let Some(p) = &cidx_path {
+                if del_cidx {
+                    let _ = std::fs::remove_file(p);
+                    // Also delete the copybook file in COPYBOOKS/<name>.fd.cpy
+                    if let Some(d) = &def {
+                        if let Some(cpy_path) = self.indexed_fd_copybook_path(&d.name) {
+                            if cpy_path.exists() {
+                                let _ = std::fs::remove_file(&cpy_path);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Delete data file on disk
+            if let Some(p) = &data_path {
+                if del_data && p.exists() {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+
             self.do_remove_file_from_project(rel);
         }
     }
