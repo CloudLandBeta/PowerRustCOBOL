@@ -2758,8 +2758,9 @@ impl CoboltApp {
                 ui.horizontal_top(|ui| {
                     // Left column: either raw text editor or the tree structure
                     ui.vertical(|ui| {
-                        let left_w = (remaining_rect.width() - 320.0).max(350.0);
+                        let left_w = (remaining_rect.width() - 330.0).max(350.0);
                         ui.set_min_width(left_w);
+                        ui.set_max_width(left_w);
                         ui.set_height(remaining_rect.height());
 
                         if st.prefer_raw_editor {
