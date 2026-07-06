@@ -70,6 +70,8 @@ pub enum ProjectPanelEvent {
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
     Remove(String),
+    /// User requested removing an indexed file — prompts confirmation.
+    ConfirmRemoveIndexed(String),
     /// User clicked the top/root project node in the tree (📁 ProjectName).
     /// Shows the project Settings form (parameters) in the main work area.
     ShowProjectSettings,
@@ -777,6 +779,7 @@ impl ProjectPanel {
         let file_key = sel_file(rel);
         let file_selected = cur.as_deref() == Some(file_key.as_str());
 
+        let mut remove_clicked = false;
         let id = ui.make_persistent_id(("indexed_item", rel));
         let (_toggle, header_inner, _body) =
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
@@ -784,7 +787,14 @@ impl ProjectPanel {
                     ui.add_space(8.0);
                     status_dot(ui, status);
                     tree_icon(ui, draw_indexed_icon);
-                    full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel)
+                    let resp = full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_space(4.0);
+                        if ui.small_button("🗑").on_hover_text("Remove indexed file from project").clicked() {
+                            remove_clicked = true;
+                        }
+                    });
+                    resp
                 })
                 .body(|ui| {
                     let Some(def) = &def else {
@@ -803,7 +813,15 @@ impl ProjectPanel {
                     }
                 });
         let resp = header_inner.inner;
-        if let Some(p) = &abs {
+        resp.context_menu(|ui| {
+            if ui.button("Remove from project").clicked() {
+                remove_clicked = true;
+                ui.close_menu();
+            }
+        });
+        if remove_clicked {
+            events.push(ProjectPanelEvent::ConfirmRemoveIndexed(rel.to_string()));
+        } else if let Some(p) = &abs {
             if resp.double_clicked() {
                 events.push(ProjectPanelEvent::OpenIndexedEditor(p.clone()));
             } else if resp.clicked() {

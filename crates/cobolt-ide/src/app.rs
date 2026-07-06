@@ -291,6 +291,7 @@ pub struct CoboltApp {
     cobolt_project: Option<CoboltProject>,
     project_path: Option<PathBuf>,
     pending_user_control_delete: Option<String>,
+    pending_indexed_delete: Option<String>,
 
     // 007 Form themes — discovered asset packs (id → pack), loaded once.
     theme_packs:
@@ -536,6 +537,7 @@ impl CoboltApp {
             cobolt_project: None,
             project_path: None,
             pending_user_control_delete: None,
+            pending_indexed_delete: None,
             theme_packs: std::collections::HashMap::new(),
             theme_packs_loaded: false,
 
@@ -4413,6 +4415,9 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
                     ProjectPanelEvent::Add(kind) => self.do_add_file_to_project(kind),
                     ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
+                    ProjectPanelEvent::ConfirmRemoveIndexed(rel) => {
+                        self.pending_indexed_delete = Some(rel);
+                    }
                     ProjectPanelEvent::ShowProjectSettings => {
                         self.show_project_settings = true;
                         self.inspect = None;
@@ -4476,6 +4481,8 @@ impl eframe::App for CoboltApp {
                 self.settings_close_confirm = false;
             }
         }
+
+        self.show_indexed_delete_confirm(ctx, &tr);
 
         // Tree semaphore: the active file, if edited since its last check, goes
         // back to yellow ("changed — not tested").
@@ -5777,6 +5784,44 @@ impl CoboltApp {
         if confirm {
             self.pending_user_control_delete = None;
             self.remove_user_control_def(&name);
+        }
+    }
+
+    fn show_indexed_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(rel) = self.pending_indexed_delete.clone() else {
+            return;
+        };
+        let stem = Path::new(&rel)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&rel);
+
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new("Confirm removal")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!("Remove indexed file '{}' from the project?", stem));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_indexed_delete = None;
+        }
+        if confirm {
+            self.pending_indexed_delete = None;
+            self.do_remove_file_from_project(rel);
         }
     }
 
