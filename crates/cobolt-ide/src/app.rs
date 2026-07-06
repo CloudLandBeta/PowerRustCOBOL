@@ -387,6 +387,10 @@ enum FileRequest {
     NewForm(Box<cobolt_forms::Form>),
     /// Pick a background image for the IDE appearance settings.
     PickBackgroundImage,
+    OpenGridData {
+        cidx_path: PathBuf,
+        def: IndexedDefinition,
+    },
 }
 
 /// The shared egui key for the single app-level file dialog.
@@ -2326,6 +2330,42 @@ impl CoboltApp {
         ));
     }
 
+    fn open_grid_for_indexed_with_data_path(
+        &mut self,
+        cidx_path: &Path,
+        def: &IndexedDefinition,
+        data_path: &Path,
+    ) {
+        let drift = if data_path.exists() {
+            if let Ok(Some(info)) = inspect_any_path(data_path) {
+                match compare_schema(def, &info) {
+                    SchemaDrift::Ok => false,
+                    _ => true,
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if let Some((_, st)) = self.indexed_grids.iter_mut().find(|(p, _)| p == cidx_path) {
+            st.panel.open(def, data_path, drift);
+            st.def = def.clone();
+            st.close_requested = false;
+            return;
+        }
+        let mut panel = IndexedGridPanel::new();
+        panel.open(def, data_path, drift);
+        self.indexed_grids.push((
+            cidx_path.to_path_buf(),
+            IndexedGridState {
+                panel,
+                def: def.clone(),
+                close_requested: false,
+            },
+        ));
+    }
+
     fn write_generated_indexed_for(
         &mut self,
         cidx: &std::path::Path,
@@ -2852,7 +2892,20 @@ impl CoboltApp {
             if let Some(st) = &self.indexed_inspect {
                 let path = st.path.clone();
                 let def = st.def.clone();
-                self.open_grid_for_indexed(&path, &def);
+                let default_dir = self.project_dir().map(|d| d.join("data"));
+                let mut spec = crate::file_dialog::DialogSpec::open()
+                    .filter("Indexed Data File", &["idx"])
+                    .filter("All files", &["*"]);
+                if let Some(ref d) = default_dir {
+                    spec = spec.directory(d);
+                }
+                self.begin_file_dialog(
+                    FileRequest::OpenGridData {
+                        cidx_path: path,
+                        def,
+                    },
+                    spec,
+                );
             }
         }
 
@@ -3803,6 +3856,9 @@ impl CoboltApp {
             FileRequest::OpenForm => self.load_form_from_path(path),
             FileRequest::NewForm(form) => self.save_new_form_to(*form, path),
             FileRequest::PickBackgroundImage => self.set_background_image(path),
+            FileRequest::OpenGridData { cidx_path, def } => {
+                self.open_grid_for_indexed_with_data_path(&cidx_path, &def, &path);
+            }
         }
     }
 
