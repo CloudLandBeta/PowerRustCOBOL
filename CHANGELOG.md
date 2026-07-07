@@ -8,6 +8,13 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.89] — 2026-07-06
+
+### Fixed
+
+- **Version bumped to 1.27.89** — updated the IDE version constant for the next
+  PowerRustCOBOL build.
+
 ## [PowerRustCOBOL 1.27.88] — 2026-07-04
 
 ### Fixed
