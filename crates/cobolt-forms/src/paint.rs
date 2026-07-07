@@ -624,7 +624,7 @@ pub fn draw_glass_enhanced(
 pub fn draw_glass_neumorphic(
     painter: &egui::Painter,
     rect: egui::Rect,
-    base: Color32,         // control's BackgroundColor — used as the literal surface fill
+    base: Color32, // control's BackgroundColor — used as the literal surface fill
     bg_underlay: Option<Color32>, // explicit user background (overrides `base` when set)
     rounding: impl Into<egui::Rounding>,
     selected: bool,
@@ -644,52 +644,91 @@ pub fn draw_glass_neumorphic(
     let cap = (w * 0.5).min(h * 0.5);
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
 
-    // ── Shadow parameters ─────────────────────────────────────────────────────
-    // Base shadow distance scales with the smaller control dimension so the
-    // effect feels proportional on both tiny and large controls.
-    let base_spread = (w.min(h) * 0.04).clamp(3.0, 10.0);
-    // Logarithmic blur scale: blur_strength 0→tight, 20→wide diffuse halo.
-    // Default blur_strength = 8 when no per-control override.
-    let blur_strength = 8.0_f32;
-    let spread = base_spread * (1.0 + (1.0 + blur_strength).ln());
+    // Retrieve shadow parameters from egui context (or fall back to defaults)
+    let params = painter
+        .ctx()
+        .data(|d| d.get_temp::<NeumorphicShadowParams>(neumorphic_params_id()))
+        .unwrap_or_default();
+
+    // ── Shadow reach (blur spread) ────────────────────────────────────────────
+    // Use the absolute value of blur_strength for the spread so that negative
+    // values produce the same spread magnitude as positive ones.  A negative
+    // blur_strength inverts (swaps) the light/dark shadow positions, making the
+    // control appear sunken/inset into the surface instead of raised above it.
+    //   blur_strength > 0 → raised (light NW, dark SE)
+    //   blur_strength = 0 → flat / no shadow
+    //   blur_strength < 0 → sunken (light SE, dark NW — inverted)
+    let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
     let layers = 10_usize;
 
-    // ── 1. Light shadow (top-left light source) ───────────────────────────────
-    let light_offset = Vec2::new(-spread * 0.5, -spread * 0.5);
-    for i in 0..=layers {
-        let t = 1.0 - (i as f32 / layers as f32); // 1 (outer) → 0 (core)
-        let expand = t * spread;
-        let falloff = (-3.0 * t * t).exp();
-        let a_val = (0.65 * am * falloff * 255.0) as u8;
-        if a_val == 0 {
-            continue;
-        }
-        let layer_rect = rect.translate(light_offset).expand(expand);
-        let layer_round = round_map(rnd, |c| c + expand);
-        painter.rect_filled(
-            layer_rect,
-            layer_round,
-            Color32::from_rgba_premultiplied(a_val, a_val, a_val, a_val),
-        );
-    }
+    if params.shadow_on {
+        let ux = params.shadow_dir[0];
+        let uy = params.shadow_dir[1];
+        let distance = params.distance;
+        let sunken = params.blur_strength < 0.0;
 
-    // ── 2. Dark shadow (bottom-right) ─────────────────────────────────────────
-    let dark_offset = Vec2::new(spread * 0.5, spread * 0.5);
-    for i in 0..=layers {
-        let t = 1.0 - (i as f32 / layers as f32);
-        let expand = t * spread;
-        let falloff = (-3.0 * t * t).exp();
-        let a_val = (0.35 * am * falloff * 255.0) as u8;
-        if a_val == 0 {
-            continue;
+        // For raised controls shadows bleed OUTSIDE rect (normal halo).
+        // For sunken controls shadows are clipped INSIDE rect — identical to
+        // CSS `inset box-shadow`. The offsets are also swapped so that:
+        //   raised : light=NW-outside  dark=SE-outside  → button protrudes
+        //   sunken : light=SE-inside   dark=NW-inside   → button recessed
+        let clipped_inset;
+        let sp: &egui::Painter = if sunken {
+            clipped_inset = painter.with_clip_rect(painter.clip_rect().intersect(rect));
+            &clipped_inset
+        } else {
+            painter
+        };
+
+        // Light shadow (white) — opposite direction when raised, same as user
+        // direction when sunken (so it bleeds in from the SE interior edge).
+        let light_sign = if sunken { 1.0_f32 } else { -1.0_f32 };
+        let light_offset = Vec2::new(light_sign * ux * distance, light_sign * uy * distance);
+        let light_opac = (params.shadow_opac * 3.25).clamp(0.0, 1.0);
+        for i in 0..=layers {
+            let t = 1.0 - (i as f32 / layers as f32); // 1 (outer) → 0 (core)
+            let expand = t * spread;
+            let falloff = (-3.0 * t * t).exp();
+            let a_val = (light_opac * am * falloff * 255.0) as u8;
+            if a_val == 0 {
+                continue;
+            }
+            let layer_rect = rect.translate(light_offset).expand(expand);
+            let layer_round = round_map(rnd, |c| c + expand);
+            sp.rect_filled(
+                layer_rect,
+                layer_round,
+                Color32::from_rgba_premultiplied(a_val, a_val, a_val, a_val),
+            );
         }
-        let layer_rect = rect.translate(dark_offset).expand(expand);
-        let layer_round = round_map(rnd, |c| c + expand);
-        painter.rect_filled(
-            layer_rect,
-            layer_round,
-            Color32::from_rgba_premultiplied(0, 0, 0, a_val),
-        );
+
+        // Dark shadow — user direction when raised (SE-outside), opposite
+        // direction when sunken (NW-inside, bleeds in from the NW interior edge).
+        let dark_sign = if sunken { -1.0_f32 } else { 1.0_f32 };
+        let dark_offset = Vec2::new(dark_sign * ux * distance, dark_sign * uy * distance);
+        let sc = params.shadow_color;
+        let dark_max_opac = params.shadow_opac;
+        for i in 0..=layers {
+            let t = 1.0 - (i as f32 / layers as f32);
+            let expand = t * spread;
+            let falloff = (-3.0 * t * t).exp();
+            let a_val = (dark_max_opac * am * falloff * 255.0) as u8;
+            if a_val == 0 {
+                continue;
+            }
+            let layer_rect = rect.translate(dark_offset).expand(expand);
+            let layer_round = round_map(rnd, |c| c + expand);
+            sp.rect_filled(
+                layer_rect,
+                layer_round,
+                Color32::from_rgba_premultiplied(
+                    (sc.r() as f32 * (a_val as f32 / 255.0)) as u8,
+                    (sc.g() as f32 * (a_val as f32 / 255.0)) as u8,
+                    (sc.b() as f32 * (a_val as f32 / 255.0)) as u8,
+                    a_val,
+                ),
+            );
+        }
     }
 
     // ── 3. Surface fill (flat matte) ──────────────────────────────────────────
@@ -725,6 +764,101 @@ pub fn draw_glass_neumorphic(
     }
 }
 
+/// Draw **only** the Neumorphic dual-shadow halo for a control that has its own
+/// custom paint path (Slider, ProgressBar, etc.) and therefore never reaches
+/// `draw_glass_neumorphic`.  Shadow parameters are read from the egui temp
+/// context exactly as `draw_glass_neumorphic` does, so the ShadowEnabled /
+/// ShadowOpacity / … properties stored by `draw_control` are honoured.
+///
+/// Call this **before** the control draws its own content so the shadow sits
+/// underneath the control's artwork.
+pub fn draw_neumorphic_shadow_only(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: impl Into<egui::Rounding>,
+    alpha_mul: f32,
+) {
+    if alpha_mul <= 0.0 {
+        return;
+    }
+    let am = alpha_mul.clamp(0.0, 1.0);
+    let rnd0: egui::Rounding = rounding.into();
+    let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+    let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
+
+    let params = painter
+        .ctx()
+        .data(|d| d.get_temp::<NeumorphicShadowParams>(neumorphic_params_id()))
+        .unwrap_or_default();
+    if !params.shadow_on {
+        return;
+    }
+
+    let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
+    let layers = 10_usize;
+    let ux = params.shadow_dir[0];
+    let uy = params.shadow_dir[1];
+    let distance = params.distance;
+    let sunken = params.blur_strength < 0.0;
+
+    // Clip inside rect for sunken; let halo bleed outside for raised.
+    let clipped_inset;
+    let sp: &egui::Painter = if sunken {
+        clipped_inset = painter.with_clip_rect(painter.clip_rect().intersect(rect));
+        &clipped_inset
+    } else {
+        painter
+    };
+
+    // Light (white): NW-outside when raised; SE-inside when sunken.
+    let light_sign = if sunken { 1.0_f32 } else { -1.0_f32 };
+    let light_offset = Vec2::new(light_sign * ux * distance, light_sign * uy * distance);
+    let light_opac = (params.shadow_opac * 3.25).clamp(0.0, 1.0);
+    for i in 0..=layers {
+        let t = 1.0 - (i as f32 / layers as f32);
+        let expand = t * spread;
+        let falloff = (-3.0 * t * t).exp();
+        let a_val = (light_opac * am * falloff * 255.0) as u8;
+        if a_val == 0 {
+            continue;
+        }
+        let layer_rect = rect.translate(light_offset).expand(expand);
+        let layer_round = round_map(rnd, |c| c + expand);
+        sp.rect_filled(
+            layer_rect,
+            layer_round,
+            Color32::from_rgba_premultiplied(a_val, a_val, a_val, a_val),
+        );
+    }
+
+    // Dark (user colour): SE-outside when raised; NW-inside when sunken.
+    let dark_sign = if sunken { -1.0_f32 } else { 1.0_f32 };
+    let dark_offset = Vec2::new(dark_sign * ux * distance, dark_sign * uy * distance);
+    let sc = params.shadow_color;
+    let dark_max_opac = params.shadow_opac;
+    for i in 0..=layers {
+        let t = 1.0 - (i as f32 / layers as f32);
+        let expand = t * spread;
+        let falloff = (-3.0 * t * t).exp();
+        let a_val = (dark_max_opac * am * falloff * 255.0) as u8;
+        if a_val == 0 {
+            continue;
+        }
+        let layer_rect = rect.translate(dark_offset).expand(expand);
+        let layer_round = round_map(rnd, |c| c + expand);
+        sp.rect_filled(
+            layer_rect,
+            layer_round,
+            Color32::from_rgba_premultiplied(
+                (sc.r() as f32 * (a_val as f32 / 255.0)) as u8,
+                (sc.g() as f32 * (a_val as f32 / 255.0)) as u8,
+                (sc.b() as f32 * (a_val as f32 / 255.0)) as u8,
+                a_val,
+            ),
+        );
+    }
+}
+
 /// Draw the optional asymmetric neumorphic border when the user explicitly sets
 /// `BorderStyle != None`.  Light gray on top/left edges, darker gray on
 /// bottom/right edges — reinforces the top-left light source.
@@ -742,7 +876,10 @@ pub fn draw_neumorphic_user_border(
     let bw = border_width;
     let half = bw * 0.5;
     let inner = rect.shrink(half);
-    let rnd = round_map(rounding, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) });
+    let rnd = round_map(
+        rounding,
+        |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) },
+    );
 
     // Light edges (top + left) — clip to top-left half
     {
@@ -995,12 +1132,81 @@ pub fn draw_control(
     let alpha_color =
         |c: Color32| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), c_scale(c.a()));
 
+    let is_neumorphic = matches!(
+        active_glass_style(painter.ctx()),
+        crate::model::GlassStyle::Neumorphic
+    );
+
+    if is_neumorphic {
+        let shadow_on = ctrl
+            .get_prop("ShadowEnabled")
+            .map(|v| v.as_bool())
+            .unwrap_or(true); // Neumorphic default: ON
+        let shadow_color = ctrl
+            .get_prop("ShadowColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::from_rgb(0, 0, 255)); // Neumorphic default: blue
+        let shadow_opac = ctrl
+            .get_prop("ShadowOpacity")
+            .map(|v| v.as_i64())
+            .unwrap_or(7) // Neumorphic default: 7%
+            .clamp(0, 100) as f32
+            / 100.0;
+        let shadow_dir = ctrl
+            .get_prop("ShadowDirection")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "SouthEast".into()); // Neumorphic default: SE
+        let distance = ctrl
+            .get_prop("ShadowDistance")
+            .map(|v| v.as_i64())
+            .unwrap_or(6) // Neumorphic default: 6 px
+            .clamp(0, 60) as f32;
+        let blur_enabled = ctrl
+            .get_prop("ShadowBlur")
+            .map(|v| v.as_bool())
+            .unwrap_or(true);
+        let blur_strength = if blur_enabled {
+            ctrl.get_prop("ShadowBlurStrength")
+                .map(|v| v.as_i64())
+                .unwrap_or(20) // Neumorphic default: 20
+                .clamp(-20, 20) as f32 // negative → sunken / inset
+        } else {
+            0.0
+        };
+
+        // Direction → unit vector (ux, uy)
+        let (ux, uy): (f32, f32) = match shadow_dir.as_str() {
+            "North" => (0.0, -1.0),
+            "NorthEast" => (0.707, -0.707),
+            "East" => (1.0, 0.0),
+            "SouthEast" => (0.707, 0.707),
+            "South" => (0.0, 1.0),
+            "SouthWest" => (-0.707, 0.707),
+            "West" => (-1.0, 0.0),
+            "NorthWest" => (-0.707, -0.707),
+            _ => (0.0, 1.0),
+        };
+
+        let params = NeumorphicShadowParams {
+            shadow_on,
+            shadow_color,
+            shadow_opac,
+            shadow_dir: [ux, uy],
+            distance,
+            blur_strength,
+        };
+        painter
+            .ctx()
+            .data_mut(|d| d.insert_temp(neumorphic_params_id(), params));
+    }
+
     // ── Drop shadow ───────────────────────────────────────────────────────────
     let shadow_on = ctrl
         .get_prop("ShadowEnabled")
         .map(|v| v.as_bool())
         .unwrap_or(false);
     if shadow_on
+        && !is_neumorphic
         && !matches!(
             ctrl.control_type,
             CT::Line | CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase
@@ -1513,11 +1719,15 @@ pub fn draw_control(
             let thumb_h = (track_half_w * 2.0 * 1.6).clamp(16.0, 32.0);
             let thumb_w = track_half_w * 2.0 + 6.0;
 
-            // Track pill
+            // Track pill — shadow follows the pill shape in Neumorphic mode
             let track_rect = egui::Rect::from_min_max(
                 Pos2::new(cx - track_half_w, track_t),
                 Pos2::new(cx + track_half_w, track_b),
             );
+            if is_neumorphic {
+                // Pill rounding = half the short axis — exactly matches draw_glass_pill
+                draw_neumorphic_shadow_only(painter, track_rect, track_half_w, alpha_mul);
+            }
             draw_glass_pill(painter, track_rect, track_body, true, track_rim);
 
             // Tick marks
@@ -1572,11 +1782,15 @@ pub fn draw_control(
             let thumb_w_half = (track_half_h * 1.6).clamp(8.0, 20.0);
             let thumb_h = track_half_h * 2.0 + 6.0;
 
-            // Track pill
+            // Track pill — shadow follows the pill shape in Neumorphic mode
             let track_rect = egui::Rect::from_min_max(
                 Pos2::new(track_l, cy - track_half_h),
                 Pos2::new(track_r, cy + track_half_h),
             );
+            if is_neumorphic {
+                // Pill rounding = half the short axis — exactly matches draw_glass_pill
+                draw_neumorphic_shadow_only(painter, track_rect, track_half_h, alpha_mul);
+            }
             draw_glass_pill(painter, track_rect, track_body, true, track_rim);
 
             // Tick marks
@@ -1683,6 +1897,14 @@ pub fn draw_control(
 
     // ── ProgressBar ───────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::ProgressBar) {
+        // In Neumorphic mode draw the dual-shadow halo BEFORE the bar's own artwork.
+        if is_neumorphic {
+            let corner_r = ctrl
+                .get_prop("CornerRadius")
+                .map(|v| v.as_i64() as f32)
+                .unwrap_or(4.0);
+            draw_neumorphic_shadow_only(painter, rect, corner_r, alpha_mul);
+        }
         let bg_c = Color32::from_rgba_premultiplied(220, 220, 220, a);
         let bar_c = alpha_color(
             ctrl.get_prop("BarColor")
@@ -1745,18 +1967,15 @@ pub fn draw_control(
     // In Neumorphic, the BackgroundColor IS the surface fill for ALL controls
     // including containers. In Classic/Enhanced, containers ignore it (their
     // content comes from children).
-    let is_neumorphic = matches!(
-        active_glass_style(painter.ctx()),
-        crate::model::GlassStyle::Neumorphic
-    );
+
     let fill = if is_container && !is_neumorphic {
         default_fill
     } else {
         ctrl.get_prop("BackgroundColor")
             .map(|v| parse_color(v.as_str()))
             .unwrap_or(if is_neumorphic {
-                // Default neumorphic surface: warm neutral gray
-                Color32::from_rgb(224, 224, 224)
+                // Default neumorphic surface: soft lavender-blue (#E8EDFE)
+                Color32::from_rgb(232, 237, 254)
             } else {
                 default_fill
             })
@@ -1764,7 +1983,11 @@ pub fn draw_control(
     let label_color = ctrl
         .get_prop("ForegroundColor")
         .map(|v| parse_color(v.as_str()))
-        .unwrap_or(default_text);
+        .unwrap_or(if is_neumorphic {
+            Color32::BLACK // Neumorphic default: black text on light surface
+        } else {
+            default_text
+        });
     let stroke_color = ctrl
         .get_prop("BorderColor")
         .map(|v| parse_color(v.as_str()))
@@ -1901,9 +2124,7 @@ pub fn draw_control(
         // user border on top of the glass frame so containers (Panel, GroupBox)
         // honour the same border properties as non-glass controls. Neumorphic
         // uses an asymmetric border (light top/left, dark bottom/right).
-        if border_style != "None"
-            && user_border_width > 0.5
-        {
+        if border_style != "None" && user_border_width > 0.5 {
             if is_neumorphic {
                 draw_neumorphic_user_border(
                     painter,
@@ -1942,10 +2163,7 @@ pub fn draw_control(
         // TextBox. Two stacked translucent bands fading downward.
         // Suppressed under Neumorphic (the dual soft shadows + rims already give
         // the relief; the band would fight the top-left lighting assumption).
-        if matches!(ctrl.control_type, CT::Button)
-            && rect.height() > 10.0
-            && !is_neumorphic
-        {
+        if matches!(ctrl.control_type, CT::Button) && rect.height() > 10.0 && !is_neumorphic {
             let inset = (corner + 3.0).min(rect.width() * 0.25);
             let spec_h = (rect.height() * 0.30).clamp(3.0, 9.0);
             let band = |h: f32, alpha: u8| {
@@ -3710,7 +3928,19 @@ pub fn draw_chart_preview(
     // Neumorphic charts sit on the light soft-UI surface: the face is the light
     // panel tone (draw_neumorphic uses it as its surface colour) — never the dark
     // navy glass face, which would punch a dark hole in the soft light card.
-    let face = Color32::from_rgb(15, 20, 45);
+    let is_neumorphic = matches!(
+        active_glass_style(painter.ctx()),
+        crate::model::GlassStyle::Neumorphic
+    );
+    let default_face = if is_neumorphic {
+        Color32::from_rgb(232, 237, 254) // soft lavender-blue (#E8EDFE)
+    } else {
+        Color32::from_rgb(15, 20, 45)
+    };
+    let face = ctrl
+        .get_prop("BackgroundColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(default_face);
     let bg = Color32::from_rgba_premultiplied(
         (face.r() as f32 * a as f32 / 255.0) as u8,
         (face.g() as f32 * a as f32 / 255.0) as u8,
@@ -3719,7 +3949,18 @@ pub fn draw_chart_preview(
     );
     if !hide_bg {
         if glass {
-            draw_glass_auto(painter, rect, face, rounding, false, alpha_mul);
+            let bg_underlay = ctrl
+                .get_prop("BackgroundColor")
+                .map(|v| parse_color(v.as_str()));
+            draw_glass_auto_bg(
+                painter,
+                rect,
+                default_face,
+                bg_underlay,
+                rounding,
+                false,
+                alpha_mul,
+            );
         } else {
             painter.rect_filled(rect, rounding, bg);
             let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
@@ -3749,7 +3990,8 @@ pub fn draw_chart_preview(
         .filter(|v| !v.is_empty())
         .map(|v| v.iter().map(|s| parse_color(s)).collect::<Vec<_>>())
         .unwrap_or_else(|| {
-            pal_raw.iter()
+            pal_raw
+                .iter()
                 .map(|&(r, g, b)| Color32::from_rgb(r, g, b))
                 .collect()
         });
@@ -4063,7 +4305,6 @@ pub fn draw_chart_preview(
 
             // Neumorphic: the pie sits ON the soft surface, so give it a faint
 
-
             let slices: &[f32] = &[0.30, 0.20, 0.25, 0.25]; // proportions
             let mut start = -std::f32::consts::FRAC_PI_2; // top
             for (i, &frac) in slices.iter().enumerate() {
@@ -4102,11 +4343,7 @@ pub fn draw_chart_preview(
                 // adjacent slices separate on the dark face (spec 013 R6).
                 // Neumorphic: thin white separators — a soft "molded" sheen
                 // between pastel sectors instead of the dark face colour.
-                let slice_stroke = if mono {
-                    mono_border
-                } else {
-                    bg
-                };
+                let slice_stroke = if mono { mono_border } else { bg };
                 let sep_w = 0.8;
                 if gradient {
                     // Each slice gets its own radial gradient (light inner → dark outer).
@@ -4510,7 +4747,6 @@ pub fn restore_container_outline(
     // clipped to those corner squares; the top corners carry no lines at all
     // (redrawing full-perimeter strokes here was re-introducing top/left arcs).
 
-
     // The explicit user border (Panel/GroupBox honour BorderColor/Width/Style).
     let border_style = ctrl
         .get_prop("BorderStyle")
@@ -4720,6 +4956,33 @@ struct ActiveTheme(Option<Arc<ThemePack>>);
 
 // ── Glass style context (per-frame, set once before the draw loop) ────────────
 
+#[derive(Clone, Copy, Debug)]
+pub struct NeumorphicShadowParams {
+    pub shadow_on: bool,
+    pub shadow_color: Color32,
+    pub shadow_opac: f32,
+    pub shadow_dir: [f32; 2],
+    pub distance: f32,
+    pub blur_strength: f32,
+}
+
+impl Default for NeumorphicShadowParams {
+    fn default() -> Self {
+        Self {
+            shadow_on: true,
+            shadow_color: Color32::from_rgb(0, 0, 255), // blue
+            shadow_opac: 0.07,                          // 7%
+            shadow_dir: [0.707, 0.707],                 // SouthEast
+            distance: 6.0,
+            blur_strength: 20.0,
+        }
+    }
+}
+
+fn neumorphic_params_id() -> egui::Id {
+    egui::Id::new("cobolt-neumorphic-shadow-params")
+}
+
 fn glass_style_id() -> egui::Id {
     egui::Id::new("cobolt-active-glass-style")
 }
@@ -4740,8 +5003,6 @@ fn active_glass_style(ctx: &egui::Context) -> crate::model::GlassStyle {
         })
         .unwrap_or(crate::model::GlassStyle::Classic)
 }
-
-
 
 /// Dispatch to the correct glass renderer based on the active style.
 pub fn draw_glass_auto(
@@ -5014,8 +5275,6 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
 #[cfg(test)]
 mod theme_render_tests {
     use super::*;
-
-
 
     #[test]
     fn nine_slice_produces_nine_cells_covering_dest() {

@@ -3623,7 +3623,7 @@ impl PropertiesPanel {
                         .map(|v| v.as_i64())
                         .unwrap_or(8);
                     if ui
-                        .add(DragValue::new(&mut bs).speed(1).range(0..=20))
+                        .add(DragValue::new(&mut bs).speed(1).range(-20..=20))
                         .changed()
                     {
                         action.set_props.push((

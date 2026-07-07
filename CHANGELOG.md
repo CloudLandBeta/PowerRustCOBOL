@@ -8,6 +8,14 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.93] — 2026-07-07
+
+### Fixed
+
+- **Neumorphic shadow controls** — merged the pending Neumorphic visual update
+  so shadow direction, opacity, distance, blur strength, and inset/raised
+  behavior are honored consistently by the renderer.
+
 ## [PowerRustCOBOL 1.27.92] — 2026-07-06
 
 ### Fixed
