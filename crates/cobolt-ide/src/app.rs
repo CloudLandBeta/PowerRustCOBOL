@@ -2723,8 +2723,8 @@ impl CoboltApp {
                         close = true;
                     }
 
-                    // Open Grid Browser - hand-written grid/table icon
-                    let grid_tip = if st.def.finalized { "Open Grid Browser" } else { tr.grid_requires_finalize };
+                    // Open Indexed File Browser - hand-written grid/table icon
+                    let grid_tip = if st.def.finalized { tr.btn_open_grid_browser } else { tr.grid_requires_finalize };
                     if icon_btn(ui, egui::vec2(22.0, 18.0), grid_tip, &|p, r, c| {
                         let col = if st.def.finalized { c } else {
                             egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 85)

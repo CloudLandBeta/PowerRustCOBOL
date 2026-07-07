@@ -8,6 +8,28 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.92] — 2026-07-06
+
+### Fixed
+
+- **Indexed File Browser tooltip i18n** — the toolbar tooltip now uses the
+  localized action label and the feature name now uses Browser instead of
+  Viewer.
+
+## [PowerRustCOBOL 1.27.91] — 2026-07-06
+
+### Fixed
+
+- **Indexed File Browser tooltip** — replaced the remaining old-name tooltip
+  and action label with the new Indexed File Browser name.
+
+## [PowerRustCOBOL 1.27.90] — 2026-07-06
+
+### Fixed
+
+- **Indexed file grid browser title** — renamed the window title to
+  **Indexed File Browser**.
+
 ## [PowerRustCOBOL 1.27.89] — 2026-07-06
 
 ### Fixed
