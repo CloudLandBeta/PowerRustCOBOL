@@ -54,6 +54,7 @@ enum PKind {
     Str,
     Pseudo,
     Dot,
+    ColonColon,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +83,14 @@ fn scan(s: &str) -> Vec<PTok> {
             while i < b.len() && b[i] != b'\n' {
                 i += 1;
             }
+        } else if c == b':' && i + 1 < b.len() && b[i + 1] == b':' {
+            toks.push(PTok {
+                kind: PKind::ColonColon,
+                text: "::".to_string(),
+                start: i,
+                end: i + 2,
+            });
+            i += 2;
         } else if c == b'=' && i + 1 < b.len() && b[i + 1] == b'=' {
             // pseudo-text  == ... ==
             let start = i;
@@ -169,6 +178,11 @@ fn expand_text(
     while i < toks.len() {
         let t = &toks[i];
         if t.kind == PKind::Word && eqi(&t.text, "COPY") {
+            let is_method = i > 0 && toks[i - 1].kind == PKind::ColonColon;
+            if is_method {
+                i += 1;
+                continue;
+            }
             // Emit the gap before COPY (REPLACE-rewritten).
             out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
             match parse_copy(&toks, i) {
@@ -186,6 +200,11 @@ fn expand_text(
                 }
             }
         } else if t.kind == PKind::Word && eqi(&t.text, "REPLACE") {
+            let is_method = i > 0 && toks[i - 1].kind == PKind::ColonColon;
+            if is_method {
+                i += 1;
+                continue;
+            }
             out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
             match parse_replace(&toks, i) {
                 Some((pairs, end_idx, end_byte)) => {

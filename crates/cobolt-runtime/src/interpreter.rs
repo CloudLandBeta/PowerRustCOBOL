@@ -5086,6 +5086,66 @@ impl Interpreter {
 
     /// Evaluate a member chain to a value (the rvalue / GET form).
     fn eval_member(&mut self, expr: &Expr) -> Result<CobolValue, RuntimeError> {
+        if let Expr::Member { recv, member, args, span, .. } = expr {
+            let is_var_or_lit = match recv.as_ref() {
+                Expr::Literal(..) => true,
+                Expr::Identifier(name, _) => self.env.contains(name),
+                Expr::Qualified { name, .. } => self.env.contains(name),
+                Expr::Member { .. } => true,
+                Expr::Subscript { .. } => true,
+                Expr::RefMod { .. } => true,
+                Expr::Arithmetic { .. } => true,
+                _ => false,
+            };
+
+            if is_var_or_lit {
+                let recv_val = self.eval_expr(recv, *span)?;
+                let m = member.to_ascii_uppercase();
+                let mut evaluated_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    evaluated_args.push(self.eval_expr(arg, *span)?);
+                }
+
+                match m.as_str() {
+                    "REPLACE" => {
+                        let target = evaluated_args.get(0).map(|v| v.as_display_string()).unwrap_or_default();
+                        let replacement = evaluated_args.get(1).map(|v| v.as_display_string()).unwrap_or_default();
+                        let res_str = recv_val.as_display_string().replace(&target, &replacement);
+                        let len = res_str.len();
+                        return Ok(CobolValue::from_str(&res_str, len));
+                    }
+                    "TOUPPERCASE" | "UPPERCASE" | "UPPER" => {
+                        let res_str = recv_val.as_display_string().to_uppercase();
+                        let len = res_str.len();
+                        return Ok(CobolValue::from_str(&res_str, len));
+                    }
+                    "TOLOWERCASE" | "LOWERCASE" | "LOWER" => {
+                        let res_str = recv_val.as_display_string().to_lowercase();
+                        let len = res_str.len();
+                        return Ok(CobolValue::from_str(&res_str, len));
+                    }
+                    "TRIM" => {
+                        let res_str = recv_val.as_display_string().trim().to_string();
+                        let len = res_str.len();
+                        return Ok(CobolValue::from_str(&res_str, len));
+                    }
+                    "LEN" | "LENGTH" => {
+                        let count = recv_val.as_display_string().chars().count();
+                        return Ok(CobolValue::Numeric(CobolNumeric::integer(count as i64)));
+                    }
+                    "SPLIT" => {
+                        let sep = evaluated_args.get(0).map(|v| v.as_display_string()).unwrap_or_else(|| " ".to_string());
+                        let text = recv_val.as_display_string();
+                        let splits: Vec<&str> = text.split(&sep).collect();
+                        let elem = splits.first().cloned().unwrap_or("").to_string();
+                        let len = elem.len();
+                        return Ok(CobolValue::from_str(&elem, len));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let (root, res) = self.resolve_member(expr)?;
         match res {
             Resolved::Path(path) => Ok(prop_to_value(self.objects.get_path(&root, &path))),
@@ -5821,6 +5881,26 @@ impl Interpreter {
                 indices,
                 span: s,
             } => {
+                if let Expr::Member { recv, member, args, .. } = base.as_ref() {
+                    if member.to_ascii_uppercase() == "SPLIT" {
+                        let text = self.eval_expr(recv, *s)?.as_display_string();
+                        let sep = if let Some(first_arg) = args.first() {
+                            self.eval_expr(first_arg, *s)?.as_display_string()
+                        } else {
+                            " ".to_string()
+                        };
+                        let splits: Vec<&str> = text.split(&sep).collect();
+
+                        let idx = self.eval_indices(indices, *s);
+                        if let Some(&i) = idx.first() {
+                            let i_usize = (i - 1).max(0) as usize; // 1-based index to 0-based
+                            let elem = splits.get(i_usize).map(|&x| x.to_string()).unwrap_or_default();
+                            let len = elem.len();
+                            return Ok(CobolValue::from_str(&elem, len));
+                        }
+                    }
+                }
+
                 // Table reference `t(i[,j…])` → the occurrence's storage slot.
                 let base_name = self.expr_to_name(base);
                 let idx = self.eval_indices(indices, *s);
@@ -5876,6 +5956,13 @@ impl Interpreter {
                         .ok_or(RuntimeError::DivisionByZero { span: *s })?,
                     // Exponentiation is inherently floating-point.
                     ArithOp::Pow => CobolValue::from_f64(l.as_f64().powf(r.as_f64())),
+                    ArithOp::Concat => {
+                        let l_str = l.as_display_string();
+                        let r_str = r.as_display_string();
+                        let res = format!("{}{}", l_str, r_str);
+                        let len = res.len();
+                        CobolValue::from_str(&res, len)
+                    }
                 };
                 Ok(result)
             }

@@ -45,6 +45,7 @@ pub enum ArithOp {
     Mul,
     Div,
     Pow,
+    Concat,
 }
 
 /// Unary operators.

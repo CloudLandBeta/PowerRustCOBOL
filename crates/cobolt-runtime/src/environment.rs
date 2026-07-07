@@ -235,6 +235,7 @@ impl CobolEnvironment {
                 DataSection::Screen(_) => {} // screen items handled by forms layer
             }
         }
+        sync_redefines(&mut env, data);
         env
     }
 
@@ -1042,3 +1043,246 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
         }
     }
 }
+
+/// Copy initialized bytes from the redefined item to the redefining item.
+fn sync_redefines(env: &mut CobolEnvironment, data: &DataDivision) {
+    let mut redefines_list = Vec::new();
+
+    fn find_redefines(decl: &DataDecl, list: &mut Vec<(DataDecl, String)>) {
+        if let Some(ref tgt) = decl.redefines {
+            list.push((decl.clone(), tgt.to_ascii_uppercase()));
+        }
+        for c in &decl.children {
+            find_redefines(c, list);
+        }
+    }
+
+    for section in &data.sections {
+        match section {
+            DataSection::WorkingStorage(items)
+            | DataSection::LocalStorage(items)
+            | DataSection::Linkage(items) => {
+                for decl in items {
+                    find_redefines(decl, &mut redefines_list);
+                }
+            }
+            DataSection::FileSection(fds) => {
+                for fd in fds {
+                    for rec in &fd.records {
+                        find_redefines(rec, &mut redefines_list);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for (redefining_decl, target_name) in redefines_list {
+        if let Some(target_decl) = find_decl_by_name(data, &target_name) {
+            let mut bytes = Vec::new();
+            serialize_decl(env, &target_decl, &mut Vec::new(), &mut Vec::new(), &mut bytes);
+
+            let mut offset = 0;
+            deserialize_decl(env, &redefining_decl, &mut Vec::new(), &mut Vec::new(), &bytes, &mut offset);
+        }
+    }
+}
+
+fn find_decl_by_name(data: &DataDivision, name: &str) -> Option<DataDecl> {
+    fn search(decl: &DataDecl, name: &str) -> Option<DataDecl> {
+        if let Some(n) = &decl.name {
+            if n.to_ascii_uppercase() == name {
+                return Some(decl.clone());
+            }
+        }
+        for c in &decl.children {
+            if let Some(found) = search(c, name) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    for section in &data.sections {
+        match section {
+            DataSection::WorkingStorage(items)
+            | DataSection::LocalStorage(items)
+            | DataSection::Linkage(items) => {
+                for decl in items {
+                    if let Some(found) = search(decl, name) {
+                        return Some(found);
+                    }
+                }
+            }
+            DataSection::FileSection(fds) => {
+                for fd in fds {
+                    for rec in &fd.records {
+                        if let Some(found) = search(rec, name) {
+                            return Some(found);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn serialize_decl(
+    env: &CobolEnvironment,
+    decl: &DataDecl,
+    quals: &mut Vec<String>,
+    indices: &mut Vec<usize>,
+    bytes: &mut Vec<u8>,
+) {
+    let times = decl.occurs.as_ref().map(|o| o.max.max(1) as usize).unwrap_or(1);
+    let name_upper = decl.name.as_ref().map(|n| n.to_ascii_uppercase()).unwrap_or_else(|| "FILLER".to_string());
+
+    for i in 1..=times {
+        let mut local_indices = indices.clone();
+        if decl.occurs.is_some() {
+            local_indices.push(i);
+        }
+        let mut local_quals = quals.clone();
+        if name_upper != "FILLER" {
+            local_quals.push(name_upper.clone());
+        }
+
+        if !decl.children.is_empty() {
+            for c in &decl.children {
+                if c.level == 88 {
+                    continue;
+                }
+                serialize_decl(env, c, &mut local_quals, &mut local_indices, bytes);
+            }
+        } else if let Some(pic) = &decl.picture {
+            let len = (pic.digits as usize + pic.decimals as usize).max(1);
+            let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
+
+            let key = env.canon_key(&name_upper, quals);
+            let key = if !local_indices.is_empty() {
+                let idx_i64: Vec<i64> = local_indices.iter().map(|&x| x as i64).collect();
+                subscript_key(&key, &idx_i64)
+            } else {
+                key
+            };
+
+            let val = env.store.get(&key);
+            let mut f_bytes = vec![b' '; len];
+
+            if let Some(v) = val {
+                match v {
+                    CobolValue::Numeric(n) => {
+                        let digits = n.mantissa.unsigned_abs().to_string();
+                        let mut s = if digits.len() < len {
+                            format!("{}{}", "0".repeat(len - digits.len()), digits)
+                        } else {
+                            digits
+                        };
+                        if s.len() > len {
+                            s = s[s.len() - len..].to_string();
+                        }
+                        f_bytes = s.into_bytes();
+                    }
+                    other => {
+                        let mut b = other.as_display_string().into_bytes();
+                        b.resize(len, b' ');
+                        f_bytes = b;
+                    }
+                }
+            } else {
+                let mut fallback_v = if numeric {
+                    CobolValue::Numeric(CobolNumeric::new(0, pic.decimals.min(u8::MAX as u16) as u8))
+                } else {
+                    CobolValue::spaces(len)
+                };
+                if let Some(lit) = &decl.value {
+                    fallback_v = apply_literal(lit, &fallback_v);
+                }
+                match fallback_v {
+                    CobolValue::Numeric(n) => {
+                        let digits = n.mantissa.unsigned_abs().to_string();
+                        let mut s = if digits.len() < len {
+                            format!("{}{}", "0".repeat(len - digits.len()), digits)
+                        } else {
+                            digits
+                        };
+                        if s.len() > len {
+                            s = s[s.len() - len..].to_string();
+                        }
+                        f_bytes = s.into_bytes();
+                    }
+                    other => {
+                        let mut b = other.as_display_string().into_bytes();
+                        b.resize(len, b' ');
+                        f_bytes = b;
+                    }
+                }
+            }
+
+            bytes.extend_from_slice(&f_bytes);
+        }
+    }
+}
+
+fn deserialize_decl(
+    env: &mut CobolEnvironment,
+    decl: &DataDecl,
+    quals: &mut Vec<String>,
+    indices: &mut Vec<usize>,
+    bytes: &[u8],
+    offset: &mut usize,
+) {
+    let times = decl.occurs.as_ref().map(|o| o.max.max(1) as usize).unwrap_or(1);
+    let name_upper = decl.name.as_ref().map(|n| n.to_ascii_uppercase()).unwrap_or_else(|| "FILLER".to_string());
+
+    for i in 1..=times {
+        let mut local_indices = indices.clone();
+        if decl.occurs.is_some() {
+            local_indices.push(i);
+        }
+        let mut local_quals = quals.clone();
+        if name_upper != "FILLER" {
+            local_quals.push(name_upper.clone());
+        }
+
+        if !decl.children.is_empty() {
+            for c in &decl.children {
+                if c.level == 88 {
+                    continue;
+                }
+                deserialize_decl(env, c, &mut local_quals, &mut local_indices, bytes, offset);
+            }
+        } else if let Some(pic) = &decl.picture {
+            let len = (pic.digits as usize + pic.decimals as usize).max(1);
+            let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
+
+            let end = (*offset + len).min(bytes.len());
+            let slice = &bytes[*offset..end];
+            *offset += len;
+
+            if name_upper != "FILLER" {
+                let key = env.canon_key(&name_upper, quals);
+                let key = if !local_indices.is_empty() {
+                    let idx_i64: Vec<i64> = local_indices.iter().map(|&x| x as i64).collect();
+                    subscript_key(&key, &idx_i64)
+                } else {
+                    key
+                };
+
+                if numeric {
+                    let digits: String = slice
+                        .iter()
+                        .map(|&b| if b.is_ascii_digit() { b as char } else { '0' })
+                        .collect();
+                    let mantissa: i128 = digits.parse().unwrap_or(0);
+                    let decimals = pic.decimals.min(u8::MAX as u16) as u8;
+                    env.set(&key, CobolValue::Numeric(CobolNumeric::new(mantissa, decimals)));
+                } else {
+                    env.set_str(&key, &String::from_utf8_lossy(slice));
+                }
+            }
+        }
+    }
+}
+

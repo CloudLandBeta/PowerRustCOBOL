@@ -44,8 +44,7 @@ pub struct NewIndexedDialog {
     pub alternates: Vec<NewAlternateKey>,
 
     /// When true, the user is editing via the built-in COBOL text editor
-    /// instead of the properties form. Once true for this dialog session,
-    /// we do not offer a way to go back to the form (per requirements).
+    /// instead of the properties form (Step 2 of the wizard).
     pub raw_mode: bool,
     /// The COBOL-like record text (for raw_mode).
     pub raw_text: String,
@@ -415,53 +414,14 @@ impl NewIndexedDialog {
     pub fn show(&mut self, ui: &mut egui::Ui, tr: &Tr) -> NewIndexedAction {
         let mut action = NewIndexedAction::None;
 
-        // Mode switch (Form vs COBOL text editor).
-        // Per requirements: once the user edits via the built-in COBOL editor,
-        // they cannot go back to the properties pane form for this file.
-        // We enforce it in the dialog by removing the "back" option after switch.
-        ui.horizontal(|ui| {
-            ui.label("Definition:");
-            if ui
-                .add_enabled(!self.raw_mode, egui::Button::new("Properties form"))
-                .clicked()
-            {
-                self.raw_mode = false;
-            }
-            let to_code = ui
-                .add_enabled(
-                    !self.raw_mode,
-                    egui::Button::new("COBOL text editor (COBOL-85)"),
-                )
-                .clicked();
-            if to_code {
-                self.raw_mode = true;
-                // Populate initial text from current form state (so user can refine).
-                if let Some(d) = self.build_definition() {
-                    self.raw_text = cobolt_indexed::raw_text::record_to_text(&d);
-                } else if self.raw_text.trim().is_empty() {
-                    // Fallback minimal valid skeleton the user can edit.
-                    let kname = if self.key_field.trim().is_empty() {
-                        "RECORD-KEY"
-                    } else {
-                        &self.key_field
-                    };
-                    let klen = self.key_length.parse().unwrap_or(8);
-                    self.raw_text = format!(
-                        "01 {}-RECORD.\n    05 {} PIC X({}).\n",
-                        self.name.trim().to_ascii_uppercase().replace(' ', "-"),
-                        kname.to_ascii_uppercase().replace(' ', "-"),
-                        klen
-                    );
-                }
-                self.validate_raw();
-            }
-            if self.raw_mode {
-                ui.colored_label(
-                    egui::Color32::from_rgb(200, 160, 60),
-                    "COBOL editor active — properties form locked for this file.",
-                );
-            }
+        ui.vertical_centered(|ui| {
+            ui.heading(if self.raw_mode {
+                "Step 2: Edit Record Structure (COBOL-85)"
+            } else {
+                "Step 1: Set File Properties"
+            });
         });
+        ui.add_space(4.0);
 
         if self.raw_mode {
             // Raw COBOL-85 record editor (no intellisense, as specified).
@@ -598,36 +558,75 @@ impl NewIndexedDialog {
 
         ui.separator();
 
-        // File existence + validity gate (Create disabled until satisfied)
-        let can = self.can_create();
-        if !can {
-            let p = std::path::Path::new(self.assign_path.trim());
-            if p.exists() {
-                ui.colored_label(
-                    egui::Color32::from_rgb(220, 80, 80),
-                    "The file already exists at the informed path. Choose a different assign path.",
-                );
-            } else if self.raw_mode && self.raw_error.is_some() {
-                ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "Fix COBOL-85 errors in the record text (must define at least one 01 group and a compliant RECORD KEY).");
-            } else {
-                ui.colored_label(
-                    egui::Color32::from_rgb(200, 160, 60),
-                    "Complete the definition (valid group + key) to enable Create.",
-                );
-            }
+        // Check if file already exists at assign path
+        let p = std::path::Path::new(self.assign_path.trim());
+        let path_exists = p.exists();
+        if path_exists {
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 80, 80),
+                "The file already exists at the informed path. Choose a different assign path.",
+            );
         }
 
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(can, egui::Button::new(tr.dlg_create))
-                .clicked()
-            {
-                action = NewIndexedAction::Create;
+        if self.raw_mode {
+            // Validation warnings in raw mode
+            let can = self.can_create();
+            if !can && !path_exists {
+                if self.raw_error.is_some() {
+                    ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "Fix COBOL-85 errors in the record text (must define at least one 01 group and a compliant RECORD KEY).");
+                } else {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 160, 60),
+                        "Complete the definition (valid group + key) to enable Create.",
+                    );
+                }
             }
-            if ui.button(tr.dlg_cancel).clicked() {
-                action = NewIndexedAction::Cancel;
-            }
-        });
+
+            ui.horizontal(|ui| {
+                if ui.button("Back").clicked() {
+                    self.raw_mode = false;
+                }
+                if ui
+                    .add_enabled(can, egui::Button::new(tr.dlg_create))
+                    .clicked()
+                {
+                    action = NewIndexedAction::Create;
+                }
+                if ui.button(tr.dlg_cancel).clicked() {
+                    action = NewIndexedAction::Cancel;
+                }
+            });
+        } else {
+            let can_next = !self.name.trim().is_empty() && !self.assign_path.trim().is_empty() && !path_exists;
+            ui.horizontal(|ui| {
+                if ui.add_enabled(can_next, egui::Button::new("Next")).clicked() {
+                    self.raw_mode = true;
+                    // Populate initial text from current form state (so user can refine).
+                    if let Some(d) = self.build_definition() {
+                        self.raw_text = cobolt_indexed::raw_text::record_to_text(&d);
+                    } else if self.raw_text.trim().is_empty() {
+                        // Fallback minimal valid skeleton the user can edit.
+                        let kname = if self.key_field.trim().is_empty() {
+                            "RECORD-KEY"
+                        } else {
+                            &self.key_field
+                        };
+                        let klen = self.key_length.parse().unwrap_or(8);
+                        self.raw_text = format!(
+                            "01 {}-RECORD.\n    05 {} PIC X({}).\n",
+                            self.name.trim().to_ascii_uppercase().replace(' ', "-"),
+                            kname.to_ascii_uppercase().replace(' ', "-"),
+                            klen
+                        );
+                    }
+                    self.validate_raw();
+                }
+                if ui.button(tr.dlg_cancel).clicked() {
+                    action = NewIndexedAction::Cancel;
+                }
+            });
+        }
+
         action
     }
 }

@@ -332,6 +332,40 @@ pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
             parens,
             span: sp,
         };
+
+        // Parse any subscript or refmod applied directly to the member expression, e.g. `::split("::")(WS-I)`
+        if p.at(&Token::LParen) {
+            p.advance();
+            let first = parse_expr(p);
+            if p.at(&Token::Colon) {
+                p.advance();
+                let length = if p.at(&Token::RParen) {
+                    None
+                } else {
+                    Some(Box::new(parse_expr(p)))
+                };
+                p.expect(&Token::RParen);
+                let sp = base.span().merge(p.peek_span());
+                base = Expr::RefMod {
+                    base: Box::new(base),
+                    start: Box::new(first),
+                    length,
+                    span: sp,
+                };
+            } else {
+                let mut indices = vec![first];
+                while p.eat(&Token::Comma) {
+                    indices.push(parse_expr(p));
+                }
+                p.expect(&Token::RParen);
+                let sp = base.span().merge(p.peek_span());
+                base = Expr::Subscript {
+                    base: Box::new(base),
+                    indices,
+                    span: sp,
+                };
+            }
+        }
     }
     base
 }
@@ -350,9 +384,10 @@ pub(crate) fn take_string_literal(p: &mut Parser) -> Option<String> {
 /// Left/right binding powers for binary arithmetic operators.
 fn infix_bp(tok: &Token) -> Option<(u8, u8)> {
     match tok {
-        Token::Plus | Token::Minus => Some((1, 2)),
-        Token::Star | Token::Slash => Some((3, 4)),
-        Token::Power => Some((6, 5)), // right-associative
+        Token::Ampersand => Some((1, 2)),
+        Token::Plus | Token::Minus => Some((3, 4)),
+        Token::Star | Token::Slash => Some((5, 6)),
+        Token::Power => Some((8, 7)), // right-associative
         _ => None,
     }
 }
@@ -364,6 +399,7 @@ fn tok_to_arithop(tok: &Token) -> ArithOp {
         Token::Star => ArithOp::Mul,
         Token::Slash => ArithOp::Div,
         Token::Power => ArithOp::Pow,
+        Token::Ampersand => ArithOp::Concat,
         _ => unreachable!(),
     }
 }

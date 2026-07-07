@@ -327,6 +327,7 @@ impl<'src> Lexer<'src> {
             RawToken::Minus => Token::Minus,
             RawToken::Star => Token::Star,
             RawToken::Slash => Token::Slash,
+            RawToken::Ampersand => Token::Ampersand,
 
             RawToken::Period => Token::Period,
             RawToken::Comma => Token::Comma,

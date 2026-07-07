@@ -7348,7 +7348,7 @@ impl PropertiesPanel {
                             .selected_text(cur)
                             .width(120.0)
                             .show_ui(ui, |ui| {
-                                for opt in &["Classic", "Enhanced"] {
+                                for opt in &["Classic", "Enhanced", "Neumorphic"] {
                                     if ui.selectable_label(cur == *opt, *opt).clicked() {
                                         // Drop any image theme-pack override, then
                                         // set the procedural glass style.

@@ -608,6 +608,193 @@ pub fn draw_glass_enhanced(
     }
 }
 
+/// Neumorphic ("soft UI") — depth through dual opposing soft shadows on a flat
+/// matte surface.  No translucent frost, no gradient bands; the illusion of
+/// physical form comes entirely from illumination.
+///
+/// Rendering stack:
+///   1. **Light shadow** — white, offset up-left, blurred with Gaussian falloff
+///   2. **Dark shadow**  — dark gray, offset down-right, blurred with Gaussian falloff
+///   3. **Surface fill** — the control's BackgroundColor as a flat matte rect
+///   4. **Asymmetric border** (optional) — light gray top/left, darker gray bottom/right
+///
+/// The blur uses a logarithmic scale: `spread = base × (1 + ln(1 + blur))`
+/// so small blur values stay tight while high values bloom outward smoothly.
+/// All shadow layers follow the control's `CornerRadius` curvature.
+pub fn draw_glass_neumorphic(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    base: Color32,         // control's BackgroundColor — used as the literal surface fill
+    bg_underlay: Option<Color32>, // explicit user background (overrides `base` when set)
+    rounding: impl Into<egui::Rounding>,
+    selected: bool,
+    alpha_mul: f32,
+) {
+    if alpha_mul <= 0.0 {
+        return;
+    }
+    let am = alpha_mul.clamp(0.0, 1.0);
+
+    let (x0, x1) = (rect.min.x, rect.max.x);
+    let (y0, y1) = (rect.min.y, rect.max.y);
+    let w = (x1 - x0).max(1.0);
+    let h = (y1 - y0).max(1.0);
+
+    let rnd0: egui::Rounding = rounding.into();
+    let cap = (w * 0.5).min(h * 0.5);
+    let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
+
+    // ── Shadow parameters ─────────────────────────────────────────────────────
+    // Base shadow distance scales with the smaller control dimension so the
+    // effect feels proportional on both tiny and large controls.
+    let base_spread = (w.min(h) * 0.04).clamp(3.0, 10.0);
+    // Logarithmic blur scale: blur_strength 0→tight, 20→wide diffuse halo.
+    // Default blur_strength = 8 when no per-control override.
+    let blur_strength = 8.0_f32;
+    let spread = base_spread * (1.0 + (1.0 + blur_strength).ln());
+    let layers = 10_usize;
+
+    // ── 1. Light shadow (top-left light source) ───────────────────────────────
+    let light_offset = Vec2::new(-spread * 0.5, -spread * 0.5);
+    for i in 0..=layers {
+        let t = 1.0 - (i as f32 / layers as f32); // 1 (outer) → 0 (core)
+        let expand = t * spread;
+        let falloff = (-3.0 * t * t).exp();
+        let a_val = (0.65 * am * falloff * 255.0) as u8;
+        if a_val == 0 {
+            continue;
+        }
+        let layer_rect = rect.translate(light_offset).expand(expand);
+        let layer_round = round_map(rnd, |c| c + expand);
+        painter.rect_filled(
+            layer_rect,
+            layer_round,
+            Color32::from_rgba_premultiplied(a_val, a_val, a_val, a_val),
+        );
+    }
+
+    // ── 2. Dark shadow (bottom-right) ─────────────────────────────────────────
+    let dark_offset = Vec2::new(spread * 0.5, spread * 0.5);
+    for i in 0..=layers {
+        let t = 1.0 - (i as f32 / layers as f32);
+        let expand = t * spread;
+        let falloff = (-3.0 * t * t).exp();
+        let a_val = (0.35 * am * falloff * 255.0) as u8;
+        if a_val == 0 {
+            continue;
+        }
+        let layer_rect = rect.translate(dark_offset).expand(expand);
+        let layer_round = round_map(rnd, |c| c + expand);
+        painter.rect_filled(
+            layer_rect,
+            layer_round,
+            Color32::from_rgba_premultiplied(0, 0, 0, a_val),
+        );
+    }
+
+    // ── 3. Surface fill (flat matte) ──────────────────────────────────────────
+    // In Neumorphic the surface colour IS the control's BackgroundColor — not a
+    // frost tint.  If a bg_underlay was explicitly set, prefer it; otherwise fall
+    // back to `base`.  Default: warm neutral gray (#E0E0E0).
+    let surface = bg_underlay.unwrap_or(base);
+    let sa = (am * 255.0) as u8;
+    let fill = Color32::from_rgba_premultiplied(
+        (surface.r() as f32 * am) as u8,
+        (surface.g() as f32 * am) as u8,
+        (surface.b() as f32 * am) as u8,
+        sa,
+    );
+    painter.rect_filled(rect, rnd, fill);
+
+    // ── 4. Asymmetric border (only when selected) ─────────────────────────────
+    // By default Neumorphic has NO border — relief comes from illumination.
+    // Selection uses a soft blue outline so the user can see what's selected.
+    if selected {
+        let sel_color = Color32::from_rgba_premultiplied(
+            (100.0 * am) as u8,
+            (160.0 * am) as u8,
+            (240.0 * am) as u8,
+            (200.0 * am) as u8,
+        );
+        let half = 1.0_f32;
+        painter.rect_stroke(
+            rect.shrink(half),
+            round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
+            Stroke::new(2.0, sel_color),
+        );
+    }
+}
+
+/// Draw the optional asymmetric neumorphic border when the user explicitly sets
+/// `BorderStyle != None`.  Light gray on top/left edges, darker gray on
+/// bottom/right edges — reinforces the top-left light source.
+pub fn draw_neumorphic_user_border(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: egui::Rounding,
+    border_width: f32,
+    alpha_mul: f32,
+) {
+    if border_width < 0.5 || alpha_mul <= 0.0 {
+        return;
+    }
+    let am = alpha_mul.clamp(0.0, 1.0);
+    let bw = border_width;
+    let half = bw * 0.5;
+    let inner = rect.shrink(half);
+    let rnd = round_map(rounding, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) });
+
+    // Light edges (top + left) — clip to top-left half
+    {
+        let clip_tl = egui::Rect::from_min_max(
+            Pos2::new(rect.min.x - bw, rect.min.y - bw),
+            Pos2::new(rect.max.x + bw, rect.max.y + bw),
+        );
+        // We draw the full stroke but use light gray for top/left:
+        // Top edge
+        let light = Color32::from_rgba_premultiplied(
+            (200.0 * am) as u8,
+            (200.0 * am) as u8,
+            (200.0 * am) as u8,
+            (200.0 * am) as u8,
+        );
+        // Clip to upper-left triangle by drawing two separate half-strokes
+        let top_clip = egui::Rect::from_min_max(
+            Pos2::new(rect.min.x - bw, rect.min.y - bw),
+            Pos2::new(rect.max.x + bw, rect.center().y),
+        );
+        let left_clip = egui::Rect::from_min_max(
+            Pos2::new(rect.min.x - bw, rect.min.y - bw),
+            Pos2::new(rect.center().x, rect.max.y + bw),
+        );
+        let p_top = painter.with_clip_rect(painter.clip_rect().intersect(top_clip));
+        p_top.rect_stroke(inner, rnd, Stroke::new(bw, light));
+        let p_left = painter.with_clip_rect(painter.clip_rect().intersect(left_clip));
+        p_left.rect_stroke(inner, rnd, Stroke::new(bw, light));
+    }
+    // Dark edges (bottom + right)
+    {
+        let dark = Color32::from_rgba_premultiplied(
+            (144.0 * am) as u8,
+            (144.0 * am) as u8,
+            (144.0 * am) as u8,
+            (144.0 * am) as u8,
+        );
+        let bottom_clip = egui::Rect::from_min_max(
+            Pos2::new(rect.min.x - bw, rect.center().y),
+            Pos2::new(rect.max.x + bw, rect.max.y + bw),
+        );
+        let right_clip = egui::Rect::from_min_max(
+            Pos2::new(rect.center().x, rect.min.y - bw),
+            Pos2::new(rect.max.x + bw, rect.max.y + bw),
+        );
+        let p_bottom = painter.with_clip_rect(painter.clip_rect().intersect(bottom_clip));
+        p_bottom.rect_stroke(inner, rnd, Stroke::new(bw, dark));
+        let p_right = painter.with_clip_rect(painter.clip_rect().intersect(right_clip));
+        p_right.rect_stroke(inner, rnd, Stroke::new(bw, dark));
+    }
+}
+
 // ── Non-visual control rendering (standardised "liquid glass" icons) ─────────────
 //
 // All non-visual controls (Timer / AgentObject / RestClient / SqlDatabase) share
@@ -1555,15 +1742,24 @@ pub fn draw_control(
     let (default_fill, default_border, default_text) = control_colors(&ctrl.control_type, selected);
 
     let is_container = matches!(ctrl.control_type, CT::GroupBox | CT::Panel);
-    // Container BackgroundColor/ForegroundColor control only the caption (GroupBox)
-    // or are unused (Panel) — not the box fill. The container's content comes from
-    // the child controls placed inside it.
-    let fill = if is_container {
+    // In Neumorphic, the BackgroundColor IS the surface fill for ALL controls
+    // including containers. In Classic/Enhanced, containers ignore it (their
+    // content comes from children).
+    let is_neumorphic = matches!(
+        active_glass_style(painter.ctx()),
+        crate::model::GlassStyle::Neumorphic
+    );
+    let fill = if is_container && !is_neumorphic {
         default_fill
     } else {
         ctrl.get_prop("BackgroundColor")
             .map(|v| parse_color(v.as_str()))
-            .unwrap_or(default_fill)
+            .unwrap_or(if is_neumorphic {
+                // Default neumorphic surface: warm neutral gray
+                Color32::from_rgb(224, 224, 224)
+            } else {
+                default_fill
+            })
     };
     let label_color = ctrl
         .get_prop("ForegroundColor")
@@ -1703,34 +1899,43 @@ pub fn draw_control(
         draw_glass_auto(painter, rect, fill, frame_round, selected, alpha_mul);
         // When the control has an explicit BorderStyle + BorderWidth, draw the
         // user border on top of the glass frame so containers (Panel, GroupBox)
-        // honour the same border properties as non-glass controls. Neumorphic is
-        // borderless by design — its relief comes from illumination alone — so the
-        // hard user border is suppressed in that style.
+        // honour the same border properties as non-glass controls. Neumorphic
+        // uses an asymmetric border (light top/left, dark bottom/right).
         if border_style != "None"
             && user_border_width > 0.5
         {
-            let bw = if selected {
-                2.0_f32.max(user_border_width)
+            if is_neumorphic {
+                draw_neumorphic_user_border(
+                    painter,
+                    rect,
+                    frame_round,
+                    user_border_width,
+                    alpha_mul,
+                );
             } else {
-                user_border_width
-            };
-            let bc = if selected {
-                Color32::from_rgba_premultiplied(60, 120, 230, a)
-            } else {
-                alpha_color(stroke_color)
-            };
-            let half = bw * 0.5;
-            painter.rect_stroke(
-                rect.shrink(half),
-                round_map(frame_round, |c| {
-                    if c <= 0.0 {
-                        0.0
-                    } else {
-                        (c - half).max(1.0)
-                    }
-                }),
-                Stroke::new(bw, bc),
-            );
+                let bw = if selected {
+                    2.0_f32.max(user_border_width)
+                } else {
+                    user_border_width
+                };
+                let bc = if selected {
+                    Color32::from_rgba_premultiplied(60, 120, 230, a)
+                } else {
+                    alpha_color(stroke_color)
+                };
+                let half = bw * 0.5;
+                painter.rect_stroke(
+                    rect.shrink(half),
+                    round_map(frame_round, |c| {
+                        if c <= 0.0 {
+                            0.0
+                        } else {
+                            (c - half).max(1.0)
+                        }
+                    }),
+                    Stroke::new(bw, bc),
+                );
+            }
         }
         // Buttons get a subtle top specular — a soft vertical light reflection
         // that visually separates a clickable Button from flat fields like a
@@ -1739,6 +1944,7 @@ pub fn draw_control(
         // the relief; the band would fight the top-left lighting assumption).
         if matches!(ctrl.control_type, CT::Button)
             && rect.height() > 10.0
+            && !is_neumorphic
         {
             let inset = (corner + 3.0).min(rect.width() * 0.25);
             let spec_h = (rect.height() * 0.30).clamp(3.0, 9.0);
@@ -4529,6 +4735,7 @@ fn active_glass_style(ctx: &egui::Context) -> crate::model::GlassStyle {
     ctx.data(|d| d.get_temp::<u8>(glass_style_id()))
         .map(|v| match v {
             1 => crate::model::GlassStyle::Enhanced,
+            2 => crate::model::GlassStyle::Neumorphic,
             _ => crate::model::GlassStyle::Classic,
         })
         .unwrap_or(crate::model::GlassStyle::Classic)
@@ -4565,6 +4772,17 @@ pub fn draw_glass_auto_bg(
     match active_glass_style(painter.ctx()) {
         crate::model::GlassStyle::Enhanced => {
             draw_glass_enhanced(
+                painter,
+                rect,
+                base,
+                bg_underlay,
+                rounding,
+                selected,
+                alpha_mul,
+            );
+        }
+        crate::model::GlassStyle::Neumorphic => {
+            draw_glass_neumorphic(
                 painter,
                 rect,
                 base,

@@ -101,6 +101,8 @@ pub enum RawToken {
     Star,
     #[token("/")]
     Slash,
+    #[token("&")]
+    Ampersand,
 
     // ── Punctuation ────────────────────────────────────────────────────────
     #[token(".")]
@@ -517,6 +519,7 @@ pub enum Token {
     Star,  // *
     Slash, // /
     Power, // **
+    Ampersand, // &
     Eq,    // =
     Lt,    // <
     Gt,    // >
@@ -562,6 +565,7 @@ impl Token {
             Token::LParen => "'('",
             Token::RParen => "')'",
             Token::Eq => "'='",
+            Token::Ampersand => "'&'",
             Token::Eof => "end of file",
             Token::Error(_) => "unexpected character",
             _ => "keyword",
@@ -600,6 +604,7 @@ impl std::fmt::Display for Token {
             Token::Comment(c) => write!(f, "*> {c}"),
             Token::Error(e) => write!(f, "ERROR({e})"),
             Token::ExecRustBlock(src) => write!(f, "EXEC RUST {} END-EXEC", src),
+            Token::Ampersand => write!(f, "&"),
             _ => write!(f, "{}", self.description()),
         }
     }

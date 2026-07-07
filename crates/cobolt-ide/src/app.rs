@@ -40,7 +40,7 @@ use cobolt_indexed::{
 };
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
-use cobolt_runtime::indexed_ide::{compare_schema, SchemaDrift};
+use cobolt_runtime::indexed_ide::{compare_schema, create_empty_from_definition, SchemaDrift};
 use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
 
 use crate::form_runtime::FormRuntime;
@@ -2513,6 +2513,18 @@ impl CoboltApp {
             self.output.push_status("Could not write .cidx");
             return;
         }
+
+        // Initialize the empty indexed data file at the resolved assign_path
+        if let Some(data_path) = self.resolve_assign_path(&def) {
+            if let Some(parent) = data_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(e) = create_empty_from_definition(&def, &data_path) {
+                self.output
+                    .push_status(format!("Could not create empty indexed data file: {e}"));
+            }
+        }
+
         let rel = format!("indexed/{fname}");
         if let Some(proj) = &mut self.cobolt_project {
             use crate::project_model::Category;

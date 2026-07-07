@@ -3660,6 +3660,10 @@ pub enum GlassStyle {
     /// Enhanced stack: adds inner stroke, full highlight band, micro-noise,
     /// and structural state changes per the Liquid Glass spec.
     Enhanced,
+    /// Neumorphic ("soft UI"): dual opposing soft shadows (light top-left,
+    /// dark bottom-right) on a flat matte surface. Depth from illumination,
+    /// not transparency.
+    Neumorphic,
 }
 
 impl GlassStyle {
@@ -3667,11 +3671,13 @@ impl GlassStyle {
         match self {
             GlassStyle::Classic => "Classic",
             GlassStyle::Enhanced => "Enhanced",
+            GlassStyle::Neumorphic => "Neumorphic",
         }
     }
     pub fn from_str(s: &str) -> Self {
         match s {
             "Enhanced" => GlassStyle::Enhanced,
+            "Neumorphic" => GlassStyle::Neumorphic,
             _ => GlassStyle::Classic,
         }
     }

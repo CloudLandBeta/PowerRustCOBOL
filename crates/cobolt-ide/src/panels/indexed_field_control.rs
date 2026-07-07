@@ -30,6 +30,13 @@ impl EditCell {
             .unwrap_or_else(|| cobolt_indexed::default_control_for_field(field));
         let len = field.length.unwrap_or(1) as usize;
         let off = field.offset.unwrap_or(0) as usize;
+        if off >= row.len() {
+            match control {
+                ControlType::CheckBox => return EditCell::Bool(false),
+                ControlType::NumericUpDown => return EditCell::Number(0),
+                _ => return EditCell::Text(String::new()),
+            }
+        }
         let end = (off + len).min(row.len());
         let slice = &row[off..end];
         match control {
@@ -62,6 +69,9 @@ impl EditCell {
 pub fn format_cell(field: &IndexedField, row: &[u8], tr: &Tr) -> String {
     let len = field.length.unwrap_or(1) as usize;
     let off = field.offset.unwrap_or(0) as usize;
+    if off >= row.len() {
+        return String::new();
+    }
     let end = (off + len).min(row.len());
     let slice = &row[off..end];
     let control = field
@@ -121,7 +131,7 @@ pub fn show_edit_control(
                 *cell = EditCell::Text(cell.display_text(field, tr));
             }
             if let EditCell::Text(s) = cell {
-                ui.text_edit_singleline(s).changed()
+                ui.add(egui::TextEdit::singleline(s).desired_width(300.0)).changed()
             } else {
                 false
             }
@@ -131,7 +141,7 @@ pub fn show_edit_control(
                 *cell = EditCell::Text(cell.display_text(field, tr));
             }
             if let EditCell::Text(s) = cell {
-                ui.text_edit_singleline(s).changed()
+                ui.add(egui::TextEdit::singleline(s).desired_width(300.0)).changed()
             } else {
                 false
             }

@@ -144,71 +144,111 @@ impl IndexedGridPanel {
             return (action, status);
         };
 
-        egui::ScrollArea::both().show(ui, |ui| {
-            egui::Grid::new("idx_grid").striped(true).show(ui, |ui| {
-                for field in &leaves {
-                    ui.strong(&field.name);
-                }
-                ui.end_row();
-                for (abs, row) in &page_rows {
-                    let selected = self.selected_row == Some(*abs);
+        let edit_height = 280.0;
+        let has_edit = self.drift_mismatch.is_none() && (self.new_row_mode || self.selected_row.is_some());
+        let grid_height = if has_edit {
+            (ui.available_height() - edit_height).max(100.0)
+        } else {
+            ui.available_height()
+        };
+
+        egui::ScrollArea::both()
+            .id_salt("grid_scroll")
+            .max_height(grid_height)
+            .show(ui, |ui| {
+                egui::Grid::new("idx_grid").striped(true).show(ui, |ui| {
                     for field in &leaves {
-                        let text = format_cell(field, row, tr);
-                        if ui.selectable_label(selected, text).clicked() {
-                            self.selected_row = Some(*abs);
-                            self.new_row_mode = false;
-                            self.fill_edit_cells(row, &leaves);
-                        }
+                        ui.strong(&field.name);
                     }
                     ui.end_row();
-                }
-            });
-        });
-
-        if self.drift_mismatch.is_none() && (self.new_row_mode || self.selected_row.is_some()) {
-            ui.separator();
-            ui.heading(if self.new_row_mode {
-                tr.grid_new_row
-            } else {
-                tr.grid_edit_row
-            });
-            let record_len = def.record_length() as usize;
-            if self.edit_cells.len() != leaves.len() {
-                self.edit_cells = leaves
-                    .iter()
-                    .map(|f| EditCell::Text(String::new()))
-                    .collect();
-            }
-            for (i, field) in leaves.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.label(&field.name);
-                    show_edit_control(ui, field, &mut self.edit_cells[i], tr);
+                    for (abs, row) in &page_rows {
+                        let selected = self.selected_row == Some(*abs);
+                        for field in &leaves {
+                            let text = format_cell(field, row, tr);
+                            if ui.selectable_label(selected, text).clicked() {
+                                self.selected_row = Some(*abs);
+                                self.new_row_mode = false;
+                                self.fill_edit_cells(row, &leaves);
+                                self.error = None;
+                            }
+                        }
+                        ui.end_row();
+                    }
                 });
-            }
-            if ui.button(tr.grid_btn_apply).clicked() {
-                let field_refs: Vec<&IndexedField> = leaves.iter().copied().collect();
-                match build_record(&self.edit_cells, &field_refs, record_len, tr) {
-                    Ok(rec) => {
-                        if self.new_row_mode {
-                            if let Some(s) = &mut self.session {
-                                match s.write_row(&rec) {
-                                    Ok(()) => status = Some(tr.grid_status_write_ok.into()),
-                                    Err(e) => status = Some(e),
+            });
+
+        if has_edit {
+            ui.push_id("edit_form_container", |ui| {
+                ui.separator();
+                ui.heading(if self.new_row_mode {
+                    tr.grid_new_row
+                } else {
+                    tr.grid_edit_row
+                });
+                let record_len = def.record_length() as usize;
+                if self.edit_cells.len() != leaves.len() {
+                    self.edit_cells = leaves
+                        .iter()
+                        .map(|f| EditCell::Text(String::new()))
+                        .collect();
+                }
+                egui::ScrollArea::vertical()
+                    .id_salt("edit_scroll")
+                    .max_height(edit_height - 120.0)
+                    .show(ui, |ui| {
+                        for (i, field) in leaves.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.add_sized([160.0, 20.0], egui::Label::new(&field.name));
+                                show_edit_control(ui, field, &mut self.edit_cells[i], tr);
+                            });
+                        }
+                    });
+
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(10.0); // left padding
+                    if ui.button(tr.grid_btn_apply).clicked() {
+                        let field_refs: Vec<&IndexedField> = leaves.iter().copied().collect();
+                        match build_record(&self.edit_cells, &field_refs, record_len, tr) {
+                            Ok(rec) => {
+                                if self.new_row_mode {
+                                    if let Some(s) = &mut self.session {
+                                        match s.write_row(&rec) {
+                                            Ok(()) => {
+                                                status = Some(tr.grid_status_write_ok.into());
+                                                self.error = None;
+                                                self.new_row_mode = false;
+                                            }
+                                            Err(e) => {
+                                                status = Some(e.clone());
+                                                self.error = Some(e);
+                                            }
+                                        }
+                                    }
+                                } else if let Some(idx) = self.selected_row {
+                                    if let Some(s) = &mut self.session {
+                                        match s.select_row(idx).and_then(|_| s.rewrite_row(&rec)) {
+                                            Ok(()) => {
+                                                status = Some(tr.grid_status_write_ok.into());
+                                                self.error = None;
+                                            }
+                                            Err(e) => {
+                                                status = Some(e.clone());
+                                                self.error = Some(e);
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            self.new_row_mode = false;
-                        } else if let Some(idx) = self.selected_row {
-                            if let Some(s) = &mut self.session {
-                                match s.select_row(idx).and_then(|_| s.rewrite_row(&rec)) {
-                                    Ok(()) => status = Some(tr.grid_status_write_ok.into()),
-                                    Err(e) => status = Some(e),
-                                }
+                            Err(e) => {
+                                status = Some(e.clone());
+                                self.error = Some(e);
                             }
                         }
                     }
-                    Err(e) => status = Some(e),
-                }
-            }
+                });
+                ui.add_space(20.0); // bottom padding
+            });
         }
 
         (action, status)
