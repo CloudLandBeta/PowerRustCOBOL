@@ -214,13 +214,7 @@ pub fn resolve_drop_target(
         if c.is_container() {
             // Valid drop only over the visible content area (R9). Over chrome
             // (caption / tab strip / border) keep searching for an outer target.
-            let content_hit = if c.control_type == ControlType::TabControl {
-                // Tab titles are chrome/overlay: they no longer shrink the child
-                // clipping rect, but they are still not a child-placement target.
-                c.content_rect().contains(px, py) && py >= c.rect.y + 26
-            } else {
-                c.content_rect().contains(px, py)
-            };
+            let content_hit = c.content_rect().contains(px, py);
             if content_hit {
                 let tab = if c.control_type == ControlType::TabControl {
                     Some(active.get(&c.id).copied().unwrap_or_else(|| {
@@ -364,6 +358,10 @@ mod tests {
         active.insert("Tabs".into(), 0);
         assert_eq!(
             resolve_drop_target(&c, 100, 10, 1, &active),
+            DropTarget::Form
+        );
+        assert_eq!(
+            resolve_drop_target(&c, 100, 30, 1, &active),
             DropTarget::Form
         );
         assert_eq!(

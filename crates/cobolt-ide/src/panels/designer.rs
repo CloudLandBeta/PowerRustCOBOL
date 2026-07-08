@@ -32,6 +32,7 @@ use crate::app::{
     DesignerClipboard,
 };
 use crate::project_model::{UserControlDef, UserControlEntry};
+use cobolt_forms::render::{card_appear_transform, PlacementEffect};
 
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
 // designer, preview, run form and compiled binaries all draw identically.
@@ -771,6 +772,10 @@ pub struct DesignerPanel {
     pub preview_last_frame: Option<std::time::Instant>,
     /// Tracks which ComboBox (by control ID) is currently open in the preview.
     pub(crate) preview_combo_open: HashMap<String, bool>,
+    /// Designer-only clock for repeating GroupBox placement effects. It is reset
+    /// on mouse release so the elastic card placement starts from the committed
+    /// final layout, not while the user is still dragging.
+    placement_release_starts: HashMap<String, f64>,
 }
 
 impl DesignerPanel {
@@ -813,6 +818,7 @@ impl DesignerPanel {
             preview_last_frame: None,
             preview_combo_open: HashMap::new(),
             active_theme_pack: None,
+            placement_release_starts: HashMap::new(),
         }
     }
 
@@ -824,6 +830,54 @@ impl DesignerPanel {
     /// Primary selected ID (first in the selection list).
     pub fn primary_selected(&self) -> Option<&str> {
         self.selected_ids.first().map(|s| s.as_str())
+    }
+
+    fn repeating_group_placement_effect(ctrl: &Control) -> PlacementEffect {
+        if !matches!(ctrl.control_type, ControlType::GroupBox) {
+            return PlacementEffect::None;
+        }
+        if !ctrl
+            .get_prop("IsRepeatingGroup")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return PlacementEffect::None;
+        }
+        ctrl.get_prop("PlacementEffect")
+            .map(|v| PlacementEffect::parse(v.as_str()))
+            .unwrap_or(PlacementEffect::None)
+    }
+
+    fn trigger_repeating_group_placement_release(
+        &mut self,
+        ctx: &egui::Context,
+        changed_ids: &[String],
+    ) {
+        let now = ctx.input(|i| i.time);
+        let mut group_ids = Vec::new();
+        for id in changed_ids {
+            let mut cur = self.form.controls.iter().position(|c| c.id == *id);
+            while let Some(idx) = cur {
+                let ctrl = &self.form.controls[idx];
+                if Self::repeating_group_placement_effect(ctrl) != PlacementEffect::None {
+                    if !group_ids.iter().any(|gid: &String| gid == &ctrl.id) {
+                        group_ids.push(ctrl.id.clone());
+                    }
+                    break;
+                }
+                cur = ctrl
+                    .parent
+                    .as_ref()
+                    .and_then(|pid| self.form.controls.iter().position(|c| c.id == *pid));
+            }
+        }
+        if group_ids.is_empty() {
+            return;
+        }
+        for group_id in group_ids {
+            self.placement_release_starts.insert(group_id, now);
+        }
+        ctx.request_repaint();
     }
 
     /// Load an image from disk and register it as an egui texture.
@@ -1174,20 +1228,21 @@ impl DesignerPanel {
                 continue;
             }
             let r = c.rect;
-            if cy < r.y || cy > r.y + 26 || cx < r.x || cx > r.x + r.w {
+            if cy < r.y || cy > r.y + c.tab_strip_height() || cx < r.x || cx > r.x + r.w {
                 continue;
             }
             let tabs: Vec<String> = c
                 .get_prop("Tabs")
                 .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
                 .unwrap_or_default();
-            let mut tx = r.x as f32 + 2.0;
+            let mut tx = r.x as f32;
+            let gap = c.tab_padding().max(0) as f32;
             for (i, t) in tabs.iter().enumerate() {
                 let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
                 if (cx as f32) >= tx && (cx as f32) < tx + tw {
                     return Some((c.id.clone(), i as u32));
                 }
-                tx += tw + 2.0;
+                tx += tw + gap;
             }
         }
         None
@@ -3046,6 +3101,7 @@ impl DesignerPanel {
                         if n <= 1 {
                             continue;
                         }
+                        let effect = Self::repeating_group_placement_effect(g);
                         let spacing = g
                             .get_prop("ItemSpacing")
                             .map(|v| v.as_i64())
@@ -3066,18 +3122,56 @@ impl DesignerPanel {
                             .chain(super::containers::collect_descendants(controls, gi))
                             .collect();
                         let g_content = g.content_rect();
+                        let effect_start = self.placement_release_starts.get(&g.id).copied();
+                        let now = ui.ctx().input(|i| i.time);
                         for k in 1..n {
                             let (dx, dy) = match layout.as_str() {
                                 "Horizontal" => ((k as f32) * (gw + spacing), 0.0),
                                 "Grid" => {
-                                    let col = (k % ipr) as f32; let row = (k / ipr) as f32;
+                                    let col = (k % ipr) as f32;
+                                    let row = (k / ipr) as f32;
                                     (col * (gw + spacing), row * (gh + spacing))
                                 }
                                 _ /* Vertical */ => (0.0, (k as f32) * (gh + spacing)),
                             };
+                            let mut card_scale = 1.0;
+                            let mut card_alpha = 1.0;
+                            let mut card_shift = Vec2::ZERO;
+                            let mut root_center = None;
+                            if effect != PlacementEffect::None {
+                                if let Some(start) = effect_start {
+                                    let root_screen = egui::Rect::from_min_size(
+                                        origin
+                                            + Vec2::new(g.rect.x as f32 + dx, g.rect.y as f32 + dy),
+                                        Vec2::new(gw.max(0.0), gh.max(0.0)),
+                                    );
+                                    let clipped = !painter.clip_rect().intersects(root_screen);
+                                    let dur = g
+                                        .get_prop("CardAppearDuration")
+                                        .map(|v| v.as_i64() as f32 / 1000.0)
+                                        .unwrap_or(0.2);
+                                    let elapsed = (now - start).max(0.0) as f32;
+                                    let (tf, animating) = card_appear_transform(
+                                        effect,
+                                        1,
+                                        elapsed,
+                                        (-(dx), -(dy)),
+                                        clipped,
+                                        dur,
+                                    );
+                                    card_scale = tf.scale;
+                                    card_alpha = tf.alpha;
+                                    root_center = Some(root_screen.center());
+                                    card_shift = Vec2::new(tf.dx, tf.dy);
+                                    if animating {
+                                        ui.ctx().request_repaint();
+                                    }
+                                }
+                            }
                             // Clip descendants to the shifted group's content area.
                             let gclip = egui::Rect::from_min_size(
                                 origin
+                                    + card_shift
                                     + Vec2::new(g_content.x as f32 + dx, g_content.y as f32 + dy),
                                 Vec2::new(g_content.w as f32, g_content.h as f32),
                             );
@@ -3124,14 +3218,25 @@ impl DesignerPanel {
                                 } else {
                                     painter.with_clip_rect(painter.clip_rect().intersect(gclip))
                                 };
+                                let control_screen = egui::Rect::from_min_size(
+                                    origin + Vec2::new(clone.rect.x as f32, clone.rect.y as f32),
+                                    Vec2::new(clone.rect.w as f32, clone.rect.h as f32),
+                                );
+                                let grouped_shift = if let Some(root_center) = root_center {
+                                    card_shift
+                                        + (control_screen.center() - root_center)
+                                            * (card_scale - 1.0)
+                                } else {
+                                    card_shift
+                                };
                                 draw_control(
                                     &dp,
-                                    origin,
+                                    origin + grouped_shift,
                                     &clone,
                                     false,
                                     self.glass_mode,
-                                    0.45,
-                                    1.0,
+                                    0.45 * card_alpha,
+                                    card_scale,
                                     None,
                                 );
                             }
@@ -5267,6 +5372,9 @@ impl DesignerPanel {
                         for id in self.selected_ids.clone() {
                             self.reparent_to_drop(&id);
                         }
+                        let changed_ids: Vec<String> =
+                            origins.iter().map(|(id, _, _)| id.clone()).collect();
+                        self.trigger_repeating_group_placement_release(&resp.ctx, &changed_ids);
                     }
                 }
                 DragState::ResizingControl {
@@ -5288,10 +5396,11 @@ impl DesignerPanel {
                     );
                     if new_rect != orig_rect {
                         self.apply(Cmd::ResizeControl {
-                            id,
+                            id: id.clone(),
                             old_rect: orig_rect,
                             new_rect,
                         });
+                        self.trigger_repeating_group_placement_release(&resp.ctx, &[id]);
                     }
                 }
                 DragState::PlacingNew {
@@ -5317,6 +5426,7 @@ impl DesignerPanel {
                             ctrl.rect.w = fw;
                             ctrl.rect.h = fh;
                         }
+                        self.trigger_repeating_group_placement_release(&resp.ctx, &[sid]);
                     }
                 }
                 DragState::RubberBand {

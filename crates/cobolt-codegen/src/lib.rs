@@ -67,7 +67,7 @@ use cobolt_forms::{Control, ControlType, Form};
 
 pub mod data_binding;
 pub mod indexed;
-pub use indexed::{generate_indexed, generate_indexed_select, generate_indexed_fd};
+pub use indexed::{generate_indexed, generate_indexed_fd, generate_indexed_select};
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -191,9 +191,10 @@ fn write_data_division(out: &mut String, form: &Form) {
     // Declare the array index var in main WS if any member control has events.
     // The runtime will populate it from the incoming FormEvent's instance_index
     // before the EVALUATE/CALL in the event loop.
-    if all_controls.iter().any(|c| {
-        form.array_binding_context_for_member(&c.id).is_some() && !c.events.is_empty()
-    }) {
+    if all_controls
+        .iter()
+        .any(|c| form.array_binding_context_for_member(&c.id).is_some() && !c.events.is_empty())
+    {
         out.push_str("       01 CONTROL-ARRAY-INDEX     PIC S9(4) COMP-5 VALUE 0.\n");
     }
 

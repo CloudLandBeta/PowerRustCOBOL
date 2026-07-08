@@ -597,9 +597,13 @@ impl NewIndexedDialog {
                 }
             });
         } else {
-            let can_next = !self.name.trim().is_empty() && !self.assign_path.trim().is_empty() && !path_exists;
+            let can_next =
+                !self.name.trim().is_empty() && !self.assign_path.trim().is_empty() && !path_exists;
             ui.horizontal(|ui| {
-                if ui.add_enabled(can_next, egui::Button::new("Next")).clicked() {
+                if ui
+                    .add_enabled(can_next, egui::Button::new("Next"))
+                    .clicked()
+                {
                     self.raw_mode = true;
                     // Populate initial text from current form state (so user can refine).
                     if let Some(d) = self.build_definition() {

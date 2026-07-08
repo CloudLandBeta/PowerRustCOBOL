@@ -110,7 +110,7 @@ pub struct FormRuntime {
 
     /// True once the child process (or legacy thread) has exited.
     finished: Arc<AtomicBool>,
-    
+
     /// Unique run ID for this form execution instance to reset animation clocks.
     pub run_id: u64,
 }

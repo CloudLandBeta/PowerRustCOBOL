@@ -239,18 +239,14 @@ fn picturebox_container_border(
         return None;
     }
     let v = plive.rect; // visual (border) rect in form coords
-    // If the immediate parent itself is the scroller (HScroll/VScroll), its
-    // border rect stays fixed on screen; only subtract scroll for non-scroller
-    // ancestors (e.g. a rounded GroupBox card that lives inside a scrolling
-    // Panel). This keeps _ContainerClip correct for PictureBox children both
-    // directly under a scroll panel and deep inside databound repeating cards.
+                        // If the immediate parent itself is the scroller (HScroll/VScroll), its
+                        // border rect stays fixed on screen; only subtract scroll for non-scroller
+                        // ancestors (e.g. a rounded GroupBox card that lives inside a scrolling
+                        // Panel). This keeps _ContainerClip correct for PictureBox children both
+                        // directly under a scroll panel and deep inside databound repeating cards.
     let parent_has_scroll = matches!(parent.control_type, ControlType::Panel)
-        && (plive
-            .get_prop("HScroll")
-            .map_or(false, |vv| vv.as_bool())
-            || plive
-                .get_prop("VScroll")
-                .map_or(false, |vv| vv.as_bool()));
+        && (plive.get_prop("HScroll").map_or(false, |vv| vv.as_bool())
+            || plive.get_prop("VScroll").map_or(false, |vv| vv.as_bool()));
     let off = if parent_has_scroll {
         egui::Vec2::ZERO
     } else {
@@ -456,6 +452,12 @@ pub enum PlacementEffect {
     Deal,
     /// Each card fades in (200 ms) at its final spot, one after the previous.
     FadeIn,
+    /// Each card starts smaller at its final spot, then elastically zooms to
+    /// normal size around the card group's centre.
+    ZoomIn,
+    /// Each card starts larger at its final spot, then elastically settles to
+    /// normal size around the card group's centre.
+    ZoomOut,
 }
 
 impl PlacementEffect {
@@ -463,8 +465,22 @@ impl PlacementEffect {
         match s.trim().to_ascii_lowercase().as_str() {
             "deal" => Self::Deal,
             "fadein" | "fade-in" | "fade in" => Self::FadeIn,
+            "zoomin" | "zoom-in" | "zoom in" => Self::ZoomIn,
+            "zoomout" | "zoom-out" | "zoom out" => Self::ZoomOut,
             _ => Self::None,
         }
+    }
+}
+
+fn elastic_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    if t <= f32::EPSILON {
+        0.0
+    } else if (1.0 - t).abs() <= f32::EPSILON {
+        1.0
+    } else {
+        let c4 = (2.0 * std::f32::consts::PI) / 3.0;
+        2.0_f32.powf(-10.0 * t) * ((t * 10.0 - 0.75) * c4).sin() + 1.0
     }
 }
 
@@ -476,7 +492,7 @@ pub const CARD_APPEAR_DUR: f32 = 0.2; // default when CardAppearDuration not set
 /// Reads the `_Card*` metadata stamped by [`expand_repeating_groups`], derives the
 /// per-group appear clock from egui memory (the ctx time the cards first showed),
 /// and requests a repaint while the animation runs. `viewport` is the visible area
-/// used for the Deal off-screen (no-phantom) test. Non-card controls pass through.
+/// used for the off-screen (no-phantom/no-work) test. Non-card controls pass through.
 fn apply_card_appear(
     base: &Control,
     tf: RenderTransform,
@@ -519,16 +535,32 @@ fn apply_card_appear(
         .get_prop("_CardBindSeq")
         .map(|v| v.as_i64())
         .unwrap_or(0);
-    let key = egui::Id::new(("card-appear-start", group, batch_n, bind_seq, state.run_id()));
+    let key = egui::Id::new((
+        "card-appear-start",
+        group,
+        batch_n,
+        bind_seq,
+        state.run_id(),
+    ));
     let start = ctx.memory_mut(|m| *m.data.get_temp_mut_or_insert_with(key, || now));
     let elapsed = (now - start).max(0.0) as f32;
-    // Deal skips the fly-in for a card whose final spot is outside the viewport.
-    let clipped = !viewport.intersects(final_screen);
+    let card_screen = card_final_screen_rect(base, final_screen);
+    // Placement effects skip animation for a card whose final spot is outside
+    // the visible parent viewport. Partially visible cards still animate and are
+    // clipped by the existing ancestor clip path.
+    let clipped = !viewport.intersects(card_screen);
     let dur = base
         .get_prop("_CardDuration")
         .map(|v| v.as_i64() as f32 / 1000.0)
         .unwrap_or(CARD_APPEAR_DUR);
-    let (card_tf, animating) = card_appear_transform(effect, inst, elapsed, from, clipped, dur);
+    let (mut card_tf, animating) = card_appear_transform(effect, inst, elapsed, from, clipped, dur);
+    if card_tf.scale != 1.0 {
+        let control_center = final_screen.center();
+        let card_center = card_screen.center();
+        let group_shift = (control_center - card_center) * (card_tf.scale - 1.0);
+        card_tf.dx += group_shift.x;
+        card_tf.dy += group_shift.y;
+    }
     if animating {
         ctx.request_repaint();
     }
@@ -540,13 +572,38 @@ fn apply_card_appear(
     }
 }
 
+fn card_final_screen_rect(base: &Control, final_screen: Rect) -> Rect {
+    let root_x = match base.get_prop("_CardRootX") {
+        Some(v) => v.as_i64() as f32,
+        None => return final_screen,
+    };
+    let root_y = base
+        .get_prop("_CardRootY")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(base.rect.y as f32);
+    let root_w = base
+        .get_prop("_CardRootW")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(final_screen.width());
+    let root_h = base
+        .get_prop("_CardRootH")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(final_screen.height());
+    let dx = root_x - base.rect.x as f32;
+    let dy = root_y - base.rect.y as f32;
+    Rect::from_min_size(
+        final_screen.min + Vec2::new(dx, dy),
+        Vec2::new(root_w.max(0.0), root_h.max(0.0)),
+    )
+}
+
 /// The transform for one repeating-group card as it appears, plus whether it is
 /// still animating (so the caller can keep requesting frames).
 ///
 /// `inst` is 1-based; `elapsed` is seconds since the group's cards first appeared;
 /// `from` is the vector from the card's FINAL screen position back to the first
 /// card (used by Deal). `clipped` = the card's final spot is outside the visible
-/// viewport, so Deal skips its fly-in. Card `inst` animates during
+/// viewport, so effects skip their animation. Card `inst` animates during
 /// `[(inst-1)·DUR, inst·DUR]`.
 pub fn card_appear_transform(
     effect: PlacementEffect,
@@ -557,7 +614,11 @@ pub fn card_appear_transform(
     dur: f32,
 ) -> (RenderTransform, bool) {
     let start = inst.saturating_sub(1) as f32 * dur;
-    let local = ((elapsed - start) / dur).clamp(0.0, 1.0);
+    let local = if dur <= f32::EPSILON {
+        1.0
+    } else {
+        ((elapsed - start) / dur).clamp(0.0, 1.0)
+    };
     let done = elapsed >= start + dur;
     match effect {
         PlacementEffect::None => (RenderTransform::IDENTITY, false),
@@ -584,6 +645,36 @@ pub fn card_appear_transform(
                     RenderTransform {
                         dx: from.0 * f,
                         dy: from.1 * f,
+                        ..RenderTransform::IDENTITY
+                    },
+                    !done,
+                )
+            }
+        }
+        PlacementEffect::ZoomIn => {
+            if clipped {
+                (RenderTransform::IDENTITY, false)
+            } else {
+                let eased = elastic_out(local);
+                let scale = 0.65 + (1.0 - 0.65) * eased;
+                (
+                    RenderTransform {
+                        scale,
+                        ..RenderTransform::IDENTITY
+                    },
+                    !done,
+                )
+            }
+        }
+        PlacementEffect::ZoomOut => {
+            if clipped {
+                (RenderTransform::IDENTITY, false)
+            } else {
+                let eased = elastic_out(local);
+                let scale = 1.25 + (1.0 - 1.25) * eased;
+                (
+                    RenderTransform {
+                        scale,
                         ..RenderTransform::IDENTITY
                     },
                     !done,
@@ -703,8 +794,8 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
                     }
                 });
                 if animated {
-                    // The card starts stacked on the first card (Deal), so the
-                    // "from" vector is the delta from its final spot back there.
+                    let root_x = g.rect.x + dx as i32;
+                    let root_y = g.rect.y + dy as i32;
                     clone.set_prop(
                         "_CardEffect",
                         crate::model::PropValue::String(effect.clone()),
@@ -714,6 +805,12 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
                         crate::model::PropValue::String(group_id.clone()),
                     );
                     clone.set_prop("_CardInstance", crate::model::PropValue::Int(inst as i64));
+                    clone.set_prop("_CardRootX", crate::model::PropValue::Int(root_x as i64));
+                    clone.set_prop("_CardRootY", crate::model::PropValue::Int(root_y as i64));
+                    clone.set_prop("_CardRootW", crate::model::PropValue::Int(g.rect.w as i64));
+                    clone.set_prop("_CardRootH", crate::model::PropValue::Int(g.rect.h as i64));
+                    // The card starts stacked on the first card (Deal), so the
+                    // "from" vector is the delta from its final spot back there.
                     clone.set_prop("_CardFromDx", crate::model::PropValue::Int(-(dx as i64)));
                     clone.set_prop("_CardFromDy", crate::model::PropValue::Int(-(dy as i64)));
                     clone.set_prop("_CardN", crate::model::PropValue::Int(n as i64));
@@ -741,14 +838,24 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
     Some(out)
 }
 
-fn ancestor_auto_scroll_offset(controls: &[Control], idx: usize, ctx: &egui::Context) -> egui::Vec2 {
+fn ancestor_auto_scroll_offset(
+    controls: &[Control],
+    idx: usize,
+    ctx: &egui::Context,
+) -> egui::Vec2 {
     let mut off = egui::Vec2::ZERO;
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
         if let Some(p) = controls.iter().position(|c| c.id == pid) {
             let is_panel = matches!(controls[p].control_type, ControlType::Panel);
-            let has_h = is_panel && controls[p].get_prop("HScroll").map_or(false, |v| v.as_bool());
-            let has_v = is_panel && controls[p].get_prop("VScroll").map_or(false, |v| v.as_bool());
+            let has_h = is_panel
+                && controls[p]
+                    .get_prop("HScroll")
+                    .map_or(false, |v| v.as_bool());
+            let has_v = is_panel
+                && controls[p]
+                    .get_prop("VScroll")
+                    .map_or(false, |v| v.as_bool());
             if has_h || has_v {
                 let sid = egui::Id::new(("autoscr", pid));
                 if let Some(o) = ctx.data(|d| d.get_temp::<egui::Vec2>(sid)) {
@@ -789,12 +896,8 @@ fn ancestor_clip_rect(
             let plive = state.live(pctrl);
             let cr = plive.content_rect();
             let has_scroll = matches!(pctrl.control_type, ControlType::Panel)
-                && (plive
-                    .get_prop("HScroll")
-                    .map_or(false, |v| v.as_bool())
-                    || plive
-                        .get_prop("VScroll")
-                        .map_or(false, |v| v.as_bool()));
+                && (plive.get_prop("HScroll").map_or(false, |v| v.as_bool())
+                    || plive.get_prop("VScroll").map_or(false, |v| v.as_bool()));
             let off = if apply_scroll && !has_scroll {
                 scroll
             } else {
@@ -819,7 +922,11 @@ fn ancestor_clip_rect(
     clip
 }
 
-fn panel_content_size(controls: &[Control], panel_idx: usize, panel_size: egui::Vec2) -> egui::Vec2 {
+fn panel_content_size(
+    controls: &[Control],
+    panel_idx: usize,
+    panel_size: egui::Vec2,
+) -> egui::Vec2 {
     let panel = &controls[panel_idx];
     let mut max_w = panel_size.x;
     let mut max_h = panel_size.y;
@@ -877,7 +984,6 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         );
         (tex, dest)
     });
-
     // ── Controls: designer order, clipped + faded by container ancestry. ──────
     // Expand repeating groups (spec 015 / 024) into their N runtime instances so
     // the render loop below draws one card per item.
@@ -929,8 +1035,21 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             origin + Vec2::new(r.x as f32 + tf.dx - scroll.x, r.y as f32 + tf.dy - scroll.y),
             Vec2::new(r.w as f32, r.h as f32),
         );
-        // Fold the repeating-group card-appear effect (Deal / FadeIn) into `tf`.
-        let tf = apply_card_appear(base, tf, final_screen, form_rect, ui.ctx(), input.state);
+        // Clip to ancestor container content areas (rounded clipping is cosmetic;
+        // egui clips to the axis-aligned rect — spec 012/016). Start from the whole
+        // form so a top-level control is never clipped to its own bounds.
+        // Use scroll-aware placement so that clips contributed by non-scroller
+        // containers (the instanced cards) move with -scroll while scroller
+        // Panel clips stay fixed. Prevents the "growing transparent frame" over
+        // databound card content on scroll.
+        let clip = match ancestor_clip_rect(controls, idx, origin, scroll, input.state) {
+            Some(c) => form_rect.intersect(c),
+            None => form_rect,
+        };
+        // Fold the repeating-group card-appear effect into `tf`. The viewport is
+        // the parent/container clip, so offscreen cards do not animate while
+        // partially visible cards animate and remain clipped.
+        let tf = apply_card_appear(base, tf, final_screen, clip, ui.ctx(), input.state);
         let base_screen = Rect::from_min_size(
             origin + Vec2::new(r.x as f32 + tf.dx - scroll.x, r.y as f32 + tf.dy - scroll.y),
             Vec2::new(r.w as f32, r.h as f32),
@@ -942,17 +1061,17 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         // the panel rect (with oversized content to enable bars/input). The
         // offset is stored in egui data and subtracted from descendant screens
         // above, so children appear scrolled inside the panel.
-        if interactive
-            && matches!(base.control_type, ControlType::Panel)
-        {
+        if interactive && matches!(base.control_type, ControlType::Panel) {
             let hscroll = base.get_prop("HScroll").map_or(false, |v| v.as_bool());
             let vscroll = base.get_prop("VScroll").map_or(false, |v| v.as_bool());
             if hscroll || vscroll {
                 let sid = egui::Id::new(("autoscr", &base.id));
                 let overscroll_id = egui::Id::new(("overscroll", &base.id));
-                
+
                 // Read and decay overscroll
-                let mut overscroll = ui.data(|d| d.get_temp::<egui::Vec2>(overscroll_id)).unwrap_or(egui::Vec2::ZERO);
+                let mut overscroll = ui
+                    .data(|d| d.get_temp::<egui::Vec2>(overscroll_id))
+                    .unwrap_or(egui::Vec2::ZERO);
                 let dt = ui.input(|i| i.stable_dt).min(0.1);
                 let decay = (-15.0 * dt).exp();
                 overscroll *= decay;
@@ -964,16 +1083,16 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                     let sa = egui::ScrollArea::new([hscroll, vscroll])
                         .id_source(sid)
                         .auto_shrink([false, false]);
-                    
+
                     let content_size = panel_content_size(controls, idx, screen.size());
-                    
+
                     let res = sa.show(ui, |ui| {
                         ui.set_min_size(content_size);
                     });
-                    
+
                     let offset = res.state.offset;
                     let max_scroll = (content_size - screen.size()).max(egui::Vec2::ZERO);
-                    
+
                     // Accumulate overscroll from input wheel delta when at boundaries
                     if ui.rect_contains_pointer(screen) {
                         let scroll_delta = ui.input(|i| i.smooth_scroll_delta);
@@ -981,17 +1100,21 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                             // Check vertical boundaries
                             if vscroll {
                                 if offset.y <= 0.0 && scroll_delta.y > 0.0 {
-                                    overscroll.y = (overscroll.y + scroll_delta.y * 0.4).clamp(-40.0, 40.0);
+                                    overscroll.y =
+                                        (overscroll.y + scroll_delta.y * 0.4).clamp(-40.0, 40.0);
                                 } else if offset.y >= max_scroll.y && scroll_delta.y < 0.0 {
-                                    overscroll.y = (overscroll.y + scroll_delta.y * 0.4).clamp(-40.0, 40.0);
+                                    overscroll.y =
+                                        (overscroll.y + scroll_delta.y * 0.4).clamp(-40.0, 40.0);
                                 }
                             }
                             // Check horizontal boundaries
                             if hscroll {
                                 if offset.x <= 0.0 && scroll_delta.x > 0.0 {
-                                    overscroll.x = (overscroll.x + scroll_delta.x * 0.4).clamp(-40.0, 40.0);
+                                    overscroll.x =
+                                        (overscroll.x + scroll_delta.x * 0.4).clamp(-40.0, 40.0);
                                 } else if offset.x >= max_scroll.x && scroll_delta.x < 0.0 {
-                                    overscroll.x = (overscroll.x + scroll_delta.x * 0.4).clamp(-40.0, 40.0);
+                                    overscroll.x =
+                                        (overscroll.x + scroll_delta.x * 0.4).clamp(-40.0, 40.0);
                                 }
                             }
                         }
@@ -1008,7 +1131,8 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
 
                     if ui.rect_contains_pointer(screen) {
                         ui.input_mut(|i| {
-                            i.events.retain(|event| !matches!(event, egui::Event::MouseWheel { .. }));
+                            i.events
+                                .retain(|event| !matches!(event, egui::Event::MouseWheel { .. }));
                             i.smooth_scroll_delta = egui::Vec2::ZERO;
                             i.raw_scroll_delta = egui::Vec2::ZERO;
                         });
@@ -1026,19 +1150,6 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         } else {
             None
         };
-
-        // Clip to ancestor container content areas (rounded clipping is cosmetic;
-        // egui clips to the axis-aligned rect — spec 012/016). Start from the whole
-        // form so a top-level control is never clipped to its own bounds.
-        // Use scroll-aware placement so that clips contributed by non-scroller
-        // containers (the instanced cards) move with -scroll while scroller
-        // Panel clips stay fixed. Prevents the "growing transparent frame" over
-        // databound card content on scroll.
-        let clip = match ancestor_clip_rect(controls, idx, origin, scroll, input.state) {
-            Some(c) => form_rect.intersect(c),
-            None => form_rect,
-        };
-
 
         let anc = containers::ancestor_opacity(controls, idx);
         let enabled = input.state.enabled(base);
@@ -1889,8 +2000,11 @@ fn render_interactive(
                 }
             };
             let mut buf = sv(ctrl, "Text");
+            let pad = paint::textbox_inner_padding(ctrl)
+                .min((screen.width() * 0.45).min(screen.height() * 0.45));
+            let edit_rect = screen.shrink(pad);
             let resp = ui.put(
-                screen,
+                edit_rect,
                 egui::TextEdit::singleline(&mut buf)
                     .id(ctrl_id)
                     .frame(false)
@@ -3716,43 +3830,14 @@ fn render_interactive(
             }
         }
         CT::TabControl => {
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let tabs: Vec<String> = sv(ctrl, "Tabs").lines().map(|s| s.to_owned()).collect();
-            let selected = sv(ctrl, "SelectedTab").parse::<usize>().unwrap_or(0);
-            let tab_h = 26.0_f32;
-            let content = Rect::from_min_max(pos2(screen.min.x, screen.min.y + tab_h), screen.max);
-            paint::draw_glass_auto(
-                &painter,
-                content,
-                Color32::from_rgb(34, 40, 70),
-                paint::corner_radius(ctrl),
-                false,
-                alpha,
-            );
             let mut x = screen.min.x;
+            let tab_h = ctrl.tab_strip_height().max(0) as f32;
+            let gap = ctrl.tab_padding().max(0) as f32;
             for (i, tab) in tabs.iter().enumerate() {
-                let w = 84.0_f32;
+                let w = (tab.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
                 let tr = Rect::from_min_size(pos2(x, screen.min.y), vec2(w, tab_h));
-                let active = i == selected;
-                painter.rect_filled(
-                    tr,
-                    4.0,
-                    if active {
-                        Color32::from_rgb(60, 80, 140)
-                    } else {
-                        Color32::from_rgb(40, 46, 78)
-                    },
-                );
-                painter.text(
-                    tr.center(),
-                    Align2::CENTER_CENTER,
-                    tab,
-                    FontId::proportional(12.0),
-                    if active {
-                        Color32::from_rgb(235, 240, 255)
-                    } else {
-                        Color32::from_rgb(180, 188, 220)
-                    },
-                );
                 if ui
                     .interact(tr, ctrl_id.with(("tab", i)), Sense::click())
                     .clicked()
@@ -3762,13 +3847,8 @@ fn render_interactive(
                         .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
                     out.events.push(UiEvent::ev(id, "onChange"));
                 }
-                x += w + 2.0;
+                x += w + gap;
             }
-            painter.rect_stroke(
-                content,
-                paint::corner_radius(ctrl),
-                Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 110)),
-            );
         }
         CT::TreeView => {
             paint::draw_glass_auto(
@@ -4245,14 +4325,34 @@ mod tests {
     fn card_appear_effects_stagger_and_place() {
         let d = CARD_APPEAR_DUR;
         // None: always identity, never animating.
-        let (t, a) = card_appear_transform(PlacementEffect::None, 3, 0.05, (10.0, 20.0), false, CARD_APPEAR_DUR);
+        let (t, a) = card_appear_transform(
+            PlacementEffect::None,
+            3,
+            0.05,
+            (10.0, 20.0),
+            false,
+            CARD_APPEAR_DUR,
+        );
         assert!(!a && t.dx == 0.0 && t.alpha == 1.0);
 
         // FadeIn: card 2 is invisible before its window, mid-fade during, done after.
-        let (t0, _) = card_appear_transform(PlacementEffect::FadeIn, 2, 0.0, (0.0, 0.0), false, CARD_APPEAR_DUR);
+        let (t0, _) = card_appear_transform(
+            PlacementEffect::FadeIn,
+            2,
+            0.0,
+            (0.0, 0.0),
+            false,
+            CARD_APPEAR_DUR,
+        );
         assert_eq!(t0.alpha, 0.0, "card 2 hidden before its turn");
-        let (tm, anim) =
-            card_appear_transform(PlacementEffect::FadeIn, 2, d + d * 0.5, (0.0, 0.0), false, d);
+        let (tm, anim) = card_appear_transform(
+            PlacementEffect::FadeIn,
+            2,
+            d + d * 0.5,
+            (0.0, 0.0),
+            false,
+            d,
+        );
         assert!(tm.alpha > 0.3 && tm.alpha < 0.7 && anim, "card 2 mid-fade");
         let (tf, done) = card_appear_transform(
             PlacementEffect::FadeIn,
@@ -4282,6 +4382,63 @@ mod tests {
             dc.dy == 0.0 && !anim,
             "clipped card is placed, not animated"
         );
+    }
+
+    #[test]
+    fn card_zoom_effects_scale_without_position_interpolation() {
+        let d = CARD_APPEAR_DUR;
+        assert_eq!(PlacementEffect::parse("Zoom In"), PlacementEffect::ZoomIn);
+        assert_eq!(PlacementEffect::parse("zoom-out"), PlacementEffect::ZoomOut);
+
+        let (zin0, anim0) =
+            card_appear_transform(PlacementEffect::ZoomIn, 1, 0.0, (80.0, 90.0), false, d);
+        assert_eq!(zin0.dx, 0.0, "zoom-in must not use previous-position dx");
+        assert_eq!(zin0.dy, 0.0, "zoom-in must not use previous-position dy");
+        assert!(zin0.scale < 1.0 && anim0, "zoom-in starts smaller");
+
+        let (zin_done, done) =
+            card_appear_transform(PlacementEffect::ZoomIn, 1, d + 0.01, (80.0, 90.0), false, d);
+        assert_eq!(zin_done.scale, 1.0, "zoom-in ends at normal scale");
+        assert!(!done);
+
+        let (zout0, anim0) =
+            card_appear_transform(PlacementEffect::ZoomOut, 1, 0.0, (80.0, 90.0), false, d);
+        assert_eq!(zout0.dx, 0.0, "zoom-out must not use previous-position dx");
+        assert_eq!(zout0.dy, 0.0, "zoom-out must not use previous-position dy");
+        assert!(zout0.scale > 1.0 && anim0, "zoom-out starts larger");
+
+        let (zout_done, done) = card_appear_transform(
+            PlacementEffect::ZoomOut,
+            1,
+            d + 0.01,
+            (80.0, 90.0),
+            false,
+            d,
+        );
+        assert_eq!(zout_done.scale, 1.0, "zoom-out ends at normal scale");
+        assert!(!done);
+
+        let (offscreen, anim) =
+            card_appear_transform(PlacementEffect::ZoomIn, 3, d, (80.0, 90.0), true, d);
+        assert_eq!(offscreen.dx, 0.0);
+        assert_eq!(offscreen.dy, 0.0);
+        assert_eq!(offscreen.scale, 1.0);
+        assert_eq!(offscreen.alpha, 1.0);
+        assert!(!anim, "offscreen cards skip zoom animation");
+    }
+
+    #[test]
+    fn card_final_screen_rect_uses_group_root_metadata() {
+        let mut child = ctrl("CARD.CARD-2.NAME", ControlType::Label, 120, 70, 80, 20);
+        child.set_prop("_CardRootX", crate::model::PropValue::Int(100));
+        child.set_prop("_CardRootY", crate::model::PropValue::Int(50));
+        child.set_prop("_CardRootW", crate::model::PropValue::Int(240));
+        child.set_prop("_CardRootH", crate::model::PropValue::Int(90));
+
+        let child_screen = Rect::from_min_size(Pos2::new(320.0, 170.0), Vec2::new(80.0, 20.0));
+        let card_screen = card_final_screen_rect(&child, child_screen);
+        assert_eq!(card_screen.min, Pos2::new(300.0, 150.0));
+        assert_eq!(card_screen.size(), Vec2::new(240.0, 90.0));
     }
 
     #[test]
@@ -4376,7 +4533,13 @@ mod tests {
         // Build a fresh static RenderInput per probe and clip child #1 (avoids
         // moving the non-Copy Backdrop across reuses).
         let mk = |controls: &[Control]| -> Option<(Rect, f32)> {
-            picturebox_container_border(controls, &DesignedState, 1, egui::pos2(0.0, 0.0), egui::Vec2::ZERO)
+            picturebox_container_border(
+                controls,
+                &DesignedState,
+                1,
+                egui::pos2(0.0, 0.0),
+                egui::Vec2::ZERO,
+            )
         };
         let (border, rad) = mk(&controls).expect("rounded parent → border clip");
         assert_eq!(
@@ -4471,21 +4634,25 @@ mod tests {
         card.parent = Some("Pnl".into());
         let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
         inner.parent = Some("GB".into());
-        
+
         let designed = vec![panel, card, inner];
         let controls = expand_repeating_groups(&designed).expect("expand");
-        
+
         // Find "GB.GB-2" (instance 2 of card) and "GB.GB-2.Lbl" (instance 2 of label)
-        let lbl_idx = controls.iter().position(|c| c.id == "GB.GB-2.Lbl").unwrap_or_else(|| {
-            let ids: Vec<String> = controls.iter().map(|c| c.id.clone()).collect();
-            panic!("Could not find GB.GB-2.Lbl. Available IDs: {:?}", ids);
-        });
-        
+        let lbl_idx = controls
+            .iter()
+            .position(|c| c.id == "GB.GB-2.Lbl")
+            .unwrap_or_else(|| {
+                let ids: Vec<String> = controls.iter().map(|c| c.id.clone()).collect();
+                panic!("Could not find GB.GB-2.Lbl. Available IDs: {:?}", ids);
+            });
+
         let origin = egui::pos2(0.0, 0.0);
         let scroll = egui::vec2(0.0, 30.0);
-        
-        let clip = ancestor_clip_rect(&controls, lbl_idx, origin, scroll, &DesignedState).expect("clip");
-        
+
+        let clip =
+            ancestor_clip_rect(&controls, lbl_idx, origin, scroll, &DesignedState).expect("clip");
+
         // Card height is 100, spacing is 10. Instance 2 is shifted down by dy = 110.
         // Scroll is 30.
         // Expected card content rect for instance 2 is (10 + 2, 20 + 110 + 2) = (12, 132).
@@ -4507,18 +4674,20 @@ mod tests {
         card.parent = Some("Pnl".into());
         let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
         inner.parent = Some("GB".into());
-        
+
         let designed = vec![panel, card, inner];
         let controls = expand_repeating_groups(&designed).expect("expand");
-        
+
         let pnl_idx = controls.iter().position(|c| c.id == "Pnl").unwrap();
         let size = panel_content_size(&controls, pnl_idx, egui::vec2(300.0, 400.0));
-        
+
         assert_eq!(size.y, 400.0);
-        
+
         let mut card_5 = designed[1].clone();
         card_5.set_prop("ItemCount", PropValue::Int(5));
-        let controls_5 = expand_repeating_groups(&vec![designed[0].clone(), card_5, designed[2].clone()]).expect("expand");
+        let controls_5 =
+            expand_repeating_groups(&vec![designed[0].clone(), card_5, designed[2].clone()])
+                .expect("expand");
         let p_idx = controls_5.iter().position(|c| c.id == "Pnl").unwrap();
         let size_5 = panel_content_size(&controls_5, p_idx, egui::vec2(300.0, 400.0));
         assert_eq!(size_5.y, 560.0);
@@ -4538,7 +4707,7 @@ mod tests {
         card.parent = Some("Pnl".into());
         let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
         inner.parent = Some("GB".into());
-        
+
         let controls = vec![panel, card, inner];
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
@@ -4577,18 +4746,18 @@ mod tests {
         card.parent = Some("Pnl".into());
         let mut inner = ctrl("Lbl", ControlType::Label, 20, 30, 100, 20);
         inner.parent = Some("GB".into());
-        
+
         let controls = vec![panel, card, inner];
-        
+
         // Simulate RunState state snap.
         let mut states_snap = Map::new();
         let mut card_state = Map::new();
         card_state.insert("Y".to_string(), "20".to_string());
         states_snap.insert("GB.GB-2".to_string(), card_state);
-        
+
         let state_cell = std::cell::RefCell::new(states_snap);
         let state = MapState(&state_cell);
-        
+
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
         let _ = ctx.run(Default::default(), |ctx| {

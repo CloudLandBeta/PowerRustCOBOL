@@ -1606,7 +1606,8 @@ Actor Caption:string</Property>
             pnl.get_prop("HScroll")
                 .map(|v| v.as_bool())
                 .unwrap_or(false)
-                && pnl.get_prop("VScroll")
+                && pnl
+                    .get_prop("VScroll")
                     .map(|v| v.as_bool())
                     .unwrap_or(false),
             "Scrollable must migrate to HScroll/VScroll"

@@ -301,10 +301,7 @@ impl IndexedEditorPanel {
             );
         }
         if let Some(msg) = &self.apply_success_msg {
-            ui.colored_label(
-                egui::Color32::from_rgb(80, 220, 80),
-                msg,
-            );
+            ui.colored_label(egui::Color32::from_rgb(80, 220, 80), msg);
         }
 
         applied

@@ -817,23 +817,38 @@ impl Interpreter {
             }
 
             // Double seed repeating GroupBoxes under their ArrayName
-            let is_repeating = props_vec.iter().any(|(k, v)| k.eq_ignore_ascii_case("IsRepeatingGroup") && (v == "1" || v.eq_ignore_ascii_case("true")));
+            let is_repeating = props_vec.iter().any(|(k, v)| {
+                k.eq_ignore_ascii_case("IsRepeatingGroup")
+                    && (v == "1" || v.eq_ignore_ascii_case("true"))
+            });
             if class.eq_ignore_ascii_case("GroupBox") && is_repeating {
-                let array_name = props_vec.iter().find(|(k, _)| k.eq_ignore_ascii_case("ArrayName")).map(|(_, v)| v.trim()).unwrap_or("");
+                let array_name = props_vec
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("ArrayName"))
+                    .map(|(_, v)| v.trim())
+                    .unwrap_or("");
                 let array_id = if array_name.is_empty() {
                     id.clone()
                 } else {
                     array_name.to_string()
                 };
-                let log_msg = format!("Seeding repeating GroupBox array_id={}, design_id={}\n", array_id, id);
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+                let log_msg = format!(
+                    "Seeding repeating GroupBox array_id={}, design_id={}\n",
+                    array_id, id
+                );
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/databinding.log")
+                {
                     use std::io::Write;
                     let _ = f.write_all(log_msg.as_bytes());
                 }
                 if !self.objects.contains(&array_id) {
                     self.objects.register(&array_id, class.clone());
                 }
-                self.objects.set_property(&array_id, "_DesignControlId", id.clone());
+                self.objects
+                    .set_property(&array_id, "_DesignControlId", id.clone());
                 for (k, v) in &props_vec {
                     self.objects.set_property(&array_id, k, v.clone());
                 }
@@ -3990,7 +4005,8 @@ impl Interpreter {
                             // For array member events, make the 1-based card index
                             // available to the handler (generated as CONTROL-ARRAY-INDEX
                             // in LINKAGE for array-member event handlers).
-                            self.env.set_str("CONTROL-ARRAY-INDEX", &ev.instance_index.to_string());
+                            self.env
+                                .set_str("CONTROL-ARRAY-INDEX", &ev.instance_index.to_string());
                             // Populate COBOL-EVENT-ID and COBOL-CONTROL-ID (args 0 and 1).
                             if using.len() >= 1 {
                                 let n = self.expr_to_name(call_arg_expr(&using[0]));
@@ -4532,9 +4548,13 @@ impl Interpreter {
         // so that render will destroy old instances and recreate the correct number,
         // re-stamping PlacementEffect / deployment animations on the new cards.
         tracing::debug!(target: "databinding", "RUN-FORM refresh_control_array for {}", group_id);
-        
+
         let design_id = self.obj_get(group_id, "_DesignControlId");
-        let group_for_id = if !design_id.is_empty() { &design_id } else { group_id };
+        let group_for_id = if !design_id.is_empty() {
+            &design_id
+        } else {
+            group_id
+        };
 
         let fields: Vec<String> = self
             .obj_get(group_id, "_BindingFields")
@@ -4544,9 +4564,17 @@ impl Interpreter {
             .map(str::to_owned)
             .collect();
         if fields.is_empty() {
-            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/databinding.log")
+            {
                 use std::io::Write;
-                let _ = writeln!(f, "refresh_control_array_binding: group_id={} fields is empty!", group_id);
+                let _ = writeln!(
+                    f,
+                    "refresh_control_array_binding: group_id={} fields is empty!",
+                    group_id
+                );
             }
             return 0;
         }
@@ -4557,7 +4585,11 @@ impl Interpreter {
             .max()
             .unwrap_or(0);
 
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/databinding.log")
+        {
             use std::io::Write;
             let _ = writeln!(f, "refresh_control_array_binding: group_id={}, design_id={}, row_count={}, fields={:?}", group_id, design_id, row_count, fields);
         }
@@ -4567,12 +4599,14 @@ impl Interpreter {
         if !self.objects.contains(group_id) {
             self.objects.register(group_id, "Control");
         }
-        self.objects.set_property(group_id, "ItemCount", row_count.to_string());
+        self.objects
+            .set_property(group_id, "ItemCount", row_count.to_string());
         if !design_id.is_empty() {
             if !self.objects.contains(&design_id) {
                 self.objects.register(&design_id, "Control");
             }
-            self.objects.set_property(&design_id, "ItemCount", row_count.to_string());
+            self.objects
+                .set_property(&design_id, "ItemCount", row_count.to_string());
         }
         if let Some(tx) = &self.state_tx {
             let _ = tx.send(StateUpdate::new(
@@ -4644,24 +4678,32 @@ impl Interpreter {
                             .unwrap_or_default()
                     };
 
-                    self.set_member_indexed(member, &[PathSeg::Prop(prop.to_owned())], val.clone(), r);
+                    self.set_member_indexed(
+                        member,
+                        &[PathSeg::Prop(prop.to_owned())],
+                        val.clone(),
+                        r,
+                    );
 
-                    let indexed_member =
-                        format!("{group_for_id}.{group_for_id}-{r}.{member}");
+                    let indexed_member = format!("{group_for_id}.{group_for_id}-{r}.{member}");
 
-                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/databinding.log") {
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/databinding.log")
+                    {
                         use std::io::Write;
-                        let _ = writeln!(f, "  r={}, member={}, prop={}, val={:?}, indexed_member={}", r, member, prop, val, indexed_member);
+                        let _ = writeln!(
+                            f,
+                            "  r={}, member={}, prop={}, val={:?}, indexed_member={}",
+                            r, member, prop, val, indexed_member
+                        );
                     }
 
                     if let Some(tx) = &self.state_tx {
                         let _ = tx.send(
-                            StateUpdate::new(
-                                member.to_string(),
-                                prop.to_owned(),
-                                val.clone(),
-                            )
-                            .with_index(r),
+                            StateUpdate::new(member.to_string(), prop.to_owned(), val.clone())
+                                .with_index(r),
                         );
                         let _ = tx.send(StateUpdate::new(
                             indexed_member,
@@ -4967,7 +5009,11 @@ impl Interpreter {
         }
         self.objects.set_property(obj, prop, val.clone());
         if let Some(tx) = &self.state_tx {
-            let _ = tx.send(StateUpdate::new(obj.to_string(), prop.to_string(), val.clone()));
+            let _ = tx.send(StateUpdate::new(
+                obj.to_string(),
+                prop.to_string(),
+                val.clone(),
+            ));
         }
         // For a databound ControlArray, any set of ItemCount should re-hydrate
         // the current table rows into the (new) instances so cards aren't just
@@ -5086,7 +5132,14 @@ impl Interpreter {
 
     /// Evaluate a member chain to a value (the rvalue / GET form).
     fn eval_member(&mut self, expr: &Expr) -> Result<CobolValue, RuntimeError> {
-        if let Expr::Member { recv, member, args, span, .. } = expr {
+        if let Expr::Member {
+            recv,
+            member,
+            args,
+            span,
+            ..
+        } = expr
+        {
             let is_var_or_lit = match recv.as_ref() {
                 Expr::Literal(..) => true,
                 Expr::Identifier(name, _) => self.env.contains(name),
@@ -5108,8 +5161,14 @@ impl Interpreter {
 
                 match m.as_str() {
                     "REPLACE" => {
-                        let target = evaluated_args.get(0).map(|v| v.as_display_string()).unwrap_or_default();
-                        let replacement = evaluated_args.get(1).map(|v| v.as_display_string()).unwrap_or_default();
+                        let target = evaluated_args
+                            .get(0)
+                            .map(|v| v.as_display_string())
+                            .unwrap_or_default();
+                        let replacement = evaluated_args
+                            .get(1)
+                            .map(|v| v.as_display_string())
+                            .unwrap_or_default();
                         let res_str = recv_val.as_display_string().replace(&target, &replacement);
                         let len = res_str.len();
                         return Ok(CobolValue::from_str(&res_str, len));
@@ -5134,7 +5193,10 @@ impl Interpreter {
                         return Ok(CobolValue::Numeric(CobolNumeric::integer(count as i64)));
                     }
                     "SPLIT" => {
-                        let sep = evaluated_args.get(0).map(|v| v.as_display_string()).unwrap_or_else(|| " ".to_string());
+                        let sep = evaluated_args
+                            .get(0)
+                            .map(|v| v.as_display_string())
+                            .unwrap_or_else(|| " ".to_string());
                         let text = recv_val.as_display_string();
                         let splits: Vec<&str> = text.split(&sep).collect();
                         let elem = splits.first().cloned().unwrap_or("").to_string();
@@ -5881,7 +5943,10 @@ impl Interpreter {
                 indices,
                 span: s,
             } => {
-                if let Expr::Member { recv, member, args, .. } = base.as_ref() {
+                if let Expr::Member {
+                    recv, member, args, ..
+                } = base.as_ref()
+                {
                     if member.to_ascii_uppercase() == "SPLIT" {
                         let text = self.eval_expr(recv, *s)?.as_display_string();
                         let sep = if let Some(first_arg) = args.first() {
@@ -5894,7 +5959,10 @@ impl Interpreter {
                         let idx = self.eval_indices(indices, *s);
                         if let Some(&i) = idx.first() {
                             let i_usize = (i - 1).max(0) as usize; // 1-based index to 0-based
-                            let elem = splits.get(i_usize).map(|&x| x.to_string()).unwrap_or_default();
+                            let elem = splits
+                                .get(i_usize)
+                                .map(|&x| x.to_string())
+                                .unwrap_or_default();
                             let len = elem.len();
                             return Ok(CobolValue::from_str(&elem, len));
                         }
@@ -7634,8 +7702,14 @@ MAIN.
                 ("IsRepeatingGroup".to_owned(), "true".to_owned()),
                 ("ArrayName".to_owned(), "ActorArray".to_owned()),
                 ("_BindingKind".to_owned(), "CobolTable".to_owned()),
-                ("_BindingFields".to_owned(), "ACTOR-ID\nACTOR-CAPTION".to_owned()),
-                ("_BindingMappings".to_owned(), "ACTOR-CAPTION\tlabel-3\tCaption".to_owned()),
+                (
+                    "_BindingFields".to_owned(),
+                    "ACTOR-ID\nACTOR-CAPTION".to_owned(),
+                ),
+                (
+                    "_BindingMappings".to_owned(),
+                    "ACTOR-CAPTION\tlabel-3\tCaption".to_owned(),
+                ),
                 ("_BindingArray".to_owned(), "1".to_owned()),
             ],
         )]);
@@ -7645,7 +7719,7 @@ MAIN.
         interp.env.set_str("ACTOR-CAPTION(2)", "Joe Pesci");
 
         assert_eq!(interp.refresh_control_array_binding("ActorArray"), 2);
-        
+
         let updates: Vec<_> = state_rx.try_iter().collect();
         println!("UPDATES: {:?}", updates);
     }

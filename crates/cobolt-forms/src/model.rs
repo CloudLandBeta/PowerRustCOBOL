@@ -2928,16 +2928,18 @@ impl Control {
 
         // ── Drop shadow ───────────────────────────────────────────────────────
         props.insert("ShadowEnabled".into(), PropValue::Bool(false));
-        props.insert("ShadowOpacity".into(), PropValue::Int(20)); // 0-100 %
+        props.insert("ShadowOpacity".into(), PropValue::Int(6)); // 0-100 %
         props.insert("ShadowColor".into(), PropValue::String("#000000".into()));
-        props.insert("ShadowDirection".into(), PropValue::String("South".into())); // N/NE/E/SE/S/SW/W/NW
+        props.insert(
+            "ShadowDirection".into(),
+            PropValue::String("SouthEast".into()),
+        ); // N/NE/E/SE/S/SW/W/NW
         props.insert("ShadowDistance".into(), PropValue::Int(7)); // px
         props.insert("ShadowBlur".into(), PropValue::Bool(true)); // enable soft-blur falloff
         props.insert("ShadowBlurStrength".into(), PropValue::Int(8)); // 0-20, blur radius in layers
 
-        // ── Identification (z-order, label association) ────────────────────────
+        // ── Identification ────────────────────────────────────────────────────
         props.insert("ZOrder".into(), PropValue::Int(0));
-        props.insert("LabelFor".into(), PropValue::String("".into())); // ID of associated Label
 
         // ── Data binding (all controls) ────────────────────────────────────────
         props.insert("DataItem".into(), PropValue::String("".into()));
@@ -2948,6 +2950,7 @@ impl Control {
             ControlType::TextBox => {
                 props.insert("Text".into(), PropValue::String("".into()));
                 props.insert("HintText".into(), PropValue::String("".into()));
+                props.insert("InnerPadding".into(), PropValue::Int(3));
                 props.insert("MaximumLength".into(), PropValue::Int(0));
                 props.insert("Multiline".into(), PropValue::Bool(false));
                 props.insert("PasswordCharacter".into(), PropValue::String("".into()));
@@ -3110,10 +3113,9 @@ impl Control {
                 );
                 props.insert("ItemSpacing".into(), PropValue::Int(8));
                 props.insert("ItemsPerRow".into(), PropValue::Int(1));
-                // How each card appears as the data binds: None (instant),
-                // Deal (all stacked on the first card, then dealt to their final
-                // spots one after another), or FadeIn (fades in at its final spot,
-                // each after the previous finishes). See render's card-appear logic.
+                // How each card appears as the data binds: None (instant), Deal
+                // (stacked on the first card, then dealt to final spots), FadeIn,
+                // ZoomIn, or ZoomOut. See render's card-appear logic.
                 props.insert("PlacementEffect".into(), PropValue::String("None".into()));
                 props.insert("CardAppearDuration".into(), PropValue::Int(200));
                 props.insert("CloneEvents".into(), PropValue::Bool(true));
@@ -3183,6 +3185,7 @@ impl Control {
                 props.insert("Tabs".into(), PropValue::String("Tab1\nTab2".into()));
                 props.insert("TabPosition".into(), PropValue::String("Top".into()));
                 props.insert("SelectedTab".into(), PropValue::Int(0));
+                props.insert("TabPadding".into(), PropValue::Int(7));
                 // Container behaviour (spec 012).
                 props.insert("HScroll".into(), PropValue::Bool(false));
                 props.insert("VScroll".into(), PropValue::Bool(false));
@@ -3582,10 +3585,31 @@ impl Control {
             }
             ControlType::Panel => Rect::new(r.x + 2, r.y + 2, (r.w - 4).max(0), (r.h - 4).max(0)),
             ControlType::TabControl => {
-                Rect::new(r.x + 2, r.y + 2, (r.w - 4).max(0), (r.h - 4).max(0))
+                let top = self.tab_content_top_inset();
+                Rect::new(
+                    r.x + 2,
+                    r.y + top + 2,
+                    (r.w - 4).max(0),
+                    (r.h - top - 4).max(0),
+                )
             }
             _ => r,
         }
+    }
+
+    pub fn tab_strip_height(&self) -> i32 {
+        26
+    }
+
+    pub fn tab_padding(&self) -> i32 {
+        self.get_prop("TabPadding")
+            .map(|v| v.as_i64())
+            .unwrap_or(7)
+            .clamp(0, 64) as i32
+    }
+
+    pub fn tab_content_top_inset(&self) -> i32 {
+        self.tab_strip_height() + self.tab_padding()
     }
 
     pub fn get_prop(&self, name: &str) -> Option<&PropValue> {
@@ -4311,6 +4335,26 @@ mod tests {
         assert!(!lbl.events[0].code.contains("Label-1::"));
     }
 
+    #[test]
+    fn new_controls_do_not_expose_label_for_property() {
+        for control_type in [
+            ControlType::Label,
+            ControlType::TextBox,
+            ControlType::Button,
+            ControlType::GroupBox,
+            ControlType::Panel,
+            ControlType::DataGrid,
+            ControlType::BarChart,
+        ] {
+            let type_name = format!("{control_type:?}");
+            let ctrl = Control::new("C", control_type, 0, 0);
+            assert!(
+                ctrl.get_prop("LabelFor").is_none(),
+                "{type_name} should not expose LabelFor by default"
+            );
+        }
+    }
+
     fn sample_fields() -> Vec<BindingField> {
         vec![
             BindingField::new("CUSTOMER-ID", BindingDataType::Integer).key(),
@@ -4600,6 +4644,7 @@ mod tests {
         assert!(property_names_for("Timer").contains(&"Interval".to_string()));
         assert!(property_names_for("ProgressBar").contains(&"BarColor".to_string()));
         assert!(property_names_for("TreeView").contains(&"ShowLines".to_string()));
+        assert!(property_names_for("TextBox").contains(&"InnerPadding".to_string()));
         // sorted + non-empty for every named type
         for t in [
             "Button",
@@ -4612,6 +4657,17 @@ mod tests {
             assert!(!p.is_empty(), "{t} has no properties");
             assert!(p.windows(2).all(|w| w[0] <= w[1]), "{t} not sorted");
         }
+    }
+
+    #[test]
+    fn new_controls_use_neumorphic_shadow_baseline_defaults() {
+        let c = Control::new("AnyControl", ControlType::Button, 0, 0);
+        assert_eq!(c.get_prop("ShadowOpacity").unwrap().as_i64(), 6);
+        assert_eq!(c.get_prop("ShadowColor").unwrap().as_str(), "#000000");
+        assert_eq!(c.get_prop("ShadowDirection").unwrap().as_str(), "SouthEast");
+        assert_eq!(c.get_prop("ShadowDistance").unwrap().as_i64(), 7);
+        assert!(c.get_prop("ShadowBlur").unwrap().as_bool());
+        assert_eq!(c.get_prop("ShadowBlurStrength").unwrap().as_i64(), 8);
     }
 
     #[test]
@@ -4681,6 +4737,7 @@ mod tests {
             ControlType::Panel,
             ControlType::TabControl,
         ] {
+            let is_tab = t == ControlType::TabControl;
             let c = Control::new("C1", t, 10, 20);
             assert!(
                 c.is_container(),
@@ -4705,6 +4762,12 @@ mod tests {
                 cr.y > c.rect.y && cr.h < c.rect.h,
                 "content_rect must inset for chrome"
             );
+            if is_tab {
+                assert_eq!(c.get_prop("TabPadding").unwrap().as_i64(), 7);
+                assert_eq!(c.tab_strip_height(), 26);
+                assert_eq!(c.tab_content_top_inset(), 33);
+                assert_eq!(cr.y, c.rect.y + 35);
+            }
         }
         // A non-container keeps a plain content_rect and gains no container props.
         let b = Control::new("B", ControlType::Button, 10, 20);

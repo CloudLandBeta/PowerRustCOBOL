@@ -651,39 +651,19 @@ pub fn draw_glass_neumorphic(
         .unwrap_or_default();
 
     // ── Shadow reach (blur spread) ────────────────────────────────────────────
-    // Use the absolute value of blur_strength for the spread so that negative
-    // values produce the same spread magnitude as positive ones.  A negative
-    // blur_strength inverts (swaps) the light/dark shadow positions, making the
-    // control appear sunken/inset into the surface instead of raised above it.
-    //   blur_strength > 0 → raised (light NW, dark SE)
-    //   blur_strength = 0 → flat / no shadow
-    //   blur_strength < 0 → sunken (light SE, dark NW — inverted)
+    // Positive blur is the normal Neumorphic relief drawn behind the control.
+    // Negative blur is handled after the surface fill as an inset/front-plane
+    // relief, so it can project inward from the rounded border.
     let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
     let layers = 10_usize;
 
-    if params.shadow_on {
+    if params.shadow_on && params.blur_strength >= 0.0 {
         let ux = params.shadow_dir[0];
         let uy = params.shadow_dir[1];
         let distance = params.distance;
-        let sunken = params.blur_strength < 0.0;
 
-        // For raised controls shadows bleed OUTSIDE rect (normal halo).
-        // For sunken controls shadows are clipped INSIDE rect — identical to
-        // CSS `inset box-shadow`. The offsets are also swapped so that:
-        //   raised : light=NW-outside  dark=SE-outside  → button protrudes
-        //   sunken : light=SE-inside   dark=NW-inside   → button recessed
-        let clipped_inset;
-        let sp: &egui::Painter = if sunken {
-            clipped_inset = painter.with_clip_rect(painter.clip_rect().intersect(rect));
-            &clipped_inset
-        } else {
-            painter
-        };
-
-        // Light shadow (white) — opposite direction when raised, same as user
-        // direction when sunken (so it bleeds in from the SE interior edge).
-        let light_sign = if sunken { 1.0_f32 } else { -1.0_f32 };
-        let light_offset = Vec2::new(light_sign * ux * distance, light_sign * uy * distance);
+        // Light shadow (white) — opposite the user direction for raised relief.
+        let light_offset = Vec2::new(-ux * distance, -uy * distance);
         let light_opac = (params.shadow_opac * 3.25).clamp(0.0, 1.0);
         for i in 0..=layers {
             let t = 1.0 - (i as f32 / layers as f32); // 1 (outer) → 0 (core)
@@ -695,17 +675,15 @@ pub fn draw_glass_neumorphic(
             }
             let layer_rect = rect.translate(light_offset).expand(expand);
             let layer_round = round_map(rnd, |c| c + expand);
-            sp.rect_filled(
+            painter.rect_filled(
                 layer_rect,
                 layer_round,
                 Color32::from_rgba_premultiplied(a_val, a_val, a_val, a_val),
             );
         }
 
-        // Dark shadow — user direction when raised (SE-outside), opposite
-        // direction when sunken (NW-inside, bleeds in from the NW interior edge).
-        let dark_sign = if sunken { -1.0_f32 } else { 1.0_f32 };
-        let dark_offset = Vec2::new(dark_sign * ux * distance, dark_sign * uy * distance);
+        // Dark shadow — user direction for raised relief.
+        let dark_offset = Vec2::new(ux * distance, uy * distance);
         let sc = params.shadow_color;
         let dark_max_opac = params.shadow_opac;
         for i in 0..=layers {
@@ -718,7 +696,7 @@ pub fn draw_glass_neumorphic(
             }
             let layer_rect = rect.translate(dark_offset).expand(expand);
             let layer_round = round_map(rnd, |c| c + expand);
-            sp.rect_filled(
+            painter.rect_filled(
                 layer_rect,
                 layer_round,
                 Color32::from_rgba_premultiplied(
@@ -744,6 +722,10 @@ pub fn draw_glass_neumorphic(
         sa,
     );
     painter.rect_filled(rect, rnd, fill);
+
+    if neumorphic_shadow_overlays(&params) {
+        draw_neumorphic_overlay_shadow(painter, rect, rnd, &params, alpha_mul);
+    }
 
     // ── 4. Asymmetric border (only when selected) ─────────────────────────────
     // By default Neumorphic has NO border — relief comes from illumination.
@@ -791,6 +773,9 @@ pub fn draw_neumorphic_shadow_only(
         .data(|d| d.get_temp::<NeumorphicShadowParams>(neumorphic_params_id()))
         .unwrap_or_default();
     if !params.shadow_on {
+        return;
+    }
+    if neumorphic_shadow_overlays(&params) {
         return;
     }
 
@@ -857,6 +842,156 @@ pub fn draw_neumorphic_shadow_only(
             ),
         );
     }
+}
+
+fn neumorphic_shadow_overlays(params: &NeumorphicShadowParams) -> bool {
+    params.shadow_on && params.blur_strength < 0.0
+}
+
+fn draw_neumorphic_overlay_shadow_only(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: impl Into<egui::Rounding>,
+    alpha_mul: f32,
+) {
+    let params = painter
+        .ctx()
+        .data(|d| d.get_temp::<NeumorphicShadowParams>(neumorphic_params_id()))
+        .unwrap_or_default();
+    draw_neumorphic_overlay_shadow(painter, rect, rounding, &params, alpha_mul);
+}
+
+fn neumorphic_inset_shadow_metrics(params: &NeumorphicShadowParams) -> (f32, usize, f32, f32) {
+    let strength = (params.blur_strength.abs() / 20.0).clamp(0.0, 1.0);
+    let spread = 1.5 + 53.0 * strength.powf(0.85);
+    let layers = (4.0 + 32.0 * strength).round() as usize;
+    let opacity_scale = (0.36 + 1.64 * strength.powf(0.75)).clamp(0.0, 2.0);
+    let stroke_w = 0.9 + 4.7 * strength.powf(0.8);
+    (spread, layers.max(1), opacity_scale, stroke_w)
+}
+
+fn draw_neumorphic_overlay_shadow(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: impl Into<egui::Rounding>,
+    params: &NeumorphicShadowParams,
+    alpha_mul: f32,
+) {
+    if alpha_mul <= 0.0 || !neumorphic_shadow_overlays(params) {
+        return;
+    }
+
+    let am = alpha_mul.clamp(0.0, 1.0);
+    let rnd0: egui::Rounding = rounding.into();
+    let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
+    let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
+    let (spread, layers, opacity_scale, _stroke_w) = neumorphic_inset_shadow_metrics(params);
+    let steps = spread.ceil().max(layers as f32).max(1.0) as usize;
+
+    let edge_inset = |distance: f32, r: f32| -> f32 {
+        if r < 0.5 || distance >= r {
+            0.0
+        } else {
+            (r - (r * r - (r - distance) * (r - distance)).max(0.0).sqrt()).max(0.0)
+        }
+    };
+    let shade = |color: Color32, opacity: f32, t: f32| -> Color32 {
+        let falloff = (-4.5 * t * t).exp();
+        let a_val = (opacity * opacity_scale * am * falloff * 255.0).clamp(0.0, 255.0) as u8;
+        Color32::from_rgba_premultiplied(
+            (color.r() as f32 * (a_val as f32 / 255.0)) as u8,
+            (color.g() as f32 * (a_val as f32 / 255.0)) as u8,
+            (color.b() as f32 * (a_val as f32 / 255.0)) as u8,
+            a_val,
+        )
+    };
+
+    // Negative blur is an inset/front-plane Neumorphic relief. It is drawn as
+    // narrow bands that start at the rounded inner border and fade inward. Each
+    // band computes its own corner inset, so no square/rectangular overlay can
+    // spill across the control's curved corners or into the center.
+    let draw_horizontal = |top: bool, color: Color32, opacity: f32| {
+        for i in 0..steps {
+            let distance = i as f32;
+            if distance > rect.height() * 0.5 {
+                break;
+            }
+            let t = (distance / spread.max(1.0)).clamp(0.0, 1.0);
+            let fill = shade(color, opacity, t);
+            if fill.a() == 0 {
+                continue;
+            }
+            let y0 = if top {
+                rect.top() + distance
+            } else {
+                rect.bottom() - distance - 1.0
+            };
+            let y1 = (y0 + 1.0).min(rect.bottom());
+            if y1 <= rect.top() || y1 <= y0 {
+                continue;
+            }
+            let left_r = if top { rnd.nw } else { rnd.sw };
+            let right_r = if top { rnd.ne } else { rnd.se };
+            let left_inset = edge_inset(distance, left_r);
+            let right_inset = edge_inset(distance, right_r);
+            let band = egui::Rect::from_min_max(
+                Pos2::new(rect.left() + left_inset, y0.max(rect.top())),
+                Pos2::new(rect.right() - right_inset, y1),
+            );
+            if band.width() > 0.0 {
+                painter.rect_filled(band, 0.0, fill);
+            }
+        }
+    };
+
+    let draw_vertical = |left: bool, color: Color32, opacity: f32| {
+        for i in 0..steps {
+            let distance = i as f32;
+            if distance > rect.width() * 0.5 {
+                break;
+            }
+            let t = (distance / spread.max(1.0)).clamp(0.0, 1.0);
+            let fill = shade(color, opacity, t);
+            if fill.a() == 0 {
+                continue;
+            }
+            let x0 = if left {
+                rect.left() + distance
+            } else {
+                rect.right() - distance - 1.0
+            };
+            let x1 = (x0 + 1.0).min(rect.right());
+            if x1 <= rect.left() || x1 <= x0 {
+                continue;
+            }
+            let top_r = if left { rnd.nw } else { rnd.ne };
+            let bottom_r = if left { rnd.sw } else { rnd.se };
+            let top_inset = edge_inset(distance, top_r);
+            let bottom_inset = edge_inset(distance, bottom_r);
+            let band = egui::Rect::from_min_max(
+                Pos2::new(x0.max(rect.left()), rect.top() + top_inset),
+                Pos2::new(x1, rect.bottom() - bottom_inset),
+            );
+            if band.height() > 0.0 {
+                painter.rect_filled(band, 0.0, fill);
+            }
+        }
+    };
+
+    let user_opacity = params.shadow_opac;
+    let white_opacity = (params.shadow_opac * 3.25).clamp(0.0, 1.0);
+    draw_vertical(
+        params.shadow_dir[0] >= 0.0,
+        params.shadow_color,
+        user_opacity,
+    );
+    draw_horizontal(
+        params.shadow_dir[1] >= 0.0,
+        params.shadow_color,
+        user_opacity,
+    );
+    draw_vertical(params.shadow_dir[0] < 0.0, Color32::WHITE, white_opacity);
+    draw_horizontal(params.shadow_dir[1] < 0.0, Color32::WHITE, white_opacity);
 }
 
 /// Draw the optional asymmetric neumorphic border when the user explicitly sets
@@ -1121,6 +1256,15 @@ pub fn draw_control(
         Vec2::new(r.w as f32, r.h as f32),
     );
     let rect = scale_rect_about_center(base_rect, scale);
+    let frame_rect = if matches!(ctrl.control_type, CT::TabControl) {
+        let top = ctrl.tab_content_top_inset().max(0) as f32;
+        egui::Rect::from_min_max(
+            Pos2::new(rect.min.x, (rect.min.y + top).min(rect.max.y)),
+            rect.max,
+        )
+    } else {
+        rect
+    };
 
     // Opacity (0–100) fades this control. Ancestor *container* opacities are
     // already folded into the incoming `alpha_mul` by the render walk, so a faded
@@ -1145,11 +1289,11 @@ pub fn draw_control(
         let shadow_color = ctrl
             .get_prop("ShadowColor")
             .map(|v| parse_color(v.as_str()))
-            .unwrap_or(Color32::from_rgb(0, 0, 255)); // Neumorphic default: blue
+            .unwrap_or(Color32::BLACK);
         let shadow_opac = ctrl
             .get_prop("ShadowOpacity")
             .map(|v| v.as_i64())
-            .unwrap_or(7) // Neumorphic default: 7%
+            .unwrap_or(6)
             .clamp(0, 100) as f32
             / 100.0;
         let shadow_dir = ctrl
@@ -1159,7 +1303,7 @@ pub fn draw_control(
         let distance = ctrl
             .get_prop("ShadowDistance")
             .map(|v| v.as_i64())
-            .unwrap_or(6) // Neumorphic default: 6 px
+            .unwrap_or(7)
             .clamp(0, 60) as f32;
         let blur_enabled = ctrl
             .get_prop("ShadowBlur")
@@ -1168,7 +1312,7 @@ pub fn draw_control(
         let blur_strength = if blur_enabled {
             ctrl.get_prop("ShadowBlurStrength")
                 .map(|v| v.as_i64())
-                .unwrap_or(20) // Neumorphic default: 20
+                .unwrap_or(8)
                 .clamp(-20, 20) as f32 // negative → sunken / inset
         } else {
             0.0
@@ -1201,108 +1345,9 @@ pub fn draw_control(
     }
 
     // ── Drop shadow ───────────────────────────────────────────────────────────
-    let shadow_on = ctrl
-        .get_prop("ShadowEnabled")
-        .map(|v| v.as_bool())
-        .unwrap_or(false);
-    if shadow_on
-        && !is_neumorphic
-        && !matches!(
-            ctrl.control_type,
-            CT::Line | CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase
-        )
-    {
-        let shadow_color = ctrl
-            .get_prop("ShadowColor")
-            .map(|v| parse_color(v.as_str()))
-            .unwrap_or(Color32::BLACK);
-        let shadow_opac = ctrl
-            .get_prop("ShadowOpacity")
-            .map(|v| v.as_i64())
-            .unwrap_or(20)
-            .clamp(0, 100) as f32
-            / 100.0;
-        let shadow_dir = ctrl
-            .get_prop("ShadowDirection")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| "South".into());
-        let distance = ctrl
-            .get_prop("ShadowDistance")
-            .map(|v| v.as_i64())
-            .unwrap_or(7)
-            .clamp(0, 60) as f32;
-        let blur_enabled = ctrl
-            .get_prop("ShadowBlur")
-            .map(|v| v.as_bool())
-            .unwrap_or(true);
-        let blur_strength = if blur_enabled {
-            ctrl.get_prop("ShadowBlurStrength")
-                .map(|v| v.as_i64())
-                .unwrap_or(8)
-                .clamp(0, 20) as usize
-        } else {
-            0
-        };
-
-        // Direction → unit vector (ux, uy)
-        let (ux, uy): (f32, f32) = match shadow_dir.as_str() {
-            "North" => (0.0, -1.0),
-            "NorthEast" => (0.707, -0.707),
-            "East" => (1.0, 0.0),
-            "SouthEast" => (0.707, 0.707),
-            "South" => (0.0, 1.0),
-            "SouthWest" => (-0.707, 0.707),
-            "West" => (-1.0, 0.0),
-            "NorthWest" => (-0.707, -0.707),
-            _ => (0.0, 1.0),
-        };
-        let shadow_rect = rect.translate(Vec2::new(ux * distance, uy * distance));
-        let corner_r = ctrl
-            .get_prop("CornerRadius")
-            .map(|v| v.as_i64() as f32)
-            .unwrap_or(3.0);
-        let sc = shadow_color;
-
-        if blur_strength == 0 {
-            // ── Hard shadow — single solid rect ───────────────────────────────
-            let alpha = (shadow_opac * alpha_mul * 255.0) as u8;
-            painter.rect_filled(
-                shadow_rect,
-                corner_r,
-                Color32::from_rgba_premultiplied(
-                    (sc.r() as f32 * shadow_opac * alpha_mul) as u8,
-                    (sc.g() as f32 * shadow_opac * alpha_mul) as u8,
-                    (sc.b() as f32 * shadow_opac * alpha_mul) as u8,
-                    alpha,
-                ),
-            );
-        } else {
-            // ── Soft blur — concentric expanding rects with gaussian falloff ──
-            // We draw `blur_strength + 1` layers from outermost (faintest) to
-            // innermost (darkest), so the painter's back-to-front order gives the
-            // right look: the core of the shadow is the most opaque.
-            let layers = blur_strength;
-            for i in 0..=layers {
-                // i=0 → outer rim (t=1, faintest); i=layers → core (t=0, darkest)
-                let t = 1.0 - (i as f32 / layers as f32); // 1 → 0
-                let expand = t * blur_strength as f32;
-                // Gaussian falloff: e^(-k·t²) where k controls how sharply the
-                // shadow fades.  k=3 gives a natural soft shadow feel.
-                let falloff = (-3.0 * t * t).exp();
-                let alpha = (shadow_opac * alpha_mul * falloff * 255.0) as u8;
-                let layer_rect = shadow_rect.expand(expand);
-                painter.rect_filled(
-                    layer_rect,
-                    corner_r + expand,
-                    Color32::from_rgba_premultiplied(
-                        (sc.r() as f32 * (alpha as f32 / 255.0)) as u8,
-                        (sc.g() as f32 * (alpha as f32 / 255.0)) as u8,
-                        (sc.b() as f32 * (alpha as f32 / 255.0)) as u8,
-                        alpha,
-                    ),
-                );
-            }
-        }
+    let regular_shadow = regular_drop_shadow(ctrl, frame_rect, is_neumorphic);
+    if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| !shadow.overlay) {
+        draw_regular_drop_shadow(painter, shadow, alpha_mul);
     }
 
     // ── Line control ──────────────────────────────────────────────────────────
@@ -1477,6 +1522,9 @@ pub fn draw_control(
             };
             painter.rect_filled(rect, rr, fill);
             painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c));
+        }
+        if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+            draw_regular_drop_shadow(painter, shadow, alpha_mul);
         }
         return;
     }
@@ -1729,6 +1777,9 @@ pub fn draw_control(
                 draw_neumorphic_shadow_only(painter, track_rect, track_half_w, alpha_mul);
             }
             draw_glass_pill(painter, track_rect, track_body, true, track_rim);
+            if is_neumorphic {
+                draw_neumorphic_overlay_shadow_only(painter, track_rect, track_half_w, alpha_mul);
+            }
 
             // Tick marks
             if tick_st != "None" && range_units > 0.0 {
@@ -1792,6 +1843,9 @@ pub fn draw_control(
                 draw_neumorphic_shadow_only(painter, track_rect, track_half_h, alpha_mul);
             }
             draw_glass_pill(painter, track_rect, track_body, true, track_rim);
+            if is_neumorphic {
+                draw_neumorphic_overlay_shadow_only(painter, track_rect, track_half_h, alpha_mul);
+            }
 
             // Tick marks
             if tick_st != "None" && range_units > 0.0 {
@@ -1892,6 +1946,9 @@ pub fn draw_control(
                 Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
             );
         }
+        if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+            draw_regular_drop_shadow(painter, shadow, alpha_mul);
+        }
         return;
     }
 
@@ -1956,6 +2013,12 @@ pub fn draw_control(
                 Color32::from_rgba_premultiplied(0, 0, 0, a),
             );
         }
+        if is_neumorphic {
+            draw_neumorphic_overlay_shadow_only(painter, rect, 2.0, alpha_mul);
+        }
+        if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+            draw_regular_drop_shadow(painter, shadow, alpha_mul);
+        }
         return;
     }
 
@@ -2008,7 +2071,7 @@ pub fn draw_control(
     // radius on any corner that lands on a rounded GroupBox/Panel border — so the
     // card/background is cut by the parent shape and never bleeds past its rounded
     // corner (spec 017). Equals `corner` on all four corners when free-standing.
-    let frame_round = control_border_rounding(ctrl, rect, corner);
+    let frame_round = control_border_rounding(ctrl, frame_rect, corner);
 
     let is_label = matches!(ctrl.control_type, CT::Label);
 
@@ -2020,9 +2083,9 @@ pub fn draw_control(
             .map(|v| v.as_bool())
             .unwrap_or(true);
 
-    // A chart with HideBackground must draw NO card/glass frame here —
-    // `draw_chart_preview` owns the chart's (suppressed) background, so the
-    // generic frame drawn below would otherwise show through (spec 013 fix).
+    // Charts own their full card/background in `draw_chart_preview`. Drawing the
+    // generic glass frame first leaves an extra dark under-frame that can show
+    // through rounded corner notches in preview/run surfaces.
     let chart_frameless = matches!(
         ctrl.control_type,
         CT::BarChart
@@ -2031,10 +2094,7 @@ pub fn draw_control(
             | CT::AreaChart
             | CT::ScatterChart
             | CT::DonutChart
-    ) && ctrl
-        .get_prop("HideBackground")
-        .map(|v| v.as_bool())
-        .unwrap_or(false);
+    );
 
     // A container (GroupBox/Panel) with HideBackground draws no fill/border
     // (children stay visible); with a background gradient enabled it fills with
@@ -2085,14 +2145,16 @@ pub fn draw_control(
                 .map(|v| parse_color(v.as_str()))
                 .unwrap_or(fill),
         );
-        painter.add(egui::Shape::mesh(grad_dir_mesh(rect, start, end, &dir)));
+        painter.add(egui::Shape::mesh(grad_dir_mesh(
+            frame_rect, start, end, &dir,
+        )));
         let bc = if selected {
             Color32::from_rgba_premultiplied(60, 120, 230, a)
         } else {
             alpha_color(stroke_color)
         };
         painter.rect_stroke(
-            rect,
+            frame_rect,
             corner,
             Stroke::new(if selected { 2.0 } else { 1.0 }, bc),
         );
@@ -2106,20 +2168,20 @@ pub fn draw_control(
         if let Some(tex) = load_theme_texture(painter.ctx(), &img.to_string_lossy()) {
             // Explicit BackgroundColor (R12) tints the skin; otherwise white = as-authored.
             let tint = Color32::from_white_alpha(a);
-            draw_nine_slice(painter, rect, &tex, skin.slice, tint);
+            draw_nine_slice(painter, frame_rect, &tex, skin.slice, tint);
             if selected {
                 painter.rect_stroke(
-                    rect,
+                    frame_rect,
                     corner,
                     Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
                 );
             }
         } else {
             // Image missing / undecodable → never fail; fall back to glass (R11).
-            draw_glass_auto(painter, rect, fill, frame_round, selected, alpha_mul);
+            draw_glass_auto(painter, frame_rect, fill, frame_round, selected, alpha_mul);
         }
     } else if glass {
-        draw_glass_auto(painter, rect, fill, frame_round, selected, alpha_mul);
+        draw_glass_auto(painter, frame_rect, fill, frame_round, selected, alpha_mul);
         // When the control has an explicit BorderStyle + BorderWidth, draw the
         // user border on top of the glass frame so containers (Panel, GroupBox)
         // honour the same border properties as non-glass controls. Neumorphic
@@ -2128,7 +2190,7 @@ pub fn draw_control(
             if is_neumorphic {
                 draw_neumorphic_user_border(
                     painter,
-                    rect,
+                    frame_rect,
                     frame_round,
                     user_border_width,
                     alpha_mul,
@@ -2146,7 +2208,7 @@ pub fn draw_control(
                 };
                 let half = bw * 0.5;
                 painter.rect_stroke(
-                    rect.shrink(half),
+                    frame_rect.shrink(half),
                     round_map(frame_round, |c| {
                         if c <= 0.0 {
                             0.0
@@ -2181,7 +2243,7 @@ pub fn draw_control(
             band(spec_h * 0.45, 22); // narrower brighter core
         }
     } else {
-        painter.rect_filled(rect, frame_round, alpha_color(fill));
+        painter.rect_filled(frame_rect, frame_round, alpha_color(fill));
         if border_style != "None" {
             let bw = if selected {
                 2.0_f32.max(user_border_width)
@@ -2193,10 +2255,10 @@ pub fn draw_control(
             } else {
                 alpha_color(stroke_color)
             };
-            painter.rect_stroke(rect, frame_round, Stroke::new(bw, bc));
+            painter.rect_stroke(frame_rect, frame_round, Stroke::new(bw, bc));
         } else if selected {
             painter.rect_stroke(
-                rect,
+                frame_rect,
                 frame_round,
                 Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
             );
@@ -2311,6 +2373,9 @@ pub fn draw_control(
                         Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
                     );
                 }
+                if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+                    draw_regular_drop_shadow(painter, shadow, alpha_mul);
+                }
                 return; // skip generic text rendering below
             }
             // No image loaded — show placeholder text
@@ -2351,6 +2416,9 @@ pub fn draw_control(
                 alpha_mul,
                 selected,
             );
+            if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+                draw_regular_drop_shadow(painter, shadow, alpha_mul);
+            }
             return;
         }
         CT::TreeView => "🌲 [TreeView]".into(),
@@ -2487,6 +2555,15 @@ pub fn draw_control(
             if bold {
                 painter.galley(text_pos + Vec2::new(0.5, 0.0), galley, txt_color);
             }
+        } else if matches!(ctrl.control_type, CT::TextBox) {
+            let pad = textbox_inner_padding(ctrl).min(rect.width() * 0.45);
+            painter.text(
+                egui::pos2(rect.left() + pad, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                &label,
+                crate::fonts::font_id(painter.ctx(), &font_name, fsize),
+                txt_color,
+            );
         } else {
             painter.text(
                 rect.center(),
@@ -2576,6 +2653,10 @@ pub fn draw_control(
             egui::FontId::proportional(6.0),
             Color32::WHITE,
         );
+    }
+
+    if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+        draw_regular_drop_shadow(painter, shadow, alpha_mul);
     }
 }
 
@@ -2706,23 +2787,15 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
         origin,
         Vec2::new(ctrl.rect.w.max(0) as f32, ctrl.rect.h.max(0) as f32),
     );
-    let stroke_color = ctrl
-        .get_prop("BorderColor")
-        .map(|v| parse_color(v.as_str()))
-        .unwrap_or_else(|| control_colors(&ctrl.control_type, false).1);
-    let a = alpha_mul.clamp(0.0, 1.0);
-    let alpha_color = |c: Color32| -> Color32 {
-        Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * a) as u8)
-    };
-
     let sel = ctrl
         .get_prop("SelectedTab")
         .map(|v| v.as_i64())
         .unwrap_or(0)
         .max(0) as usize;
-    let strip_h = 24.0_f32;
-    let mut tx = rect.min.x + 2.0;
-    let ty = rect.min.y + 1.0;
+    let strip_h = ctrl.tab_strip_height() as f32;
+    let tab_gap = ctrl.tab_padding().max(0) as f32;
+    let mut tx = rect.min.x;
+    let ty = rect.min.y;
     for (i, t) in tabs.iter().enumerate() {
         let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
         if tx + tw > rect.max.x {
@@ -2730,21 +2803,15 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
         }
         let tr = egui::Rect::from_min_size(Pos2::new(tx, ty), Vec2::new(tw, strip_h));
         let active = i == sel;
-        let fill_c = if active {
-            Color32::from_rgb(245, 246, 250)
-        } else {
-            Color32::from_rgb(208, 213, 224)
-        };
-        painter.rect_filled(tr, 3.0, alpha_color(fill_c));
-        painter.rect_stroke(tr, 3.0, Stroke::new(1.0, alpha_color(stroke_color)));
-        painter.text(
-            tr.center(),
-            egui::Align2::CENTER_CENTER,
-            t,
-            egui::FontId::proportional(11.0),
-            alpha_color(Color32::from_rgb(40, 40, 50)),
-        );
-        tx += tw + 2.0;
+        let mut tab = Control::new(format!("{}__tab_{}", ctrl.id, i), ControlType::Button, 0, 0);
+        tab.rect = crate::model::Rect::new(0, 0, tw.round() as i32, strip_h.round() as i32);
+        tab.properties = ctrl.properties.clone();
+        tab.set_prop("Caption", PropValue::String(t.to_owned()));
+        tab.set_prop("CornerRadius", PropValue::Int(4));
+        tab.set_prop("BorderStyle", PropValue::String("Single".into()));
+        tab.set_prop("BorderWidth", PropValue::Int(1));
+        draw_control(painter, tr.min, &tab, active, true, alpha_mul, 1.0, None);
+        tx += tw + tab_gap;
     }
 }
 
@@ -3914,7 +3981,10 @@ pub fn draw_chart_preview(
 ) {
     use crate::model::ControlType as CT;
 
+    const CHART_FRAME_DIAGNOSTICS: bool = false;
+
     let _ = selected; // selection border drawn by caller
+    let control_rect = rect;
 
     // ── Background ────────────────────────────────────────────────────────────
     // `HideBackground` suppresses the panel fill + border frame so only the chart
@@ -3948,30 +4018,46 @@ pub fn draw_chart_preview(
         a,
     );
     if !hide_bg {
-        if glass {
-            let bg_underlay = ctrl
-                .get_prop("BackgroundColor")
-                .map(|v| parse_color(v.as_str()));
-            draw_glass_auto_bg(
+        // Charts draw dense internal content and then repaint rounded-corner
+        // notches. Using the generic glass card here also paints its own dark
+        // depth layers under the chart face, which show as black square corner
+        // bleed. Keep charts on a single rounded face; external drop shadows are
+        // still handled by the normal shadow path in `draw_control`.
+        if glass && is_neumorphic {
+            let shadow_rect = debug_frame_rect(control_rect, 0, CHART_FRAME_DIAGNOSTICS);
+            debug_frame_label(
                 painter,
-                rect,
-                default_face,
-                bg_underlay,
-                rounding,
-                false,
-                alpha_mul,
+                shadow_rect,
+                "CHART_NEU_SHADOW",
+                CHART_FRAME_DIAGNOSTICS,
             );
-        } else {
-            painter.rect_filled(rect, rounding, bg);
-            let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
-            painter.rect_stroke(rect, rounding, Stroke::new(1.0, border));
+            draw_neumorphic_shadow_only(painter, shadow_rect, rounding, alpha_mul);
         }
+        let face_rect = debug_frame_rect(control_rect, 1, CHART_FRAME_DIAGNOSTICS);
+        debug_frame_label(painter, face_rect, "CHART_FACE", CHART_FRAME_DIAGNOSTICS);
+        painter.rect_filled(face_rect, rounding, bg);
+        if glass && is_neumorphic {
+            draw_neumorphic_overlay_shadow_only(painter, face_rect, rounding, alpha_mul);
+        }
+        let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
+        let border_rect = debug_frame_rect(control_rect, 2, CHART_FRAME_DIAGNOSTICS);
+        debug_frame_label(
+            painter,
+            border_rect,
+            "CHART_BORDER",
+            CHART_FRAME_DIAGNOSTICS,
+        );
+        painter.rect_stroke(border_rect, rounding, Stroke::new(1.0, border));
     }
 
-    // All chart content is drawn through a clipped painter so nothing bleeds
-    // outside the rounded-corner frame.  We inset by 1 px so the border stroke
-    // itself is never covered.
-    let painter = &painter.with_clip_rect(rect.shrink(1.0));
+    let frame_painter = painter;
+    let rect = debug_frame_rect(control_rect, 3, CHART_FRAME_DIAGNOSTICS);
+    debug_frame_label(
+        frame_painter,
+        rect,
+        "CHART_CONTENT",
+        CHART_FRAME_DIAGNOSTICS,
+    );
 
     // 007 chart-style hook — an asset-pack theme supplies the data palette and
     // stroke width for the data marks (pie slices / lines / bars), so charts take
@@ -4037,6 +4123,8 @@ pub fn draw_chart_preview(
         Pos2::new(rect.min.x + margin_l, rect.min.y + margin_t),
         Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
     );
+    let content_clip = plot.expand(8.0).intersect(rect.shrink(1.0));
+    let painter = &painter.with_clip_rect(content_clip);
 
     // Monochrome gradient (spec 013): when on, each data element gets its OWN
     // tonal gradient (bars vertical, bubbles/slices radial) and line/area charts
@@ -4416,6 +4504,22 @@ pub fn draw_chart_preview(
             badge_c,
         );
     }
+
+    if !hide_bg {
+        let outline = if glass {
+            Color32::from_rgba_premultiplied(170, 170, 170, (170.0 * alpha_mul) as u8)
+        } else {
+            Color32::from_rgba_premultiplied(60, 80, 160, a)
+        };
+        let outline_rect = debug_frame_rect(control_rect, 4, CHART_FRAME_DIAGNOSTICS);
+        debug_frame_label(
+            frame_painter,
+            outline_rect,
+            "CHART_OUTLINE",
+            CHART_FRAME_DIAGNOSTICS,
+        );
+        frame_painter.rect_stroke(outline_rect, rounding, Stroke::new(1.0, outline));
+    }
 }
 
 /// Unified corner radius (px) for a control's rounded fill/border and content
@@ -4440,6 +4544,147 @@ pub fn corner_radius(ctrl: &Control) -> f32 {
         });
     let max_r = 0.5 * (ctrl.rect.w.min(ctrl.rect.h) as f32);
     raw.clamp(0.0, max_r.max(0.0))
+}
+
+pub fn textbox_inner_padding(ctrl: &Control) -> f32 {
+    ctrl.get_prop("InnerPadding")
+        .map(|v| v.as_i64())
+        .unwrap_or(3)
+        .clamp(0, 128) as f32
+}
+
+/// Corner radius used by regular drop-shadow layers.
+///
+/// The shadow is painted before the control body, so any part that sits under
+/// the control must match the control's own rounded silhouette exactly. Using
+/// the canonical helper keeps hard shadows, zero/disabled blur shadows, and soft
+/// shadow cores aligned with `CornerRadius`, legacy `BorderRadius`, per-control
+/// defaults, and size clamping.
+fn drop_shadow_corner_radius(ctrl: &Control) -> f32 {
+    corner_radius(ctrl)
+}
+
+#[derive(Debug, Clone)]
+struct RegularDropShadow {
+    rect: Rect,
+    color: Color32,
+    opacity: f32,
+    blur_strength: usize,
+    corner_radius: f32,
+    overlay: bool,
+}
+
+fn regular_drop_shadow(
+    ctrl: &Control,
+    rect: Rect,
+    is_neumorphic: bool,
+) -> Option<RegularDropShadow> {
+    use crate::ControlType as CT;
+
+    if is_neumorphic
+        || !ctrl
+            .get_prop("ShadowEnabled")
+            .map(|v| v.as_bool())
+            .unwrap_or(false)
+        || matches!(
+            ctrl.control_type,
+            CT::Line | CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase
+        )
+    {
+        return None;
+    }
+
+    let shadow_color = ctrl
+        .get_prop("ShadowColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::BLACK);
+    let shadow_opac = ctrl
+        .get_prop("ShadowOpacity")
+        .map(|v| v.as_i64())
+        .unwrap_or(20)
+        .clamp(0, 100) as f32
+        / 100.0;
+    let shadow_dir = ctrl
+        .get_prop("ShadowDirection")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "South".into());
+    let distance = ctrl
+        .get_prop("ShadowDistance")
+        .map(|v| v.as_i64())
+        .unwrap_or(7)
+        .clamp(0, 60) as f32;
+    let blur_enabled = ctrl
+        .get_prop("ShadowBlur")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
+    let signed_blur = if blur_enabled {
+        ctrl.get_prop("ShadowBlurStrength")
+            .map(|v| v.as_i64())
+            .unwrap_or(8)
+            .clamp(-20, 20)
+    } else {
+        0
+    };
+
+    let (ux, uy): (f32, f32) = match shadow_dir.as_str() {
+        "North" => (0.0, -1.0),
+        "NorthEast" => (0.707, -0.707),
+        "East" => (1.0, 0.0),
+        "SouthEast" => (0.707, 0.707),
+        "South" => (0.0, 1.0),
+        "SouthWest" => (-0.707, 0.707),
+        "West" => (-1.0, 0.0),
+        "NorthWest" => (-0.707, -0.707),
+        _ => (0.0, 1.0),
+    };
+
+    Some(RegularDropShadow {
+        rect: rect.translate(Vec2::new(ux * distance, uy * distance)),
+        color: shadow_color,
+        opacity: shadow_opac,
+        blur_strength: signed_blur.unsigned_abs() as usize,
+        corner_radius: drop_shadow_corner_radius(ctrl),
+        overlay: signed_blur < 0,
+    })
+}
+
+fn draw_regular_drop_shadow(painter: &egui::Painter, shadow: &RegularDropShadow, alpha_mul: f32) {
+    let sc = shadow.color;
+    if shadow.blur_strength == 0 {
+        let alpha = (shadow.opacity * alpha_mul * 255.0) as u8;
+        painter.rect_filled(
+            shadow.rect,
+            shadow.corner_radius,
+            Color32::from_rgba_premultiplied(
+                (sc.r() as f32 * shadow.opacity * alpha_mul) as u8,
+                (sc.g() as f32 * shadow.opacity * alpha_mul) as u8,
+                (sc.b() as f32 * shadow.opacity * alpha_mul) as u8,
+                alpha,
+            ),
+        );
+        return;
+    }
+
+    // Draw from outermost (faintest) to innermost (darkest), so the painter's
+    // back-to-front order gives the shadow a denser core.
+    let layers = shadow.blur_strength;
+    for i in 0..=layers {
+        let t = 1.0 - (i as f32 / layers as f32);
+        let expand = t * shadow.blur_strength as f32;
+        let falloff = (-3.0 * t * t).exp();
+        let alpha = (shadow.opacity * alpha_mul * falloff * 255.0) as u8;
+        let layer_rect = shadow.rect.expand(expand);
+        painter.rect_filled(
+            layer_rect,
+            shadow.corner_radius + expand,
+            Color32::from_rgba_premultiplied(
+                (sc.r() as f32 * (alpha as f32 / 255.0)) as u8,
+                (sc.g() as f32 * (alpha as f32 / 255.0)) as u8,
+                (sc.b() as f32 * (alpha as f32 / 255.0)) as u8,
+                alpha,
+            ),
+        );
+    }
 }
 
 /// Composite premultiplied `fg` over premultiplied `bg`.
@@ -4575,6 +4820,35 @@ fn round_map(r: egui::Rounding, f: impl Fn(f32) -> f32) -> egui::Rounding {
         ne: f(r.ne),
         sw: f(r.sw),
         se: f(r.se),
+    }
+}
+
+fn debug_frame_label(painter: &egui::Painter, rect: egui::Rect, name: &str, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    let label_rect =
+        egui::Rect::from_min_size(rect.min + Vec2::new(0.0, -18.0), Vec2::new(140.0, 18.0));
+    painter.rect_filled(label_rect, 0.0, Color32::RED);
+    painter.text(
+        label_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        name,
+        egui::FontId::proportional(10.0),
+        Color32::YELLOW,
+    );
+}
+
+fn debug_frame_offset(slot: usize) -> Vec2 {
+    let delta = 60.0 * slot as f32;
+    Vec2::new(delta, delta)
+}
+
+fn debug_frame_rect(rect: egui::Rect, slot: usize, enabled: bool) -> egui::Rect {
+    if enabled {
+        rect.translate(debug_frame_offset(slot))
+    } else {
+        rect
     }
 }
 
@@ -5458,6 +5732,111 @@ mod theme_render_tests {
         let mut z = big(ControlType::Button);
         z.set_prop("CornerRadius", PropValue::Int(0));
         assert_eq!(corner_radius(&z), 0.0);
+    }
+
+    #[test]
+    fn textbox_inner_padding_defaults_and_clamps() {
+        use crate::model::{Control, ControlType, PropValue};
+
+        let mut c = Control::new("Text1", ControlType::TextBox, 0, 0);
+        assert_eq!(textbox_inner_padding(&c), 3.0);
+
+        c.set_prop("InnerPadding", PropValue::Int(24));
+        assert_eq!(textbox_inner_padding(&c), 24.0);
+
+        c.set_prop("InnerPadding", PropValue::Int(-8));
+        assert_eq!(textbox_inner_padding(&c), 0.0);
+
+        c.set_prop("InnerPadding", PropValue::Int(500));
+        assert_eq!(textbox_inner_padding(&c), 128.0);
+    }
+
+    #[test]
+    fn drop_shadow_corner_radius_matches_control_silhouette() {
+        use crate::model::{Control, ControlType, PropValue, Rect};
+
+        let mut alias_only = Control::new("Panel1", ControlType::Panel, 0, 0);
+        alias_only.rect = Rect::new(0, 0, 120, 80);
+        alias_only.properties.shift_remove("CornerRadius");
+        alias_only.set_prop("BorderRadius", PropValue::Int(22));
+        assert_eq!(
+            drop_shadow_corner_radius(&alias_only),
+            corner_radius(&alias_only)
+        );
+        assert_eq!(drop_shadow_corner_radius(&alias_only), 22.0);
+
+        let mut clamped = Control::new("Button1", ControlType::Button, 0, 0);
+        clamped.rect = Rect::new(0, 0, 30, 16);
+        clamped.set_prop("CornerRadius", PropValue::Int(40));
+        assert_eq!(drop_shadow_corner_radius(&clamped), corner_radius(&clamped));
+        assert_eq!(drop_shadow_corner_radius(&clamped), 8.0);
+
+        let square = Control::new("Text1", ControlType::TextBox, 0, 0);
+        assert_eq!(drop_shadow_corner_radius(&square), 0.0);
+    }
+
+    #[test]
+    fn negative_regular_drop_shadow_blur_draws_as_overlay() {
+        use crate::model::{Control, ControlType, PropValue, Rect};
+
+        let mut c = Control::new("Button1", ControlType::Button, 0, 0);
+        c.rect = Rect::new(0, 0, 100, 40);
+        c.set_prop("ShadowEnabled", PropValue::Bool(true));
+        c.set_prop("ShadowBlur", PropValue::Bool(true));
+        c.set_prop("ShadowBlurStrength", PropValue::Int(-12));
+
+        let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 40.0));
+        let shadow = regular_drop_shadow(&c, rect, false).expect("shadow enabled");
+        assert!(shadow.overlay, "negative blur must draw above the control");
+        assert_eq!(shadow.blur_strength, 12);
+
+        c.set_prop("ShadowBlurStrength", PropValue::Int(12));
+        let shadow = regular_drop_shadow(&c, rect, false).expect("shadow enabled");
+        assert!(!shadow.overlay, "positive blur remains behind the control");
+        assert_eq!(shadow.blur_strength, 12);
+    }
+
+    #[test]
+    fn negative_neumorphic_blur_is_front_plane_inset_relief() {
+        let mut params = NeumorphicShadowParams {
+            shadow_on: true,
+            blur_strength: -8.0,
+            ..Default::default()
+        };
+        assert!(
+            neumorphic_shadow_overlays(&params),
+            "negative Neumorphic blur must draw front-plane inset relief"
+        );
+        assert!(params.shadow_dir[0] > 0.0 && params.shadow_dir[1] > 0.0);
+        params.blur_strength = -1.0;
+        let weak = neumorphic_inset_shadow_metrics(&params);
+        params.blur_strength = -20.0;
+        let strong = neumorphic_inset_shadow_metrics(&params);
+        assert!(strong.0 > weak.0, "spread must grow toward -20");
+        assert!(strong.1 > weak.1, "layer count must grow toward -20");
+        assert!(strong.2 > weak.2, "opacity must grow toward -20");
+        assert!(strong.3 > weak.3, "stroke width must grow toward -20");
+        assert!(
+            strong.0 >= 54.0,
+            "max negative blur should use the stronger inset spread"
+        );
+        assert!(
+            strong.2 >= 2.0,
+            "max negative blur should double inset opacity strength"
+        );
+
+        params.blur_strength = 8.0;
+        assert!(
+            !neumorphic_shadow_overlays(&params),
+            "positive Neumorphic blur remains a behind-control relief shadow"
+        );
+
+        params.shadow_on = false;
+        params.blur_strength = -8.0;
+        assert!(
+            !neumorphic_shadow_overlays(&params),
+            "disabled shadows must not draw an overlay"
+        );
     }
 
     #[test]

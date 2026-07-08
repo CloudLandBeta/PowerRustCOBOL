@@ -1729,8 +1729,8 @@ impl EditorPanel {
             ui.centered_and_justified(|ui| {
                 ui.label(
                     egui::RichText::new("Select an item in the project tree to see its details.")
-                    .color(Color32::from_gray(150))
-                    .size(15.0),
+                        .color(Color32::from_gray(150))
+                        .size(15.0),
                 );
             });
             return;

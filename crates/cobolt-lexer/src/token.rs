@@ -514,18 +514,18 @@ pub enum Token {
     Comment(String),
 
     // Operators
-    Plus,  // +
-    Minus, // -
-    Star,  // *
-    Slash, // /
-    Power, // **
+    Plus,      // +
+    Minus,     // -
+    Star,      // *
+    Slash,     // /
+    Power,     // **
     Ampersand, // &
-    Eq,    // =
-    Lt,    // <
-    Gt,    // >
-    LtEq,  // <=
-    GtEq,  // >=
-    NotEq, // <>
+    Eq,        // =
+    Lt,        // <
+    Gt,        // >
+    LtEq,      // <=
+    GtEq,      // >=
+    NotEq,     // <>
 
     // Punctuation
     Period,    // .

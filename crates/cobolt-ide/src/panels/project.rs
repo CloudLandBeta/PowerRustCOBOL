@@ -787,7 +787,11 @@ impl ProjectPanel {
                     ui.add_space(8.0);
                     status_dot(ui, status);
                     tree_icon(ui, draw_indexed_icon);
-                    if ui.small_button("🗑").on_hover_text("Remove indexed file from project").clicked() {
+                    if ui
+                        .small_button("🗑")
+                        .on_hover_text("Remove indexed file from project")
+                        .clicked()
+                    {
                         remove_clicked = true;
                     }
                     full_width_select(ui, file_selected, RichText::new(name)).on_hover_text(rel)

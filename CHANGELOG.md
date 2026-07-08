@@ -8,6 +8,291 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.128] — 2026-07-08
+
+### Fixed
+
+- **TabControl Run Form content panel** — restored the shared TabControl face
+  drawing in interactive Preview/Run Form while keeping tab clicks aligned with
+  the new outside-tab layout.
+
+## [PowerRustCOBOL 1.27.127] — 2026-07-08
+
+### Fixed
+
+- **TabControl layout parity** — TabControl tabs now render outside the content
+  panel in RAD, Preview, and Run Form, with a new `TabPadding` property that
+  controls both tab-to-tab spacing and the tab strip distance from the content
+  area.
+
+## [PowerRustCOBOL 1.27.126] — 2026-07-08
+
+### Fixed
+
+- **Stronger Neumorphic negative blur** — doubled the inset relief strength for
+  negative blur values so max blur (`-20`) reads as a clearly sunken surface
+  while still respecting rounded control geometry.
+
+## [PowerRustCOBOL 1.27.125] — 2026-07-08
+
+### Fixed
+
+- **Chart Neumorphic inset shadow** — chart backgrounds now draw the same
+  negative-blur front-plane inset relief used by other Neumorphic controls,
+  restoring the sunken effect without reintroducing the rounded-corner artifact.
+
+## [PowerRustCOBOL 1.27.124] — 2026-07-08
+
+### Fixed
+
+- **Dormant chart frame diagnostics** — hid the temporary chart frame labels and
+  offsets behind a disabled local switch, keeping the debugging tool available
+  without affecting normal RAD, Preview, or Run Form rendering.
+
+## [PowerRustCOBOL 1.27.123] — 2026-07-08
+
+### Fixed
+
+- **Chart notch-mask corner bleed** — removed the chart-only rounded notch mask
+  now that chart content is clipped to the plot area, eliminating the dark corner
+  wedges identified by the diagnostics while preserving the rounded outline.
+
+## [PowerRustCOBOL 1.27.122] — 2026-07-08
+
+### Fixed
+
+- **Chart frame diagnostics diagonal offset** — restored temporary chart layer
+  diagnostics with each candidate frame and label shifted 60 px on both X and Y
+  axes to isolate the rounded-corner bleed source.
+
+## [PowerRustCOBOL 1.27.121] — 2026-07-08
+
+### Fixed
+
+- **Chart content corner bleed** — chart grid, axes, and data marks are now
+  clipped to the plot area instead of the full chart card, preventing the
+  content layer from painting into rounded chart corners.
+
+## [PowerRustCOBOL 1.27.120] — 2026-07-08
+
+### Fixed
+
+- **Chart frame diagnostics offset** — diagnostic frame labels now move together
+  with their actual drawn frame rectangles, spacing each candidate layer 60 px
+  farther right for visual isolation.
+
+## [PowerRustCOBOL 1.27.119] — 2026-07-08
+
+### Fixed
+
+- **Chart frame diagnostics** — added temporary red/yellow layer labels to chart
+  and glass frame drawing paths so the active frame producing rounded-corner
+  bleed can be identified visually.
+
+## [PowerRustCOBOL 1.27.118] — 2026-07-08
+
+### Fixed
+
+- **Chart dark corner frame** — chart backgrounds no longer use the generic
+  glass card renderer, whose built-in black depth layers could bleed through
+  rounded chart corners independently of the configured drop shadow colour.
+
+## [PowerRustCOBOL 1.27.117] — 2026-07-08
+
+### Fixed
+
+- **Chart corner fringe cleanup** — chart rounded-corner masks now overpaint a
+  one-pixel cleanup margin while restoring the original chart outline, removing
+  dark antialias/shadow wedges at RAD chart corners.
+
+## [PowerRustCOBOL 1.27.116] — 2026-07-08
+
+### Fixed
+
+- **Chart RAD corner cleanup** — rounded chart corner masks now run even when
+  the chart background is hidden or transparent, preventing chart internals from
+  bleeding into RAD canvas corner notches.
+
+## [PowerRustCOBOL 1.27.115] — 2026-07-08
+
+### Fixed
+
+- **TabControl Neumorphic styling** — TabControl tab buttons now render through
+  the shared Button painter so Preview and Run Form keep the same style as the
+  RAD canvas, including Neumorphic relief.
+- **Neumorphic shadow defaults** — new controls now start with the baseline
+  shadow values: 6% opacity, black, SouthEast, 7 px distance, blur enabled, and
+  blur strength 8.
+
+## [PowerRustCOBOL 1.27.114] — 2026-07-08
+
+### Fixed
+
+- **Chart preview/run corner bleed** — chart controls now bypass the generic
+  glass under-frame and let the chart painter own the rounded background, border,
+  and corner mask, preventing residual dark corner bleed in Preview and Run Form.
+
+## [PowerRustCOBOL 1.27.113] — 2026-07-08
+
+### Fixed
+
+- **Chart rounded-corner bleed** — chart corner masks now repaint through the
+  full control frame painter instead of the clipped chart-content painter,
+  preventing dark chart internals from showing through rounded RAD corners.
+
+## [PowerRustCOBOL 1.27.112] — 2026-07-08
+
+### Fixed
+
+- **TextBox inner padding** — added an `InnerPadding` property for TextBox
+  controls and applied it to both design-time text rendering and runtime editing
+  placement.
+
+## [PowerRustCOBOL 1.27.111] — 2026-07-08
+
+### Fixed
+
+- **Neumorphic inset blur geometry** — negative blur now renders as rounded
+  inward edge bands that fade from the border toward the center, avoiding the
+  previous rectangular overlay look and keeping the selection outline above the
+  inset effect.
+
+## [PowerRustCOBOL 1.27.110] — 2026-07-08
+
+### Fixed
+
+- **Neumorphic negative blur corners** — negative blur now renders as inward
+  rounded relief from the control border, preserving the configured corner
+  radius instead of exposing a square clipped shadow rectangle.
+
+## [PowerRustCOBOL 1.27.109] — 2026-07-07
+
+### Fixed
+
+- **Property pane grid separators** — replaced the solid/raised grid separator
+  treatment with simple dashed lines in the property inspector.
+
+## [PowerRustCOBOL 1.27.108] — 2026-07-07
+
+### Fixed
+
+- **Neumorphic inset shadow strength** — negative blur now scales the inset
+  relief across the full `-1..-20` range instead of appearing nearly constant.
+
+## [PowerRustCOBOL 1.27.107] — 2026-07-07
+
+### Fixed
+
+- **Neumorphic inset shadow polarity** — negative blur now places the
+  user-selected drop-shadow colour on the top/left inset edge and the white
+  highlight on the bottom/right edge.
+
+## [PowerRustCOBOL 1.27.106] — 2026-07-07
+
+### Fixed
+
+- **Neumorphic inset shadow shape** — negative blur in Neumorphic style now
+  renders a two-sided clipped inset relief from the rounded border inward,
+  preserving both the user-selected shadow colour and white highlight.
+
+## [PowerRustCOBOL 1.27.105] — 2026-07-07
+
+### Fixed
+
+- **Neumorphic negative blur overlay** — negative `ShadowBlurStrength` in
+  Neumorphic style now draws the selected drop-shadow colour as a front-plane
+  blurred overlay instead of an inverted/clipped inset shadow.
+
+## [PowerRustCOBOL 1.27.104] — 2026-07-07
+
+### Fixed
+
+- **Negative blur shadow layering** — regular control shadows now preserve
+  negative `ShadowBlurStrength` values and draw those shadows above the control
+  body, while positive blur shadows continue to render behind it.
+
+## [PowerRustCOBOL 1.27.103] — 2026-07-07
+
+### Fixed
+
+- **Drop shadow corner bleed** — regular control shadows now reuse the same
+  canonical corner radius as the control body, including `BorderRadius` fallback
+  and size clamping, so zero-blur shadows stay hidden behind rounded controls.
+
+## [PowerRustCOBOL 1.27.102] — 2026-07-07
+
+### Fixed
+
+- **Inspector cleanup** — removed the obsolete `Label for` property from default
+  control properties and from the property inspector surface.
+
+## [PowerRustCOBOL 1.27.101] — 2026-07-07
+
+### Fixed
+
+- **Rounded chart corner clipping** — chart internals now repaint rounded-corner
+  cutouts with the active form backdrop after drawing their grid/data content,
+  preventing corner bleed when shadows use zero or inset blur.
+
+## [PowerRustCOBOL 1.27.100] — 2026-07-07
+
+### Fixed
+
+- **Form property inspector tabs** — applied the same Visuals, Events, and
+  Animations tabbed property-grid model to form-level properties, matching the
+  selected-control inspector structure.
+
+## [PowerRustCOBOL 1.27.99] — 2026-07-07
+
+### Fixed
+
+- **Property inspector full-grid conversion** — moved remaining selected-control
+  and form-level inspector sections onto the shared two-column property grid,
+  removing local mini-grids and section-card wrappers from the side inspector.
+
+## [PowerRustCOBOL 1.27.98] — 2026-07-07
+
+### Fixed
+
+- **Property inspector object grid** — changed the selected-control inspector
+  rows to a true shared two-column property grid with in-row draggable
+  separator, spanning section headers, wrapping label cells, and no forced
+  properties pane width.
+
+## [PowerRustCOBOL 1.27.97] — 2026-07-07
+
+### Fixed
+
+- **Property inspector grid model** — refactored the selected-control Visuals
+  and Animations inspector tabs to use one continuous two-column property grid
+  with shared draggable separator, spanning section rows, and preserved editors
+  instead of independent local grid/card layouts.
+
+## [PowerRustCOBOL 1.27.96] — 2026-07-07
+
+### Fixed
+
+- **GroupBox array placement timing** — designer card placement effects now
+  restart on mouse release, so the elastic zoom/rubber-band motion begins from
+  the committed final card layout instead of aging while the user drags.
+
+## [PowerRustCOBOL 1.27.95] — 2026-07-07
+
+### Fixed
+
+- **Property inspector layout** — grouped the control inspector into Visuals,
+  Events, and Animations tabs with theme-aware section headers, shared
+  two-column row styling, 3 px cell padding, and a draggable column separator
+  without forcing the properties pane width.
+
+## [PowerRustCOBOL 1.27.94] — 2026-07-07
+
+### Fixed
+
+- **GroupBox array placement effects** — added ZoomIn and ZoomOut card
+  placement animations with elastic scale-only motion anchored at each card's
+  final layout position.
+
 ## [PowerRustCOBOL 1.27.93] — 2026-07-07
 
 ### Fixed

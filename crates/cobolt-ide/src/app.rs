@@ -71,8 +71,6 @@ use crate::data_binding_guardian::{
     validate_binding_action, BindingActionGate, BindingActionGateReport,
 };
 
-
-
 /// Whitelist of *design-intent* control properties that an interactive Run-Form
 /// adjustment may write back into the form definition (the control's new
 /// defaults). Deliberately narrow: layout only, never runtime data (Rows,
@@ -2402,7 +2400,10 @@ impl CoboltApp {
         if let Some(dir) = self.project_dir() {
             let copybooks_dir = dir.join("COPYBOOKS");
             let _ = std::fs::create_dir_all(&copybooks_dir);
-            let stem = cidx.file_stem().and_then(|s| s.to_str()).unwrap_or(&def.name);
+            let stem = cidx
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&def.name);
             let sel_path = copybooks_dir.join(format!("{}.SEL", stem));
             let fd_path = copybooks_dir.join(format!("{}.FD", stem));
             let sel_content = cobolt_codegen::generate_indexed_select(def);
@@ -4783,7 +4784,11 @@ impl cobolt_forms::render::FormState for RunState<'_> {
             let has_state = self.state.keys().any(|k| k.eq_ignore_ascii_case(&base.id));
             tracing::debug!(target: "databinding", "LIVE for instance {} has_ctrl_state={}", base.id, has_state);
         }
-        let key = self.state.keys().find(|k| k.eq_ignore_ascii_case(&base.id)).cloned();
+        let key = self
+            .state
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(&base.id))
+            .cloned();
         match key.and_then(|k| self.state.get(&k)) {
             Some(s) => cobolt_forms::render::merge_props(base, s.props.iter()),
             None => base.clone(),
@@ -4791,11 +4796,15 @@ impl cobolt_forms::render::FormState for RunState<'_> {
     }
     fn visible(&self, base: &cobolt_forms::Control) -> bool {
         let key = self.state.keys().find(|k| k.eq_ignore_ascii_case(&base.id));
-        key.and_then(|k| self.state.get(k)).map(|s| s.visible).unwrap_or(true)
+        key.and_then(|k| self.state.get(k))
+            .map(|s| s.visible)
+            .unwrap_or(true)
     }
     fn enabled(&self, base: &cobolt_forms::Control) -> bool {
         let key = self.state.keys().find(|k| k.eq_ignore_ascii_case(&base.id));
-        key.and_then(|k| self.state.get(k)).map(|s| s.enabled).unwrap_or(true)
+        key.and_then(|k| self.state.get(k))
+            .map(|s| s.enabled)
+            .unwrap_or(true)
     }
 }
 
@@ -5579,7 +5588,8 @@ impl CoboltApp {
                 // forward the correct instance_index so the handler receives it via
                 // CONTROL-ARRAY-INDEX (property updates already used instance_index).
                 let (dispatch_id, inst) = if ev.ctrl_id.contains('.') {
-                    let base = ev.ctrl_id
+                    let base = ev
+                        .ctrl_id
                         .rsplit('.')
                         .next()
                         .unwrap_or(&ev.ctrl_id)
@@ -5856,7 +5866,10 @@ impl CoboltApp {
                         ui.checkbox(&mut self.delete_data_file, text);
                     } else {
                         ui.add_enabled_ui(false, |ui| {
-                            let text = format!("Delete data file from disk (file not found)\n  ({})", p.display());
+                            let text = format!(
+                                "Delete data file from disk (file not found)\n  ({})",
+                                p.display()
+                            );
                             let mut dummy = false;
                             ui.checkbox(&mut dummy, text);
                         });
@@ -6482,7 +6495,10 @@ fn apply_data_binding_target_properties(form: &mut Form, binding: &DataBindingDe
         };
         tracing::debug!(target: "databinding", "[ControlArray] array_id={} n={} source_fields={:?}",
             array_id, n, fields.iter().map(|f| &f.name).collect::<Vec<_>>());
-        fn find_group_mut<'a>(ctrl: &'a mut cobolt_forms::Control, array_id: &str) -> Option<&'a mut cobolt_forms::Control> {
+        fn find_group_mut<'a>(
+            ctrl: &'a mut cobolt_forms::Control,
+            array_id: &str,
+        ) -> Option<&'a mut cobolt_forms::Control> {
             if matches!(ctrl.control_type, ControlType::GroupBox)
                 && ctrl.explicit_control_array_id().as_deref() == Some(array_id)
             {
@@ -6541,7 +6557,10 @@ pub(crate) fn seed_control_array_binding_preview_values(
     } else {
         rows.len().clamp(1, 20)
     };
-    fn find_group_ref<'a>(ctrl: &'a cobolt_forms::Control, array_id: &str) -> Option<&'a cobolt_forms::Control> {
+    fn find_group_ref<'a>(
+        ctrl: &'a cobolt_forms::Control,
+        array_id: &str,
+    ) -> Option<&'a cobolt_forms::Control> {
         if matches!(ctrl.control_type, ControlType::GroupBox)
             && ctrl.explicit_control_array_id().as_deref() == Some(array_id)
         {

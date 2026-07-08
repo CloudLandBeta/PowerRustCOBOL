@@ -131,7 +131,8 @@ pub fn show_edit_control(
                 *cell = EditCell::Text(cell.display_text(field, tr));
             }
             if let EditCell::Text(s) = cell {
-                ui.add(egui::TextEdit::singleline(s).desired_width(300.0)).changed()
+                ui.add(egui::TextEdit::singleline(s).desired_width(300.0))
+                    .changed()
             } else {
                 false
             }
@@ -141,7 +142,8 @@ pub fn show_edit_control(
                 *cell = EditCell::Text(cell.display_text(field, tr));
             }
             if let EditCell::Text(s) = cell {
-                ui.add(egui::TextEdit::singleline(s).desired_width(300.0)).changed()
+                ui.add(egui::TextEdit::singleline(s).desired_width(300.0))
+                    .changed()
             } else {
                 false
             }

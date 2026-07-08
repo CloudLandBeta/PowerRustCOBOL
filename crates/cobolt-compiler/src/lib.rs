@@ -525,7 +525,11 @@ fn build_core(
         bin_name.clone()
     };
 
-    let profile_dir = if proj.project.debug_compilation { "debug" } else { "release" };
+    let profile_dir = if proj.project.debug_compilation {
+        "debug"
+    } else {
+        "release"
+    };
     let src_bin = build_dir.join("target").join(profile_dir).join(&exe_name);
     let dst_bin = bin_dir.join(&exe_name);
     std::fs::copy(&src_bin, &dst_bin)?;
@@ -595,13 +599,18 @@ fn build_core(
         project_dir.join(&dest_name)
     };
 
-    log(&format!("📂 Creating destination folder: {}", dest_path.display()));
+    log(&format!(
+        "📂 Creating destination folder: {}",
+        dest_path.display()
+    ));
     let _ = std::fs::create_dir_all(&dest_path);
 
     // Copy project binary to destination folder
     let dest_bin = dest_path.join(&exe_name);
     if let Err(e) = std::fs::copy(&dst_bin, &dest_bin) {
-        log(&format!("⚠️  Failed to copy binary to destination folder: {e}"));
+        log(&format!(
+            "⚠️  Failed to copy binary to destination folder: {e}"
+        ));
     } else {
         // Make executable on Unix
         #[cfg(unix)]
@@ -614,7 +623,7 @@ fn build_core(
             }
         }
     }
-    
+
     // Deep copy assets folder (if it exists) to destination folder
     let assets_src = project_dir.join("assets");
     if assets_src.exists() && assets_src.is_dir() {

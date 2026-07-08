@@ -36,7 +36,7 @@ use cobolt_forms::{
 };
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
-use egui::{Color32, DragValue, RichText, ScrollArea, Ui};
+use egui::{Color32, DragValue, Rect, RichText, ScrollArea, Sense, Ui};
 
 /// A colour-swatch button that opens egui's colour picker in a pinned popup with a
 /// fixed-size header (live swatch + editable `RRGGBBAA` hex) and fixed-width R/G/B/A
@@ -2988,6 +2988,15 @@ pub struct PropertiesPanel {
     new_anim_name: String,
     binding_editor: Option<BindingEditorState>,
     datagrid_editor: Option<String>,
+    active_tab: InspectorTab,
+    property_split: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InspectorTab {
+    Visuals,
+    Events,
+    Animations,
 }
 
 impl PropertiesPanel {
@@ -2999,6 +3008,8 @@ impl PropertiesPanel {
             new_anim_name: String::new(),
             binding_editor: None,
             datagrid_editor: None,
+            active_tab: InspectorTab::Visuals,
+            property_split: 0.0,
         }
     }
 
@@ -3011,30 +3022,16 @@ impl PropertiesPanel {
         tr: &Tr,
     ) -> InspectorAction {
         let mut action = InspectorAction::default();
-        // Pin the inspector to the panel's *current* width (both min and max). egui's
-        // SidePanel records the content's resulting rect width as the panel width every
-        // frame, so otherwise the pane would shrink to fit a control with few/short
-        // properties and grow for one with long values — i.e. resize itself on every
-        // selection. Forcing the content to fill exactly the available width keeps the
-        // recorded width constant; resizing stays the developer's job (drag the edge).
-        let panel_w = ui.available_width();
-        ui.set_width(panel_w);
-        // `both()` (not just vertical): the pane stays bounded to its own width, but
-        // if a single control's properties are genuinely wider than the pane (e.g. a
-        // long label beside a fixed-width combo at a narrow pane), the overflow becomes
-        // horizontally scrollable instead of bleeding past the window border or being
-        // clipped out of reach. Normal content still fits and never shows an h-bar.
-        ScrollArea::both()
+        let auto_split = (ui.available_width() * 0.42).clamp(96.0, 400.0);
+        if !self.property_split.is_finite() || self.property_split <= 0.0 {
+            self.property_split = auto_split;
+        }
+        ScrollArea::vertical()
             .id_salt("properties_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // Clamp the scroll content to the (finite) panel width. A vertical
-                // ScrollArea can report an unbounded content width, which lets
-                // `desired_width(f32::INFINITY)` fields inside Grids (Advanced,
-                // Events, Animations, …) expand past the panel and drag the SidePanel
-                // wider. `.min(panel_w)` keeps every section within the border while
-                // still tracking the pane as the developer resizes it.
-                ui.set_max_width(ui.available_width().min(panel_w));
+                ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                ui.data_mut(|d| d.insert_temp(property_split_id(), self.property_split));
                 if let Some(ctrl) = ctrl {
                     self.show_control(ui, form, ctrl, indexed_files, &mut action, tr);
                 } else {
@@ -3100,648 +3097,84 @@ impl PropertiesPanel {
                     .small(),
             );
         });
-        // LabelFor association
-        {
-            let cur = ctrl
-                .get_prop("LabelFor")
-                .map(|v| v.as_str().to_owned())
-                .unwrap_or_default();
-            text_row_hint(
-                ui,
-                &mut self.text_bufs,
-                &id,
-                "LabelFor",
-                &cur,
-                tr.lbl_label_for,
-                "LBL-1 (auto-arrange)",
-                action,
-            );
-        }
         ui.separator();
+        self.show_tabs(ui);
+        self.property_split = self
+            .property_split
+            .clamp(72.0, ui.available_width().max(72.0));
+        ui.data_mut(|d| d.insert_temp(property_split_id(), self.property_split));
 
-        // ── Geometry ──────────────────────────────────────────────────────────
-        section_header(ui, tr.sec_geometry);
-        egui::Grid::new(format!("geo_{id}"))
-            .num_columns(4)
-            .spacing([4.0, 4.0])
-            .show(ui, |ui| {
-                ui.label("X:");
-                let mut x = ctrl.rect.x;
-                if ui.add(DragValue::new(&mut x).speed(1)).changed() {
-                    action
-                        .set_props
-                        .push((id.clone(), "X".into(), PropValue::Int(x as i64)));
+        match self.active_tab {
+            InspectorTab::Visuals => {
+                // ── Geometry ──────────────────────────────────────────────────────────
+                self.show_geometry_grid(ui, ctrl, &id, action, tr);
+                if ctrl.get_prop("CornerRadius").is_some() {
+                    int_row_inline(
+                        ui,
+                        &id,
+                        "CornerRadius",
+                        "Corner radius",
+                        ctrl,
+                        action,
+                        0..=400,
+                    );
                 }
-                ui.label("W:");
-                let mut w = ctrl.rect.w;
-                if ui
-                    .add(DragValue::new(&mut w).speed(1).range(1..=9999))
-                    .changed()
-                {
-                    action
-                        .set_props
-                        .push((id.clone(), "Width".into(), PropValue::Int(w as i64)));
-                }
-                ui.end_row();
+                ui.add_space(4.0);
 
-                ui.label("Y:");
-                let mut y = ctrl.rect.y;
-                if ui.add(DragValue::new(&mut y).speed(1)).changed() {
-                    action
-                        .set_props
-                        .push((id.clone(), "Y".into(), PropValue::Int(y as i64)));
-                }
-                ui.label("H:");
-                let mut h = ctrl.rect.h;
-                if ui
-                    .add(DragValue::new(&mut h).speed(1).range(1..=9999))
-                    .changed()
-                {
-                    action
-                        .set_props
-                        .push((id.clone(), "Height".into(), PropValue::Int(h as i64)));
-                }
-                ui.end_row();
-
-                ui.label("Z:");
-                let mut z = ctrl.z_order as i64;
-                if ui
-                    .add(
-                        DragValue::new(&mut z)
-                            .speed(1)
-                            .prefix("z=")
-                            .range(-9999..=9999),
-                    )
-                    .changed()
-                {
-                    action
-                        .set_props
-                        .push((id.clone(), "ZOrder".into(), PropValue::Int(z)));
-                }
-                ui.label(RichText::new("(z-order)").small().color(Color32::GRAY));
-                ui.end_row();
-            });
-        if ctrl.get_prop("CornerRadius").is_some() {
-            int_row_inline(
-                ui,
-                &id,
-                "CornerRadius",
-                "Corner radius",
-                ctrl,
-                action,
-                0..=400,
-            );
-        }
-        ui.add_space(4.0);
-
-        // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase) only
-        // show geometry + type-specific settings + events — no style, no animations.
-        if ctrl.control_type.is_non_visual() {
-            self.show_type_specific(ui, ctrl, &id, action, tr);
-            Self::show_events(ui, ctrl, &id, action, tr);
-            return;
-        }
-
-        // ── Appearance ────────────────────────────────────────────────────────
-        section_header(ui, tr.sec_appearance);
-
-        egui::Grid::new(format!("appearance_{id}"))
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                // Caption (controls with an intrinsic text label) / Text (TextBox only)
-                let text_key: Option<&str> = match ctrl.control_type {
-                    ControlType::Label
-                    | ControlType::Button
-                    | ControlType::CheckBox
-                    | ControlType::RadioButton
-                    | ControlType::GroupBox => Some("Caption"),
-                    ControlType::TextBox => Some("Text"),
-                    _ => None,
-                };
-                if let Some(cap_key) = text_key {
-                    let cur = ctrl
-                        .get_prop(cap_key)
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    ui.label(cap_key);
-                    {
-                        let buf_key = format!("{id}-{cap_key}");
-                        let wid = egui::Id::new(&buf_key);
-                        let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur.clone();
-                        }
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.clone(),
-                                cap_key.into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                    }
-                    ui.end_row();
+                // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase) only
+                // show geometry + type-specific settings + events — no style, no animations.
+                if ctrl.control_type.is_non_visual() {
+                    self.show_type_specific(ui, ctrl, &id, action, tr);
+                    return;
                 }
 
-                // BackColor
-                if ctrl.get_prop("BackgroundColor").is_some() {
-                    let hex = ctrl
-                        .get_prop("BackgroundColor")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_else(|| "#F0F0F0".into());
-                    let mut color = hex_to_color32(&hex);
-                    ui.label(tr.lbl_back_color);
-                    ui.horizontal(|ui| {
-                        if color_edit_button_closing(ui, &mut color).changed() {
-                            action.set_props.push((
-                                id.clone(),
-                                "BackgroundColor".into(),
-                                PropValue::String(color32_to_hex(color)),
-                            ));
-                        }
+                // ── Appearance ────────────────────────────────────────────────────────
+                self.show_appearance_grid(ui, ctrl, &id, action, tr);
+
+                // ── Drop Shadow ───────────────────────────────────────────────────────
+                self.show_shadow_grid(ui, ctrl, &id, action, tr);
+
+                // ── Layout ────────────────────────────────────────────────────────────
+                self.show_layout_grid(ui, ctrl, &id, action, tr);
+
+                match visibility_for_control(form, ctrl) {
+                    DataBindingVisibility::Hidden => {}
+                    DataBindingVisibility::ApprovedTarget(_) => {
+                        section_header(ui, tr.sec_data_binding);
                         ui.label(
-                            RichText::new(color32_to_hex(color))
-                                .monospace()
+                            RichText::new(tr.data_binding_target_ready)
+                                .color(Color32::GRAY)
                                 .small()
-                                .color(Color32::GRAY),
+                                .italics(),
                         );
-                    });
-                    ui.end_row();
-                }
-
-                // ForeColor
-                if ctrl.get_prop("ForegroundColor").is_some() {
-                    let hex = ctrl
-                        .get_prop("ForegroundColor")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_else(|| "#000000".into());
-                    let mut color = hex_to_color32(&hex);
-                    ui.label(tr.lbl_fore_color);
-                    ui.horizontal(|ui| {
-                        if color_edit_button_closing(ui, &mut color).changed() {
-                            action.set_props.push((
-                                id.clone(),
-                                "ForegroundColor".into(),
-                                PropValue::String(color32_to_hex(color)),
-                            ));
-                        }
-                        ui.label(
-                            RichText::new(color32_to_hex(color))
-                                .monospace()
-                                .small()
-                                .color(Color32::GRAY),
-                        );
-                    });
-                    ui.end_row();
-                }
-
-                // Font name — dropdown of installed system fonts (fallback: Arial).
-                ui.label(tr.lbl_font);
-                {
-                    let cur = ctrl
-                        .get_prop("FontName")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_else(|| "Arial".into());
-                    let mut sel = cur.clone();
-                    let fonts = crate::fonts::system_fonts();
-                    // Show the selected font's name rendered in that font.
-                    let sel_fid = crate::fonts::font_id(ui.ctx(), &cur, 14.0);
-                    egui::ComboBox::from_id_salt(format!("{id}-FontName"))
-                        .selected_text(egui::RichText::new(&cur).font(sel_fid))
-                        .width(ui.available_width())
-                        .show_ui(ui, |ui| {
-                            // If the saved font isn't installed here, still list it so it
-                            // stays selectable (it falls back to Arial on a target lacking it).
-                            if !fonts.iter().any(|f| f == &cur) {
-                                ui.selectable_value(
-                                    &mut sel,
-                                    cur.clone(),
-                                    format!("{cur}  (not installed)"),
+                        ui.add_space(2.0);
+                        // If this control is already bound, offer to edit the saved
+                        // configuration (pre-filled) instead of forcing a fresh setup.
+                        let existing = form.binding_for_control(&ctrl.id).cloned();
+                        if let Some(binding) = &existing {
+                            if ui
+                                .button(format!(
+                                    "✎ Edit current binding ({})",
+                                    binding.display_name
+                                ))
+                                .on_hover_text("Reopen this control's saved binding configuration")
+                                .clicked()
+                            {
+                                self.binding_editor = BindingEditorState::from_existing(
+                                    form,
+                                    ctrl,
+                                    binding,
+                                    indexed_files,
                                 );
                             }
-                            // Virtualised list: only visible rows are laid out, so only the
-                            // fonts you actually scroll past get loaded into egui (loading all
-                            // ~400 system fonts up-front would be far too costly).
-                            let row_h = ui.text_style_height(&egui::TextStyle::Button);
-                            egui::ScrollArea::vertical().max_height(320.0).show_rows(
-                                ui,
-                                row_h,
-                                fonts.len(),
-                                |ui, range| {
-                                    for i in range {
-                                        let fam = &fonts[i];
-                                        let fid = crate::fonts::font_id(ui.ctx(), fam, 14.0);
-                                        ui.selectable_value(
-                                            &mut sel,
-                                            fam.clone(),
-                                            egui::RichText::new(fam).font(fid),
-                                        );
-                                    }
-                                },
-                            );
-                        });
-                    if sel != cur {
-                        action.set_props.push((
-                            id.clone(),
-                            "FontName".into(),
-                            PropValue::String(sel),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                // Font size
-                ui.label(tr.lbl_font_size);
-                {
-                    let mut fs = ctrl.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(10);
-                    if ui
-                        .add(DragValue::new(&mut fs).speed(0.5).range(4..=200))
-                        .changed()
-                    {
-                        action
-                            .set_props
-                            .push((id.clone(), "FontSize".into(), PropValue::Int(fs)));
-                    }
-                }
-                ui.end_row();
-
-                // Font style
-                ui.label(tr.lbl_style);
-                ui.horizontal(|ui| {
-                    let mut bold = ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false);
-                    if ui.checkbox(&mut bold, "B").changed() {
-                        action
-                            .set_props
-                            .push((id.clone(), "Bold".into(), PropValue::Bool(bold)));
-                    }
-                    let mut italic = ctrl
-                        .get_prop("Italic")
-                        .map(|v| v.as_bool())
-                        .unwrap_or(false);
-                    if ui.checkbox(&mut italic, "I").changed() {
-                        action.set_props.push((
-                            id.clone(),
-                            "Italic".into(),
-                            PropValue::Bool(italic),
-                        ));
-                    }
-                    let mut under = ctrl
-                        .get_prop("Underline")
-                        .map(|v| v.as_bool())
-                        .unwrap_or(false);
-                    if ui.checkbox(&mut under, "U").changed() {
-                        action.set_props.push((
-                            id.clone(),
-                            "Underline".into(),
-                            PropValue::Bool(under),
-                        ));
-                    }
-                    let mut strike = ctrl
-                        .get_prop("Strikethrough")
-                        .map(|v| v.as_bool())
-                        .unwrap_or(false);
-                    if ui.checkbox(&mut strike, "S̶").changed() {
-                        action.set_props.push((
-                            id.clone(),
-                            "Strikethrough".into(),
-                            PropValue::Bool(strike),
-                        ));
-                    }
-                });
-                ui.end_row();
-
-                // Visible / Enabled
-                ui.label(tr.lbl_visible);
-                {
-                    let mut vis = ctrl.visible;
-                    if ui.checkbox(&mut vis, "").changed() {
-                        action
-                            .set_props
-                            .push((id.clone(), "Visible".into(), PropValue::Bool(vis)));
-                    }
-                }
-                ui.end_row();
-
-                ui.label(tr.lbl_enabled);
-                {
-                    let mut ena = ctrl.enabled;
-                    if ui.checkbox(&mut ena, "").changed() {
-                        action
-                            .set_props
-                            .push((id.clone(), "Enabled".into(), PropValue::Bool(ena)));
-                    }
-                }
-                ui.end_row();
-
-                // Tab order
-                ui.label(tr.lbl_tab_order);
-                {
-                    let mut to = ctrl.tab_order as i64;
-                    if ui
-                        .add(DragValue::new(&mut to).speed(1).range(0..=999))
-                        .changed()
-                    {
-                        action
-                            .set_props
-                            .push((id.clone(), "TabOrder".into(), PropValue::Int(to)));
-                    }
-                }
-                ui.end_row();
-
-                // Opacity
-                if let Some(op) = ctrl.get_prop("Opacity") {
-                    ui.label(tr.lbl_opacity);
-                    let mut v = op.as_i64();
-                    if ui
-                        .add(DragValue::new(&mut v).speed(1).range(0..=100).suffix("%"))
-                        .changed()
-                    {
-                        action
-                            .set_props
-                            .push((id.clone(), "Opacity".into(), PropValue::Int(v)));
-                    }
-                    ui.end_row();
-                }
-            });
-
-        // ── Drop Shadow ───────────────────────────────────────────────────────
-        section_header(ui, tr.sec_shadow);
-        egui::Grid::new(format!("shadow_{id}"))
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                // Enabled toggle
-                ui.label(tr.lbl_shadow_enabled);
-                {
-                    let mut on = ctrl
-                        .get_prop("ShadowEnabled")
-                        .map(|v| v.as_bool())
-                        .unwrap_or(false);
-                    if ui.checkbox(&mut on, "").changed() {
-                        action.set_props.push((
-                            id.clone(),
-                            "ShadowEnabled".into(),
-                            PropValue::Bool(on),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                // Opacity
-                ui.label(tr.lbl_shadow_opacity);
-                {
-                    let mut op = ctrl
-                        .get_prop("ShadowOpacity")
-                        .map(|v| v.as_i64())
-                        .unwrap_or(20);
-                    if ui
-                        .add(DragValue::new(&mut op).speed(1).range(0..=100).suffix("%"))
-                        .changed()
-                    {
-                        action.set_props.push((
-                            id.clone(),
-                            "ShadowOpacity".into(),
-                            PropValue::Int(op),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                // Color
-                ui.label(tr.lbl_shadow_color);
-                {
-                    let hex = ctrl
-                        .get_prop("ShadowColor")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_else(|| "#000000".into());
-                    let mut color = hex_to_color32(&hex);
-                    ui.horizontal(|ui| {
-                        if color_edit_button_closing(ui, &mut color).changed() {
-                            action.set_props.push((
-                                id.clone(),
-                                "ShadowColor".into(),
-                                PropValue::String(color32_to_hex(color)),
-                            ));
+                            ui.add_space(2.0);
                         }
                         ui.label(
-                            RichText::new(color32_to_hex(color))
-                                .monospace()
-                                .small()
-                                .color(Color32::GRAY),
+                            RichText::new(tr.data_binding_choose_source)
+                                .color(Color32::GRAY)
+                                .small(),
                         );
-                    });
-                }
-                ui.end_row();
-
-                // Direction
-                ui.label(tr.lbl_shadow_direction);
-                {
-                    let cur_dir = ctrl
-                        .get_prop("ShadowDirection")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_else(|| "South".into());
-                    egui::ComboBox::from_id_salt(format!("shadow_dir_{id}"))
-                        .selected_text(&cur_dir)
-                        .width(120.0)
-                        .show_ui(ui, |ui| {
-                            for opt in &[
-                                "North",
-                                "NorthEast",
-                                "East",
-                                "SouthEast",
-                                "South",
-                                "SouthWest",
-                                "West",
-                                "NorthWest",
-                            ] {
-                                if ui.selectable_label(cur_dir == *opt, *opt).clicked() {
-                                    action.set_props.push((
-                                        id.clone(),
-                                        "ShadowDirection".into(),
-                                        PropValue::String(opt.to_string()),
-                                    ));
-                                }
-                            }
-                        });
-                }
-                ui.end_row();
-
-                // Distance
-                ui.label(tr.lbl_shadow_distance);
-                {
-                    let mut dist = ctrl
-                        .get_prop("ShadowDistance")
-                        .map(|v| v.as_i64())
-                        .unwrap_or(7);
-                    if ui
-                        .add(
-                            DragValue::new(&mut dist)
-                                .speed(1)
-                                .range(0..=60)
-                                .suffix("px"),
-                        )
-                        .changed()
-                    {
-                        action.set_props.push((
-                            id.clone(),
-                            "ShadowDistance".into(),
-                            PropValue::Int(dist),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                // Blur enabled
-                ui.label(tr.lbl_shadow_blur);
-                {
-                    let mut blur_on = ctrl
-                        .get_prop("ShadowBlur")
-                        .map(|v| v.as_bool())
-                        .unwrap_or(true);
-                    if ui.checkbox(&mut blur_on, "").changed() {
-                        action.set_props.push((
-                            id.clone(),
-                            "ShadowBlur".into(),
-                            PropValue::Bool(blur_on),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                // Blur strength
-                ui.label(tr.lbl_shadow_blur_strength);
-                {
-                    let mut bs = ctrl
-                        .get_prop("ShadowBlurStrength")
-                        .map(|v| v.as_i64())
-                        .unwrap_or(8);
-                    if ui
-                        .add(DragValue::new(&mut bs).speed(1).range(-20..=20))
-                        .changed()
-                    {
-                        action.set_props.push((
-                            id.clone(),
-                            "ShadowBlurStrength".into(),
-                            PropValue::Int(bs),
-                        ));
-                    }
-                }
-                ui.end_row();
-            });
-        ui.add_space(4.0);
-
-        // ── Layout ────────────────────────────────────────────────────────────
-        section_header(ui, tr.sec_layout);
-        egui::Grid::new(format!("layout_{id}"))
-            .num_columns(2)
-            .spacing([4.0, 3.0])
-            .show(ui, |ui| {
-                // Dock
-                let cur_dock = ctrl
-                    .get_prop("Dock")
-                    .map(|v| v.as_str().to_owned())
-                    .unwrap_or_else(|| "None".into());
-                ui.label(tr.lbl_dock);
-                egui::ComboBox::from_id_salt(format!("dock_{id}"))
-                    .selected_text(&cur_dock)
-                    .width(120.0)
-                    .show_ui(ui, |ui| {
-                        for opt in &["None", "Top", "Bottom", "Left", "Right", "Fill"] {
-                            if ui.selectable_label(cur_dock == *opt, *opt).clicked() {
-                                action.set_props.push((
-                                    id.clone(),
-                                    "Dock".into(),
-                                    PropValue::String(opt.to_string()),
-                                ));
-                            }
-                        }
-                    });
-                ui.end_row();
-
-                // Anchor
-                let cur_anc = ctrl
-                    .get_prop("Anchor")
-                    .map(|v| v.as_str().to_owned())
-                    .unwrap_or_else(|| "Top,Left".into());
-                ui.label(tr.lbl_anchor);
-                {
-                    let buf_key = format!("{id}-Anchor");
-                    let wid = egui::Id::new(&buf_key);
-                    let buf = self.text_bufs.entry(buf_key).or_insert(cur_anc.clone());
-                    if *buf != cur_anc && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur_anc;
-                    }
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(buf)
-                                .id(wid)
-                                .hint_text("Top,Left")
-                                .desired_width(120.0),
-                        )
-                        .lost_focus()
-                    {
-                        action.set_props.push((
-                            id.clone(),
-                            "Anchor".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                // Padding
-                ui.label(tr.lbl_padding);
-                let mut pad = ctrl.get_prop("Padding").map(|v| v.as_i64()).unwrap_or(0);
-                if ui
-                    .add(DragValue::new(&mut pad).speed(1).range(0..=200))
-                    .changed()
-                {
-                    action
-                        .set_props
-                        .push((id.clone(), "Padding".into(), PropValue::Int(pad)));
-                }
-                ui.end_row();
-            });
-        ui.add_space(4.0);
-
-        match visibility_for_control(form, ctrl) {
-            DataBindingVisibility::Hidden => {}
-            DataBindingVisibility::ApprovedTarget(_) => {
-                section_header(ui, tr.sec_data_binding);
-                ui.label(
-                    RichText::new(tr.data_binding_target_ready)
-                        .color(Color32::GRAY)
-                        .small()
-                        .italics(),
-                );
-                ui.add_space(2.0);
-                // If this control is already bound, offer to edit the saved
-                // configuration (pre-filled) instead of forcing a fresh setup.
-                let existing = form.binding_for_control(&ctrl.id).cloned();
-                if let Some(binding) = &existing {
-                    if ui
-                        .button(format!("✎ Edit current binding ({})", binding.display_name))
-                        .on_hover_text("Reopen this control's saved binding configuration")
-                        .clicked()
-                    {
-                        self.binding_editor =
-                            BindingEditorState::from_existing(form, ctrl, binding, indexed_files);
-                    }
-                    ui.add_space(2.0);
-                }
-                ui.label(
-                    RichText::new(tr.data_binding_choose_source)
-                        .color(Color32::GRAY)
-                        .small(),
-                );
-                ui.horizontal_wrapped(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                     for source_kind in DATA_BINDING_MODAL_SOURCES {
                         let enabled = source_kind != BindingEditorSourceKind::IndexedFile
                             || !indexed_files.is_empty();
@@ -3772,106 +3205,532 @@ impl PropertiesPanel {
                         }
                     }
                 });
-                self.show_binding_editor(ui, form, ctrl, indexed_files, action, tr);
-                ui.add_space(4.0);
+                        self.show_binding_editor(ui, form, ctrl, indexed_files, action, tr);
+                        ui.add_space(4.0);
+                    }
+                    DataBindingVisibility::ArrayMemberMapping { .. } => {
+                        section_header(ui, tr.sec_data_binding);
+                        ui.label(
+                            RichText::new(tr.data_binding_array_member)
+                                .color(Color32::GRAY)
+                                .small()
+                                .italics(),
+                        );
+                        ui.add_space(4.0);
+                    }
+                }
+
+                // ── Type-specific ─────────────────────────────────────────────────────
+                self.show_type_specific(ui, ctrl, &id, action, tr);
+
+                // ── Deployed User Control child properties ───────────────────────────
+                self.show_user_control_children(ui, form, ctrl, action, tr);
+
+                // ── Advanced ──────────────────────────────────────────────────────────
+                self.show_advanced_grid(ui, ctrl, &id, action, tr);
             }
-            DataBindingVisibility::ArrayMemberMapping { .. } => {
-                section_header(ui, tr.sec_data_binding);
-                ui.label(
-                    RichText::new(tr.data_binding_array_member)
-                        .color(Color32::GRAY)
-                        .small()
-                        .italics(),
-                );
-                ui.add_space(4.0);
+            InspectorTab::Events => {
+                Self::show_events(ui, ctrl, &id, action, tr);
+            }
+            InspectorTab::Animations => {
+                self.show_animations(ui, ctrl, &id, action, tr);
             }
         }
+        if let Some(split) = ui.data(|d| d.get_temp::<f32>(property_split_id())) {
+            self.property_split = split;
+        }
+    }
 
-        // ── Type-specific ─────────────────────────────────────────────────────
-        self.show_type_specific(ui, ctrl, &id, action, tr);
-
-        // ── Deployed User Control child properties ───────────────────────────
-        self.show_user_control_children(ui, form, ctrl, action, tr);
-
-        // ── Advanced ──────────────────────────────────────────────────────────
-        section_header(ui, tr.sec_advanced);
-        egui::Grid::new(format!("adv_{id}"))
-            .num_columns(2)
-            .spacing([8.0, 4.0])
+    fn show_tabs(&mut self, ui: &mut Ui) {
+        let theme = crate::theme::active();
+        let fill = if theme.dark {
+            Color32::from_rgba_unmultiplied(18, 22, 27, 160)
+        } else {
+            Color32::from_rgba_unmultiplied(245, 247, 250, 190)
+        };
+        egui::Frame::none()
+            .fill(fill)
+            .stroke(egui::Stroke::new(1.0, theme.panel_border()))
+            .inner_margin(egui::Margin::symmetric(3.0, 3.0))
             .show(ui, |ui| {
-                // Tooltip
-                ui.label(tr.lbl_tooltip_lbl);
-                {
-                    let cur = ctrl
-                        .get_prop("Tooltip")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    let buf_key = format!("{id}-Tooltip");
-                    let wid = egui::Id::new(&buf_key);
-                    let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
-                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur;
-                    }
-                    if ui
-                        .add(
-                            egui::TextEdit::singleline(buf)
-                                .id(wid)
-                                .hint_text("(shown on hover)")
-                                .desired_width(f32::INFINITY),
-                        )
-                        .lost_focus()
-                    {
-                        action.set_props.push((
-                            id.clone(),
-                            "Tooltip".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
-                }
-                ui.end_row();
-
-                // Cursor
-                ui.label(tr.lbl_cursor_lbl);
-                {
-                    let cur_cursor = ctrl
-                        .get_prop("Cursor")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_else(|| "Default".into());
-                    egui::ComboBox::from_id_salt(format!("cur_{id}"))
-                        .selected_text(&cur_cursor)
-                        .width(130.0)
-                        .show_ui(ui, |ui| {
-                            for opt in &[
-                                "Default",
-                                "Hand",
-                                "Text",
-                                "Wait",
-                                "Crosshair",
-                                "No",
-                                "SizeAll",
-                                "SizeNS",
-                                "SizeWE",
-                                "Help",
-                            ] {
-                                if ui.selectable_label(cur_cursor == *opt, *opt).clicked() {
-                                    action.set_props.push((
-                                        id.clone(),
-                                        "Cursor".into(),
-                                        PropValue::String(opt.to_string()),
-                                    ));
-                                }
-                            }
+                ui.horizontal_wrapped(|ui| {
+                    for (tab, label) in [
+                        (InspectorTab::Visuals, "Visuals"),
+                        (InspectorTab::Events, "Events"),
+                        (InspectorTab::Animations, "Animations"),
+                    ] {
+                        let selected = self.active_tab == tab;
+                        let text = RichText::new(label).color(if selected {
+                            theme.accent
+                        } else {
+                            ui.visuals().text_color()
                         });
-                }
-                ui.end_row();
+                        if ui.selectable_label(selected, text).clicked() {
+                            self.active_tab = tab;
+                        }
+                    }
+                });
             });
-        ui.add_space(4.0);
+        ui.add_space(3.0);
+    }
 
-        // ── Events ────────────────────────────────────────────────────────────
-        Self::show_events(ui, ctrl, &id, action, tr);
+    fn show_geometry_grid(
+        &mut self,
+        ui: &mut Ui,
+        ctrl: &Control,
+        id: &str,
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        section_header(ui, tr.sec_geometry);
+        let mut x = ctrl.rect.x;
+        property_row(ui, "X", |ui| {
+            if ui.add(DragValue::new(&mut x).speed(1)).changed() {
+                action
+                    .set_props
+                    .push((id.to_owned(), "X".into(), PropValue::Int(x as i64)));
+            }
+        });
+        let mut y = ctrl.rect.y;
+        property_row(ui, "Y", |ui| {
+            if ui.add(DragValue::new(&mut y).speed(1)).changed() {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Y".into(), PropValue::Int(y as i64)));
+            }
+        });
+        let mut w = ctrl.rect.w;
+        property_row(ui, "Width", |ui| {
+            if ui
+                .add(DragValue::new(&mut w).speed(1).range(1..=9999))
+                .changed()
+            {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Width".into(), PropValue::Int(w as i64)));
+            }
+        });
+        let mut h = ctrl.rect.h;
+        property_row(ui, "Height", |ui| {
+            if ui
+                .add(DragValue::new(&mut h).speed(1).range(1..=9999))
+                .changed()
+            {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Height".into(), PropValue::Int(h as i64)));
+            }
+        });
+        let mut z = ctrl.z_order as i64;
+        property_row(ui, "Z order", |ui| {
+            if ui
+                .add(
+                    DragValue::new(&mut z)
+                        .speed(1)
+                        .prefix("z=")
+                        .range(-9999..=9999),
+                )
+                .changed()
+            {
+                action
+                    .set_props
+                    .push((id.to_owned(), "ZOrder".into(), PropValue::Int(z)));
+            }
+            ui.label(RichText::new("(z-order)").small().color(Color32::GRAY));
+        });
+    }
 
-        // ── Animations ────────────────────────────────────────────────────────
-        self.show_animations(ui, ctrl, &id, action, tr);
+    fn show_appearance_grid(
+        &mut self,
+        ui: &mut Ui,
+        ctrl: &Control,
+        id: &str,
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        section_header(ui, tr.sec_appearance);
+        let text_key: Option<&str> = match ctrl.control_type {
+            ControlType::Label
+            | ControlType::Button
+            | ControlType::CheckBox
+            | ControlType::RadioButton
+            | ControlType::GroupBox => Some("Caption"),
+            ControlType::TextBox => Some("Text"),
+            _ => None,
+        };
+        if let Some(cap_key) = text_key {
+            let cur = ctrl
+                .get_prop(cap_key)
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
+            let buf_key = format!("{id}-{cap_key}");
+            let wid = egui::Id::new(&buf_key);
+            let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
+            if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                *buf = cur.clone();
+            }
+            property_row(ui, cap_key, |ui| {
+                if ui
+                    .add(
+                        egui::TextEdit::singleline(buf)
+                            .id(wid)
+                            .desired_width(ui.available_width()),
+                    )
+                    .lost_focus()
+                {
+                    action.set_props.push((
+                        id.to_owned(),
+                        cap_key.into(),
+                        PropValue::String(buf.clone()),
+                    ));
+                }
+            });
+        }
+
+        color_prop_row(
+            ui,
+            id,
+            "BackgroundColor",
+            tr.lbl_back_color,
+            ctrl,
+            action,
+            "#F0F0F0",
+        );
+        color_prop_row(
+            ui,
+            id,
+            "ForegroundColor",
+            tr.lbl_fore_color,
+            ctrl,
+            action,
+            "#000000",
+        );
+
+        let cur = ctrl
+            .get_prop("FontName")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Arial".into());
+        let mut sel = cur.clone();
+        let fonts = crate::fonts::system_fonts();
+        property_row(ui, tr.lbl_font, |ui| {
+            let sel_fid = crate::fonts::font_id(ui.ctx(), &cur, 14.0);
+            egui::ComboBox::from_id_salt(format!("{id}-FontName"))
+                .selected_text(egui::RichText::new(&cur).font(sel_fid))
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    if !fonts.iter().any(|f| f == &cur) {
+                        ui.selectable_value(
+                            &mut sel,
+                            cur.clone(),
+                            format!("{cur}  (not installed)"),
+                        );
+                    }
+                    let row_h = ui.text_style_height(&egui::TextStyle::Button);
+                    egui::ScrollArea::vertical().max_height(320.0).show_rows(
+                        ui,
+                        row_h,
+                        fonts.len(),
+                        |ui, range| {
+                            for i in range {
+                                let fam = &fonts[i];
+                                let fid = crate::fonts::font_id(ui.ctx(), fam, 14.0);
+                                ui.selectable_value(
+                                    &mut sel,
+                                    fam.clone(),
+                                    egui::RichText::new(fam).font(fid),
+                                );
+                            }
+                        },
+                    );
+                });
+        });
+        if sel != cur {
+            action
+                .set_props
+                .push((id.to_owned(), "FontName".into(), PropValue::String(sel)));
+        }
+
+        let mut fs = ctrl.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(10);
+        property_row(ui, tr.lbl_font_size, |ui| {
+            if ui
+                .add(DragValue::new(&mut fs).speed(0.5).range(4..=200))
+                .changed()
+            {
+                action
+                    .set_props
+                    .push((id.to_owned(), "FontSize".into(), PropValue::Int(fs)));
+            }
+        });
+        property_row(ui, tr.lbl_style, |ui| {
+            let mut bold = ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false);
+            if ui.checkbox(&mut bold, "B").changed() {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Bold".into(), PropValue::Bool(bold)));
+            }
+            let mut italic = ctrl
+                .get_prop("Italic")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            if ui.checkbox(&mut italic, "I").changed() {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Italic".into(), PropValue::Bool(italic)));
+            }
+            let mut under = ctrl
+                .get_prop("Underline")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            if ui.checkbox(&mut under, "U").changed() {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Underline".into(), PropValue::Bool(under)));
+            }
+            let mut strike = ctrl
+                .get_prop("Strikethrough")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            if ui.checkbox(&mut strike, "S̶").changed() {
+                action.set_props.push((
+                    id.to_owned(),
+                    "Strikethrough".into(),
+                    PropValue::Bool(strike),
+                ));
+            }
+        });
+
+        let mut vis = ctrl.visible;
+        property_row(ui, tr.lbl_visible, |ui| {
+            if ui.checkbox(&mut vis, "").changed() {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Visible".into(), PropValue::Bool(vis)));
+            }
+        });
+        let mut ena = ctrl.enabled;
+        property_row(ui, tr.lbl_enabled, |ui| {
+            if ui.checkbox(&mut ena, "").changed() {
+                action
+                    .set_props
+                    .push((id.to_owned(), "Enabled".into(), PropValue::Bool(ena)));
+            }
+        });
+        let mut to = ctrl.tab_order as i64;
+        property_row(ui, tr.lbl_tab_order, |ui| {
+            if ui
+                .add(DragValue::new(&mut to).speed(1).range(0..=999))
+                .changed()
+            {
+                action
+                    .set_props
+                    .push((id.to_owned(), "TabOrder".into(), PropValue::Int(to)));
+            }
+        });
+        if let Some(op) = ctrl.get_prop("Opacity") {
+            let mut v = op.as_i64();
+            property_row(ui, tr.lbl_opacity, |ui| {
+                if ui
+                    .add(DragValue::new(&mut v).speed(1).range(0..=100).suffix("%"))
+                    .changed()
+                {
+                    action
+                        .set_props
+                        .push((id.to_owned(), "Opacity".into(), PropValue::Int(v)));
+                }
+            });
+        }
+    }
+
+    fn show_shadow_grid(
+        &mut self,
+        ui: &mut Ui,
+        ctrl: &Control,
+        id: &str,
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        section_header(ui, tr.sec_shadow);
+        bool_prop_row(ui, id, "ShadowEnabled", tr.lbl_shadow_enabled, ctrl, action);
+        int_prop_row(
+            ui,
+            id,
+            "ShadowOpacity",
+            tr.lbl_shadow_opacity,
+            ctrl,
+            action,
+            0..=100,
+            Some("%"),
+            20,
+        );
+        color_prop_row(
+            ui,
+            id,
+            "ShadowColor",
+            tr.lbl_shadow_color,
+            ctrl,
+            action,
+            "#000000",
+        );
+        combo_prop_row(
+            ui,
+            id,
+            "ShadowDirection",
+            tr.lbl_shadow_direction,
+            ctrl,
+            action,
+            &[
+                "North",
+                "NorthEast",
+                "East",
+                "SouthEast",
+                "South",
+                "SouthWest",
+                "West",
+                "NorthWest",
+            ],
+            "South",
+        );
+        int_prop_row(
+            ui,
+            id,
+            "ShadowDistance",
+            tr.lbl_shadow_distance,
+            ctrl,
+            action,
+            0..=60,
+            Some("px"),
+            7,
+        );
+        bool_prop_row(ui, id, "ShadowBlur", tr.lbl_shadow_blur, ctrl, action);
+        int_prop_row(
+            ui,
+            id,
+            "ShadowBlurStrength",
+            tr.lbl_shadow_blur_strength,
+            ctrl,
+            action,
+            -20..=20,
+            None,
+            8,
+        );
+    }
+
+    fn show_layout_grid(
+        &mut self,
+        ui: &mut Ui,
+        ctrl: &Control,
+        id: &str,
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        section_header(ui, tr.sec_layout);
+        combo_prop_row(
+            ui,
+            id,
+            "Dock",
+            tr.lbl_dock,
+            ctrl,
+            action,
+            &["None", "Top", "Bottom", "Left", "Right", "Fill"],
+            "None",
+        );
+        let cur = ctrl
+            .get_prop("Anchor")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Top,Left".into());
+        let buf_key = format!("{id}-Anchor");
+        let wid = egui::Id::new(&buf_key);
+        let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
+        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+            *buf = cur;
+        }
+        property_row(ui, tr.lbl_anchor, |ui| {
+            if ui
+                .add(
+                    egui::TextEdit::singleline(buf)
+                        .id(wid)
+                        .hint_text("Top,Left")
+                        .desired_width(ui.available_width()),
+                )
+                .lost_focus()
+            {
+                action.set_props.push((
+                    id.to_owned(),
+                    "Anchor".into(),
+                    PropValue::String(buf.clone()),
+                ));
+            }
+        });
+        int_prop_row(
+            ui,
+            id,
+            "Padding",
+            tr.lbl_padding,
+            ctrl,
+            action,
+            0..=200,
+            None,
+            0,
+        );
+    }
+
+    fn show_advanced_grid(
+        &mut self,
+        ui: &mut Ui,
+        ctrl: &Control,
+        id: &str,
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        section_header(ui, tr.sec_advanced);
+        let cur = ctrl
+            .get_prop("Tooltip")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let buf_key = format!("{id}-Tooltip");
+        let wid = egui::Id::new(&buf_key);
+        let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
+        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+            *buf = cur;
+        }
+        property_row(ui, tr.lbl_tooltip_lbl, |ui| {
+            if ui
+                .add(
+                    egui::TextEdit::singleline(buf)
+                        .id(wid)
+                        .hint_text("(shown on hover)")
+                        .desired_width(ui.available_width()),
+                )
+                .lost_focus()
+            {
+                action.set_props.push((
+                    id.to_owned(),
+                    "Tooltip".into(),
+                    PropValue::String(buf.clone()),
+                ));
+            }
+        });
+        combo_prop_row(
+            ui,
+            id,
+            "Cursor",
+            tr.lbl_cursor_lbl,
+            ctrl,
+            action,
+            &[
+                "Default",
+                "Hand",
+                "Text",
+                "Wait",
+                "Crosshair",
+                "No",
+                "SizeAll",
+                "SizeNS",
+                "SizeWE",
+                "Help",
+            ],
+            "Default",
+        );
     }
 
     fn show_user_control_children(
@@ -3908,88 +3767,76 @@ impl PropertiesPanel {
                     .id_salt(format!("uc_child_{}", child.id))
                     .default_open(false)
                     .show(ui, |ui| {
-                        egui::Grid::new(format!("uc_child_props_{}", child.id))
-                            .num_columns(2)
-                            .spacing([8.0, 4.0])
-                            .show(ui, |ui| {
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "X",
-                                    &PropValue::Int(child.rect.x as i64),
-                                    action,
-                                );
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "Y",
-                                    &PropValue::Int(child.rect.y as i64),
-                                    action,
-                                );
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "Width",
-                                    &PropValue::Int(child.rect.w as i64),
-                                    action,
-                                );
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "Height",
-                                    &PropValue::Int(child.rect.h as i64),
-                                    action,
-                                );
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "Visible",
-                                    &PropValue::Bool(child.visible),
-                                    action,
-                                );
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "Enabled",
-                                    &PropValue::Bool(child.enabled),
-                                    action,
-                                );
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "TabOrder",
-                                    &PropValue::Int(child.tab_order as i64),
-                                    action,
-                                );
-                                child_prop_row(
-                                    ui,
-                                    &mut self.text_bufs,
-                                    &child.id,
-                                    "ZOrder",
-                                    &PropValue::Int(child.z_order as i64),
-                                    action,
-                                );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "X",
+                            &PropValue::Int(child.rect.x as i64),
+                            action,
+                        );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "Y",
+                            &PropValue::Int(child.rect.y as i64),
+                            action,
+                        );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "Width",
+                            &PropValue::Int(child.rect.w as i64),
+                            action,
+                        );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "Height",
+                            &PropValue::Int(child.rect.h as i64),
+                            action,
+                        );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "Visible",
+                            &PropValue::Bool(child.visible),
+                            action,
+                        );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "Enabled",
+                            &PropValue::Bool(child.enabled),
+                            action,
+                        );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "TabOrder",
+                            &PropValue::Int(child.tab_order as i64),
+                            action,
+                        );
+                        child_prop_row(
+                            ui,
+                            &mut self.text_bufs,
+                            &child.id,
+                            "ZOrder",
+                            &PropValue::Int(child.z_order as i64),
+                            action,
+                        );
 
-                                let mut props: Vec<_> = child.properties.iter().collect();
-                                props.sort_by(|(a, _), (b, _)| a.cmp(b));
-                                for (key, value) in props {
-                                    child_prop_row(
-                                        ui,
-                                        &mut self.text_bufs,
-                                        &child.id,
-                                        key,
-                                        value,
-                                        action,
-                                    );
-                                }
-                            });
+                        let mut props: Vec<_> = child.properties.iter().collect();
+                        props.sort_by(|(a, _), (b, _)| a.cmp(b));
+                        for (key, value) in props {
+                            child_prop_row(ui, &mut self.text_bufs, &child.id, key, value, action);
+                        }
                     });
                 }
             });
@@ -4502,7 +4349,9 @@ impl PropertiesPanel {
             let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
             let lines = binding.map(|e| e.code_line_count()).unwrap_or(0);
 
-            let row_resp = ui.horizontal_wrapped(|ui| {
+            let mut clicked = false;
+            let mut double_clicked = false;
+            property_row(ui, &ev_str, |ui| {
                 let dot_color = if has_code {
                     Color32::from_rgb(100, 220, 100)
                 } else {
@@ -4512,8 +4361,7 @@ impl PropertiesPanel {
                 let lbl = ui
                     .add(
                         egui::Label::new(
-                            RichText::new(format!("⚙ {ev_str}"))
-                                .color(Color32::from_rgb(200, 200, 100)),
+                            RichText::new("Edit").color(Color32::from_rgb(200, 200, 100)),
                         )
                         .sense(egui::Sense::click()),
                     )
@@ -4533,10 +4381,9 @@ impl PropertiesPanel {
                             .italics(),
                     );
                 }
-                (lbl.clicked(), lbl.double_clicked())
+                clicked = lbl.clicked();
+                double_clicked = lbl.double_clicked();
             });
-
-            let (clicked, double_clicked) = row_resp.inner;
             if double_clicked {
                 action.open_event_in_code = Some((id.to_owned(), ev_str));
             } else if clicked {
@@ -4598,165 +4445,153 @@ impl PropertiesPanel {
             if let Some(anim) = ctrl.animations.get(sel) {
                 let anim_id = format!("{id}-anim{sel}");
 
-                egui::Grid::new(format!("anim_grid_{anim_id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        // Name
-                        ui.label("Name:");
-                        let cur_name = anim.name.clone();
-                        let bk = format!("{anim_id}-name");
-                        let wid = egui::Id::new(&bk);
-                        let buf = self.text_bufs.entry(bk).or_insert(cur_name.clone());
-                        if *buf != cur_name && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur_name.clone();
-                        }
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                format!("Anim{sel}_Name"),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                        ui.end_row();
+                section_header(ui, "Animation");
+                let cur_name = anim.name.clone();
+                let bk = format!("{anim_id}-name");
+                let wid = egui::Id::new(&bk);
+                let buf = self.text_bufs.entry(bk).or_insert(cur_name.clone());
+                if *buf != cur_name && !ui.memory(|m| m.has_focus(wid)) {
+                    *buf = cur_name.clone();
+                }
+                property_row(ui, "Name", |ui| {
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(buf)
+                                .id(wid)
+                                .desired_width(ui.available_width()),
+                        )
+                        .lost_focus()
+                    {
+                        action.set_props.push((
+                            id.to_owned(),
+                            format!("Anim{sel}_Name"),
+                            PropValue::String(buf.clone()),
+                        ));
+                    }
+                });
 
-                        // Trigger
-                        let cur_t = anim.trigger.as_str().to_owned();
-                        ui.label("Trigger:");
-                        egui::ComboBox::from_id_salt(format!("anim_trigger_{anim_id}"))
-                            .selected_text(&cur_t)
-                            .width(140.0)
-                            .show_ui(ui, |ui| {
-                                for &opt in AnimTrigger::ALL {
-                                    if ui.selectable_label(cur_t == opt, opt).clicked() {
-                                        action.set_props.push((
-                                            id.to_owned(),
-                                            format!("Anim{sel}_Trigger"),
-                                            PropValue::String(opt.to_owned()),
-                                        ));
-                                    }
+                let cur_t = anim.trigger.as_str().to_owned();
+                property_row(ui, "Trigger", |ui| {
+                    egui::ComboBox::from_id_salt(format!("anim_trigger_{anim_id}"))
+                        .selected_text(&cur_t)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for &opt in AnimTrigger::ALL {
+                                if ui.selectable_label(cur_t == opt, opt).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        format!("Anim{sel}_Trigger"),
+                                        PropValue::String(opt.to_owned()),
+                                    ));
                                 }
-                            });
-                        ui.end_row();
-
-                        // Kind
-                        let cur_k = anim.kind.as_str().to_owned();
-                        ui.label("Effect:");
-                        egui::ComboBox::from_id_salt(format!("anim_kind_{anim_id}"))
-                            .selected_text(&cur_k)
-                            .width(140.0)
-                            .show_ui(ui, |ui| {
-                                for &opt in AnimKind::ALL {
-                                    if ui.selectable_label(cur_k == opt, opt).clicked() {
-                                        action.set_props.push((
-                                            id.to_owned(),
-                                            format!("Anim{sel}_Kind"),
-                                            PropValue::String(opt.to_owned()),
-                                        ));
-                                    }
-                                }
-                            });
-                        ui.end_row();
-
-                        // Duration
-                        ui.label("Duration (ms):");
-                        let mut dur = anim.duration_ms as i64;
-                        if ui
-                            .add(DragValue::new(&mut dur).speed(10).range(50..=30_000))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                format!("Anim{sel}_Duration"),
-                                PropValue::Int(dur),
-                            ));
-                        }
-                        ui.end_row();
-
-                        // Delay
-                        ui.label("Delay (ms):");
-                        let mut delay = anim.delay_ms as i64;
-                        if ui
-                            .add(DragValue::new(&mut delay).speed(10).range(0..=10_000))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                format!("Anim{sel}_Delay"),
-                                PropValue::Int(delay),
-                            ));
-                        }
-                        ui.end_row();
-
-                        // Easing
-                        let cur_e = anim.easing.as_str().to_owned();
-                        ui.label("Easing:");
-                        egui::ComboBox::from_id_salt(format!("anim_ease_{anim_id}"))
-                            .selected_text(&cur_e)
-                            .width(140.0)
-                            .show_ui(ui, |ui| {
-                                for &opt in EasingKind::ALL {
-                                    if ui.selectable_label(cur_e == opt, opt).clicked() {
-                                        action.set_props.push((
-                                            id.to_owned(),
-                                            format!("Anim{sel}_Easing"),
-                                            PropValue::String(opt.to_owned()),
-                                        ));
-                                    }
-                                }
-                            });
-                        ui.end_row();
-
-                        // Repeat
-                        let cur_r = anim.repeat.as_str().to_owned();
-                        ui.label("Repeat:");
-                        egui::ComboBox::from_id_salt(format!("anim_rep_{anim_id}"))
-                            .selected_text(&cur_r)
-                            .width(140.0)
-                            .show_ui(ui, |ui| {
-                                for &opt in AnimRepeat::ALL {
-                                    if ui.selectable_label(cur_r == opt, opt).clicked() {
-                                        action.set_props.push((
-                                            id.to_owned(),
-                                            format!("Anim{sel}_Repeat"),
-                                            PropValue::String(opt.to_owned()),
-                                        ));
-                                    }
-                                }
-                            });
-                        ui.end_row();
-
-                        // Slide offsets (shown only for Slide kind)
-                        if anim.kind.as_str() == "Slide" {
-                            ui.label("Slide DX:");
-                            let mut sdx = anim.slide_dx as i64;
-                            if ui.add(DragValue::new(&mut sdx).speed(4)).changed() {
-                                action.set_props.push((
-                                    id.to_owned(),
-                                    format!("Anim{sel}_SlideDX"),
-                                    PropValue::Int(sdx),
-                                ));
                             }
-                            ui.end_row();
-                            ui.label("Slide DY:");
-                            let mut sdy = anim.slide_dy as i64;
-                            if ui.add(DragValue::new(&mut sdy).speed(4)).changed() {
-                                action.set_props.push((
-                                    id.to_owned(),
-                                    format!("Anim{sel}_SlideDY"),
-                                    PropValue::Int(sdy),
-                                ));
+                        });
+                });
+
+                let cur_k = anim.kind.as_str().to_owned();
+                property_row(ui, "Effect", |ui| {
+                    egui::ComboBox::from_id_salt(format!("anim_kind_{anim_id}"))
+                        .selected_text(&cur_k)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for &opt in AnimKind::ALL {
+                                if ui.selectable_label(cur_k == opt, opt).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        format!("Anim{sel}_Kind"),
+                                        PropValue::String(opt.to_owned()),
+                                    ));
+                                }
                             }
-                            ui.end_row();
+                        });
+                });
+
+                let mut dur = anim.duration_ms as i64;
+                property_row(ui, "Duration (ms)", |ui| {
+                    if ui
+                        .add(DragValue::new(&mut dur).speed(10).range(50..=30_000))
+                        .changed()
+                    {
+                        action.set_props.push((
+                            id.to_owned(),
+                            format!("Anim{sel}_Duration"),
+                            PropValue::Int(dur),
+                        ));
+                    }
+                });
+
+                let mut delay = anim.delay_ms as i64;
+                property_row(ui, "Delay (ms)", |ui| {
+                    if ui
+                        .add(DragValue::new(&mut delay).speed(10).range(0..=10_000))
+                        .changed()
+                    {
+                        action.set_props.push((
+                            id.to_owned(),
+                            format!("Anim{sel}_Delay"),
+                            PropValue::Int(delay),
+                        ));
+                    }
+                });
+
+                let cur_e = anim.easing.as_str().to_owned();
+                property_row(ui, "Easing", |ui| {
+                    egui::ComboBox::from_id_salt(format!("anim_ease_{anim_id}"))
+                        .selected_text(&cur_e)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for &opt in EasingKind::ALL {
+                                if ui.selectable_label(cur_e == opt, opt).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        format!("Anim{sel}_Easing"),
+                                        PropValue::String(opt.to_owned()),
+                                    ));
+                                }
+                            }
+                        });
+                });
+
+                let cur_r = anim.repeat.as_str().to_owned();
+                property_row(ui, "Repeat", |ui| {
+                    egui::ComboBox::from_id_salt(format!("anim_rep_{anim_id}"))
+                        .selected_text(&cur_r)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for &opt in AnimRepeat::ALL {
+                                if ui.selectable_label(cur_r == opt, opt).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        format!("Anim{sel}_Repeat"),
+                                        PropValue::String(opt.to_owned()),
+                                    ));
+                                }
+                            }
+                        });
+                });
+
+                if anim.kind.as_str() == "Slide" {
+                    let mut sdx = anim.slide_dx as i64;
+                    property_row(ui, "Slide DX", |ui| {
+                        if ui.add(DragValue::new(&mut sdx).speed(4)).changed() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                format!("Anim{sel}_SlideDX"),
+                                PropValue::Int(sdx),
+                            ));
                         }
                     });
+                    let mut sdy = anim.slide_dy as i64;
+                    property_row(ui, "Slide DY", |ui| {
+                        if ui.add(DragValue::new(&mut sdy).speed(4)).changed() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                format!("Anim{sel}_SlideDY"),
+                                PropValue::Int(sdy),
+                            ));
+                        }
+                    });
+                }
 
                 // Preview + Remove buttons
                 ui.horizontal(|ui| {
@@ -4813,66 +4648,48 @@ impl PropertiesPanel {
             // ── Button ────────────────────────────────────────────────────────
             ControlType::Button => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("btn_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        bool_row(ui, id, "IsDefault", "Default button", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "IsCancel", "Cancel button", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "FlatStyle", "Flat style", ctrl, action);
-                        ui.end_row();
-
-                        ui.label("CornerRadius:");
-                        let mut r = ctrl
-                            .get_prop("CornerRadius")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(3);
-                        if ui
-                            .add(DragValue::new(&mut r).speed(1).range(0..=50))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "CornerRadius".into(),
-                                PropValue::Int(r),
-                            ));
-                        }
-                        ui.end_row();
-
-                        combo_row(
-                            ui,
-                            id,
-                            "ModalResult",
-                            ctrl,
-                            action,
-                            &[
-                                "None", "OK", "Cancel", "Yes", "No", "Abort", "Retry", "Ignore",
-                            ],
-                        );
-                        ui.end_row();
-
-                        combo_row(
-                            ui,
-                            id,
-                            "TextAlignment",
-                            ctrl,
-                            action,
-                            &[
-                                "MiddleCenter",
-                                "TopLeft",
-                                "TopCenter",
-                                "TopRight",
-                                "MiddleLeft",
-                                "MiddleRight",
-                                "BottomLeft",
-                                "BottomCenter",
-                                "BottomRight",
-                            ],
-                        );
-                        ui.end_row();
-                    });
+                bool_row_inline(ui, id, "IsDefault", "Default button", ctrl, action);
+                bool_row_inline(ui, id, "IsCancel", "Cancel button", ctrl, action);
+                bool_row_inline(ui, id, "FlatStyle", "Flat style", ctrl, action);
+                int_prop_row(
+                    ui,
+                    id,
+                    "CornerRadius",
+                    "CornerRadius",
+                    ctrl,
+                    action,
+                    0..=50,
+                    None,
+                    3,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "ModalResult",
+                    ctrl,
+                    action,
+                    &[
+                        "None", "OK", "Cancel", "Yes", "No", "Abort", "Retry", "Ignore",
+                    ],
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "TextAlignment",
+                    ctrl,
+                    action,
+                    &[
+                        "MiddleCenter",
+                        "TopLeft",
+                        "TopCenter",
+                        "TopRight",
+                        "MiddleLeft",
+                        "MiddleRight",
+                        "BottomLeft",
+                        "BottomCenter",
+                        "BottomRight",
+                    ],
+                );
                 // Image
                 image_browse_row(ui, id, "ImagePath", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(
@@ -4936,44 +4753,43 @@ impl PropertiesPanel {
                         action,
                     );
                 }
-                egui::Grid::new(format!("tbx_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label("MaxLength:");
-                        let mut ml = ctrl
-                            .get_prop("MaximumLength")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(0);
-                        if ui
-                            .add(DragValue::new(&mut ml).speed(1).range(0..=32767))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "MaximumLength".into(),
-                                PropValue::Int(ml),
-                            ));
-                        }
-                        ui.end_row();
-                        bool_row(ui, id, "Multiline", "Multiline", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "WordWrap", "WordWrap", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ReadOnly", "ReadOnly", ctrl, action);
-                        ui.end_row();
-
-                        ui.label("PwdChar:");
-                        let buf_key = format!("{id}-PasswordChar");
-                        let wid = egui::Id::new(&buf_key);
-                        let cur = ctrl
-                            .get_prop("PasswordCharacter")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur;
-                        }
+                int_prop_row(
+                    ui,
+                    id,
+                    "InnerPadding",
+                    "Inner padding",
+                    ctrl,
+                    action,
+                    0..=128,
+                    Some("px"),
+                    3,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "MaximumLength",
+                    "MaxLength",
+                    ctrl,
+                    action,
+                    0..=32767,
+                    None,
+                    0,
+                );
+                bool_row_inline(ui, id, "Multiline", "Multiline", ctrl, action);
+                bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
+                bool_row_inline(ui, id, "ReadOnly", "ReadOnly", ctrl, action);
+                {
+                    let buf_key = format!("{id}-PasswordChar");
+                    let wid = egui::Id::new(&buf_key);
+                    let cur = ctrl
+                        .get_prop("PasswordCharacter")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
+                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = cur;
+                    }
+                    property_row(ui, "PwdChar", |ui| {
                         if ui
                             .add(egui::TextEdit::singleline(buf).id(wid).desired_width(30.0))
                             .lost_focus()
@@ -4985,18 +4801,16 @@ impl PropertiesPanel {
                                 PropValue::String(buf.clone()),
                             ));
                         }
-                        ui.end_row();
-
-                        combo_row(
-                            ui,
-                            id,
-                            "ScrollBars",
-                            ctrl,
-                            action,
-                            &["None", "Horizontal", "Vertical", "Both"],
-                        );
-                        ui.end_row();
                     });
+                }
+                combo_row_inline(
+                    ui,
+                    id,
+                    "ScrollBars",
+                    ctrl,
+                    action,
+                    &["None", "Horizontal", "Vertical", "Both"],
+                );
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
@@ -5097,15 +4911,8 @@ impl PropertiesPanel {
                     action,
                     &["Fit", "Fill", "Stretch", "Center"],
                 );
-                egui::Grid::new(format!("anim_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        bool_row(ui, id, "AutoPlay", "Auto-play", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "Loop", "Loop", ctrl, action);
-                        ui.end_row();
-                    });
+                bool_row_inline(ui, id, "AutoPlay", "Auto-play", ctrl, action);
+                bool_row_inline(ui, id, "Loop", "Loop", ctrl, action);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
@@ -5114,15 +4921,8 @@ impl PropertiesPanel {
             ControlType::ListBox => {
                 section_header(ui, "ListBox");
                 items_multiline(ui, id, ctrl, action, &mut self.text_bufs);
-                egui::Grid::new(format!("lb_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        bool_row(ui, id, "MultiSelect", "Multi-select", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "Sorted", "Sorted", ctrl, action);
-                        ui.end_row();
-                    });
+                bool_row_inline(ui, id, "MultiSelect", "Multi-select", ctrl, action);
+                bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
@@ -5131,146 +4931,106 @@ impl PropertiesPanel {
             ControlType::ComboBox => {
                 section_header(ui, "ComboBox");
                 items_multiline(ui, id, ctrl, action, &mut self.text_bufs);
-                egui::Grid::new(format!("cb_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        bool_row(ui, id, "Sorted", "Sorted", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "Editable", "Editable", ctrl, action);
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "DropDownStyle",
-                            ctrl,
-                            action,
-                            &["DropDown", "DropDownList", "Simple"],
-                        );
-                        ui.end_row();
-                        ui.label("DropDownHeight:");
-                        let mut ddh = ctrl
-                            .get_prop("DropDownHeight")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(200);
-                        if ui
-                            .add(DragValue::new(&mut ddh).speed(1).range(50..=600))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "DropDownHeight".into(),
-                                PropValue::Int(ddh),
-                            ));
-                        }
-                        ui.end_row();
-                    });
+                bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
+                bool_row_inline(ui, id, "Editable", "Editable", ctrl, action);
+                combo_row_inline(
+                    ui,
+                    id,
+                    "DropDownStyle",
+                    ctrl,
+                    action,
+                    &["DropDown", "DropDownList", "Simple"],
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "DropDownHeight",
+                    "DropDownHeight",
+                    ctrl,
+                    action,
+                    50..=600,
+                    None,
+                    200,
+                );
                 ui.add_space(4.0);
             }
 
             // ── Slider ───────────────────────────────────────────────────────
             ControlType::Slider => {
                 section_header(ui, "Slider");
-                egui::Grid::new(format!("sld_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label("Min:");
-                        let mut min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
-                        if ui.add(DragValue::new(&mut min).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Minimum".into(),
-                                PropValue::Int(min),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Max:");
-                        let mut max = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100);
-                        if ui.add(DragValue::new(&mut max).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Maximum".into(),
-                                PropValue::Int(max),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Value:");
-                        let mut val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
-                        if ui.add(DragValue::new(&mut val).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Value".into(),
-                                PropValue::Int(val),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Step:");
-                        let mut step = ctrl.get_prop("Step").map(|v| v.as_i64()).unwrap_or(10);
-                        if ui
-                            .add(DragValue::new(&mut step).speed(1).range(1..=9999))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Step".into(),
-                                PropValue::Int(step),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Large change:");
-                        let mut lc = ctrl
-                            .get_prop("LargeChange")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(20);
-                        if ui
-                            .add(DragValue::new(&mut lc).speed(1).range(1..=9999))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "LargeChange".into(),
-                                PropValue::Int(lc),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Tick frequency:");
-                        let mut tf = ctrl
-                            .get_prop("TickFrequency")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(10);
-                        if ui
-                            .add(DragValue::new(&mut tf).speed(1).range(1..=9999))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "TickFrequency".into(),
-                                PropValue::Int(tf),
-                            ));
-                        }
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "Orientation",
-                            ctrl,
-                            action,
-                            &["Horizontal", "Vertical"],
-                        );
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "TickStyle",
-                            ctrl,
-                            action,
-                            &["Bottom", "Top", "Both", "None"],
-                        );
-                        ui.end_row();
-                        bool_row(ui, id, "ShowValue", "Show value label", ctrl, action);
-                        ui.end_row();
-                    });
+                int_prop_row(
+                    ui,
+                    id,
+                    "Minimum",
+                    "Min",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Maximum",
+                    "Max",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    100,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Value",
+                    "Value",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(ui, id, "Step", "Step", ctrl, action, 1..=9999, None, 10);
+                int_prop_row(
+                    ui,
+                    id,
+                    "LargeChange",
+                    "Large change",
+                    ctrl,
+                    action,
+                    1..=9999,
+                    None,
+                    20,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "TickFrequency",
+                    "Tick frequency",
+                    ctrl,
+                    action,
+                    1..=9999,
+                    None,
+                    10,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Orientation",
+                    ctrl,
+                    action,
+                    &["Horizontal", "Vertical"],
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "TickStyle",
+                    ctrl,
+                    action,
+                    &["Bottom", "Top", "Both", "None"],
+                );
+                bool_row_inline(ui, id, "ShowValue", "Show value label", ctrl, action);
                 // Slider colours are the standard Appearance Back color (track
                 // body) and Fore color (knob). The legacy Track/Thumb/Fill colour
                 // pickers are gone — the renderer never used them.
@@ -5280,54 +5040,49 @@ impl PropertiesPanel {
             // ── ProgressBar ───────────────────────────────────────────────────
             ControlType::ProgressBar => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("pb_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label("Min:");
-                        let mut min = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
-                        if ui.add(DragValue::new(&mut min).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Minimum".into(),
-                                PropValue::Int(min),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Max:");
-                        let mut max = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100);
-                        if ui.add(DragValue::new(&mut max).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Maximum".into(),
-                                PropValue::Int(max),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Value:");
-                        let mut val = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
-                        if ui.add(DragValue::new(&mut val).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Value".into(),
-                                PropValue::Int(val),
-                            ));
-                        }
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "Orientation",
-                            ctrl,
-                            action,
-                            &["Horizontal", "Vertical"],
-                        );
-                        ui.end_row();
-                        combo_row(ui, id, "Style", ctrl, action, &["Continuous", "Blocks"]);
-                        ui.end_row();
-                        bool_row(ui, id, "ShowValue", "Show value text", ctrl, action);
-                        ui.end_row();
-                    });
+                int_prop_row(
+                    ui,
+                    id,
+                    "Minimum",
+                    "Min",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Maximum",
+                    "Max",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    100,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Value",
+                    "Value",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Orientation",
+                    ctrl,
+                    action,
+                    &["Horizontal", "Vertical"],
+                );
+                combo_row_inline(ui, id, "Style", ctrl, action, &["Continuous", "Blocks"]);
+                bool_row_inline(ui, id, "ShowValue", "Show value text", ctrl, action);
                 color_row(ui, id, "BarColor", ctrl, action);
                 ui.add_space(4.0);
             }
@@ -5366,20 +5121,21 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    ui.label("Tabs (one per line):");
-                    let resp = ui.add(
-                        egui::TextEdit::multiline(buf)
-                            .id(wid)
-                            .desired_rows(3)
-                            .desired_width(f32::INFINITY),
-                    );
-                    if resp.lost_focus() {
-                        action.set_props.push((
-                            id.to_owned(),
-                            "Tabs".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
+                    property_row(ui, "Tabs (one per line)", |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                .desired_rows(3)
+                                .desired_width(ui.available_width()),
+                        );
+                        if resp.lost_focus() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                "Tabs".into(),
+                                PropValue::String(buf.clone()),
+                            ));
+                        }
+                    });
                 }
                 combo_row_inline(
                     ui,
@@ -5389,6 +5145,7 @@ impl PropertiesPanel {
                     action,
                     &["Top", "Bottom", "Left", "Right"],
                 );
+                int_row_inline(ui, id, "TabPadding", "Tab padding", ctrl, action, 0..=64);
                 // Container behaviour (spec 012).
                 bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
                 bool_row_inline(ui, id, "VScroll", "V-Scroll", ctrl, action);
@@ -5527,7 +5284,7 @@ impl PropertiesPanel {
                             "PlacementEffect",
                             ctrl,
                             action,
-                            &["None", "Deal", "FadeIn"],
+                            &["None", "Deal", "FadeIn", "ZoomIn", "ZoomOut"],
                         );
                         int_row_inline(
                             ui,
@@ -5557,75 +5314,54 @@ impl PropertiesPanel {
             ControlType::Line => {
                 section_header(ui, "Basic properties");
                 color_row(ui, id, "LineColor", ctrl, action);
-                egui::Grid::new(format!("ln_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label("Thickness:");
-                        let mut t = ctrl
-                            .get_prop("LineThickness")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(1);
-                        if ui
-                            .add(DragValue::new(&mut t).speed(1).range(1..=32))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "LineThickness".into(),
-                                PropValue::Int(t),
-                            ));
-                        }
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "LineDirection",
-                            ctrl,
-                            action,
-                            &["Horizontal", "Vertical", "Diagonal"],
-                        );
-                        ui.end_row();
-                        // Free rotation angle (degrees). Setting it overrides the
-                        // direction preset; drag the on-canvas knob or this value.
-                        ui.label("Angle°:");
-                        let mut ang = ctrl
-                            .get_prop("LineAngle")
-                            .map(|v| v.as_i64())
-                            .unwrap_or_else(|| {
-                                match ctrl
-                                    .get_prop("LineDirection")
-                                    .map(|v| v.as_str().to_owned())
-                                    .as_deref()
-                                {
-                                    Some("Vertical") => 90,
-                                    Some("Diagonal") => 45,
-                                    _ => 0,
-                                }
-                            });
-                        if ui
-                            .add(DragValue::new(&mut ang).speed(1).range(0..=359))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "LineAngle".into(),
-                                PropValue::Int(ang.rem_euclid(360)),
-                            ));
-                        }
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "DashStyle",
-                            ctrl,
-                            action,
-                            &["Solid", "Dash", "Dot", "DashDot"],
-                        );
-                        ui.end_row();
-                        bool_row(ui, id, "RoundedEnds", "Rounded ends", ctrl, action);
-                        ui.end_row();
-                    });
+                int_prop_row(
+                    ui,
+                    id,
+                    "LineThickness",
+                    "Thickness",
+                    ctrl,
+                    action,
+                    1..=32,
+                    None,
+                    1,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "LineDirection",
+                    ctrl,
+                    action,
+                    &["Horizontal", "Vertical", "Diagonal"],
+                );
+                let angle_fallback = match ctrl
+                    .get_prop("LineDirection")
+                    .map(|v| v.as_str().to_owned())
+                    .as_deref()
+                {
+                    Some("Vertical") => 90,
+                    Some("Diagonal") => 45,
+                    _ => 0,
+                };
+                int_prop_row(
+                    ui,
+                    id,
+                    "LineAngle",
+                    "Angle°",
+                    ctrl,
+                    action,
+                    0..=359,
+                    None,
+                    angle_fallback,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "DashStyle",
+                    ctrl,
+                    action,
+                    &["Solid", "Dash", "Dot", "DashDot"],
+                );
+                bool_row_inline(ui, id, "RoundedEnds", "Rounded ends", ctrl, action);
                 ui.add_space(4.0);
             }
 
@@ -5648,22 +5384,15 @@ impl PropertiesPanel {
                         action,
                     );
                 }
-                egui::Grid::new(format!("dtp_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        combo_row(
-                            ui,
-                            id,
-                            "Format",
-                            ctrl,
-                            action,
-                            &["Short", "Long", "Time", "Custom"],
-                        );
-                        ui.end_row();
-                        bool_row(ui, id, "ShowUpDown", "Show up/down", ctrl, action);
-                        ui.end_row();
-                    });
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Format",
+                    ctrl,
+                    action,
+                    &["Short", "Long", "Time", "Custom"],
+                );
+                bool_row_inline(ui, id, "ShowUpDown", "Show up/down", ctrl, action);
                 {
                     let cur = ctrl
                         .get_prop("CustomFormat")
@@ -5719,74 +5448,53 @@ impl PropertiesPanel {
             // ── NumericUpDown ─────────────────────────────────────────────────
             ControlType::NumericUpDown => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("nud_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label("Value:");
-                        let mut v = ctrl.get_prop("Value").map(|vv| vv.as_i64()).unwrap_or(0);
-                        if ui.add(DragValue::new(&mut v).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Value".into(),
-                                PropValue::Int(v),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Min:");
-                        let mut mn = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0);
-                        if ui.add(DragValue::new(&mut mn).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Minimum".into(),
-                                PropValue::Int(mn),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Max:");
-                        let mut mx = ctrl.get_prop("Maximum").map(|v| v.as_i64()).unwrap_or(100);
-                        if ui.add(DragValue::new(&mut mx).speed(1)).changed() {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Maximum".into(),
-                                PropValue::Int(mx),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Step:");
-                        let mut st = ctrl.get_prop("Step").map(|v| v.as_i64()).unwrap_or(1);
-                        if ui
-                            .add(DragValue::new(&mut st).speed(1).range(1..=1000))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Step".into(),
-                                PropValue::Int(st),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Decimals:");
-                        let mut dp = ctrl
-                            .get_prop("DecimalPlaces")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(0);
-                        if ui
-                            .add(DragValue::new(&mut dp).speed(1).range(0..=10))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "DecimalPlaces".into(),
-                                PropValue::Int(dp),
-                            ));
-                        }
-                        ui.end_row();
-                        bool_row(ui, id, "ThousandsSeparator", "Thousands sep", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ReadOnly", "ReadOnly", ctrl, action);
-                        ui.end_row();
-                    });
+                int_prop_row(
+                    ui,
+                    id,
+                    "Value",
+                    "Value",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Minimum",
+                    "Min",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    0,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "Maximum",
+                    "Max",
+                    ctrl,
+                    action,
+                    i64::MIN..=i64::MAX,
+                    None,
+                    100,
+                );
+                int_prop_row(ui, id, "Step", "Step", ctrl, action, 1..=1000, None, 1);
+                int_prop_row(
+                    ui,
+                    id,
+                    "DecimalPlaces",
+                    "Decimals",
+                    ctrl,
+                    action,
+                    0..=10,
+                    None,
+                    0,
+                );
+                bool_row_inline(ui, id, "ThousandsSeparator", "Thousands sep", ctrl, action);
+                bool_row_inline(ui, id, "ReadOnly", "ReadOnly", ctrl, action);
                 color_row(ui, id, "BorderColor", ctrl, action);
                 ui.add_space(4.0);
             }
@@ -5805,38 +5513,28 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    ui.label("Nodes (indent = child):");
-                    let resp = ui.add(
-                        egui::TextEdit::multiline(buf)
-                            .id(wid)
-                            .desired_rows(5)
-                            .desired_width(f32::INFINITY),
-                    );
-                    if resp.lost_focus() {
-                        action.set_props.push((
-                            id.to_owned(),
-                            "Items".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
-                }
-                egui::Grid::new(format!("tv_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        bool_row(ui, id, "AllowEdit", "Allow edit", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "CheckBoxes", "Checkboxes", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ShowLines", "Show lines", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ShowRootLines", "Root lines", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "Sorted", "Sorted", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "HotTracking", "Hot tracking", ctrl, action);
-                        ui.end_row();
+                    property_row(ui, "Nodes (indent = child)", |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                .desired_rows(5)
+                                .desired_width(ui.available_width()),
+                        );
+                        if resp.lost_focus() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                "Items".into(),
+                                PropValue::String(buf.clone()),
+                            ));
+                        }
                     });
+                }
+                bool_row_inline(ui, id, "AllowEdit", "Allow edit", ctrl, action);
+                bool_row_inline(ui, id, "CheckBoxes", "Checkboxes", ctrl, action);
+                bool_row_inline(ui, id, "ShowLines", "Show lines", ctrl, action);
+                bool_row_inline(ui, id, "ShowRootLines", "Root lines", ctrl, action);
+                bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
+                bool_row_inline(ui, id, "HotTracking", "Hot tracking", ctrl, action);
                 color_row(ui, id, "LineColor", ctrl, action);
                 color_row(ui, id, "BorderColor", ctrl, action);
                 ui.add_space(4.0);
@@ -5845,52 +5543,36 @@ impl PropertiesPanel {
             // ── Splitter ──────────────────────────────────────────────────────
             ControlType::Splitter => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("sp_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        combo_row(
-                            ui,
-                            id,
-                            "Orientation",
-                            ctrl,
-                            action,
-                            &["Horizontal", "Vertical"],
-                        );
-                        ui.end_row();
-                        ui.label("MinSize:");
-                        let mut ms = ctrl
-                            .get_prop("MinimumSize")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(25);
-                        if ui
-                            .add(DragValue::new(&mut ms).speed(1).range(0..=500))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "MinimumSize".into(),
-                                PropValue::Int(ms),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("SplitPosition:");
-                        let mut sp = ctrl
-                            .get_prop("SplitPosition")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(100);
-                        if ui
-                            .add(DragValue::new(&mut sp).speed(1).range(0..=9999))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "SplitPosition".into(),
-                                PropValue::Int(sp),
-                            ));
-                        }
-                        ui.end_row();
-                    });
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Orientation",
+                    ctrl,
+                    action,
+                    &["Horizontal", "Vertical"],
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "MinimumSize",
+                    "MinSize",
+                    ctrl,
+                    action,
+                    0..=500,
+                    None,
+                    25,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "SplitPosition",
+                    "SplitPosition",
+                    ctrl,
+                    action,
+                    0..=9999,
+                    None,
+                    100,
+                );
                 color_row(ui, id, "BorderColor", ctrl, action);
                 ui.add_space(4.0);
             }
@@ -5898,83 +5580,59 @@ impl PropertiesPanel {
             // ── Timer ─────────────────────────────────────────────────────────
             ControlType::Timer => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("tmr_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label("Interval (ms):");
-                        let mut iv = ctrl
-                            .get_prop("Interval")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(1000);
-                        if ui
-                            .add(DragValue::new(&mut iv).speed(10).range(1..=3_600_000))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "Interval".into(),
-                                PropValue::Int(iv),
-                            ));
-                        }
-                        ui.end_row();
-                        bool_row(ui, &id, "Enabled", "Enabled at start", ctrl, action);
-                        ui.end_row();
-                    });
+                int_prop_row(
+                    ui,
+                    id,
+                    "Interval",
+                    "Interval (ms)",
+                    ctrl,
+                    action,
+                    1..=3_600_000,
+                    None,
+                    1000,
+                );
+                bool_row_inline(ui, id, "Enabled", "Enabled at start", ctrl, action);
                 ui.add_space(4.0);
             }
 
             // ── Shape ─────────────────────────────────────────────────────────
             ControlType::Shape => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("shp_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        combo_row(
-                            ui,
-                            id,
-                            "ShapeType",
-                            ctrl,
-                            action,
-                            &["Rectangle", "Circle", "RoundRect", "Triangle"],
-                        );
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "FillStyle",
-                            ctrl,
-                            action,
-                            &["Solid", "None", "Hatched"],
-                        );
-                        ui.end_row();
-                        ui.label("LineThickness:");
-                        let mut t = ctrl
-                            .get_prop("LineThickness")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(1);
-                        if ui
-                            .add(DragValue::new(&mut t).speed(1).range(1..=32))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "LineThickness".into(),
-                                PropValue::Int(t),
-                            ));
-                        }
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "LineStyle",
-                            ctrl,
-                            action,
-                            &["Solid", "Dash", "Dot", "DashDot"],
-                        );
-                        ui.end_row();
-                    });
+                combo_row_inline(
+                    ui,
+                    id,
+                    "ShapeType",
+                    ctrl,
+                    action,
+                    &["Rectangle", "Circle", "RoundRect", "Triangle"],
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "FillStyle",
+                    ctrl,
+                    action,
+                    &["Solid", "None", "Hatched"],
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "LineThickness",
+                    "LineThickness",
+                    ctrl,
+                    action,
+                    1..=32,
+                    None,
+                    1,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "LineStyle",
+                    ctrl,
+                    action,
+                    &["Solid", "Dash", "Dot", "DashDot"],
+                );
                 color_row(ui, id, "FillColor", ctrl, action);
                 color_row(ui, id, "LineColor", ctrl, action);
                 ui.add_space(4.0);
@@ -6008,137 +5666,101 @@ impl PropertiesPanel {
                 if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                     *buf = cur;
                 }
-                ui.label("Items (one per line):");
-                let resp = ui.add(
-                    egui::TextEdit::multiline(buf)
-                        .id(wid)
-                        .desired_rows(4)
-                        .desired_width(f32::INFINITY),
-                );
-                if resp.lost_focus() {
-                    action.set_props.push((
-                        id.to_owned(),
-                        "Items".into(),
-                        PropValue::String(buf.clone()),
-                    ));
-                }
+                property_row(ui, "Items (one per line)", |ui| {
+                    let resp = ui.add(
+                        egui::TextEdit::multiline(buf)
+                            .id(wid)
+                            .desired_rows(4)
+                            .desired_width(ui.available_width()),
+                    );
+                    if resp.lost_focus() {
+                        action.set_props.push((
+                            id.to_owned(),
+                            "Items".into(),
+                            PropValue::String(buf.clone()),
+                        ));
+                    }
+                });
                 ui.add_space(4.0);
             }
 
             // ── Agent Object ──────────────────────────────────────────────────
             ControlType::AgentObject => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("agt_net_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        combo_row(
-                            ui,
-                            id,
-                            "AgentAPI",
-                            ctrl,
-                            action,
-                            &["Ollama", "LMStudio", "OpenAI", "Anthropic", "Custom"],
-                        );
-                        ui.end_row();
-                        ui.label("URL:");
-                        let cur = ctrl
-                            .get_prop("AgentURL")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        let bk = format!("{id}-AgentURL");
-                        let wid = egui::Id::new(&bk);
-                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur;
-                        }
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .hint_text("http://localhost:11434")
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "AgentURL".into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                        ui.end_row();
-                        let cur = ctrl
-                            .get_prop("AgentModel")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        let bk = format!("{id}-AgentModel");
-                        let wid = egui::Id::new(&bk);
-                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur;
-                        }
-                        ui.label("Model:");
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .hint_text("llama3.2")
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "AgentModel".into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                        ui.end_row();
-                        let cur = ctrl
-                            .get_prop("AgentEndpoint")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        let bk = format!("{id}-AgentEndpoint");
-                        let wid = egui::Id::new(&bk);
-                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur;
-                        }
-                        ui.label("Endpoint:");
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .hint_text("/api/chat (override)")
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "AgentEndpoint".into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                        ui.end_row();
-                        let cur = ctrl
-                            .get_prop("AgentAPIKey")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        let bk = format!("{id}-AgentAPIKey");
-                        let wid = egui::Id::new(&bk);
-                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur;
-                        }
-                        ui.label("API Key:");
+                combo_row_inline(
+                    ui,
+                    id,
+                    "AgentAPI",
+                    ctrl,
+                    action,
+                    &["Ollama", "LMStudio", "OpenAI", "Anthropic", "Custom"],
+                );
+                {
+                    let cur = ctrl
+                        .get_prop("AgentURL")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "AgentURL",
+                        &cur,
+                        "URL:",
+                        "http://localhost:11434",
+                        action,
+                    );
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("AgentModel")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "AgentModel",
+                        &cur,
+                        "Model:",
+                        "llama3.2",
+                        action,
+                    );
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("AgentEndpoint")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "AgentEndpoint",
+                        &cur,
+                        "Endpoint:",
+                        "/api/chat (override)",
+                        action,
+                    );
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("AgentAPIKey")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let bk = format!("{id}-AgentAPIKey");
+                    let wid = egui::Id::new(&bk);
+                    let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
+                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = cur;
+                    }
+                    property_row(ui, "API Key:", |ui| {
                         if ui
                             .add(
                                 egui::TextEdit::singleline(buf)
                                     .id(wid)
                                     .password(true)
-                                    .desired_width(f32::INFINITY),
+                                    .desired_width(ui.available_width()),
                             )
                             .lost_focus()
                         {
@@ -6148,8 +5770,8 @@ impl PropertiesPanel {
                                 PropValue::String(buf.clone()),
                             ));
                         }
-                        ui.end_row();
                     });
+                }
 
                 section_header(ui, "Behaviour");
                 {
@@ -6163,76 +5785,56 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    ui.label("System prompt:");
-                    let resp = ui.add(
-                        egui::TextEdit::multiline(buf)
-                            .id(wid)
-                            .desired_rows(3)
-                            .desired_width(f32::INFINITY),
-                    );
-                    if resp.lost_focus() {
-                        action.set_props.push((
-                            id.to_owned(),
-                            "SystemPrompt".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
-                }
-                egui::Grid::new(format!("agt_beh_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        ui.label("Temperature (0-100):");
-                        let mut t = ctrl
-                            .get_prop("Temperature")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(70);
-                        if ui
-                            .add(DragValue::new(&mut t).speed(1).range(0..=100).suffix("%"))
-                            .changed()
-                        {
+                    property_row(ui, "System prompt:", |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                .desired_rows(3)
+                                .desired_width(ui.available_width()),
+                        );
+                        if resp.lost_focus() {
                             action.set_props.push((
                                 id.to_owned(),
-                                "Temperature".into(),
-                                PropValue::Int(t),
+                                "SystemPrompt".into(),
+                                PropValue::String(buf.clone()),
                             ));
                         }
-                        ui.end_row();
-                        ui.label("Max tokens:");
-                        let mut mt = ctrl
-                            .get_prop("MaximumTokens")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(1024);
-                        if ui
-                            .add(DragValue::new(&mut mt).speed(10).range(1..=128000))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "MaximumTokens".into(),
-                                PropValue::Int(mt),
-                            ));
-                        }
-                        ui.end_row();
-                        ui.label("Timeout (s):");
-                        let mut to = ctrl
-                            .get_prop("TimeoutSeconds")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(30);
-                        if ui
-                            .add(DragValue::new(&mut to).speed(1).range(1..=300))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "TimeoutSeconds".into(),
-                                PropValue::Int(to),
-                            ));
-                        }
-                        ui.end_row();
-                        bool_row(ui, id, "Stream", "Streaming mode", ctrl, action);
-                        ui.end_row();
                     });
+                }
+                int_prop_row(
+                    ui,
+                    id,
+                    "Temperature",
+                    "Temperature (0-100)",
+                    ctrl,
+                    action,
+                    0..=100,
+                    Some("%"),
+                    70,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "MaximumTokens",
+                    "Max tokens",
+                    ctrl,
+                    action,
+                    1..=128000,
+                    None,
+                    1024,
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "TimeoutSeconds",
+                    "Timeout (s)",
+                    ctrl,
+                    action,
+                    1..=300,
+                    None,
+                    30,
+                );
+                bool_row_inline(ui, id, "Stream", "Streaming mode", ctrl, action);
 
                 section_header(ui, "COBOL Integration");
                 {
@@ -6273,72 +5875,56 @@ impl PropertiesPanel {
             // ── REST Client ───────────────────────────────────────────────────
             ControlType::RestClient => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("rst_con_{id}"))
-                    .num_columns(2)
-                    .spacing([4.0, 3.0])
-                    .show(ui, |ui| {
-                        let cur = ctrl
-                            .get_prop("BaseURL")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        let bk = format!("{id}-BaseURL");
-                        let wid = egui::Id::new(&bk);
-                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur;
-                        }
-                        ui.label("Base URL:");
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .hint_text("https://api.example.com")
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "BaseURL".into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "DefaultMethod",
-                            ctrl,
-                            action,
-                            &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-                        );
-                        ui.end_row();
-                        combo_row(
-                            ui,
-                            id,
-                            "AuthType",
-                            ctrl,
-                            action,
-                            &["None", "Bearer", "Basic", "APIKey"],
-                        );
-                        ui.end_row();
-                        let cur = ctrl
-                            .get_prop("AuthToken")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        let bk = format!("{id}-AuthToken");
-                        let wid = egui::Id::new(&bk);
-                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = cur;
-                        }
-                        ui.label("Auth token:");
+                {
+                    let cur = ctrl
+                        .get_prop("BaseURL")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "BaseURL",
+                        &cur,
+                        "Base URL:",
+                        "https://api.example.com",
+                        action,
+                    );
+                }
+                combo_row_inline(
+                    ui,
+                    id,
+                    "DefaultMethod",
+                    ctrl,
+                    action,
+                    &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "AuthType",
+                    ctrl,
+                    action,
+                    &["None", "Bearer", "Basic", "APIKey"],
+                );
+                {
+                    let cur = ctrl
+                        .get_prop("AuthToken")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let bk = format!("{id}-AuthToken");
+                    let wid = egui::Id::new(&bk);
+                    let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
+                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = cur;
+                    }
+                    property_row(ui, "Auth token:", |ui| {
                         if ui
                             .add(
                                 egui::TextEdit::singleline(buf)
                                     .id(wid)
                                     .password(true)
-                                    .desired_width(f32::INFINITY),
+                                    .desired_width(ui.available_width()),
                             )
                             .lost_focus()
                         {
@@ -6348,28 +5934,21 @@ impl PropertiesPanel {
                                 PropValue::String(buf.clone()),
                             ));
                         }
-                        ui.end_row();
-                        ui.label("Timeout (s):");
-                        let mut to = ctrl
-                            .get_prop("TimeoutSeconds")
-                            .map(|v| v.as_i64())
-                            .unwrap_or(30);
-                        if ui
-                            .add(DragValue::new(&mut to).speed(1).range(1..=300))
-                            .changed()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "TimeoutSeconds".into(),
-                                PropValue::Int(to),
-                            ));
-                        }
-                        ui.end_row();
-                        bool_row(ui, id, "FollowRedirects", "Follow redirects", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "VerifyTLS", "Verify TLS cert", ctrl, action);
-                        ui.end_row();
                     });
+                }
+                int_prop_row(
+                    ui,
+                    id,
+                    "TimeoutSeconds",
+                    "Timeout (s)",
+                    ctrl,
+                    action,
+                    1..=300,
+                    None,
+                    30,
+                );
+                bool_row_inline(ui, id, "FollowRedirects", "Follow redirects", ctrl, action);
+                bool_row_inline(ui, id, "VerifyTLS", "Verify TLS cert", ctrl, action);
                 {
                     let cur = ctrl
                         .get_prop("DefaultHeaders")
@@ -6381,20 +5960,21 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    ui.label("Default headers (Key: Value, one per line):");
-                    let resp = ui.add(
-                        egui::TextEdit::multiline(buf)
-                            .id(wid)
-                            .desired_rows(3)
-                            .desired_width(f32::INFINITY),
-                    );
-                    if resp.lost_focus() {
-                        action.set_props.push((
-                            id.to_owned(),
-                            "DefaultHeaders".into(),
-                            PropValue::String(buf.clone()),
-                        ));
-                    }
+                    property_row(ui, "Default headers (Key: Value, one per line):", |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                .desired_rows(3)
+                                .desired_width(ui.available_width()),
+                        );
+                        if resp.lost_focus() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                "DefaultHeaders".into(),
+                                PropValue::String(buf.clone()),
+                            ));
+                        }
+                    });
                 }
 
                 section_header(ui, "COBOL Integration");
@@ -6452,119 +6032,78 @@ impl PropertiesPanel {
             // ── SQL Database ──────────────────────────────────────────────────
             ControlType::SqlDatabase => {
                 section_header(ui, "Basic properties");
-                egui::Grid::new(format!("sql_conn_{id}"))
-                    .num_columns(2)
-                    .spacing([8.0, 4.0])
-                    .show(ui, |ui| {
-                        ui.label("Driver:");
-                        {
-                            let cur = ctrl
-                                .get_prop("Driver")
-                                .map(|v| v.as_str().to_owned())
-                                .unwrap_or_else(|| "sqlite".into());
-                            egui::ComboBox::from_id_salt(format!("sql_driver_{id}"))
-                                .selected_text(&cur)
-                                .width(120.0)
-                                .show_ui(ui, |ui| {
-                                    for opt in &["sqlite", "postgres", "mysql", "mssql"] {
-                                        if ui.selectable_label(&cur == opt, *opt).clicked() {
-                                            action.set_props.push((
-                                                id.to_owned(),
-                                                "Driver".into(),
-                                                PropValue::String(opt.to_string()),
-                                            ));
-                                        }
-                                    }
-                                });
-                        }
-                        ui.end_row();
-
-                        let cur_cs = ctrl
-                            .get_prop("ConnectionString")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        text_row_hint(
-                            ui,
-                            &mut self.text_bufs,
-                            id,
-                            "ConnectionString",
-                            &cur_cs,
-                            "Connection string:",
-                            "sqlite::memory:",
-                            action,
-                        );
-                        ui.end_row();
-
-                        ui.label("Auto-connect:");
-                        {
-                            let mut v = ctrl
-                                .get_prop("AutoConnect")
-                                .map(|p| p.as_bool())
-                                .unwrap_or(false);
-                            if ui.checkbox(&mut v, "").changed() {
-                                action.set_props.push((
-                                    id.to_owned(),
-                                    "AutoConnect".into(),
-                                    PropValue::Bool(v),
-                                ));
-                            }
-                        }
-                        ui.end_row();
-
-                        ui.label("Max connections:");
-                        {
-                            let mut n = ctrl
-                                .get_prop("MaximumConnections")
-                                .map(|v| v.as_i64())
-                                .unwrap_or(5);
-                            if ui.add(DragValue::new(&mut n).range(1..=100)).changed() {
-                                action.set_props.push((
-                                    id.to_owned(),
-                                    "MaximumConnections".into(),
-                                    PropValue::Int(n),
-                                ));
-                            }
-                        }
-                        ui.end_row();
-                    });
+                combo_prop_row(
+                    ui,
+                    id,
+                    "Driver",
+                    "Driver:",
+                    ctrl,
+                    action,
+                    &["sqlite", "postgres", "mysql", "mssql"],
+                    "sqlite",
+                );
+                {
+                    let cur_cs = ctrl
+                        .get_prop("ConnectionString")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "ConnectionString",
+                        &cur_cs,
+                        "Connection string:",
+                        "sqlite::memory:",
+                        action,
+                    );
+                }
+                bool_row_inline(ui, id, "AutoConnect", "Auto-connect:", ctrl, action);
+                int_prop_row(
+                    ui,
+                    id,
+                    "MaximumConnections",
+                    "Max connections:",
+                    ctrl,
+                    action,
+                    1..=100,
+                    None,
+                    5,
+                );
 
                 section_header(ui, "COBOL Integration");
-                egui::Grid::new(format!("sql_items_{id}"))
-                    .num_columns(1)
-                    .spacing([8.0, 4.0])
-                    .show(ui, |ui| {
-                        let cur = ctrl
-                            .get_prop("ConnectionDataItem")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        text_row_hint(
-                            ui,
-                            &mut self.text_bufs,
-                            id,
-                            "ConnectionDataItem",
-                            &cur,
-                            "Connection item:",
-                            "conn1",
-                            action,
-                        );
-                        ui.end_row();
-
-                        let cur = ctrl
-                            .get_prop("ResultSetDataItem")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        text_row_hint(
-                            ui,
-                            &mut self.text_bufs,
-                            id,
-                            "ResultSetDataItem",
-                            &cur,
-                            "Result set item:",
-                            "resultset1",
-                            action,
-                        );
-                        ui.end_row();
-                    });
+                {
+                    let cur = ctrl
+                        .get_prop("ConnectionDataItem")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "ConnectionDataItem",
+                        &cur,
+                        "Connection item:",
+                        "conn1",
+                        action,
+                    );
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("ResultSetDataItem")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "ResultSetDataItem",
+                        &cur,
+                        "Result set item:",
+                        "resultset1",
+                        action,
+                    );
+                }
                 ui.add_space(4.0);
             }
 
@@ -6578,76 +6117,61 @@ impl PropertiesPanel {
                 section_header(ui, "Basic properties");
 
                 // ── Visual ────────────────────────────────────────────────────
-                egui::Grid::new(format!("chart_vis_{id}"))
-                    .num_columns(2)
-                    .spacing([8.0, 4.0])
-                    .show(ui, |ui| {
-                        // Title
-                        let cur_title = ctrl
-                            .get_prop("Title")
-                            .map(|v| v.as_str().to_owned())
-                            .unwrap_or_default();
-                        text_row_hint(
-                            ui,
-                            &mut self.text_bufs,
-                            id,
-                            "Title",
-                            &cur_title,
-                            "Title:",
-                            "Sales by Region",
-                            action,
-                        );
-                        bool_row(ui, id, "ShowLegend", "Show legend", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ShowGridLines", "Show grid lines", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ShowXAxis", "Show X axis line", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ShowYAxis", "Show Y axis line", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "ShowTooltips", "Show tooltips", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "AnimateOnLoad", "Animate on load", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "HideBackground", "Hide background", ctrl, action);
-                        ui.end_row();
-                        bool_row(ui, id, "Monochrome", "Monochrome", ctrl, action);
-                        ui.end_row();
-                        // Axis labels (not for pie/donut)
-                        if !matches!(
-                            ctrl.control_type,
-                            ControlType::PieChart | ControlType::DonutChart
-                        ) {
-                            let cx = ctrl
-                                .get_prop("XAxisLabel")
-                                .map(|v| v.as_str().to_owned())
-                                .unwrap_or_default();
-                            text_row_hint(
-                                ui,
-                                &mut self.text_bufs,
-                                id,
-                                "XAxisLabel",
-                                &cx,
-                                "X-axis label:",
-                                "Month",
-                                action,
-                            );
-                            let cy = ctrl
-                                .get_prop("YAxisLabel")
-                                .map(|v| v.as_str().to_owned())
-                                .unwrap_or_default();
-                            text_row_hint(
-                                ui,
-                                &mut self.text_bufs,
-                                id,
-                                "YAxisLabel",
-                                &cy,
-                                "Y-axis label:",
-                                "Amount",
-                                action,
-                            );
-                        }
-                    });
+                let cur_title = ctrl
+                    .get_prop("Title")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default();
+                text_row_hint(
+                    ui,
+                    &mut self.text_bufs,
+                    id,
+                    "Title",
+                    &cur_title,
+                    "Title:",
+                    "Sales by Region",
+                    action,
+                );
+                bool_row_inline(ui, id, "ShowLegend", "Show legend", ctrl, action);
+                bool_row_inline(ui, id, "ShowGridLines", "Show grid lines", ctrl, action);
+                bool_row_inline(ui, id, "ShowXAxis", "Show X axis line", ctrl, action);
+                bool_row_inline(ui, id, "ShowYAxis", "Show Y axis line", ctrl, action);
+                bool_row_inline(ui, id, "ShowTooltips", "Show tooltips", ctrl, action);
+                bool_row_inline(ui, id, "AnimateOnLoad", "Animate on load", ctrl, action);
+                bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
+                bool_row_inline(ui, id, "Monochrome", "Monochrome", ctrl, action);
+                if !matches!(
+                    ctrl.control_type,
+                    ControlType::PieChart | ControlType::DonutChart
+                ) {
+                    let cx = ctrl
+                        .get_prop("XAxisLabel")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "XAxisLabel",
+                        &cx,
+                        "X-axis label:",
+                        "Month",
+                        action,
+                    );
+                    let cy = ctrl
+                        .get_prop("YAxisLabel")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.text_bufs,
+                        id,
+                        "YAxisLabel",
+                        &cy,
+                        "Y-axis label:",
+                        "Amount",
+                        action,
+                    );
+                }
 
                 // ── Monochrome base colour (spec 013) ─────────────────────────
                 // When Monochrome is on: a Gradient toggle + a compact 16×16
@@ -6678,8 +6202,7 @@ impl PropertiesPanel {
                         ctrl,
                         action,
                     );
-                    ui.horizontal(|ui| {
-                        ui.label("Base color:");
+                    property_row(ui, "Base color:", |ui| {
                         let (cr, cg, cb) = parse(&cur);
                         let (rect, _) =
                             ui.allocate_exact_size(egui::vec2(20.0, 14.0), egui::Sense::hover());
@@ -6834,151 +6357,82 @@ impl PropertiesPanel {
                 // ── Type-specific ─────────────────────────────────────────────
                 if matches!(ctrl.control_type, ControlType::BarChart) {
                     section_header(ui, "Bar Chart Options");
-                    egui::Grid::new(format!("chart_bar_{id}"))
-                        .num_columns(2)
-                        .spacing([8.0, 4.0])
-                        .show(ui, |ui| {
-                            bool_row(ui, id, "Horizontal", "Horizontal bars", ctrl, action);
-                            ui.end_row();
-                            bool_row(ui, id, "Stacked", "Stacked", ctrl, action);
-                            ui.end_row();
-                            ui.label("Corner radius:");
-                            {
-                                let mut v = ctrl
-                                    .get_prop("BarCornerRadius")
-                                    .map(|v| v.as_i64())
-                                    .unwrap_or(3);
-                                if ui
-                                    .add(DragValue::new(&mut v).speed(1).range(0..=20))
-                                    .changed()
-                                {
-                                    action.set_props.push((
-                                        id.to_owned(),
-                                        "BarCornerRadius".into(),
-                                        PropValue::Int(v),
-                                    ));
-                                }
-                            }
-                            ui.end_row();
-                        });
+                    bool_row_inline(ui, id, "Horizontal", "Horizontal bars", ctrl, action);
+                    bool_row_inline(ui, id, "Stacked", "Stacked", ctrl, action);
+                    int_prop_row(
+                        ui,
+                        id,
+                        "BarCornerRadius",
+                        "Corner radius",
+                        ctrl,
+                        action,
+                        0..=20,
+                        None,
+                        3,
+                    );
                 }
                 if matches!(
                     ctrl.control_type,
                     ControlType::LineChart | ControlType::AreaChart
                 ) {
                     section_header(ui, "Line / Area Options");
-                    egui::Grid::new(format!("chart_line_{id}"))
-                        .num_columns(2)
-                        .spacing([8.0, 4.0])
-                        .show(ui, |ui| {
-                            bool_row(ui, id, "Smooth", "Smooth curve", ctrl, action);
-                            ui.end_row();
-                            bool_row(ui, id, "ShowPoints", "Show points", ctrl, action);
-                            ui.end_row();
-                            ui.label("Point radius:");
-                            {
-                                let mut v = ctrl
-                                    .get_prop("PointRadius")
-                                    .map(|v| v.as_i64())
-                                    .unwrap_or(4);
-                                if ui
-                                    .add(DragValue::new(&mut v).speed(1).range(0..=20))
-                                    .changed()
-                                {
-                                    action.set_props.push((
-                                        id.to_owned(),
-                                        "PointRadius".into(),
-                                        PropValue::Int(v),
-                                    ));
-                                }
-                            }
-                            ui.end_row();
-                            if matches!(ctrl.control_type, ControlType::AreaChart) {
-                                ui.label("Fill alpha (%):");
-                                {
-                                    let mut v = ctrl
-                                        .get_prop("FillAlpha")
-                                        .map(|v| v.as_i64())
-                                        .unwrap_or(40);
-                                    if ui
-                                        .add(
-                                            DragValue::new(&mut v)
-                                                .speed(1)
-                                                .range(0..=100)
-                                                .suffix("%"),
-                                        )
-                                        .changed()
-                                    {
-                                        action.set_props.push((
-                                            id.to_owned(),
-                                            "FillAlpha".into(),
-                                            PropValue::Int(v),
-                                        ));
-                                    }
-                                }
-                                ui.end_row();
-                                bool_row(ui, id, "Stacked", "Stacked areas", ctrl, action);
-                                ui.end_row();
-                            }
-                        });
+                    bool_row_inline(ui, id, "Smooth", "Smooth curve", ctrl, action);
+                    bool_row_inline(ui, id, "ShowPoints", "Show points", ctrl, action);
+                    int_prop_row(
+                        ui,
+                        id,
+                        "PointRadius",
+                        "Point radius",
+                        ctrl,
+                        action,
+                        0..=20,
+                        None,
+                        4,
+                    );
+                    if matches!(ctrl.control_type, ControlType::AreaChart) {
+                        int_prop_row(
+                            ui,
+                            id,
+                            "FillAlpha",
+                            "Fill alpha (%)",
+                            ctrl,
+                            action,
+                            0..=100,
+                            Some("%"),
+                            40,
+                        );
+                        bool_row_inline(ui, id, "Stacked", "Stacked areas", ctrl, action);
+                    }
                 }
                 if matches!(
                     ctrl.control_type,
                     ControlType::PieChart | ControlType::DonutChart
                 ) {
                     section_header(ui, "Pie / Donut Options");
-                    egui::Grid::new(format!("chart_pie_{id}"))
-                        .num_columns(2)
-                        .spacing([8.0, 4.0])
-                        .show(ui, |ui| {
-                            bool_row(ui, id, "ShowLabels", "Show labels", ctrl, action);
-                            ui.end_row();
-                            ui.label("Label format:");
-                            let cur_lf = ctrl
-                                .get_prop("LabelFormat")
-                                .map(|v| v.as_str().to_owned())
-                                .unwrap_or_else(|| "percent".into());
-                            egui::ComboBox::from_id_salt(format!("chart_lf_{id}"))
-                                .selected_text(&cur_lf)
-                                .width(90.0)
-                                .show_ui(ui, |ui| {
-                                    for opt in &["percent", "value", "label"] {
-                                        if ui.selectable_label(&cur_lf == opt, *opt).clicked() {
-                                            action.set_props.push((
-                                                id.to_owned(),
-                                                "LabelFormat".into(),
-                                                PropValue::String(opt.to_string()),
-                                            ));
-                                        }
-                                    }
-                                });
-                            ui.end_row();
-                            if matches!(ctrl.control_type, ControlType::DonutChart) {
-                                ui.label("Inner radius (%):");
-                                {
-                                    let mut v = ctrl
-                                        .get_prop("InnerRadius")
-                                        .map(|v| v.as_i64())
-                                        .unwrap_or(40);
-                                    if ui
-                                        .add(
-                                            DragValue::new(&mut v)
-                                                .speed(1)
-                                                .range(10..=80)
-                                                .suffix("%"),
-                                        )
-                                        .changed()
-                                    {
-                                        action.set_props.push((
-                                            id.to_owned(),
-                                            "InnerRadius".into(),
-                                            PropValue::Int(v),
-                                        ));
-                                    }
-                                }
-                                ui.end_row();
-                            }
-                        });
+                    bool_row_inline(ui, id, "ShowLabels", "Show labels", ctrl, action);
+                    combo_prop_row(
+                        ui,
+                        id,
+                        "LabelFormat",
+                        "Label format:",
+                        ctrl,
+                        action,
+                        &["percent", "value", "label"],
+                        "percent",
+                    );
+                    if matches!(ctrl.control_type, ControlType::DonutChart) {
+                        int_prop_row(
+                            ui,
+                            id,
+                            "InnerRadius",
+                            "Inner radius (%)",
+                            ctrl,
+                            action,
+                            10..=80,
+                            Some("%"),
+                            40,
+                        );
+                    }
                 }
                 if matches!(ctrl.control_type, ControlType::ScatterChart) {
                     section_header(ui, "Scatter / Bubble Options");
@@ -6997,29 +6451,17 @@ impl PropertiesPanel {
                         "SALES-VOLUME",
                         action,
                     );
-                    egui::Grid::new(format!("chart_sct_{id}"))
-                        .num_columns(2)
-                        .spacing([8.0, 4.0])
-                        .show(ui, |ui| {
-                            ui.label("Max bubble (px):");
-                            {
-                                let mut v = ctrl
-                                    .get_prop("BubbleScale")
-                                    .map(|v| v.as_i64())
-                                    .unwrap_or(20);
-                                if ui
-                                    .add(DragValue::new(&mut v).speed(1).range(4..=60))
-                                    .changed()
-                                {
-                                    action.set_props.push((
-                                        id.to_owned(),
-                                        "BubbleScale".into(),
-                                        PropValue::Int(v),
-                                    ));
-                                }
-                            }
-                            ui.end_row();
-                        });
+                    int_prop_row(
+                        ui,
+                        id,
+                        "BubbleScale",
+                        "Max bubble (px)",
+                        ctrl,
+                        action,
+                        4..=60,
+                        None,
+                        20,
+                    );
                 }
 
                 ui.add_space(4.0);
@@ -7038,190 +6480,175 @@ impl PropertiesPanel {
     // ── Form inspector ────────────────────────────────────────────────────────
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
-        section_card(ui, "form-sec-props", tr.sec_form_props, true, |ui| {
-            // ── Identity (read-only) ──────────────────────────────────────────────
-            egui::Grid::new("form_identity")
-                .num_columns(2)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label(tr.lbl_name);
-                    ui.label(&form.name);
-                    ui.end_row();
-                    ui.label(tr.lbl_size);
-                    ui.label(format!("{} × {}", form.width, form.height));
-                    ui.end_row();
-                });
-        });
+        self.show_tabs(ui);
+        self.property_split = self
+            .property_split
+            .clamp(72.0, ui.available_width().max(72.0));
+        ui.data_mut(|d| d.insert_temp(property_split_id(), self.property_split));
 
-        // ── COBOL Structure (spec 005) ────────────────────────────────────────
-        // List of sections + user procedures; clicking a row opens the popup
-        // editor for that single block.
-        section_card(ui, "form-sec-cobol", tr.cs_open, true, |ui| {
-            use super::cobol_structure::{section_text, CsTarget, SECTIONS};
-            for t in SECTIONS {
-                let kw = t.section_keyword().unwrap_or("");
-                let filled = section_text(form, t)
-                    .map(|s| !s.trim().is_empty())
-                    .unwrap_or(false);
-                let dot = if filled { "● " } else { "○ " };
-                if ui
-                    .selectable_label(false, egui::RichText::new(format!("{dot}{kw}")).monospace())
-                    .clicked()
-                {
-                    action.cs_open = Some(t);
+        match self.active_tab {
+            InspectorTab::Visuals => {
+                section_header(ui, tr.sec_form_props);
+                property_row(ui, tr.lbl_name, |ui| {
+                    ui.label(&form.name);
+                });
+                property_row(ui, tr.lbl_size, |ui| {
+                    ui.label(format!("{} × {}", form.width, form.height));
+                });
+
+                // ── COBOL Structure (spec 005) ────────────────────────────────────────
+                // List of sections + user procedures; clicking a row opens the popup
+                // editor for that single block.
+                section_header(ui, tr.cs_open);
+                use super::cobol_structure::{section_text, CsTarget, SECTIONS};
+                for t in SECTIONS {
+                    let kw = t.section_keyword().unwrap_or("");
+                    let filled = section_text(form, t)
+                        .map(|s| !s.trim().is_empty())
+                        .unwrap_or(false);
+                    let dot = if filled { "● " } else { "○ " };
+                    property_row(ui, kw, |ui| {
+                        if ui
+                            .selectable_label(false, egui::RichText::new(dot).monospace())
+                            .clicked()
+                        {
+                            action.cs_open = Some(t);
+                        }
+                    });
                 }
-            }
-            ui.add_space(6.0);
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(tr.cs_user_procedures).strong());
-                if ui
-                    .small_button(format!("➕ {}", tr.cs_add_procedure))
-                    .clicked()
-                {
-                    action.cs_add_proc = true;
-                }
-            });
-            for (i, up) in form.user_procedures.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    if ui.small_button("🗑").on_hover_text(tr.cs_delete).clicked() {
-                        action.cs_del_proc = Some(i);
+                property_row(ui, tr.cs_user_procedures, |ui| {
+                    if ui
+                        .small_button(format!("➕ {}", tr.cs_add_procedure))
+                        .clicked()
+                    {
+                        action.cs_add_proc = true;
                     }
+                });
+                for (i, up) in form.user_procedures.iter().enumerate() {
                     let name = if up.name.trim().is_empty() {
                         "(…)"
                     } else {
                         up.name.trim()
                     };
-                    if ui
-                        .selectable_label(
-                            false,
-                            egui::RichText::new(format!("▸ {name}")).monospace(),
-                        )
-                        .clicked()
-                    {
-                        action.cs_open = Some(CsTarget::Procedure(i));
-                    }
-                });
-            }
-            ui.add_space(2.0);
-            ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
-        });
+                    property_row(ui, name, |ui| {
+                        if ui.small_button("🗑").on_hover_text(tr.cs_delete).clicked() {
+                            action.cs_del_proc = Some(i);
+                        }
+                        if ui
+                            .selectable_label(false, egui::RichText::new("Open").monospace())
+                            .clicked()
+                        {
+                            action.cs_open = Some(CsTarget::Procedure(i));
+                        }
+                    });
+                }
+                ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
 
-        // ── Target device ─────────────────────────────────────────────────────
-        section_card(ui, "form-sec-target", tr.sec_target, true, |ui| {
-            egui::Grid::new("form_target")
-                .num_columns(2)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
+                // ── Target device ─────────────────────────────────────────────────────
+                section_header(ui, tr.sec_target);
+                property_row(ui, tr.lbl_target_label, |ui| {
                     use super::designer::TARGET_PRESETS;
 
-                    ui.label(tr.lbl_target_label);
-                    {
-                        let cur = form.target.as_str();
-                        // Show current selection + dimensions hint
-                        let display = if cur == "Custom" {
-                            format!("Custom ({}×{})", form.width, form.height)
-                        } else {
-                            // Find preset dims
-                            TARGET_PRESETS
-                                .iter()
-                                .find(|(l, ..)| *l == cur)
-                                .map(|(l, w, h)| format!("{l}  ({w}×{h})"))
-                                .unwrap_or_else(|| cur.to_owned())
-                        };
-                        egui::ComboBox::from_id_salt("form_target_combo")
-                            .selected_text(&display)
-                            .width(ui.available_width())
-                            .show_ui(ui, |ui| {
-                                // Group headers — rendered as disabled labels between items
-                                let groups: &[(&str, &[&str])] = &[
-                                    ("— Custom —", &["Custom"]),
-                                    (
-                                        "— Apple iPhone —",
-                                        &[
-                                            "iPhone 16 Pro Max",
-                                            "iPhone 16 / 15 Pro",
-                                            "iPhone 15 / 14",
-                                            "iPhone SE (3rd gen)",
-                                        ],
+                    let cur = form.target.as_str();
+                    // Show current selection + dimensions hint
+                    let display = if cur == "Custom" {
+                        format!("Custom ({}×{})", form.width, form.height)
+                    } else {
+                        // Find preset dims
+                        TARGET_PRESETS
+                            .iter()
+                            .find(|(l, ..)| *l == cur)
+                            .map(|(l, w, h)| format!("{l}  ({w}×{h})"))
+                            .unwrap_or_else(|| cur.to_owned())
+                    };
+                    egui::ComboBox::from_id_salt("form_target_combo")
+                        .selected_text(&display)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            // Group headers — rendered as disabled labels between items
+                            let groups: &[(&str, &[&str])] = &[
+                                ("— Custom —", &["Custom"]),
+                                (
+                                    "— Apple iPhone —",
+                                    &[
+                                        "iPhone 16 Pro Max",
+                                        "iPhone 16 / 15 Pro",
+                                        "iPhone 15 / 14",
+                                        "iPhone SE (3rd gen)",
+                                    ],
+                                ),
+                                (
+                                    "— Apple iPad —",
+                                    &[
+                                        "iPad Pro 13\" (M4)",
+                                        "iPad Pro 11\" (M4)",
+                                        "iPad Air 13\" (M2)",
+                                        "iPad (10th gen)",
+                                        "iPad mini (7th gen)",
+                                    ],
+                                ),
+                                (
+                                    "— Apple Watch —",
+                                    &[
+                                        "Apple Watch Ultra 2 (49mm)",
+                                        "Apple Watch Series 10 (46mm)",
+                                        "Apple Watch Series 10 (42mm)",
+                                    ],
+                                ),
+                                (
+                                    "— Android Phone —",
+                                    &[
+                                        "Samsung Galaxy S24 Ultra",
+                                        "Samsung Galaxy S24",
+                                        "Google Pixel 9 Pro",
+                                        "Android Phone (generic 1080p)",
+                                    ],
+                                ),
+                                (
+                                    "— Android Tablet —",
+                                    &[
+                                        "Samsung Galaxy Tab S9 Ultra",
+                                        "Samsung Galaxy Tab S9",
+                                        "Lenovo Tab P12",
+                                        "Android Tablet (generic)",
+                                    ],
+                                ),
+                                (
+                                    "— Android SmartWatch —",
+                                    &[
+                                        "Samsung Galaxy Watch 7 (44mm)",
+                                        "Samsung Galaxy Watch 7 (40mm)",
+                                        "Wear OS (generic round)",
+                                        "Wear OS (generic square)",
+                                    ],
+                                ),
+                            ];
+                            for (header, items) in groups {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Label::new(
+                                        RichText::new(*header)
+                                            .small()
+                                            .color(Color32::from_rgb(140, 160, 200)),
                                     ),
-                                    (
-                                        "— Apple iPad —",
-                                        &[
-                                            "iPad Pro 13\" (M4)",
-                                            "iPad Pro 11\" (M4)",
-                                            "iPad Air 13\" (M2)",
-                                            "iPad (10th gen)",
-                                            "iPad mini (7th gen)",
-                                        ],
-                                    ),
-                                    (
-                                        "— Apple Watch —",
-                                        &[
-                                            "Apple Watch Ultra 2 (49mm)",
-                                            "Apple Watch Series 10 (46mm)",
-                                            "Apple Watch Series 10 (42mm)",
-                                        ],
-                                    ),
-                                    (
-                                        "— Android Phone —",
-                                        &[
-                                            "Samsung Galaxy S24 Ultra",
-                                            "Samsung Galaxy S24",
-                                            "Google Pixel 9 Pro",
-                                            "Android Phone (generic 1080p)",
-                                        ],
-                                    ),
-                                    (
-                                        "— Android Tablet —",
-                                        &[
-                                            "Samsung Galaxy Tab S9 Ultra",
-                                            "Samsung Galaxy Tab S9",
-                                            "Lenovo Tab P12",
-                                            "Android Tablet (generic)",
-                                        ],
-                                    ),
-                                    (
-                                        "— Android SmartWatch —",
-                                        &[
-                                            "Samsung Galaxy Watch 7 (44mm)",
-                                            "Samsung Galaxy Watch 7 (40mm)",
-                                            "Wear OS (generic round)",
-                                            "Wear OS (generic square)",
-                                        ],
-                                    ),
-                                ];
-                                for (header, items) in groups {
-                                    ui.add_enabled(
-                                        false,
-                                        egui::Label::new(
-                                            RichText::new(*header)
-                                                .small()
-                                                .color(Color32::from_rgb(140, 160, 200)),
-                                        ),
-                                    );
-                                    for &item in *items {
-                                        let dims = TARGET_PRESETS
-                                            .iter()
-                                            .find(|(l, ..)| *l == item)
-                                            .map(|(_, w, h)| format!("  {w}×{h}"))
-                                            .unwrap_or_default();
-                                        let label = format!("{item}{dims}");
-                                        if ui.selectable_label(cur == item, &label).clicked() {
-                                            action
-                                                .form_props
-                                                .push(("Target".into(), item.to_owned()));
-                                        }
+                                );
+                                for &item in *items {
+                                    let dims = TARGET_PRESETS
+                                        .iter()
+                                        .find(|(l, ..)| *l == item)
+                                        .map(|(_, w, h)| format!("  {w}×{h}"))
+                                        .unwrap_or_default();
+                                    let label = format!("{item}{dims}");
+                                    if ui.selectable_label(cur == item, &label).clicked() {
+                                        action.form_props.push(("Target".into(), item.to_owned()));
                                     }
                                 }
-                            });
-                    }
-                    ui.end_row();
-
-                    // Orientation hint (Portrait / Landscape swap button)
-                    ui.label(tr.lbl_orientation);
+                            }
+                        });
+                });
+                property_row(ui, tr.lbl_orientation, |ui| {
+                    let portrait = form.width <= form.height;
                     ui.horizontal(|ui| {
-                        let portrait = form.width <= form.height;
                         if ui.selectable_label(portrait, tr.lbl_portrait).clicked() && !portrait {
                             action
                                 .form_props
@@ -7239,343 +6666,299 @@ impl PropertiesPanel {
                                 .push(("Height".into(), form.width.to_string()));
                         }
                     });
-                    ui.end_row();
                 });
-        });
 
-        // ── Appearance ────────────────────────────────────────────────────────
-        section_card(ui, "form-sec-appearance", tr.sec_appearance, true, |ui| {
-            egui::Grid::new("form_appearance")
-                .num_columns(2)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
-                    // Title
-                    ui.label(tr.lbl_title);
+                // ── Appearance ────────────────────────────────────────────────────────
+                section_header(ui, tr.sec_appearance);
+                const TITLE_KEY: &str = "form-Title";
+                let title_wid = egui::Id::new(TITLE_KEY);
+                let title_buf = self
+                    .form_bufs
+                    .entry(TITLE_KEY.into())
+                    .or_insert(form.title.clone());
+                if *title_buf != form.title && !ui.memory(|m| m.has_focus(title_wid)) {
+                    *title_buf = form.title.clone();
+                }
+                property_row(ui, tr.lbl_title, |ui| {
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(title_buf)
+                                .id(title_wid)
+                                .desired_width(ui.available_width()),
+                        )
+                        .lost_focus()
                     {
-                        const K: &str = "form-Title";
-                        let wid = egui::Id::new(K);
-                        let buf = self.form_bufs.entry(K.into()).or_insert(form.title.clone());
-                        if *buf != form.title && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = form.title.clone();
+                        action.form_props.push(("Title".into(), title_buf.clone()));
+                    }
+                });
+                property_row(ui, tr.lbl_back_color, |ui| {
+                    let hex = format!("#{}", form.background_color.trim_start_matches('#'));
+                    let mut color = hex_to_color32(&hex);
+                    if color_edit_button_closing(ui, &mut color).changed() {
+                        action
+                            .form_props
+                            .push(("BackgroundColor".into(), color32_to_hex(color)));
+                    }
+                    ui.label(
+                        RichText::new(color32_to_hex(color))
+                            .monospace()
+                            .small()
+                            .color(Color32::GRAY),
+                    );
+                });
+                property_row(ui, tr.lbl_transparency, |ui| {
+                    let mut trans = form.transparency as i64;
+                    if ui
+                        .add(
+                            DragValue::new(&mut trans)
+                                .speed(1)
+                                .range(0..=100)
+                                .suffix("%"),
+                        )
+                        .changed()
+                    {
+                        action
+                            .form_props
+                            .push(("Transparency".into(), trans.to_string()));
+                    }
+                });
+                property_row(ui, tr.lbl_grid_size, |ui| {
+                    let mut gs = form.grid_size as i64;
+                    if ui
+                        .add(DragValue::new(&mut gs).speed(1).range(4..=64).suffix("px"))
+                        .changed()
+                    {
+                        action.form_props.push(("GridSize".into(), gs.to_string()));
+                    }
+                });
+                property_row(ui, tr.lbl_snap_to_grid, |ui| {
+                    let mut snapping = form.snap_to_grid;
+                    if ui.checkbox(&mut snapping, "").changed() {
+                        action.form_props.push((
+                            "SnapToGrid".into(),
+                            if snapping { "true" } else { "false" }.to_string(),
+                        ));
+                    }
+                });
+                property_row(ui, "Theme", |ui| {
+                    let cur = form.glass_style.as_str();
+                    egui::ComboBox::from_id_salt("form_glass_style")
+                        .selected_text(cur)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for opt in &["Classic", "Enhanced", "Neumorphic"] {
+                                if ui.selectable_label(cur == *opt, *opt).clicked() {
+                                    // Drop any image theme-pack override, then set the
+                                    // procedural glass style.
+                                    action.form_props.push(("Theme".into(), String::new()));
+                                    action
+                                        .form_props
+                                        .push(("GlassStyle".into(), opt.to_string()));
+                                }
+                            }
+                        });
+                });
+
+                // ── Background Image ──────────────────────────────────────────────────
+                section_header(ui, tr.sec_bg_image);
+                {
+                    // Namespace the buffer, widget id, and file-dialog key by viewport
+                    // so the in-window inspector and a detached Designer window (each a
+                    // separate egui viewport) don't share state — otherwise whichever
+                    // renders first in the frame steals the picker's result and the
+                    // path never lands on the window the user clicked in.
+                    let vp = ui.ctx().viewport_id();
+                    let buf_key = format!("form-BgImage:{vp:?}");
+                    let wid = egui::Id::new(&buf_key);
+                    let buf = self
+                        .form_bufs
+                        .entry(buf_key)
+                        .or_insert(form.background_image.clone());
+                    if *buf != form.background_image && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = form.background_image.clone();
+                    }
+                    property_row(ui, tr.lbl_image_path, |ui| {
+                        let pick_k = format!("form-BgImage-pick:{vp:?}");
+                        if ui.button("📂").on_hover_text("Browse for image…").clicked() {
+                            crate::file_dialog::open_file(
+                                ui.ctx(),
+                                &pick_k,
+                                "Images",
+                                &["png", "jpg", "jpeg", "bmp", "gif", "ico", "webp", "svg"],
+                            );
+                        }
+                        if crate::file_dialog::is_open(&pick_k) {
+                            ui.ctx().request_repaint();
+                        }
+                        if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
+                            let path_str = p.to_string_lossy().to_string();
+                            *buf = path_str.clone();
+                            action.form_props.push(("BackgroundImage".into(), path_str));
                         }
                         if ui
                             .add(
                                 egui::TextEdit::singleline(buf)
                                     .id(wid)
-                                    .desired_width(f32::INFINITY),
+                                    .hint_text("/path/to/image.png")
+                                    .desired_width(ui.available_width()),
                             )
                             .lost_focus()
                         {
-                            action.form_props.push(("Title".into(), buf.clone()));
-                        }
-                    }
-                    ui.end_row();
-
-                    // BackColor
-                    ui.label(tr.lbl_back_color);
-                    {
-                        let hex = format!("#{}", form.background_color.trim_start_matches('#'));
-                        let mut color = hex_to_color32(&hex);
-                        ui.horizontal(|ui| {
-                            if color_edit_button_closing(ui, &mut color).changed() {
-                                action
-                                    .form_props
-                                    .push(("BackgroundColor".into(), color32_to_hex(color)));
-                            }
-                            ui.label(
-                                RichText::new(color32_to_hex(color))
-                                    .monospace()
-                                    .small()
-                                    .color(Color32::GRAY),
-                            );
-                        });
-                    }
-                    ui.end_row();
-
-                    // Transparency
-                    ui.label(tr.lbl_transparency);
-                    {
-                        let mut trans = form.transparency as i64;
-                        if ui
-                            .add(
-                                DragValue::new(&mut trans)
-                                    .speed(1)
-                                    .range(0..=100)
-                                    .suffix("%"),
-                            )
-                            .changed()
-                        {
                             action
                                 .form_props
-                                .push(("Transparency".into(), trans.to_string()));
+                                .push(("BackgroundImage".into(), buf.clone()));
                         }
-                    }
-                    ui.end_row();
-
-                    // Grid dot spacing
-                    ui.label(tr.lbl_grid_size);
-                    {
-                        let mut gs = form.grid_size as i64;
-                        if ui
-                            .add(DragValue::new(&mut gs).speed(1).range(4..=64).suffix("px"))
-                            .changed()
-                        {
-                            action.form_props.push(("GridSize".into(), gs.to_string()));
-                        }
-                    }
-                    ui.end_row();
-
-                    // Snap-to-grid toggle
-                    ui.label(tr.lbl_snap_to_grid);
-                    {
-                        let mut snapping = form.snap_to_grid;
-                        if ui.checkbox(&mut snapping, "").changed() {
-                            action.form_props.push((
-                                "SnapToGrid".into(),
-                                if snapping { "true" } else { "false" }.to_string(),
-                            ));
-                        }
-                    }
-                    ui.end_row();
-
-                    // Theme / surface style. All three are procedural glass styles
-                    // now — Neumorphic is shadow-based (no image pack), so selecting
-                    // it just sets the glass style and clears any theme-pack override.
-                    ui.label("Theme");
-                    {
-                        let cur = form.glass_style.as_str();
-                        egui::ComboBox::from_id_salt("form_glass_style")
-                            .selected_text(cur)
-                            .width(120.0)
-                            .show_ui(ui, |ui| {
-                                for opt in &["Classic", "Enhanced", "Neumorphic"] {
-                                    if ui.selectable_label(cur == *opt, *opt).clicked() {
-                                        // Drop any image theme-pack override, then
-                                        // set the procedural glass style.
-                                        action.form_props.push(("Theme".into(), String::new()));
-                                        action
-                                            .form_props
-                                            .push(("GlassStyle".into(), opt.to_string()));
-                                    }
+                    });
+                }
+                property_row(ui, tr.lbl_img_mode, |ui| {
+                    let cur_mode = form.bg_image_mode.as_str();
+                    egui::ComboBox::from_id_salt("form_bgimage_mode")
+                        .selected_text(cur_mode)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for &opt in BgImageMode::all() {
+                                if ui.selectable_label(cur_mode == opt, opt).clicked() {
+                                    action
+                                        .form_props
+                                        .push(("BgImageMode".into(), opt.to_owned()));
                                 }
-                            });
-                    }
-                    ui.end_row();
-
-                    // Form theme override + themed-background toggle (spec 007) are
-                    // **hidden for now**: only Liquid Glass ships as a finished look until
-                    // the special asset packs are tuned. The model fields (`form.theme`,
-                    // `form.use_theme_background`) and the renderer are retained — restoring
-                    // these two rows re-enables the per-form chooser.
-                });
-        });
-
-        // ── Background Image ──────────────────────────────────────────────────
-        section_card(ui, "form-sec-bgimage", tr.sec_bg_image, true, |ui| {
-            egui::Grid::new("form_bgimage")
-                .num_columns(2)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
-                    // Image path + browse button
-                    ui.label(tr.lbl_image_path);
-                    {
-                        // Namespace the buffer, widget id, and file-dialog key by viewport
-                        // so the in-window inspector and a detached Designer window (each a
-                        // separate egui viewport) don't share state — otherwise whichever
-                        // renders first in the frame steals the picker's result and the
-                        // path never lands on the window the user clicked in.
-                        let vp = ui.ctx().viewport_id();
-                        let buf_key = format!("form-BgImage:{vp:?}");
-                        let wid = egui::Id::new(&buf_key);
-                        let buf = self
-                            .form_bufs
-                            .entry(buf_key)
-                            .or_insert(form.background_image.clone());
-                        if *buf != form.background_image && !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = form.background_image.clone();
-                        }
-                        ui.horizontal(|ui| {
-                            let pick_k = format!("form-BgImage-pick:{vp:?}");
-                            if ui.button("📂").on_hover_text("Browse for image…").clicked() {
-                                crate::file_dialog::open_file(
-                                    ui.ctx(),
-                                    &pick_k,
-                                    "Images",
-                                    &["png", "jpg", "jpeg", "bmp", "gif", "ico", "webp", "svg"],
-                                );
-                            }
-                            if crate::file_dialog::is_open(&pick_k) {
-                                ui.ctx().request_repaint();
-                            }
-                            if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
-                                let path_str = p.to_string_lossy().to_string();
-                                *buf = path_str.clone();
-                                action.form_props.push(("BackgroundImage".into(), path_str));
-                            }
-                            if ui
-                                .add(
-                                    egui::TextEdit::singleline(buf)
-                                        .id(wid)
-                                        .hint_text("/path/to/image.png")
-                                        .desired_width(f32::INFINITY),
-                                )
-                                .lost_focus()
-                            {
-                                action
-                                    .form_props
-                                    .push(("BackgroundImage".into(), buf.clone()));
                             }
                         });
-                    }
-                    ui.end_row();
-
-                    // Sizing mode
-                    ui.label(tr.lbl_img_mode);
-                    {
-                        let cur_mode = form.bg_image_mode.as_str();
-                        egui::ComboBox::from_id_salt("form_bgimage_mode")
-                            .selected_text(cur_mode)
-                            .width(130.0)
-                            .show_ui(ui, |ui| {
-                                for &opt in BgImageMode::all() {
-                                    if ui.selectable_label(cur_mode == opt, opt).clicked() {
-                                        action
-                                            .form_props
-                                            .push(("BgImageMode".into(), opt.to_owned()));
-                                    }
-                                }
-                            });
-                    }
-                    ui.end_row();
                 });
-            ui.label(
-                RichText::new(
-                    "Stretch = fill exactly  •  Fill = crop to fill  •  Fit = letterbox\n\
+                ui.label(
+                    RichText::new(
+                        "Stretch = fill exactly  •  Fill = crop to fill  •  Fit = letterbox\n\
              Center = original size  •  Tile = repeat",
-                )
-                .small()
-                .color(Color32::GRAY)
-                .italics(),
-            );
-        });
+                    )
+                    .small()
+                    .color(Color32::GRAY)
+                    .italics(),
+                );
 
-        // ── Size ──────────────────────────────────────────────────────────────
-        section_card(ui, "form-sec-size", tr.sec_size, true, |ui| {
-            egui::Grid::new("form_size")
-                .num_columns(2)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label(tr.lbl_width);
-                    {
-                        const K: &str = "form-Width";
-                        let wid = egui::Id::new(K);
-                        let buf = self
-                            .form_bufs
-                            .entry(K.into())
-                            .or_insert(form.width.to_string());
-                        if !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = form.width.to_string();
-                        }
+                // ── Size ──────────────────────────────────────────────────────────────
+                section_header(ui, tr.sec_size);
+                {
+                    const K: &str = "form-Width";
+                    let wid = egui::Id::new(K);
+                    let buf = self
+                        .form_bufs
+                        .entry(K.into())
+                        .or_insert(form.width.to_string());
+                    if !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = form.width.to_string();
+                    }
+                    property_row(ui, tr.lbl_width, |ui| {
                         if ui
                             .add(egui::TextEdit::singleline(buf).id(wid).desired_width(70.0))
                             .lost_focus()
                         {
                             action.form_props.push(("Width".into(), buf.clone()));
                         }
+                    });
+                }
+                {
+                    const K: &str = "form-Height";
+                    let wid = egui::Id::new(K);
+                    let buf = self
+                        .form_bufs
+                        .entry(K.into())
+                        .or_insert(form.height.to_string());
+                    if !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = form.height.to_string();
                     }
-                    ui.end_row();
-
-                    ui.label(tr.lbl_height);
-                    {
-                        const K: &str = "form-Height";
-                        let wid = egui::Id::new(K);
-                        let buf = self
-                            .form_bufs
-                            .entry(K.into())
-                            .or_insert(form.height.to_string());
-                        if !ui.memory(|m| m.has_focus(wid)) {
-                            *buf = form.height.to_string();
-                        }
+                    property_row(ui, tr.lbl_height, |ui| {
                         if ui
                             .add(egui::TextEdit::singleline(buf).id(wid).desired_width(70.0))
                             .lost_focus()
                         {
                             action.form_props.push(("Height".into(), buf.clone()));
                         }
-                    }
-                    ui.end_row();
-                });
-        });
+                    });
+                }
+            }
+            InspectorTab::Events => {
+                // ── Form-level Events ─────────────────────────────────────────────────
+                section_header(ui, tr.sec_form_events);
+                ui.label(
+                    RichText::new(tr.hint_click_event)
+                        .small()
+                        .color(Color32::GRAY)
+                        .italics(),
+                );
+                ui.add_space(4.0);
 
-        // ── Form-level Events ─────────────────────────────────────────────────
-        section_card(ui, "form-sec-events", tr.sec_form_events, true, |ui| {
-            ui.label(
-                RichText::new(tr.hint_click_event)
-                    .small()
-                    .color(Color32::GRAY)
-                    .italics(),
-            );
-            ui.add_space(4.0);
+                // All supported form events, grouped by category (collapsible). A group
+                // that has any handler-with-code starts expanded; others collapsed.
+                for &(group, events) in cobolt_forms::model::FORM_EVENT_GROUPS {
+                    let any_code = events.iter().any(|ev| {
+                        form.form_events
+                            .iter()
+                            .any(|e| e.event == *ev && e.has_code())
+                    });
+                    egui::CollapsingHeader::new(
+                        RichText::new(group).strong().color(Color32::from_gray(170)),
+                    )
+                    .id_salt(format!("form-evgrp-{group}"))
+                    .default_open(any_code)
+                    .show(ui, |ui| {
+                        for &ev_name in events {
+                            let binding = form.form_events.iter().find(|e| e.event == ev_name);
+                            let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
+                            let lines = binding.map(|e| e.code_line_count()).unwrap_or(0);
 
-            // All supported form events, grouped by category (collapsible). A group
-            // that has any handler-with-code starts expanded; others collapsed.
-            for &(group, events) in cobolt_forms::model::FORM_EVENT_GROUPS {
-                let any_code = events.iter().any(|ev| {
-                    form.form_events
-                        .iter()
-                        .any(|e| e.event == *ev && e.has_code())
-                });
-                egui::CollapsingHeader::new(
-                    RichText::new(group).strong().color(Color32::from_gray(170)),
-                )
-                .id_salt(format!("form-evgrp-{group}"))
-                .default_open(any_code)
-                .show(ui, |ui| {
-                    for &ev_name in events {
-                        let binding = form.form_events.iter().find(|e| e.event == ev_name);
-                        let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
-                        let lines = binding.map(|e| e.code_line_count()).unwrap_or(0);
-
-                        let row_resp = ui.horizontal(|ui| {
-                            let dot_color = if has_code {
-                                Color32::from_rgb(100, 220, 100)
-                            } else {
-                                Color32::from_rgb(120, 120, 120)
-                            };
-                            ui.label(
-                                RichText::new(if has_code { "●" } else { "○" }).color(dot_color),
-                            );
-                            let lbl = ui
-                                .add(
-                                    egui::Label::new(
-                                        RichText::new(format!("⚙ {ev_name}"))
-                                            .color(Color32::from_rgb(200, 200, 100)),
-                                    )
-                                    .sense(egui::Sense::click()),
-                                )
-                                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                                .on_hover_text(tr.hint_dblclick_event);
-                            if has_code {
+                            property_row(ui, ev_name, |ui| {
+                                let dot_color = if has_code {
+                                    Color32::from_rgb(100, 220, 100)
+                                } else {
+                                    Color32::from_rgb(120, 120, 120)
+                                };
                                 ui.label(
-                                    RichText::new(format!("({lines} {})", tr.hint_lines))
-                                        .small()
-                                        .color(Color32::GRAY),
+                                    RichText::new(if has_code { "●" } else { "○" })
+                                        .color(dot_color),
                                 );
-                            }
-                            (lbl.clicked(), lbl.double_clicked())
-                        });
+                                let lbl = ui
+                                    .add(
+                                        egui::Label::new(
+                                            RichText::new("Edit")
+                                                .color(Color32::from_rgb(200, 200, 100)),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    )
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                    .on_hover_text(tr.hint_dblclick_event);
+                                if has_code {
+                                    ui.label(
+                                        RichText::new(format!("({lines} {})", tr.hint_lines))
+                                            .small()
+                                            .color(Color32::GRAY),
+                                    );
+                                }
 
-                        let (clicked, double_clicked) = row_resp.inner;
-                        // ctrl_id = "" signals form-level event to the designer.
-                        if double_clicked {
-                            action.open_event_in_code = Some((String::new(), ev_name.to_string()));
-                        } else if clicked {
-                            action.open_event_editor = Some((String::new(), ev_name.to_string()));
+                                // ctrl_id = "" signals form-level event to the designer.
+                                if lbl.double_clicked() {
+                                    action.open_event_in_code =
+                                        Some((String::new(), ev_name.to_string()));
+                                } else if lbl.clicked() {
+                                    action.open_event_editor =
+                                        Some((String::new(), ev_name.to_string()));
+                                }
+                            });
                         }
-                    }
+                    });
+                }
+            }
+            InspectorTab::Animations => {
+                section_header(ui, "Animations");
+                property_row(ui, "Form animations", |ui| {
+                    ui.label(
+                        RichText::new("No form-level animation properties").color(Color32::GRAY),
+                    );
                 });
             }
-        });
+        }
+        if let Some(split) = ui.data(|d| d.get_temp::<f32>(property_split_id())) {
+            self.property_split = split;
+        }
 
         ui.add_space(8.0);
         ui.label(
@@ -7588,87 +6971,241 @@ impl PropertiesPanel {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn section_header(ui: &mut Ui, title: &str) {
-    let theme = crate::theme::active();
-    // Same dark-blue card-style header bar as `section_card`, so the widget
-    // inspector's sections look consistent with the form inspector's cards.
-    let fill = if theme.dark {
-        Color32::from_rgba_unmultiplied(10, 11, 14, 150)
-    } else {
-        Color32::from_rgba_unmultiplied(255, 255, 255, 150)
-    };
-    ui.add_space(8.0);
-    egui::Frame::none()
-        .fill(fill)
-        .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-        .rounding(egui::Rounding::same(8.0))
-        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-        .outer_margin(egui::Margin {
-            left: 4.0,
-            right: 0.0,
-            top: 0.0,
-            bottom: 4.0,
-        })
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.set_max_width(ui.available_width());
-            ui.horizontal(|ui| {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(3.5, 17.0), egui::Sense::hover());
-                ui.painter()
-                    .rect_filled(rect, egui::Rounding::same(2.0), theme.accent);
-                ui.add_space(7.0);
-                ui.label(RichText::new(title).size(16.0).strong().color(theme.accent));
-            });
-        });
-    ui.add_space(2.0);
+fn property_split_id() -> egui::Id {
+    egui::Id::new("properties_panel_column_split")
 }
 
-/// A collapsible **section card**: a rounded, subtly-bordered, padded container
-/// with a blue ▸/▾ header (the reference's property-section style). `body` runs
-/// inside the card when expanded.
-fn section_card(
-    ui: &mut Ui,
-    id_salt: &str,
-    title: &str,
-    default_open: bool,
-    body: impl FnOnce(&mut Ui),
+fn current_property_split(ui: &Ui) -> f32 {
+    ui.data(|d| d.get_temp::<f32>(property_split_id()))
+        .unwrap_or(150.0)
+}
+
+fn paint_property_grid_dashed_line(
+    painter: &egui::Painter,
+    start: egui::Pos2,
+    end: egui::Pos2,
+    stroke: egui::Stroke,
 ) {
+    let delta = end - start;
+    let length = delta.length();
+    if length <= 0.0 {
+        return;
+    }
+
+    let direction = delta / length;
+    let dash = 4.0;
+    let gap = 3.0;
+    let mut offset = 0.0;
+    while offset < length {
+        let dash_end = (offset + dash).min(length);
+        painter.line_segment(
+            [start + direction * offset, start + direction * dash_end],
+            stroke,
+        );
+        offset += dash + gap;
+    }
+}
+
+fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
+    let full = ui.available_width().max(1.0);
+    let max_split = (full - 48.0).max(72.0);
+    let split = current_property_split(ui).clamp(72.0, max_split);
+    let base_height = ui
+        .spacing()
+        .interact_size
+        .y
+        .max(ui.text_style_height(&egui::TextStyle::Body) + 10.0);
+    let approx_chars_per_line = ((split - 6.0) / 8.0).floor().max(1.0) as usize;
+    let label_lines = label.len().div_ceil(approx_chars_per_line).clamp(1, 3);
+    let row_height =
+        base_height.max(ui.text_style_height(&egui::TextStyle::Body) * label_lines as f32 + 10.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(full, row_height), Sense::hover());
     let theme = crate::theme::active();
-    // A translucent **dark-blue** card (not a semi-white lift): it darkens the
-    // backdrop into a "dark glass" panel while staying partly see-through.
-    let card_fill = if theme.dark {
-        Color32::from_rgba_unmultiplied(10, 11, 14, 150)
+    let fill = if theme.dark {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 4)
     } else {
-        Color32::from_rgba_unmultiplied(255, 255, 255, 150)
+        Color32::from_rgba_unmultiplied(0, 0, 0, 4)
     };
-    egui::Frame::none()
-        .fill(card_fill)
-        .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-        .rounding(egui::Rounding::same(8.0))
-        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-        .outer_margin(egui::Margin {
-            left: 4.0,
-            right: 0.0,
-            top: 0.0,
-            bottom: 8.0,
-        })
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.set_max_width(ui.available_width());
-            let id = ui.make_persistent_id(id_salt);
-            egui::collapsing_header::CollapsingState::load_with_default_open(
-                ui.ctx(),
-                id,
-                default_open,
-            )
-            .show_header(ui, |ui| {
-                ui.label(RichText::new(title).size(16.0).strong().color(theme.accent));
-            })
-            .body_unindented(|ui| {
-                ui.add_space(4.0);
-                body(ui);
+    ui.painter().rect_filled(rect, 0.0, fill);
+    paint_property_grid_dashed_line(
+        ui.painter(),
+        rect.left_bottom(),
+        rect.right_bottom(),
+        egui::Stroke::new(1.0, theme.panel_border()),
+    );
+
+    let sep_x = rect.left() + split;
+    let sep_rect = Rect::from_min_max(
+        egui::pos2(sep_x - 3.0, rect.top()),
+        egui::pos2(sep_x + 3.0, rect.bottom()),
+    );
+    let sep_id = ui.make_persistent_id(("property_grid_separator", rect.top().to_bits(), label));
+    let sep_response = ui.interact(sep_rect, sep_id, Sense::drag());
+    if sep_response.dragged() {
+        let new_split = (split + sep_response.drag_delta().x).clamp(72.0, max_split);
+        ui.data_mut(|d| d.insert_temp(property_split_id(), new_split));
+        ui.ctx().request_repaint();
+    }
+    let sep_color = if sep_response.hovered() || sep_response.dragged() {
+        theme.accent
+    } else {
+        theme.panel_border()
+    };
+    paint_property_grid_dashed_line(
+        ui.painter(),
+        egui::pos2(sep_x, rect.top()),
+        egui::pos2(sep_x, rect.bottom()),
+        egui::Stroke::new(1.0, sep_color),
+    );
+
+    let left_rect = Rect::from_min_max(rect.min, egui::pos2(sep_x, rect.bottom()));
+    let right_rect = Rect::from_min_max(egui::pos2(sep_x, rect.top()), rect.max);
+    let cell_pad = egui::vec2(3.0, 0.0);
+    ui.allocate_new_ui(
+        egui::UiBuilder::new().max_rect(left_rect.shrink2(cell_pad)),
+        |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(label).wrap());
             });
-        });
+        },
+    );
+    ui.allocate_new_ui(
+        egui::UiBuilder::new().max_rect(right_rect.shrink2(cell_pad)),
+        |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                value(ui);
+            });
+        },
+    );
+}
+
+fn bool_prop_row(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+) {
+    let mut value = ctrl.get_prop(key).map(|p| p.as_bool()).unwrap_or(false);
+    property_row(ui, label, |ui| {
+        if ui.checkbox(&mut value, "").changed() {
+            action
+                .set_props
+                .push((ctrl_id.to_owned(), key.to_owned(), PropValue::Bool(value)));
+        }
+    });
+}
+
+fn int_prop_row(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    range: std::ops::RangeInclusive<i64>,
+    suffix: Option<&str>,
+    fallback: i64,
+) {
+    let mut value = ctrl.get_prop(key).map(|p| p.as_i64()).unwrap_or(fallback);
+    property_row(ui, label, |ui| {
+        let mut editor = DragValue::new(&mut value).speed(1).range(range);
+        if let Some(suffix) = suffix {
+            editor = editor.suffix(suffix);
+        }
+        if ui.add(editor).changed() {
+            action
+                .set_props
+                .push((ctrl_id.to_owned(), key.to_owned(), PropValue::Int(value)));
+        }
+    });
+}
+
+fn combo_prop_row(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    opts: &[&str],
+    fallback: &str,
+) {
+    let current = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| fallback.to_owned());
+    property_row(ui, label, |ui| {
+        egui::ComboBox::from_id_salt(format!("pg_{ctrl_id}_{key}"))
+            .selected_text(&current)
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                for &opt in opts {
+                    if ui.selectable_label(current == opt, opt).clicked() {
+                        action.set_props.push((
+                            ctrl_id.to_owned(),
+                            key.to_owned(),
+                            PropValue::String(opt.to_owned()),
+                        ));
+                    }
+                }
+            });
+    });
+}
+
+fn color_prop_row(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    fallback: &str,
+) {
+    if ctrl.get_prop(key).is_none() {
+        return;
+    }
+    let hex = ctrl
+        .get_prop(key)
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| fallback.to_owned());
+    let mut color = hex_to_color32(&hex);
+    property_row(ui, label, |ui| {
+        if color_edit_button_closing(ui, &mut color).changed() {
+            action.set_props.push((
+                ctrl_id.to_owned(),
+                key.to_owned(),
+                PropValue::String(color32_to_hex(color)),
+            ));
+        }
+        ui.label(
+            RichText::new(color32_to_hex(color))
+                .monospace()
+                .small()
+                .color(Color32::GRAY),
+        );
+    });
+}
+
+fn section_header(ui: &mut Ui, title: &str) {
+    let theme = crate::theme::active();
+    let width = ui.available_width().max(1.0);
+    let height = ui.text_style_height(&egui::TextStyle::Button) + 10.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let fill = if theme.dark {
+        Color32::from_rgb(20, 24, 29)
+    } else {
+        Color32::from_rgb(56, 64, 76)
+    };
+    ui.painter().rect_filled(rect, egui::Rounding::ZERO, fill);
+    ui.painter().text(
+        rect.left_center() + egui::vec2(3.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        title,
+        egui::TextStyle::Button.resolve(ui.style()),
+        Color32::WHITE,
+    );
 }
 
 fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut InspectorAction) {
@@ -7677,8 +7214,7 @@ fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut Insp
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| "#F0F0F0".to_owned());
     let mut color = hex_to_color32(&hex);
-    ui.horizontal(|ui| {
-        ui.label(key);
+    property_row(ui, key, |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             let new_hex = color32_to_hex(color);
             action
@@ -7710,13 +7246,12 @@ fn text_row_hint(
     if *buf != cur && !ui.memory(|m| m.has_focus(widget_id)) {
         *buf = cur.to_owned();
     }
-    ui.horizontal(|ui| {
-        ui.label(label);
+    property_row(ui, label, |ui| {
         let resp = ui.add(
             egui::TextEdit::singleline(buf)
                 .id(widget_id)
                 .hint_text(hint)
-                .desired_width(f32::INFINITY),
+                .desired_width(ui.available_width()),
         );
         if resp.lost_focus() {
             action.set_props.push((
@@ -7909,11 +7444,13 @@ fn bool_row_inline(
     action: &mut InspectorAction,
 ) {
     let mut v = ctrl.get_prop(key).map(|p| p.as_bool()).unwrap_or(false);
-    if ui.checkbox(&mut v, label).changed() {
-        action
-            .set_props
-            .push((ctrl_id.to_owned(), key.to_owned(), PropValue::Bool(v)));
-    }
+    property_row(ui, label, |ui| {
+        if ui.checkbox(&mut v, "").changed() {
+            action
+                .set_props
+                .push((ctrl_id.to_owned(), key.to_owned(), PropValue::Bool(v)));
+        }
+    });
 }
 
 /// Inline integer editor (label + DragValue), clamped to `range`.
@@ -7927,8 +7464,7 @@ fn int_row_inline(
     range: std::ops::RangeInclusive<i64>,
 ) {
     let mut v = ctrl.get_prop(key).map(|p| p.as_i64()).unwrap_or(0);
-    ui.horizontal(|ui| {
-        ui.label(label);
+    property_row(ui, label, |ui| {
         if ui
             .add(DragValue::new(&mut v).speed(1).range(range))
             .changed()
@@ -7938,36 +7474,6 @@ fn int_row_inline(
                 .push((ctrl_id.to_owned(), key.to_owned(), PropValue::Int(v)));
         }
     });
-}
-
-/// Combo row — grid cell style.
-fn combo_row(
-    ui: &mut Ui,
-    ctrl_id: &str,
-    key: &str,
-    ctrl: &Control,
-    action: &mut InspectorAction,
-    opts: &[&str],
-) {
-    let cur = ctrl
-        .get_prop(key)
-        .map(|v| v.as_str().to_owned())
-        .unwrap_or_else(|| opts[0].to_owned());
-    ui.label(key);
-    egui::ComboBox::from_id_salt(format!("cb_{ctrl_id}_{key}"))
-        .selected_text(&cur)
-        .width(140.0)
-        .show_ui(ui, |ui| {
-            for &opt in opts {
-                if ui.selectable_label(cur == opt, opt).clicked() {
-                    action.set_props.push((
-                        ctrl_id.to_owned(),
-                        key.to_owned(),
-                        PropValue::String(opt.to_owned()),
-                    ));
-                }
-            }
-        });
 }
 
 fn combo_row_labeled(
@@ -8013,11 +7519,10 @@ fn combo_row_inline(
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| opts[0].to_owned());
-    ui.horizontal(|ui| {
-        ui.label(key);
+    property_row(ui, key, |ui| {
         egui::ComboBox::from_id_salt(format!("cbi_{ctrl_id}_{key}"))
             .selected_text(&cur)
-            .width(140.0)
+            .width(ui.available_width())
             .show_ui(ui, |ui| {
                 for &opt in opts {
                     if ui.selectable_label(cur == opt, opt).clicked() {
@@ -8065,8 +7570,8 @@ fn child_prop_row(
     value: &PropValue,
     action: &mut InspectorAction,
 ) {
-    ui.label(format!("{ctrl_id}.{key} ="));
-    match value {
+    let label = format!("{ctrl_id}.{key}");
+    property_row(ui, &label, |ui| match value {
         PropValue::Bool(current) => {
             let mut v = *current;
             if ui.checkbox(&mut v, "").changed() {
@@ -8094,7 +7599,7 @@ fn child_prop_row(
                 .add(
                     egui::TextEdit::singleline(buf)
                         .id(widget_id)
-                        .desired_width(f32::INFINITY),
+                        .desired_width(ui.available_width()),
                 )
                 .lost_focus()
             {
@@ -8105,8 +7610,7 @@ fn child_prop_row(
                 ));
             }
         }
-    }
-    ui.end_row();
+    });
 }
 
 /// Border colour + style rows.

@@ -1080,10 +1080,23 @@ fn sync_redefines(env: &mut CobolEnvironment, data: &DataDivision) {
     for (redefining_decl, target_name) in redefines_list {
         if let Some(target_decl) = find_decl_by_name(data, &target_name) {
             let mut bytes = Vec::new();
-            serialize_decl(env, &target_decl, &mut Vec::new(), &mut Vec::new(), &mut bytes);
+            serialize_decl(
+                env,
+                &target_decl,
+                &mut Vec::new(),
+                &mut Vec::new(),
+                &mut bytes,
+            );
 
             let mut offset = 0;
-            deserialize_decl(env, &redefining_decl, &mut Vec::new(), &mut Vec::new(), &bytes, &mut offset);
+            deserialize_decl(
+                env,
+                &redefining_decl,
+                &mut Vec::new(),
+                &mut Vec::new(),
+                &bytes,
+                &mut offset,
+            );
         }
     }
 }
@@ -1135,8 +1148,16 @@ fn serialize_decl(
     indices: &mut Vec<usize>,
     bytes: &mut Vec<u8>,
 ) {
-    let times = decl.occurs.as_ref().map(|o| o.max.max(1) as usize).unwrap_or(1);
-    let name_upper = decl.name.as_ref().map(|n| n.to_ascii_uppercase()).unwrap_or_else(|| "FILLER".to_string());
+    let times = decl
+        .occurs
+        .as_ref()
+        .map(|o| o.max.max(1) as usize)
+        .unwrap_or(1);
+    let name_upper = decl
+        .name
+        .as_ref()
+        .map(|n| n.to_ascii_uppercase())
+        .unwrap_or_else(|| "FILLER".to_string());
 
     for i in 1..=times {
         let mut local_indices = indices.clone();
@@ -1192,7 +1213,10 @@ fn serialize_decl(
                 }
             } else {
                 let mut fallback_v = if numeric {
-                    CobolValue::Numeric(CobolNumeric::new(0, pic.decimals.min(u8::MAX as u16) as u8))
+                    CobolValue::Numeric(CobolNumeric::new(
+                        0,
+                        pic.decimals.min(u8::MAX as u16) as u8,
+                    ))
                 } else {
                     CobolValue::spaces(len)
                 };
@@ -1233,8 +1257,16 @@ fn deserialize_decl(
     bytes: &[u8],
     offset: &mut usize,
 ) {
-    let times = decl.occurs.as_ref().map(|o| o.max.max(1) as usize).unwrap_or(1);
-    let name_upper = decl.name.as_ref().map(|n| n.to_ascii_uppercase()).unwrap_or_else(|| "FILLER".to_string());
+    let times = decl
+        .occurs
+        .as_ref()
+        .map(|o| o.max.max(1) as usize)
+        .unwrap_or(1);
+    let name_upper = decl
+        .name
+        .as_ref()
+        .map(|n| n.to_ascii_uppercase())
+        .unwrap_or_else(|| "FILLER".to_string());
 
     for i in 1..=times {
         let mut local_indices = indices.clone();
@@ -1277,7 +1309,10 @@ fn deserialize_decl(
                         .collect();
                     let mantissa: i128 = digits.parse().unwrap_or(0);
                     let decimals = pic.decimals.min(u8::MAX as u16) as u8;
-                    env.set(&key, CobolValue::Numeric(CobolNumeric::new(mantissa, decimals)));
+                    env.set(
+                        &key,
+                        CobolValue::Numeric(CobolNumeric::new(mantissa, decimals)),
+                    );
                 } else {
                     env.set_str(&key, &String::from_utf8_lossy(slice));
                 }
@@ -1285,4 +1320,3 @@ fn deserialize_decl(
         }
     }
 }
-

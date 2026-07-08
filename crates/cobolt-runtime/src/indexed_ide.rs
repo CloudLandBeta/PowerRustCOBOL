@@ -10,7 +10,9 @@ use std::path::Path;
 
 use cobolt_indexed::{IndexedDefinition, RecordFormatDef, StorageMode};
 
-use crate::indexed::{status, IndexedFile, IndexedFileInfo, KeySpec, OpenMode, ReadDir, IndexedStore, StartOp};
+use crate::indexed::{
+    status, IndexedFile, IndexedFileInfo, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp,
+};
 
 /// Schema comparison result for drift detection (R26).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,7 +102,8 @@ pub fn create_empty_from_definition(def: &IndexedDefinition, path: &Path) -> std
 
     let mut file: Box<dyn IndexedStore> = match def.storage {
         StorageMode::Disk => {
-            let f = crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
+            let f =
+                crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
             Box::new(f)
         }
         StorageMode::Memory => {
@@ -152,7 +155,9 @@ impl GridSession {
 
         let mut file: Box<dyn IndexedStore> = match def.storage {
             StorageMode::Disk => {
-                let f = crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
+                let f = crate::indexed_disk::DiskIndexedFile::new(
+                    path, record_len, primary, alternates,
+                );
                 Box::new(f)
             }
             StorageMode::Memory => {

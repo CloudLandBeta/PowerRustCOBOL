@@ -93,7 +93,10 @@ pub fn parse_record_text(text: &str) -> Result<Vec<FlatEntry>, String> {
         }
         let line_no_comment = line_no_comment.trim();
         if !line_no_comment.ends_with('.') {
-            return Err(err_line(lineno, "data item description must end with a period '.'"));
+            return Err(err_line(
+                lineno,
+                "data item description must end with a period '.'",
+            ));
         }
         let trimmed = line_no_comment.strip_suffix('.').unwrap().trim();
         let mut parts = trimmed.splitn(2, char::is_whitespace);

@@ -49,7 +49,12 @@ impl IndexedGridPanel {
         }
     }
 
-    pub fn open(&mut self, def: &IndexedDefinition, data_path: &Path, drift_mismatch: Option<String>) {
+    pub fn open(
+        &mut self,
+        def: &IndexedDefinition,
+        data_path: &Path,
+        drift_mismatch: Option<String>,
+    ) {
         self.drift_mismatch = drift_mismatch;
         match GridSession::open(def, data_path) {
             Ok(s) => {
@@ -145,7 +150,8 @@ impl IndexedGridPanel {
         };
 
         let edit_height = 280.0;
-        let has_edit = self.drift_mismatch.is_none() && (self.new_row_mode || self.selected_row.is_some());
+        let has_edit =
+            self.drift_mismatch.is_none() && (self.new_row_mode || self.selected_row.is_some());
         let grid_height = if has_edit {
             (ui.available_height() - edit_height).max(100.0)
         } else {

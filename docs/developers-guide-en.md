@@ -672,6 +672,9 @@ A **Repeating Group** section then appears in the properties pane:
 - **Layout direction** — *Vertical*, *Horizontal*, or *Grid*.
 - **Item spacing** — gap between instances.
 - **Items per row** — columns when the layout is *Grid*.
+- **Placement effect** — optional card placement animation: *None*, *Deal*,
+  *FadeIn*, *ZoomIn*, or *ZoomOut*. Zoom effects keep each card anchored at its
+  final layout position and scale the whole card group with elastic easing.
 - **Auto-scroll parent** — let the parent container scroll when instances
   overflow (place the group inside a **Panel** with **Auto-scroll** on).
 - **Clone events** — all instances of a child control share one event handler.
