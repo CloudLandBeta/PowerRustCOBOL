@@ -8,9 +8,8 @@
 //!
 //! Groups shown for any selected control:
 //!   • Identity    — ID, Type (read-only)
-//!   • Geometry    — X, Y, Width, Height
+//!   • Geometry    — X, Y, Width, Height, Z order, Anchor
 //!   • Appearance  — BackColor, ForeColor, Caption/Text, font, Visible, Enabled, TabOrder
-//!   • Layout      — Dock, Anchor, Padding, Opacity
 //!   • Data Binding— COBOL data item + format
 //!   • Type-specific sections
 //!   • Advanced    — Tooltip, Cursor
@@ -3134,9 +3133,6 @@ impl PropertiesPanel {
                 // ── Drop Shadow ───────────────────────────────────────────────────────
                 self.show_shadow_grid(ui, ctrl, &id, action, tr);
 
-                // ── Layout ────────────────────────────────────────────────────────────
-                self.show_layout_grid(ui, ctrl, &id, action, tr);
-
                 match visibility_for_control(form, ctrl) {
                     DataBindingVisibility::Hidden => {}
                     DataBindingVisibility::ApprovedTarget(_) => {
@@ -3337,6 +3333,24 @@ impl PropertiesPanel {
                     .push((id.to_owned(), "ZOrder".into(), PropValue::Int(z)));
             }
             ui.label(RichText::new("(z-order)").small().color(Color32::GRAY));
+        });
+        // Anchor: a boolean position lock. When on, the control can't be moved by
+        // dragging it with the mouse on the canvas; X/Y above still accept keyboard
+        // entry. (Moved here from the removed Layout section.)
+        let mut anchored = ctrl.is_anchored();
+        property_row(ui, tr.lbl_anchor, |ui| {
+            if ui.checkbox(&mut anchored, "").changed() {
+                action.set_props.push((
+                    id.to_owned(),
+                    "Anchor".into(),
+                    PropValue::Bool(anchored),
+                ));
+            }
+            ui.label(
+                RichText::new("(lock X/Y from mouse)")
+                    .small()
+                    .color(Color32::GRAY),
+            );
         });
     }
 
@@ -3612,65 +3626,6 @@ impl PropertiesPanel {
             -20..=20,
             None,
             8,
-        );
-    }
-
-    fn show_layout_grid(
-        &mut self,
-        ui: &mut Ui,
-        ctrl: &Control,
-        id: &str,
-        action: &mut InspectorAction,
-        tr: &Tr,
-    ) {
-        section_header(ui, tr.sec_layout);
-        combo_prop_row(
-            ui,
-            id,
-            "Dock",
-            tr.lbl_dock,
-            ctrl,
-            action,
-            &["None", "Top", "Bottom", "Left", "Right", "Fill"],
-            "None",
-        );
-        let cur = ctrl
-            .get_prop("Anchor")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| "Top,Left".into());
-        let buf_key = format!("{id}-Anchor");
-        let wid = egui::Id::new(&buf_key);
-        let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
-        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-            *buf = cur;
-        }
-        property_row(ui, tr.lbl_anchor, |ui| {
-            if ui
-                .add(
-                    egui::TextEdit::singleline(buf)
-                        .id(wid)
-                        .hint_text("Top,Left")
-                        .desired_width(ui.available_width()),
-                )
-                .lost_focus()
-            {
-                action.set_props.push((
-                    id.to_owned(),
-                    "Anchor".into(),
-                    PropValue::String(buf.clone()),
-                ));
-            }
-        });
-        int_prop_row(
-            ui,
-            id,
-            "Padding",
-            tr.lbl_padding,
-            ctrl,
-            action,
-            0..=200,
-            None,
-            0,
         );
     }
 
@@ -7007,9 +6962,16 @@ fn paint_property_grid_dashed_line(
 }
 
 fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
+    // Rows sit flush against one another so the only separators are the dashed grid
+    // lines. The default inter-widget gap left a darker, unfilled strip below each
+    // line that read as a drop shadow — zeroing the vertical spacing removes it.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let full = ui.available_width().max(1.0);
     let max_split = (full - 48.0).max(72.0);
     let split = current_property_split(ui).clamp(72.0, max_split);
+    // Vertical breathing room above and below the value editor so it stays centred
+    // and never touches the dashed line at the top or bottom of the row.
+    const V_PAD: f32 = 5.0;
     let base_height = ui
         .spacing()
         .interact_size
@@ -7017,8 +6979,9 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
         .max(ui.text_style_height(&egui::TextStyle::Body) + 10.0);
     let approx_chars_per_line = ((split - 6.0) / 8.0).floor().max(1.0) as usize;
     let label_lines = label.len().div_ceil(approx_chars_per_line).clamp(1, 3);
-    let row_height =
+    let content_height =
         base_height.max(ui.text_style_height(&egui::TextStyle::Body) * label_lines as f32 + 10.0);
+    let row_height = content_height + 2.0 * V_PAD;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(full, row_height), Sense::hover());
     let theme = crate::theme::active();
     let fill = if theme.dark {
@@ -7189,6 +7152,9 @@ fn color_prop_row(
 }
 
 fn section_header(ui: &mut Ui, title: &str) {
+    // Property rows zero their vertical spacing, so add an explicit gap here to keep
+    // sections visually separated.
+    ui.add_space(6.0);
     let theme = crate::theme::active();
     let width = ui.available_width().max(1.0);
     let height = ui.text_style_height(&egui::TextStyle::Button) + 10.0;

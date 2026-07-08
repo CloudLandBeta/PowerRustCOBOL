@@ -1319,6 +1319,18 @@ fn rename_binding_control_refs(binding: &mut DataBindingDef, old: &str, new: &st
     }
 }
 
+fn is_legacy_groupbox_generated_caption(value: &str) -> bool {
+    let value = value.trim();
+    let Some(suffix) = value
+        .strip_prefix("GroupBox-")
+        .or_else(|| value.strip_prefix("Groupbox-"))
+        .or_else(|| value.strip_prefix("groupbox-"))
+    else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
+}
+
 // ── DeletedControlCode ────────────────────────────────────────────────────────
 
 /// Preserves event code from a control that was deleted by the user.
@@ -2896,7 +2908,6 @@ impl Control {
                 | ControlType::Button
                 | ControlType::CheckBox
                 | ControlType::RadioButton
-                | ControlType::GroupBox
         );
         if has_caption {
             props.insert("Caption".to_owned(), PropValue::from(id_str.clone()));
@@ -2921,8 +2932,10 @@ impl Control {
         // ── Layout & behaviour ────────────────────────────────────────────────
         props.insert("Tooltip".into(), PropValue::String("".into()));
         props.insert("Cursor".into(), PropValue::String("Default".into()));
-        props.insert("Dock".into(), PropValue::String("None".into()));
-        props.insert("Anchor".into(), PropValue::String("Top,Left".into()));
+        // Anchor is a boolean lock: when true, the control's X/Y can't be changed
+        // by dragging it with the mouse on the canvas (keyboard/property-pane entry
+        // still works). See `Control::is_anchored`.
+        props.insert("Anchor".into(), PropValue::Bool(false));
         props.insert("Padding".into(), PropValue::Int(0));
         props.insert("Opacity".into(), PropValue::Int(100));
 
@@ -3066,6 +3079,7 @@ impl Control {
                 );
             }
             ControlType::GroupBox => {
+                props.insert("Caption".into(), PropValue::String(String::new()));
                 props.insert("BorderStyle".into(), PropValue::String("Single".into()));
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
                 props.insert("BorderWidth".into(), PropValue::Int(1));
@@ -3612,6 +3626,18 @@ impl Control {
         self.tab_strip_height() + self.tab_padding()
     }
 
+    /// Whether the control's position is anchored (locked against mouse dragging).
+    /// Only an explicit boolean/integer `Anchor` counts as anchored; legacy string
+    /// values (e.g. the old `"Top,Left"` anchor edges) are treated as unanchored so
+    /// existing forms don't silently lock every control on load.
+    pub fn is_anchored(&self) -> bool {
+        match self.get_prop("Anchor") {
+            Some(PropValue::Bool(b)) => *b,
+            Some(PropValue::Int(n)) => *n != 0,
+            _ => false,
+        }
+    }
+
     pub fn get_prop(&self, name: &str) -> Option<&PropValue> {
         self.properties.get(name).or_else(|| {
             let lower = name.to_ascii_lowercase();
@@ -4094,6 +4120,18 @@ impl Form {
             // exactly this control's events — re-derive their paragraph names.
             let is_target = ctrl.id.eq_ignore_ascii_case(old);
             if is_target {
+                if matches!(ctrl.control_type, ControlType::GroupBox)
+                    && ctrl
+                        .get_prop("Caption")
+                        .map(|v| {
+                            let caption = v.as_str();
+                            caption.eq_ignore_ascii_case(old)
+                                || is_legacy_groupbox_generated_caption(caption)
+                        })
+                        .unwrap_or(false)
+                {
+                    ctrl.set_prop("Caption", PropValue::String(String::new()));
+                }
                 ctrl.id = new.clone();
             }
             if ctrl
@@ -4777,6 +4815,25 @@ mod tests {
         assert_eq!(b.content_rect(), b.rect);
         // parent/tab default to None.
         assert!(b.parent.is_none() && b.tab.is_none());
+    }
+
+    #[test]
+    fn groupbox_caption_defaults_empty_not_control_id() {
+        let group = Control::new("GroupBox-1", ControlType::GroupBox, 10, 20);
+        assert_eq!(group.get_prop("Caption").unwrap().as_str(), "");
+    }
+
+    #[test]
+    fn renaming_groupbox_clears_legacy_generated_caption() {
+        let mut form = Form::new("F", "F", 320, 200);
+        let mut group = Control::new("GroupBox-1", ControlType::GroupBox, 10, 20);
+        group.set_prop("Caption", PropValue::String("GroupBox-1".into()));
+        form.controls.push(group);
+
+        assert!(form.rename_control("GroupBox-1", "Menu"));
+
+        let renamed = form.find_control("Menu").unwrap();
+        assert_eq!(renamed.get_prop("Caption").unwrap().as_str(), "");
     }
 
     #[test]

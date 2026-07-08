@@ -403,9 +403,9 @@ fn render_user_controls(
         if response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
-        if response.drag_started() {
+        let pressed_to_drag = response.hovered() && ui.input(|i| i.pointer.primary_pressed());
+        if response.drag_started() || pressed_to_drag {
             egui::DragAndDrop::set_payload(ui.ctx(), def.name.clone());
-            action.dragged_user_control = Some(def.name.clone());
         }
         if response.clicked() {
             action.dragged_user_control = Some(def.name.clone());
@@ -529,9 +529,10 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
     }
 
     let clicked = resp.clicked() && pointer_in_btn;
-    let drag_started = resp.drag_started() && pointer_in_btn;
+    let pressed_to_drag = pointer_in_btn && ui.input(|i| i.pointer.primary_pressed());
+    let drag_started = (resp.drag_started() && pointer_in_btn) || pressed_to_drag;
 
-    if drag_started && pointer_in_btn {
+    if drag_started {
         // Begin a cross-panel drag: stash the control type as an egui drag-and-drop
         // payload. The designer canvas (a different panel, so a normal per-widget
         // drag can't reach it) reads this payload to show a live ghost preview and

@@ -28,9 +28,10 @@ fontdb      = { version = "0.23", optional = true }
 ab_glyph    = { version = "0.2.32", optional = true }
 cobolt-media = { path = "../cobolt-media", optional = true }
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
+resvg       = { version = "0.46", optional = true }
 
 [features]
-render = ["dep:egui", "dep:fontdb", "dep:ab_glyph", "dep:cobolt-media", "dep:image"]
+render = ["dep:egui", "dep:fontdb", "dep:ab_glyph", "dep:cobolt-media", "dep:image", "dep:resvg"]
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }

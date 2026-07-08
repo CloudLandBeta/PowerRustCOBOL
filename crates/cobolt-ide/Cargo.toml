@@ -41,6 +41,10 @@ cobolt-compiler = { path = "../cobolt-compiler" }
 egui       = "0.29"
 eframe     = { version = "0.29", features = ["default_fonts"] }
 egui_extras = { version = "0.29", features = ["image"] }
+# Low-level GL access for the offscreen rounded-corner clip (spec 017): captures
+# the real backdrop behind a rounded container and re-blits it through a rounded
+# mask, so translucent surfaces stop bleeding at the corners. Version tracks eframe's.
+egui_glow  = "0.29"
 
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
 

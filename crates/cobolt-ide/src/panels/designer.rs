@@ -889,22 +889,8 @@ impl DesignerPanel {
         ctx: &egui::Context,
     ) -> Option<&egui::TextureHandle> {
         if !self.image_cache.contains_key(path) {
-            let result: Option<egui::TextureHandle> = (|| {
-                let bytes = std::fs::read(path).ok()?;
-                let img = image::load_from_memory(&bytes).ok()?.into_rgba8();
-                let (w, h) = (img.width() as usize, img.height() as usize);
-                let pixels: Vec<egui::Color32> = img
-                    .pixels()
-                    .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
-                    .collect();
-                let ci = egui::ColorImage {
-                    size: [w, h],
-                    pixels,
-                };
-                // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a
-                // Tiled background can also tile inside the corner-notch mask (017).
-                Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
-            })();
+            let result: Option<egui::TextureHandle> =
+                (|| cobolt_forms::paint::load_image_texture(ctx, path))();
             self.image_cache.insert(path.to_owned(), result);
         }
         self.image_cache.get(path).and_then(|o| o.as_ref())
@@ -1291,7 +1277,6 @@ impl DesignerPanel {
                 | ControlType::Button
                 | ControlType::CheckBox
                 | ControlType::RadioButton
-                | ControlType::GroupBox
         );
         if has_caption {
             ctrl.properties
@@ -1431,9 +1416,6 @@ impl DesignerPanel {
                 let mut ctrl = self.form.controls[idx].clone();
                 ctrl.rect.x -= min_x;
                 ctrl.rect.y -= min_y;
-                for event in &mut ctrl.events {
-                    event.code.clear();
-                }
                 ctrl
             })
             .collect();
@@ -1752,18 +1734,36 @@ impl DesignerPanel {
             ctrl.rect.x = clipboard.origin_x + 20 + source.rect.x;
             ctrl.rect.y = clipboard.origin_y + 20 + source.rect.y;
             ctrl.z_order = base_z + (source.z_order - min_z);
-            for event in &mut ctrl.events {
-                event.code.clear();
-                event.paragraph = derive_paragraph_name(&new_id, &event.event);
-            }
             pasted.push(ctrl);
         }
 
+        let same_form = clipboard.source_form == self.form.name;
+        let mut paragraph_map = HashMap::new();
+        let mut reserved_paragraphs = self.existing_procedure_names();
         for ctrl in &mut pasted {
             ctrl.parent = ctrl
                 .parent
                 .as_ref()
                 .and_then(|old_parent| id_map.get(old_parent).cloned());
+            remap_control_reference_props(ctrl, &id_map);
+            if same_form {
+                ctrl.events.clear();
+            } else {
+                for event in &mut ctrl.events {
+                    for (old_id, new_id) in &id_map {
+                        rename_control_refs_in_cobol(&mut event.code, old_id, new_id);
+                    }
+                    let key = event.paragraph.clone();
+                    let paragraph = paragraph_map
+                        .entry(key)
+                        .or_insert_with(|| {
+                            let base = derive_paragraph_name(&ctrl.id, &event.event);
+                            unique_procedure_name(&base, &mut reserved_paragraphs)
+                        })
+                        .clone();
+                    event.paragraph = paragraph;
+                }
+            }
         }
 
         let selected_ids: Vec<String> = pasted.iter().map(|ctrl| ctrl.id.clone()).collect();
@@ -1772,6 +1772,22 @@ impl DesignerPanel {
             self.apply(Cmd::AddControl { index, ctrl });
         }
         self.selected_ids = selected_ids;
+    }
+
+    fn existing_procedure_names(&self) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for event in &self.form.form_events {
+            names.insert(event.paragraph.to_ascii_uppercase());
+        }
+        for ctrl in &self.form.controls {
+            for event in &ctrl.events {
+                names.insert(event.paragraph.to_ascii_uppercase());
+            }
+        }
+        for procedure in &self.form.user_procedures {
+            names.insert(procedure.name.to_ascii_uppercase());
+        }
+        names
     }
 
     pub fn cut_selected(&mut self, clipboard: &mut Option<DesignerClipboard>) {
@@ -2921,6 +2937,18 @@ impl DesignerPanel {
                         })
                     })
                     .collect();
+                // ── Rounded-container child clip (spec 017) ─────────────────────
+                // When enabled, the render walk hands each rounded container to this
+                // GL hook right after its face+shadow are painted; the hook captures
+                // the backdrop+shadow behind the corners and re-blits the notches
+                // once children are drawn — clipping bleed without erasing the
+                // shadow. Opt-in via COBOLT_ROUNDED_CLIP; otherwise the flat notch
+                // mask below is used. `finish` is called inside `render_faces`.
+                let rounded_clip_on = crate::panels::rounded_clip::enabled();
+                let clip_hook = crate::panels::rounded_clip::RoundedClipHook::new();
+                let hook_ref: Option<&dyn cobolt_forms::render::RoundedClipHook> =
+                    if rounded_clip_on { Some(&clip_hook) } else { None };
+
                 let control_rects = {
                     let st = DesignerState { anim: &anim_tf };
                     let input = cobolt_forms::render::RenderInput {
@@ -2932,22 +2960,26 @@ impl DesignerPanel {
                         active_tabs: &active_tabs,
                         backdrop: cobolt_forms::render::Backdrop::default(),
                     };
-                    cobolt_forms::render::render_faces(&painter, origin, &input).control_rects
+                    cobolt_forms::render::render_faces(&painter, origin, &input, hook_ref)
+                        .control_rects
                 };
 
                 // ── Corner-notch masks (spec 017) ───────────────────────────────
-                // egui can't clip children to a rounded rect, so after the faces
-                // are drawn we repaint each rounded GroupBox/Panel's corner notches
-                // with the canvas backdrop (colour + image), covering any child
-                // content — charts, grids, images — that bled past the arc. Drawn
-                // above the faces but below the editor chrome (handles/badges).
-                {
+                // Legacy fallback: egui can't clip children to a rounded rect, so
+                // after the faces are drawn we repaint each rounded GroupBox/Panel's
+                // corner notches with the canvas backdrop (colour + image) to cover
+                // child bleed. Skipped when the GL rounded clip is active, which
+                // handles it correctly (backdrop + shadow) via `render_faces`.
+                if !rounded_clip_on {
                     let img_alpha = (255.0 * form_alpha_mul) as u8;
-                    for ctrl in &self.form.controls {
+                    for (idx, ctrl) in self.form.controls.iter().enumerate() {
                         if !matches!(
                             ctrl.control_type,
                             ControlType::GroupBox | ControlType::Panel
                         ) {
+                            continue;
+                        }
+                        if !cobolt_forms::containers::has_descendants(&self.form.controls, idx) {
                             continue;
                         }
                         if ctrl.parent.is_some() {
@@ -2984,6 +3016,9 @@ impl DesignerPanel {
                         }
                     }
                 }
+
+                // (Rounded-clip re-blit is flushed inside `render_faces` via the
+                // hook's `finish`, so no separate designer pass is needed here.)
 
                 // ── Editor badges on top of the faces ───────────────────────────
                 for &idx in &render_order {
@@ -5095,7 +5130,11 @@ impl DesignerPanel {
             }
 
             // While waiting, also block drag-start so we don't move things
-            if resp.drag_started() || resp.dragged() || resp.drag_stopped() {
+            if resp.drag_started()
+                || resp.dragged()
+                || resp.drag_stopped()
+                || resp.ctx.input(|i| i.pointer.primary_pressed())
+            {
                 return;
             }
         }
@@ -5148,8 +5187,14 @@ impl DesignerPanel {
             self.press_form_edge = None;
         }
 
-        // Begin drag
-        if resp.drag_started() {
+        let primary_just_pressed =
+            resp.contains_pointer() && resp.ctx.input(|i| i.pointer.primary_pressed());
+        let begin_drag = resp.drag_started() || primary_just_pressed;
+
+        // Begin drag immediately on mouse-down. Waiting for `drag_started()` makes
+        // fast pointer motion outrun the selected control/tool before egui's drag
+        // threshold is crossed.
+        if begin_drag && matches!(&self.drag, DragState::None) {
             match self.drag.clone() {
                 DragState::PlacingNew { .. } => {}
                 _ => {
@@ -5239,7 +5284,7 @@ impl DesignerPanel {
         }
 
         // Update drag in-progress
-        if resp.dragged() {
+        if resp.dragged() || (primary_held && !matches!(&self.drag, DragState::None)) {
             match self.drag.clone() {
                 DragState::MovingControls {
                     origins,
@@ -5253,6 +5298,11 @@ impl DesignerPanel {
                     let sn = self.form.snap_to_grid;
                     for (id, ox, oy) in &origins {
                         if let Some(ctrl) = self.form.find_control_mut(id) {
+                            // Anchored controls are locked against mouse dragging;
+                            // X/Y can still be set via the property pane (keyboard).
+                            if ctrl.is_anchored() {
+                                continue;
+                            }
                             ctrl.rect.x = snap(ox + dx, gp, sn);
                             ctrl.rect.y = snap(oy + dy, gp, sn);
                         }
@@ -5340,7 +5390,8 @@ impl DesignerPanel {
         }
 
         // End drag
-        if resp.drag_stopped() {
+        let primary_released = resp.ctx.input(|i| i.pointer.primary_released());
+        if resp.drag_stopped() || (primary_released && !matches!(&self.drag, DragState::None)) {
             match self.drag.clone() {
                 DragState::MovingControls {
                     origins,
@@ -5353,8 +5404,18 @@ impl DesignerPanel {
                     if dx != 0 || dy != 0 {
                         let gp = self.form.grid_size as i32;
                         let sn = self.form.snap_to_grid;
+                        // Anchored controls are locked against mouse dragging, so
+                        // don't commit a moved position for them on release — this
+                        // mirrors the in-drag skip above. X/Y stay editable via the
+                        // property pane (keyboard).
                         let moves: Vec<(String, i32, i32, i32, i32)> = origins
                             .iter()
+                            .filter(|(id, _, _)| {
+                                !self
+                                    .form
+                                    .find_control(id)
+                                    .map_or(false, |c| c.is_anchored())
+                            })
                             .map(|(id, ox, oy)| {
                                 (
                                     id.clone(),
@@ -5365,16 +5426,21 @@ impl DesignerPanel {
                                 )
                             })
                             .collect();
-                        self.apply(Cmd::MoveMany { moves });
-                        // Re-parent the *selected* controls to whatever container
-                        // their body now sits over — or back to the form (spec
-                        // 012). Carried descendants keep their container.
-                        for id in self.selected_ids.clone() {
-                            self.reparent_to_drop(&id);
+                        if !moves.is_empty() {
+                            let changed_ids: Vec<String> =
+                                moves.iter().map(|(id, ..)| id.clone()).collect();
+                            self.apply(Cmd::MoveMany { moves });
+                            // Re-parent the *selected* controls to whatever container
+                            // their body now sits over — or back to the form (spec
+                            // 012). Carried descendants keep their container.
+                            for id in self.selected_ids.clone() {
+                                self.reparent_to_drop(&id);
+                            }
+                            self.trigger_repeating_group_placement_release(
+                                &resp.ctx,
+                                &changed_ids,
+                            );
                         }
-                        let changed_ids: Vec<String> =
-                            origins.iter().map(|(id, _, _)| id.clone()).collect();
-                        self.trigger_repeating_group_placement_release(&resp.ctx, &changed_ids);
                     }
                 }
                 DragState::ResizingControl {
@@ -5742,6 +5808,72 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::DonutChart => "DonutChart",
         CT::Custom { .. } => "Control",
     }
+}
+
+fn unique_procedure_name(base: &str, reserved: &mut HashSet<String>) -> String {
+    let base = base.trim();
+    let base = if base.is_empty() { "HANDLER" } else { base };
+    let mut candidate = base.to_owned();
+    let mut suffix = 1usize;
+    while reserved.contains(&candidate.to_ascii_uppercase()) {
+        candidate = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+    reserved.insert(candidate.to_ascii_uppercase());
+    candidate
+}
+
+fn remap_control_reference_props(ctrl: &mut Control, id_map: &HashMap<String, String>) {
+    if let Some(value) = ctrl.get_prop("LabelFor") {
+        let old = value.as_str();
+        if let Some(new) = id_map
+            .iter()
+            .find(|(source, _)| source.eq_ignore_ascii_case(old))
+            .map(|(_, target)| target.clone())
+        {
+            ctrl.set_prop("LabelFor", PropValue::String(new));
+        }
+    }
+}
+
+fn is_cobol_id_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
+}
+
+fn rename_control_refs_in_cobol(code: &mut String, old: &str, new: &str) {
+    let old_up = old.to_ascii_uppercase();
+    let hay_up = code.to_ascii_uppercase();
+    if old_up.is_empty() || !hay_up.contains(&old_up) {
+        return;
+    }
+
+    let bytes = code.as_bytes();
+    let hay = hay_up.as_bytes();
+    let needle = old_up.as_bytes();
+    let mut out = String::with_capacity(code.len());
+    let mut i = 0usize;
+    let mut last = 0usize;
+    while i + needle.len() <= bytes.len() {
+        if &hay[i..i + needle.len()] == needle {
+            let before_ok = i == 0 || !is_cobol_id_byte(bytes[i - 1]);
+            let j = i + needle.len();
+            let after_ok = (j + 1 < bytes.len() && &hay[j..j + 2] == b"::")
+                || (j < bytes.len() && bytes[j] == b'(');
+            if before_ok && after_ok {
+                out.push_str(&code[last..i]);
+                out.push_str(new);
+                i = j;
+                last = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if last == 0 {
+        return;
+    }
+    out.push_str(&code[last..]);
+    *code = out;
 }
 
 fn draw_handles(painter: &egui::Painter, origin: Pos2, r: &cobolt_forms::model::Rect, glass: bool) {
@@ -7307,6 +7439,51 @@ mod render_behavior_tests {
     }
 
     #[test]
+    fn groupbox_without_caption_does_not_paint_control_name() {
+        let c = Control::new("GroupBox-1", ControlType::GroupBox, 5, 7);
+        let ts = texts(&render(&c));
+        assert!(
+            ts.iter().all(|t| !t.galley.text().contains("GroupBox-1")),
+            "GroupBox painted its control id as a caption; texts={:?}",
+            ts.iter()
+                .map(|t| t.galley.text().to_owned())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn groupbox_legacy_generated_caption_is_not_painted_after_rename() {
+        let mut c = Control::new("Menu", ControlType::GroupBox, 5, 7);
+        c.set_prop("Caption", PropValue::String("GroupBox-1".into()));
+
+        let ts = texts(&render(&c));
+
+        assert!(
+            ts.iter().all(|t| !t.galley.text().contains("GroupBox-1")),
+            "GroupBox painted stale generated caption; texts={:?}",
+            ts.iter()
+                .map(|t| t.galley.text().to_owned())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn groupbox_explicit_caption_still_paints() {
+        let mut c = Control::new("GroupBox-1", ControlType::GroupBox, 5, 7);
+        c.set_prop("Caption", PropValue::String("Menu".into()));
+
+        let ts = texts(&render(&c));
+
+        assert!(
+            ts.iter().any(|t| t.galley.text().contains("Menu")),
+            "explicit GroupBox caption was not painted; texts={:?}",
+            ts.iter()
+                .map(|t| t.galley.text().to_owned())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn textbox_text_is_painted() {
         let mut c = Control::new("TB", ControlType::TextBox, 5, 7);
         c.set_prop("Text", PropValue::String("TBVAL-RC".into()));
@@ -7563,6 +7740,106 @@ mod anim_behavior_tests {
         let (_, _, s0, _) = anim_transform(&a, W, H, 0.0);
         let collapsed = scale_rect_about_center(base, s0);
         assert!(collapsed.width() < 10.0 && collapsed.height() < 10.0);
+    }
+}
+
+#[cfg(test)]
+mod clipboard_tests {
+    use super::*;
+
+    fn button_with_click(id: &str, paragraph: &str, code: &str) -> Control {
+        let mut ctrl = Control::new(id, ControlType::Button, 10, 20);
+        let mut event = cobolt_forms::EventBinding::new("onClick", paragraph);
+        event.code = code.to_owned();
+        ctrl.events.push(event);
+        ctrl
+    }
+
+    #[test]
+    fn same_form_paste_duplicates_controls_without_event_handlers() {
+        let mut designer = DesignerPanel::new(Form::new("FormA", "A", 640, 480));
+        designer.form.controls.push(button_with_click(
+            "Button-1",
+            "BUTTON-1--ONCLICK",
+            "       PROCEDURE DIVISION.\n           MOVE \"OK\" TO Button-1::Caption.",
+        ));
+        designer.selected_ids = vec!["Button-1".to_owned()];
+
+        let mut clipboard = None;
+        designer.copy_selected(&mut clipboard);
+        assert!(
+            clipboard.as_ref().unwrap().controls[0].events[0].has_code(),
+            "copy buffer must retain handler source until paste decides target form"
+        );
+
+        designer.paste_from_clipboard(&clipboard);
+
+        let original = designer.form.find_control("Button-1").unwrap();
+        assert_eq!(original.events.len(), 1);
+        let pasted = designer.form.find_control("Button-2").unwrap();
+        assert!(
+            pasted.events.is_empty(),
+            "same-form paste must not duplicate or reconnect handlers"
+        );
+        assert_eq!((pasted.rect.x, pasted.rect.y), (30, 40));
+    }
+
+    #[test]
+    fn cross_form_paste_copies_handlers_and_resolves_conflicts() {
+        let mut source = DesignerPanel::new(Form::new("FormA", "A", 640, 480));
+        source.form.controls.push(button_with_click(
+            "Button-1",
+            "BUTTON-1--ONCLICK",
+            "       PROCEDURE DIVISION.\n           MOVE \"OK\" TO Button-1::Caption.",
+        ));
+        source.selected_ids = vec!["Button-1".to_owned()];
+        let mut clipboard = None;
+        source.copy_selected(&mut clipboard);
+
+        let mut target = DesignerPanel::new(Form::new("FormB", "B", 640, 480));
+        target
+            .form
+            .controls
+            .push(Control::new("Button-1", ControlType::Button, 0, 0));
+        let mut conflict = Control::new("Label-1", ControlType::Label, 0, 50);
+        conflict.events.push(cobolt_forms::EventBinding::new(
+            "onClick",
+            "BUTTON-2--ONCLICK",
+        ));
+        target.form.controls.push(conflict);
+
+        target.paste_from_clipboard(&clipboard);
+
+        let pasted = target.form.find_control("Button-2").unwrap();
+        assert_eq!(pasted.events.len(), 1);
+        assert_eq!(pasted.events[0].paragraph, "BUTTON-2--ONCLICK-1");
+        assert!(pasted.events[0].code.contains("Button-2::Caption"));
+        assert!(!pasted.events[0].code.contains("Button-1::Caption"));
+    }
+
+    #[test]
+    fn cross_form_paste_preserves_shared_handler_relationship() {
+        let mut source = DesignerPanel::new(Form::new("FormA", "A", 640, 480));
+        source.form.controls.push(button_with_click(
+            "Button-1",
+            "SHARED-HANDLER",
+            "       PROCEDURE DIVISION.\n           MOVE \"A\" TO Button-1::Caption.",
+        ));
+        source.form.controls.push(button_with_click(
+            "Button-2",
+            "SHARED-HANDLER",
+            "       PROCEDURE DIVISION.\n           MOVE \"B\" TO Button-2::Caption.",
+        ));
+        source.selected_ids = vec!["Button-1".to_owned(), "Button-2".to_owned()];
+        let mut clipboard = None;
+        source.copy_selected(&mut clipboard);
+
+        let mut target = DesignerPanel::new(Form::new("FormB", "B", 640, 480));
+        target.paste_from_clipboard(&clipboard);
+
+        let first = target.form.find_control("Button-1").unwrap();
+        let second = target.form.find_control("Button-2").unwrap();
+        assert_eq!(first.events[0].paragraph, second.events[0].paragraph);
     }
 }
 

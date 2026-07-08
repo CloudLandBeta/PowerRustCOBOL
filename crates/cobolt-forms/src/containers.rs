@@ -106,6 +106,14 @@ pub fn collect_descendants(controls: &[Control], idx: usize) -> Vec<usize> {
         .collect()
 }
 
+/// `true` when `idx` owns at least one descendant control.
+pub fn has_descendants(controls: &[Control], idx: usize) -> bool {
+    controls
+        .iter()
+        .enumerate()
+        .any(|(child_idx, _)| child_idx != idx && is_descendant(controls, child_idx, idx))
+}
+
 /// `true` unless an ancestor `TabControl` has a different page selected than the
 /// branch this control sits on (an inactive tab hides its children).
 pub fn is_visible(controls: &[Control], idx: usize, active: &ActiveTabs) -> bool {
@@ -289,6 +297,9 @@ mod tests {
         assert!(is_descendant(&c, 1, 0)); // Btn inside Pnl
         assert!(!is_descendant(&c, 2, 0)); // Lbl not inside Pnl
         assert_eq!(collect_descendants(&c, 0), vec![1]);
+        assert!(has_descendants(&c, 0));
+        assert!(!has_descendants(&c, 1));
+        assert!(!has_descendants(&c, 2));
     }
 
     #[test]

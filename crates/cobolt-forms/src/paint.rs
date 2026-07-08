@@ -26,7 +26,7 @@ use crate::{Control, ControlType};
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
 use std::f32::consts::TAU;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 // ── Public API (the designer-derived appearance) ─────────────────────────────
 
@@ -1276,6 +1276,11 @@ pub fn draw_control(
     let alpha_color =
         |c: Color32| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), c_scale(c.a()));
 
+    // Composite-frame diagnostics overlay (spec 017 corner-bleed hunt): traces every
+    // frame a container draws — shadow, face, border, notch mask, restored outline —
+    // in place with its real rounding. Toggled at runtime via COBOLT_FRAME_DIAGNOSTICS.
+    let container_diag = frame_diagnostics_enabled();
+
     let is_neumorphic = matches!(
         active_glass_style(painter.ctx()),
         crate::model::GlassStyle::Neumorphic
@@ -1347,6 +1352,16 @@ pub fn draw_control(
     // ── Drop shadow ───────────────────────────────────────────────────────────
     let regular_shadow = regular_drop_shadow(ctrl, frame_rect, is_neumorphic);
     if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| !shadow.overlay) {
+        if matches!(ctrl.control_type, CT::GroupBox | CT::Panel) {
+            debug_frame(
+                painter,
+                frame_rect,
+                egui::Rounding::same(corner_radius(ctrl)),
+                0,
+                "CONTAINER_SHADOW",
+                container_diag,
+            );
+        }
         draw_regular_drop_shadow(painter, shadow, alpha_mul);
     }
 
@@ -2124,6 +2139,16 @@ pub fn draw_control(
 
     if is_label || pic_frameless || chart_frameless || container_frameless {
         // No visible frame. When selected, show a lightweight selection outline.
+        if is_container {
+            debug_frame(
+                painter,
+                frame_rect,
+                frame_round,
+                1,
+                "CONTAINER_FRAMELESS",
+                container_diag,
+            );
+        }
         if selected {
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
             painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c));
@@ -2145,16 +2170,33 @@ pub fn draw_control(
                 .map(|v| parse_color(v.as_str()))
                 .unwrap_or(fill),
         );
-        painter.add(egui::Shape::mesh(grad_dir_mesh(
-            frame_rect, start, end, &dir,
-        )));
+        // The gradient fill mesh is drawn SQUARE (grad_dir_mesh ignores rounding),
+        // so the overlay shows it un-rounded — a genuine corner-bleed candidate.
+        // `container_gradient` is container-only, so always explode (slot 1).
+        let face_rect = debug_frame(
+            painter,
+            frame_rect,
+            egui::Rounding::ZERO,
+            1,
+            "CONTAINER_GRADIENT",
+            container_diag,
+        );
+        painter.add(egui::Shape::mesh(grad_dir_mesh(face_rect, start, end, &dir)));
         let bc = if selected {
             Color32::from_rgba_premultiplied(60, 120, 230, a)
         } else {
             alpha_color(stroke_color)
         };
-        painter.rect_stroke(
+        let border_rect = debug_frame(
+            painter,
             frame_rect,
+            egui::Rounding::same(corner),
+            2,
+            "CONTAINER_BORDER",
+            container_diag,
+        );
+        painter.rect_stroke(
+            border_rect,
             corner,
             Stroke::new(if selected { 2.0 } else { 1.0 }, bc),
         );
@@ -2167,30 +2209,91 @@ pub fn draw_control(
         let img = pack.asset_path(skin.image_for(state));
         if let Some(tex) = load_theme_texture(painter.ctx(), &img.to_string_lossy()) {
             // Explicit BackgroundColor (R12) tints the skin; otherwise white = as-authored.
-            let tint = Color32::from_white_alpha(a);
-            draw_nine_slice(painter, frame_rect, &tex, skin.slice, tint);
-            if selected {
-                painter.rect_stroke(
+            // Nine-slice skins are drawn square — overlay reflects that (ZERO).
+            let skin_rect = if is_container {
+                debug_frame(
+                    painter,
                     frame_rect,
+                    egui::Rounding::ZERO,
+                    1,
+                    "CONTAINER_THEME",
+                    container_diag,
+                )
+            } else {
+                frame_rect
+            };
+            let tint = Color32::from_white_alpha(a);
+            draw_nine_slice(painter, skin_rect, &tex, skin.slice, tint);
+            if selected {
+                let sel_rect = if is_container {
+                    debug_frame(
+                        painter,
+                        frame_rect,
+                        egui::Rounding::same(corner),
+                        2,
+                        "CONTAINER_SELECTED",
+                        container_diag,
+                    )
+                } else {
+                    frame_rect
+                };
+                painter.rect_stroke(
+                    sel_rect,
                     corner,
                     Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
                 );
             }
         } else {
             // Image missing / undecodable → never fail; fall back to glass (R11).
-            draw_glass_auto(painter, frame_rect, fill, frame_round, selected, alpha_mul);
+            let fallback_rect = if is_container {
+                debug_frame(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    1,
+                    "CONTAINER_THEME_FALLBACK",
+                    container_diag,
+                )
+            } else {
+                frame_rect
+            };
+            draw_glass_auto(painter, fallback_rect, fill, frame_round, selected, alpha_mul);
         }
     } else if glass {
-        draw_glass_auto(painter, frame_rect, fill, frame_round, selected, alpha_mul);
+        let glass_rect = if is_container {
+            debug_frame(
+                painter,
+                frame_rect,
+                frame_round,
+                1,
+                "CONTAINER_GLASS",
+                container_diag,
+            )
+        } else {
+            frame_rect
+        };
+        draw_glass_auto(painter, glass_rect, fill, frame_round, selected, alpha_mul);
         // When the control has an explicit BorderStyle + BorderWidth, draw the
         // user border on top of the glass frame so containers (Panel, GroupBox)
         // honour the same border properties as non-glass controls. Neumorphic
         // uses an asymmetric border (light top/left, dark bottom/right).
         if border_style != "None" && user_border_width > 0.5 {
+            let border_rect = if is_container {
+                debug_frame(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    2,
+                    "CONTAINER_BORDER",
+                    container_diag,
+                )
+            } else {
+                frame_rect
+            };
             if is_neumorphic {
                 draw_neumorphic_user_border(
                     painter,
-                    frame_rect,
+                    border_rect,
                     frame_round,
                     user_border_width,
                     alpha_mul,
@@ -2208,7 +2311,7 @@ pub fn draw_control(
                 };
                 let half = bw * 0.5;
                 painter.rect_stroke(
-                    frame_rect.shrink(half),
+                    border_rect.shrink(half),
                     round_map(frame_round, |c| {
                         if c <= 0.0 {
                             0.0
@@ -2243,7 +2346,22 @@ pub fn draw_control(
             band(spec_h * 0.45, 22); // narrower brighter core
         }
     } else {
-        painter.rect_filled(frame_rect, frame_round, alpha_color(fill));
+        // For a container, `debug_frame` explodes the frame out of the stack (60px
+        // per slot) and returns the shifted rect so the real fill lands on its own;
+        // non-containers get `frame_rect` back untouched.
+        let face_rect = if is_container {
+            debug_frame(
+                painter,
+                frame_rect,
+                frame_round,
+                1,
+                "CONTAINER_FACE",
+                container_diag,
+            )
+        } else {
+            frame_rect
+        };
+        painter.rect_filled(face_rect, frame_round, alpha_color(fill));
         if border_style != "None" {
             let bw = if selected {
                 2.0_f32.max(user_border_width)
@@ -2255,10 +2373,34 @@ pub fn draw_control(
             } else {
                 alpha_color(stroke_color)
             };
-            painter.rect_stroke(frame_rect, frame_round, Stroke::new(bw, bc));
+            let border_rect = if is_container {
+                debug_frame(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    2,
+                    "CONTAINER_BORDER",
+                    container_diag,
+                )
+            } else {
+                frame_rect
+            };
+            painter.rect_stroke(border_rect, frame_round, Stroke::new(bw, bc));
         } else if selected {
+            let sel_rect = if is_container {
+                debug_frame(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    2,
+                    "CONTAINER_SELECTED",
+                    container_diag,
+                )
+            } else {
+                frame_rect
+            };
             painter.rect_stroke(
-                frame_rect,
+                sel_rect,
                 frame_round,
                 Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
             );
@@ -2339,7 +2481,35 @@ pub fn draw_control(
             format!("{v} ▲▼")
         }
         CT::PictureBox => {
-            // If we have a loaded texture, draw it directly and skip the text label.
+            let image_path = ctrl
+                .get_prop("ImagePath")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
+            let size_mode = ctrl
+                .get_prop("SizeMode")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| "Normal".into());
+            if draw_picturebox_image(
+                painter,
+                rect,
+                image_path.trim(),
+                &size_mode,
+                alpha_mul,
+                corner,
+            ) {
+                if selected {
+                    painter.rect_stroke(
+                        rect,
+                        corner,
+                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                    );
+                }
+                if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+                    draw_regular_drop_shadow(painter, shadow, alpha_mul);
+                }
+                return;
+            }
+            // Fallback for legacy callers that provide a ready raster texture.
             if let Some(tex_id) = pic_tex {
                 let size_mode = ctrl
                     .get_prop("SizeMode")
@@ -2721,6 +2891,9 @@ pub fn draw_groupbox_caption(
         Some(v) if !v.as_str().is_empty() => v.to_string(),
         _ => return,
     };
+    if is_legacy_groupbox_generated_caption(&cap) {
+        return;
+    }
     let label_color = ctrl
         .get_prop("ForegroundColor")
         .map(|v| parse_color(v.as_str()))
@@ -2765,6 +2938,15 @@ pub fn draw_groupbox_caption(
     }
 
     painter.text(pos, egui::Align2::LEFT_CENTER, &cap, font_id, text);
+}
+
+fn is_legacy_groupbox_generated_caption(value: &str) -> bool {
+    let value = value.trim();
+    let lower = value.to_ascii_lowercase();
+    let Some(suffix) = lower.strip_prefix("groupbox-") else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Draw a TabControl tab strip as top chrome. Renderers may defer this until
@@ -2820,19 +3002,140 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
 /// surface (designer, preview, run, compiled) decodes images the same way.
 pub fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
     let bytes = std::fs::read(path).ok()?;
-    let img = image::load_from_memory(&bytes).ok()?.into_rgba8();
+    let ci = decode_image_bytes(path, &bytes)?;
+    // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a Tiled backdrop
+    // can also tile inside the corner-notch mask (spec 017).
+    Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
+}
+
+fn decode_image_bytes(path: &str, bytes: &[u8]) -> Option<egui::ColorImage> {
+    if is_svg_path(path) || is_svg_bytes(bytes) {
+        return decode_svg_bytes(bytes);
+    }
+
+    let img = image::load_from_memory(bytes).ok()?.into_rgba8();
     let (w, h) = (img.width() as usize, img.height() as usize);
     let pixels: Vec<egui::Color32> = img
         .pixels()
         .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
         .collect();
-    let ci = egui::ColorImage {
+    Some(egui::ColorImage {
         size: [w, h],
         pixels,
+    })
+}
+
+fn is_svg_path(path: &str) -> bool {
+    path.rsplit_once('.')
+        .map(|(_, ext)| ext.eq_ignore_ascii_case("svg"))
+        .unwrap_or(false)
+}
+
+fn is_svg_bytes(bytes: &[u8]) -> bool {
+    std::str::from_utf8(bytes)
+        .map(|s| s.trim_start().starts_with("<svg"))
+        .unwrap_or(false)
+}
+
+fn svg_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
+    static DB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+    DB.get_or_init(|| {
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        Arc::new(db)
+    })
+    .clone()
+}
+
+fn strip_svg_icc_color_fallbacks(svg: &str) -> String {
+    let marker = " icc-color(";
+    if !svg.contains(marker) {
+        return svg.to_owned();
+    }
+    let mut out = String::with_capacity(svg.len());
+    let mut rest = svg;
+    while let Some(pos) = rest.find(marker) {
+        out.push_str(&rest[..pos]);
+        let after_marker = &rest[pos + marker.len()..];
+        if let Some(end) = after_marker.find(')') {
+            rest = &after_marker[end + 1..];
+        } else {
+            rest = after_marker;
+            break;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn decode_svg_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
+    let svg = std::str::from_utf8(bytes).ok()?;
+    let svg = strip_svg_icc_color_fallbacks(svg);
+    let opt = resvg::usvg::Options {
+        fontdb: svg_fontdb(),
+        ..Default::default()
     };
-    // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a Tiled backdrop
-    // can also tile inside the corner-notch mask (spec 017).
-    Some(ctx.load_texture(path, ci, egui::TextureOptions::LINEAR_REPEAT))
+    let tree = resvg::usvg::Tree::from_str(&svg, &opt).ok()?;
+    let size = tree.size().to_int_size();
+    let width = size.width().max(1);
+    let height = size.height().max(1);
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::identity(),
+        &mut pixmap.as_mut(),
+    );
+    let pixels = pixmap
+        .pixels()
+        .iter()
+        .map(|p| egui::Color32::from_rgba_premultiplied(p.red(), p.green(), p.blue(), p.alpha()))
+        .collect();
+    Some(egui::ColorImage {
+        size: [width as usize, height as usize],
+        pixels,
+    })
+}
+
+fn svg_native_size_from_bytes(bytes: &[u8]) -> Option<Vec2> {
+    let svg = std::str::from_utf8(bytes).ok()?;
+    let svg = strip_svg_icc_color_fallbacks(svg);
+    let opt = resvg::usvg::Options {
+        fontdb: svg_fontdb(),
+        ..Default::default()
+    };
+    let tree = resvg::usvg::Tree::from_str(&svg, &opt).ok()?;
+    let size = tree.size();
+    Some(Vec2::new(size.width().max(1.0), size.height().max(1.0)))
+}
+
+fn decode_svg_bytes_at_size(bytes: &[u8], width: u32, height: u32) -> Option<egui::ColorImage> {
+    let svg = std::str::from_utf8(bytes).ok()?;
+    let svg = strip_svg_icc_color_fallbacks(svg);
+    let opt = resvg::usvg::Options {
+        fontdb: svg_fontdb(),
+        ..Default::default()
+    };
+    let tree = resvg::usvg::Tree::from_str(&svg, &opt).ok()?;
+    let native = tree.size();
+    let width = width.max(1);
+    let height = height.max(1);
+    let sx = width as f32 / native.width().max(1.0);
+    let sy = height as f32 / native.height().max(1.0);
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(sx, sy),
+        &mut pixmap.as_mut(),
+    );
+    let pixels = pixmap
+        .pixels()
+        .iter()
+        .map(|p| egui::Color32::from_rgba_premultiplied(p.red(), p.green(), p.blue(), p.alpha()))
+        .collect();
+    Some(egui::ColorImage {
+        size: [width as usize, height as usize],
+        pixels,
+    })
 }
 
 /// Load (and cache in egui memory) a PictureBox image texture, so it isn't
@@ -2848,6 +3151,132 @@ pub fn picturebox_texture(ctx: &egui::Context, path: &str) -> Option<egui::Textu
     let h = load_image_texture(ctx, path)?;
     ctx.memory_mut(|m| m.data.insert_temp(id, h.clone()));
     Some(h)
+}
+
+fn picturebox_svg_native_size(path: &str) -> Option<Vec2> {
+    if !is_svg_path(path) {
+        return None;
+    }
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Vec2>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(size) = cache.lock().unwrap().get(path) {
+        return *size;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let size = svg_native_size_from_bytes(&bytes);
+    cache.lock().unwrap().insert(path.to_owned(), size);
+    size
+}
+
+fn picturebox_svg_texture(
+    ctx: &egui::Context,
+    path: &str,
+    logical_size: Vec2,
+) -> Option<egui::TextureHandle> {
+    if !is_svg_path(path) || logical_size.x <= 0.0 || logical_size.y <= 0.0 {
+        return None;
+    }
+    let ppp = ctx.pixels_per_point().max(1.0);
+    let width = (logical_size.x * ppp).ceil().max(1.0) as u32;
+    let height = (logical_size.y * ppp).ceil().max(1.0) as u32;
+    let id = egui::Id::new(("pb_svg_img", path, width, height));
+    if let Some(h) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
+        return Some(h);
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let image = decode_svg_bytes_at_size(&bytes, width, height)?;
+    let handle = ctx.load_texture(
+        format!("{path}@{width}x{height}"),
+        image,
+        egui::TextureOptions::LINEAR,
+    );
+    ctx.memory_mut(|m| m.data.insert_temp(id, handle.clone()));
+    Some(handle)
+}
+
+fn picturebox_rounded_image_rect_uv(
+    control_rect: egui::Rect,
+    image_dest: egui::Rect,
+    corner: f32,
+) -> Option<(egui::Rect, egui::Rect, f32)> {
+    let visible = image_dest.intersect(control_rect);
+    if visible.width() <= 0.5 || visible.height() <= 0.5 {
+        return None;
+    }
+    let dw = image_dest.width().max(1.0);
+    let dh = image_dest.height().max(1.0);
+    let uv = egui::Rect::from_min_max(
+        egui::pos2(
+            (visible.min.x - image_dest.min.x) / dw,
+            (visible.min.y - image_dest.min.y) / dh,
+        ),
+        egui::pos2(
+            (visible.max.x - image_dest.min.x) / dw,
+            (visible.max.y - image_dest.min.y) / dh,
+        ),
+    );
+    let clamped_corner = corner
+        .max(0.0)
+        .min(visible.width().min(visible.height()) * 0.5);
+    Some((visible, uv, clamped_corner))
+}
+
+fn paint_picturebox_texture(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    dest: egui::Rect,
+    texture_id: egui::TextureId,
+    alpha: u8,
+    corner: f32,
+) {
+    if corner > 0.0 {
+        let Some((visible, uv, clamped_corner)) =
+            picturebox_rounded_image_rect_uv(rect, dest, corner)
+        else {
+            return;
+        };
+        painter
+            .with_clip_rect(rect)
+            .add(egui::Shape::Rect(egui::epaint::RectShape {
+                rect: visible,
+                rounding: egui::Rounding::same(clamped_corner),
+                fill: Color32::from_white_alpha(alpha),
+                stroke: Stroke::NONE,
+                blur_width: 0.0,
+                fill_texture_id: texture_id,
+                uv,
+            }));
+    } else {
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        painter
+            .with_clip_rect(rect)
+            .image(texture_id, dest, uv, Color32::from_white_alpha(alpha));
+    }
+}
+
+fn draw_picturebox_image(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    image_path: &str,
+    size_mode: &str,
+    alpha_mul: f32,
+    corner: f32,
+) -> bool {
+    let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
+    if let Some(native) = picturebox_svg_native_size(image_path) {
+        let dest = media_dest_rect(rect, native, pic_size_mode(size_mode));
+        if let Some(tex) = picturebox_svg_texture(painter.ctx(), image_path, dest.size()) {
+            paint_picturebox_texture(painter, rect, dest, tex.id(), a, corner);
+            return true;
+        }
+        return false;
+    }
+    if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
+        let dest = media_dest_rect(rect, tex.size_vec2(), pic_size_mode(size_mode));
+        paint_picturebox_texture(painter, rect, dest, tex.id(), a, corner);
+        return true;
+    }
+    false
 }
 
 /// Render a PictureBox into `rect`: an optional frame (card + border) plus the
@@ -2872,41 +3301,8 @@ pub fn draw_picturebox(
             alpha_mul * 0.7,
         );
     }
-    let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
-    if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
-        let dest = media_dest_rect(rect, tex.size_vec2(), pic_size_mode(size_mode));
-        if corner > 0.0 {
-            // Rounded image: a textured RectShape over the control bounds clips to
-            // the corner radius (spec 016). UV maps the visible part of `dest`, so
-            // Stretch/Fill/Zoom crop correctly; Fit margins are approximate.
-            let dw = dest.width().max(1.0);
-            let dh = dest.height().max(1.0);
-            let uv = egui::Rect::from_min_max(
-                egui::pos2(
-                    (rect.min.x - dest.min.x) / dw,
-                    (rect.min.y - dest.min.y) / dh,
-                ),
-                egui::pos2(
-                    (rect.max.x - dest.min.x) / dw,
-                    (rect.max.y - dest.min.y) / dh,
-                ),
-            );
-            painter.add(egui::Shape::Rect(egui::epaint::RectShape {
-                rect,
-                rounding: egui::Rounding::same(corner),
-                fill: Color32::from_white_alpha(a),
-                stroke: Stroke::NONE,
-                blur_width: 0.0,
-                fill_texture_id: tex.id(),
-                uv,
-            }));
-        } else {
-            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            painter
-                .with_clip_rect(rect)
-                .image(tex.id(), dest, uv, Color32::from_white_alpha(a));
-        }
-    } else if show_frame {
+    if !draw_picturebox_image(painter, rect, image_path, size_mode, alpha_mul, corner) && show_frame
+    {
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -3981,7 +4377,7 @@ pub fn draw_chart_preview(
 ) {
     use crate::model::ControlType as CT;
 
-    const CHART_FRAME_DIAGNOSTICS: bool = false;
+    let chart_diag = frame_diagnostics_enabled();
 
     let _ = selected; // selection border drawn by caller
     let control_rect = rect;
@@ -4024,39 +4420,35 @@ pub fn draw_chart_preview(
         // bleed. Keep charts on a single rounded face; external drop shadows are
         // still handled by the normal shadow path in `draw_control`.
         if glass && is_neumorphic {
-            let shadow_rect = debug_frame_rect(control_rect, 0, CHART_FRAME_DIAGNOSTICS);
-            debug_frame_label(
+            let shadow_rect = debug_frame(
                 painter,
-                shadow_rect,
+                control_rect,
+                rounding,
+                0,
                 "CHART_NEU_SHADOW",
-                CHART_FRAME_DIAGNOSTICS,
+                chart_diag,
             );
             draw_neumorphic_shadow_only(painter, shadow_rect, rounding, alpha_mul);
         }
-        let face_rect = debug_frame_rect(control_rect, 1, CHART_FRAME_DIAGNOSTICS);
-        debug_frame_label(painter, face_rect, "CHART_FACE", CHART_FRAME_DIAGNOSTICS);
+        let face_rect = debug_frame(painter, control_rect, rounding, 1, "CHART_FACE", chart_diag);
         painter.rect_filled(face_rect, rounding, bg);
         if glass && is_neumorphic {
             draw_neumorphic_overlay_shadow_only(painter, face_rect, rounding, alpha_mul);
         }
         let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
-        let border_rect = debug_frame_rect(control_rect, 2, CHART_FRAME_DIAGNOSTICS);
-        debug_frame_label(
-            painter,
-            border_rect,
-            "CHART_BORDER",
-            CHART_FRAME_DIAGNOSTICS,
-        );
+        let border_rect =
+            debug_frame(painter, control_rect, rounding, 2, "CHART_BORDER", chart_diag);
         painter.rect_stroke(border_rect, rounding, Stroke::new(1.0, border));
     }
 
     let frame_painter = painter;
-    let rect = debug_frame_rect(control_rect, 3, CHART_FRAME_DIAGNOSTICS);
-    debug_frame_label(
+    let rect = debug_frame(
         frame_painter,
-        rect,
+        control_rect,
+        rounding,
+        3,
         "CHART_CONTENT",
-        CHART_FRAME_DIAGNOSTICS,
+        chart_diag,
     );
 
     // 007 chart-style hook — an asset-pack theme supplies the data palette and
@@ -4511,12 +4903,13 @@ pub fn draw_chart_preview(
         } else {
             Color32::from_rgba_premultiplied(60, 80, 160, a)
         };
-        let outline_rect = debug_frame_rect(control_rect, 4, CHART_FRAME_DIAGNOSTICS);
-        debug_frame_label(
+        let outline_rect = debug_frame(
             frame_painter,
-            outline_rect,
+            control_rect,
+            rounding,
+            4,
             "CHART_OUTLINE",
-            CHART_FRAME_DIAGNOSTICS,
+            chart_diag,
         );
         frame_painter.rect_stroke(outline_rect, rounding, Stroke::new(1.0, outline));
     }
@@ -4823,33 +5216,116 @@ fn round_map(r: egui::Rounding, f: impl Fn(f32) -> f32) -> egui::Rounding {
     }
 }
 
-fn debug_frame_label(painter: &egui::Painter, rect: egui::Rect, name: &str, enabled: bool) {
-    if !enabled {
-        return;
-    }
-    let label_rect =
-        egui::Rect::from_min_size(rect.min + Vec2::new(0.0, -18.0), Vec2::new(140.0, 18.0));
-    painter.rect_filled(label_rect, 0.0, Color32::RED);
-    painter.text(
-        label_rect.center(),
-        egui::Align2::CENTER_CENTER,
-        name,
-        egui::FontId::proportional(10.0),
-        Color32::YELLOW,
-    );
+/// Runtime switch for the composite-frame diagnostics overlay. Enabled by setting
+/// `COBOLT_FRAME_DIAGNOSTICS=1` (also accepts `true`/`on`) in the environment, so
+/// the corner-bleed overlay can be turned on without a rebuild and never ships on
+/// by default. Read once and cached.
+fn frame_diagnostics_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("COBOLT_FRAME_DIAGNOSTICS")
+            .map(|v| {
+                let v = v.trim();
+                v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+            })
+            .unwrap_or(false)
+    })
 }
 
+/// One distinct hue per composite layer ("slot"), so frames that overlap the same
+/// rect stay individually identifiable in the diagnostics overlay.
+fn debug_frame_color(slot: usize) -> Color32 {
+    const PALETTE: [Color32; 6] = [
+        Color32::from_rgb(255, 64, 64),  // 0 shadow  – red
+        Color32::from_rgb(64, 220, 96),  // 1 face    – green
+        Color32::from_rgb(80, 160, 255), // 2 border  – blue
+        Color32::from_rgb(255, 200, 32), // 3 content – amber
+        Color32::from_rgb(210, 96, 255), // 4 outline – magenta
+        Color32::from_rgb(0, 220, 220),  // 5 spare   – cyan
+    ];
+    PALETTE[slot % PALETTE.len()]
+}
+
+/// Per-slot exploded offset for the diagnostics view: 60px LEFT and 60px DOWN for
+/// every layer up the stack. All frames are otherwise painted at the same rect, so
+/// they hide one another — fanning them out on a diagonal lets each be inspected in
+/// isolation (its fill, its border, and its real corner rounding) side by side.
 fn debug_frame_offset(slot: usize) -> Vec2 {
     let delta = 60.0 * slot as f32;
-    Vec2::new(delta, delta)
+    Vec2::new(-delta, delta)
 }
 
-fn debug_frame_rect(rect: egui::Rect, slot: usize, enabled: bool) -> egui::Rect {
-    if enabled {
-        rect.translate(debug_frame_offset(slot))
-    } else {
-        rect
+/// Diagnostics view for one composite frame that makes up a control (spec 017
+/// rounded-corner bleed hunt). When `enabled`, it EXPLODES the layer out of the
+/// stack — shifting `rect` 60px left + 60px down per slot — so the real fill/border
+/// this call is about to paint lands on its own, no longer hidden behind the frames
+/// above it. It also traces that shifted rect with the layer's **real** `rounding`
+/// in the slot's colour on a top layer and tags it with `name`, then returns the
+/// SHIFTED rect for the caller to draw into. When disabled, returns `rect` unchanged
+/// so production geometry is byte-for-byte identical.
+///
+/// Fanned out this way the culprit is obvious: the layer whose corner stays square
+/// while the ones above it round is exactly the wedge that bleeds into the notch.
+fn debug_frame(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    rounding: egui::Rounding,
+    slot: usize,
+    name: &str,
+    enabled: bool,
+) -> egui::Rect {
+    if !enabled {
+        return rect;
     }
+    // Explode this layer out of the stack so it no longer hides / is hidden by the
+    // other frames. The caller paints its real fill/border into the returned rect.
+    let rect = rect.translate(debug_frame_offset(slot));
+    let color = debug_frame_color(slot);
+    // Foreground layer, unclipped: the overlay must sit above the control's own
+    // fills and outside any content clip so every frame stays visible.
+    let overlay = egui::Painter::new(
+        painter.ctx().clone(),
+        egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("cobolt_frame_diagnostics"),
+        ),
+        egui::Rect::EVERYTHING,
+    );
+    // The layer's true silhouette (its real rounding) at its exploded position, so a
+    // square corner reads plainly against the rounded ones fanned alongside it.
+    overlay.rect_stroke(rect, rounding, Stroke::new(1.25, color));
+    // Crosshairs on the four square (un-rounded) box corners — the exact leak points.
+    let t = 4.0;
+    for c in [
+        rect.left_top(),
+        rect.right_top(),
+        rect.left_bottom(),
+        rect.right_bottom(),
+    ] {
+        overlay.line_segment(
+            [c - Vec2::new(t, 0.0), c + Vec2::new(t, 0.0)],
+            Stroke::new(1.0, color),
+        );
+        overlay.line_segment(
+            [c - Vec2::new(0.0, t), c + Vec2::new(0.0, t)],
+            Stroke::new(1.0, color),
+        );
+    }
+    // Name tag pinned to this layer's top-left corner.
+    let tag = egui::Rect::from_min_size(
+        rect.left_top() + Vec2::new(0.0, -13.0),
+        Vec2::new(168.0, 12.0),
+    );
+    overlay.rect_filled(tag, 2.0, color);
+    overlay.text(
+        tag.left_center() + Vec2::new(4.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        format!("{slot}:{name}"),
+        egui::FontId::monospace(9.0),
+        Color32::BLACK,
+    );
+    rect
 }
 
 /// Append a triangle fan covering one rounded-corner **notch** — the slice of the
@@ -4973,6 +5449,14 @@ pub fn draw_container_notch_mask(
     if rounding.nw < 0.5 && rounding.ne < 0.5 && rounding.sw < 0.5 && rounding.se < 0.5 {
         return;
     }
+    debug_frame(
+        painter,
+        rect,
+        rounding,
+        3,
+        "CONTAINER_NOTCH_MASK",
+        frame_diagnostics_enabled(),
+    );
     let painter = painter.with_clip_rect(rect);
     if fill.a() > 0 {
         let m = notch_mesh(rect, rounding, &|_p| egui::epaint::WHITE_UV, fill);
@@ -5012,6 +5496,14 @@ pub fn restore_container_outline(
     if radius < 0.5 {
         return;
     }
+    debug_frame(
+        painter,
+        rect,
+        egui::Rounding::same(radius),
+        4,
+        "CONTAINER_RESTORE_OUTLINE",
+        frame_diagnostics_enabled(),
+    );
     let rnd = egui::Rounding::same(radius);
 
     // Neumorphic surfaces have no glass rim and no hard user border — their
@@ -5579,6 +6071,48 @@ mod theme_render_tests {
     }
 
     #[test]
+    fn svg_image_bytes_decode_for_picturebox_loader() {
+        let svg =
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8">
+            <rect width="12" height="8" fill="#ff0000"/>
+        </svg>"##;
+        let image = decode_image_bytes("sample.svg", svg).expect("svg should rasterize");
+
+        assert_eq!(image.size, [12, 8]);
+        assert!(
+            image.pixels.iter().any(|p| p.r() > 200 && p.a() > 200),
+            "rasterized svg should contain the filled rectangle"
+        );
+    }
+
+    #[test]
+    fn svg_image_bytes_decode_at_destination_size() {
+        let svg =
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8">
+            <circle cx="6" cy="4" r="3" fill="#000000"/>
+        </svg>"##;
+        let image = decode_svg_bytes_at_size(svg, 240, 160).expect("svg should scale as vector");
+
+        assert_eq!(image.size, [240, 160]);
+        assert!(
+            image.pixels.iter().any(|p| p.a() > 200),
+            "scaled svg should render visible pixels at the requested size"
+        );
+    }
+
+    #[test]
+    fn svg_icc_color_fallbacks_are_stripped_before_parse() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">
+            <rect width="4" height="4" fill="#000000 icc-color(sRGB-IEC61966-2, 0.1, 0, 0, 0)"/>
+        </svg>"##;
+        let cleaned = strip_svg_icc_color_fallbacks(svg);
+
+        assert!(cleaned.contains("fill=\"#000000\""));
+        assert!(!cleaned.contains("icc-color("));
+        assert!(decode_image_bytes("icc.svg", cleaned.as_bytes()).is_some());
+    }
+
+    #[test]
     fn control_kind_key_maps_core_controls() {
         assert_eq!(control_kind_key(&ControlType::Button), "button");
         assert_eq!(control_kind_key(&ControlType::Panel), "panel");
@@ -5773,6 +6307,34 @@ mod theme_render_tests {
 
         let square = Control::new("Text1", ControlType::TextBox, 0, 0);
         assert_eq!(drop_shadow_corner_radius(&square), 0.0);
+    }
+
+    #[test]
+    fn picturebox_rounded_image_uses_visible_dest_and_radius() {
+        let control = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 100.0));
+        let dest = egui::Rect::from_min_size(egui::pos2(25.0, 10.0), Vec2::new(150.0, 80.0));
+
+        let (visible, uv, radius) =
+            picturebox_rounded_image_rect_uv(control, dest, 24.0).expect("visible image");
+
+        assert_eq!(visible, dest);
+        assert_eq!(uv.min, egui::pos2(0.0, 0.0));
+        assert_eq!(uv.max, egui::pos2(1.0, 1.0));
+        assert_eq!(radius, 24.0);
+    }
+
+    #[test]
+    fn picturebox_rounded_image_clips_overflow_and_remaps_uv() {
+        let control = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 80.0));
+        let dest = egui::Rect::from_min_size(egui::pos2(-50.0, -20.0), Vec2::new(200.0, 100.0));
+
+        let (visible, uv, radius) =
+            picturebox_rounded_image_rect_uv(control, dest, 80.0).expect("visible image");
+
+        assert_eq!(visible, control);
+        assert_eq!(uv.min, egui::pos2(0.25, 0.2));
+        assert_eq!(uv.max, egui::pos2(0.75, 1.0));
+        assert_eq!(radius, 40.0);
     }
 
     #[test]

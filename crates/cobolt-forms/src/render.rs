@@ -146,6 +146,20 @@ pub struct RenderInput<'a> {
     pub backdrop: Backdrop,
 }
 
+/// Backend-agnostic hook the face-render walk calls so the host can clip a rounded
+/// container's children to its rounded arc. egui only axis-aligns clip rects, so a
+/// child's corner otherwise bleeds past the container's rounded corner (spec 017).
+/// The default (`None`) keeps the legacy flat notch-mask behaviour; the IDE supplies
+/// a GL implementation that captures the real backdrop + shadow behind each rounded
+/// container and re-blits it through a rounded mask.
+pub trait RoundedClipHook {
+    /// Called right after a rounded container's own face + shadow are painted and
+    /// before any of its children, with the container id, screen rect and radius.
+    fn on_container(&self, painter: &egui::Painter, id: &str, rect: egui::Rect, radius: f32);
+    /// Called once after the whole subtree is painted, to apply/flush the clip.
+    fn finish(&self, painter: &egui::Painter);
+}
+
 /// A UI event emitted by an interactive control. Neutral (no `cobolt-runtime`
 /// dependency); callers map it to their event type.
 #[derive(Clone, Debug)]
@@ -288,6 +302,9 @@ fn mask_container_notches(
             base.control_type,
             ControlType::GroupBox | ControlType::Panel
         ) {
+            continue;
+        }
+        if !containers::has_descendants(controls, idx) {
             continue;
         }
         if base.parent.is_some() {
@@ -1264,6 +1281,7 @@ pub fn render_faces(
     painter: &egui::Painter,
     origin: egui::Pos2,
     input: &RenderInput<'_>,
+    clip_hook: Option<&dyn RoundedClipHook>,
 ) -> RenderOutput {
     let mut out = RenderOutput::default();
     let controls = input.controls;
@@ -1342,6 +1360,26 @@ pub fn render_faces(
             1.0,
             pic_tex,
         );
+
+        // Rounded-container child clip (spec 017): the face + shadow are now on the
+        // framebuffer and the depth-first walk is about to draw this container's
+        // children next, so let the host snapshot the backdrop behind its rounded
+        // corners here — captured after the shadow, so re-blitting the notch later
+        // restores backdrop + shadow instead of erasing it (the flat notch mask's bug).
+        if let Some(hook) = clip_hook {
+            if matches!(base.control_type, ControlType::GroupBox | ControlType::Panel)
+                && containers::has_descendants(controls, idx)
+            {
+                let rad = crate::paint::corner_radius(&live);
+                if rad >= 0.5 {
+                    hook.on_container(painter, &live.id, screen, rad);
+                }
+            }
+        }
+    }
+    // All children are painted; flush the rounded clip (re-blit each captured notch).
+    if let Some(hook) = clip_hook {
+        hook.finish(painter);
     }
     draw_deferred_groupbox_captions(painter, input, &out);
     draw_deferred_tabcontrol_tabs(painter, input, &out);
@@ -4876,7 +4914,7 @@ mod tests {
                 rects_form = Some(render_form(ui, &input).control_rects);
                 let painter = ui.painter().clone();
                 let origin = ui.min_rect().min;
-                rects_faces = Some(render_faces(&painter, origin, &input).control_rects);
+                rects_faces = Some(render_faces(&painter, origin, &input, None).control_rects);
             });
         });
         let rf = rects_form.expect("render_form rects");

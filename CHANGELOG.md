@@ -8,6 +8,123 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.140] — 2026-07-08
+
+### Fixed
+
+- **Anchor is now a position lock** — Replaced the free-text Anchor edges with a
+  boolean Anchor moved into the Geometry section. When on, a control can no longer
+  be moved by dragging it with the mouse on the canvas (neither during the drag nor
+  on release); X and Y stay editable from the property pane. Removed the Layout
+  section and the unused Dock property.
+- **Property-pane row rendering** — Removed the dark strip below each dashed grid
+  line (the default inter-row gap that read as a drop shadow), added top/bottom
+  padding, and vertically centred the value editor so it no longer touches the
+  dashed lines. Applies to every control's property rows.
+- **Offscreen rounded-corner child clip (opt-in)** — Added a GL capture/re-blit
+  path, enabled with `COBOLT_ROUNDED_CLIP`, that clips a rounded Panel/GroupBox's
+  children to the arc using the real backdrop + shadow captured mid-walk — fixing
+  corner bleed the flat notch mask cannot cover over translucent surfaces, and the
+  corner-shadow seam it left behind. Off by default (RAD designer path only); the
+  legacy notch mask remains the fallback.
+
+## [PowerRustCOBOL 1.27.139] — 2026-07-08
+
+### Fixed
+
+- **Dormant Panel/GroupBox frame diagnostics** — Added the same red/yellow
+  offset frame labels used to isolate chart corner artifacts to the generic
+  Panel/GroupBox frame, shadow, notch-mask, and outline-restore layers, kept off
+  by default for normal RAD, Preview, and Run Form rendering.
+
+## [PowerRustCOBOL 1.27.138] — 2026-07-08
+
+### Fixed
+
+- **Panel rounded-corner mask frame** — Rounded Panel/GroupBox corner-notch
+  masks now run only when the container actually has child content that could
+  bleed past the rounded border, preventing empty Panels from showing the dark
+  mask-frame artifact in RAD, Preview, and Run Form.
+
+## [PowerRustCOBOL 1.27.137] — 2026-07-08
+
+### Fixed
+
+- **Instant designer drags** — Toolbox drag-and-drop and form-canvas control
+  movement now capture on primary-button press instead of waiting for egui's drag
+  threshold, so fast mouse movement no longer cancels or misses the drag start.
+
+## [PowerRustCOBOL 1.27.136] — 2026-07-08
+
+### Fixed
+
+- **PictureBox rounded image clipping** — PictureBox image painting now uses a
+  textured rounded-rectangle mesh whenever `CornerRadius` is positive, so image
+  pixels follow the control radius instead of drawing square corners under the
+  rounded frame.
+
+## [PowerRustCOBOL 1.27.135] — 2026-07-08
+
+### Fixed
+
+- **Legacy GroupBox auto-captions** — GroupBox captions that only contain the
+  old generated `GroupBox-<n>` control id are now treated as internal defaults
+  and suppressed, including stale captions left behind after renaming a
+  GroupBox.
+
+## [PowerRustCOBOL 1.27.134] — 2026-07-08
+
+### Fixed
+
+- **GroupBox empty captions** — New GroupBox controls now start with an empty
+  `Caption` instead of copying the control id, so the renderer never shows the
+  control name unless the user explicitly defines a caption.
+
+## [PowerRustCOBOL 1.27.133] — 2026-07-08
+
+### Fixed
+
+- **PictureBox SVG Center/Normal artifacts** — PictureBox image painting now
+  leaves true empty margins when the SizeMode destination is smaller than the
+  control, preventing texture edge samples from drawing cross-shaped artifacts
+  behind centered SVGs. SVG ICC colour fallback syntax is also sanitized before
+  parsing, avoiding repeated terminal warnings from `icc-color(...)` fills.
+
+## [PowerRustCOBOL 1.27.132] — 2026-07-08
+
+### Fixed
+
+- **PictureBox SVG rendering path** — the generic `draw_control` PictureBox
+  branch now renders through the destination-sized SVG-aware image painter
+  before any preloaded texture fallback, preventing RAD/Preview/Run Form paths
+  from scaling an intrinsic SVG bitmap.
+
+## [PowerRustCOBOL 1.27.131] — 2026-07-08
+
+### Fixed
+
+- **PictureBox SVG SizeMode sharpness** — SVG PictureBox images now rasterize
+  at the actual Stretch/Zoom/Fill destination size, including display scale, so
+  vector artwork stays sharp instead of pixelating from an initially cached
+  bitmap.
+
+## [PowerRustCOBOL 1.27.130] — 2026-07-08
+
+### Fixed
+
+- **PictureBox SVG image support** — PictureBox and shared image-loading paths
+  now rasterize `.svg` files through the unified forms renderer, allowing SVG
+  assets to display consistently in RAD, Preview, and Run Form.
+
+## [PowerRustCOBOL 1.27.129] — 2026-07-08
+
+### Fixed
+
+- **Cross-form control paste handlers** — designer copy/paste now keeps full
+  control event-handler payloads in the copy buffer, strips handlers when
+  pasting back into the same form, and preserves/remaps handlers with safe
+  unique procedure names when pasting controls into another form.
+
 ## [PowerRustCOBOL 1.27.128] — 2026-07-08
 
 ### Fixed
