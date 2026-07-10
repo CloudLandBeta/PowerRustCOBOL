@@ -272,6 +272,26 @@ enum Cmd {
         old: String,
         new: String,
     },
+    /// Set (or create) the COBOL code of a control's event handler (spec 025).
+    /// `old` is `None` when the binding did not exist before.
+    SetEventCode {
+        control_id: String,
+        event: String,
+        old: Option<String>,
+        new: String,
+    },
+    /// Add or replace a common procedure's body (spec 025). `old` is `None` when no
+    /// procedure of that name existed before.
+    SetProcedure {
+        name: String,
+        old: Option<String>,
+        new: String,
+    },
+    /// A batch of commands applied and reverted as **one** undoable step — the unit
+    /// an approved agent change-set becomes (spec 025 R6).
+    AgentBatch {
+        cmds: Vec<Cmd>,
+    },
 }
 
 // ── Resize handle ─────────────────────────────────────────────────────────────
@@ -654,6 +674,12 @@ pub struct EventEditorModal {
     /// an untouched first-time template is not persisted as handler code. (The
     /// live, editable text lives in the hosted `event_editor`.)
     orig_source: String,
+    /// Draft text in the modal's AI prompt box (empty ⇒ nothing typed).
+    ai_prompt: String,
+    /// In-flight AI request for this handler; `Some` while the model is thinking.
+    ai_pending: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    /// Last AI error to surface below the prompt row (`None` ⇒ no error).
+    ai_status: Option<String>,
 }
 
 impl EventEditorModal {
@@ -670,6 +696,9 @@ impl EventEditorModal {
             event_name: event_name.into(),
             program_id: program_id.into(),
             orig_source: source.into(),
+            ai_prompt: String::new(),
+            ai_pending: None,
+            ai_status: None,
         }
     }
 }
@@ -929,6 +958,120 @@ impl DesignerPanel {
         self.dirty = true;
     }
 
+    /// Apply an approved agent change-set as **one** undoable action (spec 025
+    /// R6/R7). Invalid ops (per `agent::validate`) are skipped. Returns the number
+    /// of operations applied. Nothing is pushed when the change-set is all-invalid
+    /// or empty.
+    pub fn apply_agent_change_set(&mut self, cs: &crate::agent::AgentChangeSet) -> usize {
+        use crate::agent::AgentOp;
+        let status = crate::agent::validate(cs, &self.form);
+        let mut cmds: Vec<Cmd> = Vec::new();
+        let mut reserved: HashSet<String> =
+            self.form.controls.iter().map(|c| c.id.clone()).collect();
+        let mut added = 0usize;
+
+        for (op, err) in cs.operations.iter().zip(status.iter()) {
+            if err.is_some() {
+                continue; // R9 — invalid ops are shown in the preview, never applied
+            }
+            match op {
+                AgentOp::DeployControl {
+                    control_type,
+                    id,
+                    properties,
+                } => {
+                    let ct = ControlType::from_str(control_type);
+                    let cid = id
+                        .clone()
+                        .filter(|s| !s.trim().is_empty() && !reserved.contains(s))
+                        .unwrap_or_else(|| self.next_unique_id_reserved(&ct, &reserved));
+                    reserved.insert(cid.clone());
+                    // Geometry: honour X/Y/Width/Height when given, else stagger a
+                    // sensible default so the developer can rearrange it (R13).
+                    let gx = json_prop_i32(properties, "X").unwrap_or(20);
+                    let gy = json_prop_i32(properties, "Y")
+                        .unwrap_or(20 + 28 * (self.form.controls.len() + added) as i32);
+                    let mut c = Control::new(cid.clone(), ct.clone(), gx, gy);
+                    if let Some(w) = json_prop_i32(properties, "Width") {
+                        c.rect.w = w;
+                    }
+                    if let Some(h) = json_prop_i32(properties, "Height") {
+                        c.rect.h = h;
+                    }
+                    for (k, v) in properties {
+                        if matches!(k.as_str(), "X" | "Y" | "Width" | "Height") {
+                            continue;
+                        }
+                        if let Some(pv) = json_to_prop(v) {
+                            apply_structural_prop(&mut c, k, &pv);
+                        }
+                    }
+                    cmds.push(Cmd::AddControl {
+                        index: self.form.controls.len() + added,
+                        ctrl: c,
+                    });
+                    added += 1;
+                }
+                AgentOp::SetProperty {
+                    control_id,
+                    key,
+                    value,
+                } => {
+                    let Some(pv) = json_to_prop(value) else {
+                        continue;
+                    };
+                    let old = self
+                        .form
+                        .find_control(control_id)
+                        .and_then(|c| c.properties.get(key).cloned());
+                    cmds.push(Cmd::SetProperty {
+                        id: control_id.clone(),
+                        key: key.clone(),
+                        old,
+                        new: pv,
+                    });
+                }
+                AgentOp::GenerateEventHandler {
+                    control_id,
+                    event,
+                    code,
+                } => {
+                    let old = self.form.find_control(control_id).and_then(|c| {
+                        c.events
+                            .iter()
+                            .find(|b| b.event.eq_ignore_ascii_case(event))
+                            .map(|b| b.code.clone())
+                    });
+                    cmds.push(Cmd::SetEventCode {
+                        control_id: control_id.clone(),
+                        event: event.clone(),
+                        old,
+                        new: code.clone(),
+                    });
+                }
+                AgentOp::CreateProcedure { name, code } => {
+                    let old = self
+                        .form
+                        .user_procedures
+                        .iter()
+                        .find(|p| p.name.eq_ignore_ascii_case(name))
+                        .map(|p| p.code.clone());
+                    cmds.push(Cmd::SetProcedure {
+                        name: name.clone(),
+                        old,
+                        new: code.clone(),
+                    });
+                }
+            }
+        }
+
+        let n = cmds.len();
+        if n > 0 {
+            self.apply(Cmd::AgentBatch { cmds });
+        }
+        n
+    }
+
     pub fn undo(&mut self) {
         if let Some(cmd) = self.undo_stack.pop() {
             self.reverse(&cmd);
@@ -1011,6 +1154,22 @@ impl DesignerPanel {
             Cmd::Rename { old, new } => {
                 self.form.rename_control(old, new);
                 self.retarget_selection(old, new);
+            }
+            Cmd::SetEventCode {
+                control_id,
+                event,
+                new,
+                ..
+            } => {
+                set_control_event_code(&mut self.form, control_id, event, Some(new.clone()));
+            }
+            Cmd::SetProcedure { name, new, .. } => {
+                set_form_procedure(&mut self.form, name, Some(new.clone()));
+            }
+            Cmd::AgentBatch { cmds } => {
+                for c in cmds {
+                    self.execute(c);
+                }
             }
         }
     }
@@ -1099,6 +1258,22 @@ impl DesignerPanel {
             Cmd::Rename { old, new } => {
                 self.form.rename_control(new, old);
                 self.retarget_selection(new, old);
+            }
+            Cmd::SetEventCode {
+                control_id,
+                event,
+                old,
+                ..
+            } => {
+                set_control_event_code(&mut self.form, control_id, event, old.clone());
+            }
+            Cmd::SetProcedure { name, old, .. } => {
+                set_form_procedure(&mut self.form, name, old.clone());
+            }
+            Cmd::AgentBatch { cmds } => {
+                for c in cmds.iter().rev() {
+                    self.reverse(c);
+                }
             }
         }
     }
@@ -2562,6 +2737,7 @@ impl DesignerPanel {
         ui: &mut Ui,
         clipboard: &mut Option<DesignerClipboard>,
         user_controls: &[UserControlDef],
+        llm_cfg: &crate::llm::LlmConfig,
     ) -> DesignerShowResult {
         let mut result = DesignerShowResult::default();
         let mut selection_changed = false;
@@ -2947,7 +3123,11 @@ impl DesignerPanel {
                 let rounded_clip_on = crate::panels::rounded_clip::enabled();
                 let clip_hook = crate::panels::rounded_clip::RoundedClipHook::new();
                 let hook_ref: Option<&dyn cobolt_forms::render::RoundedClipHook> =
-                    if rounded_clip_on { Some(&clip_hook) } else { None };
+                    if rounded_clip_on {
+                        Some(&clip_hook)
+                    } else {
+                        None
+                    };
 
                 let control_rects = {
                     let st = DesignerState { anim: &anim_tf };
@@ -2995,10 +3175,21 @@ impl DesignerPanel {
                             continue;
                         }
                         if let Some(crect) = control_rects.get(&ctrl.id) {
+                            // Only mask the corners a descendant actually reaches;
+                            // leave clean corners untouched so the panel keeps its own
+                            // rounded corner (matching an empty GroupBox) instead of
+                            // having the backdrop painted over it for no reason.
+                            let rounding = cobolt_forms::render::corner_notch_rounding(
+                                *crect,
+                                rad,
+                                &self.form.controls,
+                                idx,
+                                &control_rects,
+                            );
                             cobolt_forms::paint::draw_container_notch_mask(
                                 &painter,
                                 *crect,
-                                egui::Rounding::same(rad),
+                                rounding,
                                 notch_fill,
                                 notch_img,
                                 img_alpha,
@@ -3642,7 +3833,7 @@ impl DesignerPanel {
         self.show_menu_editor(ui);
 
         // ── Event Editor Modal ──────────────────────────────────────────────────
-        self.show_event_modal(ui);
+        self.show_event_modal(ui, llm_cfg);
 
         result.selection_changed |= selection_changed;
         result
@@ -4854,7 +5045,7 @@ impl DesignerPanel {
     /// DIVISION` … `PROCEDURE DIVISION` + statements). The generator-owned
     /// `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the closing `GOBACK`
     /// / `END PROGRAM` are shown read-only around it.
-    fn show_event_modal(&mut self, ui: &mut Ui) {
+    fn show_event_modal(&mut self, ui: &mut Ui, llm_cfg: &crate::llm::LlmConfig) {
         // Snapshot the scalar modal fields and drop the borrow so we can render
         // the hosted editor (`self.event_editor`) freely inside the window.
         let (title, program_id, ctrl_id, event_name, orig_source) = {
@@ -4869,6 +5060,62 @@ impl DesignerPanel {
                 m.orig_source.clone(),
             )
         };
+        let tr = crate::i18n::current_tr(ui.ctx());
+
+        // ── Poll an in-flight AI request for this handler ────────────────────
+        // On completion, splice the model's ```cobol block into the hosted
+        // editor's buffer (or surface the error) so the developer can review /
+        // tweak / save it like any hand-written handler.
+        let mut ai_reply: Option<crate::llm::LlmResponse> = None;
+        if let Some(m) = self.event_modal.as_ref() {
+            if let Some(rx) = &m.ai_pending {
+                match rx.try_recv() {
+                    Ok(resp) => ai_reply = Some(resp),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint(),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        ai_reply = Some(crate::llm::LlmResponse::Err(
+                            "The assistant worker stopped unexpectedly.".into(),
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(resp) = ai_reply {
+            if let Some(m) = self.event_modal.as_mut() {
+                m.ai_pending = None;
+            }
+            match resp {
+                crate::llm::LlmResponse::Ok(reply) => {
+                    let code = crate::llm::extract_code(&reply).unwrap_or(reply);
+                    self.event_editor.open_buffer(
+                        std::path::PathBuf::from(format!("{program_id}.handler")),
+                        code,
+                    );
+                    if let Some(m) = self.event_modal.as_mut() {
+                        m.ai_status = None;
+                    }
+                }
+                crate::llm::LlmResponse::Err(e) => {
+                    if let Some(m) = self.event_modal.as_mut() {
+                        m.ai_status = Some(e);
+                    }
+                }
+            }
+        }
+
+        // UI-owned AI state, snapshotted so the window closure borrows locals.
+        let busy = self
+            .event_modal
+            .as_ref()
+            .map(|m| m.ai_pending.is_some())
+            .unwrap_or(false);
+        let ai_status = self.event_modal.as_ref().and_then(|m| m.ai_status.clone());
+        let mut ai_prompt = self
+            .event_modal
+            .as_mut()
+            .map(|m| std::mem::take(&mut m.ai_prompt))
+            .unwrap_or_default();
+        let mut do_send = false;
 
         // Dim overlay covering the canvas (behind the window).
         let overlay = ui.ctx().screen_rect();
@@ -4915,13 +5162,17 @@ impl DesignerPanel {
                 );
                 ui.add_space(4.0);
 
-                // ── Hosted COBOL editor — a FIXED-size container the editor fills
-                //    and scrolls inside. The height is a constant fraction of the
-                //    window's default height; it must NOT be derived from
-                //    `available_height`, which feeds back through the editor's own
-                //    fill and makes the box creep taller on every repaint
-                //    (e.g. when the mouse moves over it).
-                let editor_h = (default_h - 150.0).max(240.0);
+                // ── Hosted COBOL editor — a BOUNDED, user-resizable container. ──
+                //    The editor fills and scrolls INSIDE this box; the box height
+                //    is a fixed default and is changed ONLY by the user dragging
+                //    the grip at its bottom edge. It is never derived from the
+                //    window's available/max height, so neither the box nor the
+                //    window can grow on their own: the modal opens at the default
+                //    height and stays there until the user resizes it.
+                //    (See `.claude/agents/egui-resize-guardian.md` — deriving a
+                //    child's size from the parent's available space is exactly the
+                //    feedback loop that makes "resizable" widgets self-inflate.)
+                let editor_default_h = (default_h - 250.0).max(220.0);
                 let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
@@ -4932,11 +5183,20 @@ impl DesignerPanel {
                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
                     .rounding(egui::Rounding::same(6.0))
                     .inner_margin(egui::Margin::same(2.0));
-                ui.allocate_ui(egui::vec2(editor_w, editor_h), |ui| {
-                    frame.show(ui, |ui| {
-                        self.event_editor.render_code_area(&ectx, ui);
+                egui::Resize::default()
+                    .id_salt("event_editor_code_box")
+                    .resizable([false, true])
+                    .min_size(egui::vec2(editor_w, 160.0))
+                    .max_size(egui::vec2(editor_w, 4000.0))
+                    .default_size(egui::vec2(editor_w, editor_default_h))
+                    .show(ui, |ui| {
+                        let sz = ui.available_size();
+                        ui.allocate_ui(sz, |ui| {
+                            frame.show(ui, |ui| {
+                                self.event_editor.render_code_area(&ectx, ui);
+                            });
+                        });
                     });
-                });
 
                 ui.add_space(4.0);
 
@@ -4952,6 +5212,71 @@ impl DesignerPanel {
                         .size(12.0),
                 );
 
+                // ── AI assistant prompt row (only when an LLM is configured) ─
+                //    Ask the model to write / edit this handler's COBOL; the
+                //    reply's ```cobol block replaces the editor buffer above.
+                if llm_cfg.is_configured() {
+                    ui.add_space(6.0);
+                    ui.separator();
+                    // Prompt box on the LEFT (multiline, vertically resizable via
+                    // the grip at its bottom edge), Send button on the RIGHT.
+                    let btn_col_w = 96.0;
+                    let gap = 8.0;
+                    let text_w = (ui.available_width() - btn_col_w - gap).max(140.0);
+                    ui.horizontal_top(|ui| {
+                        egui::Resize::default()
+                            .id_salt("event_ai_prompt_box")
+                            .resizable([false, true])
+                            .min_size(egui::vec2(text_w, 40.0))
+                            .max_size(egui::vec2(text_w, 320.0))
+                            .default_size(egui::vec2(text_w, 64.0))
+                            .show(ui, |ui| {
+                                let resp = ui.add_sized(
+                                    ui.available_size(),
+                                    egui::TextEdit::multiline(&mut ai_prompt)
+                                        .hint_text(tr.ai_prompt_placeholder)
+                                        .interactive(!busy),
+                                );
+                                // Enter inserts a newline; ⌘/Ctrl+Enter submits.
+                                let submit = resp.has_focus()
+                                    && ui.input(|i| {
+                                        i.key_pressed(egui::Key::Enter)
+                                            && (i.modifiers.command || i.modifiers.ctrl)
+                                    })
+                                    && !ai_prompt.trim().is_empty();
+                                if submit && !busy {
+                                    do_send = true;
+                                }
+                            });
+                        ui.add_space(gap);
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("✨").size(15.0));
+                            let can_send = !busy && !ai_prompt.trim().is_empty();
+                            if ui
+                                .add_enabled(can_send, egui::Button::new(tr.ai_send))
+                                .clicked()
+                            {
+                                do_send = true;
+                            }
+                            if busy {
+                                ui.add(egui::Spinner::new());
+                                ui.label(
+                                    egui::RichText::new(tr.ai_thinking)
+                                        .small()
+                                        .color(Color32::from_gray(170)),
+                                );
+                            }
+                        });
+                    });
+                    if let Some(err) = &ai_status {
+                        ui.label(
+                            egui::RichText::new(err)
+                                .small()
+                                .color(Color32::from_rgb(220, 120, 120)),
+                        );
+                    }
+                }
+
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if ui.button("💾  Save").clicked() {
@@ -4962,6 +5287,43 @@ impl DesignerPanel {
                     }
                 });
             });
+
+        // Persist the (possibly edited) prompt draft back onto the modal.
+        if let Some(m) = self.event_modal.as_mut() {
+            m.ai_prompt = ai_prompt;
+        }
+
+        // Launch a handler-generation request on explicit submit only.
+        if do_send && !busy {
+            let code = self.event_editor.buffer_for_save().unwrap_or_default();
+            let user_prompt = self
+                .event_modal
+                .as_ref()
+                .map(|m| m.ai_prompt.clone())
+                .unwrap_or_default();
+            // Anchor the model to a nested-program handler body (the IDE owns the
+            // IDENTIFICATION / PROGRAM-ID / GOBACK / END PROGRAM scaffold shown
+            // read-only above and below the editor).
+            let guided = format!(
+                "{user_prompt}\n\nWrite the COBOL statements for this event handler only \
+                 (a RustCOBOL nested-program body). Do NOT emit IDENTIFICATION DIVISION, \
+                 PROGRAM-ID, GOBACK, or END PROGRAM — the IDE supplies those. Return the \
+                 code in a ```cobol fenced block."
+            );
+            let rx = crate::llm::spawn_request(
+                llm_cfg,
+                &[],
+                &guided,
+                &code,
+                &format!("{program_id}.cob"),
+            );
+            if let Some(m) = self.event_modal.as_mut() {
+                m.ai_pending = Some(rx);
+                m.ai_prompt.clear();
+                m.ai_status = None;
+            }
+            ui.ctx().request_repaint();
+        }
 
         if save_clicked {
             // Don't persist an untouched first-time template as real handler code.
@@ -5436,10 +5798,7 @@ impl DesignerPanel {
                             for id in self.selected_ids.clone() {
                                 self.reparent_to_drop(&id);
                             }
-                            self.trigger_repeating_group_placement_release(
-                                &resp.ctx,
-                                &changed_ids,
-                            );
+                            self.trigger_repeating_group_placement_release(&resp.ctx, &changed_ids);
                         }
                     }
                 }
@@ -5965,6 +6324,69 @@ fn draw_form_resize_grips(
         1.5,
         Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 180)),
     );
+}
+
+/// Set (`Some`) or remove (`None`) the COBOL code of a control's event handler
+/// (spec 025). Creates the binding on first write; `None` restores the "no binding"
+/// state (used to undo a create).
+fn set_control_event_code(form: &mut Form, control_id: &str, event: &str, code: Option<String>) {
+    let Some(c) = form.find_control_mut(control_id) else {
+        return;
+    };
+    match code {
+        Some(text) => {
+            if let Some(b) = c.events.iter_mut().find(|b| b.event.eq_ignore_ascii_case(event)) {
+                b.code = text;
+            } else {
+                let mut b = cobolt_forms::EventBinding::for_control(control_id, event);
+                b.code = text;
+                c.events.push(b);
+            }
+        }
+        None => c.events.retain(|b| !b.event.eq_ignore_ascii_case(event)),
+    }
+}
+
+/// Set (`Some`) or remove (`None`) a common procedure's body by name (spec 025).
+fn set_form_procedure(form: &mut Form, name: &str, code: Option<String>) {
+    match code {
+        Some(text) => {
+            if let Some(p) = form
+                .user_procedures
+                .iter_mut()
+                .find(|p| p.name.eq_ignore_ascii_case(name))
+            {
+                p.code = text;
+            } else {
+                form.user_procedures.push(cobolt_forms::model::UserProcedure {
+                    name: name.to_string(),
+                    code: text,
+                });
+            }
+        }
+        None => form
+            .user_procedures
+            .retain(|p| !p.name.eq_ignore_ascii_case(name)),
+    }
+}
+
+/// Convert an agent-supplied JSON value to a `PropValue` (spec 025).
+fn json_to_prop(v: &serde_json::Value) -> Option<PropValue> {
+    match v {
+        serde_json::Value::String(s) => Some(PropValue::String(s.clone())),
+        serde_json::Value::Bool(b) => Some(PropValue::Bool(*b)),
+        serde_json::Value::Number(n) => n.as_i64().map(PropValue::Int),
+        _ => None,
+    }
+}
+
+/// Read an integer property from an agent-supplied JSON object (accepts a JSON
+/// number or a numeric string).
+fn json_prop_i32(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<i32> {
+    let v = map.get(key)?;
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
+        .map(|n| n as i32)
 }
 
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
@@ -8090,5 +8512,114 @@ mod text_align_tests {
         // Lenient about compound 9-position values.
         assert_eq!(text_halign("MiddleRight"), egui::Align::RIGHT);
         assert_eq!(text_halign("TopCenter"), egui::Align::Center);
+    }
+
+    #[test]
+    fn agent_batch_applies_and_undoes_as_one_step() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("L1", ControlType::Label, 0, 0));
+        let before = format!("{:?}", d.form);
+
+        let mut props = serde_json::Map::new();
+        props.insert("Caption".into(), serde_json::json!("Save"));
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::DeployControl {
+                    control_type: "Button".into(),
+                    id: Some("SAVE".into()),
+                    properties: props,
+                },
+                AgentOp::SetProperty {
+                    control_id: "L1".into(),
+                    key: "Bold".into(),
+                    value: serde_json::json!(true),
+                },
+                AgentOp::GenerateEventHandler {
+                    control_id: "SAVE".into(),
+                    event: "onClick".into(),
+                    code: "       PROCEDURE DIVISION.\n           DISPLAY \"hi\".\n".into(),
+                },
+                AgentOp::CreateProcedure {
+                    name: "VALIDATE-INPUT".into(),
+                    code: "       PROCEDURE DIVISION.\n".into(),
+                },
+            ],
+            note: None,
+        };
+
+        let n = d.apply_agent_change_set(&cs);
+        assert_eq!(n, 4, "all four ops applied");
+        assert!(d.form.find_control("SAVE").is_some(), "control deployed");
+        assert_eq!(
+            d.form.find_control("L1").unwrap().properties.get("Bold"),
+            Some(&PropValue::Bool(true)),
+            "property set"
+        );
+        assert!(
+            d.form
+                .find_control("SAVE")
+                .unwrap()
+                .events
+                .iter()
+                .any(|b| b.event.eq_ignore_ascii_case("onClick") && b.code.contains("DISPLAY")),
+            "handler set"
+        );
+        assert!(
+            d.form
+                .user_procedures
+                .iter()
+                .any(|p| p.name == "VALIDATE-INPUT"),
+            "procedure created"
+        );
+
+        // One undo reverts the entire change-set (R6).
+        d.undo();
+        assert_eq!(
+            format!("{:?}", d.form),
+            before,
+            "single undo restores the pre-change form byte-for-byte"
+        );
+
+        // Redo re-applies it.
+        d.redo();
+        assert!(d.form.find_control("SAVE").is_some(), "redo re-applies");
+    }
+
+    #[test]
+    fn agent_preview_approve_is_one_undo_reject_is_none() {
+        use crate::agent::{AgentChangeSet, AgentOp, AgentPreview};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::DeployControl {
+                    control_type: "Button".into(),
+                    id: Some("B".into()),
+                    properties: serde_json::Map::new(),
+                },
+                // one invalid op — must be counted as an error and skipped on approve
+                AgentOp::SetProperty {
+                    control_id: "GHOST".into(),
+                    key: "Caption".into(),
+                    value: serde_json::json!("x"),
+                },
+            ],
+            note: None,
+        };
+        let preview = AgentPreview::build(cs, &d.form);
+        assert_eq!(preview.valid_count(), 1, "one valid op");
+        assert!(preview.has_errors(), "the GHOST op is flagged");
+        assert!(preview.is_applicable());
+
+        // Reject = do nothing: the undo stack stays empty (R7).
+        assert_eq!(d.undo_stack.len(), 0);
+
+        // Approve = apply the valid ops as one batch (R6): exactly one undo entry.
+        let n = d.apply_agent_change_set(&preview.change_set);
+        assert_eq!(n, 1, "only the valid op applies");
+        assert_eq!(d.undo_stack.len(), 1, "approve is one AgentBatch = one Undo");
+        assert!(d.form.find_control("B").is_some());
     }
 }

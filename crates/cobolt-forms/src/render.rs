@@ -288,6 +288,49 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
 /// corner notches with the backdrop, covering any child content that bled past the
 /// rounded arc (egui can only clip to axis-aligned rects). `bg` is the solid
 /// backdrop colour and `image` the optional backdrop texture + its screen rect.
+/// Per-corner rounding for [`crate::paint::draw_container_notch_mask`].
+///
+/// ── CORNER GUARDIAN RULE (do not regress) ─────────────────────────────────────
+/// The notch mask exists ONLY to cut child content that bled past a rounded
+/// corner. It must therefore touch a corner **only when a descendant actually
+/// overlaps that corner's notch square** — never "all four corners because the
+/// container happens to have children". Painting the backdrop over a corner no
+/// child reaches destroys the container's OWN rounded corner (fill / rim / shadow),
+/// which shows up as a transparent or discoloured crescent — the exact bug this
+/// function was added to prevent. See `corner_notch_guardian_*` regression tests.
+///
+/// So: keep a corner's radius only when some descendant of `container_idx` overlaps
+/// its notch square; otherwise zero it, leaving that corner untouched. When every
+/// corner is clean the returned rounding is `ZERO` and the mask early-returns.
+///
+/// Both notch-mask call sites (runtime `mask_container_notches` and the designer's
+/// notch loop) MUST route through this — do not call `draw_container_notch_mask`
+/// with a blanket `Rounding::same(rad)`.
+pub fn corner_notch_rounding(
+    container: Rect,
+    radius: f32,
+    controls: &[Control],
+    container_idx: usize,
+    control_rects: &HashMap<String, Rect>,
+) -> egui::Rounding {
+    let r = radius.max(0.0);
+    if r < 0.5 {
+        return egui::Rounding::ZERO;
+    }
+    let child_rects: Vec<Rect> = containers::collect_descendants(controls, container_idx)
+        .into_iter()
+        .filter_map(|d| controls.get(d).and_then(|c| control_rects.get(&c.id)).copied())
+        .collect();
+    let corner = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), Vec2::new(r, r));
+    let hit = |sq: Rect| child_rects.iter().any(|cr| cr.intersects(sq));
+    egui::Rounding {
+        nw: if hit(corner(container.min.x, container.min.y)) { r } else { 0.0 },
+        ne: if hit(corner(container.max.x - r, container.min.y)) { r } else { 0.0 },
+        se: if hit(corner(container.max.x - r, container.max.y - r)) { r } else { 0.0 },
+        sw: if hit(corner(container.min.x, container.max.y - r)) { r } else { 0.0 },
+    }
+}
+
 fn mask_container_notches(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
@@ -327,14 +370,9 @@ fn mask_container_notches(
         let Some(&screen) = out.control_rects.get(&live.id) else {
             continue;
         };
-        crate::paint::draw_container_notch_mask(
-            painter,
-            screen,
-            egui::Rounding::same(rad),
-            bg,
-            image,
-            img_alpha,
-        );
+        // Only mask corners a child actually reaches; clean corners stay untouched.
+        let rounding = corner_notch_rounding(screen, rad, controls, idx, &out.control_rects);
+        crate::paint::draw_container_notch_mask(painter, screen, rounding, bg, image, img_alpha);
         // The notch mask repaints the backdrop over the corner arcs, erasing the
         // container's own border/rim there. Restore it so all four rounded corners
         // keep their outline (otherwise a Panel shows a border on its straight
@@ -1367,8 +1405,10 @@ pub fn render_faces(
         // corners here — captured after the shadow, so re-blitting the notch later
         // restores backdrop + shadow instead of erasing it (the flat notch mask's bug).
         if let Some(hook) = clip_hook {
-            if matches!(base.control_type, ControlType::GroupBox | ControlType::Panel)
-                && containers::has_descendants(controls, idx)
+            if matches!(
+                base.control_type,
+                ControlType::GroupBox | ControlType::Panel
+            ) && containers::has_descendants(controls, idx)
             {
                 let rad = crate::paint::corner_radius(&live);
                 if rad >= 0.5 {
@@ -2038,17 +2078,53 @@ fn render_interactive(
                 }
             };
             let mut buf = sv(ctrl, "Text");
+            // Keep the editable content clear of the box's own rounded corners: inset
+            // by at least the corner radius so text never renders in the corner zone
+            // (outside the rounded arc), which would read as bleed past the corner.
             let pad = paint::textbox_inner_padding(ctrl)
+                .max(paint::corner_radius(ctrl))
                 .min((screen.width() * 0.45).min(screen.height() * 0.45));
             let edit_rect = screen.shrink(pad);
-            let resp = ui.put(
-                edit_rect,
-                egui::TextEdit::singleline(&mut buf)
-                    .id(ctrl_id)
-                    .frame(false)
-                    .interactive(enabled)
-                    .text_color(txt_col),
-            );
+            // A Multiline TextBox uses egui's multiline editor, which wraps text to
+            // the field width (honouring WordWrap); single-line otherwise.
+            let multiline = ctrl
+                .get_prop("Multiline")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            let resp = if multiline {
+                // egui's multiline editor auto-grows to its content, so it would
+                // spill past the TextBox's fixed height (and its rounded bottom).
+                // Host it in a scroll area clipped to the field so extra rows scroll
+                // instead of overflowing — the box keeps its designed height.
+                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+                    ui.set_clip_rect(edit_rect);
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .max_height(edit_rect.height())
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut buf)
+                                    .id(ctrl_id)
+                                    .frame(false)
+                                    .interactive(enabled)
+                                    .desired_rows(1)
+                                    .desired_width(edit_rect.width())
+                                    .text_color(txt_col),
+                            )
+                        })
+                        .inner
+                })
+                .inner
+            } else {
+                ui.put(
+                    edit_rect,
+                    egui::TextEdit::singleline(&mut buf)
+                        .id(ctrl_id)
+                        .frame(false)
+                        .interactive(enabled)
+                        .text_color(txt_col),
+                )
+            };
             if resp.changed() {
                 out.prop_updates
                     .push((id.to_owned(), "Text".to_owned(), buf.clone()));
@@ -4303,6 +4379,56 @@ mod tests {
         let mut c = Control::new(id, t, x, y);
         c.rect = MRect::new(x, y, w, h);
         c
+    }
+
+    // ── CORNER GUARDIAN regression tests ─────────────────────────────────────
+    // These pin the rule that the notch mask must only touch corners a child
+    // actually reaches; if they fail, a clean container corner is being masked
+    // (painted over) again — the bug corner_notch_rounding was added to stop.
+
+    #[test]
+    fn corner_notch_guardian_leaves_clean_corners_untouched() {
+        use std::collections::HashMap;
+        let container = ctrl("PANEL", ControlType::Panel, 0, 0, 200, 150);
+        let mut child = ctrl("CHILD", ControlType::Label, 80, 60, 40, 20);
+        child.parent = Some("PANEL".into());
+        let controls = vec![container, child];
+        let cont = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 150.0));
+        let mut rects = HashMap::new();
+        rects.insert("PANEL".to_string(), cont);
+        // Child parked in the middle — reaches no corner.
+        rects.insert(
+            "CHILD".to_string(),
+            Rect::from_min_size(pos2(80.0, 60.0), Vec2::new(40.0, 20.0)),
+        );
+        let r = corner_notch_rounding(cont, 20.0, &controls, 0, &rects);
+        assert_eq!(
+            r,
+            egui::Rounding::ZERO,
+            "no child at any corner ⇒ NOTHING masked (panel keeps its own corners)"
+        );
+    }
+
+    #[test]
+    fn corner_notch_guardian_masks_only_the_reached_corner() {
+        use std::collections::HashMap;
+        let container = ctrl("PANEL", ControlType::Panel, 0, 0, 200, 150);
+        let mut child = ctrl("CHILD", ControlType::PictureBox, 0, 140, 30, 20);
+        child.parent = Some("PANEL".into());
+        let controls = vec![container, child];
+        let cont = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 150.0));
+        let mut rects = HashMap::new();
+        rects.insert("PANEL".to_string(), cont);
+        // Child overlapping the bottom-left (SW) corner square only.
+        rects.insert(
+            "CHILD".to_string(),
+            Rect::from_min_size(pos2(0.0, 140.0), Vec2::new(30.0, 20.0)),
+        );
+        let r = corner_notch_rounding(cont, 20.0, &controls, 0, &rects);
+        assert_eq!(r.sw, 20.0, "child in bottom-left ⇒ SW masked");
+        assert_eq!(r.nw, 0.0, "NW is clean ⇒ untouched");
+        assert_eq!(r.ne, 0.0, "NE is clean ⇒ untouched");
+        assert_eq!(r.se, 0.0, "SE is clean ⇒ untouched");
     }
 
     fn bound_repeating_group(count: i64) -> Vec<Control> {

@@ -52,10 +52,14 @@ pub struct SettingsDraft {
     pub insp_dump_enabled: bool,
     pub insp_dump_path: String,
     // ── AI assistant (global) ──
+    /// Selected AI provider id (empty ⇒ "Select the AI Provider").
+    pub llm_provider: String,
     pub llm_endpoint: String,
     pub llm_api_key: String,
     pub llm_model: String,
     pub llm_system_prompt: String,
+    /// Request timeout in seconds (spec 025).
+    pub llm_timeout: u32,
 }
 
 impl SettingsDraft {
@@ -79,10 +83,12 @@ impl SettingsDraft {
             fixed_format: p.runtime.fixed_format,
             insp_dump_enabled: p.ide.inspector_dump_enabled,
             insp_dump_path: p.ide.inspector_dump_path.clone(),
+            llm_provider: llm.provider.clone(),
             llm_endpoint: llm.endpoint.clone(),
             llm_api_key: llm.api_key.clone(),
             llm_model: llm.model.clone(),
             llm_system_prompt: llm.system_prompt.clone(),
+            llm_timeout: llm.timeout_secs,
         }
     }
 
@@ -104,10 +110,12 @@ impl SettingsDraft {
         p.runtime.fixed_format = self.fixed_format;
         p.ide.inspector_dump_enabled = self.insp_dump_enabled;
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
+        llm.provider = self.llm_provider.clone();
         llm.endpoint = self.llm_endpoint.clone();
         llm.api_key = self.llm_api_key.clone();
         llm.model = self.llm_model.clone();
         llm.system_prompt = self.llm_system_prompt.clone();
+        llm.timeout_secs = self.llm_timeout.max(1);
     }
 }
 
@@ -116,7 +124,14 @@ impl SettingsDraft {
 pub struct SettingsFormAction {
     pub save: bool,
     pub test_connection: bool,
+    /// Auto-detect the LLM API/models from the endpoint host (spec 025).
+    pub detect_api: bool,
+    /// Reopen the read-only LLM debug modal with the last response (spec 025).
+    pub show_debug: bool,
     pub browse_bg: bool,
+    /// Fetch the selected provider's model list (provider just changed, or the
+    /// user clicked the refresh button).
+    pub fetch_models: bool,
 }
 
 /// Common license identifiers offered in the dropdown.
@@ -138,6 +153,10 @@ pub struct SettingsForm {
     baseline: SettingsDraft,
     /// Width of the label column; user can drag the resizer to adjust.
     splitter: f32,
+    /// Models offered in the Model picker for the selected provider. Transient
+    /// (not part of the dirty check); (re)populated whenever a provider is
+    /// chosen or the model list is refreshed. Empty until a provider is picked.
+    pub available_models: Vec<String>,
 }
 
 impl SettingsForm {
@@ -147,6 +166,7 @@ impl SettingsForm {
             baseline: draft.clone(),
             draft,
             splitter: 200.0,
+            available_models: Vec::new(),
         }
     }
 
@@ -154,7 +174,13 @@ impl SettingsForm {
     pub fn reset_to(&mut self, p: &CoboltProject, llm: &LlmConfig) {
         self.draft = SettingsDraft::from_project(p, llm);
         self.baseline = self.draft.clone();
+        self.available_models.clear();
         // keep user's preferred splitter position
+    }
+
+    /// Replace the offered model list (called after a background fetch resolves).
+    pub fn set_available_models(&mut self, models: Vec<String>) {
+        self.available_models = models;
     }
 
     /// There are unsaved edits.
@@ -185,6 +211,7 @@ impl SettingsForm {
         themes: &[(&'static str, &'static str)], // (id, display name)
         test_busy: bool,
         test_status: Option<&str>,
+        has_debug: bool,
     ) -> SettingsFormAction {
         let mut action = SettingsFormAction::default();
         let theme = crate::theme::active();
@@ -683,6 +710,68 @@ impl SettingsForm {
                             });
                         });
 
+                        // Provider (drives the default endpoint + the model list)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_ai_provider).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                let prev = self.draft.llm_provider.clone();
+                                let cur_label =
+                                    crate::llm::Provider::from_id(&self.draft.llm_provider)
+                                        .map(|p| p.label().to_owned())
+                                        .unwrap_or_else(|| {
+                                            tr.settings_ai_provider_select.to_owned()
+                                        });
+                                egui::ComboBox::from_id_salt("ai_provider")
+                                    .selected_text(cur_label)
+                                    .width(w)
+                                    .show_ui(ui, |ui| {
+                                        for p in crate::llm::PROVIDERS {
+                                            ui.selectable_value(
+                                                &mut self.draft.llm_provider,
+                                                p.id().to_owned(),
+                                                p.label(),
+                                            );
+                                        }
+                                    });
+                                // React to a provider change: fill the default
+                                // endpoint + recommended prompt, clear the model,
+                                // and kick off a live model-list fetch.
+                                if self.draft.llm_provider != prev {
+                                    if let Some(p) = crate::llm::Provider::from_id(
+                                        &self.draft.llm_provider,
+                                    ) {
+                                        self.draft.llm_endpoint =
+                                            p.default_endpoint().to_owned();
+                                        if self.draft.llm_system_prompt.trim().is_empty()
+                                            || self.draft.llm_system_prompt
+                                                == crate::llm::DEFAULT_SYSTEM_PROMPT
+                                        {
+                                            self.draft.llm_system_prompt =
+                                                p.default_prompt().to_owned();
+                                        }
+                                        self.draft.llm_model.clear();
+                                        self.available_models.clear();
+                                        action.fetch_models = true;
+                                    }
+                                }
+                            });
+                        });
+
                         // Endpoint
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
@@ -756,10 +845,41 @@ impl SettingsForm {
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 let w = ui.available_width();
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.draft.llm_model)
-                                        .desired_width(w),
-                                );
+                                ui.horizontal(|ui| {
+                                    let has_provider = crate::llm::Provider::from_id(
+                                        &self.draft.llm_provider,
+                                    )
+                                    .is_some();
+                                    let combo_w = (w - 34.0).max(60.0);
+                                    // Snapshot the offered list so the picker
+                                    // closure borrows a local, not `self`.
+                                    let models = self.available_models.clone();
+                                    egui::ComboBox::from_id_salt("ai_model")
+                                        .selected_text(self.draft.llm_model.clone())
+                                        .width(combo_w)
+                                        .show_ui(ui, |ui| {
+                                            if models.is_empty() {
+                                                ui.weak(tr.settings_ai_model_empty);
+                                            }
+                                            for m in &models {
+                                                ui.selectable_value(
+                                                    &mut self.draft.llm_model,
+                                                    m.clone(),
+                                                    m,
+                                                );
+                                            }
+                                        });
+                                    if ui
+                                        .add_enabled(
+                                            has_provider && !test_busy,
+                                            egui::Button::new("⟳"),
+                                        )
+                                        .on_hover_text(tr.settings_ai_refresh_models)
+                                        .clicked()
+                                    {
+                                        action.fetch_models = true;
+                                    }
+                                });
                             });
                         });
 
@@ -810,12 +930,36 @@ impl SettingsForm {
                                     if ui
                                         .add_enabled(
                                             !test_busy,
+                                            egui::Button::new(tr.settings_ai_detect),
+                                        )
+                                        .on_hover_text(tr.settings_ai_detect_hint)
+                                        .clicked()
+                                    {
+                                        action.detect_api = true;
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            !test_busy,
                                             egui::Button::new(tr.settings_ai_test),
                                         )
                                         .clicked()
                                     {
                                         action.test_connection = true;
                                     }
+                                    if has_debug
+                                        && ui.button(tr.agent_details).clicked()
+                                    {
+                                        action.show_debug = true;
+                                    }
+                                    ui.separator();
+                                    ui.label(RichText::new(tr.settings_ai_timeout).small());
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.draft.llm_timeout)
+                                            .speed(1.0)
+                                            .range(1..=1200)
+                                            .suffix(" s"),
+                                    )
+                                    .on_hover_text(tr.settings_ai_timeout_hint);
                                     if let Some(s) = test_status {
                                         ui.label(RichText::new(s).small());
                                     }

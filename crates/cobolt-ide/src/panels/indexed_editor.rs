@@ -10,8 +10,8 @@
 use crate::theme;
 use cobolt_forms::ControlType;
 use cobolt_indexed::{
-    apply_flat, flatten_record, indent_entry, outdent_entry, record_to_text, text_to_record,
-    FieldUsage, FlatEntry, IndexedDefinition, IndexedField,
+    apply_flat, fix_record_text, flatten_record, indent_entry, outdent_entry, record_to_text,
+    text_to_record, FieldUsage, FlatEntry, IndexedDefinition, IndexedField,
 };
 
 use super::indexed_properties::{IndexedPropertiesPanel, PropertyEdit};
@@ -291,6 +291,40 @@ impl IndexedEditorPanel {
                 self.indent_error = None;
                 self.show_indent_alert = false;
                 self.apply_success_msg = None;
+            }
+            // Best-effort auto-repair of common syntax errors (omitted PIC keyword,
+            // missing terminating period). Anything it can't infer stays an error.
+            if ui
+                .button("Fix errors")
+                .on_hover_text("Insert an omitted PIC keyword and missing periods")
+                .clicked()
+            {
+                self.raw_text = fix_record_text(&self.raw_text);
+                self.indent_error = None;
+                self.show_indent_alert = false;
+                self.apply_success_msg = None;
+            }
+            // Reformat to the canonical COBOL-85 layout (level indentation, aligned
+            // clauses). Only possible when the text parses, so surface parse errors.
+            if ui
+                .button("Beautify")
+                .on_hover_text("Reformat to canonical COBOL-85 layout")
+                .clicked()
+            {
+                let mut tmp = def.clone();
+                match text_to_record(&mut tmp, &self.raw_text) {
+                    Ok(()) => {
+                        self.raw_text = record_to_text(&tmp);
+                        self.indent_error = None;
+                        self.show_indent_alert = false;
+                        self.apply_success_msg = None;
+                    }
+                    Err(e) => {
+                        self.indent_error = Some(e);
+                        self.show_indent_alert = true;
+                        self.apply_success_msg = None;
+                    }
+                }
             }
         });
 

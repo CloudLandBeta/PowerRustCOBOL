@@ -3340,11 +3340,9 @@ impl PropertiesPanel {
         let mut anchored = ctrl.is_anchored();
         property_row(ui, tr.lbl_anchor, |ui| {
             if ui.checkbox(&mut anchored, "").changed() {
-                action.set_props.push((
-                    id.to_owned(),
-                    "Anchor".into(),
-                    PropValue::Bool(anchored),
-                ));
+                action
+                    .set_props
+                    .push((id.to_owned(), "Anchor".into(), PropValue::Bool(anchored)));
             }
             ui.label(
                 RichText::new("(lock X/Y from mouse)")

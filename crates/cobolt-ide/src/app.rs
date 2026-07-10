@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use egui::{Context, Key, KeyboardShortcut, Modifiers, Vec2, ViewportBuilder, ViewportId};
+use egui::{Color32, Context, Key, KeyboardShortcut, Modifiers, Vec2, ViewportBuilder, ViewportId};
 
 use cobolt_ast::data::DataDecl;
 use cobolt_ast::expr::{FigurativeConstant, Literal};
@@ -316,6 +316,10 @@ pub struct CoboltApp {
     llm_test_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
     /// Last test-connection result/status line.
     llm_test_status: Option<String>,
+    /// In-flight "Detect API" probe from the settings dialog (spec 025).
+    llm_detect_rx: Option<std::sync::mpsc::Receiver<Result<crate::llm::DetectedApi, String>>>,
+    /// In-flight provider model-list fetch from the settings dialog.
+    llm_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
 
     // Dialog state
     new_form: NewFormDialog,
@@ -355,6 +359,22 @@ pub struct CoboltApp {
     /// Which surface owns the save alert: `Some(idx)` = the designer viewport at
     /// `idx` (so the alert is not hidden behind it), `None` = the main IDE window.
     save_alert_designer: Option<usize>,
+
+    /// Dev-agent change-set awaiting the developer's Approve/Reject (spec 025 T9).
+    /// `Some` while a proposal is on screen; nothing is applied until approved.
+    agent_preview: Option<crate::agent::AgentPreview>,
+    /// Dev-agent prompt-bar state (spec 025 T10).
+    agent_prompt: String,
+    /// `(prompt-that-was-sent, reply channel)` — the prompt is recorded to memory
+    /// only after a successful reply (spec 025 R16).
+    agent_pending: Option<(String, std::sync::mpsc::Receiver<crate::llm::LlmResponse>)>,
+    agent_history: Vec<crate::llm::ChatTurn>,
+    /// Which form the in-memory `agent_history` belongs to (reload on change).
+    agent_history_form: Option<PathBuf>,
+    agent_status: Option<String>,
+    /// Whether the read-only connection-log debug modal is currently open (spec 025).
+    /// The content is the shared `llm` connection log, so it survives closing.
+    agent_debug_open: bool,
 
     /// Pending binary build result channel (Phase 11).
     pending_build_rx:
@@ -483,6 +503,55 @@ fn file_mtime(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+/// A one-line, human-readable label + accent colour for one agent operation
+/// (spec 025 T10 preview).
+fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, Color32) {
+    use crate::agent::AgentOp;
+    match op {
+        AgentOp::DeployControl {
+            control_type, id, ..
+        } => (
+            format!(
+                "{} {control_type} {}",
+                tr.agent_op_deploy,
+                id.as_deref().unwrap_or("")
+            )
+            .trim_end()
+            .to_string(),
+            Color32::from_rgb(120, 190, 120),
+        ),
+        AgentOp::SetProperty {
+            control_id,
+            key,
+            value,
+        } => (
+            format!(
+                "{} {control_id}.{key} = {}",
+                tr.agent_op_set,
+                agent_value_display(value)
+            ),
+            Color32::from_rgb(120, 170, 230),
+        ),
+        AgentOp::GenerateEventHandler {
+            control_id, event, ..
+        } => (
+            format!("{} {control_id}.{event}", tr.agent_op_handler),
+            Color32::from_rgb(200, 170, 110),
+        ),
+        AgentOp::CreateProcedure { name, .. } => (
+            format!("{} {name}", tr.agent_op_procedure),
+            Color32::from_rgb(190, 150, 210),
+        ),
+    }
+}
+
+fn agent_value_display(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
 fn guardian_severity_label<'a>(tr: &'a Tr, severity: &cobolt_forms::GuardianSeverity) -> &'a str {
     match severity {
         cobolt_forms::GuardianSeverity::Blocker => tr.data_binding_severity_blocker,
@@ -550,6 +619,8 @@ impl CoboltApp {
             llm: crate::llm::LlmConfig::load(),
             llm_test_rx: None,
             llm_test_status: None,
+            llm_detect_rx: None,
+            llm_models_rx: None,
 
             new_form: NewFormDialog::new(),
             new_indexed: NewIndexedDialog::new(),
@@ -567,6 +638,13 @@ impl CoboltApp {
             form_error: None,
             save_alert_msg: None,
             save_alert_designer: None,
+            agent_preview: None,
+            agent_prompt: String::new(),
+            agent_pending: None,
+            agent_history: Vec::new(),
+            agent_history_form: None,
+            agent_status: None,
+            agent_debug_open: false,
             pending_build_rx: None,
             pending_build_progress: None,
             build_phase: (0.0, String::new()),
@@ -1251,6 +1329,12 @@ impl CoboltApp {
                                 .push_status(format!("Could not create {sub}/: {e}"));
                         }
                     }
+                    // Scaffold the agentic_ai/ folder + default prompt/skill so the
+                    // dev agent is ready in every new project (spec 025 R19).
+                    if let Err(e) = crate::agent::ensure_agentic_ai_scaffold(&dir) {
+                        self.output
+                            .push_status(format!("Could not create agentic_ai/: {e}"));
+                    }
                     // Scaffold a runnable starter main program so the project can
                     // be Run immediately. Track it under Common Code and open it.
                     let proj_name = self.cobolt_project.as_ref().unwrap().project.name.clone();
@@ -1354,6 +1438,10 @@ impl CoboltApp {
                         self.output
                             .push_status(format!("Added {created} standard project folder(s)"));
                     }
+                    // Ensure the agentic_ai/ scaffold (folder + default prompt/skill)
+                    // exists, seeding only what's missing (spec 025 R19). Non-
+                    // destructive, so older projects are brought up to date on open.
+                    let _ = crate::agent::ensure_agentic_ai_scaffold(&dir);
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
                 }
@@ -1530,6 +1618,324 @@ impl CoboltApp {
         self.pending_build_rx = Some(rx);
         self.pending_build_progress = Some(prx);
         self.build_phase = (0.0, "Starting…".to_string());
+    }
+
+    /// Memory key for a form's dev-agent conversation.
+    fn agent_history_key(form_path: &std::path::Path) -> String {
+        let stem = form_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("form");
+        format!("agent-{stem}")
+    }
+
+    /// The dev-agent prompt bar + preview (spec 025 T10). Shown above the inspector,
+    /// which holds the live form. Submit sends the request (prompt + skills + memory
+    /// + fresh form context); the reply is parsed into a previewed change-set that
+    /// the developer Approves (applied as one undoable action, then saved) or Rejects.
+    fn agent_bar(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
+        let Some(form_path) = self.inspect.as_ref().map(|s| s.path.clone()) else {
+            return;
+        };
+        let dir = self.project_dir();
+        let key = Self::agent_history_key(&form_path);
+
+        // (Re)load conversation memory when the inspected form changes.
+        if self.agent_history_form.as_ref() != Some(&form_path) {
+            self.agent_history = dir
+                .as_ref()
+                .map(|d| crate::llm::load_history(&d.join("data"), &key))
+                .unwrap_or_default();
+            self.agent_history_form = Some(form_path.clone());
+            self.agent_preview = None;
+            self.agent_status = None;
+        }
+
+        // Poll an in-flight request.
+        let mut completed: Option<(String, crate::llm::LlmResponse)> = None;
+        if let Some((prompt, rx)) = &self.agent_pending {
+            match rx.try_recv() {
+                Ok(resp) => completed = Some((prompt.clone(), resp)),
+                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    completed = Some((
+                        prompt.clone(),
+                        crate::llm::LlmResponse::Err("The agent worker stopped.".into()),
+                    ))
+                }
+            }
+        }
+        if let Some((prompt, resp)) = completed {
+            self.agent_pending = None;
+            match resp {
+                crate::llm::LlmResponse::Ok(reply) => {
+                    let form = self.inspect.as_ref().unwrap().designer.form.clone();
+                    match crate::agent::parse_change_set(&reply) {
+                        Ok(cs) => {
+                            self.agent_status = cs.note.clone();
+                            self.agent_preview = Some(crate::agent::AgentPreview::build(cs, &form));
+                        }
+                        Err(e) => {
+                            // The full request/response is in the connection log; open
+                            // the debug modal so the developer can inspect it.
+                            self.agent_debug_open = true;
+                            self.agent_status = Some(e);
+                            self.agent_preview = None;
+                        }
+                    }
+                    // Record only the turns to memory (R16).
+                    self.agent_history.push(crate::llm::ChatTurn::user(prompt));
+                    self.agent_history.push(crate::llm::ChatTurn::assistant(reply));
+                    if let Some(d) = &dir {
+                        crate::llm::save_history(&d.join("data"), &key, &self.agent_history);
+                    }
+                }
+                crate::llm::LlmResponse::Err(e) => {
+                    // Full request/response captured in the connection log.
+                    self.agent_debug_open = true;
+                    self.agent_status = Some(e);
+                    self.agent_preview = None;
+                }
+            }
+        }
+
+        let busy = self.agent_pending.is_some();
+        let mut prompt = std::mem::take(&mut self.agent_prompt);
+        let status = self.agent_status.clone();
+        let preview = self.agent_preview.clone();
+        let has_debug = crate::llm::has_connection_log();
+        let mut do_send = false;
+        let mut do_approve = false;
+        let mut do_reject = false;
+        let mut do_details = false;
+
+        let frame = crate::theme::glass_panel_frame(
+            ctx.style().visuals.panel_fill,
+            &crate::theme::active(),
+        );
+        egui::TopBottomPanel::top("inspector_agent")
+            .frame(frame)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("🤖").size(15.0));
+                    ui.label(egui::RichText::new(tr.agent_mode).small().strong());
+                    let can_send = !busy && !prompt.trim().is_empty();
+                    if ui
+                        .add_enabled(can_send, egui::Button::new(tr.ai_send))
+                        .clicked()
+                    {
+                        do_send = true;
+                    }
+                    if busy {
+                        ui.add(egui::Spinner::new());
+                        ui.label(
+                            egui::RichText::new(tr.agent_hint)
+                                .small()
+                                .color(Color32::from_gray(170)),
+                        );
+                    }
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut prompt)
+                            .hint_text(tr.agent_hint)
+                            .desired_width(ui.available_width())
+                            .interactive(!busy),
+                    );
+                    if resp.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && !prompt.trim().is_empty()
+                        && !busy
+                    {
+                        do_send = true;
+                    }
+                });
+
+                if status.is_some() || has_debug {
+                    ui.horizontal_wrapped(|ui| {
+                        if let Some(s) = &status {
+                            ui.label(
+                                egui::RichText::new(s)
+                                    .small()
+                                    .color(Color32::from_rgb(210, 150, 90)),
+                            );
+                        }
+                        // Reopen the retained raw response / error for debugging.
+                        if has_debug && ui.small_button(tr.agent_details).clicked() {
+                            do_details = true;
+                        }
+                    });
+                }
+
+                // Preview of the proposed change-set (nothing applied yet).
+                if let Some(pv) = &preview {
+                    ui.separator();
+                    ui.label(egui::RichText::new(tr.agent_preview_title).strong());
+                    if pv.change_set.operations.is_empty() {
+                        ui.label(egui::RichText::new(tr.agent_no_ops).small());
+                    }
+                    egui::ScrollArea::vertical()
+                        .max_height(180.0)
+                        .auto_shrink([false, true])
+                        .id_salt("agent_preview_ops")
+                        .show(ui, |ui| {
+                            for (op, st) in pv.change_set.operations.iter().zip(pv.statuses.iter()) {
+                                let (label, colour) = agent_op_line(op, tr);
+                                ui.horizontal_wrapped(|ui| {
+                                    if let Some(err) = st {
+                                        ui.label(
+                                            egui::RichText::new("✗")
+                                                .small()
+                                                .color(Color32::from_rgb(220, 90, 90)),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(format!("{label} — {err}"))
+                                                .small()
+                                                .color(Color32::from_rgb(220, 120, 120)),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new("•").small().color(colour),
+                                        );
+                                        ui.label(egui::RichText::new(label).small());
+                                    }
+                                });
+                            }
+                        });
+                    ui.horizontal(|ui| {
+                        let can_apply = pv.is_applicable();
+                        if ui
+                            .add_enabled(can_apply, egui::Button::new(tr.agent_approve))
+                            .clicked()
+                        {
+                            do_approve = true;
+                        }
+                        if ui.button(tr.agent_reject).clicked() {
+                            do_reject = true;
+                        }
+                    });
+                }
+            });
+
+        self.agent_prompt = prompt;
+
+        if do_send && !busy {
+            let form = self.inspect.as_ref().unwrap().designer.form.clone();
+            let context = crate::agent::build_context(&form);
+            let (sys, skills) = match &dir {
+                Some(d) => (crate::agent::effective_prompt(d), crate::agent::load_skills(d)),
+                None => (crate::agent::AGENT_SYSTEM_PROMPT.to_string(), String::new()),
+            };
+            let sent = std::mem::take(&mut self.agent_prompt);
+            let rx = crate::llm::spawn_agent_request(
+                &self.llm,
+                &sys,
+                &skills,
+                &self.agent_history,
+                &sent,
+                &context,
+            );
+            self.agent_status = None;
+            self.agent_preview = None;
+            self.agent_pending = Some((sent, rx));
+        }
+
+        if do_reject {
+            self.reject_agent_preview();
+        }
+
+        if do_approve {
+            if let Some(cs) = self.agent_preview.take().map(|p| p.change_set) {
+                let saved = if let Some(st) = &mut self.inspect {
+                    let n = st.designer.apply_agent_change_set(&cs);
+                    if n > 0 {
+                        let _ = save_form(&st.designer.form, &st.path);
+                        st.designer.dirty = false;
+                        st.mtime = file_mtime(&st.path);
+                        Some(st.path.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if let Some(p) = saved {
+                    self.project.refresh_form(&p);
+                }
+            }
+        }
+
+        if do_details {
+            self.agent_debug_open = true;
+        }
+        // The modal itself is drawn once at the top level (render_agent_debug_modal)
+        // so it also works from Settings → Test Connection, not only the agent bar.
+    }
+
+    /// The read-only debug modal showing the full error / raw model response (spec
+    /// 025). Rendered once per frame at the top level so it can be opened from the
+    /// agent bar **or** the settings Test Connection. Closing keeps the text so the
+    /// "Details" button can reopen it.
+    fn render_agent_debug_modal(&mut self, ctx: &Context, tr: &Tr) {
+        if !self.agent_debug_open {
+            return;
+        }
+        let text = crate::llm::connection_log_text();
+        if text.is_empty() {
+            self.agent_debug_open = false;
+            return;
+        }
+        let mut open = true;
+        let mut clear = false;
+        egui::Window::new(tr.agent_debug_title)
+            .collapsible(false)
+            .resizable(true)
+            .default_size([660.0, 440.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                if ui.button(tr.agent_clear_log).clicked() {
+                    clear = true;
+                }
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let mut t = text;
+                        ui.add(
+                            egui::TextEdit::multiline(&mut t)
+                                .code_editor()
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(22),
+                        );
+                    });
+            });
+        if clear {
+            crate::llm::clear_connection_log();
+            self.agent_debug_open = false;
+        }
+        if !open {
+            self.agent_debug_open = false; // the log persists for reopening
+        }
+    }
+
+    /// Approve the pending dev-agent change-set (spec 025 R6): apply its valid
+    /// operations to the designer at `designer_idx` as **one** undoable action, then
+    /// clear the preview. Returns how many operations were applied.
+    // Wired to the editor prompt bar's Approve button in T10.
+    #[allow(dead_code)]
+    fn approve_agent_preview(&mut self, designer_idx: usize) -> usize {
+        let Some(preview) = self.agent_preview.take() else {
+            return 0;
+        };
+        if designer_idx >= self.designers.len() {
+            return 0;
+        }
+        self.designers[designer_idx]
+            .1
+            .apply_agent_change_set(&preview.change_set)
+    }
+
+    /// Reject the pending change-set (spec 025 R7): discard it, mutating nothing.
+    #[allow(dead_code)]
+    fn reject_agent_preview(&mut self) {
+        self.agent_preview = None;
     }
 
     /// The project's root directory (where `cobolt.toml` lives), if a project is open.
@@ -1979,30 +2385,11 @@ impl CoboltApp {
             st.reload_if_stale();
         }
 
-        // AI assistant bar (above the inspector). Its context is the form's
-        // generated COBOL, which is read-only — so replies are shown in the
-        // transcript for reference and never overwrite generated code.
-        if self.llm.is_configured() {
-            let form_path = self.inspect.as_ref().map(|s| s.path.clone());
-            if let Some(form_path) = form_path {
-                let gen_path = self.generated_cbl_path(&form_path);
-                let code = std::fs::read_to_string(&gen_path).unwrap_or_default();
-                let root = self
-                    .project_path
-                    .as_ref()
-                    .and_then(|p| p.parent())
-                    .map(|p| p.to_path_buf());
-                self.editor.ai_bar(
-                    ctx,
-                    &self.llm,
-                    tr,
-                    "inspector_ai",
-                    &form_path,
-                    &code,
-                    true,
-                    root.as_deref(),
-                );
-            }
+        // Dev-agent prompt bar (spec 025 T10) — the inspector has the live form, so
+        // the agent can propose control/property/handler/procedure changes that the
+        // developer previews and approves.
+        if self.llm.is_configured() && self.inspect.is_some() {
+            self.agent_bar(ctx, tr);
         }
 
         let card =
@@ -3040,6 +3427,9 @@ impl CoboltApp {
                     self.llm_test_rx = None;
                 }
                 Ok(crate::llm::LlmResponse::Err(e)) => {
+                    // The full request/response is in the connection log; open the
+                    // debug modal so the developer can inspect the return.
+                    self.agent_debug_open = true;
                     self.llm_test_status = Some(e);
                     self.llm_test_rx = None;
                 }
@@ -3049,6 +3439,84 @@ impl CoboltApp {
                     self.llm_test_rx = None;
                 }
             }
+        }
+        self.poll_llm_detect();
+    }
+
+    /// Poll an in-flight "Detect API" probe (spec 025). On success it fills the
+    /// draft's endpoint (and model, if empty) from what the server advertises and
+    /// reports the provider + model count next to the button.
+    fn poll_llm_detect(&mut self) {
+        let result = match &self.llm_detect_rx {
+            Some(rx) => match rx.try_recv() {
+                Ok(r) => Some(r),
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("The detect worker stopped unexpectedly.".into()))
+                }
+            },
+            None => return,
+        };
+        self.llm_detect_rx = None;
+        match result {
+            Some(Ok(found)) => {
+                let n = found.models.len();
+                let sample: Vec<&str> = found.models.iter().take(3).map(|s| s.as_str()).collect();
+                if let Some(form) = &mut self.settings_form {
+                    form.draft.llm_endpoint = found.endpoint.clone();
+                    if !found.models.is_empty() {
+                        form.set_available_models(found.models.clone());
+                    }
+                    if form.draft.llm_model.trim().is_empty() {
+                        if let Some(first) = found.models.first() {
+                            form.draft.llm_model = first.clone();
+                        }
+                    }
+                }
+                self.llm_test_status = Some(format!(
+                    "Detected {}: {n} model(s){}",
+                    found.provider,
+                    if sample.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" — {}", sample.join(", "))
+                    }
+                ));
+            }
+            Some(Err(e)) => self.llm_test_status = Some(e),
+            None => {}
+        }
+    }
+
+    /// Poll the in-flight provider model-list fetch; on completion populate the
+    /// settings form's picker (and auto-select the first model if none is set).
+    fn poll_llm_models(&mut self) {
+        let result = match &self.llm_models_rx {
+            Some(rx) => match rx.try_recv() {
+                Ok(r) => Some(r),
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("The model-list worker stopped unexpectedly.".into()))
+                }
+            },
+            None => return,
+        };
+        self.llm_models_rx = None;
+        match result {
+            Some(Ok(models)) => {
+                let n = models.len();
+                if let Some(form) = &mut self.settings_form {
+                    if form.draft.llm_model.trim().is_empty() {
+                        if let Some(first) = models.first() {
+                            form.draft.llm_model = first.clone();
+                        }
+                    }
+                    form.set_available_models(models);
+                }
+                self.llm_test_status = Some(format!("{n} model(s) available"));
+            }
+            Some(Err(e)) => self.llm_test_status = Some(e),
+            None => {}
         }
     }
 
@@ -3074,11 +3542,13 @@ impl CoboltApp {
     /// "Test connection" / "Browse background" actions for the caller to run.
     fn show_settings_pane(&mut self, ctx: &Context, tr: &Tr) {
         self.poll_llm_test(tr);
-        if self.llm_test_rx.is_some() {
+        self.poll_llm_models();
+        if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {
             ctx.request_repaint();
         }
-        let test_busy = self.llm_test_rx.is_some();
+        let test_busy = self.llm_test_rx.is_some() || self.llm_models_rx.is_some();
         let test_status = self.llm_test_status.clone();
+        let has_debug = crate::llm::has_connection_log();
 
         let themes: Vec<(&'static str, &'static str)> = crate::theme::THEMES
             .iter()
@@ -3116,7 +3586,14 @@ impl CoboltApp {
                 let content_rect =
                     egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), content_h));
                 ui.allocate_ui_at_rect(content_rect, |ui| {
-                    action = form.show(ui, tr, &themes, test_busy, test_status.as_deref());
+                    action = form.show(
+                        ui,
+                        tr,
+                        &themes,
+                        test_busy,
+                        test_status.as_deref(),
+                        has_debug,
+                    );
                 });
                 ui.add_space(bottom_res);
             }
@@ -3134,6 +3611,27 @@ impl CoboltApp {
                 self.llm_test_status = Some(tr.ai_testing.to_string());
                 self.llm_test_rx = Some(crate::llm::spawn_test(&cfg));
             }
+        }
+        if action.detect_api {
+            if let Some(form) = &self.settings_form {
+                self.llm_test_status = Some(tr.ai_detecting.to_string());
+                self.llm_detect_rx = Some(crate::llm::spawn_detect(&form.draft.llm_endpoint));
+            }
+        }
+        if action.fetch_models {
+            if let Some(form) = &self.settings_form {
+                if let Some(provider) = crate::llm::Provider::from_id(&form.draft.llm_provider) {
+                    self.llm_test_status = Some(tr.ai_detecting.to_string());
+                    self.llm_models_rx = Some(crate::llm::spawn_list_models(
+                        provider,
+                        &form.draft.llm_endpoint,
+                        &form.draft.llm_api_key,
+                    ));
+                }
+            }
+        }
+        if action.show_debug {
+            self.agent_debug_open = true;
         }
         if action.browse_bg {
             self.begin_file_dialog(
@@ -4071,6 +4569,17 @@ impl eframe::App for CoboltApp {
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
         crate::i18n::set_language(ctx, self.lang);
+
+        // Surface AI request activity (sending → streaming → done / errors, plus
+        // live reasoning) into the output/log pane, drained on the UI thread so it
+        // appears line-by-line as the request unfolds.
+        for entry in crate::llm::drain_ai_log() {
+            self.output.push_ai_line(entry.kind, entry.text);
+        }
+
+        // Read-only LLM debug modal (spec 025) — rendered once at the top level so it
+        // works from the agent bar and from Settings → Test Connection alike.
+        self.render_agent_debug_modal(ctx, &tr);
 
         // 007 Form themes — publish the picker choices (Liquid Glass + discovered
         // packs) so the Settings form and the per-form Appearance pane list them.
@@ -6336,11 +6845,12 @@ impl CoboltApp {
         let form_theme = self.designers[idx].1.form.theme.clone();
         let pack = self.resolve_theme_pack(form_theme.as_deref());
         self.designers[idx].1.active_theme_pack = pack;
+        let llm_cfg = self.llm.clone();
         let designer_result = egui::CentralPanel::default()
             .show(ctx, |ui| {
                 self.designers[idx]
                     .1
-                    .show(ui, &mut self.clipboard, &user_controls)
+                    .show(ui, &mut self.clipboard, &user_controls, &llm_cfg)
             })
             .inner;
         if let Some(def) = designer_result.user_control_created {

@@ -24,6 +24,14 @@ pub enum OutputLine {
     Status(String),
     /// Error from the runtime.
     Error(String),
+    /// A line of AI model reasoning (chain-of-thought).
+    Reasoning(String),
+    /// AI activity — lifecycle milestone (sending, streaming, completed).
+    AiInfo(String),
+    /// AI activity — secondary detail (status, model, timings).
+    AiDetail(String),
+    /// AI activity — a failure.
+    AiError(String),
 }
 
 // ── OutputPanel ───────────────────────────────────────────────────────────────
@@ -75,6 +83,19 @@ impl OutputPanel {
     /// Add a status separator (e.g. "── Running myprogram.cbl ──").
     pub fn push_status(&mut self, msg: impl Into<String>) {
         self.lines.push(OutputLine::Status(msg.into()));
+        self.scroll_to_bottom = true;
+    }
+
+    /// Append one AI activity line of the given kind. Routed from the AI log
+    /// side-channel so the developer can watch each request unfold.
+    pub fn push_ai_line(&mut self, kind: crate::llm::AiLogKind, text: impl Into<String>) {
+        let line = match kind {
+            crate::llm::AiLogKind::Info => OutputLine::AiInfo(text.into()),
+            crate::llm::AiLogKind::Detail => OutputLine::AiDetail(text.into()),
+            crate::llm::AiLogKind::Reasoning => OutputLine::Reasoning(text.into()),
+            crate::llm::AiLogKind::Error => OutputLine::AiError(text.into()),
+        };
+        self.lines.push(line);
         self.scroll_to_bottom = true;
     }
 
@@ -148,6 +169,36 @@ impl OutputPanel {
                                     RichText::new(format!("✖ {e}"))
                                         .monospace()
                                         .color(Color32::from_rgb(240, 80, 80)),
+                                );
+                            }
+                            OutputLine::Reasoning(s) => {
+                                ui.label(
+                                    RichText::new(s)
+                                        .monospace()
+                                        .italics()
+                                        .color(Color32::from_rgb(150, 140, 190)),
+                                );
+                            }
+                            OutputLine::AiInfo(s) => {
+                                ui.label(
+                                    RichText::new(s)
+                                        .monospace()
+                                        .color(Color32::from_rgb(110, 190, 220)),
+                                );
+                            }
+                            OutputLine::AiDetail(s) => {
+                                ui.label(
+                                    RichText::new(s)
+                                        .monospace()
+                                        .small()
+                                        .color(Color32::from_gray(140)),
+                                );
+                            }
+                            OutputLine::AiError(s) => {
+                                ui.label(
+                                    RichText::new(s)
+                                        .monospace()
+                                        .color(Color32::from_rgb(240, 120, 90)),
                                 );
                             }
                         }

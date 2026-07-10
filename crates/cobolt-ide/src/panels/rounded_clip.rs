@@ -42,6 +42,69 @@ pub fn enabled() -> bool {
     })
 }
 
+/// `true` when `COBOLT_FRAME_DIAGNOSTICS` is set (matches `cobolt_forms::paint`).
+/// Used to label the re-blit region so this frame stops being the nameless offender
+/// in the exploded frame view.
+fn frame_diagnostics() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("COBOLT_FRAME_DIAGNOSTICS")
+            .map(|v| {
+                let v = v.trim();
+                v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// Draw a named outline for a clip frame at its TRUE position (the GL re-blit can't
+/// be exploded like the shape-based frames, so labelling it in place is what pins
+/// the nameless corner-hole to this operation). Foreground layer, so nothing hides it.
+fn label_frame(painter: &egui::Painter, rect: egui::Rect, radius: f32, name: &str) {
+    let color = egui::Color32::from_rgb(255, 140, 0); // orange — distinct from the slot palette
+    let overlay = egui::Painter::new(
+        painter.ctx().clone(),
+        egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("cobolt_roundclip_diagnostics"),
+        ),
+        egui::Rect::EVERYTHING,
+    );
+    overlay.rect_stroke(
+        rect,
+        egui::Rounding::same(radius),
+        egui::Stroke::new(1.5, color),
+    );
+    let t = 4.0;
+    for c in [
+        rect.left_top(),
+        rect.right_top(),
+        rect.left_bottom(),
+        rect.right_bottom(),
+    ] {
+        overlay.line_segment(
+            [c - egui::vec2(t, 0.0), c + egui::vec2(t, 0.0)],
+            egui::Stroke::new(1.0, color),
+        );
+        overlay.line_segment(
+            [c - egui::vec2(0.0, t), c + egui::vec2(0.0, t)],
+            egui::Stroke::new(1.0, color),
+        );
+    }
+    let tag = egui::Rect::from_min_size(
+        rect.left_top() + egui::vec2(0.0, -13.0),
+        egui::vec2(190.0, 12.0),
+    );
+    overlay.rect_filled(tag, 2.0, color);
+    overlay.text(
+        tag.left_center() + egui::vec2(4.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        name,
+        egui::FontId::monospace(9.0),
+        egui::Color32::BLACK,
+    );
+}
+
 /// Shared GL state, cloneable handle. All heavy resources live behind a mutex and
 /// are created lazily inside a paint callback (the only place a GL context exists).
 #[derive(Clone, Default)]
@@ -143,16 +206,7 @@ impl RoundedClip {
             unsafe {
                 gl.bind_texture(glow::TEXTURE_2D, Some(tex));
                 // Copy the current framebuffer region into the texture (reallocates).
-                gl.copy_tex_image_2d(
-                    glow::TEXTURE_2D,
-                    0,
-                    glow::RGBA,
-                    x,
-                    y,
-                    w,
-                    h,
-                    0,
-                );
+                gl.copy_tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA, x, y, w, h, 0);
                 gl.tex_parameter_i32(
                     glow::TEXTURE_2D,
                     glow::TEXTURE_MIN_FILTER,
@@ -184,13 +238,7 @@ impl RoundedClip {
 
     /// Queue the masked re-blit of `bbox` for `id` at corner `radius` (logical px).
     /// Must be enqueued after the container's children are drawn.
-    pub fn enqueue_reblit(
-        &self,
-        painter: &egui::Painter,
-        id: &str,
-        bbox: egui::Rect,
-        radius: f32,
-    ) {
+    pub fn enqueue_reblit(&self, painter: &egui::Painter, id: &str, bbox: egui::Rect, radius: f32) {
         if !enabled() || radius < 0.5 {
             return;
         }
@@ -215,9 +263,7 @@ impl RoundedClip {
 
             // Pixel bounds → NDC. uv shares the bottom-left orientation of the
             // capture so each output pixel samples the backdrop it overwrites.
-            let ndc = |px: f32, py: f32| -> [f32; 2] {
-                [px / sw * 2.0 - 1.0, py / sh * 2.0 - 1.0]
-            };
+            let ndc = |px: f32, py: f32| -> [f32; 2] { [px / sw * 2.0 - 1.0, py / sh * 2.0 - 1.0] };
             let bl = ndc(x0, yb);
             let br = ndc(x1, yb);
             let tl = ndc(x0, yt);
@@ -304,6 +350,9 @@ impl Default for RoundedClipHook {
 impl cobolt_forms::render::RoundedClipHook for RoundedClipHook {
     fn on_container(&self, painter: &egui::Painter, id: &str, rect: egui::Rect, radius: f32) {
         self.clip.enqueue_capture(painter, id, rect);
+        if frame_diagnostics() {
+            label_frame(painter, rect, radius, "ROUNDCLIP_CAPTURE");
+        }
         self.pending
             .lock()
             .unwrap()
@@ -313,6 +362,11 @@ impl cobolt_forms::render::RoundedClipHook for RoundedClipHook {
     fn finish(&self, painter: &egui::Painter) {
         for (id, rect, radius) in self.pending.lock().unwrap().drain(..) {
             self.clip.enqueue_reblit(painter, &id, rect, radius);
+            // Name the offender: this re-blit is the frame that paints the corner
+            // notch (and holes any overlapping sibling like the pizza image).
+            if frame_diagnostics() {
+                label_frame(painter, rect, radius, "ROUNDCLIP_REBLIT");
+            }
         }
     }
 }
@@ -326,7 +380,10 @@ fn build_gl(gl: &glow::Context) -> Option<GlRes> {
             gl.shader_source(sh, src);
             gl.compile_shader(sh);
             if !gl.get_shader_compile_status(sh) {
-                tracing::warn!("rounded_clip shader compile failed: {}", gl.get_shader_info_log(sh));
+                tracing::warn!(
+                    "rounded_clip shader compile failed: {}",
+                    gl.get_shader_info_log(sh)
+                );
                 gl.delete_shader(sh);
                 return None;
             }
@@ -340,7 +397,10 @@ fn build_gl(gl: &glow::Context) -> Option<GlRes> {
         gl.delete_shader(vs);
         gl.delete_shader(fs);
         if !gl.get_program_link_status(program) {
-            tracing::warn!("rounded_clip program link failed: {}", gl.get_program_info_log(program));
+            tracing::warn!(
+                "rounded_clip program link failed: {}",
+                gl.get_program_info_log(program)
+            );
             gl.delete_program(program);
             return None;
         }

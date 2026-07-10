@@ -25,7 +25,7 @@ pub use pic::{
     encode_field_display, encode_indicator_bool, format_field_display, indicator_bool, parse_pic,
     FieldEncodeError, ParsedPic, PicCategory,
 };
-pub use raw_text::{record_to_text, text_to_record};
+pub use raw_text::{fix_record_text, record_to_text, text_to_record};
 pub use schema_support::{finalize_warnings, structural_fingerprint};
 pub use structure::{
     apply_flat, flatten_record, indent_entry, level_from_depth, outdent_allowed, outdent_entry,

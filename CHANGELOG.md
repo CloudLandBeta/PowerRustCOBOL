@@ -8,6 +8,51 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.141] — 2026-07-09
+
+### Fixed
+
+- **AI development agent (spec 025)** — Optional dev-time assistant that can
+  deploy/edit controls, generate COBOL event handlers, and create procedures,
+  applied only on explicit request through a validated preview with Approve/
+  Reject (one undo step). Per-project `agentic_ai/` folder with an editable
+  system prompt and a RustCOBOL skill file, scaffolded non-destructively on
+  project open/create.
+- **AI provider picker** — New "AI Provider" combo in Settings (Ollama Local/
+  Cloud, Anthropic, OpenAI, Google, Amazon, Alibaba, Grok). Selecting a provider
+  fills its default endpoint URL and recommended prompt, clears the model, and
+  fetches the current model list (live where the provider allows, otherwise a
+  curated fallback); the Model field is now a populated dropdown with a refresh
+  button. Auto-detect and a configurable request timeout round out the AI
+  settings.
+- **Streamed AI responses** — Requests now stream (SSE) with a per-read timeout
+  instead of a single deadline, so slow local models no longer trip the
+  "timed out reading response" error mid-generation.
+- **AI activity log** — The output/console pane now shows each AI request as it
+  unfolds (sending, the full context sent to the model, connecting, status,
+  first-token timing, live model reasoning, completion size/elapsed, and errors).
+- **AI assistant in the COBOL Event Editor** — The event-handler editor gained a
+  multiline, vertically-resizable prompt box (Send on the right) to write/modify
+  the handler's COBOL in place.
+- **COBOL Event Editor sizing** — The editor and prompt boxes open at a default
+  height and only resize when the user drags their grip; fixed a feedback loop
+  that made the editor grow on its own until it hit the window borders.
+- **Indexed file navigator validation** — The record editor now rejects a
+  missing `PIC`/`PICTURE` clause and non-COBOL-85 syntax, and offers "Fix
+  errors" and "Beautify" actions to repair/format the record layout.
+- **Rounded-corner rendering (corner guardian)** — Container fills only mask the
+  corners a child actually reaches, eliminating the transparency "bleed" on
+  Panel corners; added guardian instructions and regression tests so it can't
+  recur. TextBox multiline now respects the control's vertical size and word-wrap.
+- **Property pane** — Removed the Layout section and the Dock property; Anchor is
+  now a boolean in the Geometry section; tightened row rendering and value
+  alignment.
+- **COBOL editor indentation and beautify polish** — Plain Enter now inserts a
+  new line aligned to the first non-space column of the previous line; Beautify
+  uppercases COBOL reserved words outside string literals, keeps `01`/`77`/`78`/
+  `88` data levels in column 8, indents deeper data levels by 3 spaces, and
+  suppresses IntelliSense while the cursor is inside a plain quoted string.
+
 ## [PowerRustCOBOL 1.27.140] — 2026-07-08
 
 ### Fixed

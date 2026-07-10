@@ -2181,7 +2181,9 @@ pub fn draw_control(
             "CONTAINER_GRADIENT",
             container_diag,
         );
-        painter.add(egui::Shape::mesh(grad_dir_mesh(face_rect, start, end, &dir)));
+        painter.add(egui::Shape::mesh(grad_dir_mesh(
+            face_rect, start, end, &dir,
+        )));
         let bc = if selected {
             Color32::from_rgba_premultiplied(60, 120, 230, a)
         } else {
@@ -2257,7 +2259,14 @@ pub fn draw_control(
             } else {
                 frame_rect
             };
-            draw_glass_auto(painter, fallback_rect, fill, frame_round, selected, alpha_mul);
+            draw_glass_auto(
+                painter,
+                fallback_rect,
+                fill,
+                frame_round,
+                selected,
+                alpha_mul,
+            );
         }
     } else if glass {
         let glass_rect = if is_container {
@@ -2726,14 +2735,59 @@ pub fn draw_control(
                 painter.galley(text_pos + Vec2::new(0.5, 0.0), galley, txt_color);
             }
         } else if matches!(ctrl.control_type, CT::TextBox) {
-            let pad = textbox_inner_padding(ctrl).min(rect.width() * 0.45);
-            painter.text(
-                egui::pos2(rect.left() + pad, rect.center().y),
-                egui::Align2::LEFT_CENTER,
-                &label,
-                crate::fonts::font_id(painter.ctx(), &font_name, fsize),
-                txt_color,
-            );
+            // Inset by at least the corner radius so text stays inside the rounded
+            // arc and never bleeds past the box's own rounded corners.
+            let pad = textbox_inner_padding(ctrl)
+                .max(corner_radius(ctrl))
+                .min(rect.width() * 0.45);
+            let font_id = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
+            let multiline = ctrl
+                .get_prop("Multiline")
+                .map(|v| v.as_bool())
+                .unwrap_or(false);
+            if multiline {
+                // Multiline preview: lay the value out top-left, wrapping to the
+                // field width when WordWrap is on (matching the run-time editor),
+                // clipped to the control so long text doesn't spill past the border.
+                use egui::text::{LayoutJob, TextFormat};
+                let word_wrap = ctrl
+                    .get_prop("WordWrap")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(true);
+                let mut job = LayoutJob::default();
+                job.wrap.max_width = if word_wrap {
+                    (rect.width() - 2.0 * pad).max(1.0)
+                } else {
+                    f32::INFINITY
+                };
+                job.wrap.break_anywhere = false;
+                job.append(
+                    &label,
+                    0.0,
+                    TextFormat {
+                        font_id,
+                        color: txt_color,
+                        ..Default::default()
+                    },
+                );
+                let galley = painter.layout_job(job);
+                // Clip to the padded inner rect so wrapped lines stay clear of the
+                // rounded corners (top/bottom) instead of spilling past the arc.
+                let clipped = painter.with_clip_rect(rect.shrink(pad));
+                clipped.galley(
+                    egui::pos2(rect.left() + pad, rect.top() + pad),
+                    galley,
+                    txt_color,
+                );
+            } else {
+                painter.text(
+                    egui::pos2(rect.left() + pad, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    &label,
+                    font_id,
+                    txt_color,
+                );
+            }
         } else {
             painter.text(
                 rect.center(),
@@ -4436,8 +4490,14 @@ pub fn draw_chart_preview(
             draw_neumorphic_overlay_shadow_only(painter, face_rect, rounding, alpha_mul);
         }
         let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
-        let border_rect =
-            debug_frame(painter, control_rect, rounding, 2, "CHART_BORDER", chart_diag);
+        let border_rect = debug_frame(
+            painter,
+            control_rect,
+            rounding,
+            2,
+            "CHART_BORDER",
+            chart_diag,
+        );
         painter.rect_stroke(border_rect, rounding, Stroke::new(1.0, border));
     }
 

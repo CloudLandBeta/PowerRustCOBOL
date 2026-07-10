@@ -14,6 +14,7 @@
 //! cargo run -p cobolt-ide
 //! ```
 
+pub mod agent;
 mod app;
 pub mod data_binding_guardian;
 pub mod docs_embed;

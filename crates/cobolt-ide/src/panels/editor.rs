@@ -1978,6 +1978,44 @@ impl EditorPanel {
                     }
 
                     // ── Source (read-only for RAD-generated code) ─────────
+                    if !self.tabs[self.active].read_only
+                        && ctx.memory(|m| m.has_focus(editor_id))
+                        && !self.ac.visible
+                        && !search_has_focus
+                    {
+                        let mut auto_indent = false;
+                        ctx.input_mut(|inp| {
+                            inp.events.retain(|ev| match ev {
+                                egui::Event::Key {
+                                    key: Key::Enter,
+                                    pressed: true,
+                                    modifiers,
+                                    ..
+                                } if modifiers.is_none() => {
+                                    auto_indent = true;
+                                    false
+                                }
+                                _ => true,
+                            });
+                        });
+                        if auto_indent {
+                            if let Some(mut state) = egui::TextEdit::load_state(ctx, editor_id) {
+                                if let Some(range) = state.cursor.char_range() {
+                                    let tab = &mut self.tabs[self.active];
+                                    let new_cursor =
+                                        insert_auto_indented_newline(&mut tab.content, range);
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::one(egui::text::CCursor::new(
+                                            new_cursor,
+                                        )),
+                                    ));
+                                    state.store(ctx, editor_id);
+                                    tab.dirty = true;
+                                }
+                            }
+                        }
+                    }
+
                     let tab = &mut self.tabs[self.active];
                     let te_out = TextEdit::multiline(&mut tab.content)
                         .id(editor_id)
@@ -2108,27 +2146,30 @@ impl EditorPanel {
                             .unwrap_or(0);
                         let line_to_cursor = &tab.content[line_start..cur_byte];
 
+                        let inside_plain_string =
+                            is_inside_plain_string_literal(&tab.content, char_idx);
+
                         // PowerCOBOL property reference: `"Prop" OF Widget`.
-                        let prop_ref = detect_property_ref(line_to_cursor);
+                        let prop_ref = if inside_plain_string {
+                            None
+                        } else {
+                            detect_property_ref(line_to_cursor)
+                        };
 
                         // Detect INVOKE … ' context → method completions
-                        let invoke = if prop_ref.is_none()
-                            && !is_inside_plain_string_literal(&tab.content, char_idx)
-                        {
+                        let invoke = if prop_ref.is_none() && !inside_plain_string {
                             detect_invoke_context(&tab.content, char_idx, &self.known_controls)
                         } else {
                             None
                         };
 
                         // Detect exact control ID → member (property+method) popup
-                        let member_ctrl = if invoke.is_none()
-                            && prop_ref.is_none()
-                            && !is_inside_plain_string_literal(&tab.content, char_idx)
-                        {
-                            detect_control_exact(&prefix, &self.known_controls)
-                        } else {
-                            None
-                        };
+                        let member_ctrl =
+                            if invoke.is_none() && prop_ref.is_none() && !inside_plain_string {
+                                detect_control_exact(&prefix, &self.known_controls)
+                            } else {
+                                None
+                            };
 
                         let refresh = trigger_manual
                             || (te_out.response.changed() && prefix.len() >= 2)
@@ -2202,19 +2243,13 @@ impl EditorPanel {
                                         true,
                                     )
                                 }
+                            } else if inside_plain_string {
+                                (vec![], false)
                             } else {
-                                if is_inside_plain_string_literal(&tab.content, char_idx) {
-                                    (vec![], false)
-                                } else {
-                                    (
-                                        build_completions(
-                                            &prefix,
-                                            &tab.content,
-                                            &self.known_controls,
-                                        ),
-                                        false,
-                                    )
-                                }
+                                (
+                                    build_completions(&prefix, &tab.content, &self.known_controls),
+                                    false,
+                                )
                             };
 
                             if !items.is_empty() {
@@ -2677,6 +2712,7 @@ fn beautify_cobol(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut div = CobolDiv::Ident;
     let mut scopes: Vec<CobolScope> = Vec::new();
+    let mut data_levels: Vec<u32> = Vec::new();
     let mut prev_blank = false;
 
     // Append `content` at 1-based `col` (col-1 leading spaces).
@@ -2711,7 +2747,7 @@ fn beautify_cobol(text: &str) -> String {
             continue;
         }
 
-        let content = collapse_spaces_keep_pic(t);
+        let content = uppercase_reserved_words(&collapse_spaces_keep_pic(t), &reserved);
         let upper = content.to_ascii_uppercase();
         let words: Vec<&str> = upper.split_whitespace().collect();
         let first = words.first().copied().unwrap_or("");
@@ -2794,9 +2830,10 @@ fn beautify_cobol(text: &str) -> String {
             }
             CobolDiv::Data => {
                 if matches!(first, "FD" | "SD" | "RD" | "CD") {
+                    data_levels.clear();
                     put(&mut out, 8, &content);
                 } else if let Some(level) = cobol_leading_level(&content) {
-                    let col = if matches!(level, 1 | 77 | 78) { 8 } else { 12 };
+                    let col = data_level_column(level, &mut data_levels);
                     put(&mut out, col, &content);
                 } else {
                     put(&mut out, 12, &content); // a continued clause
@@ -2817,6 +2854,100 @@ fn beautify_cobol(text: &str) -> String {
     while out.ends_with("\n\n") {
         out.pop();
     }
+    out
+}
+
+fn insert_auto_indented_newline(text: &mut String, range: egui::text::CCursorRange) -> usize {
+    let start_char = range.primary.index.min(range.secondary.index);
+    let end_char = range.primary.index.max(range.secondary.index);
+    let start_byte = char_to_byte(text, start_char);
+    let end_byte = char_to_byte(text, end_char);
+    let indent = first_nonblank_column_indent(text, start_byte);
+    let insertion = format!("\n{indent}");
+    text.replace_range(start_byte..end_byte, &insertion);
+    start_char + insertion.chars().count()
+}
+
+fn char_to_byte(text: &str, char_idx: usize) -> usize {
+    text.char_indices()
+        .nth(char_idx)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
+}
+
+fn first_nonblank_column_indent(text: &str, cursor_byte: usize) -> String {
+    let line_start = text[..cursor_byte.min(text.len())]
+        .rfind('\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
+    let line = &text[line_start..cursor_byte.min(text.len())];
+    line.chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect()
+}
+
+fn data_level_column(level: u32, levels: &mut Vec<u32>) -> usize {
+    if matches!(level, 1 | 77 | 78 | 88) {
+        levels.clear();
+        levels.push(level);
+        return 8;
+    }
+    while levels.last().is_some_and(|prev| *prev >= level) {
+        levels.pop();
+    }
+    let col = 8 + levels.len() * 3;
+    levels.push(level);
+    col
+}
+
+fn uppercase_reserved_words(s: &str, reserved: &std::collections::HashSet<&'static str>) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut word = String::new();
+    let mut quote: Option<char> = None;
+
+    let flush_word = |out: &mut String, word: &mut String| {
+        if word.is_empty() {
+            return;
+        }
+        let trailing_period = word.ends_with('.');
+        let core = if trailing_period {
+            &word[..word.len() - 1]
+        } else {
+            word.as_str()
+        };
+        let upper = core.to_ascii_uppercase();
+        if reserved.contains(upper.as_str()) {
+            out.push_str(&upper);
+            if trailing_period {
+                out.push('.');
+            }
+        } else {
+            out.push_str(word);
+        }
+        word.clear();
+    };
+
+    for c in s.chars() {
+        if let Some(q) = quote {
+            flush_word(&mut out, &mut word);
+            out.push(c);
+            if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            flush_word(&mut out, &mut word);
+            quote = Some(c);
+            out.push(c);
+        } else if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+            word.push(c);
+        } else {
+            flush_word(&mut out, &mut word);
+            out.push(c);
+        }
+    }
+    flush_word(&mut out, &mut word);
     out
 }
 
@@ -3632,6 +3763,7 @@ ENVIRONMENT DIVISION.
 DATA DIVISION.
 WORKING-STORAGE SECTION.
 01 WS-X PIC 9(4).
+05 WS-NAME PIC X(20).
 PROCEDURE DIVISION.
 MOVE 1 TO WS-X
 IF WS-X > 0
@@ -3647,6 +3779,7 @@ END-IF
         );
         assert!(out.contains("\n       WORKING-STORAGE SECTION.\n"));
         assert!(out.contains("\n       01 WS-X PIC 9(4).\n"));
+        assert!(out.contains("\n          05 WS-NAME PIC X(20).\n"));
         assert!(out.contains("\n       PROCEDURE DIVISION.\n"));
         // Area B (col 12 = 11 spaces): statements.
         assert!(out.contains("\n           MOVE 1 TO WS-X\n"));
@@ -3674,6 +3807,68 @@ END-IF
             collapse_spaces_keep_pic("DISPLAY \"a    b\""),
             "DISPLAY \"a    b\""
         );
+    }
+
+    #[test]
+    fn beautify_uppercases_reserved_words_outside_quotes() {
+        let out = beautify_cobol(
+            "\
+identification division.
+program-id. demo.
+procedure division.
+display \"move stays lower\".
+move 1 to ws-x.
+",
+        );
+        assert!(out.starts_with("       IDENTIFICATION DIVISION.\n"));
+        assert!(out.contains("\n       PROGRAM-ID. demo.\n"));
+        assert!(out.contains("\n           DISPLAY \"move stays lower\".\n"));
+        assert!(out.contains("\n           MOVE 1 TO ws-x.\n"));
+    }
+
+    #[test]
+    fn beautify_data_levels_use_area_a_and_three_space_nesting() {
+        let out = beautify_cobol(
+            "\
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 customer-record.
+05 customer-name pic x(50).
+10 customer-first pic x(25).
+05 customer-flags.
+88 customer-active value \"Y\".
+77 standalone pic 9.
+78 max-count value 10.
+",
+        );
+        assert!(out.contains("\n       01 customer-record.\n"));
+        assert!(out.contains("\n          05 customer-name PIC x(50).\n"));
+        assert!(out.contains("\n             10 customer-first PIC x(25).\n"));
+        assert!(out.contains("\n          05 customer-flags.\n"));
+        assert!(out.contains("\n       88 customer-active VALUE \"Y\".\n"));
+        assert!(out.contains("\n       77 standalone PIC 9.\n"));
+        assert!(out.contains("\n       78 max-count VALUE 10.\n"));
+    }
+
+    #[test]
+    fn auto_indent_uses_previous_line_first_character_column() {
+        let mut text = "       PROCEDURE DIVISION.\n           DISPLAY \"A\"".to_string();
+        let pos = text.chars().count();
+        let new_pos = insert_auto_indented_newline(
+            &mut text,
+            egui::text::CCursorRange::one(egui::text::CCursor::new(pos)),
+        );
+        assert_eq!(
+            text,
+            "       PROCEDURE DIVISION.\n           DISPLAY \"A\"\n           "
+        );
+        assert_eq!(new_pos, text.chars().count());
+    }
+
+    #[test]
+    fn string_literal_detection_suppresses_plain_quote_completion() {
+        let line = "           DISPLAY \"Button-1";
+        assert!(is_inside_plain_string_literal(line, line.chars().count()));
     }
 
     #[test]
