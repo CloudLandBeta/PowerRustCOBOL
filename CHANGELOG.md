@@ -8,6 +8,27 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.143] — 2026-07-10
+
+### Fixed
+
+- **Syntax-error modal in the COBOL Event Editor** — Saving a handler with syntax
+  errors no longer saves silently. A modal lists each error (the raw parser
+  message + `line:col`) with a plain-English explanation, and offers **Auto-fix**
+  (deterministic reformat/normalise, then re-check), **Keep editing**, or **Save
+  anyway**. Validation parses the handler in isolation and reports syntax errors
+  only, so it never false-flags the form's shared data items.
+- **Agent skill: RustCOBOL type system** — New `agentic_ai/skills/rustcobol-types.md`
+  giving the AI agent and code/event assistant a deep, authoritative type contract
+  (level numbers, every PICTURE symbol and rule, USAGE ↔ PICTURE validity, numeric
+  scale/ranges, control `::` property types, event LINKAGE, and every deviation
+  from the COBOL-85 standard) so it does not emit invalid types.
+- **Agent skill: concise RustCOBOL** — New `agentic_ai/skills/rustcobol-concise.md`
+  teaching inline expression sources for `MOVE`/`SET`/`COMPUTE` and direct control-
+  property assignment (e.g. `SET TextBox-1::Value TO Slider-1::Value * 10`), so the
+  agent stops emitting one-shot scratch `PIC` items and verbose temp-var chains.
+  Both skills are scaffolded non-destructively and always injected into context.
+
 ## [PowerRustCOBOL 1.27.142] — 2026-07-10
 
 ### Fixed

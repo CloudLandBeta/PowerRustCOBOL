@@ -236,6 +236,16 @@ pub const AGENT_SYSTEM_PROMPT: &str =
 const DEFAULT_RUSTCOBOL_SKILL: &str =
     include_str!("assets/agentic_ai/skills/rustcobol-extensions.md");
 
+/// The RustCOBOL **type-system** skill — level numbers, PICTURE/USAGE rules, and
+/// every deviation from COBOL-85 — so the agent never emits an invalid type.
+const DEFAULT_RUSTCOBOL_TYPES_SKILL: &str =
+    include_str!("assets/agentic_ai/skills/rustcobol-types.md");
+
+/// The RustCOBOL **conciseness** skill — inline expressions as MOVE/SET/COMPUTE
+/// sources and direct property assignment, so generated code isn't verbose.
+const DEFAULT_RUSTCOBOL_CONCISE_SKILL: &str =
+    include_str!("assets/agentic_ai/skills/rustcobol-concise.md");
+
 /// Relative locations under a project directory.
 const AGENTIC_DIR: &str = "agentic_ai";
 const PROMPT_FILE: &str = "system-prompt.md";
@@ -244,6 +254,8 @@ const PROMPT_FILE: &str = "system-prompt.md";
 const ASSISTANT_PROMPT_FILE: &str = "assistant-prompt.md";
 const SKILLS_DIR: &str = "skills";
 const DEFAULT_SKILL_FILE: &str = "rustcobol-extensions.md";
+const TYPES_SKILL_FILE: &str = "rustcobol-types.md";
+const CONCISE_SKILL_FILE: &str = "rustcobol-concise.md";
 
 /// `<project>/agentic_ai`.
 pub fn agentic_dir(project_dir: &Path) -> PathBuf {
@@ -270,6 +282,14 @@ pub fn ensure_agentic_ai_scaffold(project_dir: &Path) -> std::io::Result<()> {
     let skill = skills.join(DEFAULT_SKILL_FILE);
     if !skill.exists() {
         std::fs::write(&skill, DEFAULT_RUSTCOBOL_SKILL)?;
+    }
+    let types_skill = skills.join(TYPES_SKILL_FILE);
+    if !types_skill.exists() {
+        std::fs::write(&types_skill, DEFAULT_RUSTCOBOL_TYPES_SKILL)?;
+    }
+    let concise_skill = skills.join(CONCISE_SKILL_FILE);
+    if !concise_skill.exists() {
+        std::fs::write(&concise_skill, DEFAULT_RUSTCOBOL_CONCISE_SKILL)?;
     }
     Ok(())
 }
@@ -312,9 +332,17 @@ pub fn load_skills(project_dir: &Path) -> String {
 
     let mut out = String::new();
     let mut saw_default = false;
+    let mut saw_types = false;
+    let mut saw_concise = false;
     for f in &files {
         if f.file_name().map(|n| n == DEFAULT_SKILL_FILE).unwrap_or(false) {
             saw_default = true;
+        }
+        if f.file_name().map(|n| n == TYPES_SKILL_FILE).unwrap_or(false) {
+            saw_types = true;
+        }
+        if f.file_name().map(|n| n == CONCISE_SKILL_FILE).unwrap_or(false) {
+            saw_concise = true;
         }
         if let Ok(text) = std::fs::read_to_string(f) {
             if !out.is_empty() {
@@ -323,11 +351,25 @@ pub fn load_skills(project_dir: &Path) -> String {
             out.push_str(&text);
         }
     }
+    // Both the extensions and the (critical) type-system skills are always
+    // present in context, even if the developer deleted the files.
     if !saw_default {
         if !out.is_empty() {
             out.push_str("\n\n");
         }
         out.push_str(DEFAULT_RUSTCOBOL_SKILL);
+    }
+    if !saw_types {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(DEFAULT_RUSTCOBOL_TYPES_SKILL);
+    }
+    if !saw_concise {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(DEFAULT_RUSTCOBOL_CONCISE_SKILL);
     }
     out
 }

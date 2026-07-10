@@ -680,6 +680,8 @@ pub struct EventEditorModal {
     ai_pending: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
     /// Last AI error to surface below the prompt row (`None` ⇒ no error).
     ai_status: Option<String>,
+    /// Syntax errors blocking a save/close. `Some` ⇒ the syntax-error modal is up.
+    syntax_errors: Option<Vec<crate::runner::DiagMsg>>,
 }
 
 impl EventEditorModal {
@@ -699,7 +701,56 @@ impl EventEditorModal {
             ai_prompt: String::new(),
             ai_pending: None,
             ai_status: None,
+            syntax_errors: None,
         }
+    }
+}
+
+/// Validate the **syntax** of an event handler's COBOL body by wrapping it in the
+/// same `IDENTIFICATION`/`PROGRAM-ID` … `END PROGRAM` scaffold the generator emits
+/// and running the parser. Only *parse* (syntax) diagnostics are returned — the
+/// handler is parsed in isolation, so semantic checks (which would false-flag the
+/// form's shared data items and controls) are intentionally skipped. Diagnostic
+/// line numbers are mapped back to the editor's coordinate space (the two-line
+/// scaffold header is subtracted).
+fn validate_handler_syntax(program_id: &str, body: &str) -> Vec<crate::runner::DiagMsg> {
+    use crate::runner::{DiagMsg, DiagSeverity};
+    // Two header lines precede the editable body.
+    const HEADER_LINES: u32 = 2;
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. {program_id}.\n{body}\n       END PROGRAM {program_id}.\n"
+    );
+    let pr = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    let mut diags = Vec::new();
+    for d in &pr.diagnostics {
+        if !matches!(d.severity, cobolt_parser::Severity::Error) {
+            continue; // syntax errors only
+        }
+        let line = d.span.line.saturating_sub(HEADER_LINES).max(1);
+        diags.push(DiagMsg {
+            severity: DiagSeverity::Error,
+            message: d.message.clone(),
+            line,
+            col: d.span.col,
+        });
+    }
+    diags
+}
+
+/// A short, plain-English hint for a raw parser message, so the modal explains the
+/// error as well as showing it verbatim. Falls back to generic guidance.
+fn explain_syntax_error(message: &str) -> &'static str {
+    let m = message.to_ascii_lowercase();
+    if m.contains("period") || m.contains("'.'") || m.contains("expected `.`") {
+        "A COBOL sentence must end with a period. Add a `.` at the end of the statement."
+    } else if m.contains("expected") && (m.contains("identifier") || m.contains("name")) {
+        "The parser expected a name (a data item, paragraph, or control id) at this point."
+    } else if m.contains("unexpected") || m.contains("unmatched") {
+        "There is an out-of-place or unmatched token here — check for a missing keyword, quote, or scope terminator (e.g. END-IF, END-PERFORM)."
+    } else if m.contains("string") || m.contains("quote") {
+        "A quoted literal is not closed — add the missing closing quote."
+    } else {
+        "Correct the highlighted statement so it matches COBOL-85 syntax, then check again."
     }
 }
 
@@ -5346,14 +5397,156 @@ impl DesignerPanel {
         }
 
         if save_clicked {
-            // Don't persist an untouched first-time template as real handler code.
+            // Validate the handler's syntax before persisting/closing. On errors,
+            // raise the syntax-error modal instead of saving (the developer can
+            // auto-fix, save anyway, or keep editing).
             let content = self.event_editor.buffer_for_save().unwrap_or_default();
-            if content != orig_source {
-                self.save_event_handler(&ctrl_id, &event_name, content);
+            let errs = validate_handler_syntax(&program_id, &content);
+            if errs.is_empty() {
+                // Don't persist an untouched first-time template as real handler code.
+                if content != orig_source {
+                    self.save_event_handler(&ctrl_id, &event_name, content);
+                }
+                self.event_modal = None;
+            } else if let Some(m) = self.event_modal.as_mut() {
+                m.syntax_errors = Some(errs);
             }
-            self.event_modal = None;
         } else if cancel_clicked {
             self.event_modal = None;
+        }
+
+        // ── Syntax-error modal (blocks save/close until resolved) ────────────
+        let pending_errs = self
+            .event_modal
+            .as_ref()
+            .and_then(|m| m.syntax_errors.clone());
+        if let Some(errs) = pending_errs {
+            let mut do_autofix = false;
+            let mut save_anyway = false;
+            let mut keep_editing = false;
+
+            let overlay = ui.ctx().screen_rect();
+            ui.painter().rect_filled(
+                overlay,
+                0.0,
+                Color32::from_rgba_premultiplied(0, 0, 0, 160),
+            );
+            egui::Window::new(format!("⚠  {}", tr.syntax_modal_title))
+                .id(egui::Id::new("event_syntax_modal"))
+                .collapsible(false)
+                .resizable(true)
+                .movable(true)
+                .default_width(560.0)
+                .default_pos(overlay.center() - egui::vec2(280.0, 180.0))
+                .frame(
+                    egui::Frame::window(&ui.ctx().style())
+                        .inner_margin(egui::Margin::same(16.0)),
+                )
+                .show(ui.ctx(), |ui| {
+                    ui.label(
+                        egui::RichText::new(tr.syntax_modal_explain)
+                            .color(Color32::from_gray(200)),
+                    );
+                    ui.add_space(8.0);
+                    egui::ScrollArea::vertical()
+                        .max_height(280.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            for d in &errs {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "line {}:{}",
+                                            d.line, d.col
+                                        ))
+                                        .monospace()
+                                        .strong()
+                                        .color(Color32::from_rgb(240, 130, 100)),
+                                    );
+                                    // The raw parser message, verbatim.
+                                    ui.label(
+                                        egui::RichText::new(&d.message)
+                                            .monospace()
+                                            .color(Color32::from_rgb(240, 200, 120)),
+                                    );
+                                });
+                                // Plain-English explanation.
+                                ui.label(
+                                    egui::RichText::new(explain_syntax_error(&d.message))
+                                        .small()
+                                        .color(Color32::from_gray(170)),
+                                );
+                                ui.add_space(6.0);
+                            }
+                        });
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(format!("🔧  {}", tr.syntax_autofix))
+                            .on_hover_text(tr.syntax_autofix_hint)
+                            .clicked()
+                        {
+                            do_autofix = true;
+                        }
+                        if ui.button(tr.syntax_keep_editing).clicked() {
+                            keep_editing = true;
+                        }
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                if ui
+                                    .button(
+                                        egui::RichText::new(tr.syntax_save_anyway)
+                                            .color(Color32::from_rgb(220, 120, 120)),
+                                    )
+                                    .clicked()
+                                {
+                                    save_anyway = true;
+                                }
+                            },
+                        );
+                    });
+                });
+
+            if do_autofix {
+                // Deterministic fix: reformat/normalise (uppercases reserved words,
+                // fixes column alignment, collapses spacing), then re-validate.
+                self.event_editor.beautify_active();
+                let fixed = self.event_editor.buffer_for_save().unwrap_or_default();
+                let errs2 = validate_handler_syntax(&program_id, &fixed);
+                if let Some(m) = self.event_modal.as_mut() {
+                    if errs2.is_empty() {
+                        // Clean now — save and close.
+                        if fixed != orig_source {
+                            m.syntax_errors = None;
+                        }
+                    }
+                    m.syntax_errors = if errs2.is_empty() { None } else { Some(errs2) };
+                }
+                if self
+                    .event_modal
+                    .as_ref()
+                    .map(|m| m.syntax_errors.is_none())
+                    .unwrap_or(false)
+                {
+                    if fixed != orig_source {
+                        self.save_event_handler(&ctrl_id, &event_name, fixed);
+                    }
+                    self.event_modal = None;
+                }
+                ui.ctx().request_repaint();
+            } else if save_anyway {
+                let content = self.event_editor.buffer_for_save().unwrap_or_default();
+                if content != orig_source {
+                    self.save_event_handler(&ctrl_id, &event_name, content);
+                }
+                self.event_modal = None;
+            } else if keep_editing {
+                if let Some(m) = self.event_modal.as_mut() {
+                    m.syntax_errors = None;
+                }
+            }
         }
     }
 
