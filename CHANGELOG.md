@@ -8,6 +8,37 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.144] — 2026-07-10
+
+### Fixed
+
+- **Conversation history controls in the AI assistant** — The editor/event-editor AI
+  bar now exposes three explicit per-handler controls. **💾 Save** force-persists the
+  selected handler's conversation to the project's indexed store (it is also
+  auto-restored when the handler is reopened). **🗜 Compact** summarises the
+  conversation on a worker thread into one concise, structured summary (user intent,
+  decisions, constraints, assumptions, code changes applied, pending tasks,
+  behavioural requirements) and replaces the history with it, so the thread keeps its
+  meaning without growing unbounded. **🗑 Clear** now asks for confirmation before
+  deleting and then starts a fresh conversation. Each event handler keeps its own
+  independent history, so saving, compacting, or clearing one never affects another.
+- **Hallucinated control member caught at save time** — Saving an event handler now
+  validates every `Control::property` / `Control::method(...)` reference against the
+  control's real member set (the same registries IntelliSense and the dev-agent gate
+  use), in addition to syntax. An invented member (e.g. `TextBox-2::Depth`) raises the
+  error modal — with a plain-English hint pointing at the real property — instead of
+  saving silently. User/Custom controls are exempt.
+- **Comments normalised to `*>`** — Deployed handler/procedure code is now run through
+  a deterministic `*` → `*>` comment normaliser, and the dev-agent prompt plus the
+  `rustcobol-concise` / `rustcobol-extensions` skills spell out the rule (always `*>`
+  and a space, indented to the code it describes, wrapped at column 80), so the agent
+  stops emitting bare fixed-format `*` comments.
+- **Agent skill: control properties** — New `agentic_ai/skills/rustcobol-control-properties.md`
+  teaching the agent/assistant to use only properties that exist on a control and to
+  map natural-language intent (any language) to the real name — e.g. a control's
+  "depth" under the Neumorphic style is `ShadowBlurStrength`, there is no `Depth`
+  property. Scaffolded non-destructively and always injected into context.
+
 ## [PowerRustCOBOL 1.27.143] — 2026-07-10
 
 ### Fixed

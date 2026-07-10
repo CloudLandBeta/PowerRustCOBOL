@@ -101,6 +101,29 @@ numeric result to "convert" it.)
                CONTINUE.
 ```
 
+## 4b. Comments — ALWAYS `*>` (never a bare `*`)
+
+Whenever you add a comment, use **`*>`** followed by a single space, then the text.
+Never a fixed-format `*`.
+
+- **Indent the comment to line up with the code it describes** — the `*>` goes at
+  the same column as the statement it comments. Do NOT force it to column 7.
+- **Wrap at column 80:** if the text would pass column 80, break the line, keep the
+  **same indentation**, and start the continuation with `*>` and a space — repeat
+  until the comment ends.
+- Inline comments (after code) also use `*>`.
+
+```cobol
+           *> Este é um comentário que ultrapassaria a coluna 80, então o texto
+           *> continua na próxima linha com o mesmo recuo e um novo *> até
+           *> terminar o comentário.
+           IF Name-Box::Text = SPACES         *> nada foi digitado
+               CONTINUE.
+```
+
+Never write `      * text` (a lone `*` comment); the `*` must be immediately followed
+by `>`.
+
 ## 5. When a WORKING-STORAGE item IS still the right call
 
 Be concise, not reckless. Declare an item (typed per the `rustcobol-types` skill)

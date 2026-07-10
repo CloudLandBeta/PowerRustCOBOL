@@ -737,11 +737,59 @@ fn validate_handler_syntax(program_id: &str, body: &str) -> Vec<crate::runner::D
     diags
 }
 
+/// Validate that every `Control::property` / `Control::method(...)` referenced in a
+/// handler body actually exists on that control. Returns one `DiagMsg` per unknown
+/// member (with its source line), so a hallucinated property (`TextBox-2::Depth`)
+/// or method is caught at save time. Uses the same property/method registries the
+/// IntelliSense and the dev-agent gate use, so it never flags a real member.
+fn validate_handler_members(form: &Form, code: &str) -> Vec<crate::runner::DiagMsg> {
+    use crate::runner::{DiagMsg, DiagSeverity};
+    let known = super::editor::build_known_controls(form);
+    let mut out = Vec::new();
+    for r in crate::agent::scan_member_refs(code) {
+        // Only check references to controls this form actually has.
+        let Some(kc) = known.iter().find(|k| k.id.eq_ignore_ascii_case(&r.recv)) else {
+            continue;
+        };
+        // User Controls / Custom types expose developer-defined members not in the
+        // built-in registries — don't second-guess them.
+        if kc.ctrl_type.starts_with("Custom") || kc.ctrl_type.starts_with("UserControl") {
+            continue;
+        }
+        let (kind, ok) = if r.is_call {
+            let ok = super::editor::method_names_for_type(&kc.ctrl_type)
+                .iter()
+                .any(|m| m.eq_ignore_ascii_case(&r.member))
+                || kc.extra_methods.iter().any(|m| m.eq_ignore_ascii_case(&r.member));
+            ("method", ok)
+        } else {
+            let ok = kc
+                .properties
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(&r.member));
+            ("property", ok)
+        };
+        if !ok {
+            out.push(DiagMsg {
+                severity: DiagSeverity::Error,
+                message: format!("Control '{}' has no {} '{}'.", r.recv, kind, r.member),
+                line: r.line,
+                col: 1,
+            });
+        }
+    }
+    out
+}
+
 /// A short, plain-English hint for a raw parser message, so the modal explains the
 /// error as well as showing it verbatim. Falls back to generic guidance.
 fn explain_syntax_error(message: &str) -> &'static str {
     let m = message.to_ascii_lowercase();
-    if m.contains("period") || m.contains("'.'") || m.contains("expected `.`") {
+    if m.contains("has no property") {
+        "That property does not exist on this control. Use a real one — e.g. a control's depth (Neumorphic) is ShadowBlurStrength, not Depth. Check the properties pane."
+    } else if m.contains("has no method") {
+        "That method does not exist on this control. Type `control-id::` in the editor to see the methods it actually supports."
+    } else if m.contains("period") || m.contains("'.'") || m.contains("expected `.`") {
         "A COBOL sentence must end with a period. Add a `.` at the end of the statement."
     } else if m.contains("expected") && (m.contains("identifier") || m.contains("name")) {
         "The parser expected a name (a data item, paragraph, or control id) at this point."
@@ -1097,7 +1145,8 @@ impl DesignerPanel {
                         control_id: control_id.clone(),
                         event: event.clone(),
                         old,
-                        new: code.clone(),
+                        // Normalise `*` comments to `*>` deterministically.
+                        new: crate::llm::normalize_comments(code),
                     });
                 }
                 AgentOp::CreateProcedure { name, code } => {
@@ -1110,7 +1159,7 @@ impl DesignerPanel {
                     cmds.push(Cmd::SetProcedure {
                         name: name.clone(),
                         old,
-                        new: code.clone(),
+                        new: crate::llm::normalize_comments(code),
                     });
                 }
             }
@@ -5397,11 +5446,13 @@ impl DesignerPanel {
         }
 
         if save_clicked {
-            // Validate the handler's syntax before persisting/closing. On errors,
-            // raise the syntax-error modal instead of saving (the developer can
-            // auto-fix, save anyway, or keep editing).
+            // Validate the handler before persisting/closing: syntax first, then
+            // that every `::property` / `::method(...)` reference actually exists.
+            // On any error, raise the modal instead of saving (auto-fix / save
+            // anyway / keep editing).
             let content = self.event_editor.buffer_for_save().unwrap_or_default();
-            let errs = validate_handler_syntax(&program_id, &content);
+            let mut errs = validate_handler_syntax(&program_id, &content);
+            errs.extend(validate_handler_members(&self.form, &content));
             if errs.is_empty() {
                 // Don't persist an untouched first-time template as real handler code.
                 if content != orig_source {
@@ -5514,7 +5565,8 @@ impl DesignerPanel {
                 // fixes column alignment, collapses spacing), then re-validate.
                 self.event_editor.beautify_active();
                 let fixed = self.event_editor.buffer_for_save().unwrap_or_default();
-                let errs2 = validate_handler_syntax(&program_id, &fixed);
+                let mut errs2 = validate_handler_syntax(&program_id, &fixed);
+                errs2.extend(validate_handler_members(&self.form, &fixed));
                 if let Some(m) = self.event_modal.as_mut() {
                     if errs2.is_empty() {
                         // Clean now — save and close.

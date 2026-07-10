@@ -60,6 +60,10 @@ operation type.
   write control properties with the `::` operator (`MOVE "Hi" TO Button-1::Caption`,
   `IF TextBox-1::Text = SPACES`). Fixed-format indentation: divisions/sections at
   column 8, statements at column 12.
+- **Comments — ALWAYS `*>`, never a bare `*`.** Write `*>` then one space then the
+  text, indented to line up with the code line it describes (not column 7). If a
+  comment would pass column 80, break it and continue on the next line at the SAME
+  indentation, starting again with `*>` and a space, until it ends.
 - **Deploy** only control types listed in the CONTEXT legend. Keep the change-set
   **minimal** — the smallest set of operations that fulfils the request.
 

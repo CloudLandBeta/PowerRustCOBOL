@@ -46,6 +46,10 @@ Rules:\n\
 diff or a fragment.\n\
 - Wrap the source in a single fenced code block tagged `cobol`.\n\
 - Keep all COBOL identifiers and source text in English.\n\
+- Write EVERY comment with `*>` (never a bare `*`): `*>` then one space then the \
+text. Indent the comment to line up with the code line it describes (do not force \
+column 7). If a comment would pass column 80, break it and continue on the next \
+line at the SAME indentation, starting again with `*>` and a space, until it ends.\n\
 - Preserve the developer's existing structure and comments unless they ask you \
 to change them.\n\
 - If the request is a question rather than an edit, answer briefly and, when \
@@ -467,6 +471,44 @@ pub fn spawn_request(
         "role": "user",
         "content": compose_user_message(user_prompt, code, filename),
     }));
+    post_messages(cfg, messages)
+}
+
+/// Spawn a worker that asks the model to compact `history` into one concise,
+/// structured summary that a coding assistant can continue from without losing
+/// meaning. The reply (summary text, no code block) is delivered over the
+/// channel. Used by the editor's "Compact conversation" control.
+pub fn spawn_compaction(cfg: &LlmConfig, history: &[ChatTurn]) -> Receiver<LlmResponse> {
+    let mut transcript = String::new();
+    for turn in history {
+        let who = if turn.role == "assistant" {
+            "Assistant"
+        } else {
+            "Developer"
+        };
+        transcript.push_str(who);
+        transcript.push_str(": ");
+        transcript.push_str(turn.content.trim());
+        transcript.push_str("\n\n");
+    }
+
+    let instructions = "You are compacting a developer/assistant conversation about an \
+event handler's COBOL source. Replace the full conversation with a concise, structured \
+summary that a coding assistant can use to CONTINUE the conversation without losing \
+meaning. Preserve, under these clear headings, only what is present in the conversation: \
+User intent; Relevant decisions; Existing constraints; Important assumptions; Code \
+changes already applied; Pending tasks or unresolved questions; Behavioural requirements \
+that must not be lost. Do not discard important technical context. Do not invent details \
+and do not include a code block. Be as short as possible while retaining every \
+technically important fact.";
+
+    let messages = vec![
+        serde_json::json!({ "role": "system", "content": instructions }),
+        serde_json::json!({
+            "role": "user",
+            "content": format!("Conversation to compact:\n\n{transcript}"),
+        }),
+    ];
     post_messages(cfg, messages)
 }
 
@@ -1555,7 +1597,43 @@ pub fn extract_code(reply: &str) -> Option<String> {
             l == "cobol" || l == "cob" || l == "cbl"
         })
         .or_else(|| blocks.first())
-        .map(|(_, body)| body.clone())
+        .map(|(_, body)| normalize_comments(body))
+}
+
+/// Deterministically rewrite fixed-format `*` comment lines to the RustCOBOL `*>`
+/// form, preserving indentation. Any line whose **first non-blank character is `*`**
+/// (and not already `*>`) becomes `<indent>*> <text>`. This is safe: a multiply
+/// operator (`COMPUTE X = A * B`) is never the first non-blank character, and an
+/// inline `*` after code is left alone — only leading-`*` comment lines convert.
+/// Applied to every model reply so comments always use `*>` regardless of what the
+/// model emits (a bare `*` in area B is not even a valid COBOL comment).
+pub fn normalize_comments(code: &str) -> String {
+    let ends_nl = code.ends_with('\n');
+    let mut out = String::with_capacity(code.len() + 8);
+    for line in code.lines() {
+        let trimmed = line.trim_start();
+        let converted = trimmed
+            .strip_prefix('*')
+            .filter(|rest| !rest.starts_with('>'))
+            .map(|rest| {
+                let indent = &line[..line.len() - trimmed.len()];
+                let text = rest.trim_start();
+                if text.is_empty() {
+                    format!("{indent}*>")
+                } else {
+                    format!("{indent}*> {text}")
+                }
+            });
+        match converted {
+            Some(c) => out.push_str(&c),
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    if !ends_nl {
+        out.pop();
+    }
+    out
 }
 
 /// Return all ```fenced``` blocks as `(language_tag, body)` pairs.
@@ -1645,6 +1723,29 @@ mod tests {
         let only = "```\nplain block\n```";
         assert_eq!(extract_code(only).as_deref(), Some("plain block"));
         assert!(extract_code("just prose, no code").is_none());
+    }
+
+    #[test]
+    fn normalize_comments_rewrites_star_to_arrow() {
+        let src = concat!(
+            "           * Initialize blur\n",
+            "           MOVE 0 TO BLUR-VALUE\n",
+            "           COMPUTE X = A * B\n",
+            "           *already\n",
+            "           *> keep this\n",
+            "      * fixed-format col 7",
+        );
+        let out = normalize_comments(src);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[0], "           *> Initialize blur");
+        assert_eq!(lines[1], "           MOVE 0 TO BLUR-VALUE"); // untouched
+        assert_eq!(lines[2], "           COMPUTE X = A * B"); // multiply untouched
+        assert_eq!(lines[3], "           *> already");
+        assert_eq!(lines[4], "           *> keep this"); // already *> → unchanged
+        assert_eq!(lines[5], "      *> fixed-format col 7");
+        // Trailing-newline preservation.
+        assert!(!out.ends_with('\n'));
+        assert!(normalize_comments("           * x\n").ends_with('\n'));
     }
 
     #[test]

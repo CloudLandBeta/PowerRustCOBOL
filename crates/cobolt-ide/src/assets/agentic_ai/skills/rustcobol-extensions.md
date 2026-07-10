@@ -39,7 +39,26 @@ Rules:
 - **Do NOT** emit `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or
   `END PROGRAM` — the IDE adds them. Emitting them breaks generation.
 - Keep fixed-format-safe indentation: divisions/sections at column 8 (area A),
-  statements at column 12 (area B). Comments are `      *>` (columns 7–8).
+  statements at column 12 (area B).
+- **Comments — ALWAYS use `*>` (never a bare `*`).** Mandatory. Write `*>`, then a
+  single space, then the text.
+  - **Indent the comment to the code it describes.** The `*>` sits at the **same
+    column as the statement** it comments — do NOT force it to column 7. A comment
+    placed above a statement uses that statement's indentation.
+  - **Wrap at column 80.** If a comment line would pass column 80, break it and
+    continue on the next line at the **same indentation**, starting again with `*>`
+    and a space, until the comment ends.
+  - Inline comments (after code) also use `*>`.
+  - **Never** emit a fixed-format `*` comment (`      * text`), and never place the
+    `*` anywhere except immediately before `>`.
+  - Example — aligned to the code, wrapped past column 80:
+    ```cobol
+           *> Validate every field before saving because a blank key would
+           *> corrupt the index; abort the handler on the first failure.
+           IF Name-Box::Text = SPACES
+               GOBACK.
+           MOVE 0 TO WS-N.   *> reset the counter (inline comment)
+    ```
 - Include only the sections you use (an empty `WORKING-STORAGE` / `LINKAGE` may be
   dropped), but always end with a real `PROCEDURE DIVISION`.
 - A procedure (`create_procedure`) has the **same** shape; it is `CALL`-able by its

@@ -534,6 +534,16 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
     base.iter().chain(specific).copied().collect()
 }
 
+/// The method names available on a control type (universal + type-specific), for
+/// validating `::Method(...)` references. Per-instance methods (e.g. RefreshBinding)
+/// are added by the caller from the control's `extra_methods`.
+pub(crate) fn method_names_for_type(ctrl_type: &str) -> Vec<String> {
+    methods_for_type(ctrl_type)
+        .into_iter()
+        .map(|(n, _)| n.to_string())
+        .collect()
+}
+
 /// Curated property descriptions (kept for tooltips/docs). The live IntelliSense
 /// now derives the full property set from `cobolt_forms::model::property_names_for`
 /// so it can never drift from the control model.
@@ -956,6 +966,10 @@ pub struct EditorPanel {
     ai_status: Option<String>,
     /// Whether the conversation panel is expanded.
     ai_show_history: bool,
+    /// In-flight compaction (summarization) request: target path + reply channel.
+    ai_compact_pending: Option<(PathBuf, std::sync::mpsc::Receiver<crate::llm::LlmResponse>)>,
+    /// Target whose history the user asked to clear, awaiting confirmation.
+    ai_confirm_clear: Option<PathBuf>,
 
     // ── Status bar ───────────────────────────────────────────────────────────
     /// 1-based caret line / column in the active tab (last known).
@@ -987,6 +1001,8 @@ impl Default for EditorPanel {
             ai_pending: None,
             ai_status: None,
             ai_show_history: false,
+            ai_compact_pending: None,
+            ai_confirm_clear: None,
             cur_line: 1,
             cur_col: 1,
             overwrite: false,
@@ -1365,8 +1381,35 @@ impl EditorPanel {
             applied = self.apply_ai_response(&path, resp, tr, read_only, project_root);
         }
 
+        // Poll an in-flight compaction request for this target.
+        let mut compaction: Option<crate::llm::LlmResponse> = None;
+        if let Some((cpath, crx)) = &self.ai_compact_pending {
+            if cpath == &path {
+                match crx.try_recv() {
+                    Ok(resp) => compaction = Some(resp),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        compaction = Some(crate::llm::LlmResponse::Err(
+                            "The assistant worker stopped unexpectedly.".into(),
+                        ));
+                    }
+                }
+            } else {
+                ctx.request_repaint();
+            }
+        }
+        if let Some(resp) = compaction {
+            self.ai_compact_pending = None;
+            self.apply_compaction(&path, resp, tr, project_root);
+        }
+
         let busy = self
             .ai_pending
+            .as_ref()
+            .map(|(p, _)| *p == path)
+            .unwrap_or(false);
+        let compacting = self
+            .ai_compact_pending
             .as_ref()
             .map(|(p, _)| *p == path)
             .unwrap_or(false);
@@ -1381,6 +1424,8 @@ impl EditorPanel {
 
         let mut do_send = false;
         let mut do_clear = false;
+        let mut do_save = false;
+        let mut do_compact = false;
 
         let frame = crate::theme::glass_panel_frame(
             ctx.style().visuals.panel_fill,
@@ -1397,10 +1442,11 @@ impl EditorPanel {
                 {
                     do_send = true;
                 }
-                if busy {
+                if busy || compacting {
                     ui.add(egui::Spinner::new());
+                    let msg = if compacting { tr.ai_compacting } else { tr.ai_thinking };
                     ui.label(
-                        egui::RichText::new(tr.ai_thinking)
+                        egui::RichText::new(msg)
                             .small()
                             .color(Color32::from_gray(170)),
                     );
@@ -1410,6 +1456,20 @@ impl EditorPanel {
                         &mut show_history,
                         egui::RichText::new(format!("💬 {history_len}")).small(),
                     );
+                    if ui
+                        .small_button("💾")
+                        .on_hover_text(tr.ai_save_history)
+                        .clicked()
+                    {
+                        do_save = true;
+                    }
+                    if ui
+                        .add_enabled(!busy && !compacting, egui::Button::new("🗜").small())
+                        .on_hover_text(tr.ai_compact_history)
+                        .clicked()
+                    {
+                        do_compact = true;
+                    }
                     if ui
                         .small_button("🗑")
                         .on_hover_text(tr.ai_clear_history)
@@ -1476,11 +1536,54 @@ impl EditorPanel {
         self.ai_prompt = prompt;
         self.ai_show_history = show_history;
 
+        // Save: force-persist this target's current conversation (it is also
+        // auto-saved after every turn) and confirm to the developer.
+        if do_save {
+            let turns = self.ai_history.get(&path).cloned().unwrap_or_default();
+            Self::persist_history(project_root, &path, &turns);
+            self.ai_status = Some(tr.ai_history_saved.to_string());
+        }
+
+        // Compact: summarise the conversation on a worker thread.
+        if do_compact && !busy && !compacting {
+            self.start_compaction(&path, cfg);
+        }
+
+        // Clear: ask for confirmation before deleting.
         if do_clear {
-            self.ai_history.remove(&path);
-            Self::persist_history(project_root, &path, &[]);
-            self.ai_status = None;
-            self.ai_show_history = false;
+            self.ai_confirm_clear = Some(path.clone());
+        }
+
+        // Clear-history confirmation dialog (per target).
+        if self.ai_confirm_clear.as_deref() == Some(path.as_path()) {
+            let mut cancel = false;
+            let mut confirm = false;
+            egui::Window::new(tr.ai_clear_confirm_title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.label(tr.ai_clear_confirm_body);
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.btn_cancel).clicked() {
+                            cancel = true;
+                        }
+                        if ui.button(tr.delete_confirm_ok).clicked() {
+                            confirm = true;
+                        }
+                    });
+                });
+            if cancel {
+                self.ai_confirm_clear = None;
+            }
+            if confirm {
+                self.ai_confirm_clear = None;
+                self.ai_history.remove(&path);
+                Self::persist_history(project_root, &path, &[]);
+                self.ai_status = None;
+                self.ai_show_history = false;
+            }
         }
 
         if do_send && !busy {
@@ -1592,6 +1695,47 @@ impl EditorPanel {
             crate::llm::LlmResponse::Err(e) => {
                 self.ai_status = Some(e);
                 None
+            }
+        }
+    }
+
+    /// Kick off a compaction (summarization) request for `path`'s conversation.
+    fn start_compaction(&mut self, path: &PathBuf, cfg: &crate::llm::LlmConfig) {
+        let history = self.ai_history.get(path).cloned().unwrap_or_default();
+        if history.is_empty() {
+            return;
+        }
+        let rx = crate::llm::spawn_compaction(cfg, &history);
+        self.ai_compact_pending = Some((path.clone(), rx));
+        self.ai_status = None;
+        self.ai_show_history = true;
+    }
+
+    /// Replace `path`'s conversation with the model's compacted summary. On error
+    /// the existing history is left untouched.
+    fn apply_compaction(
+        &mut self,
+        path: &PathBuf,
+        resp: crate::llm::LlmResponse,
+        tr: &crate::i18n::Tr,
+        project_root: Option<&std::path::Path>,
+    ) {
+        match resp {
+            crate::llm::LlmResponse::Ok(summary) => {
+                let summary = summary.trim();
+                if summary.is_empty() {
+                    self.ai_status = Some(tr.ai_no_code.to_string());
+                    return;
+                }
+                let turns = vec![crate::llm::ChatTurn::user(format!(
+                    "[Compacted conversation summary]\n\n{summary}"
+                ))];
+                Self::persist_history(project_root, path, &turns);
+                self.ai_history.insert(path.clone(), turns);
+                self.ai_status = Some(tr.ai_compacted.to_string());
+            }
+            crate::llm::LlmResponse::Err(e) => {
+                self.ai_status = Some(e);
             }
         }
     }

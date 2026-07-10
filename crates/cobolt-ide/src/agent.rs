@@ -196,22 +196,184 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
             _ => None,
         },
         AgentOp::GenerateEventHandler {
-            control_id, event, ..
-        } => match known.get(control_id) {
-            None => Some(format!("No control named '{control_id}'.")),
-            Some(ct) if !ct.supported_events().iter().any(|e| e.eq_ignore_ascii_case(event)) => {
-                Some(format!("Control '{control_id}' has no event '{event}'."))
-            }
-            _ => None,
-        },
-        AgentOp::CreateProcedure { name, .. } => {
+            control_id,
+            event,
+            code,
+        } => {
+            let base = match known.get(control_id) {
+                None => Some(format!("No control named '{control_id}'.")),
+                Some(ct)
+                    if !ct
+                        .supported_events()
+                        .iter()
+                        .any(|e| e.eq_ignore_ascii_case(event)) =>
+                {
+                    Some(format!("Control '{control_id}' has no event '{event}'."))
+                }
+                _ => None,
+            };
+            base.or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
+        }
+        AgentOp::CreateProcedure { name, code } => {
             if name.trim().is_empty() {
                 Some("Procedure name is empty.".to_string())
             } else {
-                None
+                unknown_property_ref(code, known).map(bad_prop_msg)
             }
         }
     }
+}
+
+/// Message for a hallucinated property reference in generated code.
+fn bad_prop_msg((ctrl, prop): (String, String)) -> String {
+    format!(
+        "Code references '{ctrl}::{prop}', but control '{ctrl}' has no property \
+         '{prop}'. Use a real property of that control (e.g. depth ⇒ \
+         ShadowBlurStrength) — see the control-properties skill."
+    )
+}
+
+/// One `Control::member` reference found in generated code.
+pub(crate) struct MemberRef {
+    /// 1-based source line number.
+    pub line: u32,
+    /// Receiver identifier — the control id, with any `(index)` subscript stripped.
+    pub recv: String,
+    /// Member name (property or method), unquoted.
+    pub member: String,
+    /// `true` for a call/subscript `::member(...)` (a **method**), `false` for a
+    /// bare `::member` (a **property**).
+    pub is_call: bool,
+}
+
+/// Scan COBOL for simple, top-level `<control-id>[(index)]::<member>` references.
+/// Deliberately conservative to avoid false positives: `::` inside string literals
+/// and `*>` comments, chained members (`a::b::c`), and non-identifier receivers are
+/// skipped. The caller decides validity (property vs method) against the schema.
+pub(crate) fn scan_member_refs(code: &str) -> Vec<MemberRef> {
+    let is_id = |c: u8| c.is_ascii_alphanumeric() || c == b'-';
+    let mut out = Vec::new();
+    for (lineno, raw) in code.lines().enumerate() {
+        let line = raw.split("*>").next().unwrap_or(raw); // drop comment tail
+        let b = line.as_bytes();
+        let n = b.len();
+        let mut i = 0usize;
+        let mut in_str = false;
+        while i + 1 < n {
+            if b[i] == b'"' {
+                in_str = !in_str;
+                i += 1;
+                continue;
+            }
+            if in_str || !(b[i] == b':' && b[i + 1] == b':') {
+                i += 1;
+                continue;
+            }
+
+            // ── receiver: scan left of `::` ──
+            let mut k = i;
+            while k > 0 && (b[k - 1] == b' ' || b[k - 1] == b'\t') {
+                k -= 1;
+            }
+            if k > 0 && b[k - 1] == b')' {
+                let mut depth = 0i32;
+                while k > 0 {
+                    k -= 1;
+                    match b[k] {
+                        b')' => depth += 1,
+                        b'(' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                while k > 0 && (b[k - 1] == b' ' || b[k - 1] == b'\t') {
+                    k -= 1;
+                }
+            }
+            let recv_end = k;
+            while k > 0 && is_id(b[k - 1]) {
+                k -= 1;
+            }
+            let recv_start = k;
+
+            // ── member: scan right of `::` ──
+            let mut m = i + 2;
+            while m < n && (b[m] == b' ' || b[m] == b'\t') {
+                m += 1;
+            }
+            let (mem_start, mem_end);
+            if m < n && b[m] == b'"' {
+                let s = m + 1;
+                let mut e = s;
+                while e < n && b[e] != b'"' {
+                    e += 1;
+                }
+                mem_start = s;
+                mem_end = e;
+                m = if e < n { e + 1 } else { e };
+            } else {
+                let s = m;
+                while m < n && is_id(b[m]) {
+                    m += 1;
+                }
+                mem_start = s;
+                mem_end = m;
+            }
+            let mut p = m;
+            while p < n && (b[p] == b' ' || b[p] == b'\t') {
+                p += 1;
+            }
+            let is_call = p < n && b[p] == b'(';
+
+            i += 2; // past this `::`
+
+            if recv_start == recv_end || mem_start == mem_end {
+                continue;
+            }
+            if recv_start >= 2 && &line[recv_start - 2..recv_start] == "::" {
+                continue; // chained member, not a top-level control
+            }
+            let recv = &line[recv_start..recv_end];
+            if !recv.as_bytes()[0].is_ascii_alphabetic() {
+                continue;
+            }
+            out.push(MemberRef {
+                line: lineno as u32 + 1,
+                recv: recv.to_string(),
+                member: line[mem_start..mem_end].to_string(),
+                is_call,
+            });
+        }
+    }
+    out
+}
+
+/// First `Control::Property` reference in `code` whose property does not exist on
+/// its (known) control — a hallucinated property such as `TextBox-2::Depth`. Method
+/// calls are ignored. Uses the same `property_valid` the `set_property` op trusts.
+fn unknown_property_ref(
+    code: &str,
+    known: &HashMap<String, ControlType>,
+) -> Option<(String, String)> {
+    for r in scan_member_refs(code) {
+        if r.is_call {
+            continue; // methods handled elsewhere
+        }
+        if let Some(ct) = known
+            .iter()
+            .find(|(id, _)| id.eq_ignore_ascii_case(&r.recv))
+            .map(|(_, ct)| ct)
+        {
+            if !property_valid(ct, &r.member) {
+                return Some((r.recv, r.member));
+            }
+        }
+    }
+    None
 }
 
 /// A property key is valid for a control type when it is one of the canonical
@@ -246,6 +408,11 @@ const DEFAULT_RUSTCOBOL_TYPES_SKILL: &str =
 const DEFAULT_RUSTCOBOL_CONCISE_SKILL: &str =
     include_str!("assets/agentic_ai/skills/rustcobol-concise.md");
 
+/// The **control-properties** skill — pick the real property (never invent one),
+/// with the concept→property map (e.g. depth ⇒ `ShadowBlurStrength`, no `Depth`).
+const DEFAULT_RUSTCOBOL_PROPS_SKILL: &str =
+    include_str!("assets/agentic_ai/skills/rustcobol-control-properties.md");
+
 /// Relative locations under a project directory.
 const AGENTIC_DIR: &str = "agentic_ai";
 const PROMPT_FILE: &str = "system-prompt.md";
@@ -256,6 +423,7 @@ const SKILLS_DIR: &str = "skills";
 const DEFAULT_SKILL_FILE: &str = "rustcobol-extensions.md";
 const TYPES_SKILL_FILE: &str = "rustcobol-types.md";
 const CONCISE_SKILL_FILE: &str = "rustcobol-concise.md";
+const PROPS_SKILL_FILE: &str = "rustcobol-control-properties.md";
 
 /// `<project>/agentic_ai`.
 pub fn agentic_dir(project_dir: &Path) -> PathBuf {
@@ -290,6 +458,10 @@ pub fn ensure_agentic_ai_scaffold(project_dir: &Path) -> std::io::Result<()> {
     let concise_skill = skills.join(CONCISE_SKILL_FILE);
     if !concise_skill.exists() {
         std::fs::write(&concise_skill, DEFAULT_RUSTCOBOL_CONCISE_SKILL)?;
+    }
+    let props_skill = skills.join(PROPS_SKILL_FILE);
+    if !props_skill.exists() {
+        std::fs::write(&props_skill, DEFAULT_RUSTCOBOL_PROPS_SKILL)?;
     }
     Ok(())
 }
@@ -334,6 +506,7 @@ pub fn load_skills(project_dir: &Path) -> String {
     let mut saw_default = false;
     let mut saw_types = false;
     let mut saw_concise = false;
+    let mut saw_props = false;
     for f in &files {
         if f.file_name().map(|n| n == DEFAULT_SKILL_FILE).unwrap_or(false) {
             saw_default = true;
@@ -343,6 +516,9 @@ pub fn load_skills(project_dir: &Path) -> String {
         }
         if f.file_name().map(|n| n == CONCISE_SKILL_FILE).unwrap_or(false) {
             saw_concise = true;
+        }
+        if f.file_name().map(|n| n == PROPS_SKILL_FILE).unwrap_or(false) {
+            saw_props = true;
         }
         if let Ok(text) = std::fs::read_to_string(f) {
             if !out.is_empty() {
@@ -370,6 +546,12 @@ pub fn load_skills(project_dir: &Path) -> String {
             out.push_str("\n\n");
         }
         out.push_str(DEFAULT_RUSTCOBOL_CONCISE_SKILL);
+    }
+    if !saw_props {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(DEFAULT_RUSTCOBOL_PROPS_SKILL);
     }
     out
 }
@@ -566,6 +748,46 @@ mod tests {
         assert!(v[4].is_none(), "backgroundcolor is valid (case-insensitive)");
         assert!(v[5].is_none(), "B1 was deployed earlier in the set");
         assert!(v[6].as_ref().unwrap().contains("no event"));
+    }
+
+    #[test]
+    fn handler_code_flags_hallucinated_property() {
+        let form = form_with_label();
+        let handler = |code: &str| AgentChangeSet {
+            operations: vec![AgentOp::GenerateEventHandler {
+                control_id: "L1".into(),
+                event: "onClick".into(),
+                code: code.into(),
+            }],
+            note: None,
+        };
+
+        // Hallucinated property → error naming the control and property.
+        let v = validate(&handler("           MOVE 5 TO L1::Depth."), &form);
+        let msg = v[0].as_ref().expect("Depth should be flagged");
+        assert!(msg.contains("Depth") && msg.contains("no property"), "{msg}");
+
+        // The real property is accepted (the depth-fix target).
+        let v = validate(&handler("           MOVE 5 TO L1::ShadowBlurStrength."), &form);
+        assert!(v[0].is_none(), "ShadowBlurStrength must be valid: {:?}", v[0]);
+
+        // Quoted property name is checked too.
+        let v = validate(&handler("           MOVE 5 TO L1::\"Nope\"."), &form);
+        assert!(v[0].as_ref().is_some_and(|m| m.contains("Nope")));
+
+        // A method / subscript call is not a property → never flagged.
+        let v = validate(&handler("           DISPLAY L1::GetText()."), &form);
+        assert!(v[0].is_none(), "method call must not be flagged: {:?}", v[0]);
+
+        // `::` inside a string literal or a comment is ignored.
+        let v = validate(&handler("           DISPLAY \"L1::Depth\"."), &form);
+        assert!(v[0].is_none(), "string content must not be flagged: {:?}", v[0]);
+        let v = validate(&handler("           MOVE 5 TO L1::Depth.  *> L1::Zzz"), &form);
+        assert!(v[0].as_ref().is_some_and(|m| m.contains("Depth")));
+
+        // A non-control receiver is left alone (no false positive on data items).
+        let v = validate(&handler("           MOVE WS-X::Foo TO WS-Y."), &form);
+        assert!(v[0].is_none(), "non-control receiver must not be flagged: {:?}", v[0]);
     }
 
     #[test]
