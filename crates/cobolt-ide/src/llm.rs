@@ -82,6 +82,11 @@ pub struct LlmConfig {
     /// Selected provider id (see [`Provider::id`]); empty ⇒ none picked yet.
     #[serde(default)]
     pub provider: String,
+    /// When true the activity log includes the verbose detail lines (model info,
+    /// the full context sent to the model, connection timings). Info / reasoning /
+    /// error lines are always logged regardless.
+    #[serde(default)]
+    pub verbose_log: bool,
 }
 
 fn default_system_prompt() -> String {
@@ -112,6 +117,7 @@ impl Default for LlmConfig {
             max_tokens: default_max_tokens(),
             timeout_secs: default_timeout_secs(),
             provider: String::new(),
+            verbose_log: false,
         }
     }
 }
@@ -435,14 +441,22 @@ pub fn spawn_request(
     user_prompt: &str,
     code: &str,
     filename: &str,
+    skills: &str,
 ) -> Receiver<LlmResponse> {
-    // Build the message list: system prompt, prior turns, then the new request
-    // (prompt + current code) as the final user message.
+    // Build the message list: system prompt, the project's skills (RustCOBOL
+    // reference material), prior turns, then the new request (prompt + current
+    // code) as the final user message.
     let mut messages: Vec<serde_json::Value> = Vec::new();
     messages.push(serde_json::json!({
         "role": "system",
         "content": cfg.system_prompt,
     }));
+    if !skills.trim().is_empty() {
+        messages.push(serde_json::json!({
+            "role": "system",
+            "content": format!("Reference material (skills):\n\n{skills}"),
+        }));
+    }
     for turn in history {
         messages.push(serde_json::json!({
             "role": turn.role,
@@ -917,6 +931,7 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
     let temperature = cfg.temperature;
     let max_tokens = cfg.max_tokens;
     let timeout = cfg.timeout_secs.max(1) as u64;
+    let verbose = cfg.verbose_log;
     let msg_count = messages.len();
     // A one-line preview of the developer's request (the last user turn embeds the
     // prompt first, then the code context) for the activity log.
@@ -979,31 +994,41 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
     std::thread::spawn(move || {
         use std::io::BufRead;
 
+        // Verbose detail lines are gated on the setting; concise info / reasoning /
+        // error lines are always logged.
+        let vlog = |t: String| {
+            if verbose {
+                ai_detail(t);
+            }
+        };
+
         let started = std::time::Instant::now();
         ai_info(format!("▶ Sending request to {endpoint}"));
         if !prompt_preview.is_empty() {
-            ai_detail(format!("   prompt: {prompt_preview}"));
+            vlog(format!("   prompt: {prompt_preview}"));
         }
-        ai_detail(format!(
+        vlog(format!(
             "   model={} · {} message(s) · timeout={}s · streaming",
             if model.is_empty() { "(unset)" } else { &model },
             msg_count,
             timeout
         ));
 
-        // Full context dump — every message role + content, line by line.
-        ai_detail("── context sent to the model ──".to_string());
-        for (i, (role, content)) in context_dump.iter().enumerate() {
-            ai_detail(format!("  [{}] {}:", i + 1, role));
-            if content.is_empty() {
-                ai_detail("      (empty)".to_string());
-            } else {
-                for line in content.lines() {
-                    ai_detail(format!("      {line}"));
+        // Full context dump — every message role + content, line by line (verbose).
+        if verbose {
+            ai_detail("── context sent to the model ──".to_string());
+            for (i, (role, content)) in context_dump.iter().enumerate() {
+                ai_detail(format!("  [{}] {}:", i + 1, role));
+                if content.is_empty() {
+                    ai_detail("      (empty)".to_string());
+                } else {
+                    for line in content.lines() {
+                        ai_detail(format!("      {line}"));
+                    }
                 }
             }
+            ai_detail("── end of context ──".to_string());
         }
-        ai_detail("── end of context ──".to_string());
 
         // Per-read timeout (not an overall deadline): each socket read must return
         // within `timeout`, but the total streamed response may take far longer.
@@ -1011,7 +1036,7 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
             .timeout_connect(Duration::from_secs(15))
             .timeout_read(Duration::from_secs(timeout))
             .build();
-        ai_detail("   connecting…".to_string());
+        vlog("   connecting…".to_string());
         let mut req = agent
             .post(&endpoint)
             .set("Content-Type", "application/json")
@@ -1031,7 +1056,7 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
         let result = match req.send_json(body) {
             Ok(resp) => {
                 trace.outcome = format!("{} {}", resp.status(), resp.status_text());
-                ai_detail(format!(
+                vlog(format!(
                     "◀ {} {} · {:.1}s",
                     resp.status(),
                     resp.status_text(),
@@ -1091,7 +1116,7 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
                             let (c, r) = extract_stream_delta(&json);
                             if first_token && (c.is_some() || r.is_some()) {
                                 first_token = false;
-                                ai_detail(format!(
+                                vlog(format!(
                                     "   first token after {:.1}s",
                                     started.elapsed().as_secs_f32()
                                 ));
@@ -1142,7 +1167,7 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
                     }
                 } else {
                     // Fallback: parse the collected body as a single OpenAI response.
-                    ai_detail("   server did not stream; parsing single response".to_string());
+                    vlog("   server did not stream; parsing single response".to_string());
                     trace.response_body = plain.clone();
                     match serde_json::from_str::<serde_json::Value>(&plain) {
                         Ok(json) => match extract_reply(&json) {

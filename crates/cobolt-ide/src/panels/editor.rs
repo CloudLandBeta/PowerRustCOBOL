@@ -908,6 +908,20 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
         .collect()
 }
 
+/// Collect the form's global data-item names (from the WORKING-STORAGE source the
+/// developer wrote at form level) for IntelliSense inside an event handler, whose
+/// own buffer does not contain those declarations. The user's WS source is emitted
+/// verbatim into the outer program's WORKING-STORAGE, so we extract elementary /
+/// group item names by prefixing a synthetic section header to give the parser the
+/// data-division context it keys on.
+pub fn build_known_data_items(form: &cobolt_forms::Form) -> Vec<String> {
+    if form.user_ws_source.trim().is_empty() {
+        return Vec::new();
+    }
+    let with_ctx = format!("WORKING-STORAGE SECTION.\n{}", form.user_ws_source);
+    extract_data_items(&with_ctx)
+}
+
 // ── EditorPanel ───────────────────────────────────────────────────────────────
 
 pub struct EditorPanel {
@@ -916,6 +930,10 @@ pub struct EditorPanel {
     pub diags: HashMap<PathBuf, Vec<DiagMsg>>,
     pub show_line_numbers: bool,
     pub known_controls: Vec<KnownControl>,
+    /// Global/form-level data item names (from the form's WORKING-STORAGE) offered
+    /// for IntelliSense even though they aren't in the current buffer — so an event
+    /// handler can complete global data names without leaving the editor.
+    pub known_data_items: Vec<String>,
     /// Active breakpoint line numbers per file (1-based).
     pub breakpoints: HashMap<PathBuf, HashSet<u32>>,
     /// Line being highlighted by the debugger (current pause location).
@@ -957,6 +975,7 @@ impl Default for EditorPanel {
             diags: HashMap::new(),
             show_line_numbers: true,
             known_controls: Vec::new(),
+            known_data_items: Vec::new(),
             breakpoints: HashMap::new(),
             debug_line: None,
             ac: AutoComplete::default(),
@@ -1521,7 +1540,12 @@ impl EditorPanel {
             .to_string();
 
         let prior = self.ai_history.get(path).cloned().unwrap_or_default();
-        let rx = crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename);
+        // Include the project's RustCOBOL skills (agentic_ai/skills) as reference
+        // material so the assistant follows the same conventions as the dev agent.
+        let skills = project_root
+            .map(crate::agent::load_skills)
+            .unwrap_or_default();
+        let rx = crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename, &skills);
 
         // Record the developer's turn (prompt only, to keep the log readable).
         let log = self.ai_history.entry(path.clone()).or_default();
@@ -2247,7 +2271,12 @@ impl EditorPanel {
                                 (vec![], false)
                             } else {
                                 (
-                                    build_completions(&prefix, &tab.content, &self.known_controls),
+                                    build_completions(
+                                        &prefix,
+                                        &tab.content,
+                                        &self.known_controls,
+                                        &self.known_data_items,
+                                    ),
                                     false,
                                 )
                             };
@@ -3275,7 +3304,12 @@ fn controls_with_property(controls: &[KnownControl], property: &str, prefix: &st
 }
 
 /// Build the completion list for a given prefix string.
-fn build_completions(prefix: &str, source: &str, controls: &[KnownControl]) -> Vec<AcItem> {
+fn build_completions(
+    prefix: &str,
+    source: &str,
+    controls: &[KnownControl],
+    global_data_items: &[String],
+) -> Vec<AcItem> {
     let up = prefix.to_ascii_uppercase();
     let mut seen: std::collections::HashSet<String> = Default::default();
     let mut items: Vec<AcItem> = Vec::new();
@@ -3299,8 +3333,12 @@ fn build_completions(prefix: &str, source: &str, controls: &[KnownControl]) -> V
         }
     }
 
-    // ── 4. Data items ─────────────────────────────────────────────────────
-    for d in extract_data_items(source) {
+    // ── 4. Data items (current buffer + form-level globals) ────────────────
+    for d in extract_data_items(source)
+        .iter()
+        .cloned()
+        .chain(global_data_items.iter().cloned())
+    {
         if d.to_ascii_uppercase().starts_with(&up) && seen.insert(d.to_ascii_uppercase()) {
             items.push(AcItem::data(&d));
         }

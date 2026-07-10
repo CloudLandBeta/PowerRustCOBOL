@@ -3619,6 +3619,20 @@ impl CoboltApp {
             }
         }
         if action.fetch_models {
+            // When the system prompt is empty, (re)load it from the project's
+            // agentic_ai/assistant-prompt.md template — but never overwrite a prompt
+            // the developer has written. (This is the general code/event assistant
+            // prompt, distinct from the dev agent's system-prompt.md.)
+            let proj_dir = self
+                .project_path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf());
+            if let (Some(form), Some(dir)) = (&mut self.settings_form, &proj_dir) {
+                if form.draft.llm_system_prompt.trim().is_empty() {
+                    form.draft.llm_system_prompt = crate::agent::effective_assistant_prompt(dir);
+                }
+            }
             if let Some(form) = &self.settings_form {
                 if let Some(provider) = crate::llm::Provider::from_id(&form.draft.llm_provider) {
                     self.llm_test_status = Some(tr.ai_detecting.to_string());
@@ -6846,11 +6860,22 @@ impl CoboltApp {
         let pack = self.resolve_theme_pack(form_theme.as_deref());
         self.designers[idx].1.active_theme_pack = pack;
         let llm_cfg = self.llm.clone();
+        // Project directory (holds the `agentic_ai/` prompt + skills) for the
+        // event-editor assistant. Cloned so the closure doesn't borrow `self`.
+        let proj_root = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
         let designer_result = egui::CentralPanel::default()
             .show(ctx, |ui| {
-                self.designers[idx]
-                    .1
-                    .show(ui, &mut self.clipboard, &user_controls, &llm_cfg)
+                self.designers[idx].1.show(
+                    ui,
+                    &mut self.clipboard,
+                    &user_controls,
+                    &llm_cfg,
+                    proj_root.as_deref(),
+                )
             })
             .inner;
         if let Some(def) = designer_result.user_control_created {

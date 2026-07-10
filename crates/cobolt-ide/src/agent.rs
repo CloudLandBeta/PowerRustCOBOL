@@ -239,6 +239,9 @@ const DEFAULT_RUSTCOBOL_SKILL: &str =
 /// Relative locations under a project directory.
 const AGENTIC_DIR: &str = "agentic_ai";
 const PROMPT_FILE: &str = "system-prompt.md";
+/// The general code/event assistant's own prompt (separate from the dev agent's
+/// `system-prompt.md`): it asks for COBOL in a fenced block, not JSON change-sets.
+const ASSISTANT_PROMPT_FILE: &str = "assistant-prompt.md";
 const SKILLS_DIR: &str = "skills";
 const DEFAULT_SKILL_FILE: &str = "rustcobol-extensions.md";
 
@@ -260,6 +263,10 @@ pub fn ensure_agentic_ai_scaffold(project_dir: &Path) -> std::io::Result<()> {
     if !prompt.exists() {
         std::fs::write(&prompt, AGENT_SYSTEM_PROMPT)?;
     }
+    let assistant_prompt = base.join(ASSISTANT_PROMPT_FILE);
+    if !assistant_prompt.exists() {
+        std::fs::write(&assistant_prompt, crate::llm::DEFAULT_SYSTEM_PROMPT)?;
+    }
     let skill = skills.join(DEFAULT_SKILL_FILE);
     if !skill.exists() {
         std::fs::write(&skill, DEFAULT_RUSTCOBOL_SKILL)?;
@@ -275,6 +282,18 @@ pub fn effective_prompt(project_dir: &Path) -> String {
     match std::fs::read_to_string(&path) {
         Ok(text) if !text.trim().is_empty() => text,
         _ => AGENT_SYSTEM_PROMPT.to_string(),
+    }
+}
+
+/// The effective **general assistant** prompt (code editor / event editor): the
+/// edited `agentic_ai/assistant-prompt.md` when present and non-empty, otherwise
+/// the built-in COBOL code-assistant default. Kept separate from the dev agent's
+/// `system-prompt.md` so the two never collide.
+pub fn effective_assistant_prompt(project_dir: &Path) -> String {
+    let path = agentic_dir(project_dir).join(ASSISTANT_PROMPT_FILE);
+    match std::fs::read_to_string(&path) {
+        Ok(text) if !text.trim().is_empty() => text,
+        _ => crate::llm::DEFAULT_SYSTEM_PROMPT.to_string(),
     }
 }
 

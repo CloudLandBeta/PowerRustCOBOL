@@ -2385,6 +2385,7 @@ impl DesignerPanel {
             source.clone(),
         );
         self.event_editor.known_controls = super::editor::build_known_controls(&self.form);
+        self.event_editor.known_data_items = super::editor::build_known_data_items(&self.form);
 
         self.event_modal = Some(EventEditorModal::new(
             ctrl_id, display, event_name, program_id, source,
@@ -2738,6 +2739,7 @@ impl DesignerPanel {
         clipboard: &mut Option<DesignerClipboard>,
         user_controls: &[UserControlDef],
         llm_cfg: &crate::llm::LlmConfig,
+        project_root: Option<&std::path::Path>,
     ) -> DesignerShowResult {
         let mut result = DesignerShowResult::default();
         let mut selection_changed = false;
@@ -3833,7 +3835,7 @@ impl DesignerPanel {
         self.show_menu_editor(ui);
 
         // ── Event Editor Modal ──────────────────────────────────────────────────
-        self.show_event_modal(ui, llm_cfg);
+        self.show_event_modal(ui, llm_cfg, project_root);
 
         result.selection_changed |= selection_changed;
         result
@@ -5045,7 +5047,12 @@ impl DesignerPanel {
     /// DIVISION` … `PROCEDURE DIVISION` + statements). The generator-owned
     /// `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the closing `GOBACK`
     /// / `END PROGRAM` are shown read-only around it.
-    fn show_event_modal(&mut self, ui: &mut Ui, llm_cfg: &crate::llm::LlmConfig) {
+    fn show_event_modal(
+        &mut self,
+        ui: &mut Ui,
+        llm_cfg: &crate::llm::LlmConfig,
+        project_root: Option<&std::path::Path>,
+    ) {
         // Snapshot the scalar modal fields and drop the borrow so we can render
         // the hosted editor (`self.event_editor`) freely inside the window.
         let (title, program_id, ctrl_id, event_name, orig_source) = {
@@ -5130,16 +5137,23 @@ impl DesignerPanel {
         let screen = ui.ctx().screen_rect();
         let default_w = (screen.width() * 0.70).max(360.0);
         let default_h = (screen.height() * 0.70).max(420.0);
+        // Seed the initial position centred. We use `default_pos` (a seed) rather
+        // than `anchor` so the window is *movable*: an anchored egui window is
+        // pinned and cannot be dragged by its title bar. egui remembers the
+        // dragged position by id afterwards.
+        let default_pos = screen.center() - egui::vec2(default_w * 0.5, default_h * 0.5);
 
         egui::Window::new(&title)
             .id(egui::Id::new("event_editor_modal"))
             .collapsible(false)
             .resizable(true)
+            .movable(true)
             .default_width(default_w)
             .default_height(default_h)
             .min_width(360.0)
             .min_height(420.0)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .default_pos(default_pos)
+            .constrain(true)
             .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)))
             .show(ui.ctx(), |ui| {
                 let scaffold_color = Color32::from_rgb(140, 200, 140); // muted green
@@ -5310,12 +5324,18 @@ impl DesignerPanel {
                  PROGRAM-ID, GOBACK, or END PROGRAM — the IDE supplies those. Return the \
                  code in a ```cobol fenced block."
             );
+            // Include the project's RustCOBOL skills (agentic_ai/skills) so the
+            // handler assistant follows the same conventions as the dev agent.
+            let skills = project_root
+                .map(crate::agent::load_skills)
+                .unwrap_or_default();
             let rx = crate::llm::spawn_request(
                 llm_cfg,
                 &[],
                 &guided,
                 &code,
                 &format!("{program_id}.cob"),
+                &skills,
             );
             if let Some(m) = self.event_modal.as_mut() {
                 m.ai_pending = Some(rx);

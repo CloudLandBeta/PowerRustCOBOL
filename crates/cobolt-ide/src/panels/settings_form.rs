@@ -60,6 +60,8 @@ pub struct SettingsDraft {
     pub llm_system_prompt: String,
     /// Request timeout in seconds (spec 025).
     pub llm_timeout: u32,
+    /// Verbose AI activity logging (model info + full context + timings).
+    pub llm_verbose: bool,
 }
 
 impl SettingsDraft {
@@ -89,6 +91,7 @@ impl SettingsDraft {
             llm_model: llm.model.clone(),
             llm_system_prompt: llm.system_prompt.clone(),
             llm_timeout: llm.timeout_secs,
+            llm_verbose: llm.verbose_log,
         }
     }
 
@@ -116,6 +119,7 @@ impl SettingsDraft {
         llm.model = self.llm_model.clone();
         llm.system_prompt = self.llm_system_prompt.clone();
         llm.timeout_secs = self.llm_timeout.max(1);
+        llm.verbose_log = self.llm_verbose;
     }
 }
 
@@ -757,13 +761,11 @@ impl SettingsForm {
                                     ) {
                                         self.draft.llm_endpoint =
                                             p.default_endpoint().to_owned();
-                                        if self.draft.llm_system_prompt.trim().is_empty()
-                                            || self.draft.llm_system_prompt
-                                                == crate::llm::DEFAULT_SYSTEM_PROMPT
-                                        {
-                                            self.draft.llm_system_prompt =
-                                                p.default_prompt().to_owned();
-                                        }
+                                        // The system prompt is (re)loaded from the
+                                        // project's agentic_ai/system-prompt.md by
+                                        // the caller when empty — never seeded or
+                                        // overwritten here, so a developer's edit is
+                                        // preserved.
                                         self.draft.llm_model.clear();
                                         self.available_models.clear();
                                         action.fetch_models = true;
@@ -850,7 +852,7 @@ impl SettingsForm {
                                         &self.draft.llm_provider,
                                     )
                                     .is_some();
-                                    let combo_w = (w - 34.0).max(60.0);
+                                    let combo_w = (w - 104.0).max(60.0);
                                     // Snapshot the offered list so the picker
                                     // closure borrows a local, not `self`.
                                     let models = self.available_models.clone();
@@ -872,7 +874,7 @@ impl SettingsForm {
                                     if ui
                                         .add_enabled(
                                             has_provider && !test_busy,
-                                            egui::Button::new("⟳"),
+                                            egui::Button::new(tr.settings_ai_refresh),
                                         )
                                         .on_hover_text(tr.settings_ai_refresh_models)
                                         .clicked()
@@ -964,6 +966,29 @@ impl SettingsForm {
                                         ui.label(RichText::new(s).small());
                                     }
                                 });
+                            });
+                        });
+
+                        // Verbose AI log toggle
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_ai_verbose).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.checkbox(&mut self.draft.llm_verbose, "")
+                                    .on_hover_text(tr.settings_ai_verbose_hint);
                             });
                         });
 

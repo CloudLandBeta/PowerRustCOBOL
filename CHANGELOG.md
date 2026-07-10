@@ -8,6 +8,33 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.142] — 2026-07-10
+
+### Fixed
+
+- **IntelliSense in the COBOL Event Editor** — Completion now offers the form's
+  control names **and** its global data items (from the form-level
+  WORKING-STORAGE) while writing an event handler, so the developer no longer has
+  to leave the editor to check a name.
+- **Draggable Event Editor modal** — The COBOL Event Editor window can now be
+  moved by dragging its title bar (replaced the fixed anchor with a centred,
+  movable, constrained window that remembers its position).
+- **Optional verbose AI log** — New "Verbose AI log" toggle in Settings → AI. When
+  off (default) the output pane shows only the concise lifecycle (sending /
+  streaming / completed), reasoning, and errors; when on it also logs the model /
+  message details, the full context sent to the model, and connection timings.
+- **Labelled model Refresh button** — The model picker's refresh control is now a
+  clear "⟳ Refresh" button that reloads the provider's model list (so a
+  local/remote model added or removed is picked up) while keeping the current
+  selection.
+- **Assistant prompt & skills from `agentic_ai/`** — The code/event assistant now
+  draws its system prompt from the project's `agentic_ai/assistant-prompt.md`
+  (loaded into Settings only when the prompt field is empty, never overwriting a
+  developer's edit) and injects the `agentic_ai/skills/` reference material into
+  every request — the same skills the dev agent uses. The assistant prompt is a
+  separate file from the dev agent's `system-prompt.md` so the two never collide;
+  it is scaffolded non-destructively on project open/create.
+
 ## [PowerRustCOBOL 1.27.141] — 2026-07-09
 
 ### Fixed
