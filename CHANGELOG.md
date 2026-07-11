@@ -8,6 +8,31 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.2] — 2026-07-11
+
+### Fixed
+
+- **Window title build-mode indicator** — When a project is open the window
+  title now appends " — Debug Mode" (or the localised equivalent) when
+  *Debug Compilation* is enabled in project settings, and " — Release Mode"
+  when it is disabled. The suffix is absent when no project is loaded.
+  All six interface languages (EN, ES, PT, JP, ZH, FR) are covered.
+
+## [PowerRustCOBOL 1.28.1] — 2026-07-11
+
+### Fixed
+
+- **Debugger: format detection** — `detect_format` in the IDE's debug/run
+  pipeline now delegates to the canonical `SourceFormat::detect`, which
+  correctly identifies generated COBOL as free-format when the first `*>`
+  comment uses six-space indentation. The previous heuristic treated those
+  lines as fixed-format column-7 indicators, causing `flatten_fixed` to
+  truncate lines at column 72. This silently stripped the `-1` from
+  `BY -1` (error: *expected expression, found Until*) and the closing `)`
+  from multi-level arithmetic expressions (error: *expected RParen, found
+  EndIf / EndPerform*), aborting every debug session that used
+  `PERFORM VARYING … BY -1` or a COMPUTE with nested parentheses past column 72.
+
 ## [PowerRustCOBOL 1.28.0] — 2026-07-11
 
 ### Added

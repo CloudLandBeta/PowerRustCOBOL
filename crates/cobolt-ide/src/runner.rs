@@ -528,14 +528,5 @@ fn run_debug_pipeline(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn detect_format(source: &str) -> SourceFormat {
-    // If any line has content starting in column 7+ after spaces in 1-6, fixed-form.
-    let looks_fixed = source.lines().any(|line| {
-        let b = line.as_bytes();
-        b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
-    });
-    if looks_fixed {
-        SourceFormat::Fixed
-    } else {
-        SourceFormat::Free
-    }
+    SourceFormat::detect(source)
 }

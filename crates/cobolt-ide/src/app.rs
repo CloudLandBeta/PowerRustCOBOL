@@ -4691,6 +4691,27 @@ impl eframe::App for CoboltApp {
         let tr = self.lang.tr();
         crate::i18n::set_language(ctx, self.lang);
 
+        // Update window title to reflect the current project's build mode.
+        {
+            let mode_suffix = self
+                .cobolt_project
+                .as_ref()
+                .map(|p| {
+                    if p.project.debug_compilation {
+                        tr.title_debug_mode
+                    } else {
+                        tr.title_release_mode
+                    }
+                })
+                .unwrap_or("");
+            let title = if mode_suffix.is_empty() {
+                format!("PowerRustCOBOL v{VERSION}")
+            } else {
+                format!("PowerRustCOBOL v{VERSION} — {mode_suffix}")
+            };
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        }
+
         // Surface AI request activity (sending → streaming → done / errors, plus
         // live reasoning) into the output/log pane, drained on the UI thread so it
         // appears line-by-line as the request unfolds.
