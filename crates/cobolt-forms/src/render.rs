@@ -2258,7 +2258,8 @@ fn render_interactive(
                             (l, (r - l).max(1.0))
                         };
                         let delta_axis = current_axis - start_axis;
-                        let delta_val = (delta_axis / track_len) * (max_v - min_v);
+                        let axis_sign = if is_vertical { -1.0 } else { 1.0 };
+                        let delta_val = (delta_axis * axis_sign / track_len) * (max_v - min_v);
                         let raw = start_val + delta_val;
                         display_val = ((raw / step).round() * step).clamp(min_v, max_v);
                     }
@@ -5649,6 +5650,47 @@ mod tests {
         assert_ne!(
             v, "50",
             "Slider: Value did not change after drag (still {v})"
+        );
+    }
+
+    #[test]
+    fn engine_vertical_slider_drag_up_increases_value() {
+        let c = [ctrlp(
+            "Sld",
+            ControlType::Slider,
+            0,
+            0,
+            36,
+            200,
+            &[
+                ("Minimum", "0"),
+                ("Maximum", "100"),
+                ("Value", "50"),
+                ("Step", "1"),
+                ("Orientation", "Vertical"),
+            ],
+        )];
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(36.0, 200.0));
+        let tc = crate::paint::slider_thumb_rect(screen, 0.0, 100.0, 50.0, true).center();
+        let to = tc + egui::vec2(0.0, -40.0);
+        let (_evs, map) = drive(
+            &c,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(tc), press(tc)]),
+                (2.0, vec![Event::PointerMoved(to)]),
+                (3.0, vec![Event::PointerMoved(to)]),
+                (4.0, vec![release(to)]),
+            ],
+        );
+        let v: f32 = map
+            .get("Sld")
+            .and_then(|m| m.get("Value"))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50.0);
+        assert!(
+            v > 50.0,
+            "Vertical slider: dragging knob upward should increase value; got {v}"
         );
     }
 

@@ -2864,24 +2864,6 @@ pub fn draw_control(
                 Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
             );
         }
-        // Animation indicator falls through to the shared badge below.
-    }
-
-    // Animation indicator badge
-    if !ctrl.animations.is_empty() {
-        let badge_pos = rect.right_top() + Vec2::new(-2.0, 2.0);
-        painter.circle_filled(
-            badge_pos,
-            5.0,
-            Color32::from_rgba_premultiplied(255, 180, 0, 180),
-        );
-        painter.text(
-            badge_pos,
-            egui::Align2::CENTER_CENTER,
-            "▶",
-            egui::FontId::proportional(6.0),
-            Color32::WHITE,
-        );
     }
 
     if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {

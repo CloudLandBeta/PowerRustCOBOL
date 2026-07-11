@@ -278,7 +278,7 @@ project, so the API key never travels in a repository:
 
 | Field | Meaning |
 |-------|---------|
-| **Endpoint URL** | The full chat-completions URL of your model (an OpenAI-compatible endpoint, e.g. `https://…/v1/chat/completions`). |
+| **Endpoint URL** | The full model URL. Use an OpenAI-compatible chat endpoint such as `https://…/v1/chat/completions`, or the xAI/Grok Responses endpoint `https://api.x.ai/v1/responses`. |
 | **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. |
 | **Model** | The model identifier passed in each request. |
 | **Temperature** | Sampling randomness (0 = deterministic). |

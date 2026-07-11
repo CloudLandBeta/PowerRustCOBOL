@@ -932,6 +932,23 @@ pub fn build_known_data_items(form: &cobolt_forms::Form) -> Vec<String> {
     extract_data_items(&with_ctx)
 }
 
+/// Collect data names useful in an AI prompt: form-level WORKING-STORAGE plus
+/// the currently edited handler's local WORKING-STORAGE / LOCAL-STORAGE /
+/// LINKAGE / FILE SECTION records.
+pub fn build_prompt_data_items(form: &cobolt_forms::Form, local_source: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for name in build_known_data_items(form)
+        .into_iter()
+        .chain(extract_data_items(local_source))
+    {
+        if seen.insert(name.to_ascii_uppercase()) {
+            out.push(name);
+        }
+    }
+    out
+}
+
 // ── EditorPanel ───────────────────────────────────────────────────────────────
 
 pub struct EditorPanel {
@@ -944,10 +961,17 @@ pub struct EditorPanel {
     /// for IntelliSense even though they aren't in the current buffer — so an event
     /// handler can complete global data names without leaving the editor.
     pub known_data_items: Vec<String>,
+    /// When true, completions are limited to project/form context: controls,
+    /// properties, FD/data records, and data items. Used by AI prompt editors
+    /// where COBOL reserved-word snippets are noise.
+    context_only_completions: bool,
     /// Active breakpoint line numbers per file (1-based).
     pub breakpoints: HashMap<PathBuf, HashSet<u32>>,
     /// Line being highlighted by the debugger (current pause location).
     pub debug_line: Option<(PathBuf, u32)>,
+    /// Stable namespace for egui widget IDs owned by this editor instance. The
+    /// main editor can use the default; embedded modal editors must not collide.
+    ui_id_salt: String,
     ac: AutoComplete,
     search: SearchState,
     font_size: f32,
@@ -990,8 +1014,10 @@ impl Default for EditorPanel {
             show_line_numbers: true,
             known_controls: Vec::new(),
             known_data_items: Vec::new(),
+            context_only_completions: false,
             breakpoints: HashMap::new(),
             debug_line: None,
+            ui_id_salt: "main".to_string(),
             ac: AutoComplete::default(),
             search: SearchState::default(),
             font_size: EDITOR_FONT_SIZE,
@@ -1011,18 +1037,22 @@ impl Default for EditorPanel {
     }
 }
 
-/// Render one conversation turn as a chat balloon: the developer's messages sit on
-/// the right in light green, the assistant's on the left in light gray, both with
-/// dark-gray text. Shared by the code/structure editor `ai_bar` and the event
-/// editor transcript so the conversation reads like a natural chat.
+/// Render one conversation turn as a chat balloon: the developer's messages sit
+/// on the right, the assistant's COBOL responses on the left. Shared by the
+/// code/structure editor `ai_bar` and the event editor transcript so the
+/// conversation reads like a natural chat.
 pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
     let is_user = role != "assistant";
     let fill = if is_user {
-        Color32::from_rgb(0x51, 0xF6, 0x4B) // light green
+        Color32::from_rgba_premultiplied(0x3D, 0xCD, 0x8B, 0xFF)
     } else {
-        Color32::from_rgb(0xE2, 0xE2, 0xE2) // light gray
+        Color32::from_rgba_premultiplied(0x3D, 0x8B, 0xCD, 0xFF)
     };
-    let fg = Color32::from_rgb(0x2A, 0x2A, 0x2A); // dark gray text (both)
+    let fg = if is_user {
+        Color32::from_rgba_premultiplied(0x55, 0x57, 0x53, 0xFF)
+    } else {
+        Color32::from_rgba_premultiplied(0xE6, 0xE6, 0xE6, 0xFF)
+    };
     let max_w = (ui.available_width() * 0.82).max(120.0);
 
     // Developer bubbles hug the right, assistant bubbles the left; text inside both
@@ -1090,10 +1120,22 @@ impl EditorPanel {
     /// embedded RAD event editor (the modal hosts its own `EditorPanel`); the
     /// synthetic `path` is an identity only and is never written to disk.
     pub fn open_buffer(&mut self, path: PathBuf, content: String) {
+        self.ui_id_salt = path.to_string_lossy().to_string();
         self.tabs = vec![EditorTab::new(path, content)];
         self.active = 0;
         self.search.visible = false;
         self.ac.visible = false;
+    }
+
+    /// Restrict IntelliSense to contextual symbols (no COBOL reserved words or
+    /// paragraph labels). Intended for natural-language AI prompt boxes that need
+    /// accurate project/form names, not source templates.
+    pub fn set_context_only_completions(&mut self, enabled: bool) {
+        self.context_only_completions = enabled;
+    }
+
+    fn ui_id(&self, key: &'static str) -> egui::Id {
+        egui::Id::new(("cobolt_editor_panel", self.ui_id_salt.as_str(), key))
     }
 
     /// The active buffer's text (for reading an embedded editor back).
@@ -2009,7 +2051,7 @@ impl EditorPanel {
             self.search.visible = !self.search.visible;
             if self.search.visible {
                 self.update_search_matches();
-                ctx.memory_mut(|m| m.request_focus(egui::Id::new("cobolt_search_input")));
+                ctx.memory_mut(|m| m.request_focus(self.ui_id("search_input")));
             }
         }
 
@@ -2026,7 +2068,7 @@ impl EditorPanel {
         }
 
         // Search key handling (only when search focused)
-        let search_has_focus = ctx.memory(|m| m.has_focus(egui::Id::new("cobolt_search_input")));
+        let search_has_focus = ctx.memory(|m| m.has_focus(self.ui_id("search_input")));
         if self.search.visible && search_has_focus {
             if ctx.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) {
                 self.search_next();
@@ -2132,7 +2174,7 @@ impl EditorPanel {
 
         // ── Layout ────────────────────────────────────────────────────────
         let font = FontId::monospace(self.font_size);
-        let editor_id = egui::Id::new("cobolt_editor");
+        let editor_id = self.ui_id("editor");
 
         let kw_set: std::collections::HashSet<&'static str> = VERBS
             .iter()
@@ -2167,7 +2209,7 @@ impl EditorPanel {
         let editor_viewport = ui.max_rect();
 
         ScrollArea::both()
-            .id_salt("cobolt_editor_scroll")
+            .id_salt(self.ui_id("scroll"))
             .auto_shrink([false, false])
             .min_scrolled_height(avail.y)
             .show(ui, |ui| {
@@ -2517,6 +2559,7 @@ impl EditorPanel {
                                         &tab.content,
                                         &self.known_controls,
                                         &self.known_data_items,
+                                        self.context_only_completions,
                                     ),
                                     false,
                                 )
@@ -2585,7 +2628,7 @@ impl EditorPanel {
             let scroll_sel = self.ac.scroll_to_sel;
             let mut clicked: Option<usize> = None;
 
-            let area = egui::Area::new(egui::Id::new("cobolt_ac_popup"))
+            let area = egui::Area::new(self.ui_id("ac_popup"))
                 .fixed_pos(popup_pos)
                 .order(egui::Order::Tooltip)
                 .interactable(true)
@@ -2606,7 +2649,7 @@ impl EditorPanel {
                             }
 
                             ScrollArea::vertical()
-                                .id_salt("ac_list")
+                                .id_salt(self.ui_id("ac_list"))
                                 .max_height(220.0)
                                 .show(ui, |ui| {
                                     for (i, item) in items.iter().enumerate() {
@@ -2657,7 +2700,7 @@ impl EditorPanel {
                                         let click_resp = ui
                                             .interact(
                                                 row_resp.response.rect,
-                                                egui::Id::new("ac_row").with(i),
+                                                self.ui_id("ac_row").with(i),
                                                 egui::Sense::click(),
                                             )
                                             .on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -2740,8 +2783,10 @@ impl EditorPanel {
                 .unwrap_or(false);
             let mut do_replace_one = false;
             let mut do_replace_all = false;
+            let search_input_id = self.ui_id("search_input");
+            let replace_input_id = self.ui_id("replace_input");
 
-            egui::Area::new(egui::Id::new("cobolt_search_bar"))
+            egui::Area::new(self.ui_id("search_bar"))
                 // `default_pos` (not `fixed_pos`): egui applies it only on first
                 // appearance, then keeps the position the user dragged it to —
                 // so it stays put during a search and is draggable.
@@ -2767,7 +2812,7 @@ impl EditorPanel {
                                 // Query text input
                                 let te_resp = ui.add(
                                     TextEdit::singleline(&mut self.search.query)
-                                        .id(egui::Id::new("cobolt_search_input"))
+                                        .id(search_input_id)
                                         .desired_width(165.0)
                                         .hint_text("Find…"),
                                 );
@@ -2837,7 +2882,7 @@ impl EditorPanel {
                                 );
                                 ui.add(
                                     TextEdit::singleline(&mut self.search.replace)
-                                        .id(egui::Id::new("cobolt_replace_input"))
+                                        .id(replace_input_id)
                                         .desired_width(165.0)
                                         .hint_text("Replace…"),
                                 );
@@ -3550,27 +3595,32 @@ fn build_completions(
     source: &str,
     controls: &[KnownControl],
     global_data_items: &[String],
+    context_only: bool,
 ) -> Vec<AcItem> {
     let up = prefix.to_ascii_uppercase();
     let mut seen: std::collections::HashSet<String> = Default::default();
     let mut items: Vec<AcItem> = Vec::new();
 
     // ── 1. COBOL keywords (insert the bare word + space, then await input) ──
-    for &kw in VERBS
-        .iter()
-        .chain(DIVISION_KEYWORDS)
-        .chain(DATA_KEYWORDS)
-        .chain(COBOL2002_KEYWORDS)
-    {
-        if kw.starts_with(&up) && seen.insert(kw.into()) {
-            items.push(AcItem::kw(kw));
+    if !context_only {
+        for &kw in VERBS
+            .iter()
+            .chain(DIVISION_KEYWORDS)
+            .chain(DATA_KEYWORDS)
+            .chain(COBOL2002_KEYWORDS)
+        {
+            if kw.starts_with(&up) && seen.insert(kw.into()) {
+                items.push(AcItem::kw(kw));
+            }
         }
     }
 
     // ── 3. Paragraph names ────────────────────────────────────────────────
-    for p in extract_paragraphs(source) {
-        if p.to_ascii_uppercase().starts_with(&up) && seen.insert(p.to_ascii_uppercase()) {
-            items.push(AcItem::para(&p));
+    if !context_only {
+        for p in extract_paragraphs(source) {
+            if p.to_ascii_uppercase().starts_with(&up) && seen.insert(p.to_ascii_uppercase()) {
+                items.push(AcItem::para(&p));
+            }
         }
     }
 
@@ -3591,6 +3641,16 @@ fn build_completions(
             && seen.insert(ctrl.id.to_ascii_uppercase())
         {
             items.push(AcItem::ctrl(&ctrl.id, &ctrl.ctrl_type));
+        }
+    }
+
+    // ── 6. Property names (prompt/context mode only; source mode offers these
+    // through `control::` and PowerCOBOL property contexts).
+    if context_only {
+        for item in property_name_items(controls, prefix) {
+            if seen.insert(item.label.to_ascii_uppercase()) {
+                items.push(item);
+            }
         }
     }
 
@@ -3634,6 +3694,7 @@ fn extract_data_items(source: &str) -> Vec<String> {
         if upper.contains("WORKING-STORAGE")
             || upper.contains("LOCAL-STORAGE")
             || upper.contains("LINKAGE")
+            || upper.contains("FILE SECTION")
         {
             in_data = true;
         }
@@ -3644,8 +3705,22 @@ fn extract_data_items(source: &str) -> Vec<String> {
             continue;
         }
         let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        if parts.len() >= 2 && parts[0].eq_ignore_ascii_case("FD") {
+            let name = parts[1].trim_end_matches('.');
+            if name != "FILLER"
+                && name.chars().all(|c| c.is_alphanumeric() || c == '-')
+                && name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_alphabetic())
+                    .unwrap_or(false)
+            {
+                out.push(name.into());
+            }
+            continue;
+        }
         if parts.len() >= 2 && parts[0].chars().all(|c| c.is_ascii_digit()) {
-            let name = parts[1];
+            let name = parts[1].trim_end_matches('.');
             if name != "FILLER"
                 && name.chars().all(|c| c.is_alphanumeric() || c == '-')
                 && name
@@ -4175,6 +4250,65 @@ END-EVALUATE
         assert_eq!(AcItem::kw("MOVE").insert, "MOVE ");
         // property completion closes the opening quote
         assert_eq!(AcItem::property("Caption").insert, "Caption\"");
+    }
+
+    #[test]
+    fn context_only_completion_excludes_reserved_words_and_paragraphs() {
+        let controls = vec![KnownControl {
+            id: "LineChart-1".to_string(),
+            ctrl_type: "LineChart".to_string(),
+            properties: vec!["ShadowEnabled".to_string(), "Caption".to_string()],
+            extra_methods: vec![],
+        }];
+        let source = "\
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-P-VALUE PIC 9(4).
+       PROCEDURE DIVISION.
+       DISPLAY-PARAGRAPH.
+           DISPLAY WS-P-VALUE.
+";
+        let items = build_completions("D", source, &controls, &[], true);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            !labels.contains(&"DISPLAY"),
+            "prompt IntelliSense should not show COBOL reserved words"
+        );
+        assert!(
+            !labels.contains(&"DISPLAY-PARAGRAPH"),
+            "prompt IntelliSense should not show paragraph labels"
+        );
+
+        let items = build_completions("S", source, &controls, &[], true);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"ShadowEnabled"));
+
+        let items = build_completions("Line", source, &controls, &[], true);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"LineChart-1"));
+    }
+
+    #[test]
+    fn context_only_completion_includes_fd_and_data_items() {
+        let source = "\
+       DATA DIVISION.
+       FILE SECTION.
+       FD CUSTOMER-FILE.
+       01 CUSTOMER-REC.
+          05 CUSTOMER-NAME PIC X(30).
+       WORKING-STORAGE SECTION.
+       01 WS-TOTAL PIC 9(5).
+       PROCEDURE DIVISION.
+";
+        let items = build_completions("C", source, &[], &["GLOBAL-CUSTOMER".to_string()], true);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"CUSTOMER-FILE"));
+        assert!(labels.contains(&"CUSTOMER-REC"));
+        assert!(labels.contains(&"CUSTOMER-NAME"));
+
+        let items = build_completions("G", source, &[], &["GLOBAL-CUSTOMER".to_string()], true);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"GLOBAL-CUSTOMER"));
     }
 
     #[test]

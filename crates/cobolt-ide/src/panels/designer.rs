@@ -1033,6 +1033,9 @@ pub struct DesignerPanel {
     /// The full-featured COBOL editor hosted inside the event modal (IntelliSense,
     /// find/replace, status bar) — the same engine as the main code editor.
     event_editor: super::editor::EditorPanel,
+    /// The AI prompt box in the event modal also uses the COBOL editor engine so
+    /// prompts that mention controls can complete `Control::Property` names.
+    ai_prompt_editor: super::editor::EditorPanel,
     /// The same hosted COBOL editor for the COBOL Structure popup (spec 005), so
     /// section / procedure code gets IntelliSense too. `cs_loaded` is the block
     /// currently in its buffer (reloaded only when the selection changes).
@@ -1089,6 +1092,7 @@ impl DesignerPanel {
             menu_modal: None,
             event_modal: None,
             event_editor: super::editor::EditorPanel::new(),
+            ai_prompt_editor: super::editor::EditorPanel::new(),
             cs_editor: super::editor::EditorPanel::new(),
             cs_loaded: None,
             show_preview: false,
@@ -2638,6 +2642,14 @@ impl DesignerPanel {
         );
         self.event_editor.known_controls = super::editor::build_known_controls(&self.form);
         self.event_editor.known_data_items = super::editor::build_known_data_items(&self.form);
+        self.ai_prompt_editor.open_buffer(
+            std::path::PathBuf::from(format!("{program_id}.ai-prompt")),
+            String::new(),
+        );
+        self.ai_prompt_editor.set_context_only_completions(true);
+        self.ai_prompt_editor.known_controls = super::editor::build_known_controls(&self.form);
+        self.ai_prompt_editor.known_data_items =
+            super::editor::build_prompt_data_items(&self.form, &source);
 
         self.event_modal = Some(EventEditorModal::new(
             ctrl_id, display, event_name, program_id, source,
@@ -3496,6 +3508,18 @@ impl DesignerPanel {
                         let badge_rect = egui::Rect::from_center_size(
                             egui::pos2(crect.max.x - 2.0, crect.min.y + 2.0),
                             Vec2::splat(12.0),
+                        );
+                        painter.circle_filled(
+                            badge_rect.center(),
+                            5.0,
+                            Color32::from_rgba_premultiplied(255, 180, 0, 180),
+                        );
+                        painter.text(
+                            badge_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "▶",
+                            egui::FontId::proportional(6.0),
+                            Color32::WHITE,
                         );
                         let anim_summary: String = ctrl
                             .animations
@@ -5541,11 +5565,21 @@ impl DesignerPanel {
             false
         };
         let ai_status = self.event_modal.as_ref().and_then(|m| m.ai_status.clone());
-        let mut ai_prompt = self
+        let modal_prompt = self
             .event_modal
-            .as_mut()
-            .map(|m| std::mem::take(&mut m.ai_prompt))
+            .as_ref()
+            .map(|m| m.ai_prompt.clone())
             .unwrap_or_default();
+        if self.ai_prompt_editor.buffer_content().is_none() {
+            self.ai_prompt_editor.open_buffer(
+                std::path::PathBuf::from(format!("{program_id}.ai-prompt")),
+                modal_prompt,
+            );
+        }
+        self.ai_prompt_editor.known_controls = super::editor::build_known_controls(&self.form);
+        let handler_source = self.event_editor.buffer_content().unwrap_or_default();
+        self.ai_prompt_editor.known_data_items =
+            super::editor::build_prompt_data_items(&self.form, handler_source);
         let mut do_send = false;
         let mut do_save = false;
         let mut do_compact = false;
@@ -5695,19 +5729,19 @@ impl DesignerPanel {
                             .max_size(egui::vec2(text_w, 320.0))
                             .default_size(egui::vec2(text_w, 64.0))
                             .show(ui, |ui| {
-                                let resp = ui.add_sized(
-                                    ui.available_size(),
-                                    egui::TextEdit::multiline(&mut ai_prompt)
-                                        .hint_text(tr.ai_prompt_placeholder)
-                                        .interactive(!busy),
-                                );
+                                let sz = ui.available_size();
+                                ui.allocate_ui(sz, |ui| {
+                                    frame.show(ui, |ui| {
+                                        self.ai_prompt_editor.render_code_area(&ectx, ui);
+                                    });
+                                });
+                                let prompt =
+                                    self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
                                 // Enter inserts a newline; ⌘/Ctrl+Enter submits.
-                                let submit = resp.has_focus()
-                                    && ui.input(|i| {
-                                        i.key_pressed(egui::Key::Enter)
-                                            && (i.modifiers.command || i.modifiers.ctrl)
-                                    })
-                                    && !ai_prompt.trim().is_empty();
+                                let submit = ui.input(|i| {
+                                    i.key_pressed(egui::Key::Enter)
+                                        && (i.modifiers.command || i.modifiers.ctrl)
+                                }) && !prompt.trim().is_empty();
                                 if submit && !busy {
                                     do_send = true;
                                 }
@@ -5715,7 +5749,9 @@ impl DesignerPanel {
                         ui.add_space(gap);
                         ui.vertical(|ui| {
                             ui.label(egui::RichText::new("✨").size(15.0));
-                            let can_send = !busy && !ai_prompt.trim().is_empty();
+                            let prompt =
+                                self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
+                            let can_send = !busy && !prompt.trim().is_empty();
                             if ui
                                 .add_enabled(can_send, egui::Button::new(tr.ai_send))
                                 .clicked()
@@ -5803,17 +5839,13 @@ impl DesignerPanel {
 
         // Persist the (possibly edited) prompt draft back onto the modal.
         if let Some(m) = self.event_modal.as_mut() {
-            m.ai_prompt = ai_prompt;
+            m.ai_prompt = self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
         }
 
         // Launch a handler-generation request on explicit submit only.
         if do_send && !busy {
             let code = self.event_editor.buffer_for_save().unwrap_or_default();
-            let user_prompt = self
-                .event_modal
-                .as_ref()
-                .map(|m| m.ai_prompt.clone())
-                .unwrap_or_default();
+            let user_prompt = self.ai_prompt_editor.buffer_for_save().unwrap_or_default();
             // Anchor the model to a nested-program handler body (the IDE owns the
             // IDENTIFICATION / PROGRAM-ID / GOBACK / END PROGRAM scaffold shown
             // read-only above and below the editor).
@@ -5859,6 +5891,15 @@ impl DesignerPanel {
                 m.ai_history.push(crate::llm::ChatTurn::user(&user_prompt));
                 m.ai_pending = Some(rx);
                 m.ai_prompt.clear();
+                self.ai_prompt_editor.open_buffer(
+                    std::path::PathBuf::from(format!("{program_id}.ai-prompt")),
+                    String::new(),
+                );
+                self.ai_prompt_editor.set_context_only_completions(true);
+                self.ai_prompt_editor.known_controls =
+                    super::editor::build_known_controls(&self.form);
+                self.ai_prompt_editor.known_data_items =
+                    super::editor::build_prompt_data_items(&self.form, &code);
                 m.ai_status = None;
                 m.ai_fix_attempts = 0;
                 save_event_history(project_root, &program_id, &m.ai_history);

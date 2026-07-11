@@ -179,6 +179,7 @@ impl SettingsForm {
             std::path::PathBuf::from("agentic_ai/assistant-prompt.md"),
             draft.llm_system_prompt.clone(),
         );
+        system_prompt_editor.set_context_only_completions(true);
         Self {
             baseline: draft.clone(),
             draft,
@@ -233,6 +234,7 @@ impl SettingsForm {
                 std::path::PathBuf::from("agentic_ai/assistant-prompt.md"),
                 self.draft.llm_system_prompt.clone(),
             );
+            self.system_prompt_editor.set_context_only_completions(true);
         }
     }
 
@@ -826,7 +828,7 @@ impl SettingsForm {
                                 let w = ui.available_width();
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.draft.llm_endpoint)
-                                        .hint_text("https://…/v1/chat/completions")
+                                        .hint_text("https://…/v1/chat/completions or /v1/responses")
                                         .desired_width(w),
                                 );
                             });

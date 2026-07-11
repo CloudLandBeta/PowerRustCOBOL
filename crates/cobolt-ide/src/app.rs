@@ -45,7 +45,7 @@ use cobolt_runtime::indexed_import::{definition_from_inspect, inspect_any_path};
 
 use crate::form_runtime::FormRuntime;
 use crate::i18n::{Language, Tr};
-use crate::panels::debugger::DebuggerPanel;
+use crate::panels::debugger::{DebugAction, DebuggerPanel};
 use crate::panels::{
     designer::DesignerPanel,
     editor::EditorPanel,
@@ -914,13 +914,15 @@ impl CoboltApp {
         self.editor.clear_diags();
         self.debugger.reset();
 
-        // Sync breakpoints from editor gutter into the shared set.
+        // Sync breakpoints into the interpreter's shared set and into the debug window.
+        let bp_lines = self.editor.breakpoints_for(&path);
+        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
+        self.debugger.set_source(path.display().to_string(), &source, &bp_set);
         {
-            let bp_lines = self.editor.breakpoints_for(&path);
             let mut guard = self.debug_runner.breakpoints.lock().unwrap();
             guard.clear();
-            for line in bp_lines {
-                guard.insert(line);
+            for line in &bp_lines {
+                guard.insert(*line);
             }
         }
 
@@ -4923,33 +4925,20 @@ impl eframe::App for CoboltApp {
             ToolbarAction::None => {}
         }
 
-        // ── Active debug-session controls (shown only while debugging) ────────
-        // Debugging is started from the main toolbar's Debug button (right of
-        // Run); this secondary row only appears during a session to Stop it.
+        // ── Debugger floating window ──────────────────────────────────────────
         if self.debug_active {
-            egui::TopBottomPanel::top("debug_toolbar").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button("■ Stop Debug").clicked() {
+            if let Some(action) = self.debugger.show(ctx, &tr) {
+                match action {
+                    DebugAction::Stop => {
                         self.debug_runner.stop();
                         self.debug_active = false;
                         self.debugger.reset();
                         self.editor.debug_line = None;
                     }
-                    // F5 / F10 keyboard shortcuts.
-                    if ctx.input(|i| i.key_pressed(egui::Key::F5)) {
-                        self.debug_runner.send_cmd(DebugCmd::Continue);
-                    }
-                    if ctx.input(|i| i.key_pressed(egui::Key::F10)) {
-                        self.debug_runner.send_cmd(DebugCmd::StepOver);
-                    }
-                });
-            });
-        }
-
-        // ── Debugger side panel ───────────────────────────────────────────────
-        if self.debug_active {
-            if let Some(cmd) = self.debugger.show(ctx, &tr, self.debug_runner.is_running()) {
-                self.debug_runner.send_cmd(cmd);
+                    DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
+                    DebugAction::StepOver => self.debug_runner.send_cmd(DebugCmd::StepOver),
+                    DebugAction::Pause => self.debug_runner.send_cmd(DebugCmd::Pause),
+                }
             }
         }
 

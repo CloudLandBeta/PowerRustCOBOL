@@ -8,6 +8,94 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.157] — 2026-07-11
+
+### Fixed
+
+- **Debugger floating window** — Debug controls (Continue F5, Step Over F10,
+  Pause, Stop) and all session state are now shown in a resizable floating window
+  instead of a side panel and secondary toolbar. The window contains a
+  syntax-highlighted COBOL source viewer with line numbers, a red breakpoint dot
+  (●) in the gutter, an amber current-line arrow (►), and auto-scroll to the
+  paused line. Three tabs cover Variables (filterable), Call Stack, and
+  Breakpoints. The IDE toolbar retains only the Debug launch button; the
+  secondary toolbar that appeared above the editor during a session is removed.
+
+## [PowerRustCOBOL 1.27.156] — 2026-07-11
+
+### Fixed
+
+- **Vertical slider drag direction** — Vertical sliders now map upward knob drags
+  to increasing values, matching their painted scale, so the knob follows the
+  pointer instead of moving in the opposite direction.
+
+## [PowerRustCOBOL 1.27.155] — 2026-07-11
+
+### Fixed
+
+- **AI prompt IntelliSense filtering** — AI assistant prompt editors now use a
+  context-only completion mode: control names, control properties, FD records,
+  and local/global data items are offered, while COBOL reserved words and
+  paragraph labels are suppressed.
+
+## [PowerRustCOBOL 1.27.154] — 2026-07-11
+
+### Fixed
+
+- **User chat bubble colors** — Developer/user chat balloons now use background
+  `#3dcd8bff` and foreground `#555753ff`.
+
+## [PowerRustCOBOL 1.27.153] — 2026-07-11
+
+### Fixed
+
+- **Event editor debug ID overlay** — Embedded COBOL editors now use distinct
+  egui widget ID namespaces, so the handler editor and AI prompt editor no
+  longer trigger duplicate-ID debug labels such as “First/Second use of widget
+  ID”.
+
+## [PowerRustCOBOL 1.27.152] — 2026-07-11
+
+### Fixed
+
+- **COBOL response bubble colors** — Assistant/COBOL response chat balloons now
+  use background `#3d8bcdff` and foreground `#e6e6e6ff` for better contrast.
+
+## [PowerRustCOBOL 1.27.151] — 2026-07-11
+
+### Fixed
+
+- **Grok Responses payload compatibility** — Legacy saved Grok chat endpoint URLs
+  are now normalized to `https://api.x.ai/v1/responses`, and Responses endpoint
+  detection ignores query/fragment suffixes so requests never send unsupported
+  `max_tokens` to xAI's Responses API.
+
+## [PowerRustCOBOL 1.27.150] — 2026-07-11
+
+### Fixed
+
+- **Grok endpoint uses xAI Responses API** — Selecting Grok now fills
+  `https://api.x.ai/v1/responses`, and the AI transport sends/parses Responses
+  API payloads while keeping existing chat-completions providers unchanged.
+
+## [PowerRustCOBOL 1.27.149] — 2026-07-11
+
+### Fixed
+
+- **Event AI prompt IntelliSense** — The Event Handler assistant prompt now uses
+  the shared COBOL editor engine instead of a plain multiline text box, so typing
+  `Control::` in the chat prompt offers the same live control property/method
+  completions as the handler editor.
+
+## [PowerRustCOBOL 1.27.148] — 2026-07-11
+
+### Fixed
+
+- **Animation badge is designer-only** — Controls with animations still show the
+  yellow play badge on the RAD Designer canvas, but the badge is no longer drawn
+  by the shared control painter. Preview, Run Form, and compiled binaries now
+  render animated controls without editor-only chrome.
+
 ## [PowerRustCOBOL 1.27.147] — 2026-07-11
 
 ### Fixed

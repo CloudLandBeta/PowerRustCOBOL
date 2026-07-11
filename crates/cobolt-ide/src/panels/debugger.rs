@@ -4,36 +4,61 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Debugger panel — Phase 7.
+//! Debugger floating window — Phase 7+.
 //!
-//! Shown on the right side of the IDE while a debug session is active.
-//! Provides:
-//!   • Step toolbar: ▶ Continue, ⤵ Step Over, ⏸ Pause, ■ Stop
-//!   • Current paragraph / source location
-//!   • Variable watch table with search filter
+//! Opened automatically when a debug session starts. Provides:
+//!   • Debug toolbar: Stop / Continue (F5) / Step Over (F10) / Pause
+//!   • Source viewer: line numbers, breakpoint gutter (●), current-line arrow (►),
+//!     simple COBOL syntax colouring
+//!   • Tabbed data panel: Variables (filterable), Call Stack, Breakpoints
 
-use egui::{Color32, Context, RichText, ScrollArea, SidePanel, TextEdit};
+use egui::{Color32, Context, Key, RichText, ScrollArea, TextEdit, Vec2};
+use std::collections::HashSet;
 
 use crate::i18n::Tr;
 use crate::runner::{DebugRunner, RunMsg};
 use cobolt_runtime::{DebugCmd, DebugEvent, VarSnapshot};
 
+// ── Tab ───────────────────────────────────────────────────────────────────────
+
+#[derive(PartialEq, Clone, Copy, Default)]
+enum Tab {
+    #[default]
+    Variables,
+    CallStack,
+    Breakpoints,
+}
+
+// ── DebugAction ───────────────────────────────────────────────────────────────
+
+/// Action requested by the debug window in a single frame.
+pub enum DebugAction {
+    Stop,
+    Continue,
+    StepOver,
+    Pause,
+}
+
 // ── DebuggerPanel ─────────────────────────────────────────────────────────────
 
-/// State for the IDE debugger panel.
+/// State for the floating debugger window.
 pub struct DebuggerPanel {
-    /// Variable search filter (typed by user).
+    // Runtime state
     var_filter: String,
-    /// Most recent variable snapshot from the interpreter.
     vars: Vec<VarSnapshot>,
-    /// Name of the paragraph currently paused at.
     current_para: String,
-    /// Source line currently paused at (1-based, 0 = unknown).
     current_line: u32,
-    /// `true` when the interpreter is paused (waiting for a command).
     is_paused: bool,
-    /// Buffered output lines from the debug run (shown in the output panel).
     pub pending_output: Vec<RunMsg>,
+
+    // Source viewer
+    source_lines: Vec<String>,
+    source_path: String,
+    breakpoints: HashSet<u32>,
+    last_scrolled_line: u32,
+
+    // UI state
+    active_tab: Tab,
 }
 
 impl Default for DebuggerPanel {
@@ -51,24 +76,39 @@ impl DebuggerPanel {
             current_line: 0,
             is_paused: false,
             pending_output: Vec::new(),
+            source_lines: Vec::new(),
+            source_path: String::new(),
+            breakpoints: HashSet::new(),
+            last_scrolled_line: 0,
+            active_tab: Tab::default(),
         }
     }
 
-    /// Reset all state (call when starting a new session).
+    /// Reset all runtime state (call when starting a new session).
     pub fn reset(&mut self) {
         self.vars.clear();
         self.current_para.clear();
         self.current_line = 0;
         self.is_paused = false;
         self.pending_output.clear();
+        self.last_scrolled_line = 0;
     }
 
-    /// Process events from `DebugRunner` and run messages; returns `true` if
-    /// the UI needs to repaint.
+    /// Supply the COBOL source text and initial breakpoint set at session start.
+    pub fn set_source(&mut self, path: String, source: &str, bps: &HashSet<u32>) {
+        self.source_path = path;
+        self.source_lines = source.lines().map(|l| l.to_owned()).collect();
+        self.breakpoints = bps.clone();
+    }
+
+    /// Sync the live breakpoint set from the editor gutter.
+    pub fn set_breakpoints(&mut self, bps: &HashSet<u32>) {
+        self.breakpoints = bps.clone();
+    }
+
+    /// Process events from `DebugRunner`; returns `true` if the UI needs to repaint.
     pub fn process(&mut self, runner: &mut DebugRunner) -> bool {
         let mut dirty = false;
-
-        // Drain debug events.
         for ev in runner.drain_events() {
             dirty = true;
             match ev {
@@ -92,161 +132,620 @@ impl DebuggerPanel {
                 }
             }
         }
-
-        // Drain run messages (pass to caller via pending_output).
         for msg in runner.drain_run() {
             dirty = true;
             self.pending_output.push(msg);
         }
-
         dirty
     }
 
-    /// Render the debugger side panel.
+    /// Render the floating debugger window.
     ///
-    /// Returns the `DebugCmd` the user clicked, or `None`.
-    pub fn show(&mut self, ctx: &Context, tr: &Tr, runner_active: bool) -> Option<DebugCmd> {
-        let mut cmd: Option<DebugCmd> = None;
+    /// Returns a [`DebugAction`] when the user presses a control or keyboard shortcut.
+    pub fn show(&mut self, ctx: &Context, tr: &Tr) -> Option<DebugAction> {
+        let mut action: Option<DebugAction> = None;
 
-        SidePanel::right("debugger_panel")
+        // Global keyboard shortcuts — active even when the window is not focused.
+        if self.is_paused {
+            if ctx.input(|i| i.key_pressed(Key::F5)) {
+                action = Some(DebugAction::Continue);
+                self.is_paused = false;
+            }
+            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F10)) {
+                action = Some(DebugAction::StepOver);
+                self.is_paused = false;
+            }
+        }
+
+        let file_name = std::path::Path::new(&self.source_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("debugger");
+
+        let need_scroll =
+            self.current_line != self.last_scrolled_line && self.current_line > 0;
+
+        egui::Window::new(format!("🐛  {file_name}"))
+            .id(egui::Id::new("debugger_window"))
             .resizable(true)
-            .default_width(260.0)
-            .min_width(160.0)
+            .collapsible(false)
+            .default_size([860.0, 460.0])
+            .min_size([480.0, 320.0])
             .show(ctx, |ui| {
-                ui.strong(tr.panel_debugger);
-                ui.separator();
-
-                // ── Step toolbar ──────────────────────────────────────────────
+                // ── Status row ────────────────────────────────────────────────
                 ui.horizontal(|ui| {
-                    ui.set_enabled(runner_active);
+                    let (status_text, status_color) = if self.is_paused {
+                        let text = if self.current_para.is_empty() {
+                            "● Paused".to_owned()
+                        } else {
+                            format!(
+                                "● Paused — {}   line {}",
+                                self.current_para, self.current_line
+                            )
+                        };
+                        (text, Color32::from_rgb(220, 180, 50))
+                    } else {
+                        ("○ Running".to_owned(), Color32::from_rgb(80, 200, 80))
+                    };
+                    ui.label(
+                        RichText::new(status_text)
+                            .color(status_color)
+                            .size(12.0),
+                    );
+                });
 
-                    // Continue
+                // ── Controls toolbar ──────────────────────────────────────────
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(egui::Button::new(
+                            RichText::new("■  Stop").color(Color32::from_rgb(220, 80, 80)),
+                        ))
+                        .on_hover_text(tr.dbg_stop)
+                        .clicked()
+                    {
+                        action = Some(DebugAction::Stop);
+                    }
+
+                    ui.separator();
+
                     if ui
                         .add_enabled(
                             self.is_paused,
-                            egui::Button::new(RichText::new("▶").size(14.0))
-                                .min_size([28.0, 28.0].into()),
+                            egui::Button::new("▶  Continue   F5"),
                         )
                         .on_hover_text(tr.dbg_continue)
                         .clicked()
                     {
-                        cmd = Some(DebugCmd::Continue);
+                        action = Some(DebugAction::Continue);
                         self.is_paused = false;
                     }
 
-                    // Step Over
                     if ui
                         .add_enabled(
                             self.is_paused,
-                            egui::Button::new(RichText::new("⤵").size(14.0))
-                                .min_size([28.0, 28.0].into()),
+                            egui::Button::new("⤵  Step over   F10"),
                         )
                         .on_hover_text(tr.dbg_step_over)
                         .clicked()
                     {
-                        cmd = Some(DebugCmd::StepOver);
+                        action = Some(DebugAction::StepOver);
                         self.is_paused = false;
                     }
 
-                    // Pause
+                    ui.separator();
+
                     if ui
                         .add_enabled(
-                            !self.is_paused && runner_active,
-                            egui::Button::new(RichText::new("⏸").size(14.0))
-                                .min_size([28.0, 28.0].into()),
+                            !self.is_paused,
+                            egui::Button::new("⏸  Pause"),
                         )
                         .on_hover_text(tr.dbg_pause)
                         .clicked()
                     {
-                        cmd = Some(DebugCmd::Pause);
+                        action = Some(DebugAction::Pause);
                     }
                 });
 
                 ui.separator();
 
-                // ── Current location ──────────────────────────────────────────
-                if !self.current_para.is_empty() {
-                    ui.horizontal(|ui| {
+                // ── Split body ────────────────────────────────────────────────
+                let body_h = ui.available_height();
+                let total_w = ui.available_width();
+                let right_w = (265.0_f32).min(total_w * 0.42);
+                let left_w = (total_w - right_w - 8.0).max(120.0);
+
+                ui.horizontal_top(|ui| {
+                    // ── Code viewer ───────────────────────────────────────────
+                    ui.allocate_ui(Vec2::new(left_w, body_h), |ui| {
+                        // File path in muted monospace
                         ui.label(
-                            RichText::new(format!("¶ {}", self.current_para))
+                            RichText::new(&self.source_path)
                                 .monospace()
-                                .color(Color32::from_rgb(100, 200, 255)),
+                                .size(10.0)
+                                .color(Color32::from_gray(95)),
                         );
-                        if self.current_line > 0 {
-                            ui.label(
-                                RichText::new(format!("  line {}", self.current_line))
-                                    .color(Color32::from_gray(150)),
-                            );
-                        }
-                    });
-                    ui.label(
-                        RichText::new(if self.is_paused {
-                            "● Paused"
-                        } else {
-                            "● Running"
-                        })
-                        .color(if self.is_paused {
-                            Color32::from_rgb(255, 200, 50)
-                        } else {
-                            Color32::from_rgb(80, 200, 80)
-                        }),
-                    );
-                } else if runner_active {
-                    ui.label(RichText::new("● Starting…").color(Color32::from_gray(150)));
-                } else {
-                    ui.label(RichText::new("No debug session").color(Color32::from_gray(110)));
-                }
 
-                ui.separator();
-
-                // ── Variable watch ────────────────────────────────────────────
-                ui.label(RichText::new(tr.dbg_variables).strong());
-                ui.add(
-                    TextEdit::singleline(&mut self.var_filter)
-                        .hint_text(tr.dbg_filter_hint)
-                        .desired_width(f32::INFINITY),
-                );
-                ui.add_space(2.0);
-
-                let filter = self.var_filter.to_ascii_lowercase();
-                let filtered: Vec<&VarSnapshot> = self
-                    .vars
-                    .iter()
-                    .filter(|v| filter.is_empty() || v.name.to_ascii_lowercase().contains(&filter))
-                    .collect();
-
-                ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        egui::Grid::new("var_watch")
-                            .num_columns(2)
-                            .striped(true)
-                            .min_col_width(60.0)
+                        ScrollArea::both()
+                            .id_salt("dbg_code_scroll")
+                            .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                let theme = crate::theme::active();
-                                for v in &filtered {
-                                    ui.label(
-                                        RichText::new(&v.name).monospace().color(theme.ed_data),
-                                    );
-                                    ui.label(
-                                        RichText::new(&v.value).monospace().color(theme.ed_plain),
-                                    );
-                                    ui.end_row();
+                                let current = self.current_line;
+                                let bps = &self.breakpoints;
+
+                                for (idx, line_text) in
+                                    self.source_lines.iter().enumerate()
+                                {
+                                    let line_num = (idx + 1) as u32;
+                                    let is_current = line_num == current;
+                                    let is_bp = bps.contains(&line_num);
+
+                                    // Amber background for the current line
+                                    if is_current {
+                                        let rect = ui.available_rect_before_wrap();
+                                        let bg = egui::Rect::from_min_size(
+                                            rect.min,
+                                            Vec2::new(rect.width().max(left_w), 19.0),
+                                        );
+                                        ui.painter().rect_filled(
+                                            bg,
+                                            0.0,
+                                            Color32::from_rgba_premultiplied(
+                                                70, 55, 0, 180,
+                                            ),
+                                        );
+                                    }
+
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 0.0;
+
+                                        // Line number
+                                        ui.add_sized(
+                                            [32.0, 18.0],
+                                            egui::Label::new(
+                                                RichText::new(format!(
+                                                    "{:>4}",
+                                                    line_num
+                                                ))
+                                                .monospace()
+                                                .size(11.0)
+                                                .color(Color32::from_gray(80)),
+                                            ),
+                                        );
+
+                                        // Gutter: breakpoint dot and/or ► arrow
+                                        let (gut_rect, _) = ui
+                                            .allocate_exact_size(
+                                                Vec2::new(18.0, 18.0),
+                                                egui::Sense::hover(),
+                                            );
+                                        if is_bp {
+                                            ui.painter().circle_filled(
+                                                gut_rect.center(),
+                                                4.5,
+                                                Color32::from_rgb(210, 50, 50),
+                                            );
+                                        }
+                                        if is_current {
+                                            ui.painter().text(
+                                                gut_rect.center()
+                                                    + Vec2::new(2.0, 0.0),
+                                                egui::Align2::CENTER_CENTER,
+                                                "►",
+                                                egui::FontId::monospace(11.0),
+                                                Color32::from_rgb(230, 180, 40),
+                                            );
+                                        }
+
+                                        // Syntax-highlighted source line
+                                        let job =
+                                            build_cobol_layout_job(line_text);
+                                        ui.label(job);
+                                    });
+
+                                    // Auto-scroll when current line changes
+                                    if is_current && need_scroll {
+                                        ui.scroll_to_cursor(Some(
+                                            egui::Align::Center,
+                                        ));
+                                    }
                                 }
                             });
                     });
+
+                    // Vertical divider
+                    ui.add(egui::Separator::default().vertical().spacing(4.0));
+
+                    // ── Tabbed data panel ─────────────────────────────────────
+                    ui.allocate_ui(Vec2::new(right_w, body_h), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.selectable_value(
+                                &mut self.active_tab,
+                                Tab::Variables,
+                                tr.dbg_variables,
+                            );
+                            ui.selectable_value(
+                                &mut self.active_tab,
+                                Tab::CallStack,
+                                "Call stack",
+                            );
+                            ui.selectable_value(
+                                &mut self.active_tab,
+                                Tab::Breakpoints,
+                                "Breakpoints",
+                            );
+                        });
+                        ui.separator();
+
+                        match self.active_tab {
+                            Tab::Variables => {
+                                ui.add(
+                                    TextEdit::singleline(&mut self.var_filter)
+                                        .hint_text(tr.dbg_filter_hint)
+                                        .desired_width(f32::INFINITY),
+                                );
+                                ui.add_space(2.0);
+                                let filter = self.var_filter.to_ascii_lowercase();
+                                let filtered: Vec<&VarSnapshot> = self
+                                    .vars
+                                    .iter()
+                                    .filter(|v| {
+                                        filter.is_empty()
+                                            || v.name
+                                                .to_ascii_lowercase()
+                                                .contains(&filter)
+                                    })
+                                    .collect();
+                                ScrollArea::vertical()
+                                    .id_salt("dbg_vars_scroll")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        egui::Grid::new("dbg_var_grid")
+                                            .num_columns(2)
+                                            .striped(true)
+                                            .min_col_width(60.0)
+                                            .show(ui, |ui| {
+                                                let theme = crate::theme::active();
+                                                for v in &filtered {
+                                                    ui.label(
+                                                        RichText::new(&v.name)
+                                                            .monospace()
+                                                            .color(theme.ed_data),
+                                                    );
+                                                    ui.label(
+                                                        RichText::new(&v.value)
+                                                            .monospace()
+                                                            .color(theme.ed_plain),
+                                                    );
+                                                    ui.end_row();
+                                                }
+                                            });
+                                    });
+                            }
+
+                            Tab::CallStack => {
+                                ScrollArea::vertical()
+                                    .id_salt("dbg_stack_scroll")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        if self.current_para.is_empty() {
+                                            ui.label(
+                                                RichText::new("No active frame")
+                                                    .color(Color32::from_gray(100)),
+                                            );
+                                        } else {
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new("►")
+                                                        .color(Color32::from_rgb(
+                                                            220, 180, 50,
+                                                        )),
+                                                );
+                                                ui.label(
+                                                    RichText::new(
+                                                        &self.current_para,
+                                                    )
+                                                    .monospace()
+                                                    .color(Color32::from_rgb(
+                                                        100, 180, 255,
+                                                    )),
+                                                );
+                                            });
+                                            if self.current_line > 0 {
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "   line {}",
+                                                        self.current_line
+                                                    ))
+                                                    .monospace()
+                                                    .size(11.0)
+                                                    .color(Color32::from_gray(
+                                                        120,
+                                                    )),
+                                                );
+                                            }
+                                        }
+                                    });
+                            }
+
+                            Tab::Breakpoints => {
+                                ScrollArea::vertical()
+                                    .id_salt("dbg_bp_scroll")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        if self.breakpoints.is_empty() {
+                                            ui.label(
+                                                RichText::new("No breakpoints set")
+                                                    .color(Color32::from_gray(100)),
+                                            );
+                                        } else {
+                                            let mut sorted: Vec<u32> = self
+                                                .breakpoints
+                                                .iter()
+                                                .cloned()
+                                                .collect();
+                                            sorted.sort_unstable();
+                                            egui::Grid::new("dbg_bp_grid")
+                                                .num_columns(2)
+                                                .striped(true)
+                                                .show(ui, |ui| {
+                                                    for line in &sorted {
+                                                        ui.label(
+                                                            RichText::new("●")
+                                                                .color(Color32::from_rgb(
+                                                                    210, 50, 50,
+                                                                )),
+                                                        );
+                                                        ui.label(
+                                                            RichText::new(
+                                                                format!("line {line}"),
+                                                            )
+                                                            .monospace()
+                                                            .color(Color32::from_rgb(
+                                                                100, 180, 255,
+                                                            )),
+                                                        );
+                                                        ui.end_row();
+                                                    }
+                                                });
+                                        }
+                                    });
+                            }
+                        }
+                    });
+                });
             });
 
-        cmd
+        if need_scroll {
+            self.last_scrolled_line = self.current_line;
+        }
+
+        action
     }
 
-    /// Returns `true` if the interpreter is currently paused.
     pub fn is_paused(&self) -> bool {
         self.is_paused
     }
 
-    /// Current paused source line (1-based), or 0 if not paused.
     pub fn current_line(&self) -> u32 {
         self.current_line
     }
+}
+
+// ── COBOL syntax highlighter ──────────────────────────────────────────────────
+
+const COBOL_KEYWORDS: &[&str] = &[
+    "ACCEPT",
+    "ADD",
+    "ALL",
+    "AND",
+    "BINARY",
+    "BY",
+    "CALL",
+    "CLOSE",
+    "COMP",
+    "COMP-3",
+    "COMP-4",
+    "COMPUTE",
+    "CONFIGURATION",
+    "DATA",
+    "DELETE",
+    "DEPENDING",
+    "DISPLAY",
+    "DIVIDE",
+    "END-CALL",
+    "END-COMPUTE",
+    "END-EVALUATE",
+    "END-IF",
+    "END-PERFORM",
+    "END-READ",
+    "END-WRITE",
+    "ENVIRONMENT",
+    "EQUAL",
+    "ERROR",
+    "EVALUATE",
+    "EXIT",
+    "EXTEND",
+    "FROM",
+    "GIVING",
+    "GLOBAL",
+    "GOBACK",
+    "GREATER",
+    "HIGH-VALUE",
+    "HIGH-VALUES",
+    "I-O",
+    "IDENTIFICATION",
+    "IF",
+    "INITIALIZE",
+    "INPUT",
+    "INPUT-OUTPUT",
+    "INSPECT",
+    "IS",
+    "LESS",
+    "LINKAGE",
+    "LOW-VALUE",
+    "LOW-VALUES",
+    "MOVE",
+    "MULTIPLY",
+    "NOT",
+    "OCCURS",
+    "OF",
+    "ON",
+    "OPEN",
+    "OR",
+    "OTHER",
+    "OUTPUT",
+    "OVERFLOW",
+    "PACKED-DECIMAL",
+    "PERFORM",
+    "PIC",
+    "PICTURE",
+    "PROCEDURE",
+    "PROGRAM",
+    "PROGRAM-ID",
+    "READ",
+    "REDEFINES",
+    "REMAINDER",
+    "REWRITE",
+    "ROUNDED",
+    "RUN",
+    "SECTION",
+    "SET",
+    "SIZE",
+    "SPACE",
+    "SPACES",
+    "START",
+    "STOP",
+    "STRING",
+    "SUBTRACT",
+    "THAN",
+    "THEN",
+    "TIMES",
+    "TO",
+    "UNSTRING",
+    "USING",
+    "VALUE",
+    "VALUES",
+    "WHEN",
+    "WORKING-STORAGE",
+    "WRITE",
+    "ZERO",
+    "ZEROES",
+    "ZEROS",
+    "COMMON",
+    "DIVISION",
+    "ELSE",
+];
+
+fn is_cobol_keyword(word: &str) -> bool {
+    let upper = word.to_ascii_uppercase();
+    COBOL_KEYWORDS.iter().any(|&kw| kw == upper.as_str())
+}
+
+fn build_cobol_layout_job(line: &str) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    // Disable wrapping — code lines extend to the right.
+    job.wrap.max_width = f32::INFINITY;
+
+    let mono = egui::FontId::monospace(12.0);
+    let col_kw = Color32::from_rgb(86, 156, 214);
+    let col_str = Color32::from_rgb(206, 145, 120);
+    let col_cmt = Color32::from_rgb(87, 166, 74);
+    let col_num = Color32::from_rgb(181, 206, 168);
+    let col_def = Color32::from_gray(210);
+
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("*>") {
+        job.append(
+            line,
+            0.0,
+            egui::text::TextFormat {
+                font_id: mono,
+                color: col_cmt,
+                ..Default::default()
+            },
+        );
+        return job;
+    }
+
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    macro_rules! fmt {
+        ($color:expr) => {
+            egui::text::TextFormat {
+                font_id: mono.clone(),
+                color: $color,
+                ..Default::default()
+            }
+        };
+    }
+
+    while i < len {
+        if chars[i] == '"' {
+            let start = i;
+            i += 1;
+            while i < len && chars[i] != '"' {
+                i += 1;
+            }
+            if i < len {
+                i += 1;
+            }
+            job.append(
+                &chars[start..i].iter().collect::<String>(),
+                0.0,
+                fmt!(col_str),
+            );
+        } else if chars[i].is_alphabetic() {
+            let start = i;
+            i += 1;
+            while i < len {
+                if chars[i].is_alphanumeric() {
+                    i += 1;
+                } else if chars[i] == '-'
+                    && i + 1 < len
+                    && chars[i + 1].is_alphanumeric()
+                {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let word: String = chars[start..i].iter().collect();
+            let color = if is_cobol_keyword(&word) { col_kw } else { col_def };
+            job.append(&word, 0.0, fmt!(color));
+        } else if chars[i].is_ascii_digit() {
+            let start = i;
+            while i < len && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
+            }
+            job.append(
+                &chars[start..i].iter().collect::<String>(),
+                0.0,
+                fmt!(col_num),
+            );
+        } else {
+            let start = i;
+            while i < len
+                && !chars[i].is_alphabetic()
+                && chars[i] != '"'
+                && !chars[i].is_ascii_digit()
+            {
+                if chars[i] == '-'
+                    && i + 1 < len
+                    && chars[i + 1].is_alphanumeric()
+                {
+                    break;
+                }
+                i += 1;
+            }
+            job.append(
+                &chars[start..i].iter().collect::<String>(),
+                0.0,
+                fmt!(col_def),
+            );
+        }
+    }
+
+    job
 }

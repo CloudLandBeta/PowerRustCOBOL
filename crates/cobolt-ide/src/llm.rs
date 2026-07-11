@@ -65,8 +65,8 @@ When you are unsure whether they want a change, ask a brief clarifying question 
 /// Global AI-assistant configuration (connection details + system prompt).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
-    /// Full chat-completions endpoint URL (e.g.
-    /// `https://api.openai.com/v1/chat/completions` or a private cloud URL).
+    /// Full model endpoint URL (e.g. OpenAI-compatible
+    /// `/v1/chat/completions`, xAI `/v1/responses`, or a private cloud URL).
     #[serde(default)]
     pub endpoint: String,
     /// Bearer token / API key. Sent as `Authorization: Bearer <key>` when set.
@@ -643,12 +643,13 @@ pub fn spawn_detect(url: &str) -> Receiver<Result<DetectedApi, String>> {
 
 // ── AI providers (spec: provider picker) ────────────────────────────────────
 //
-// A small registry of the cloud/local providers PowerRustCOBOL can drive. All of
-// them are reached through the same OpenAI-style `/v1/chat/completions` transport
-// (`Authorization: Bearer <key>`), except Amazon Bedrock which requires SigV4 and
-// therefore only ships a curated fallback model list (no live listing / no direct
-// Bearer chat). Selecting a provider fills in its default endpoint URL and the
-// recommended system prompt, and (best-effort) fetches its current model list.
+// A small registry of the cloud/local providers PowerRustCOBOL can drive. Most
+// providers are reached through the OpenAI-style `/v1/chat/completions` transport
+// (`Authorization: Bearer <key>`); Grok/xAI uses `/v1/responses`; Amazon Bedrock
+// requires SigV4 and therefore only ships a curated fallback model list (no live
+// listing / no direct Bearer chat). Selecting a provider fills in its default
+// endpoint URL and the recommended system prompt, and (best-effort) fetches its
+// current model list.
 
 /// A supported AI provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -717,7 +718,7 @@ impl Provider {
         }
     }
 
-    /// The default chat-completions endpoint filled in when the provider is picked.
+    /// The default model endpoint filled in when the provider is picked.
     pub fn default_endpoint(self) -> &'static str {
         match self {
             Provider::OllamaLocal => "http://localhost:11434/v1/chat/completions",
@@ -732,7 +733,7 @@ impl Provider {
             Provider::Alibaba => {
                 "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
             }
-            Provider::Grok => "https://api.x.ai/v1/chat/completions",
+            Provider::Grok => "https://api.x.ai/v1/responses",
             Provider::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
             Provider::HuggingFace => "https://router.huggingface.co/v1/chat/completions",
         }
@@ -1010,6 +1011,9 @@ pub fn spawn_list_models(
 /// already carries a path is left untouched.
 fn normalize_endpoint(raw: &str) -> String {
     let e = raw.trim().trim_end_matches('/');
+    if e.eq_ignore_ascii_case("https://api.x.ai/v1/chat/completions") {
+        return "https://api.x.ai/v1/responses".to_string();
+    }
     if let Some((_, rest)) = e.split_once("://") {
         if !rest.contains('/') {
             // scheme://host[:port] with no path → append the standard chat path.
@@ -1017,6 +1021,50 @@ fn normalize_endpoint(raw: &str) -> String {
         }
     }
     e.to_string()
+}
+
+fn is_responses_endpoint(endpoint: &str) -> bool {
+    let without_query = endpoint
+        .split_once('?')
+        .map(|(path, _)| path)
+        .unwrap_or(endpoint);
+    let without_fragment = without_query
+        .split_once('#')
+        .map(|(path, _)| path)
+        .unwrap_or(without_query);
+    without_fragment
+        .trim_end_matches('/')
+        .eq_ignore_ascii_case("https://api.x.ai/v1/responses")
+        || without_fragment
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+            .ends_with("/v1/responses")
+}
+
+fn build_request_body(
+    endpoint: &str,
+    model: &str,
+    messages: Vec<serde_json::Value>,
+    temperature: f32,
+    max_tokens: u32,
+) -> serde_json::Value {
+    if is_responses_endpoint(endpoint) {
+        serde_json::json!({
+            "model": model,
+            "input": messages,
+            "temperature": temperature,
+            "max_output_tokens": max_tokens,
+            "stream": true,
+        })
+    } else {
+        serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": true,
+        })
+    }
 }
 
 fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<LlmResponse> {
@@ -1069,13 +1117,7 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
     // tokens incrementally, so a slow local model succeeds as long as tokens keep
     // flowing — the read timeout below is per-read, not a deadline on the whole
     // (possibly minutes-long) generation.
-    let body = serde_json::json!({
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "stream": true,
-    });
+    let body = build_request_body(&endpoint, &model, messages, temperature, max_tokens);
 
     let req_body = serde_json::to_string_pretty(&body).unwrap_or_default();
     let mut headers = vec![
@@ -1604,14 +1646,50 @@ fn compose_user_message(user_prompt: &str, code: &str, filename: &str) -> String
     )
 }
 
-/// Pull `choices[0].message.content` out of an OpenAI-style response.
+/// Pull assistant text out of either an OpenAI chat-completions response or a
+/// Responses API response (`output_text` / `output[].content[].text`).
 fn extract_reply(json: &serde_json::Value) -> Option<String> {
-    json.get("choices")?
-        .get(0)?
-        .get("message")?
-        .get("content")?
-        .as_str()
-        .map(|s| s.to_string())
+    if let Some(text) = json
+        .get("choices")
+        .and_then(|v| v.get(0))
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.get("content"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(text.to_string());
+    }
+    if let Some(text) = json.get("output_text").and_then(|v| v.as_str()) {
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    let mut out = String::new();
+    for item in json
+        .get("output")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+    {
+        for content in item
+            .get("content")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+        {
+            if let Some(text) = content
+                .get("text")
+                .or_else(|| content.get("value"))
+                .and_then(|v| v.as_str())
+            {
+                out.push_str(text);
+            }
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// Pull the model's *reasoning* (chain-of-thought) out of a response, when the
@@ -1620,9 +1698,22 @@ fn extract_reply(json: &serde_json::Value) -> Option<String> {
 /// (xAI / some OpenAI proxies), or Ollama-native `thinking`. Returns the trimmed
 /// text, or `None` when the model didn't emit separate reasoning.
 fn extract_reasoning(json: &serde_json::Value) -> Option<String> {
-    let msg = json.get("choices")?.get(0)?.get("message")?;
-    for key in ["reasoning_content", "reasoning", "thinking"] {
-        if let Some(s) = msg.get(key).and_then(|v| v.as_str()) {
+    if let Some(msg) = json
+        .get("choices")
+        .and_then(|v| v.get(0))
+        .and_then(|v| v.get("message"))
+    {
+        for key in ["reasoning_content", "reasoning", "thinking"] {
+            if let Some(s) = msg.get(key).and_then(|v| v.as_str()) {
+                let t = s.trim();
+                if !t.is_empty() {
+                    return Some(t.to_string());
+                }
+            }
+        }
+    }
+    for key in ["reasoning", "reasoning_content", "thinking"] {
+        if let Some(s) = json.get(key).and_then(|v| v.as_str()) {
             let t = s.trim();
             if !t.is_empty() {
                 return Some(t.to_string());
@@ -1632,22 +1723,50 @@ fn extract_reasoning(json: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// Pull the incremental `(content, reasoning)` out of one streamed SSE chunk
-/// (`choices[0].delta.*`). Either part may be absent in a given chunk.
+/// Pull the incremental `(content, reasoning)` out of one streamed SSE chunk.
+/// Supports both chat-completions (`choices[0].delta.*`) and Responses API
+/// chunks (`response.output_text.delta`, `delta`, or output content arrays).
 fn extract_stream_delta(json: &serde_json::Value) -> (Option<String>, Option<String>) {
     let delta = json
         .get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("delta"));
-    let content = delta
+    let mut content = delta
         .and_then(|d| d.get("content"))
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(String::from);
+    if content.is_none() {
+        content = json
+            .get("delta")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+    }
+    if content.is_none() {
+        content = json
+            .get("output_text")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+    }
+    if content.is_none() {
+        content = extract_reply(json);
+    }
     let mut reasoning = None;
     if let Some(d) = delta {
         for key in ["reasoning_content", "reasoning", "thinking"] {
             if let Some(s) = d.get(key).and_then(|v| v.as_str()) {
+                if !s.is_empty() {
+                    reasoning = Some(s.to_string());
+                    break;
+                }
+            }
+        }
+    }
+    if reasoning.is_none() {
+        for key in ["reasoning_delta", "reasoning", "thinking"] {
+            if let Some(s) = json.get(key).and_then(|v| v.as_str()) {
                 if !s.is_empty() {
                     reasoning = Some(s.to_string());
                     break;
@@ -1929,10 +2048,111 @@ mod tests {
             normalize_endpoint("https://api.openai.com/v1/chat/completions"),
             "https://api.openai.com/v1/chat/completions"
         );
+        // Legacy saved Grok configs are migrated to xAI's Responses API path.
+        assert_eq!(
+            normalize_endpoint("https://api.x.ai/v1/chat/completions"),
+            "https://api.x.ai/v1/responses"
+        );
         // A deliberate non-OpenAI path is respected.
         assert_eq!(
             normalize_endpoint("http://localhost:11434/api/chat"),
             "http://localhost:11434/api/chat"
+        );
+    }
+
+    #[test]
+    fn grok_uses_xai_responses_endpoint() {
+        assert_eq!(
+            Provider::Grok.default_endpoint(),
+            "https://api.x.ai/v1/responses"
+        );
+    }
+
+    #[test]
+    fn responses_endpoint_uses_responses_payload_shape() {
+        let messages = vec![serde_json::json!({
+            "role": "user",
+            "content": "hello",
+        })];
+        let body = build_request_body(
+            "https://api.x.ai/v1/responses",
+            "grok-4",
+            messages,
+            0.2,
+            1234,
+        );
+        assert_eq!(body["model"], "grok-4");
+        assert!(body.get("input").is_some());
+        assert!(body.get("messages").is_none());
+        assert_eq!(body["max_output_tokens"], 1234);
+        assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn responses_endpoint_detection_ignores_query_and_fragment() {
+        let body = build_request_body(
+            "https://api.x.ai/v1/responses?trace=true#frag",
+            "grok-4",
+            vec![serde_json::json!({
+                "role": "user",
+                "content": "hello",
+            })],
+            0.2,
+            1234,
+        );
+        assert!(body.get("input").is_some());
+        assert_eq!(body["max_output_tokens"], 1234);
+        assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn chat_endpoint_keeps_chat_payload_shape() {
+        let messages = vec![serde_json::json!({
+            "role": "user",
+            "content": "hello",
+        })];
+        let body = build_request_body(
+            "https://api.openai.com/v1/chat/completions",
+            "gpt-4o",
+            messages,
+            0.2,
+            1234,
+        );
+        assert_eq!(body["model"], "gpt-4o");
+        assert!(body.get("messages").is_some());
+        assert!(body.get("input").is_none());
+        assert_eq!(body["max_tokens"], 1234);
+        assert!(body.get("max_output_tokens").is_none());
+    }
+
+    #[test]
+    fn extracts_responses_api_reply() {
+        let direct = serde_json::json!({
+            "output_text": "direct text"
+        });
+        assert_eq!(extract_reply(&direct).as_deref(), Some("direct text"));
+
+        let nested = serde_json::json!({
+            "output": [{
+                "type": "message",
+                "content": [
+                    {"type": "output_text", "text": "hello "},
+                    {"type": "output_text", "text": "world"}
+                ]
+            }]
+        });
+        assert_eq!(extract_reply(&nested).as_deref(), Some("hello world"));
+    }
+
+    #[test]
+    fn extracts_responses_api_stream_delta() {
+        let delta = serde_json::json!({
+            "type": "response.output_text.delta",
+            "delta": "chunk"
+        });
+        assert_eq!(
+            extract_stream_delta(&delta),
+            (Some("chunk".to_string()), None)
         );
     }
 
