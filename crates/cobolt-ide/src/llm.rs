@@ -820,7 +820,9 @@ fn logged_get_auth(agent: &ureq::Agent, url: &str, auth: &ListAuth) -> Option<St
         }
         ListAuth::Bearer(_) => {}
         ListAuth::AnthropicKey(key) if !key.is_empty() => {
-            req = req.set("x-api-key", key).set("anthropic-version", "2023-06-01");
+            req = req
+                .set("x-api-key", key)
+                .set("anthropic-version", "2023-06-01");
             headers.push(("x-api-key".into(), "***".into()));
             headers.push(("anthropic-version".into(), "2023-06-01".into()));
         }
@@ -888,7 +890,11 @@ fn parse_ollama_models(body: &str) -> Vec<String> {
 /// curated [`Provider::default_models`] when a live fetch yields nothing, so the
 /// picker is never empty for a configured provider. Returns `Err` only when even
 /// the fallback is empty (e.g. local Ollama with no server / no pulled models).
-pub fn list_models(provider: Provider, endpoint: &str, api_key: &str) -> Result<Vec<String>, String> {
+pub fn list_models(
+    provider: Provider,
+    endpoint: &str,
+    api_key: &str,
+) -> Result<Vec<String>, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(10))
         .build();
@@ -913,11 +919,13 @@ pub fn list_models(provider: Provider, endpoint: &str, api_key: &str) -> Result<
         )
         .map(|b| parse_openai_models(&b))
         .unwrap_or_default(),
-        Provider::OpenAI => {
-            logged_get_auth(&agent, "https://api.openai.com/v1/models", &ListAuth::Bearer(key))
-                .map(|b| parse_openai_models(&b))
-                .unwrap_or_default()
-        }
+        Provider::OpenAI => logged_get_auth(
+            &agent,
+            "https://api.openai.com/v1/models",
+            &ListAuth::Bearer(key),
+        )
+        .map(|b| parse_openai_models(&b))
+        .unwrap_or_default(),
         Provider::Google => logged_get_auth(
             &agent,
             "https://generativelanguage.googleapis.com/v1beta/openai/models",
@@ -1313,8 +1321,7 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
             Err(e) => {
                 trace.outcome = format!("connection error: {e}");
                 let es = e.to_string();
-                if es.to_lowercase().contains("timed out")
-                    || es.to_lowercase().contains("timeout")
+                if es.to_lowercase().contains("timed out") || es.to_lowercase().contains("timeout")
                 {
                     ai_error(format!(
                         "✖ No output within {timeout}s — raise the AI request timeout in Settings."
@@ -1892,8 +1899,14 @@ mod tests {
             "http://localhost:11434"
         );
         assert_eq!(base_url("http://localhost:11434"), "http://localhost:11434");
-        assert_eq!(base_url("http://localhost:11434/api/chat"), "http://localhost:11434");
-        assert_eq!(base_url("https://api.openai.com/v1/"), "https://api.openai.com");
+        assert_eq!(
+            base_url("http://localhost:11434/api/chat"),
+            "http://localhost:11434"
+        );
+        assert_eq!(
+            base_url("https://api.openai.com/v1/"),
+            "https://api.openai.com"
+        );
     }
 
     #[test]
@@ -1925,7 +1938,10 @@ mod tests {
 
     #[test]
     fn agent_messages_layer_prompt_skills_history_then_request_context() {
-        let history = vec![ChatTurn::user("prev req"), ChatTurn::assistant("prev reply")];
+        let history = vec![
+            ChatTurn::user("prev req"),
+            ChatTurn::assistant("prev reply"),
+        ];
         let m = compose_agent_messages(
             "SYSPROMPT",
             "SKILLTEXT",

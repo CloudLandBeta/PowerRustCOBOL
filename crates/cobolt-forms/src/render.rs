@@ -319,15 +319,36 @@ pub fn corner_notch_rounding(
     }
     let child_rects: Vec<Rect> = containers::collect_descendants(controls, container_idx)
         .into_iter()
-        .filter_map(|d| controls.get(d).and_then(|c| control_rects.get(&c.id)).copied())
+        .filter_map(|d| {
+            controls
+                .get(d)
+                .and_then(|c| control_rects.get(&c.id))
+                .copied()
+        })
         .collect();
     let corner = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), Vec2::new(r, r));
     let hit = |sq: Rect| child_rects.iter().any(|cr| cr.intersects(sq));
     egui::Rounding {
-        nw: if hit(corner(container.min.x, container.min.y)) { r } else { 0.0 },
-        ne: if hit(corner(container.max.x - r, container.min.y)) { r } else { 0.0 },
-        se: if hit(corner(container.max.x - r, container.max.y - r)) { r } else { 0.0 },
-        sw: if hit(corner(container.min.x, container.max.y - r)) { r } else { 0.0 },
+        nw: if hit(corner(container.min.x, container.min.y)) {
+            r
+        } else {
+            0.0
+        },
+        ne: if hit(corner(container.max.x - r, container.min.y)) {
+            r
+        } else {
+            0.0
+        },
+        se: if hit(corner(container.max.x - r, container.max.y - r)) {
+            r
+        } else {
+            0.0
+        },
+        sw: if hit(corner(container.min.x, container.max.y - r)) {
+            r
+        } else {
+            0.0
+        },
     }
 }
 

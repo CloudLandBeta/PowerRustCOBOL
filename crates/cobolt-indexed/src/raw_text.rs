@@ -92,7 +92,10 @@ fn fix_line(raw: &str) -> String {
     };
     let indent_len = code_part.len() - code_part.trim_start().len();
     let indent = &code_part[..indent_len];
-    let code = code_part.trim().strip_suffix('.').unwrap_or(code_part.trim());
+    let code = code_part
+        .trim()
+        .strip_suffix('.')
+        .unwrap_or(code_part.trim());
     let mut parts = code.trim().splitn(2, char::is_whitespace);
     let level = parts.next().unwrap_or("");
     let rest = parts.next().unwrap_or("").trim();
@@ -299,7 +302,10 @@ fn validate_data_name(name: &str, lineno: usize) -> Result<(), String> {
             &format!("data-name '{name}' must contain at least one letter"),
         ));
     }
-    if let Some(bad) = name.chars().find(|c| !(c.is_ascii_alphanumeric() || *c == '-')) {
+    if let Some(bad) = name
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || *c == '-'))
+    {
         return Err(err_line(
             lineno,
             &format!("data-name '{name}' contains invalid character '{bad}'"),
@@ -488,7 +494,10 @@ mod tests {
         let fixed = fix_record_text(
             "01 MENU-RECORD.\n    05 FOOD-ID PIC X(10).\n    05 FOOD-PRICE S9(9)V99\n",
         );
-        assert!(fixed.contains("05 FOOD-PRICE PIC S9(9)V99."), "got:\n{fixed}");
+        assert!(
+            fixed.contains("05 FOOD-PRICE PIC S9(9)V99."),
+            "got:\n{fixed}"
+        );
         // And the repaired text now parses cleanly.
         assert!(parse_record_text(&fixed).is_ok(), "fixed text should parse");
     }

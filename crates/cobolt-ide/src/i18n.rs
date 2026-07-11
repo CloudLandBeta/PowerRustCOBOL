@@ -2961,7 +2961,8 @@ const ZH: Tr = Tr {
     settings_ai_verbose: "详细 AI 日志：",
     settings_ai_verbose_hint: "在输出面板记录发送给模型的完整上下文和连接耗时",
     syntax_modal_title: "语法错误",
-    syntax_modal_explain: "此处理程序的 COBOL 存在语法错误，无法按原样保存。请在下方修正、自动修复，或仍然保存。",
+    syntax_modal_explain:
+        "此处理程序的 COBOL 存在语法错误，无法按原样保存。请在下方修正、自动修复，或仍然保存。",
     syntax_autofix: "自动修复",
     syntax_autofix_hint: "重新格式化并规范代码（关键字、列、空格），然后重新检查",
     syntax_keep_editing: "继续编辑",

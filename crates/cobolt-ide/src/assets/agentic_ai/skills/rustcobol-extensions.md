@@ -23,7 +23,9 @@ Every event handler and every common procedure is a **nested COBOL-85 program**.
 The IDE supplies the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the
 closing `GOBACK` / `END PROGRAM` automatically. **You must NOT write those.**
 
-Your `code` starts at `ENVIRONMENT DIVISION` and ends at your last statement:
+Your `code` starts at `ENVIRONMENT DIVISION` and ends at your last statement.
+Return a complete body every time; never return only `PROCEDURE DIVISION` or only
+the statements you changed.
 
 ```cobol
        ENVIRONMENT DIVISION.
@@ -38,6 +40,11 @@ Your `code` starts at `ENVIRONMENT DIVISION` and ends at your last statement:
 Rules:
 - **Do NOT** emit `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or
   `END PROGRAM` — the IDE adds them. Emitting them breaks generation.
+- **Always include `ENVIRONMENT DIVISION.`, `DATA DIVISION.`, and
+  `PROCEDURE DIVISION.` in the body.** If the handler has no local data, keep the
+  `DATA DIVISION.` and go straight to `PROCEDURE DIVISION.`. If the existing
+  handler has `WORKING-STORAGE SECTION.` or `LINKAGE SECTION.`, preserve every
+  declaration still referenced by the procedure.
 - Keep fixed-format-safe indentation: divisions/sections at column 8 (area A),
   statements at column 12 (area B).
 - **Comments — ALWAYS use `*>` (never a bare `*`).** Mandatory. Write `*>`, then a

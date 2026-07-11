@@ -1690,7 +1690,8 @@ impl CoboltApp {
                     }
                     // Record only the turns to memory (R16).
                     self.agent_history.push(crate::llm::ChatTurn::user(prompt));
-                    self.agent_history.push(crate::llm::ChatTurn::assistant(reply));
+                    self.agent_history
+                        .push(crate::llm::ChatTurn::assistant(reply));
                     if let Some(d) = &dir {
                         crate::llm::save_history(&d.join("data"), &key, &self.agent_history);
                     }
@@ -1782,7 +1783,8 @@ impl CoboltApp {
                         .auto_shrink([false, true])
                         .id_salt("agent_preview_ops")
                         .show(ui, |ui| {
-                            for (op, st) in pv.change_set.operations.iter().zip(pv.statuses.iter()) {
+                            for (op, st) in pv.change_set.operations.iter().zip(pv.statuses.iter())
+                            {
                                 let (label, colour) = agent_op_line(op, tr);
                                 ui.horizontal_wrapped(|ui| {
                                     if let Some(err) = st {
@@ -1797,9 +1799,7 @@ impl CoboltApp {
                                                 .color(Color32::from_rgb(220, 120, 120)),
                                         );
                                     } else {
-                                        ui.label(
-                                            egui::RichText::new("•").small().color(colour),
-                                        );
+                                        ui.label(egui::RichText::new("•").small().color(colour));
                                         ui.label(egui::RichText::new(label).small());
                                     }
                                 });
@@ -1826,7 +1826,10 @@ impl CoboltApp {
             let form = self.inspect.as_ref().unwrap().designer.form.clone();
             let context = crate::agent::build_context(&form);
             let (sys, skills) = match &dir {
-                Some(d) => (crate::agent::effective_prompt(d), crate::agent::load_skills(d)),
+                Some(d) => (
+                    crate::agent::effective_prompt(d),
+                    crate::agent::load_skills(d),
+                ),
                 None => (crate::agent::AGENT_SYSTEM_PROMPT.to_string(), String::new()),
             };
             let sent = std::mem::take(&mut self.agent_prompt);
@@ -3543,6 +3546,18 @@ impl CoboltApp {
         self.bg_texture = None; // force the background image to reload
     }
 
+    /// Control/member metadata for the Settings → AI prompt editor. Prefer the
+    /// form currently shown in the Main Pane, then any open designer viewport.
+    fn settings_prompt_known_controls(&self) -> Vec<crate::panels::editor::KnownControl> {
+        if let Some(st) = &self.inspect {
+            return crate::panels::editor::build_known_controls(&st.designer.form);
+        }
+        self.designers
+            .first()
+            .map(|(_, d)| crate::panels::editor::build_known_controls(&d.form))
+            .unwrap_or_default()
+    }
+
     /// Render the project Settings form in the Main Pane. Returns the pending
     /// "Test connection" / "Browse background" actions for the caller to run.
     fn show_settings_pane(&mut self, ctx: &Context, tr: &Tr) {
@@ -3559,6 +3574,7 @@ impl CoboltApp {
             .iter()
             .map(|t| (t.id, t.name))
             .collect();
+        let prompt_known_controls = self.settings_prompt_known_controls();
 
         let mut action = crate::panels::settings_form::SettingsFormAction::default();
 
@@ -3598,6 +3614,7 @@ impl CoboltApp {
                         test_busy,
                         test_status.as_deref(),
                         has_debug,
+                        &prompt_known_controls,
                     );
                 });
                 ui.add_space(bottom_res);
@@ -3637,6 +3654,7 @@ impl CoboltApp {
             if let (Some(form), Some(dir)) = (&mut self.settings_form, &proj_dir) {
                 if form.draft.llm_system_prompt.trim().is_empty() {
                     form.draft.llm_system_prompt = crate::agent::effective_assistant_prompt(dir);
+                    form.sync_prompt_editor_from_draft();
                 }
             }
             if let Some(form) = &self.settings_form {
@@ -3677,8 +3695,7 @@ impl CoboltApp {
                     );
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if crate::llm::has_connection_log()
-                            && ui.button(tr.agent_details).clicked()
+                        if crate::llm::has_connection_log() && ui.button(tr.agent_details).clicked()
                         {
                             details = true;
                         }
@@ -6929,12 +6946,9 @@ impl CoboltApp {
 
         // ── COBOL Structure editor window (spec 005) ──────────────────────────
         // Hosts the shared `EditorPanel` (IntelliSense) — same editor everywhere.
-        self.designers[idx].1.show_cobol_structure_window(
-            ctx,
-            tr,
-            &llm_cfg,
-            proj_root.as_deref(),
-        );
+        self.designers[idx]
+            .1
+            .show_cobol_structure_window(ctx, tr, &llm_cfg, proj_root.as_deref());
 
         // The "Form saved" alert belongs to THIS viewport (so it appears on top
         // of the designer, not hidden behind it in the main window).

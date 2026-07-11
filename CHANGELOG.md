@@ -8,6 +8,30 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.147] — 2026-07-11
+
+### Fixed
+
+- **AI assistant prompt editor IntelliSense** — Settings → AI now edits the
+  assistant system prompt through the shared COBOL editor surface instead of a
+  plain multiline field, so prompt examples get the same RustCOBOL keyword and
+  control-member IntelliSense used by the Event Handler editor. When a form is
+  available, the editor receives that form's live control/property/method context
+  to help prompt authors avoid hallucinated property names.
+
+## [PowerRustCOBOL 1.27.146] — 2026-07-11
+
+### Fixed
+
+- **Agentic AI COBOL/property guardrails** — The dev agent and Event Editor
+  chatbot now receive stronger control/property context, including per-control API
+  lists and an intent map (`dropshadow` / shadow on → `ShadowEnabled`, depth /
+  relief → `ShadowBlurStrength`, etc.). Agent-generated handlers/procedures are
+  also rejected unless they keep the required nested-body divisions
+  (`ENVIRONMENT`, `DATA`, `PROCEDURE`), so a model cannot silently replace a
+  valid handler with a partial fragment; the bounded repair loop asks for a full
+  corrected body or a clarification instead.
+
 ## [PowerRustCOBOL 1.27.145] — 2026-07-11
 
 ### Fixed

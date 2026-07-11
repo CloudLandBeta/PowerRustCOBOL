@@ -22,6 +22,7 @@ use egui::{Color32, RichText, Ui};
 
 use crate::i18n::Tr;
 use crate::llm::LlmConfig;
+use crate::panels::editor::{EditorPanel, KnownControl};
 use crate::project_model::CoboltProject;
 
 /// A flat, comparable snapshot of every editable setting. `PartialEq` powers the
@@ -155,6 +156,10 @@ const LICENSES: &[&str] = &[
 pub struct SettingsForm {
     pub draft: SettingsDraft,
     baseline: SettingsDraft,
+    /// COBOL-aware editor for the assistant system prompt. The prompt is still
+    /// stored as plain text, but this gives RustCOBOL examples the same
+    /// IntelliSense surface used by the event handler editor.
+    system_prompt_editor: EditorPanel,
     /// Width of the label column; user can drag the resizer to adjust.
     splitter: f32,
     /// Models offered in the Model picker for the selected provider. Transient
@@ -169,9 +174,15 @@ pub struct SettingsForm {
 impl SettingsForm {
     pub fn new(p: &CoboltProject, llm: &LlmConfig) -> Self {
         let draft = SettingsDraft::from_project(p, llm);
+        let mut system_prompt_editor = EditorPanel::new();
+        system_prompt_editor.open_buffer(
+            std::path::PathBuf::from("agentic_ai/assistant-prompt.md"),
+            draft.llm_system_prompt.clone(),
+        );
         Self {
             baseline: draft.clone(),
             draft,
+            system_prompt_editor,
             splitter: 200.0,
             available_models: Vec::new(),
             model_filter: String::new(),
@@ -182,6 +193,7 @@ impl SettingsForm {
     pub fn reset_to(&mut self, p: &CoboltProject, llm: &LlmConfig) {
         self.draft = SettingsDraft::from_project(p, llm);
         self.baseline = self.draft.clone();
+        self.sync_prompt_editor_from_draft();
         self.available_models.clear();
         // keep user's preferred splitter position
     }
@@ -204,11 +216,24 @@ impl SettingsForm {
     /// Discard edits back to the last-saved values.
     pub fn cancel(&mut self) {
         self.draft = self.baseline.clone();
+        self.sync_prompt_editor_from_draft();
     }
 
     /// Push the just-picked background-image path into the draft.
     pub fn set_bg_image(&mut self, path: String) {
         self.draft.bg_image = path;
+    }
+
+    /// Reload the embedded prompt editor after the draft changes outside it
+    /// (Cancel, project switch, or prompt template seeding).
+    pub fn sync_prompt_editor_from_draft(&mut self) {
+        if self.system_prompt_editor.buffer_content() != Some(self.draft.llm_system_prompt.as_str())
+        {
+            self.system_prompt_editor.open_buffer(
+                std::path::PathBuf::from("agentic_ai/assistant-prompt.md"),
+                self.draft.llm_system_prompt.clone(),
+            );
+        }
     }
 
     /// Render the form. Returns the action(s) the caller must perform.
@@ -220,8 +245,10 @@ impl SettingsForm {
         test_busy: bool,
         test_status: Option<&str>,
         has_debug: bool,
+        known_controls: &[KnownControl],
     ) -> SettingsFormAction {
         let mut action = SettingsFormAction::default();
+        self.system_prompt_editor.known_controls = known_controls.to_vec();
         let theme = crate::theme::active();
 
         // With the settings glass card now using the exact same
@@ -1012,13 +1039,23 @@ impl SettingsForm {
                             ui.allocate_space(egui::vec2(resizer_width, 0.0));
                             ui.add_space(gap_after_resizer);
                             let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                            ui.allocate_ui(egui::vec2(right_w, 118.0), |ui| {
                                 let w = ui.available_width();
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut self.draft.llm_system_prompt)
-                                        .desired_rows(3)
-                                        .desired_width(w),
-                                );
+                                let h = 112.0;
+                                let frame = egui::Frame::none()
+                                    .fill(theme.bg_extreme)
+                                    .stroke(egui::Stroke::new(1.0, theme.panel_border()))
+                                    .rounding(egui::Rounding::same(6.0))
+                                    .inner_margin(egui::Margin::same(2.0));
+                                ui.set_min_height(h);
+                                let ectx = ui.ctx().clone();
+                                frame.show(ui, |ui| {
+                                    ui.set_min_size(egui::vec2(w, h));
+                                    self.system_prompt_editor.render_code_area(&ectx, ui);
+                                });
+                                if let Some(text) = self.system_prompt_editor.buffer_for_save() {
+                                    self.draft.llm_system_prompt = text;
+                                }
                             });
                         });
 

@@ -749,9 +749,7 @@ fn load_event_history(
     program_id: &str,
 ) -> Vec<crate::llm::ChatTurn> {
     match project_root {
-        Some(root) => {
-            crate::llm::load_history(&root.join("data"), &event_history_key(program_id))
-        }
+        Some(root) => crate::llm::load_history(&root.join("data"), &event_history_key(program_id)),
         None => Vec::new(),
     }
 }
@@ -777,12 +775,23 @@ fn save_event_history(
 /// scaffold header is subtracted).
 fn validate_handler_syntax(program_id: &str, body: &str) -> Vec<crate::runner::DiagMsg> {
     use crate::runner::{DiagMsg, DiagSeverity};
+    if let Some(message) = crate::agent::handler_body_shape_error(body) {
+        return vec![DiagMsg {
+            severity: DiagSeverity::Error,
+            message,
+            line: 1,
+            col: 1,
+        }];
+    }
     // Two header lines precede the editable body.
     const HEADER_LINES: u32 = 2;
     let src = format!(
         "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. {program_id}.\n{body}\n       END PROGRAM {program_id}.\n"
     );
-    let pr = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    let pr = cobolt_parser::parse(cobolt_lexer::tokenize(
+        &src,
+        cobolt_lexer::SourceFormat::Free,
+    ));
     let mut diags = Vec::new();
     for d in &pr.diagnostics {
         if !matches!(d.severity, cobolt_parser::Severity::Error) {
@@ -822,7 +831,10 @@ fn validate_handler_members(form: &Form, code: &str) -> Vec<crate::runner::DiagM
             let ok = super::editor::method_names_for_type(&kc.ctrl_type)
                 .iter()
                 .any(|m| m.eq_ignore_ascii_case(&r.member))
-                || kc.extra_methods.iter().any(|m| m.eq_ignore_ascii_case(&r.member));
+                || kc
+                    .extra_methods
+                    .iter()
+                    .any(|m| m.eq_ignore_ascii_case(&r.member));
             ("method", ok)
         } else {
             let ok = kc
@@ -875,8 +887,10 @@ fn validate_handler_semantics(
         }
     }
     let src = cobolt_codegen::generate(&probe);
-    let parsed =
-        cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
+        &src,
+        cobolt_lexer::SourceFormat::Free,
+    ));
     // If the full program didn't even parse, leave it to the syntax check.
     let Some(program) = parsed.program else {
         return Vec::new();
@@ -3427,12 +3441,7 @@ impl DesignerPanel {
                                 &control_rects,
                             );
                             cobolt_forms::paint::draw_container_notch_mask(
-                                &painter,
-                                *crect,
-                                rounding,
-                                notch_fill,
-                                notch_img,
-                                img_alpha,
+                                &painter, *crect, rounding, notch_fill, notch_img, img_alpha,
                             );
                             if self.show_grid {
                                 draw_grid_in_rounded_notches(
@@ -5389,12 +5398,17 @@ impl DesignerPanel {
                                     let fix_prompt = format!(
                                         "The COBOL you just returned is INVALID and was not \
                                          applied. The parser reported:\n{error_list}\n\nReturn a \
-                                         corrected event-handler body that fixes every error. Keep \
-                                         the ENVIRONMENT DIVISION, DATA DIVISION and PROCEDURE \
-                                         DIVISION the handler needs — do not drop a division that \
-                                         declares data the code uses. Do NOT emit IDENTIFICATION \
-                                         DIVISION, PROGRAM-ID, GOBACK, or END PROGRAM. Return the \
-                                         code in a ```cobol fenced block."
+                                         corrected event-handler body that fixes every error. Return \
+                                         the COMPLETE nested-program body, not a fragment: it MUST \
+                                         include ENVIRONMENT DIVISION., DATA DIVISION., and PROCEDURE \
+                                         DIVISION. Preserve every WORKING-STORAGE or LINKAGE \
+                                         declaration that the procedure still references. Use only \
+                                         real control properties from the supplied skills/context \
+                                         (for example drop shadow => ShadowEnabled). Do NOT emit \
+                                         IDENTIFICATION DIVISION, PROGRAM-ID, GOBACK, or END PROGRAM. \
+                                         Return the code in a ```cobol fenced block. If you cannot \
+                                         determine the right property or declarations, ask the \
+                                         developer for directions with no code block."
                                     );
                                     let prior = self
                                         .event_modal
@@ -5410,8 +5424,7 @@ impl DesignerPanel {
                                         &skills,
                                     );
                                     if let Some(m) = self.event_modal.as_mut() {
-                                        m.ai_history
-                                            .push(crate::llm::ChatTurn::user(&fix_prompt));
+                                        m.ai_history.push(crate::llm::ChatTurn::user(&fix_prompt));
                                         m.ai_fix_attempts = attempts + 1;
                                         m.ai_pending = Some(rx);
                                         m.ai_status = Some(tr.ai_fixing.to_string());
@@ -5806,11 +5819,16 @@ impl DesignerPanel {
             // read-only above and below the editor).
             let guided = format!(
                 "{user_prompt}\n\nIf this is a request to WRITE or CHANGE the handler, \
-                 return the COBOL statements for this event handler only (a RustCOBOL \
-                 nested-program body) in a ```cobol fenced block. Do NOT emit \
-                 IDENTIFICATION DIVISION, PROGRAM-ID, GOBACK, or END PROGRAM — the IDE \
-                 supplies those; keep the ENVIRONMENT / DATA / PROCEDURE divisions the \
-                 handler needs. If instead this is a QUESTION or a discussion (not a \
+                 return the COMPLETE RustCOBOL nested-program body for this event handler \
+                 in a ```cobol fenced block. The body MUST include ENVIRONMENT DIVISION., \
+                 DATA DIVISION., and PROCEDURE DIVISION.; preserve any WORKING-STORAGE or \
+                 LINKAGE declarations the procedure uses. Do NOT emit IDENTIFICATION \
+                 DIVISION, PROGRAM-ID, GOBACK, or END PROGRAM — the IDE supplies those. \
+                 Use only real control properties from the skills/context; for example \
+                 drop shadow/dropshadow/shadow on means ShadowEnabled. If you cannot \
+                 determine the correct property or declarations after the validation \
+                 round-trips, ask the developer for directions with no code block. If \
+                 instead this is a QUESTION or a discussion (not a \
                  request to change the code), answer in plain prose with NO code block \
                  — your answer is shown to the developer and never written into the \
                  handler."
@@ -5955,11 +5973,8 @@ impl DesignerPanel {
             let mut keep_editing = false;
 
             let overlay = ui.ctx().screen_rect();
-            ui.painter().rect_filled(
-                overlay,
-                0.0,
-                Color32::from_rgba_premultiplied(0, 0, 0, 160),
-            );
+            ui.painter()
+                .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 160));
             egui::Window::new(format!("⚠  {}", tr.syntax_modal_title))
                 .id(egui::Id::new("event_syntax_modal"))
                 .collapsible(false)
@@ -5968,13 +5983,11 @@ impl DesignerPanel {
                 .default_width(560.0)
                 .default_pos(overlay.center() - egui::vec2(280.0, 180.0))
                 .frame(
-                    egui::Frame::window(&ui.ctx().style())
-                        .inner_margin(egui::Margin::same(16.0)),
+                    egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)),
                 )
                 .show(ui.ctx(), |ui| {
                     ui.label(
-                        egui::RichText::new(tr.syntax_modal_explain)
-                            .color(Color32::from_gray(200)),
+                        egui::RichText::new(tr.syntax_modal_explain).color(Color32::from_gray(200)),
                     );
                     ui.add_space(8.0);
                     egui::ScrollArea::vertical()
@@ -5984,13 +5997,10 @@ impl DesignerPanel {
                             for d in &errs {
                                 ui.horizontal_wrapped(|ui| {
                                     ui.label(
-                                        egui::RichText::new(format!(
-                                            "line {}:{}",
-                                            d.line, d.col
-                                        ))
-                                        .monospace()
-                                        .strong()
-                                        .color(Color32::from_rgb(240, 130, 100)),
+                                        egui::RichText::new(format!("line {}:{}", d.line, d.col))
+                                            .monospace()
+                                            .strong()
+                                            .color(Color32::from_rgb(240, 130, 100)),
                                     );
                                     // The raw parser message, verbatim.
                                     ui.label(
@@ -6021,20 +6031,17 @@ impl DesignerPanel {
                         if ui.button(tr.syntax_keep_editing).clicked() {
                             keep_editing = true;
                         }
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                if ui
-                                    .button(
-                                        egui::RichText::new(tr.syntax_save_anyway)
-                                            .color(Color32::from_rgb(220, 120, 120)),
-                                    )
-                                    .clicked()
-                                {
-                                    save_anyway = true;
-                                }
-                            },
-                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new(tr.syntax_save_anyway)
+                                        .color(Color32::from_rgb(220, 120, 120)),
+                                )
+                                .clicked()
+                            {
+                                save_anyway = true;
+                            }
+                        });
                     });
                 });
 
@@ -7119,7 +7126,11 @@ fn set_control_event_code(form: &mut Form, control_id: &str, event: &str, code: 
     };
     match code {
         Some(text) => {
-            if let Some(b) = c.events.iter_mut().find(|b| b.event.eq_ignore_ascii_case(event)) {
+            if let Some(b) = c
+                .events
+                .iter_mut()
+                .find(|b| b.event.eq_ignore_ascii_case(event))
+            {
                 b.code = text;
             } else {
                 let mut b = cobolt_forms::EventBinding::for_control(control_id, event);
@@ -7142,10 +7153,11 @@ fn set_form_procedure(form: &mut Form, name: &str, code: Option<String>) {
             {
                 p.code = text;
             } else {
-                form.user_procedures.push(cobolt_forms::model::UserProcedure {
-                    name: name.to_string(),
-                    code: text,
-                });
+                form.user_procedures
+                    .push(cobolt_forms::model::UserProcedure {
+                        name: name.to_string(),
+                        code: text,
+                    });
             }
         }
         None => form
@@ -9324,11 +9336,11 @@ mod text_align_tests {
                 AgentOp::GenerateEventHandler {
                     control_id: "SAVE".into(),
                     event: "onClick".into(),
-                    code: "       PROCEDURE DIVISION.\n           DISPLAY \"hi\".\n".into(),
+                    code: "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           DISPLAY \"hi\".\n".into(),
                 },
                 AgentOp::CreateProcedure {
                     name: "VALIDATE-INPUT".into(),
-                    code: "       PROCEDURE DIVISION.\n".into(),
+                    code: "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.\n".into(),
                 },
             ],
             note: None,
@@ -9403,7 +9415,11 @@ mod text_align_tests {
         // Approve = apply the valid ops as one batch (R6): exactly one undo entry.
         let n = d.apply_agent_change_set(&preview.change_set);
         assert_eq!(n, 1, "only the valid op applies");
-        assert_eq!(d.undo_stack.len(), 1, "approve is one AgentBatch = one Undo");
+        assert_eq!(
+            d.undo_stack.len(),
+            1,
+            "approve is one AgentBatch = one Undo"
+        );
         assert!(d.form.find_control("B").is_some());
     }
 }

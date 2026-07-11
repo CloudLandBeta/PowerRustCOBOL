@@ -185,9 +185,7 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
             None
         }
         AgentOp::SetProperty {
-            control_id,
-            key,
-            ..
+            control_id, key, ..
         } => match known.get(control_id) {
             None => Some(format!("No control named '{control_id}'.")),
             Some(ct) if !property_valid(ct, key) => {
@@ -212,16 +210,44 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
                 }
                 _ => None,
             };
-            base.or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
+            base.or_else(|| handler_body_shape_error(code))
+                .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
         }
         AgentOp::CreateProcedure { name, code } => {
             if name.trim().is_empty() {
                 Some("Procedure name is empty.".to_string())
             } else {
-                unknown_property_ref(code, known).map(bad_prop_msg)
+                handler_body_shape_error(code)
+                    .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
             }
         }
     }
+}
+
+/// Ensure an agent-authored handler/procedure is the IDE-owned nested-program body,
+/// not a partial fragment. The generator supplies IDENTIFICATION/PROGRAM-ID and
+/// the footer, but the editable body must keep the three divisions so the model
+/// cannot silently drop DATA/ENVIRONMENT during a round-trip.
+pub(crate) fn handler_body_shape_error(code: &str) -> Option<String> {
+    let has_line = |needle: &str| code.lines().any(|l| l.trim().eq_ignore_ascii_case(needle));
+    if !has_line("ENVIRONMENT DIVISION.") {
+        return Some(
+            "Code must start from the nested-program body and include \
+             ENVIRONMENT DIVISION."
+                .to_string(),
+        );
+    }
+    if !has_line("DATA DIVISION.") {
+        return Some(
+            "Code must include DATA DIVISION.; do not return a PROCEDURE-only \
+             fragment."
+                .to_string(),
+        );
+    }
+    if !has_line("PROCEDURE DIVISION.") {
+        return Some("Code must include PROCEDURE DIVISION.".to_string());
+    }
+    None
 }
 
 /// Message for a hallucinated property reference in generated code.
@@ -391,8 +417,7 @@ use std::path::{Path, PathBuf};
 
 /// The built-in dev-agent system prompt (seed / reset default). Embedded so the
 /// binary never depends on the `specs/` tree.
-pub const AGENT_SYSTEM_PROMPT: &str =
-    include_str!("assets/agentic_ai/system-prompt.md");
+pub const AGENT_SYSTEM_PROMPT: &str = include_str!("assets/agentic_ai/system-prompt.md");
 
 /// The default RustCOBOL-extensions skill, always injected into the agent context.
 const DEFAULT_RUSTCOBOL_SKILL: &str =
@@ -508,16 +533,28 @@ pub fn load_skills(project_dir: &Path) -> String {
     let mut saw_concise = false;
     let mut saw_props = false;
     for f in &files {
-        if f.file_name().map(|n| n == DEFAULT_SKILL_FILE).unwrap_or(false) {
+        if f.file_name()
+            .map(|n| n == DEFAULT_SKILL_FILE)
+            .unwrap_or(false)
+        {
             saw_default = true;
         }
-        if f.file_name().map(|n| n == TYPES_SKILL_FILE).unwrap_or(false) {
+        if f.file_name()
+            .map(|n| n == TYPES_SKILL_FILE)
+            .unwrap_or(false)
+        {
             saw_types = true;
         }
-        if f.file_name().map(|n| n == CONCISE_SKILL_FILE).unwrap_or(false) {
+        if f.file_name()
+            .map(|n| n == CONCISE_SKILL_FILE)
+            .unwrap_or(false)
+        {
             saw_concise = true;
         }
-        if f.file_name().map(|n| n == PROPS_SKILL_FILE).unwrap_or(false) {
+        if f.file_name()
+            .map(|n| n == PROPS_SKILL_FILE)
+            .unwrap_or(false)
+        {
             saw_props = true;
         }
         if let Ok(text) = std::fs::read_to_string(f) {
@@ -608,8 +645,47 @@ pub fn build_context(form: &Form) -> String {
         let evs = ControlType::from_str(t).supported_events().join(", ");
         out.push_str(&format!("  {}: {}\n", t, evs));
     }
+    out.push_str("CONTROL API BY ID:\n");
+    for c in &form.controls {
+        let ty = c.control_type.as_str();
+        let mut methods = crate::panels::editor::method_names_for_type(ty);
+        if matches!(c.control_type, ControlType::GroupBox) {
+            let is_array = form.data_bindings.iter().any(|b| {
+                if let cobolt_forms::BindingTargetDescriptor::ControlArray { array_id, .. } =
+                    &b.target
+                {
+                    c.explicit_control_array_id().as_deref() == Some(array_id.as_str())
+                        || c.id.eq_ignore_ascii_case(array_id)
+                } else {
+                    false
+                }
+            });
+            if is_array && !methods.iter().any(|m| m == "RefreshBinding") {
+                methods.push("RefreshBinding".to_string());
+            }
+        }
+        methods.sort();
+        methods.dedup();
+        out.push_str(&format!(
+            "  {} ({}): properties [{}]; methods [{}]\n",
+            c.id,
+            ty,
+            property_names_for(ty).join(", "),
+            methods.join(", ")
+        ));
+    }
+    out.push_str(
+        "PROPERTY INTENT MAP: drop shadow/dropshadow/shadow on/sombra => \
+         ShadowEnabled; depth/relief/elevation/profundidad => ShadowBlurStrength; \
+         x/left => X; y/top => Y; text on Button/Label => Caption; text in TextBox \
+         => Text. If no listed property matches, ask for clarification.\n",
+    );
 
-    let procs: Vec<&str> = form.user_procedures.iter().map(|p| p.name.as_str()).collect();
+    let procs: Vec<&str> = form
+        .user_procedures
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect();
     out.push_str(&format!(
         "PROCEDURES: {}\n",
         if procs.is_empty() {
@@ -664,7 +740,10 @@ mod tests {
         assert_eq!(cs.operations.len(), 4);
         assert!(matches!(cs.operations[0], AgentOp::DeployControl { .. }));
         assert!(matches!(cs.operations[1], AgentOp::SetProperty { .. }));
-        assert!(matches!(cs.operations[2], AgentOp::GenerateEventHandler { .. }));
+        assert!(matches!(
+            cs.operations[2],
+            AgentOp::GenerateEventHandler { .. }
+        ));
         assert!(matches!(cs.operations[3], AgentOp::CreateProcedure { .. }));
     }
 
@@ -686,7 +765,8 @@ mod tests {
     fn form_with_label() -> Form {
         use cobolt_forms::Control;
         let mut f = Form::new("F", "F", 400, 300);
-        f.controls.push(Control::new("L1", ControlType::Label, 0, 0));
+        f.controls
+            .push(Control::new("L1", ControlType::Label, 0, 0));
         f
     }
 
@@ -745,7 +825,10 @@ mod tests {
         assert!(v[1].as_ref().unwrap().contains("Unknown control type"));
         assert!(v[2].as_ref().unwrap().contains("No control named"));
         assert!(v[3].as_ref().unwrap().contains("no property"));
-        assert!(v[4].is_none(), "backgroundcolor is valid (case-insensitive)");
+        assert!(
+            v[4].is_none(),
+            "backgroundcolor is valid (case-insensitive)"
+        );
         assert!(v[5].is_none(), "B1 was deployed earlier in the set");
         assert!(v[6].as_ref().unwrap().contains("no event"));
     }
@@ -761,33 +844,79 @@ mod tests {
             }],
             note: None,
         };
+        let body = |stmt: &str| {
+            format!(
+                "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n{stmt}\n"
+            )
+        };
 
         // Hallucinated property → error naming the control and property.
-        let v = validate(&handler("           MOVE 5 TO L1::Depth."), &form);
+        let v = validate(&handler(&body("           MOVE 5 TO L1::Depth.")), &form);
         let msg = v[0].as_ref().expect("Depth should be flagged");
-        assert!(msg.contains("Depth") && msg.contains("no property"), "{msg}");
+        assert!(
+            msg.contains("Depth") && msg.contains("no property"),
+            "{msg}"
+        );
 
         // The real property is accepted (the depth-fix target).
-        let v = validate(&handler("           MOVE 5 TO L1::ShadowBlurStrength."), &form);
-        assert!(v[0].is_none(), "ShadowBlurStrength must be valid: {:?}", v[0]);
+        let v = validate(
+            &handler(&body("           MOVE 5 TO L1::ShadowBlurStrength.")),
+            &form,
+        );
+        assert!(
+            v[0].is_none(),
+            "ShadowBlurStrength must be valid: {:?}",
+            v[0]
+        );
 
         // Quoted property name is checked too.
-        let v = validate(&handler("           MOVE 5 TO L1::\"Nope\"."), &form);
+        let v = validate(&handler(&body("           MOVE 5 TO L1::\"Nope\".")), &form);
         assert!(v[0].as_ref().is_some_and(|m| m.contains("Nope")));
 
         // A method / subscript call is not a property → never flagged.
-        let v = validate(&handler("           DISPLAY L1::GetText()."), &form);
-        assert!(v[0].is_none(), "method call must not be flagged: {:?}", v[0]);
+        let v = validate(&handler(&body("           DISPLAY L1::GetText().")), &form);
+        assert!(
+            v[0].is_none(),
+            "method call must not be flagged: {:?}",
+            v[0]
+        );
 
         // `::` inside a string literal or a comment is ignored.
-        let v = validate(&handler("           DISPLAY \"L1::Depth\"."), &form);
-        assert!(v[0].is_none(), "string content must not be flagged: {:?}", v[0]);
-        let v = validate(&handler("           MOVE 5 TO L1::Depth.  *> L1::Zzz"), &form);
+        let v = validate(&handler(&body("           DISPLAY \"L1::Depth\".")), &form);
+        assert!(
+            v[0].is_none(),
+            "string content must not be flagged: {:?}",
+            v[0]
+        );
+        let v = validate(
+            &handler(&body("           MOVE 5 TO L1::Depth.  *> L1::Zzz")),
+            &form,
+        );
         assert!(v[0].as_ref().is_some_and(|m| m.contains("Depth")));
 
         // A non-control receiver is left alone (no false positive on data items).
-        let v = validate(&handler("           MOVE WS-X::Foo TO WS-Y."), &form);
-        assert!(v[0].is_none(), "non-control receiver must not be flagged: {:?}", v[0]);
+        let v = validate(&handler(&body("           MOVE WS-X::Foo TO WS-Y.")), &form);
+        assert!(
+            v[0].is_none(),
+            "non-control receiver must not be flagged: {:?}",
+            v[0]
+        );
+    }
+
+    #[test]
+    fn generated_code_must_keep_nested_body_divisions() {
+        assert!(handler_body_shape_error(
+            "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.\n"
+        )
+        .is_none());
+        assert!(
+            handler_body_shape_error("       PROCEDURE DIVISION.\n           CONTINUE.\n")
+                .is_some_and(|m| m.contains("ENVIRONMENT"))
+        );
+        assert!(handler_body_shape_error(
+            "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.\n"
+        )
+        .is_some_and(|m| m.contains("DATA DIVISION")));
     }
 
     #[test]
@@ -797,6 +926,11 @@ mod tests {
         assert!(ctx.contains("PROPERTY KEYS BY TYPE:"));
         assert!(ctx.contains("Label:"));
         assert!(ctx.contains("EVENTS BY TYPE:"));
+        assert!(ctx.contains("CONTROL API BY ID:"));
+        assert!(ctx.contains("L1 (Label): properties ["));
+        assert!(ctx.contains("PROPERTY INTENT MAP:"));
+        assert!(ctx.contains("dropshadow"));
+        assert!(ctx.contains("ShadowEnabled"));
         assert!(ctx.contains("PROCEDURES:"));
     }
 
@@ -828,14 +962,20 @@ mod tests {
         // First run: creates folder + both defaults.
         ensure_agentic_ai_scaffold(dir).unwrap();
         assert!(prompt.exists() && skill.exists());
-        assert_eq!(std::fs::read_to_string(&prompt).unwrap(), AGENT_SYSTEM_PROMPT);
+        assert_eq!(
+            std::fs::read_to_string(&prompt).unwrap(),
+            AGENT_SYSTEM_PROMPT
+        );
 
         // Edit the prompt; re-run must NOT overwrite it.
         std::fs::write(&prompt, "MY CUSTOM PROMPT").unwrap();
         // Delete the skill; re-run must re-seed ONLY it.
         std::fs::remove_file(&skill).unwrap();
         ensure_agentic_ai_scaffold(dir).unwrap();
-        assert_eq!(std::fs::read_to_string(&prompt).unwrap(), "MY CUSTOM PROMPT");
+        assert_eq!(
+            std::fs::read_to_string(&prompt).unwrap(),
+            "MY CUSTOM PROMPT"
+        );
         assert!(skill.exists(), "deleted skill re-seeded");
 
         // effective_prompt returns the edited file, and the default when absent.

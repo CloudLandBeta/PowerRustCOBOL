@@ -1040,10 +1040,8 @@ pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
             .show(ui, |ui| {
                 ui.set_max_width(max_w);
                 ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(content.trim()).monospace().color(fg),
-                    )
-                    .wrap(),
+                    egui::Label::new(egui::RichText::new(content.trim()).monospace().color(fg))
+                        .wrap(),
                 );
             });
     });
@@ -1533,7 +1531,11 @@ impl EditorPanel {
                 }
                 if busy || compacting {
                     ui.add(egui::Spinner::new());
-                    let msg = if compacting { tr.ai_compacting } else { tr.ai_thinking };
+                    let msg = if compacting {
+                        tr.ai_compacting
+                    } else {
+                        tr.ai_thinking
+                    };
                     ui.label(
                         egui::RichText::new(msg)
                             .small()

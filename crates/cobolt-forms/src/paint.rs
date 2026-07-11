@@ -4707,7 +4707,9 @@ pub fn draw_chart_preview(
             .map(|(_, v)| *v)
             .fold(0.0_f32, f32::max)
             .max(f32::EPSILON);
-        live.iter().map(|(_, v)| (v / maxv).clamp(0.0, 1.0)).collect()
+        live.iter()
+            .map(|(_, v)| (v / maxv).clamp(0.0, 1.0))
+            .collect()
     };
     let series1: &[f32] = if live.is_empty() { sample1 } else { &live_norm };
     let series2: &[f32] = if live.is_empty() { sample2 } else { &[] };
@@ -4849,8 +4851,7 @@ pub fn draw_chart_preview(
                 (0.70, 0.30),
                 (0.88, 0.55),
             ];
-            let sample2: &[(f32, f32)] =
-                &[(0.20, 0.30), (0.42, 0.72), (0.60, 0.45), (0.78, 0.85)];
+            let sample2: &[(f32, f32)] = &[(0.20, 0.30), (0.42, 0.72), (0.60, 0.45), (0.78, 0.85)];
             let live_pts: Vec<(f32, f32)> = live_norm
                 .iter()
                 .enumerate()

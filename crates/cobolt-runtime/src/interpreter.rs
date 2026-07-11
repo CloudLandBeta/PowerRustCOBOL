@@ -4124,7 +4124,8 @@ impl Interpreter {
                 let raw = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let count = self.eval_call_arg(&using[2], span)?.as_f64() as usize;
                 let id = id.trim().to_owned();
-                self.chart_data.insert(id.clone(), parse_chart_table(&raw, count));
+                self.chart_data
+                    .insert(id.clone(), parse_chart_table(&raw, count));
                 self.push_chart_data(&id);
             }
             // COBOL-CHART-ADD-POINT chart-id label value  (append one point)

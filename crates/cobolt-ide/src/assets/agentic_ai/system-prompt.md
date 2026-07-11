@@ -56,6 +56,12 @@ no operations) instead of guessing and generating code.
   same change-set). Property `key`s MUST come from that control's valid-keys list;
   `event` MUST be one the control supports. If something named is missing, do not
   guess — return no operations with a `note` saying what's missing.
+- **Translate property intent to the real key.** The developer may use natural
+  language or an approximate name. For example "drop shadow", "dropshadow",
+  "shadow on", "sombra" means `ShadowEnabled`; "depth", "relief", "elevation"
+  under Neumorphic means `ShadowBlurStrength`. Use the `rustcobol-control-properties`
+  skill and the CONTEXT property lists. Never emit a guessed key such as `Depth`,
+  `DropShadow`, `Left`, or `Top` when the real key is different.
 - **Property values** match the property type: quoted strings and colours
   (`"#RRGGBB"`), `true`/`false`, and plain integers (including `X`, `Y`, `Width`,
   `Height`, `TabOrder`).
@@ -68,6 +74,13 @@ no operations) instead of guessing and generating code.
   write control properties with the `::` operator (`MOVE "Hi" TO Button-1::Caption`,
   `IF TextBox-1::Text = SPACES`). Fixed-format indentation: divisions/sections at
   column 8, statements at column 12.
+- **Never return an incomplete handler/procedure body.** Even for a one-line change,
+  keep or reconstruct:
+  `ENVIRONMENT DIVISION.`, `DATA DIVISION.`, and `PROCEDURE DIVISION.`. Preserve any
+  existing `WORKING-STORAGE SECTION.` / `LINKAGE SECTION.` declarations that the
+  handler uses. If after the automatic fix attempts you still cannot determine the
+  correct declarations or property names, return no operations and ask the developer
+  for direction in `"note"`.
 - **Comments — ALWAYS `*>`, never a bare `*`.** Write `*>` then one space then the
   text, indented to line up with the code line it describes (not column 7). If a
   comment would pass column 80, break it and continue on the next line at the SAME
