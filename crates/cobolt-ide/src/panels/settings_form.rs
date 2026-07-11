@@ -161,6 +161,9 @@ pub struct SettingsForm {
     /// (not part of the dirty check); (re)populated whenever a provider is
     /// chosen or the model list is refreshed. Empty until a provider is picked.
     pub available_models: Vec<String>,
+    /// Free-text filter typed inside the Model dropdown to narrow a long list
+    /// (case-insensitive substring). Reset each time the dropdown opens.
+    model_filter: String,
 }
 
 impl SettingsForm {
@@ -171,6 +174,7 @@ impl SettingsForm {
             draft,
             splitter: 200.0,
             available_models: Vec::new(),
+            model_filter: String::new(),
         }
     }
 
@@ -856,21 +860,68 @@ impl SettingsForm {
                                     // Snapshot the offered list so the picker
                                     // closure borrows a local, not `self`.
                                     let models = self.available_models.clone();
-                                    egui::ComboBox::from_id_salt("ai_model")
+                                    let prev_model = self.draft.llm_model.clone();
+                                    let resp = egui::ComboBox::from_id_salt("ai_model")
                                         .selected_text(self.draft.llm_model.clone())
                                         .width(combo_w)
+                                        // Taller popup so the filter box plus at least
+                                        // ~6 models are visible without scrolling
+                                        // (egui's default cap is only 200px).
+                                        .height(360.0)
                                         .show_ui(ui, |ui| {
                                             if models.is_empty() {
                                                 ui.weak(tr.settings_ai_model_empty);
+                                                return;
                                             }
-                                            for m in &models {
-                                                ui.selectable_value(
-                                                    &mut self.draft.llm_model,
-                                                    m.clone(),
-                                                    m,
-                                                );
-                                            }
+                                            // Type-to-filter box at the top of the
+                                            // dropdown (case-insensitive substring).
+                                            let filter = ui.add(
+                                                egui::TextEdit::singleline(
+                                                    &mut self.model_filter,
+                                                )
+                                                .hint_text(tr.settings_ai_model_filter)
+                                                .desired_width(f32::INFINITY),
+                                            );
+                                            // Keep the caret in the filter as it opens
+                                            // so the user can just start typing.
+                                            filter.request_focus();
+                                            let needle =
+                                                self.model_filter.trim().to_ascii_lowercase();
+                                            let mut shown = 0usize;
+                                            egui::ScrollArea::vertical()
+                                                .max_height(320.0)
+                                                .show(ui, |ui| {
+                                                    for m in &models {
+                                                        if !needle.is_empty()
+                                                            && !m
+                                                                .to_ascii_lowercase()
+                                                                .contains(&needle)
+                                                        {
+                                                            continue;
+                                                        }
+                                                        shown += 1;
+                                                        ui.selectable_value(
+                                                            &mut self.draft.llm_model,
+                                                            m.clone(),
+                                                            m,
+                                                        );
+                                                    }
+                                                    if shown == 0 {
+                                                        ui.weak(tr.settings_ai_model_no_match);
+                                                    }
+                                                });
                                         });
+                                    // `inner` is `None` while the dropdown is closed —
+                                    // reset the filter so it starts fresh next open.
+                                    if resp.inner.is_none() {
+                                        self.model_filter.clear();
+                                    }
+                                    // Picking a different model tests it right away,
+                                    // so the developer gets immediate feedback (any
+                                    // error surfaces in a modal — see app.rs).
+                                    if self.draft.llm_model != prev_model {
+                                        action.test_connection = true;
+                                    }
                                     if ui
                                         .add_enabled(
                                             has_provider && !test_busy,
@@ -885,34 +936,9 @@ impl SettingsForm {
                             });
                         });
 
-                        // Standard system prompt (multiline)
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.allocate_ui_at_rect(left_rect, |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.settings_ai_system_prompt).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                let w = ui.available_width();
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut self.draft.llm_system_prompt)
-                                        .desired_rows(3)
-                                        .desired_width(w),
-                                );
-                            });
-                        });
-
-                        // Test button row (no paired left label)
+                        // Test button row (no paired left label) — placed directly
+                        // above the system prompt so the connection controls sit
+                        // with the endpoint/model fields they act on.
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
                                 .allocate_exact_size(
@@ -966,6 +992,33 @@ impl SettingsForm {
                                         ui.label(RichText::new(s).small());
                                     }
                                 });
+                            });
+                        });
+
+                        // Standard system prompt (multiline)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.settings_ai_system_prompt).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                let w = ui.available_width();
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.draft.llm_system_prompt)
+                                        .desired_rows(3)
+                                        .desired_width(w),
+                                );
                             });
                         });
 

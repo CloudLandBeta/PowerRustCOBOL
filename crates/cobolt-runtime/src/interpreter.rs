@@ -523,6 +523,11 @@ pub struct Interpreter {
     /// event is still outstanding). Decremented as each `COBOL-WAIT-EVENT`
     /// consumes an event.
     event_pending: Option<Arc<AtomicUsize>>,
+    /// Live chart data pushed by the `COBOL-CHART-*` runtime calls: control id →
+    /// ordered (label, value) points. Serialised into the control's `__ChartData`
+    /// property (via a `StateUpdate`) so the GUI chart renderer plots it. Empty ⇒
+    /// the designer's representative sample preview is shown instead.
+    chart_data: HashMap<String, Vec<(String, f64)>>,
 
     // ── Debugger channels (Phase 7) ───────────────────────────────────────────
     /// Receives `DebugCmd` from the IDE debugger panel (Continue, StepOver, Pause).
@@ -658,6 +663,7 @@ impl Interpreter {
             display_tx: None,
             cancel: None,
             event_pending: None,
+            chart_data: HashMap::new(),
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -4106,32 +4112,44 @@ impl Interpreter {
                 }
             }
 
-            // ── Chart runtime calls (stubs — real rendering is in the GUI) ────
-            // COBOL-CHART-SET-TABLE chart-id table count
-            "COBOL-CHART-SET-TABLE" => {
-                tracing::debug!(
-                    "COBOL-CHART-SET-TABLE: chart='{}' (CLI mode — rendering skipped)",
-                    using
-                        .first()
-                        .map(|a| {
-                            self.eval_call_arg(a, span)
-                                .map(|v| v.as_display_string())
-                                .unwrap_or_default()
-                        })
-                        .unwrap_or_default()
-                );
+            // ── Chart runtime calls ───────────────────────────────────────────
+            // Push live data to the GUI chart renderer via the control's
+            // `__ChartData` property (one `label\tvalue` per line). Under the CLI
+            // runner there is no `state_tx`, so these safely update the in-memory
+            // store only (no rendering — charts are a GUI surface).
+            //
+            // COBOL-CHART-SET-TABLE chart-id table count  (bulk replace)
+            "COBOL-CHART-SET-TABLE" if using.len() >= 3 => {
+                let id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let raw = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let count = self.eval_call_arg(&using[2], span)?.as_f64() as usize;
+                let id = id.trim().to_owned();
+                self.chart_data.insert(id.clone(), parse_chart_table(&raw, count));
+                self.push_chart_data(&id);
             }
-            // COBOL-CHART-ADD-POINT chart-id label value
-            "COBOL-CHART-ADD-POINT" => {
-                tracing::debug!("COBOL-CHART-ADD-POINT: CLI mode — skipped");
+            // COBOL-CHART-ADD-POINT chart-id label value  (append one point)
+            "COBOL-CHART-ADD-POINT" if using.len() >= 3 => {
+                let id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let label = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let value = self.eval_call_arg(&using[2], span)?.as_f64();
+                let id = id.trim().to_owned();
+                self.chart_data
+                    .entry(id.clone())
+                    .or_default()
+                    .push((label.trim().to_owned(), value));
+                self.push_chart_data(&id);
             }
             // COBOL-CHART-CLEAR chart-id
-            "COBOL-CHART-CLEAR" => {
-                tracing::debug!("COBOL-CHART-CLEAR: CLI mode — skipped");
+            "COBOL-CHART-CLEAR" if !using.is_empty() => {
+                let id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let id = id.trim().to_owned();
+                self.chart_data.remove(&id);
+                self.push_chart_data(&id);
             }
-            // COBOL-CHART-REFRESH chart-id
-            "COBOL-CHART-REFRESH" => {
-                tracing::debug!("COBOL-CHART-REFRESH: CLI mode — skipped");
+            // COBOL-CHART-REFRESH chart-id  (re-send current data → repaint)
+            "COBOL-CHART-REFRESH" if !using.is_empty() => {
+                let id = self.eval_call_arg(&using[0], span)?.as_display_string();
+                self.push_chart_data(id.trim());
             }
             // ── Database Runtime Engine (Phase 8) — SQL built-ins ─────────────
             //
@@ -4991,6 +5009,31 @@ impl Interpreter {
 
     fn eval_call_arg(&mut self, arg: &CallArg, span: Span) -> Result<CobolValue, RuntimeError> {
         self.eval_expr(call_arg_expr(arg), span)
+    }
+
+    /// Serialise a chart's current points and push them to the GUI as the
+    /// control's `__ChartData` property — one `label<TAB>value` per line. Sent
+    /// empty when the chart has no data, so the renderer falls back to the sample
+    /// preview. A no-op under the CLI runner (no `state_tx`).
+    fn push_chart_data(&self, id: &str) {
+        let Some(tx) = &self.state_tx else {
+            return;
+        };
+        let serialized = self
+            .chart_data
+            .get(id)
+            .map(|pts| {
+                pts.iter()
+                    .map(|(l, v)| format!("{}\t{}", l.replace(['\t', '\n'], " "), v))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        let _ = tx.send(StateUpdate::new(
+            id.to_owned(),
+            "__ChartData".to_owned(),
+            serialized,
+        ));
     }
 
     // ── Expression evaluation ─────────────────────────────────────────────────
@@ -6971,6 +7014,35 @@ fn call_arg_expr(arg: &CallArg) -> &Expr {
     match arg {
         CallArg::ByReference(e) | CallArg::ByContent(e) | CallArg::ByValue(e) => e,
     }
+}
+
+/// Parse the raw bytes of a chart data table into `(label, value)` points, using
+/// the standard row layout the codegen emits: a `PIC X(64)` label followed by a
+/// `PIC 9(18)V9(6)` value (24 DISPLAY digits, 6 implied decimals). Best-effort —
+/// rows that don't fit the fixed stride are skipped. Handlers that build a table
+/// with a different layout should prefer `COBOL-CHART-ADD-POINT`, which is
+/// layout-independent.
+fn parse_chart_table(raw: &str, count: usize) -> Vec<(String, f64)> {
+    const LABEL_LEN: usize = 64;
+    const VAL_DIGITS: usize = 24; // 9(18)V9(6)
+    const VAL_SCALE: f64 = 1_000_000.0; // V9(6)
+    const ROW: usize = LABEL_LEN + VAL_DIGITS;
+    let chars: Vec<char> = raw.chars().collect();
+    let mut out = Vec::new();
+    for i in 0..count {
+        let start = i * ROW;
+        if start + ROW > chars.len() {
+            break;
+        }
+        let label: String = chars[start..start + LABEL_LEN].iter().collect();
+        let digits: String = chars[start + LABEL_LEN..start + ROW]
+            .iter()
+            .filter(|c| c.is_ascii_digit())
+            .collect();
+        let value = digits.parse::<f64>().unwrap_or(0.0) / VAL_SCALE;
+        out.push((label.trim().to_owned(), value));
+    }
+    out
 }
 
 /// ANSI SGR prefix for a screen phrase's display attributes (`""` if none).

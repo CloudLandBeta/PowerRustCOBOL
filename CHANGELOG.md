@@ -8,6 +8,47 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.145] — 2026-07-11
+
+### Fixed
+
+- **Event-editor AI assistant — real conversation + safety** — The COBOL Event
+  Editor's assistant now keeps an independent, persisted conversation per handler,
+  shown as a chat transcript with **Save / Compact / Clear** controls (Clear
+  confirms first; Compact summarises on a worker thread) and auto-scroll to the
+  newest turn. Before an AI reply replaces the handler it is **parsed and checked**
+  (syntax + control-member references + a full-form semantic pass); if it's broken
+  the parser errors are looped back to the model for up to three automatic fixes
+  instead of writing invalid code. Questions/answers with no code block are never
+  applied — they surface in the activity log.
+- **Live chart data (all chart types)** — `COBOL-CHART-ADD-POINT` /
+  `-CLEAR` / `-SET-TABLE` / `-REFRESH` now actually feed the renderer. Line, Area,
+  Bar, Pie, Donut and Scatter charts plot the pushed values (auto-scaled), falling
+  back to the representative sample only when no data has been set.
+- **AI assistant in the COBOL Structure editor** — The shared assistant bar is now
+  available in the Structure editor (WORKING-STORAGE, FILE SECTION, procedures, …),
+  with its own per-block conversation history.
+- **Chat-style transcript** — Assistant conversations render as balloons: developer
+  turns in light green on the right, assistant turns in light gray on the left,
+  dark text, monospace.
+- **AI activity log** — A model question/answer (a reply with no code block) is
+  shown prominently (2× font) and never written into the editor. Fenced COBOL inside
+  the model's reasoning is hidden unless *Verbose AI log* is on. Assistant and
+  dev-agent prompts updated: answer questions in prose, only emit code for an actual
+  change.
+- **Settings → AI** — The Detect / Test / Details / Timeout row moved directly above
+  the system prompt. Selecting a model tests the connection immediately, and a failed
+  test now opens an error modal (with a Details button) instead of only a status line.
+  The Model picker gained a **type-to-filter** box and a taller popup so at least six
+  models are visible at once.
+- **New providers: OpenRouter & Hugging Face** — Both OpenAI-compatible aggregators
+  are selectable in the provider picker; Refresh lists their catalogues (OpenRouter's
+  is public, so it works before a key is entered), giving access to the free coding
+  models (Qwen coders, DeepSeek, Mistral Nemo, StarCoder2, …).
+- **Vertical slider glass frame** — A vertical Slider no longer paints a large stray
+  white→transparent gradient. The glass-pill helper now rounds on the short axis and
+  skips the top sheen when it would collapse on a tall, narrow track.
+
 ## [PowerRustCOBOL 1.27.144] — 2026-07-10
 
 ### Fixed

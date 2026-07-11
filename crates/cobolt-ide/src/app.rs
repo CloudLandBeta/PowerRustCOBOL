@@ -316,6 +316,10 @@ pub struct CoboltApp {
     llm_test_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
     /// Last test-connection result/status line.
     llm_test_status: Option<String>,
+    /// A failed connection/model test to surface in a modal dialog (`Some` ⇒ the
+    /// error modal is open). Set when a "Test connection" (manual or triggered by
+    /// selecting a model) returns an error.
+    llm_test_error: Option<String>,
     /// In-flight "Detect API" probe from the settings dialog (spec 025).
     llm_detect_rx: Option<std::sync::mpsc::Receiver<Result<crate::llm::DetectedApi, String>>>,
     /// In-flight provider model-list fetch from the settings dialog.
@@ -619,6 +623,7 @@ impl CoboltApp {
             llm: crate::llm::LlmConfig::load(),
             llm_test_rx: None,
             llm_test_status: None,
+            llm_test_error: None,
             llm_detect_rx: None,
             llm_models_rx: None,
 
@@ -3427,10 +3432,10 @@ impl CoboltApp {
                     self.llm_test_rx = None;
                 }
                 Ok(crate::llm::LlmResponse::Err(e)) => {
-                    // The full request/response is in the connection log; open the
-                    // debug modal so the developer can inspect the return.
-                    self.agent_debug_open = true;
-                    self.llm_test_status = Some(e);
+                    // Surface the failure in a modal (the full request/response is
+                    // in the connection log, reachable via the modal's Details).
+                    self.llm_test_status = Some(e.clone());
+                    self.llm_test_error = Some(e);
                     self.llm_test_rx = None;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
@@ -3609,6 +3614,7 @@ impl CoboltApp {
                 cfg.api_key = form.draft.llm_api_key.clone();
                 cfg.model = form.draft.llm_model.clone();
                 self.llm_test_status = Some(tr.ai_testing.to_string());
+                self.llm_test_error = None;
                 self.llm_test_rx = Some(crate::llm::spawn_test(&cfg));
             }
         }
@@ -3653,6 +3659,41 @@ impl CoboltApp {
                 crate::file_dialog::DialogSpec::open()
                     .filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp"]),
             );
+        }
+
+        // Connection-test error modal — shown when a manual "Test connection" or a
+        // model-selection test returns an error.
+        if let Some(err) = self.llm_test_error.clone() {
+            let mut close = false;
+            let mut details = false;
+            egui::Window::new(tr.ai_test_failed_title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.set_max_width(460.0);
+                    ui.label(
+                        egui::RichText::new(&err).color(egui::Color32::from_rgb(220, 120, 120)),
+                    );
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if crate::llm::has_connection_log()
+                            && ui.button(tr.agent_details).clicked()
+                        {
+                            details = true;
+                        }
+                        if ui.button(tr.inspect_close).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            if details {
+                self.agent_debug_open = true;
+                self.llm_test_error = None;
+            }
+            if close {
+                self.llm_test_error = None;
+            }
         }
     }
 
@@ -6888,7 +6929,12 @@ impl CoboltApp {
 
         // ── COBOL Structure editor window (spec 005) ──────────────────────────
         // Hosts the shared `EditorPanel` (IntelliSense) — same editor everywhere.
-        self.designers[idx].1.show_cobol_structure_window(ctx, tr);
+        self.designers[idx].1.show_cobol_structure_window(
+            ctx,
+            tr,
+            &llm_cfg,
+            proj_root.as_deref(),
+        );
 
         // The "Form saved" alert belongs to THIS viewport (so it appears on top
         // of the designer, not hidden behind it in the main window).

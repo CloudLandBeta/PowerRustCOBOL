@@ -682,7 +682,30 @@ pub struct EventEditorModal {
     ai_status: Option<String>,
     /// Syntax errors blocking a save/close. `Some` ⇒ the syntax-error modal is up.
     syntax_errors: Option<Vec<crate::runner::DiagMsg>>,
+    /// Per-handler conversation history — replayed to the model on each request and
+    /// persisted independently for this event handler. Loaded lazily on first open.
+    ai_history: Vec<crate::llm::ChatTurn>,
+    /// Whether `ai_history` has been loaded from disk yet.
+    ai_loaded: bool,
+    /// In-flight compaction (summarization) request for this handler.
+    ai_compact_pending: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    /// Whether the clear-history confirmation dialog is showing.
+    ai_confirm_clear: bool,
+    /// Transcript auto-scroll bookkeeping: the number of turns rendered last frame.
+    /// When the history grows past this, the transcript scrolls to the newest turn
+    /// once (so a fresh reply is visible) without yanking the view while the user
+    /// is scrolled up reading.
+    ai_last_seen_turns: usize,
+    /// How many times the assistant has been auto-asked to fix invalid COBOL for
+    /// the current request. Reset when the developer sends a new prompt; capped by
+    /// [`MAX_AI_FIX_ATTEMPTS`] so a model that can't recover doesn't loop forever.
+    ai_fix_attempts: u8,
 }
+
+/// Maximum automatic "your COBOL doesn't parse — fix it" round-trips per request
+/// before the assistant gives up and surfaces the errors (leaving the developer's
+/// existing code untouched).
+const MAX_AI_FIX_ATTEMPTS: u8 = 3;
 
 impl EventEditorModal {
     pub fn new(
@@ -702,7 +725,46 @@ impl EventEditorModal {
             ai_pending: None,
             ai_status: None,
             syntax_errors: None,
+            ai_history: Vec::new(),
+            ai_loaded: false,
+            ai_compact_pending: None,
+            ai_confirm_clear: false,
+            ai_last_seen_turns: 0,
+            ai_fix_attempts: 0,
         }
+    }
+}
+
+/// Conversation-store key for an event handler. The nested `PROGRAM-ID` is unique
+/// per control+event, and the `__events__/` prefix keeps it from colliding with a
+/// source-file conversation key.
+fn event_history_key(program_id: &str) -> String {
+    format!("__events__/{program_id}")
+}
+
+/// Load a handler's saved conversation (empty when there is no project or none
+/// stored yet).
+fn load_event_history(
+    project_root: Option<&std::path::Path>,
+    program_id: &str,
+) -> Vec<crate::llm::ChatTurn> {
+    match project_root {
+        Some(root) => {
+            crate::llm::load_history(&root.join("data"), &event_history_key(program_id))
+        }
+        None => Vec::new(),
+    }
+}
+
+/// Persist a handler's conversation (no-op without an open project). An empty
+/// `turns` deletes the stored record.
+fn save_event_history(
+    project_root: Option<&std::path::Path>,
+    program_id: &str,
+    turns: &[crate::llm::ChatTurn],
+) {
+    if let Some(root) = project_root {
+        crate::llm::save_history(&root.join("data"), &event_history_key(program_id), turns);
     }
 }
 
@@ -775,6 +837,82 @@ fn validate_handler_members(form: &Form, code: &str) -> Vec<crate::runner::DiagM
                 message: format!("Control '{}' has no {} '{}'.", r.recv, kind, r.member),
                 line: r.line,
                 col: 1,
+            });
+        }
+    }
+    out
+}
+
+/// Semantically validate a candidate handler body **in the context of the whole
+/// form**. Isolated parsing (see [`validate_handler_syntax`]) can't catch a data
+/// name that the handler *uses* but no longer *declares* — e.g. when the assistant
+/// drops the DATA DIVISION while "only" translating comments, leaving a
+/// PROCEDURE-only program that parses fine but references an undeclared item. Here
+/// the candidate is spliced into a clone of the form, the whole program is
+/// regenerated, and the same semantic analyser the runner uses resolves every
+/// identifier — so form-global data items resolve (no false positives) while a
+/// genuinely undeclared name is reported. Only the errors falling inside this
+/// handler's generated nested program are returned, mapped back to editor lines.
+fn validate_handler_semantics(
+    form: &Form,
+    ctrl_id: &str,
+    event_name: &str,
+    program_id: &str,
+    candidate: &str,
+) -> Vec<crate::runner::DiagMsg> {
+    use crate::runner::{DiagMsg, DiagSeverity};
+
+    // Splice the candidate into a clone and regenerate the complete program.
+    let mut probe = form.clone();
+    if ctrl_id.is_empty() {
+        if let Some(ev) = probe.form_events.iter_mut().find(|e| e.event == event_name) {
+            ev.code = candidate.to_string();
+        }
+    } else if let Some(ctrl) = probe.find_control_mut(ctrl_id) {
+        ctrl.ensure_event(event_name);
+        if let Some(ev) = ctrl.events.iter_mut().find(|e| e.event == event_name) {
+            ev.code = candidate.to_string();
+        }
+    }
+    let src = cobolt_codegen::generate(&probe);
+    let parsed =
+        cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    // If the full program didn't even parse, leave it to the syntax check.
+    let Some(program) = parsed.program else {
+        return Vec::new();
+    };
+    let sem = cobolt_semantic::analyze(&program);
+
+    // Locate this handler's nested program (`PROGRAM-ID. <id>.` … `END PROGRAM
+    // <id>.`) so only its diagnostics are attributed to the candidate.
+    let pid_marker = format!("PROGRAM-ID. {program_id}.");
+    let end_marker = format!("END PROGRAM {program_id}.");
+    let Some(start) = src
+        .lines()
+        .position(|l| l.trim_start().starts_with(&pid_marker))
+    else {
+        return Vec::new();
+    };
+    let end = src
+        .lines()
+        .enumerate()
+        .skip(start + 1)
+        .find(|(_, l)| l.contains(&end_marker))
+        .map(|(i, _)| i)
+        .unwrap_or(usize::MAX);
+
+    let mut out = Vec::new();
+    for d in sem.errors() {
+        // `start` is 0-based; the PROGRAM-ID line is 1-based `start + 1`, so the
+        // editable body runs 1-based [start + 2 ..= end].
+        let line0 = d.span.line as usize;
+        if line0 > start + 1 && line0 <= end {
+            let editor_line = line0.saturating_sub(start + 1).max(1) as u32;
+            out.push(DiagMsg {
+                severity: DiagSeverity::Error,
+                message: d.message.clone(),
+                line: editor_line,
+                col: d.span.col,
             });
         }
     }
@@ -5169,6 +5307,14 @@ impl DesignerPanel {
         };
         let tr = crate::i18n::current_tr(ui.ctx());
 
+        // Lazily load this handler's saved conversation the first time it opens.
+        if let Some(m) = self.event_modal.as_mut() {
+            if !m.ai_loaded {
+                m.ai_loaded = true;
+                m.ai_history = load_event_history(project_root, &program_id);
+            }
+        }
+
         // ── Poll an in-flight AI request for this handler ────────────────────
         // On completion, splice the model's ```cobol block into the hosted
         // editor's buffer (or surface the error) so the developer can review /
@@ -5193,13 +5339,151 @@ impl DesignerPanel {
             }
             match resp {
                 crate::llm::LlmResponse::Ok(reply) => {
-                    let code = crate::llm::extract_code(&reply).unwrap_or(reply);
-                    self.event_editor.open_buffer(
-                        std::path::PathBuf::from(format!("{program_id}.handler")),
-                        code,
-                    );
+                    // Always record the assistant's turn (even when its code is
+                    // rejected, so the fix round-trip has the full context).
                     if let Some(m) = self.event_modal.as_mut() {
-                        m.ai_status = None;
+                        m.ai_history.push(crate::llm::ChatTurn::assistant(&reply));
+                        save_event_history(project_root, &program_id, &m.ai_history);
+                    }
+                    match crate::llm::extract_code(&reply) {
+                        Some(code) => {
+                            // Validate the returned handler BEFORE it replaces the
+                            // developer's code: parse ENVIRONMENT / DATA / PROCEDURE
+                            // (IDENTIFICATION is IDE-owned and supplied by the
+                            // validator), then check control-member references.
+                            let mut errs = validate_handler_syntax(&program_id, &code);
+                            errs.extend(validate_handler_members(&self.form, &code));
+                            errs.extend(validate_handler_semantics(
+                                &self.form,
+                                &ctrl_id,
+                                &event_name,
+                                &program_id,
+                                &code,
+                            ));
+                            if errs.is_empty() {
+                                self.event_editor.open_buffer(
+                                    std::path::PathBuf::from(format!("{program_id}.handler")),
+                                    code,
+                                );
+                                if let Some(m) = self.event_modal.as_mut() {
+                                    m.ai_status = None;
+                                    m.ai_fix_attempts = 0;
+                                }
+                            } else {
+                                // Broken — do NOT apply. Loop the parser errors back
+                                // to the assistant and ask for a fix (bounded).
+                                let error_list = errs
+                                    .iter()
+                                    .map(|e| format!("- line {}: {}", e.line, e.message))
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                let attempts = self
+                                    .event_modal
+                                    .as_ref()
+                                    .map(|m| m.ai_fix_attempts)
+                                    .unwrap_or(0);
+                                if attempts < MAX_AI_FIX_ATTEMPTS {
+                                    let skills = project_root
+                                        .map(crate::agent::load_skills)
+                                        .unwrap_or_default();
+                                    let fix_prompt = format!(
+                                        "The COBOL you just returned is INVALID and was not \
+                                         applied. The parser reported:\n{error_list}\n\nReturn a \
+                                         corrected event-handler body that fixes every error. Keep \
+                                         the ENVIRONMENT DIVISION, DATA DIVISION and PROCEDURE \
+                                         DIVISION the handler needs — do not drop a division that \
+                                         declares data the code uses. Do NOT emit IDENTIFICATION \
+                                         DIVISION, PROGRAM-ID, GOBACK, or END PROGRAM. Return the \
+                                         code in a ```cobol fenced block."
+                                    );
+                                    let prior = self
+                                        .event_modal
+                                        .as_ref()
+                                        .map(|m| m.ai_history.clone())
+                                        .unwrap_or_default();
+                                    let rx = crate::llm::spawn_request(
+                                        llm_cfg,
+                                        &prior,
+                                        &fix_prompt,
+                                        &code,
+                                        &format!("{program_id}.cob"),
+                                        &skills,
+                                    );
+                                    if let Some(m) = self.event_modal.as_mut() {
+                                        m.ai_history
+                                            .push(crate::llm::ChatTurn::user(&fix_prompt));
+                                        m.ai_fix_attempts = attempts + 1;
+                                        m.ai_pending = Some(rx);
+                                        m.ai_status = Some(tr.ai_fixing.to_string());
+                                        save_event_history(
+                                            project_root,
+                                            &program_id,
+                                            &m.ai_history,
+                                        );
+                                    }
+                                    ui.ctx().request_repaint();
+                                } else if let Some(m) = self.event_modal.as_mut() {
+                                    // Out of retries — surface the errors, leave the
+                                    // developer's existing code untouched.
+                                    m.ai_status =
+                                        Some(format!("{}\n{error_list}", tr.ai_fix_failed));
+                                    m.ai_fix_attempts = 0;
+                                }
+                            }
+                        }
+                        None => {
+                            // No code block ⇒ the model answered / asked a question.
+                            // Surface it prominently in the log, never in the editor.
+                            crate::llm::ai_question(reply.trim());
+                            if let Some(m) = self.event_modal.as_mut() {
+                                m.ai_status = Some(tr.ai_no_code.to_string());
+                            }
+                        }
+                    }
+                }
+                crate::llm::LlmResponse::Err(e) => {
+                    if let Some(m) = self.event_modal.as_mut() {
+                        m.ai_status = Some(e);
+                    }
+                }
+            }
+        }
+
+        // ── Poll an in-flight compaction request for this handler ────────────
+        let mut compact_reply: Option<crate::llm::LlmResponse> = None;
+        if let Some(m) = self.event_modal.as_ref() {
+            if let Some(rx) = &m.ai_compact_pending {
+                match rx.try_recv() {
+                    Ok(resp) => compact_reply = Some(resp),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint(),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        compact_reply = Some(crate::llm::LlmResponse::Err(
+                            "The assistant worker stopped unexpectedly.".into(),
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(resp) = compact_reply {
+            if let Some(m) = self.event_modal.as_mut() {
+                m.ai_compact_pending = None;
+            }
+            match resp {
+                crate::llm::LlmResponse::Ok(summary) => {
+                    let summary = summary.trim().to_string();
+                    if summary.is_empty() {
+                        if let Some(m) = self.event_modal.as_mut() {
+                            m.ai_status = Some(tr.ai_no_code.to_string());
+                        }
+                    } else {
+                        let turns = vec![crate::llm::ChatTurn::user(format!(
+                            "[Compacted conversation summary]\n\n{summary}"
+                        ))];
+                        save_event_history(project_root, &program_id, &turns);
+                        if let Some(m) = self.event_modal.as_mut() {
+                            m.ai_history = turns;
+                            m.ai_status = Some(tr.ai_compacted.to_string());
+                        }
                     }
                 }
                 crate::llm::LlmResponse::Err(e) => {
@@ -5216,6 +5500,33 @@ impl DesignerPanel {
             .as_ref()
             .map(|m| m.ai_pending.is_some())
             .unwrap_or(false);
+        let compacting = self
+            .event_modal
+            .as_ref()
+            .map(|m| m.ai_compact_pending.is_some())
+            .unwrap_or(false);
+        let history_len = self
+            .event_modal
+            .as_ref()
+            .map(|m| m.ai_history.len())
+            .unwrap_or(0);
+        // Snapshot the turns so the window closure can render the transcript
+        // without holding a borrow on `self.event_modal`.
+        let history_snapshot: Vec<crate::llm::ChatTurn> = self
+            .event_modal
+            .as_ref()
+            .map(|m| m.ai_history.clone())
+            .unwrap_or_default();
+        // Scroll the transcript to the newest turn only on the frame the history
+        // grows (a sent prompt or a returned reply) — never every frame, so the
+        // user can freely scroll up to read earlier turns.
+        let scroll_transcript = if let Some(m) = self.event_modal.as_mut() {
+            let grew = history_len > m.ai_last_seen_turns;
+            m.ai_last_seen_turns = history_len;
+            grew
+        } else {
+            false
+        };
         let ai_status = self.event_modal.as_ref().and_then(|m| m.ai_status.clone());
         let mut ai_prompt = self
             .event_modal
@@ -5223,6 +5534,9 @@ impl DesignerPanel {
             .map(|m| std::mem::take(&mut m.ai_prompt))
             .unwrap_or_default();
         let mut do_send = false;
+        let mut do_save = false;
+        let mut do_compact = false;
+        let mut do_clear = false;
 
         // Dim overlay covering the canvas (behind the window).
         let overlay = ui.ctx().screen_rect();
@@ -5332,6 +5646,29 @@ impl DesignerPanel {
                 if llm_cfg.is_configured() {
                     ui.add_space(6.0);
                     ui.separator();
+
+                    // ── Conversation transcript for THIS handler ─────────────
+                    //    Renders the stored turns so the developer can see the
+                    //    conversation (the reply's code also lands in the editor
+                    //    above). Bounded + scrollable so it can't push the prompt
+                    //    or buttons off the modal.
+                    if history_len > 0 {
+                        egui::ScrollArea::vertical()
+                            .max_height(150.0)
+                            .auto_shrink([false, true])
+                            .id_salt("event_ai_transcript")
+                            .show(ui, |ui| {
+                                for turn in &history_snapshot {
+                                    super::editor::chat_bubble(ui, &turn.role, &turn.content);
+                                }
+                                // Auto-scroll to the newest turn on growth only.
+                                if scroll_transcript {
+                                    ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                                }
+                            });
+                        ui.separator();
+                    }
+
                     // Prompt box on the LEFT (multiline, vertically resizable via
                     // the grip at its bottom edge), Send button on the RIGHT.
                     let btn_col_w = 96.0;
@@ -5389,6 +5726,55 @@ impl DesignerPanel {
                                 .color(Color32::from_rgb(220, 120, 120)),
                         );
                     }
+
+                    // ── Conversation history controls (per handler) ──────────
+                    //    Always visible when an LLM is configured so the controls
+                    //    are discoverable; Save/Compact/Clear are disabled until
+                    //    this handler actually has a conversation.
+                    let has_history = history_len > 0;
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("💬 {history_len}"))
+                                .small()
+                                .color(Color32::from_gray(150)),
+                        );
+                        if ui
+                            .add_enabled(
+                                has_history,
+                                egui::Button::new(format!("💾 {}", tr.ai_save_history)),
+                            )
+                            .clicked()
+                        {
+                            do_save = true;
+                        }
+                        if ui
+                            .add_enabled(
+                                has_history && !busy && !compacting,
+                                egui::Button::new(format!("🗜 {}", tr.ai_compact_history)),
+                            )
+                            .clicked()
+                        {
+                            do_compact = true;
+                        }
+                        if ui
+                            .add_enabled(
+                                has_history,
+                                egui::Button::new(format!("🗑 {}", tr.ai_clear_history)),
+                            )
+                            .clicked()
+                        {
+                            do_clear = true;
+                        }
+                        if compacting {
+                            ui.add(egui::Spinner::new());
+                            ui.label(
+                                egui::RichText::new(tr.ai_compacting)
+                                    .small()
+                                    .color(Color32::from_gray(170)),
+                            );
+                        }
+                    });
                 }
 
                 ui.add_space(6.0);
@@ -5419,30 +5805,115 @@ impl DesignerPanel {
             // IDENTIFICATION / PROGRAM-ID / GOBACK / END PROGRAM scaffold shown
             // read-only above and below the editor).
             let guided = format!(
-                "{user_prompt}\n\nWrite the COBOL statements for this event handler only \
-                 (a RustCOBOL nested-program body). Do NOT emit IDENTIFICATION DIVISION, \
-                 PROGRAM-ID, GOBACK, or END PROGRAM — the IDE supplies those. Return the \
-                 code in a ```cobol fenced block."
+                "{user_prompt}\n\nIf this is a request to WRITE or CHANGE the handler, \
+                 return the COBOL statements for this event handler only (a RustCOBOL \
+                 nested-program body) in a ```cobol fenced block. Do NOT emit \
+                 IDENTIFICATION DIVISION, PROGRAM-ID, GOBACK, or END PROGRAM — the IDE \
+                 supplies those; keep the ENVIRONMENT / DATA / PROCEDURE divisions the \
+                 handler needs. If instead this is a QUESTION or a discussion (not a \
+                 request to change the code), answer in plain prose with NO code block \
+                 — your answer is shown to the developer and never written into the \
+                 handler."
             );
             // Include the project's RustCOBOL skills (agentic_ai/skills) so the
             // handler assistant follows the same conventions as the dev agent.
             let skills = project_root
                 .map(crate::agent::load_skills)
                 .unwrap_or_default();
+            // Replay this handler's prior conversation so the assistant has the
+            // full context (the guided suffix carries the scaffold instructions).
+            let prior = self
+                .event_modal
+                .as_ref()
+                .map(|m| m.ai_history.clone())
+                .unwrap_or_default();
             let rx = crate::llm::spawn_request(
                 llm_cfg,
-                &[],
+                &prior,
                 &guided,
                 &code,
                 &format!("{program_id}.cob"),
                 &skills,
             );
             if let Some(m) = self.event_modal.as_mut() {
+                // Record the developer's turn (the clean prompt, not the guided
+                // wrapper) so the transcript stays readable.
+                m.ai_history.push(crate::llm::ChatTurn::user(&user_prompt));
                 m.ai_pending = Some(rx);
                 m.ai_prompt.clear();
                 m.ai_status = None;
+                m.ai_fix_attempts = 0;
+                save_event_history(project_root, &program_id, &m.ai_history);
             }
             ui.ctx().request_repaint();
+        }
+
+        // ── Save / Compact / Clear conversation controls ─────────────────────
+        if do_save {
+            if let Some(m) = self.event_modal.as_mut() {
+                save_event_history(project_root, &program_id, &m.ai_history);
+                m.ai_status = Some(tr.ai_history_saved.to_string());
+            }
+        }
+        if do_compact && !busy && !compacting {
+            let prior = self
+                .event_modal
+                .as_ref()
+                .map(|m| m.ai_history.clone())
+                .unwrap_or_default();
+            if !prior.is_empty() {
+                let rx = crate::llm::spawn_compaction(llm_cfg, &prior);
+                if let Some(m) = self.event_modal.as_mut() {
+                    m.ai_compact_pending = Some(rx);
+                    m.ai_status = None;
+                }
+                ui.ctx().request_repaint();
+            }
+        }
+        if do_clear {
+            if let Some(m) = self.event_modal.as_mut() {
+                m.ai_confirm_clear = true;
+            }
+        }
+
+        // Clear-history confirmation dialog.
+        if self
+            .event_modal
+            .as_ref()
+            .map(|m| m.ai_confirm_clear)
+            .unwrap_or(false)
+        {
+            let mut cancel = false;
+            let mut confirm = false;
+            egui::Window::new(tr.ai_clear_confirm_title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ui.ctx(), |ui| {
+                    ui.label(tr.ai_clear_confirm_body);
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr.btn_cancel).clicked() {
+                            cancel = true;
+                        }
+                        if ui.button(tr.delete_confirm_ok).clicked() {
+                            confirm = true;
+                        }
+                    });
+                });
+            if cancel {
+                if let Some(m) = self.event_modal.as_mut() {
+                    m.ai_confirm_clear = false;
+                }
+            }
+            if confirm {
+                save_event_history(project_root, &program_id, &[]);
+                if let Some(m) = self.event_modal.as_mut() {
+                    m.ai_history.clear();
+                    m.ai_confirm_clear = false;
+                    m.ai_status = None;
+                }
+            }
         }
 
         if save_clicked {
@@ -5453,6 +5924,13 @@ impl DesignerPanel {
             let content = self.event_editor.buffer_for_save().unwrap_or_default();
             let mut errs = validate_handler_syntax(&program_id, &content);
             errs.extend(validate_handler_members(&self.form, &content));
+            errs.extend(validate_handler_semantics(
+                &self.form,
+                &ctrl_id,
+                &event_name,
+                &program_id,
+                &content,
+            ));
             if errs.is_empty() {
                 // Don't persist an untouched first-time template as real handler code.
                 if content != orig_source {
@@ -5567,6 +6045,13 @@ impl DesignerPanel {
                 let fixed = self.event_editor.buffer_for_save().unwrap_or_default();
                 let mut errs2 = validate_handler_syntax(&program_id, &fixed);
                 errs2.extend(validate_handler_members(&self.form, &fixed));
+                errs2.extend(validate_handler_semantics(
+                    &self.form,
+                    &ctrl_id,
+                    &event_name,
+                    &program_id,
+                    &fixed,
+                ));
                 if let Some(m) = self.event_modal.as_mut() {
                     if errs2.is_empty() {
                         // Clean now — save and close.
@@ -5606,7 +6091,13 @@ impl DesignerPanel {
     /// the event modal and the main code editor, so the section / procedure code
     /// gets IntelliSense, syntax colouring and find/replace too. Edits live-sync
     /// back to the form block.
-    pub fn show_cobol_structure_window(&mut self, ctx: &egui::Context, tr: &crate::i18n::Tr) {
+    pub fn show_cobol_structure_window(
+        &mut self,
+        ctx: &egui::Context,
+        tr: &crate::i18n::Tr,
+        llm: &crate::llm::LlmConfig,
+        project_root: Option<&std::path::Path>,
+    ) {
         use super::cobol_structure as cs;
         let Some(target) = self.cobol_structure_edit else {
             return;
@@ -5677,7 +6168,9 @@ impl DesignerPanel {
 
                 // Fixed-size container the editor fills and scrolls inside (a
                 // height from `available_height` would creep on every repaint).
-                let editor_h = (default_h - 170.0).max(200.0);
+                // Reserve room for the inline AI bar when a model is configured.
+                let ai_reserve = if llm.is_configured() { 92.0 } else { 0.0 };
+                let editor_h = (default_h - 170.0 - ai_reserve).max(180.0);
                 let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
@@ -5691,6 +6184,32 @@ impl DesignerPanel {
                         self.cs_editor.render_code_area(&ectx, ui);
                     });
                 });
+
+                // ── AI assistant (inline) — same bar as the code editor, with
+                //    per-block conversation history, transcript, and save/compact/
+                //    clear. Its reply replaces this block's COBOL.
+                if llm.is_configured() {
+                    ui.add_space(4.0);
+                    ui.separator();
+                    let code = self.cs_editor.buffer_content().unwrap_or("").to_string();
+                    let buf_path = std::path::PathBuf::from(format!(
+                        "cobol-structure/{}",
+                        target.buffer_key()
+                    ));
+                    if let Some(new_code) = self.cs_editor.ai_bar_inline(
+                        ui,
+                        llm,
+                        tr,
+                        "cs_ai",
+                        &buf_path,
+                        &code,
+                        false,
+                        project_root,
+                    ) {
+                        self.cs_editor.open_buffer(buf_path, new_code);
+                        self.dirty = true;
+                    }
+                }
 
                 ui.add_space(6.0);
                 if ui.button(tr.cs_close).clicked() {

@@ -1637,15 +1637,20 @@ pub fn draw_control(
                                body: Color32,
                                sheen: bool,
                                rim: Color32| {
-            let r = pill.height() / 2.0;
+            // Rounding follows the SHORT axis so a tall/narrow pill (a vertical
+            // slider track) stays a capsule instead of over-rounding on height.
+            let r = pill.width().min(pill.height()) * 0.5;
             painter.rect_filled(pill, r, body);
-            if sheen {
+            // Top-half white sheen. The inset by `r` is only meaningful for a wide
+            // pill; on a narrow vertical track it collapses (left >= right), so the
+            // sheen is skipped rather than smeared into a giant gradient quad.
+            let left = pill.min.x + r;
+            let right = pill.max.x - r;
+            if sheen && right > left {
                 // Top-half gradient mesh: opaque white → transparent
                 let mut mesh = egui::epaint::Mesh::default();
                 let top = pill.min.y;
                 let mid = pill.min.y + pill.height() * 0.5;
-                let left = pill.min.x + r;
-                let right = pill.max.x - r;
                 let w_hi =
                     Color32::from_rgba_premultiplied(120, 130, 150, (80.0 * alpha_mul) as u8);
                 let w_lo = Color32::from_rgba_premultiplied(0, 0, 0, 0);
@@ -4667,11 +4672,46 @@ pub fn draw_chart_preview(
         }
     }
 
-    // ── Sample data (representative preview) ──────────────────────────────────
-    // Normalised Y values for 5 data points, 2 series
-    let series1: &[f32] = &[0.40, 0.70, 0.55, 0.85, 0.60];
-    let series2: &[f32] = &[0.25, 0.45, 0.70, 0.50, 0.80];
-    let n = series1.len();
+    // ── Data ──────────────────────────────────────────────────────────────────
+    // Live data pushed from COBOL via the `COBOL-CHART-*` runtime calls arrives as
+    // the control's `__ChartData` property: one `label<TAB>value` per line. When
+    // present it is auto-scaled to the plot and drawn; otherwise a representative
+    // sample is shown, so the designer canvas and an unpopulated chart still look
+    // meaningful.
+    let live: Vec<(String, f32)> = ctrl
+        .get_prop("__ChartData")
+        .map(|v| v.as_str().to_owned())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| {
+            s.lines()
+                .filter_map(|ln| {
+                    let mut it = ln.splitn(2, '\t');
+                    let label = it.next()?.to_owned();
+                    let value: f32 = it.next()?.trim().parse().ok()?;
+                    Some((label, value))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Sample fallback (normalised Y for 5 points, 2 series).
+    let sample1: &[f32] = &[0.40, 0.70, 0.55, 0.85, 0.60];
+    let sample2: &[f32] = &[0.25, 0.45, 0.70, 0.50, 0.80];
+
+    // Auto-scale live values into the plot's 0..1 band (max → top).
+    let live_norm: Vec<f32> = if live.is_empty() {
+        Vec::new()
+    } else {
+        let maxv = live
+            .iter()
+            .map(|(_, v)| *v)
+            .fold(0.0_f32, f32::max)
+            .max(f32::EPSILON);
+        live.iter().map(|(_, v)| (v / maxv).clamp(0.0, 1.0)).collect()
+    };
+    let series1: &[f32] = if live.is_empty() { sample1 } else { &live_norm };
+    let series2: &[f32] = if live.is_empty() { sample2 } else { &[] };
+    let n = series1.len().max(1);
 
     let px_x = |i: usize| plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width();
     let px_y = |v: f32| plot.max.y - v * plot.height();
@@ -4800,15 +4840,28 @@ pub fn draw_chart_preview(
             }
         }
         CT::ScatterChart => {
-            let pts1: &[(f32, f32)] = &[
+            // Live data → one point per (index, value); index spreads across X,
+            // value (auto-scaled) is Y. Sample clusters shown when no data is set.
+            let sample1: &[(f32, f32)] = &[
                 (0.15, 0.65),
                 (0.35, 0.40),
                 (0.50, 0.78),
                 (0.70, 0.30),
                 (0.88, 0.55),
             ];
-            let pts2: &[(f32, f32)] = &[(0.20, 0.30), (0.42, 0.72), (0.60, 0.45), (0.78, 0.85)];
-            for (pts, ci) in [(pts1, 0usize), (pts2, 1)] {
+            let sample2: &[(f32, f32)] =
+                &[(0.20, 0.30), (0.42, 0.72), (0.60, 0.45), (0.78, 0.85)];
+            let live_pts: Vec<(f32, f32)> = live_norm
+                .iter()
+                .enumerate()
+                .map(|(i, &vy)| ((i as f32 + 0.5) / n as f32, vy))
+                .collect();
+            let groups: Vec<(&[(f32, f32)], usize)> = if live.is_empty() {
+                vec![(sample1, 0usize), (sample2, 1)]
+            } else {
+                vec![(live_pts.as_slice(), 0usize)]
+            };
+            for (pts, ci) in groups {
                 let c = pal[ci % pal.len()];
                 for &(fx, fy) in pts {
                     let p = Pos2::new(
@@ -4845,7 +4898,19 @@ pub fn draw_chart_preview(
 
             // Neumorphic: the pie sits ON the soft surface, so give it a faint
 
-            let slices: &[f32] = &[0.30, 0.20, 0.25, 0.25]; // proportions
+            // Live data → each value becomes a slice proportional to the total.
+            // Sample proportions shown when no data is set.
+            let slice_vec: Vec<f32> = if live.is_empty() {
+                vec![0.30, 0.20, 0.25, 0.25]
+            } else {
+                let sum: f32 = live
+                    .iter()
+                    .map(|(_, v)| v.max(0.0))
+                    .sum::<f32>()
+                    .max(f32::EPSILON);
+                live.iter().map(|(_, v)| v.max(0.0) / sum).collect()
+            };
+            let slices: &[f32] = &slice_vec; // proportions
             let mut start = -std::f32::consts::FRAC_PI_2; // top
             for (i, &frac) in slices.iter().enumerate() {
                 let sweep = frac * TAU;

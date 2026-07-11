@@ -52,8 +52,13 @@ column 7). If a comment would pass column 80, break it and continue on the next 
 line at the SAME indentation, starting again with `*>` and a space, until it ends.\n\
 - Preserve the developer's existing structure and comments unless they ask you \
 to change them.\n\
-- If the request is a question rather than an edit, answer briefly and, when \
-appropriate, include the relevant COBOL in a `cobol` code block.";
+- A fenced `cobol` code block is ONLY ever the new source to apply to the file — \
+never an illustration or an example inside an answer.\n\
+- If the developer asks a QUESTION or is discussing the code rather than \
+requesting a change, answer in plain prose and DO NOT include any fenced `cobol` \
+code block. Emit the `cobol` block only when you are actually editing the source. \
+When you are unsure whether they want a change, ask a brief clarifying question \
+(in prose, no code block) instead of guessing and emitting code.";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
@@ -656,6 +661,8 @@ pub enum Provider {
     Amazon,
     Alibaba,
     Grok,
+    OpenRouter,
+    HuggingFace,
 }
 
 /// Every provider, in display order (used to build the picker).
@@ -668,6 +675,8 @@ pub const PROVIDERS: &[Provider] = &[
     Provider::Amazon,
     Provider::Alibaba,
     Provider::Grok,
+    Provider::OpenRouter,
+    Provider::HuggingFace,
 ];
 
 impl Provider {
@@ -682,6 +691,8 @@ impl Provider {
             Provider::Amazon => "amazon",
             Provider::Alibaba => "alibaba",
             Provider::Grok => "grok",
+            Provider::OpenRouter => "openrouter",
+            Provider::HuggingFace => "huggingface",
         }
     }
 
@@ -701,6 +712,8 @@ impl Provider {
             Provider::Amazon => "Amazon",
             Provider::Alibaba => "Alibaba",
             Provider::Grok => "Grok",
+            Provider::OpenRouter => "OpenRouter",
+            Provider::HuggingFace => "Hugging Face",
         }
     }
 
@@ -720,6 +733,8 @@ impl Provider {
                 "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
             }
             Provider::Grok => "https://api.x.ai/v1/chat/completions",
+            Provider::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
+            Provider::HuggingFace => "https://router.huggingface.co/v1/chat/completions",
         }
     }
 
@@ -766,6 +781,20 @@ impl Provider {
             ],
             Provider::Alibaba => &["qwen-max", "qwen-plus", "qwen-turbo", "qwen3-coder-plus"],
             Provider::Grok => &["grok-4", "grok-3", "grok-3-mini", "grok-code-fast-1"],
+            // Aggregators host hundreds of models; a live Refresh is strongly
+            // preferred. These are only a best-effort fallback when offline / no key.
+            Provider::OpenRouter => &[
+                "qwen/qwen-2.5-coder-32b-instruct:free",
+                "mistralai/mistral-nemo:free",
+                "deepseek/deepseek-r1:free",
+                "meta-llama/llama-3.3-70b-instruct:free",
+            ],
+            Provider::HuggingFace => &[
+                "Qwen/Qwen2.5-Coder-32B-Instruct",
+                "deepseek-ai/DeepSeek-Coder-V2-Instruct",
+                "mistralai/Mistral-Nemo-Instruct-2407",
+                "bigcode/starcoder2-15b",
+            ],
         }
     }
 }
@@ -905,6 +934,23 @@ pub fn list_models(provider: Provider, endpoint: &str, api_key: &str) -> Result<
         .unwrap_or_default(),
         Provider::Grok => {
             logged_get_auth(&agent, "https://api.x.ai/v1/models", &ListAuth::Bearer(key))
+                .map(|b| parse_openai_models(&b))
+                .unwrap_or_default()
+        }
+        Provider::OpenRouter | Provider::HuggingFace => {
+            // Both expose an OpenAI-style `/v1/models`. OpenRouter's is public, so a
+            // Refresh works even before a key is entered; send the key when present.
+            let url = if matches!(provider, Provider::OpenRouter) {
+                "https://openrouter.ai/api/v1/models"
+            } else {
+                "https://router.huggingface.co/v1/models"
+            };
+            let auth = if key.is_empty() {
+                ListAuth::None
+            } else {
+                ListAuth::Bearer(key)
+            };
+            logged_get_auth(&agent, url, &auth)
                 .map(|b| parse_openai_models(&b))
                 .unwrap_or_default()
         }
@@ -1111,20 +1157,21 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
                 let mut content_acc = String::new();
                 let mut reasoning_buf = String::new();
                 let mut reasoning_header_sent = false;
+                // Whether the reasoning stream is currently inside a ```fenced```
+                // block, tracked across chunks so fenced code is hidden as a unit
+                // when the log is non-verbose.
+                let mut reasoning_in_fence = false;
                 let mut saw_sse = false;
                 let mut first_token = true;
                 let mut plain = String::new(); // fallback: server ignored `stream`
 
-                // Flush any complete (newline-terminated) reasoning lines to the log.
-                let flush_reasoning = |buf: &mut String, header: &mut bool| {
+                // Flush any complete (newline-terminated) reasoning lines to the log,
+                // hiding fenced code unless verbose.
+                let flush_reasoning = |buf: &mut String, header: &mut bool, in_fence: &mut bool| {
                     while let Some(idx) = buf.find('\n') {
                         let line: String = buf.drain(..=idx).collect();
                         let line = line.trim_end_matches(['\n', '\r']).to_string();
-                        if !*header {
-                            push_reasoning_line("💭 model reasoning:".to_string());
-                            *header = true;
-                        }
-                        push_reasoning_line(line);
+                        push_reasoning_gated(&line, verbose, header, in_fence);
                     }
                 };
 
@@ -1168,7 +1215,11 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
                             }
                             if let Some(r) = r {
                                 reasoning_buf.push_str(&r);
-                                flush_reasoning(&mut reasoning_buf, &mut reasoning_header_sent);
+                                flush_reasoning(
+                                    &mut reasoning_buf,
+                                    &mut reasoning_header_sent,
+                                    &mut reasoning_in_fence,
+                                );
                             }
                         }
                     } else {
@@ -1185,12 +1236,12 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
                         reasoning_buf.push_str(&r);
                     }
                     if !reasoning_buf.trim().is_empty() {
-                        if !reasoning_header_sent {
-                            push_reasoning_line("💭 model reasoning:".to_string());
-                        }
-                        for l in reasoning_buf.trim_end().lines() {
-                            push_reasoning_line(l.to_string());
-                        }
+                        push_reasoning_gated(
+                            reasoning_buf.trim_end(),
+                            verbose,
+                            &mut reasoning_header_sent,
+                            &mut reasoning_in_fence,
+                        );
                     }
                     if clean.trim().is_empty() {
                         ai_error("Completed but the response had no content (see Details).");
@@ -1216,7 +1267,8 @@ fn post_messages(cfg: &LlmConfig, messages: Vec<serde_json::Value>) -> Receiver<
                             Some(text) => {
                                 let (clean, inline) = split_think_tags(&text);
                                 if let Some(r) = extract_reasoning(&json).or(inline) {
-                                    push_reasoning(r);
+                                    let (mut hdr, mut inf) = (false, false);
+                                    push_reasoning_gated(&r, verbose, &mut hdr, &mut inf);
                                 }
                                 ai_info(format!(
                                     "✔ Completed · {} chars · {:.1}s",
@@ -1338,6 +1390,9 @@ pub enum AiLogKind {
     Detail,
     /// A line of the model's chain-of-thought.
     Reasoning,
+    /// A question / prose answer from the model (a reply with no code block). Shown
+    /// prominently (larger font) and never applied to the editor buffer.
+    Question,
     /// A failure.
     Error,
 }
@@ -1381,10 +1436,48 @@ pub fn ai_detail(text: impl Into<String>) {
 pub fn ai_error(text: impl Into<String>) {
     ai_log_push(AiLogKind::Error, text);
 }
+/// Log a model question / prose answer (a reply that carried no code block). Shown
+/// prominently in the activity log regardless of the verbose setting, and never
+/// written into the editor.
+pub fn ai_question(text: impl Into<String>) {
+    ai_log_push(AiLogKind::Question, text);
+}
 
 /// Queue one pre-formatted line of model reasoning.
 pub fn push_reasoning_line(line: String) {
     ai_log_push(AiLogKind::Reasoning, line);
+}
+
+/// Emit reasoning `text` line-by-line, but **hide fenced code blocks** (```…```)
+/// unless `verbose` — replacing each hidden block with a single compact
+/// placeholder. `header`/`in_fence` are carried across calls so a fenced block can
+/// span the boundary between streamed chunks. When `verbose` is true every line is
+/// emitted verbatim.
+fn push_reasoning_gated(text: &str, verbose: bool, header: &mut bool, in_fence: &mut bool) {
+    let ensure_header = |header: &mut bool| {
+        if !*header {
+            push_reasoning_line("💭 model reasoning:".to_string());
+            *header = true;
+        }
+    };
+    for line in text.lines() {
+        let is_fence = line.trim_start().starts_with("```");
+        let opening = is_fence && !*in_fence;
+        if is_fence {
+            *in_fence = !*in_fence;
+        }
+        if !verbose && (*in_fence || is_fence) {
+            // Inside a fenced block (or its delimiter): hide it. On the opening
+            // fence only, drop a one-line marker so the log isn't silently empty.
+            if opening {
+                ensure_header(header);
+                push_reasoning_line("   ``` [code hidden — enable Verbose AI log]".to_string());
+            }
+            continue;
+        }
+        ensure_header(header);
+        push_reasoning_line(line.to_string());
+    }
 }
 
 /// Queue a whole reasoning block: a header line followed by one line per text

@@ -32,6 +32,9 @@ pub enum OutputLine {
     AiDetail(String),
     /// AI activity — a failure.
     AiError(String),
+    /// AI activity — a model question / prose answer (reply with no code block),
+    /// shown at a larger font. Never applied to the editor.
+    AiQuestion(String),
 }
 
 // ── OutputPanel ───────────────────────────────────────────────────────────────
@@ -93,6 +96,7 @@ impl OutputPanel {
             crate::llm::AiLogKind::Info => OutputLine::AiInfo(text.into()),
             crate::llm::AiLogKind::Detail => OutputLine::AiDetail(text.into()),
             crate::llm::AiLogKind::Reasoning => OutputLine::Reasoning(text.into()),
+            crate::llm::AiLogKind::Question => OutputLine::AiQuestion(text.into()),
             crate::llm::AiLogKind::Error => OutputLine::AiError(text.into()),
         };
         self.lines.push(line);
@@ -199,6 +203,21 @@ impl OutputPanel {
                                     RichText::new(s)
                                         .monospace()
                                         .color(Color32::from_rgb(240, 120, 90)),
+                                );
+                            }
+                            OutputLine::AiQuestion(s) => {
+                                // 2× the monospace body size — a model question must
+                                // stand out in the log (and never lands in code).
+                                let base = ui
+                                    .style()
+                                    .text_styles
+                                    .get(&egui::TextStyle::Monospace)
+                                    .map(|f| f.size)
+                                    .unwrap_or(13.0);
+                                ui.label(
+                                    RichText::new(format!("💬 {s}"))
+                                        .size(base * 2.0)
+                                        .color(Color32::from_rgb(150, 210, 160)),
                                 );
                             }
                         }

@@ -1011,6 +1011,45 @@ impl Default for EditorPanel {
     }
 }
 
+/// Render one conversation turn as a chat balloon: the developer's messages sit on
+/// the right in light green, the assistant's on the left in light gray, both with
+/// dark-gray text. Shared by the code/structure editor `ai_bar` and the event
+/// editor transcript so the conversation reads like a natural chat.
+pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
+    let is_user = role != "assistant";
+    let fill = if is_user {
+        Color32::from_rgb(0x51, 0xF6, 0x4B) // light green
+    } else {
+        Color32::from_rgb(0xE2, 0xE2, 0xE2) // light gray
+    };
+    let fg = Color32::from_rgb(0x2A, 0x2A, 0x2A); // dark gray text (both)
+    let max_w = (ui.available_width() * 0.82).max(120.0);
+
+    // Developer bubbles hug the right, assistant bubbles the left; text inside both
+    // reads left-to-right.
+    let layout = if is_user {
+        egui::Layout::right_to_left(egui::Align::TOP)
+    } else {
+        egui::Layout::left_to_right(egui::Align::TOP)
+    };
+    ui.with_layout(layout, |ui| {
+        egui::Frame::none()
+            .fill(fill)
+            .rounding(egui::Rounding::same(9.0))
+            .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+            .show(ui, |ui| {
+                ui.set_max_width(max_w);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(content.trim()).monospace().color(fg),
+                    )
+                    .wrap(),
+                );
+            });
+    });
+    ui.add_space(5.0);
+}
+
 impl EditorPanel {
     pub fn new() -> Self {
         Self::default()
@@ -1342,6 +1381,60 @@ impl EditorPanel {
         read_only: bool,
         project_root: Option<&std::path::Path>,
     ) -> Option<String> {
+        self.ai_bar_impl(
+            ctx,
+            cfg,
+            tr,
+            panel_id,
+            target,
+            code,
+            read_only,
+            project_root,
+            None,
+        )
+    }
+
+    /// Same assistant, rendered **inline** into an existing `ui` (for a modal
+    /// window that can't host a `TopBottomPanel`, e.g. the COBOL Structure editor).
+    #[allow(clippy::too_many_arguments)]
+    pub fn ai_bar_inline(
+        &mut self,
+        ui: &mut egui::Ui,
+        cfg: &crate::llm::LlmConfig,
+        tr: &crate::i18n::Tr,
+        panel_id: &str,
+        target: &std::path::Path,
+        code: &str,
+        read_only: bool,
+        project_root: Option<&std::path::Path>,
+    ) -> Option<String> {
+        let ctx = ui.ctx().clone();
+        self.ai_bar_impl(
+            &ctx,
+            cfg,
+            tr,
+            panel_id,
+            target,
+            code,
+            read_only,
+            project_root,
+            Some(ui),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ai_bar_impl(
+        &mut self,
+        ctx: &Context,
+        cfg: &crate::llm::LlmConfig,
+        tr: &crate::i18n::Tr,
+        panel_id: &str,
+        target: &std::path::Path,
+        code: &str,
+        read_only: bool,
+        project_root: Option<&std::path::Path>,
+        inline_ui: Option<&mut egui::Ui>,
+    ) -> Option<String> {
         let path = target.to_path_buf();
         let panel = egui::Id::new(panel_id);
         let transcript_salt = egui::Id::new((panel_id, "transcript"));
@@ -1427,11 +1520,7 @@ impl EditorPanel {
         let mut do_save = false;
         let mut do_compact = false;
 
-        let frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill,
-            &crate::theme::active(),
-        );
-        TopBottomPanel::top(panel).frame(frame).show(ctx, |ui| {
+        let mut render = |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("✨").size(15.0));
 
@@ -1517,20 +1606,23 @@ impl EditorPanel {
                     .id_salt(transcript_salt)
                     .show(ui, |ui| {
                         for turn in &history_snapshot {
-                            let (tag, colour) = if turn.role == "assistant" {
-                                ("AI", Color32::from_rgb(120, 180, 250))
-                            } else {
-                                ("You", Color32::from_rgb(180, 200, 160))
-                            };
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(egui::RichText::new(tag).small().strong().color(colour));
-                                ui.label(egui::RichText::new(turn.content.trim()).small());
-                            });
-                            ui.add_space(2.0);
+                            chat_bubble(ui, &turn.role, &turn.content);
                         }
                     });
             }
-        });
+        };
+        match inline_ui {
+            Some(ui) => render(ui),
+            None => {
+                let frame = crate::theme::glass_panel_frame(
+                    ctx.style().visuals.panel_fill,
+                    &crate::theme::active(),
+                );
+                TopBottomPanel::top(panel)
+                    .frame(frame)
+                    .show(ctx, |ui| render(ui));
+            }
+        }
 
         // Restore UI-owned state.
         self.ai_prompt = prompt;
@@ -1687,6 +1779,9 @@ impl EditorPanel {
                         None
                     }
                     None => {
+                        // No code block ⇒ the model answered / asked a question.
+                        // Surface it prominently in the log, never in the buffer.
+                        crate::llm::ai_question(reply.trim());
                         self.ai_status = Some(tr.ai_no_code.to_string());
                         None
                     }
