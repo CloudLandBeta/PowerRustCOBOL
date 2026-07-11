@@ -8,16 +8,21 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
-## [PowerRustCOBOL 1.27.158] — 2026-07-11
+## [PowerRustCOBOL 1.28.0] — 2026-07-11
 
-### Fixed
+### Added
 
-- **RAD toolbar Debug button** — A Debug button (breakpoint-ring icon) now
-  appears in the Run group of the form designer toolbar between the Run and
-  Inspector buttons. Clicking it saves the form, regenerates the COBOL, and
-  starts a debug session against the generated `.cbl` file, opening the
-  existing debugger floating window. The button is highlighted while a debug
-  session is active and is disabled while a form is already running.
+- **Form debugger (work in progress)** — The RAD (form designer) toolbar now
+  has a Debug button (breakpoint-ring icon) in the Run group, between Run and
+  Inspector. Clicking it saves the form, regenerates the COBOL event-handler
+  source, and starts a debug session for that generated `.cbl` file. The
+  session opens in the existing resizable floating debugger window
+  (Continue F5, Step Over F10, Pause, Stop) with syntax-highlighted source,
+  gutter breakpoint dots, amber current-line arrow, and auto-scroll to the
+  paused line. Variables, Call Stack, and Breakpoints tabs are available. The
+  Debug button stays highlighted while a session is active and is disabled
+  while the form is running. Full breakpoint-setting workflow and multi-form
+  session management are still in progress.
 
 ## [PowerRustCOBOL 1.27.157] — 2026-07-11
 
