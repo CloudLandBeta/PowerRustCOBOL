@@ -8,6 +8,17 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.27.158] — 2026-07-11
+
+### Fixed
+
+- **RAD toolbar Debug button** — A Debug button (breakpoint-ring icon) now
+  appears in the Run group of the form designer toolbar between the Run and
+  Inspector buttons. Clicking it saves the form, regenerates the COBOL, and
+  starts a debug session against the generated `.cbl` file, opening the
+  existing debugger floating window. The button is highlighted while a debug
+  session is active and is disabled while a form is already running.
+
 ## [PowerRustCOBOL 1.27.157] — 2026-07-11
 
 ### Fixed

@@ -7324,6 +7324,8 @@ pub(crate) enum DesignerToolbarAction {
     AutoArrange,
     // Misc
     ReportBug,
+    // Debug
+    DebugForm,
 }
 
 /// Draw the merged 50-px icon toolbar.
@@ -7351,6 +7353,7 @@ pub(crate) fn draw_icon_toolbar(
     form_running: bool,
     fp_active: bool,
     inspector_on: bool,
+    debug_active: bool,
 ) -> DesignerToolbarAction {
     use egui::{Color32, Rect, Vec2};
 
@@ -7504,6 +7507,16 @@ pub(crate) fn draw_icon_toolbar(
             if icon_btn(ui, true, false, "Run Form (live interpreter)", &icon_run) {
                 action = DesignerToolbarAction::RunForm;
             }
+        }
+        // Debug button — starts a debug session for the generated COBOL.
+        if icon_btn(
+            ui,
+            !form_running,
+            debug_active,
+            "Debug Form — step through generated COBOL with breakpoints",
+            &icon_debug,
+        ) {
+            action = DesignerToolbarAction::DebugForm;
         }
         // Run-Form inspector toggle (enabled only while a form runs).
         if icon_btn(
@@ -7905,6 +7918,20 @@ fn icon_inspector(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         ],
         Stroke::new(1.4, c),
     ));
+}
+
+fn icon_debug(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    // Breakpoint circle (ring) with a play triangle inside.
+    let center = r.center();
+    let radius = r.width().min(r.height()) * 0.38;
+    out.push(Shape::circle_stroke(center, radius, Stroke::new(r.width() * 0.09, c)));
+    let s = radius * 0.5;
+    let pts = vec![
+        Pos2::new(center.x - s * 0.45, center.y - s * 0.72),
+        Pos2::new(center.x + s * 0.72, center.y),
+        Pos2::new(center.x - s * 0.45, center.y + s * 0.72),
+    ];
+    out.push(Shape::convex_polygon(pts, c, Stroke::NONE));
 }
 
 fn icon_cut(out: &mut Vec<Shape>, r: Rect, c: Color32) {

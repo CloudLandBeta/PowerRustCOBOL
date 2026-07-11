@@ -930,6 +930,53 @@ impl CoboltApp {
         self.debug_active = true;
     }
 
+    fn do_debug_form(&mut self, idx: usize) {
+        if idx >= self.designers.len() {
+            return;
+        }
+        self.do_save_designer(idx);
+        self.save_alert_msg = None;
+        self.save_alert_designer = None;
+        self.do_generate_cobol(idx);
+
+        let form_path = self.designers[idx].0.clone();
+        let cbl_path = self.generated_cbl_path(&form_path);
+
+        let source = match std::fs::read_to_string(&cbl_path) {
+            Ok(s) => s,
+            Err(e) => {
+                self.output.push_status(format!(
+                    "Debug: cannot read {}: {e}",
+                    cbl_path.display()
+                ));
+                return;
+            }
+        };
+
+        self.output.clear();
+        self.output.push_status(format!(
+            "── Debug {} ──",
+            cbl_path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+        ));
+        self.editor.clear_diags();
+        self.debugger.reset();
+
+        let bp_lines = self.editor.breakpoints_for(&cbl_path);
+        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
+        self.debugger
+            .set_source(cbl_path.display().to_string(), &source, &bp_set);
+        {
+            let mut guard = self.debug_runner.breakpoints.lock().unwrap();
+            guard.clear();
+            for line in &bp_lines {
+                guard.insert(*line);
+            }
+        }
+
+        self.debug_runner.start(cbl_path.display().to_string(), source);
+        self.debug_active = true;
+    }
+
     // ── Form Runtime Engine (Phase 6) ─────────────────────────────────────────
 
     /// Remove data bindings whose target/source control no longer exists from the
@@ -6638,6 +6685,7 @@ impl CoboltApp {
                         form_running,
                         fp_active,
                         self.show_inspector,
+                        self.debug_active,
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::ComboBox::from_id_salt("designer_lang_selector")
@@ -6761,6 +6809,9 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::AutoArrange => {
                         self.designers[idx].1.auto_arrange_labels();
+                    }
+                    DesignerToolbarAction::DebugForm => {
+                        self.do_debug_form(idx);
                     }
                     DesignerToolbarAction::ReportBug => {
                         self.report_bug.open_for("Form Designer");
