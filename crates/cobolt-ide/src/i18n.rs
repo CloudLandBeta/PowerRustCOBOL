@@ -673,6 +673,8 @@ pub struct Tr {
     pub menu_action_open_form: &'static str,
     pub menu_action_property: &'static str,
     pub menu_action_close: &'static str,
+    pub agent_trace_label: &'static str,
+    pub agent_gate_error: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -1241,6 +1243,8 @@ const EN: Tr = Tr {
     menu_action_open_form: "Open form",
     menu_action_property: "Set property",
     menu_action_close: "Close application",
+    agent_trace_label: "Trace",
+    agent_gate_error: "Gate Error",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -1789,7 +1793,9 @@ const ES: Tr = Tr {
     menu_action_event: "Evento",
     menu_action_open_form: "Abrir formulario",
     menu_action_property: "Establecer propiedad",
-    menu_action_close: "Cerrar aplicacion",
+    menu_action_close: "Cerrar la aplicación",
+    agent_trace_label: "Traza",
+    agent_gate_error: "Error de puerta",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -2338,7 +2344,9 @@ const PT: Tr = Tr {
     menu_action_event: "Evento",
     menu_action_open_form: "Abrir formulario",
     menu_action_property: "Definir propriedade",
-    menu_action_close: "Fechar aplicacao",
+    menu_action_close: "Fechar aplicativo",
+    agent_trace_label: "Traço",
+    agent_gate_error: "Erro de portão",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -2886,8 +2894,10 @@ const JA: Tr = Tr {
     menu_no_icon: "(なし)",
     menu_action_event: "イベント",
     menu_action_open_form: "フォームを開く",
-    menu_action_property: "プロパティ設定",
-    menu_action_close: "アプリ終了",
+    menu_action_property: "プロパティを設定",
+    menu_action_close: "アプリケーションを閉じる",
+    agent_trace_label: "トレース",
+    agent_gate_error: "ゲートエラー",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -3440,6 +3450,8 @@ const ZH: Tr = Tr {
     menu_action_open_form: "打开表单",
     menu_action_property: "设置属性",
     menu_action_close: "关闭应用",
+    agent_trace_label: "跟踪",
+    agent_gate_error: "网关错误",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -3987,8 +3999,10 @@ const FR: Tr = Tr {
     menu_no_icon: "(aucun)",
     menu_action_event: "Evenement",
     menu_action_open_form: "Ouvrir le formulaire",
-    menu_action_property: "Definir la propriete",
+    menu_action_property: "Définir la propriété",
     menu_action_close: "Fermer l'application",
+    agent_trace_label: "Trace",
+    agent_gate_error: "Erreur de porte",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

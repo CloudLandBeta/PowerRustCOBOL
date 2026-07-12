@@ -1992,18 +1992,25 @@ impl EditorPanel {
             });
         });
 
-        // ─── AI assistant bar (only when a model is configured) ───────────────
+        // ─── AI assistant bar (only for editable tabs when a model is configured) ───────────────
         if let Some(cfg) = llm {
             if cfg.is_configured() && !self.tabs.is_empty() {
                 let (tpath, tcode, tro) = {
                     let t = &self.tabs[self.active];
                     (t.path.clone(), t.content.clone(), t.read_only)
                 };
-                if let Some(new_code) =
-                    self.ai_bar(ctx, cfg, tr, "editor_ai", &tpath, &tcode, tro, project_root)
-                {
-                    if let Some(t) = self.tabs.iter_mut().find(|t| t.path == tpath) {
-                        if !t.read_only {
+                if !tro {
+                    if let Some(new_code) = self.ai_bar(
+                        ctx,
+                        cfg,
+                        tr,
+                        "editor_ai",
+                        &tpath,
+                        &tcode,
+                        false,
+                        project_root,
+                    ) {
+                        if let Some(t) = self.tabs.iter_mut().find(|t| t.path == tpath) {
                             t.content = new_code;
                             t.dirty = true;
                         }
@@ -3344,8 +3351,10 @@ fn word_before_cursor(text: &str, cursor_char: usize) -> (usize, String) {
 
     let prefix_text = &text[..cursor_byte];
     let word_start_byte = prefix_text
-        .rfind(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
-        .map(|p| p + 1)
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !c.is_alphanumeric() && *c != '-' && *c != '_')
+        .map(|(p, c)| p + c.len_utf8())
         .unwrap_or(0);
 
     let prefix = prefix_text[word_start_byte..].to_owned();
@@ -4101,6 +4110,12 @@ mod goto_tests {
         assert_eq!(char_index_to_line_col(t, 2), (1, 3)); // before the \n
         assert_eq!(char_index_to_line_col(t, 3), (2, 1)); // start of line 2
         assert_eq!(char_index_to_line_col(t, 7), (3, 1)); // 'F'
+    }
+
+    #[test]
+    fn word_before_cursor_handles_multibyte_separator() {
+        assert_eq!(word_before_cursor("a˜", 2), (2, String::new()));
+        assert_eq!(word_before_cursor("a˜BTN-1", 7), (2, "BTN-1".to_owned()));
     }
 
     #[test]

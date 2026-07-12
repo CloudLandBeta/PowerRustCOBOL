@@ -8,6 +8,22 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.19] — 2026-07-12
+
+### Fixed
+
+- **Editor IntelliSense no longer panics on Unicode separators** — completion
+  prefix detection now advances by UTF-8 character boundaries instead of raw
+  bytes, fixing crashes such as typing after `a˜`.
+
+## [PowerRustCOBOL 1.28.18] — 2026-07-12
+
+### Fixed
+
+- **Generated COBOL panes no longer show the AI assistant** — read-only
+  generated source tabs now hide the editor assistant bar, since the assistant
+  cannot safely modify generated code.
+
 ## [PowerRustCOBOL 1.28.17] — 2026-07-12
 
 ### Fixed

@@ -20,7 +20,7 @@ members = [
     "crates/cobolt-compiler",   # Phase 11 — embed+bundle binary compiler
     # "crates/cobolt-plugin-api",
     # "crates/cobolt-plugin-loader",
-    "crates/cobolt-ide",
+    "crates/cobolt-ide", "crates/cobolt-agents",
 ]
 resolver = "2"
 
@@ -70,3 +70,7 @@ sysinfo = "0.31"
 
 # Dev / test utilities
 pretty_assertions = "1"
+
+# Mesh architecture dependencies
+rig-core = "0.40.0"
+tokio    = { version = "1", features = ["full"] }
