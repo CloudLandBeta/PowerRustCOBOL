@@ -780,7 +780,12 @@ pub struct ExternalFormRun {
     pub form_path: PathBuf,
     /// The form's id/name — for Output pane labels.
     pub form_name: String,
+    /// True when spawned with `--debug`: the IDE debugger controls the
+    /// process over stdin (`@DBG` JSON commands) / stdout (`@DBG` events).
+    pub debug: bool,
     child: Child,
+    /// Kept only in debug mode, for sending `@DBG` command lines.
+    child_stdin: Option<Mutex<ChildStdin>>,
     stdout_rx: Receiver<String>,
     stderr_buf: Arc<Mutex<Vec<String>>>,
     exit_status: Option<std::process::ExitStatus>,
@@ -794,6 +799,7 @@ impl ExternalFormRun {
         form_name: String,
         cbl_path: &std::path::Path,
         theme_default: Option<&str>,
+        debug: bool,
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = exe.with_file_name("rcrun");
@@ -804,7 +810,11 @@ impl ExternalFormRun {
             if let Some(id) = theme_default {
                 cmd.arg("--theme-default").arg(id);
             }
-            cmd.stdin(Stdio::null())
+            if debug {
+                cmd.arg("--debug");
+            }
+            // stdin carries `@DBG` command lines in debug mode only.
+            cmd.stdin(if debug { Stdio::piped() } else { Stdio::null() })
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -817,6 +827,7 @@ impl ExternalFormRun {
                      IDE executable or in PATH."
                 )
             })?;
+        let child_stdin = child.stdin.take().map(Mutex::new);
 
         // stdout → line channel (drained into the Output pane each frame).
         let (out_tx, stdout_rx) = mpsc::channel::<String>();
@@ -850,11 +861,28 @@ impl ExternalFormRun {
         Ok(Self {
             form_path,
             form_name,
+            debug,
             child,
+            child_stdin,
             stdout_rx,
             stderr_buf,
             exit_status: None,
         })
+    }
+
+    /// Send a debug command to the process as an `@DBG <json>` stdin line
+    /// (debug mode only; silently ignored otherwise).
+    pub fn send_debug(&self, cmd: &cobolt_runtime::RemoteDebugCmd) {
+        let Some(stdin) = &self.child_stdin else {
+            return;
+        };
+        let Ok(json) = serde_json::to_string(cmd) else {
+            return;
+        };
+        if let Ok(mut guard) = stdin.lock() {
+            let _ = writeln!(guard, "@DBG {json}");
+            let _ = guard.flush();
+        }
     }
 
     /// Drain DISPLAY / stdout lines produced since the last call.

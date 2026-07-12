@@ -109,7 +109,9 @@ pub fn cmd_run_form(args: &[String]) {
     let (cfrm_path, cbl_path) = match (args.first(), args.get(1)) {
         (Some(a), Some(b)) => (PathBuf::from(a), PathBuf::from(b)),
         _ => {
-            eprintln!("usage: rcrun run-form <form.cfrm> <program.cbl> [--theme-default <id>]");
+            eprintln!(
+                "usage: rcrun run-form <form.cfrm> <program.cbl> [--theme-default <id>] [--debug]"
+            );
             process::exit(2);
         }
     };
@@ -120,6 +122,11 @@ pub fn cmd_run_form(args: &[String]) {
         .position(|a| a == "--theme-default")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    // Debug mode: the IDE (or any future remote host — Android/iOS) controls
+    // the interpreter over stdin/stdout. Commands arrive as `@DBG <json>` lines
+    // on stdin; DebugEvents leave as `@DBG <json>` lines on stdout. Plain
+    // stdout lines remain DISPLAY output. The program starts paused at line 1.
+    let debug_mode = args.iter().any(|a| a == "--debug");
 
     // ── Load the form layout ──────────────────────────────────────────────────
     let form = match cobolt_forms::load_form(&cfrm_path) {
@@ -230,6 +237,64 @@ pub fn cmd_run_form(args: &[String]) {
     let finished = Arc::new(AtomicBool::new(false));
     let error_slot: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
+    // ── Remote debug wiring (`--debug`) ──────────────────────────────────────
+    // stdin `@DBG <json RemoteDebugCmd>` lines → interpreter debug channels;
+    // interpreter DebugEvents → stdout `@DBG <json DebugEvent>` lines. The
+    // same line protocol can later ride adb/ssh for Android/iOS debuggees.
+    let debug_wiring = if debug_mode {
+        use cobolt_runtime::{new_breakpoints, DebugEvent, RemoteDebugCmd};
+
+        let (dbg_cmd_tx, dbg_cmd_rx) = mpsc::channel::<cobolt_runtime::DebugCmd>();
+        let (dbg_ev_tx, dbg_ev_rx) = mpsc::channel::<DebugEvent>();
+        let breakpoints = new_breakpoints();
+
+        // stdin reader: parse and dispatch remote debug commands.
+        {
+            let bps = Arc::clone(&breakpoints);
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                let stdin = std::io::stdin();
+                for line in stdin.lock().lines().map_while(Result::ok) {
+                    let Some(json) = line.strip_prefix("@DBG ") else {
+                        continue;
+                    };
+                    match serde_json::from_str::<RemoteDebugCmd>(json) {
+                        Ok(RemoteDebugCmd::Cmd(c)) => {
+                            if dbg_cmd_tx.send(c).is_err() {
+                                break;
+                            }
+                        }
+                        Ok(RemoteDebugCmd::SetBreakpoints(lines)) => {
+                            if let Ok(mut guard) = bps.lock() {
+                                *guard = lines.into_iter().collect();
+                            }
+                        }
+                        Err(e) => eprintln!("run-form: bad @DBG command: {e}"),
+                    }
+                }
+            });
+        }
+
+        // event pump: interpreter → stdout (whole lines; println! locks stdout,
+        // so interleaving with DISPLAY output stays line-atomic).
+        std::thread::spawn(move || {
+            use std::io::Write;
+            for ev in dbg_ev_rx.iter() {
+                match serde_json::to_string(&ev) {
+                    Ok(json) => {
+                        println!("@DBG {json}");
+                        let _ = std::io::stdout().flush();
+                    }
+                    Err(e) => eprintln!("run-form: cannot serialize DebugEvent: {e}"),
+                }
+            }
+        });
+
+        Some((dbg_cmd_rx, dbg_ev_tx, breakpoints))
+    } else {
+        None
+    };
+
     {
         let finished = Arc::clone(&finished);
         let error_slot = Arc::clone(&error_slot);
@@ -239,6 +304,9 @@ pub fn cmd_run_form(args: &[String]) {
             interp.set_input_channel(input_rx);
             interp.set_event_counter(pending);
             interp.seed_objects(seed);
+            if let Some((cmd_rx, ev_tx, bps)) = debug_wiring {
+                interp.attach_debug_channels(cmd_rx, ev_tx, bps);
+            }
             match interp.run() {
                 Ok(()) => {}
                 Err(e) if e.is_exit_signal() => {}

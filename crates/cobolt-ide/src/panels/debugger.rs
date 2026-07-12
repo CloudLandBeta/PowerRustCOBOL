@@ -109,37 +109,93 @@ impl DebuggerPanel {
         self.breakpoints = bps.clone();
     }
 
+    /// Apply one interpreter event to the panel state. Shared by the in-IDE
+    /// `DebugRunner` path and the remote (`rcrun run-form --debug`) path.
+    pub fn apply_event(&mut self, ev: DebugEvent) {
+        match ev {
+            DebugEvent::Paused {
+                line,
+                paragraph,
+                vars,
+                ..
+            } => {
+                self.is_paused = true;
+                self.current_line = line;
+                self.current_para = paragraph;
+                self.vars = vars;
+            }
+            DebugEvent::Resumed => {
+                self.is_paused = false;
+            }
+            DebugEvent::Finished => {
+                self.is_paused = false;
+                self.vars.clear();
+            }
+        }
+    }
+
     /// Process events from `DebugRunner`; returns `true` if the UI needs to repaint.
     pub fn process(&mut self, runner: &mut DebugRunner) -> bool {
         let mut dirty = false;
         for ev in runner.drain_events() {
             dirty = true;
-            match ev {
-                DebugEvent::Paused {
-                    line,
-                    paragraph,
-                    vars,
-                    ..
-                } => {
-                    self.is_paused = true;
-                    self.current_line = line;
-                    self.current_para = paragraph;
-                    self.vars = vars;
-                }
-                DebugEvent::Resumed => {
-                    self.is_paused = false;
-                }
-                DebugEvent::Finished => {
-                    self.is_paused = false;
-                    self.vars.clear();
-                }
-            }
+            self.apply_event(ev);
         }
         for msg in runner.drain_run() {
             dirty = true;
             self.pending_output.push(msg);
         }
         dirty
+    }
+
+    /// Title for the standalone debugger OS window.
+    pub fn window_title(&self) -> String {
+        let debug_name = std::path::Path::new(&self.source_path)
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("generated code");
+        format!("🐞 Debugging {debug_name} generated code")
+    }
+
+    /// Render as the full content of a dedicated viewport — a standalone OS
+    /// window the user can place next to the running form. The OS window is
+    /// the sole size authority (the user drags its edges); content just fills
+    /// it, so there is no self-inflation path.
+    ///
+    /// Returns a [`DebugAction`] when the user presses a control or shortcut.
+    pub fn show_viewport_body(&mut self, ctx: &Context, tr: &Tr) -> Option<DebugAction> {
+        let mut action: Option<DebugAction> = None;
+
+        // Global keyboard shortcuts — active even when the window is not focused.
+        if self.is_paused {
+            if ctx.input(|i| i.key_pressed(Key::F5)) {
+                action = Some(DebugAction::Continue);
+                self.is_paused = false;
+            }
+            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F10)) {
+                action = Some(DebugAction::StepOver);
+                self.is_paused = false;
+            }
+        }
+
+        let need_scroll = self.current_line != self.last_scrolled_line && self.current_line > 0;
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            self.status_row(ui);
+            if let Some(a) = self.toolbar(ui, tr) {
+                action = Some(a);
+            }
+            ui.separator();
+            self.split_body(ui, tr, need_scroll);
+        });
+
+        self.variable_value_window(ctx);
+
+        if need_scroll {
+            self.last_scrolled_line = self.current_line;
+        }
+
+        action
     }
 
     /// Render the floating debugger window.
@@ -154,6 +210,7 @@ impl DebuggerPanel {
     /// window auto-sizes to that box. Because no child size is derived from
     /// "remaining space" that the same subtree then fills, the window cannot
     /// grow on its own, on any egui context/viewport it is rendered in.
+    #[allow(dead_code)]
     pub fn show(&mut self, ctx: &Context, tr: &Tr) -> Option<DebugAction> {
         let mut action: Option<DebugAction> = None;
 

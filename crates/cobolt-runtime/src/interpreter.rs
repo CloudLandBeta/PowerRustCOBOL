@@ -811,11 +811,25 @@ impl Interpreter {
         breakpoints: crate::debugger::Breakpoints,
     ) -> Self {
         let mut interp = Self::new(program);
-        interp.debug_cmd_rx = Some(debug_cmd_rx);
-        interp.debug_event_tx = Some(debug_event_tx);
-        interp.breakpoints = Some(breakpoints);
-        interp.debug_stepping = true; // start paused at line 1
+        interp.attach_debug_channels(debug_cmd_rx, debug_event_tx, breakpoints);
         interp
+    }
+
+    /// Attach IDE-debugger channels to an interpreter that was constructed for
+    /// another mode (e.g. a GUI form session via `new_with_channels`). The
+    /// program starts paused at line 1, exactly like `new_with_debug_channels`
+    /// — this is how `rcrun run-form --debug` runs a live, interactive form
+    /// under debugger control.
+    pub fn attach_debug_channels(
+        &mut self,
+        debug_cmd_rx: mpsc::Receiver<crate::debugger::DebugCmd>,
+        debug_event_tx: mpsc::Sender<crate::debugger::DebugEvent>,
+        breakpoints: crate::debugger::Breakpoints,
+    ) {
+        self.debug_cmd_rx = Some(debug_cmd_rx);
+        self.debug_event_tx = Some(debug_event_tx);
+        self.breakpoints = Some(breakpoints);
+        self.debug_stepping = true; // start paused at line 1
     }
 
     /// Seed the visual-object registry with a form's controls and their

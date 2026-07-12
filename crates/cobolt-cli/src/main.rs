@@ -353,6 +353,7 @@ fn cmd_help() {
         "         [--indexed-log <basic|full>]    Per-file INDEXED txn log → <assign-path>.log (redb)\n",
         "         [--indexed-log-format <text|json>]  Log line format (json = NDJSON for Grafana/Loki)\n",
         "  rcrun run-form <form.cfrm> <file.cbl> Run a form program in its own GUI window\n",
+        "         [--debug]                       Debugger control over stdin/stdout (@DBG lines)\n",
         "  rcrun check   <file.cbl>              Parse and analyse without running\n",
         "  rcrun build   <file.cbl>             Compile a console program → bin/<name> (native binary)\n",
         "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",

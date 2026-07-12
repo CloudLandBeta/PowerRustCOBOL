@@ -8,6 +8,38 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.14] — 2026-07-12
+
+### Fixed
+
+- **Debugger is a standalone always-on-top OS window** — the debugger no longer
+  renders inside the designer viewport (where watching the running form meant
+  switching back to the RAD window). It now opens as its own OS window, always
+  on top — like the Run-Form Inspector — so the running form, the debugger, and
+  the designer can be arranged side by side. The OS window is the sole size
+  authority: it opens at 900×520 once per session and afterwards only the
+  user's own resizes apply (no self-inflation path). Closing the debugger
+  window stops the debug session. F5/F10 shortcuts, the pane split, variable
+  details, and both session kinds (external rcrun / in-IDE editor) behave as
+  before.
+
+## [PowerRustCOBOL 1.28.13] — 2026-07-12
+
+### Fixed
+
+- **Debug Form now runs the live application window** — debugging from the RAD
+  toolbar previously ran only the interpreter, so there was no form to interact
+  with. Debug Form now launches the same standalone `rcrun run-form` process as
+  Run Form, with a new `--debug` flag: the form window is fully interactive
+  while the IDE debugger controls the interpreter **across the process
+  boundary**. Commands (Continue/Step Over/Pause, breakpoint set) travel as
+  `@DBG <json>` lines on the child's stdin; Paused/Resumed/Finished events (with
+  full variable snapshots) return as `@DBG <json>` lines on stdout — plain lines
+  remain DISPLAY output. The program starts paused at line 1; Stop kills the
+  process (closing the form); the session ends when the form window closes.
+  This line-based JSON protocol is transport-agnostic by design, so the same
+  debugger can later drive Android/iOS debuggees over adb/ssh.
+
 ## [PowerRustCOBOL 1.28.12] — 2026-07-12
 
 ### Fixed

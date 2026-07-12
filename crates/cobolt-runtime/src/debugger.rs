@@ -21,10 +21,12 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+
 // ── Commands (IDE → interpreter) ──────────────────────────────────────────────
 
 /// Command sent from the IDE to the running interpreter.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DebugCmd {
     /// Resume execution until the next breakpoint.
     Continue,
@@ -34,10 +36,22 @@ pub enum DebugCmd {
     Pause,
 }
 
+/// A debug command sent to a **remote** debuggee (an `rcrun run-form --debug`
+/// process today; an Android/iOS runtime over adb/ssh tomorrow). Serialized as
+/// one JSON line prefixed `@DBG ` on the debuggee's stdin; debug events travel
+/// back the same way on stdout (plain lines remain DISPLAY output).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RemoteDebugCmd {
+    /// Forward a pause/step/continue to the interpreter.
+    Cmd(DebugCmd),
+    /// Replace the debuggee's whole breakpoint set (idempotent).
+    SetBreakpoints(Vec<u32>),
+}
+
 // ── Events (interpreter → IDE) ────────────────────────────────────────────────
 
 /// A snapshot of one data-item's current value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VarSnapshot {
     pub name: String,
     pub scope: String,
@@ -47,7 +61,7 @@ pub struct VarSnapshot {
 }
 
 /// Event sent from the interpreter to the IDE.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DebugEvent {
     /// The interpreter has paused before executing a statement.
     Paused {

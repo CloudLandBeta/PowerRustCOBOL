@@ -292,6 +292,14 @@ pub struct CoboltApp {
     /// inside THAT designer viewport (in front of it), not the main IDE
     /// window. `None` = session started from the code editor.
     debug_owner_form: Option<PathBuf>,
+    /// True when the active debug session controls an external
+    /// `rcrun run-form --debug` process (over `@DBG` stdin/stdout lines)
+    /// instead of the in-IDE `DebugRunner` thread.
+    debug_external: bool,
+    /// One-shot default sizing for the standalone debugger OS window (mirrors
+    /// `inspector_sized`): applied on the session's first frame only, so the
+    /// user's own window resizes are preserved afterwards.
+    debugger_vp_sized: bool,
 
     // Frame-rate/perf instrumentation (why is the IDE busy while a form runs?)
     perf_window_start: Option<std::time::Instant>,
@@ -630,6 +638,8 @@ impl CoboltApp {
             debugger: DebuggerPanel::new(),
             debug_active: false,
             debug_owner_form: None,
+            debug_external: false,
+            debugger_vp_sized: false,
 
             perf_window_start: None,
             perf_frames: 0,
@@ -963,65 +973,9 @@ impl CoboltApp {
 
         self.debug_runner.start(path.display().to_string(), source);
         self.debug_active = true;
-        self.debug_owner_form = None; // editor-owned session → main IDE window
-    }
-
-    fn do_debug_form(&mut self, idx: usize) {
-        if idx >= self.designers.len() {
-            return;
-        }
-
-        // Save + regenerate COBOL (after_form_saved already writes the .cbl file).
-        self.do_save_designer(idx);
-
-        self.save_alert_msg = None;
-        self.save_alert_designer = None;
-        // Don't call do_generate_cobol — it's redundant (after_form_saved already
-        // wrote the .cbl) and it sets pending_open_in_editor, which would steal
-        // focus from the debug panel.
-        self.pending_open_in_editor = None;
-
-        let form_path = self.designers[idx].0.clone();
-        let cbl_path = self.generated_cbl_path(&form_path);
-
-        let source = match std::fs::read_to_string(&cbl_path) {
-            Ok(s) => s,
-            Err(e) => {
-                self.output
-                    .push_status(format!("Debug: cannot read {}: {e}", cbl_path.display()));
-                return;
-            }
-        };
-
-        self.output.clear();
-        self.output.push_status(format!(
-            "── Debug {} ──",
-            cbl_path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-        ));
-        self.editor.clear_diags();
-        self.debugger.reset();
-
-        let bp_lines = self.editor.breakpoints_for(&cbl_path);
-
-        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
-        self.debugger
-            .set_source(cbl_path.display().to_string(), &source, &bp_set);
-
-        {
-            let mut guard = self.debug_runner.breakpoints.lock().unwrap();
-            guard.clear();
-            for line in &bp_lines {
-                guard.insert(*line);
-            }
-        }
-
-        self.debug_runner
-            .start(cbl_path.display().to_string(), source);
-
-        self.debug_active = true;
-        // RAD-owned session: the debugger window renders inside this form's
-        // designer viewport, in front of the canvas.
-        self.debug_owner_form = Some(form_path);
+        self.debug_owner_form = None; // editor-owned session
+        self.debug_external = false;
+        self.debugger_vp_sized = false; // fresh window → default size
     }
 
     // ── Form Runtime Engine (Phase 6) ─────────────────────────────────────────
@@ -1044,10 +998,23 @@ impl CoboltApp {
         removed
     }
 
-    /// Launch a `FormRuntime` for the designer at `idx`.
-    /// Saves + regenerates COBOL first so the interpreter always runs the
-    /// latest version of the form.
+    /// Run Form: launch the form as a standalone `rcrun run-form` process.
     fn do_run_form(&mut self, idx: usize) {
+        self.launch_form_process(idx, false);
+    }
+
+    /// Debug Form: same standalone process, but with `--debug` — the live,
+    /// interactive form window runs while the IDE debugger controls the
+    /// interpreter over the process's stdin/stdout (`@DBG` JSON lines). The
+    /// same wire protocol can later drive Android/iOS debuggees remotely.
+    fn do_debug_form(&mut self, idx: usize) {
+        self.launch_form_process(idx, true);
+    }
+
+    /// Launch the designer-at-`idx`'s form as an external rcrun process.
+    /// Saves + regenerates COBOL first so the process always runs the latest
+    /// version of the form. With `debug`, wires the IDE debugger to it.
+    fn launch_form_process(&mut self, idx: usize, debug: bool) {
         if idx >= self.designers.len() {
             return;
         }
@@ -1078,7 +1045,8 @@ impl CoboltApp {
 
         self.output.clear();
         self.output.push_status(format!(
-            "── Running form {} ──",
+            "── {} form {} ──",
+            if debug { "Debugging" } else { "Running" },
             form_path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -1138,11 +1106,34 @@ impl CoboltApp {
             form.name.clone(),
             &cbl_path,
             theme_default.as_deref(),
+            debug,
         ) {
             Ok(run) => {
+                if debug {
+                    // Wire the IDE debugger to the child: show the generated
+                    // source in the debugger window, push the initial
+                    // breakpoint set, and take ownership of the session. The
+                    // child starts paused at line 1.
+                    let source = std::fs::read_to_string(&cbl_path).unwrap_or_default();
+                    let bp_lines = self.editor.breakpoints_for(&cbl_path);
+                    let bp_set: std::collections::HashSet<u32> =
+                        bp_lines.iter().cloned().collect();
+                    self.debugger.reset();
+                    self.debugger
+                        .set_source(cbl_path.display().to_string(), &source, &bp_set);
+                    run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines));
+                    self.debug_active = true;
+                    self.debug_external = true;
+                    self.debug_owner_form = Some(form_path.clone());
+                    self.debugger_vp_sized = false; // fresh window → default size
+                    self.output.push_status(
+                        "Debugging form in a separate rcrun process — paused at line 1.",
+                    );
+                } else {
+                    self.output
+                        .push_status("Form running as a separate rcrun process.");
+                }
                 self.external_runs.push(run);
-                self.output
-                    .push_status("Form running as a separate rcrun process.");
                 // The form's code compiled clean → green semaphore.
                 self.set_element_status(&form_path, ElementStatus::Tested);
             }
@@ -1159,20 +1150,87 @@ impl CoboltApp {
     /// Called with the main IDE ctx (editor-owned session) or from inside a
     /// designer viewport (RAD-owned session) so the window appears in front
     /// of whichever surface started it.
-    fn show_debugger_ui(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
-        if let Some(action) = self.debugger.show(ctx, tr) {
+    /// Render the debugger as its own always-on-top OS window (a viewport,
+    /// like the Run-Form Inspector) so the user can watch the running form and
+    /// step through code side by side, without the designer window in the way.
+    /// Closing the window stops the debug session.
+    fn show_debugger_viewport(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
+        let vp_id = ViewportId::from_hash_of("debugger_viewport");
+        let mut builder = ViewportBuilder::default()
+            .with_title(self.debugger.window_title())
+            .with_resizable(true)
+            .with_always_on_top();
+        // Apply the default size ONLY on the first frame after the session
+        // starts; afterwards the OS window size is the user's alone.
+        if !self.debugger_vp_sized {
+            builder = builder.with_inner_size([900.0, 520.0]);
+            self.debugger_vp_sized = true;
+        }
+        ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
+            let close = vp_ctx.input(|i| i.viewport().close_requested());
+            let action = self.debugger.show_viewport_body(vp_ctx, tr);
+            if close {
+                self.handle_debug_action(DebugAction::Stop);
+            } else if let Some(a) = action {
+                self.handle_debug_action(a);
+            }
+        });
+    }
+
+    /// Apply a debugger toolbar/shortcut action to whichever session is live:
+    /// the external `rcrun run-form --debug` process or the in-IDE DebugRunner.
+    fn handle_debug_action(&mut self, action: DebugAction) {
+        if self.debug_external {
+            // Remote session: commands travel to the rcrun child as `@DBG`
+            // stdin lines; Stop kills the process (form window closes too).
+            use cobolt_runtime::RemoteDebugCmd;
+            let owner = self.debug_owner_form.clone();
+            let run = self
+                .external_runs
+                .iter_mut()
+                .find(|r| r.debug && owner.as_ref() == Some(&r.form_path));
             match action {
                 DebugAction::Stop => {
-                    self.debug_runner.stop();
+                    if let Some(run) = run {
+                        run.stop();
+                    }
+                    self.external_runs.retain_mut(|r| {
+                        !(r.debug && owner.as_ref() == Some(&r.form_path))
+                    });
                     self.debug_active = false;
+                    self.debug_external = false;
                     self.debug_owner_form = None;
                     self.debugger.reset();
-                    self.editor.debug_line = None;
                 }
-                DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
-                DebugAction::StepOver => self.debug_runner.send_cmd(DebugCmd::StepOver),
-                DebugAction::Pause => self.debug_runner.send_cmd(DebugCmd::Pause),
+                DebugAction::Continue => {
+                    if let Some(run) = run {
+                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Continue));
+                    }
+                }
+                DebugAction::StepOver => {
+                    if let Some(run) = run {
+                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepOver));
+                    }
+                }
+                DebugAction::Pause => {
+                    if let Some(run) = run {
+                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Pause));
+                    }
+                }
             }
+            return;
+        }
+        match action {
+            DebugAction::Stop => {
+                self.debug_runner.stop();
+                self.debug_active = false;
+                self.debug_owner_form = None;
+                self.debugger.reset();
+                self.editor.debug_line = None;
+            }
+            DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
+            DebugAction::StepOver => self.debug_runner.send_cmd(DebugCmd::StepOver),
+            DebugAction::Pause => self.debug_runner.send_cmd(DebugCmd::Pause),
         }
     }
 
@@ -4901,8 +4959,9 @@ impl eframe::App for CoboltApp {
             self.runner.clear();
         }
 
-        // ── Drain debugger events ─────────────────────────────────────────────
-        if self.debug_active {
+        // ── Drain debugger events (in-IDE DebugRunner sessions only — remote
+        // `rcrun --debug` sessions are fed from the external-run drain) ───────
+        if self.debug_active && !self.debug_external {
             let dirty = self.debugger.process(&mut self.debug_runner);
             // Forward output/diagnostic messages to the output panel.
             for msg in self.debugger.pending_output.drain(..) {
@@ -5107,10 +5166,10 @@ impl eframe::App for CoboltApp {
         }
 
         // ── Debugger floating window ──────────────────────────────────────────
-        // Editor-owned debug sessions render in the main IDE window; RAD-owned
-        // ones render inside their designer viewport (see show_designer_window).
-        if self.debug_active && self.debug_owner_form.is_none() {
-            self.show_debugger_ui(ctx, &tr);
+        // The debugger renders as its own standalone always-on-top OS window,
+        // so the user can watch the running form while stepping through code.
+        if self.debug_active {
+            self.show_debugger_viewport(ctx, &tr);
         }
 
         // ── Run-Form process/memory inspector (bottom dock) ───────────────────
@@ -5298,14 +5357,6 @@ impl eframe::App for CoboltApp {
                         }
                     }
                     self.show_designer_window(vp_ctx, idx, &tr);
-                    // RAD-owned debug session for THIS form → the debugger
-                    // window renders inside this designer viewport, in front
-                    // of the canvas (not hidden behind it in the IDE window).
-                    if self.debug_active
-                        && self.debug_owner_form.as_ref() == Some(&self.designers[idx].0)
-                    {
-                        self.show_debugger_ui(vp_ctx, &tr);
-                    }
                 },
             );
         }
@@ -5358,14 +5409,30 @@ impl eframe::App for CoboltApp {
         }
 
         // ── External form runs (`rcrun run-form` processes) ──────────────────────
-        // Pipe their stdout (DISPLAY output) into the Output pane and reap
-        // exited processes, surfacing a failure exit in the error modal.
+        // Pipe their stdout into the Output pane — except `@DBG ` lines, which
+        // are debugger events from a `--debug` child and feed the debugger
+        // panel. Reap exited processes, surfacing a failure exit in a modal.
         {
             let mut ext_error: Option<String> = None;
-            for run in &self.external_runs {
+            let mut dbg_events: Vec<cobolt_runtime::DebugEvent> = Vec::new();
+            let mut route = |run: &crate::form_runtime::ExternalFormRun,
+                             output: &mut crate::panels::output::OutputPanel,
+                             dbg_events: &mut Vec<cobolt_runtime::DebugEvent>| {
                 for line in run.drain_output() {
-                    self.output.push_line(line);
+                    match line.strip_prefix("@DBG ") {
+                        Some(json) if run.debug => {
+                            match serde_json::from_str::<cobolt_runtime::DebugEvent>(json) {
+                                Ok(ev) => dbg_events.push(ev),
+                                Err(e) => output
+                                    .push_status(format!("debug: bad @DBG event: {e}")),
+                            }
+                        }
+                        _ => output.push_line(line),
+                    }
                 }
+            };
+            for run in &self.external_runs {
+                route(run, &mut self.output, &mut dbg_events);
             }
             let mut i = 0;
             while i < self.external_runs.len() {
@@ -5375,9 +5442,7 @@ impl eframe::App for CoboltApp {
                 }
                 let mut run = self.external_runs.remove(i);
                 // Drain any output that raced the exit.
-                for line in run.drain_output() {
-                    self.output.push_line(line);
-                }
+                route(&run, &mut self.output, &mut dbg_events);
                 if let Some(err) = run.take_exit_error() {
                     self.output
                         .push_status(format!("Form {} failed: {err}", run.form_name));
@@ -5388,6 +5453,22 @@ impl eframe::App for CoboltApp {
                     self.output
                         .push_status(format!("── Form {} finished ──", run.form_name));
                 }
+                // The debug child ended → close the debug session with it.
+                if run.debug
+                    && self.debug_external
+                    && self.debug_owner_form.as_ref() == Some(&run.form_path)
+                {
+                    self.debug_active = false;
+                    self.debug_external = false;
+                    self.debug_owner_form = None;
+                    self.debugger.reset();
+                }
+            }
+            if !dbg_events.is_empty() {
+                for ev in dbg_events {
+                    self.debugger.apply_event(ev);
+                }
+                ctx.request_repaint();
             }
             if let Some(err) = ext_error {
                 self.form_error = Some(err);
@@ -7054,6 +7135,13 @@ impl CoboltApp {
                                 true
                             }
                         });
+                        // If this form owned the remote debug session, close it.
+                        if self.debug_external && self.debug_owner_form.as_ref() == Some(&fp) {
+                            self.debug_active = false;
+                            self.debug_external = false;
+                            self.debug_owner_form = None;
+                            self.debugger.reset();
+                        }
                     }
                     DesignerToolbarAction::Cut => {
                         self.designers[idx].1.cut_selected(&mut self.clipboard);
