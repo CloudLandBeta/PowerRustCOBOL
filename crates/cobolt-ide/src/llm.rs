@@ -173,6 +173,11 @@ pub const PROVIDERS: &[Provider] = &[
         default_endpoint: "http://localhost:11434/api",
     },
     Provider {
+        id: "ollama_cloud",
+        label: "Ollama (Cloud)",
+        default_endpoint: "https://api.ollama.com/v1",
+    },
+    Provider {
         id: "llamafile",
         label: "Llamafile (Local)",
         default_endpoint: "http://localhost:8080/v1",

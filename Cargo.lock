@@ -1042,7 +1042,7 @@ checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
 name = "cobolt-agents"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-forms",
  "ndarray 0.15.6",
@@ -1067,7 +1067,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-ast"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-lexer",
  "indexmap",
@@ -1077,7 +1077,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "cobolt-ast",
@@ -1103,7 +1103,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-codegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-forms",
  "cobolt-indexed",
@@ -1112,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-compiler"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bincode",
  "cobolt-ast",
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-forms"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "cobolt-media",
@@ -1151,7 +1151,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-ide"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "bincode",
@@ -1196,7 +1196,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-indexed"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-forms",
  "pretty_assertions",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-lexer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "logos",
  "pretty_assertions",
@@ -1217,7 +1217,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-media"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "egui",
  "image 0.25.10",
@@ -1225,7 +1225,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-parser"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-runtime"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
@@ -1261,7 +1261,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-semantic"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-ast",
  "cobolt-codegen",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "cobolt-stdlib"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cobolt-ast",
  "cobolt-lexer",
