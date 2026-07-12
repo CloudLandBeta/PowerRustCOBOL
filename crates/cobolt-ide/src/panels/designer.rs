@@ -7511,7 +7511,7 @@ pub(crate) fn draw_icon_toolbar(
         // Debug button — starts a debug session for the generated COBOL.
         if icon_btn(
             ui,
-            !form_running,
+            !form_running && !debug_active,
             debug_active,
             "Debug Form — step through generated COBOL with breakpoints",
             &icon_debug,
@@ -7924,7 +7924,11 @@ fn icon_debug(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     // Breakpoint circle (ring) with a play triangle inside.
     let center = r.center();
     let radius = r.width().min(r.height()) * 0.38;
-    out.push(Shape::circle_stroke(center, radius, Stroke::new(r.width() * 0.09, c)));
+    out.push(Shape::circle_stroke(
+        center,
+        radius,
+        Stroke::new(r.width() * 0.09, c),
+    ));
     let s = radius * 0.5;
     let pts = vec![
         Pos2::new(center.x - s * 0.45, center.y - s * 0.72),

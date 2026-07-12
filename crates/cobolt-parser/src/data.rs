@@ -97,8 +97,12 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         let span = p.peek_span();
         p.advance(); // FD or SD
         let name = p.expect_identifier("file name");
+        let mut is_global = false;
         // Consume optional clauses until period
         while !p.at(&Token::Period) && !p.at(&Token::Eof) {
+            if p.at(&Token::Global) {
+                is_global = true;
+            }
             p.advance();
         }
         p.expect_period();
@@ -106,6 +110,7 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         let records = parse_data_declarations(p);
         fds.push(FileDescription {
             name,
+            is_global,
             records: build_tree(records),
             span,
         });

@@ -831,6 +831,8 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         transparency: first_form.transparency.clamp(0, 100) as u8,
         bg_image: first_form.background_image.clone(),
         bg_mode: first_form.bg_image_mode,
+        glass_style: first_form.glass_style,
+        visuals_set: false,
         form_size: egui::vec2(fw, fh),
         ev_tx,
         input_tx,
@@ -852,6 +854,8 @@ struct FormApp {
     transparency: u8,
     bg_image:     String,
     bg_mode:      cobolt_forms::model::BgImageMode,
+    glass_style:  cobolt_forms::model::GlassStyle,
+    visuals_set:  bool,
     form_size:    egui::Vec2,
     ev_tx:        std::sync::mpsc::Sender<cobolt_runtime::FormEvent>,
     input_tx:     std::sync::mpsc::Sender<cobolt_runtime::StateUpdate>,
@@ -865,9 +869,27 @@ struct FormApp {
 
 impl eframe::App for FormApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Apply property changes coming from the COBOL interpreter.
+        // Light visuals baseline — egui defaults to dark mode, which leaks dark
+        // widget fills into the form and breaks parity with the designer.
+        if !self.visuals_set {
+            self.visuals_set = true;
+            ctx.set_visuals(egui::Visuals::light());
+        }
+        // Glass style for the unified painter (same contract as the IDE).
+        cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
+
+        // Apply property changes coming from the COBOL interpreter. COBOL
+        // upper-cases control ids, so resolve each to the designer-case state
+        // key — otherwise handler writes land in an orphan entry the renderer
+        // never reads and events appear not to fire.
+        let mut drained = 0usize;
         while let Ok(u) = self.state_rx.try_recv() {
-            self.state.entry(u.ctrl_id.clone()).or_default().set(&u.prop, u.value);
+            let key = self.state.keys()
+                .find(|k| k.eq_ignore_ascii_case(&u.ctrl_id))
+                .cloned()
+                .unwrap_or_else(|| u.ctrl_id.clone());
+            self.state.entry(key).or_default().set(&u.prop, u.value);
+            drained += 1;
         }
         // DISPLAY output → stdout.
         while let Ok(line) = self.display_rx.try_recv() {
@@ -935,18 +957,29 @@ impl eframe::App for FormApp {
         // read the live value), and forward UI events — but only once warmed up,
         // so phantom pointer input as the window opens can't mutate state or fire
         // events (a click/drag already in progress when the window appears).
+        let mut interacted = false;
         if armed {
             for (id, key, val) in &output.prop_updates {
                 self.state.entry(id.clone()).or_default().set(key, val.clone());
                 let _ = self.input_tx.send(
                     cobolt_runtime::StateUpdate::new(id.clone(), key.clone(), val.clone()));
+                interacted = true;
             }
             for ev in output.events {
                 let _ = self.ev_tx.send(cobolt_runtime::FormEvent::new(ev.ctrl_id, ev.event));
+                interacted = true;
             }
         }
 
-        ctx.request_repaint();
+        // Reactive frame scheduling — never spin at max FPS (an unconditional
+        // request_repaint() pegged a whole core even while the form sat idle).
+        // While interpreter traffic flows, poll fast; otherwise a slow
+        // heartbeat keeps DISPLAY output timely. Timer controls schedule their
+        // own precise wake-ups inside the render engine, and user input wakes
+        // egui automatically — between all of those, the process sleeps.
+        let busy = drained > 0 || interacted;
+        let ms = if busy { 16 } else { 200 };
+        ctx.request_repaint_after(std::time::Duration::from_millis(ms));
     }
 }
 "#

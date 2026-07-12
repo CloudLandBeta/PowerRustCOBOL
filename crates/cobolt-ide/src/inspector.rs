@@ -75,11 +75,25 @@ impl Default for InspectorConfig {
     }
 }
 
+/// Rolling CPU timeline for one tracked child process (an external
+/// `rcrun run-form` — one per open running form).
+pub struct ChildSeries {
+    pub pid: u32,
+    /// Label shown on the chart (the form's name).
+    pub label: String,
+    /// CPU % history, same cadence/HISTORY as the main timeline.
+    pub cpu: VecDeque<f32>,
+    /// Latest RSS in bytes (shown next to the current CPU value).
+    pub rss_bytes: u64,
+}
+
 /// Samples process/system metrics and detects suspicious behaviour.
 pub struct ProcessInspector {
     sys: System,
     pid: Pid,
     hist: VecDeque<Sample>,
+    /// Per-form child-process CPU timelines (external rcrun runs).
+    children_hist: Vec<ChildSeries>,
     last_sample: Option<Instant>,
     interval: Duration,
     /// RSS at the start of the current idle stretch, for growth detection.
@@ -97,6 +111,7 @@ impl ProcessInspector {
             sys: System::new(),
             pid,
             hist: VecDeque::with_capacity(HISTORY),
+            children_hist: Vec::new(),
             last_sample: None,
             interval: Duration::from_millis(500),
             idle_baseline_rss: None,
@@ -109,6 +124,7 @@ impl ProcessInspector {
     /// Clear the timeline (call when a new Run Form starts).
     pub fn reset(&mut self) {
         self.hist.clear();
+        self.children_hist.clear();
         self.idle_baseline_rss = None;
         self.last_anomaly = None;
         self.last_sample = None;
@@ -122,9 +138,16 @@ impl ProcessInspector {
         self.hist.back().copied()
     }
 
+    /// Per-form child-process CPU timelines (one per open external run).
+    pub fn child_series(&self) -> &[ChildSeries] {
+        &self.children_hist
+    }
+
     /// Sample now if the interval has elapsed. `processing` reflects whether the
     /// interpreter currently has queued work (so we can flag growth *while idle*).
-    pub fn maybe_sample(&mut self, processing: bool) {
+    /// `tracked` lists the external form processes to chart: `(pid, form name)` —
+    /// one CPU timeline is kept per pid, dropped when the pid leaves the list.
+    pub fn maybe_sample(&mut self, processing: bool, tracked: &[(u32, String)]) {
         let now = Instant::now();
         if let Some(last) = self.last_sample {
             if now.duration_since(last) < self.interval {
@@ -137,7 +160,40 @@ impl ProcessInspector {
             self.hist.pop_front();
         }
         self.hist.push_back(sample);
+        self.sample_children(tracked);
         self.detect(sample);
+    }
+
+    /// Advance the per-child CPU timelines: create series for newly tracked
+    /// pids, append the current CPU% for live ones, drop series whose pid is
+    /// no longer tracked (its form was closed).
+    fn sample_children(&mut self, tracked: &[(u32, String)]) {
+        self.children_hist
+            .retain(|s| tracked.iter().any(|(pid, _)| *pid == s.pid));
+        for (pid, label) in tracked {
+            let series = match self.children_hist.iter_mut().find(|s| s.pid == *pid) {
+                Some(s) => s,
+                None => {
+                    self.children_hist.push(ChildSeries {
+                        pid: *pid,
+                        label: label.clone(),
+                        cpu: VecDeque::with_capacity(HISTORY),
+                        rss_bytes: 0,
+                    });
+                    self.children_hist.last_mut().expect("just pushed")
+                }
+            };
+            let (cpu, rss) = self
+                .sys
+                .process(Pid::from_u32(*pid))
+                .map(|p| (p.cpu_usage(), p.memory()))
+                .unwrap_or((0.0, 0));
+            if series.cpu.len() >= HISTORY {
+                series.cpu.pop_front();
+            }
+            series.cpu.push_back(cpu);
+            series.rss_bytes = rss;
+        }
     }
 
     /// Read the current process/system metrics from `sysinfo`.

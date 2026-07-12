@@ -74,6 +74,20 @@ fn usage_comp3() {
 }
 
 #[test]
+fn fd_global_clause_is_preserved() {
+    let data = parse_data(
+        "DATA DIVISION.\nFILE SECTION.\nFD CUSTOMER-FILE IS GLOBAL.\n01 CUSTOMER-REC PIC X(80).\n",
+    );
+    if let DataSection::FileSection(fds) = &data.sections[0] {
+        assert_eq!(fds.len(), 1);
+        assert_eq!(fds[0].name, "CUSTOMER-FILE");
+        assert!(fds[0].is_global, "FD GLOBAL clause should be retained");
+    } else {
+        panic!("expected FILE SECTION");
+    }
+}
+
+#[test]
 fn filler_item() {
     let data = parse_data("DATA DIVISION.\nWORKING-STORAGE SECTION.\n01 FILLER PIC X(10).\n");
     if let DataSection::WorkingStorage(items) = &data.sections[0] {

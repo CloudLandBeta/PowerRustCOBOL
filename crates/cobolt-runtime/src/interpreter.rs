@@ -130,6 +130,8 @@ struct NestedProgram {
     /// Local WORKING-STORAGE items declared inside this nested program.
     /// Format: `(uppercase_name, initial_value)`.
     local_items: Vec<(String, CobolValue)>,
+    /// Symbol metadata for the local items above, used by debugger snapshots.
+    local_symbols: Vec<(String, crate::environment::ItemSym)>,
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
@@ -154,11 +156,25 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
     // Collect this program's own local data items (everything in its DATA
     // DIVISION — they will be added to the env as a scope overlay on call).
     let local_items: Vec<(String, CobolValue)> = if let Some(data) = &prog.data {
-        let local_env = CobolEnvironment::from_data_division_with(data, prog.decimal_comma);
+        let local_env = CobolEnvironment::from_data_division_with_origin(
+            data,
+            prog.decimal_comma,
+            &prog.identification.program_id,
+        );
         local_env
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
+    } else {
+        Vec::new()
+    };
+    let local_symbols: Vec<(String, crate::environment::ItemSym)> = if let Some(data) = &prog.data {
+        CobolEnvironment::from_data_division_with_origin(
+            data,
+            prog.decimal_comma,
+            &prog.identification.program_id,
+        )
+        .symbol_entries()
     } else {
         Vec::new()
     };
@@ -171,6 +187,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             para_map,
             para_order,
             local_items,
+            local_symbols,
             using,
         },
     );
@@ -606,7 +623,11 @@ impl Interpreter {
     /// built with the same store.
     pub fn with_external_store(program: Program, external_store: ExternalStore) -> Self {
         let mut env = if let Some(data) = &program.data {
-            CobolEnvironment::from_data_division_with(data, program.decimal_comma)
+            CobolEnvironment::from_data_division_with_origin(
+                data,
+                program.decimal_comma,
+                &program.identification.program_id,
+            )
         } else {
             CobolEnvironment::new()
         };
@@ -1101,9 +1122,15 @@ impl Interpreter {
         let vars: Vec<crate::debugger::VarSnapshot> = self
             .env
             .iter()
-            .map(|(k, v)| crate::debugger::VarSnapshot {
-                name: k.clone(),
-                value: v.as_display_string(),
+            .map(|(k, v)| {
+                let (scope, pic, origin) = self.debug_var_details(k);
+                crate::debugger::VarSnapshot {
+                    name: k.clone(),
+                    scope,
+                    pic,
+                    origin,
+                    value: v.as_display_string(),
+                }
             })
             .collect();
 
@@ -1138,6 +1165,37 @@ impl Interpreter {
         }
 
         Ok(())
+    }
+
+    fn debug_var_details(&self, key: &str) -> (String, String, String) {
+        let base = key.split_once('(').map(|(name, _)| name).unwrap_or(key);
+        if let Some(symbol) = self.env.symbol(base) {
+            let scope = symbol
+                .scope
+                .map(|scope| {
+                    format!(
+                        "{} ({})",
+                        if symbol.is_global { "Global" } else { "Local" },
+                        scope.abbrev()
+                    )
+                })
+                .unwrap_or_else(|| "Local (WS)".to_owned());
+            (
+                scope,
+                symbol.pic.clone(),
+                if symbol.origin.is_empty() {
+                    self.program.identification.program_id.clone()
+                } else {
+                    symbol.origin.clone()
+                },
+            )
+        } else {
+            (
+                "Local (WS)".to_owned(),
+                String::new(),
+                self.program.identification.program_id.clone(),
+            )
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -4321,12 +4379,13 @@ impl Interpreter {
             _ if self.nested_registry.contains_key(&prog_name) => {
                 // Clone the para_map, para_order, local_items, and USING
                 // parameter names out of the registry before any mutable borrow.
-                let (para_map, para_order, local_items, params) = {
+                let (para_map, para_order, local_items, local_symbols, params) = {
                     let np = &self.nested_registry[&prog_name];
                     (
                         np.para_map.clone(),
                         np.para_order.clone(),
                         np.local_items.clone(),
+                        np.local_symbols.clone(),
                         np.using.clone(),
                     )
                 };
@@ -4358,7 +4417,7 @@ impl Interpreter {
                     .get(&prog_name)
                     .cloned()
                     .unwrap_or_else(|| local_items.clone());
-                let inserted_keys = self.env.push_local_scope(&snapshot);
+                let inserted_keys = self.env.push_local_scope(&snapshot, &local_symbols);
 
                 // Copy-in: bind each parameter to the caller argument's value
                 // (after the local scope so it overrides the persisted slot).

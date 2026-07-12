@@ -768,6 +768,163 @@ fn read_framed<R: std::io::Read>(r: &mut R) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+// ── ExternalFormRun ───────────────────────────────────────────────────────────
+
+/// A form running as a fully external `rcrun run-form` process: its own window,
+/// its own event loop, its own interpreter. The IDE only spawns it, pipes its
+/// stdout into the Output pane, and can kill it — the IDE render loop stays
+/// idle while the form runs (and what runs is exactly what `rcrun build`
+/// ships: same renderer, same interpreter, separate process).
+pub struct ExternalFormRun {
+    /// Path to the `.cfrm` file (identifies which form is running).
+    pub form_path: PathBuf,
+    /// The form's id/name — for Output pane labels.
+    pub form_name: String,
+    child: Child,
+    stdout_rx: Receiver<String>,
+    stderr_buf: Arc<Mutex<Vec<String>>>,
+    exit_status: Option<std::process::ExitStatus>,
+}
+
+impl ExternalFormRun {
+    /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
+    /// current executable first (bundle + target/debug layouts), then in PATH.
+    pub fn spawn(
+        form_path: PathBuf,
+        form_name: String,
+        cbl_path: &std::path::Path,
+        theme_default: Option<&str>,
+    ) -> Result<Self, String> {
+        let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
+        let rcrun_path = exe.with_file_name("rcrun");
+
+        let spawn_with = |program: &std::path::Path| {
+            let mut cmd = Command::new(program);
+            cmd.arg("run-form").arg(&form_path).arg(cbl_path);
+            if let Some(id) = theme_default {
+                cmd.arg("--theme-default").arg(id);
+            }
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+        };
+        let mut child = spawn_with(&rcrun_path)
+            .or_else(|_| spawn_with(std::path::Path::new("rcrun")))
+            .map_err(|e| {
+                format!(
+                    "failed to spawn rcrun run-form: {e}. Make sure rcrun is next to the \
+                     IDE executable or in PATH."
+                )
+            })?;
+
+        // stdout → line channel (drained into the Output pane each frame).
+        let (out_tx, stdout_rx) = mpsc::channel::<String>();
+        if let Some(stdout) = child.stdout.take() {
+            thread::spawn(move || {
+                use std::io::BufRead;
+                let reader = std::io::BufReader::new(stdout);
+                for line in reader.lines().map_while(Result::ok) {
+                    if out_tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+
+        // stderr → buffered (surfaced in a modal if the process exits non-zero).
+        let stderr_buf: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        if let Some(stderr) = child.stderr.take() {
+            let buf = Arc::clone(&stderr_buf);
+            thread::spawn(move || {
+                use std::io::BufRead;
+                let reader = std::io::BufReader::new(stderr);
+                for line in reader.lines().map_while(Result::ok) {
+                    if let Ok(mut b) = buf.lock() {
+                        b.push(line);
+                    }
+                }
+            });
+        }
+
+        Ok(Self {
+            form_path,
+            form_name,
+            child,
+            stdout_rx,
+            stderr_buf,
+            exit_status: None,
+        })
+    }
+
+    /// Drain DISPLAY / stdout lines produced since the last call.
+    pub fn drain_output(&self) -> Vec<String> {
+        self.stdout_rx.try_iter().collect()
+    }
+
+    /// OS process id of the `rcrun run-form` child — for the Run-Form
+    /// Inspector's per-form CPU chart.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Poll the child: `true` while the process is alive. Caches the exit
+    /// status once the process ends.
+    pub fn is_running(&mut self) -> bool {
+        if self.exit_status.is_some() {
+            return false;
+        }
+        match self.child.try_wait() {
+            Ok(Some(status)) => {
+                self.exit_status = Some(status);
+                false
+            }
+            Ok(None) => true,
+            Err(_) => false,
+        }
+    }
+
+    /// If the process exited with a failure, return its stderr as one message.
+    pub fn take_exit_error(&mut self) -> Option<String> {
+        let failed = self.exit_status.map(|s| !s.success()).unwrap_or(false);
+        if !failed {
+            return None;
+        }
+        let lines = self
+            .stderr_buf
+            .lock()
+            .map(|b| b.clone())
+            .unwrap_or_default();
+        // Warnings alone don't constitute the error message; but on a failed
+        // exit everything stderr said is the best diagnostic we have.
+        Some(if lines.is_empty() {
+            format!("Form '{}' exited with an error.", self.form_name)
+        } else {
+            lines.join("\n")
+        })
+    }
+
+    /// Kill the external process (Stop button / window replaced by a re-run).
+    pub fn stop(&mut self) {
+        if self.exit_status.is_none() {
+            let _ = self.child.kill();
+            if let Ok(status) = self.child.wait() {
+                self.exit_status = Some(status);
+            }
+        }
+    }
+}
+
+impl Drop for ExternalFormRun {
+    fn drop(&mut self) {
+        // Never leave an orphaned form window running after the IDE exits.
+        if self.exit_status.is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
 #[cfg(test)]
 mod form_codegen_roundtrip_tests {
     use super::CtrlState;

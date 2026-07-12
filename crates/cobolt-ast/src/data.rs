@@ -167,6 +167,10 @@ pub enum ConditionValue {
 pub struct FileDescription {
     /// The file name as referenced in SELECT … ASSIGN.
     pub name: String,
+    /// `FD name IS GLOBAL` — the FD and its record descriptions are visible to
+    /// nested programs in the compilation unit.
+    #[serde(default)]
+    pub is_global: bool,
     /// Record descriptions belonging to this file.
     pub records: Vec<DataDecl>,
     pub span: Span,

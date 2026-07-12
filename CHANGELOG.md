@@ -8,6 +8,160 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.12] — 2026-07-12
+
+### Fixed
+
+- **Debugger variables stay compact and inspectable** — Variable values in the
+  grid are capped to 90 pixels with `...`, and clicking a data-item name opens
+  a resizable detail window with PIC, Scope, Origin, wrapped value text, and a
+  hexadecimal representation pane.
+
+## [PowerRustCOBOL 1.28.11] — 2026-07-12
+
+### Fixed
+
+- **Debugger panes are user-resizable** — The generated-code pane and debugger
+  data pane now use a draggable split, so users can give more space to source,
+  variables, call stack, or breakpoints as needed.
+- **Debugger title describes the generated form code** — The window title now
+  reads `Debugging <form name> generated code`.
+- **Variables view shows name, scope, and value** — Variable snapshots now carry
+  DATA DIVISION origin metadata so the debugger can show `Global`/`Local` plus
+  `WS`, `FD`, or `LS` in a three-column, filterable table. The parser now also
+  preserves `FD ... GLOBAL` so FD record variables can be labelled `Global (FD)`.
+
+## [PowerRustCOBOL 1.28.10] — 2026-07-12
+
+### Fixed
+
+- **Run-Form Inspector chart grouping is clearer** — Added a left-aligned
+  `IDE stats` title above the first row of charts, matching the section title
+  style used by `Per-form CPU (rcrun)`.
+
+## [PowerRustCOBOL 1.28.9] — 2026-07-12
+
+### Fixed
+
+- **RAD Debug Form no longer prints temporary debug breadcrumbs** — Removed the
+  leftover `[DBG]` Output-pane messages and internal trace calls from the
+  form-debug launch path while preserving the debugger window placement in the
+  owning designer viewport.
+
+## [PowerRustCOBOL 1.28.8] — 2026-07-12
+
+### Fixed
+
+- **Run-form events appeared not to fire** — COBOL upper-cases control ids, so a
+  handler's property writes (`LABEL-1::Caption`) arrived under `"LABEL-1"` while
+  the renderer reads the designer-case `"Label-1"` state entry: handlers ran but
+  their effects never appeared on screen. `rcrun run-form` now resolves incoming
+  control ids case-insensitively (and routes repeating-group member writes to
+  the drawn card instance), exactly like the IDE's form runtime. The compiled-
+  binary template had the same latent bug and got the same fix.
+- **Run-form event dispatch parity** — instanced repeating-group member events
+  (`group.group-N.member`) dispatch to the designed member id with the correct
+  `CONTROL-ARRAY-INDEX`, and timer `onTick` events are coalesced against a
+  queued backlog (WinForms semantics) as in the IDE runtime.
+- **Live DISPLAY output from run-form** — the runner's stdout is block-buffered
+  when piped to the IDE, so DISPLAY lines could sit unseen in the buffer; the
+  runner now flushes after each drained batch, making DISPLAY output stream
+  into the Output pane live.
+
+## [PowerRustCOBOL 1.28.7] — 2026-07-12
+
+### Fixed
+
+- **Debugger window opens in front of the form designer** — A debug session
+  started from the RAD toolbar now renders its debugger window inside that
+  form's designer viewport (in front of the canvas) instead of in the main IDE
+  window, where it opened hidden behind the designer. Editor-started sessions
+  keep rendering in the main window. The session tracks its owning surface and
+  resets it when debugging ends.
+- **Debugger window no longer grows by itself** — the recurring egui
+  self-inflation loop hit the debugger window too: its split body sized panes
+  from the measured available space, which fed back into the window size every
+  frame. The window now auto-sizes to an inner `egui::Resize` box that opens at
+  860×460 and changes only when the user drags the resize grip; the code/data
+  panes are carved as fixed rects in cursor-detached child UIs, so content size
+  structurally cannot flow back into window size.
+- **Run-form window theme parity** — the standalone `rcrun run-form` window (and
+  binaries produced by `rcrun build`) rendered with egui's default dark visuals,
+  leaking dark widget fills into forms designed on the light canvas. Both now
+  set light visuals, apply the form's saved glass style, and resolve the form's
+  theme pack (per-form override → project default → Liquid Glass) exactly like
+  the designer canvas; the IDE forwards the project default via
+  `--theme-default`.
+
+## [PowerRustCOBOL 1.28.6] — 2026-07-12
+
+### Fixed
+
+- **Run Form now runs as a standalone process** — The Run Form button spawns the
+  new `rcrun run-form <form.cfrm> <program.cbl>` command instead of rendering the
+  form inside the IDE. The form gets its own window, event loop, and interpreter —
+  exactly what an `rcrun build` binary ships — while the IDE stays idle (a slow
+  0.2 s heartbeat only to pipe the form's DISPLAY output into the Output pane and
+  notice process exit). Measured: the standalone form idles at ~3 % CPU where the
+  in-IDE path previously kept the whole IDE render loop hot. Stop kills the
+  process; syntax/semantic errors are still pre-checked in the IDE with the modal
+  and red tree semaphore; a failed process exit surfaces its stderr in a modal.
+  The Run-Form Inspector samples the child process via the PID tree as before.
+  Trade-offs of the process boundary: the designer's live glass/theme toggling no
+  longer affects a running form (it reads the saved form, like production), and
+  "Apply layout to design" is not available from an external run.
+- **Compiled binaries no longer spin at max FPS** — the form event loop generated
+  by `rcrun build` ended every frame with an unconditional repaint request,
+  pegging a core even while the form sat idle. It now uses the same reactive
+  scheduling as the IDE and `rcrun run-form`: fast polling only while interpreter
+  traffic flows, a 0.2 s heartbeat otherwise, with Timer controls scheduling
+  their own precise wake-ups.
+
+## [PowerRustCOBOL 1.28.5] — 2026-07-12
+
+### Fixed
+
+- **IDE frame-cost instrumentation for Run Form** — The Run-Form Inspector header
+  now shows the IDE's own render load live: repaints per second and average/max
+  milliseconds spent per frame. While a form runs, a `[PERF]` line with the same
+  numbers (plus busy-frame count and open-window counts) is appended once per
+  second to `/tmp/cobolt-debug.log`. This tells apart the two possible causes of
+  high IDE CPU during Run Form: too many repaints vs. too-expensive frames.
+- **Window title set only on change** — the build-mode window title was re-sent
+  to the OS on every frame; it is now only sent when the text actually changes.
+
+## [PowerRustCOBOL 1.28.4] — 2026-07-12
+
+### Fixed
+
+- **Debugger froze the whole IDE (infinite loop in syntax highlighter)** — The
+  debugger's COBOL syntax highlighter (`build_cobol_layout_job`) entered an
+  infinite zero-progress loop whenever a source line contained `-` immediately
+  followed by an alphanumeric character outside an identifier — e.g. the negative
+  literal in `PERFORM … BY -1`. The tokenizer's fallback branch broke out without
+  consuming the character, so the render loop appended empty text sections forever,
+  pinning the UI thread and beach-balling the IDE the moment the debugger window
+  drew that line. Root cause confirmed with `sample(1)` stack captures of the hung
+  process. Negative numeric literals are now tokenized (and coloured) correctly,
+  and the fallback branch guarantees forward progress. Regression tests added.
+- **Debug instrumentation** — Debug sessions now log each pipeline stage
+  (tokenize, parse, semantic, interpreter) with millisecond timestamps to
+  `/tmp/cobolt-debug.log` and echo `[DBG]` progress lines to the Output pane.
+
+## [PowerRustCOBOL 1.28.3] — 2026-07-11
+
+### Fixed
+
+- **RAD debug hang** — Clicking the Debug button in the form-designer toolbar no
+  longer freezes the IDE. Three root causes were fixed: (1) `DebugRunner::stop()`
+  now detaches the interpreter thread instead of joining it, so stopping a session
+  never blocks the UI thread; (2) the Debug button is now disabled while a debug
+  session is active, preventing a re-click that would have triggered the blocking
+  join; (3) the redundant `do_generate_cobol` call inside `do_debug_form` was
+  removed — `do_save_designer` already writes the `.cbl` file via `after_form_saved`,
+  and the duplicate call also set `pending_open_in_editor`, which stole editor focus
+  away from the debug panel.
+
 ## [PowerRustCOBOL 1.28.2] — 2026-07-11
 
 ### Fixed

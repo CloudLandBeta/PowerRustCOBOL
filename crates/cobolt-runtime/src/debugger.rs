@@ -40,6 +40,9 @@ pub enum DebugCmd {
 #[derive(Debug, Clone)]
 pub struct VarSnapshot {
     pub name: String,
+    pub scope: String,
+    pub pic: String,
+    pub origin: String,
     pub value: String,
 }
 

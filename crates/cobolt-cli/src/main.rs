@@ -36,6 +36,8 @@
 //! | `COBOLT_LOG`      | Tracing filter (e.g. `cobolt=debug`, `warn`)          |
 //! | `COBOLT_FIXED`    | Force fixed-form source parsing (overrides auto-detect)|
 
+mod form_gui;
+
 use std::path::PathBuf;
 use std::process;
 
@@ -64,6 +66,7 @@ fn main() {
 
     match args.get(1).map(|s| s.as_str()) {
         Some("run") => cmd_run(&args[2..]),
+        Some("run-form") => form_gui::cmd_run_form(&args[2..]),
         Some("run-form-ipc") => cmd_run_form_ipc(),
         Some("check") => cmd_check(&args[2..]),
         Some("build") => cmd_build(&args[2..]),
@@ -349,6 +352,7 @@ fn cmd_help() {
         "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu | redb\n",
         "         [--indexed-log <basic|full>]    Per-file INDEXED txn log → <assign-path>.log (redb)\n",
         "         [--indexed-log-format <text|json>]  Log line format (json = NDJSON for Grafana/Loki)\n",
+        "  rcrun run-form <form.cfrm> <file.cbl> Run a form program in its own GUI window\n",
         "  rcrun check   <file.cbl>              Parse and analyse without running\n",
         "  rcrun build   <file.cbl>             Compile a console program → bin/<name> (native binary)\n",
         "  rcrun build   [cobolt.toml]           Compile a project → bin/<name> (single executable)\n",

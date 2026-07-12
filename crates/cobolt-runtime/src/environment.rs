@@ -25,6 +25,30 @@ use cobolt_ast::{
 
 use crate::value::{CobolNumeric, CobolValue};
 
+// ── ItemScope ────────────────────────────────────────────────────────────────
+
+/// DATA DIVISION origin for a runtime data item, used by debugger snapshots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemScope {
+    WorkingStorage,
+    FileDescription,
+    LocalStorage,
+    Linkage,
+    Screen,
+}
+
+impl ItemScope {
+    pub fn abbrev(self) -> &'static str {
+        match self {
+            Self::WorkingStorage => "WS",
+            Self::FileDescription => "FD",
+            Self::LocalStorage => "LS",
+            Self::Linkage => "LK",
+            Self::Screen => "SCREEN",
+        }
+    }
+}
+
 // ── CobolEnvironment ──────────────────────────────────────────────────────────
 
 /// Hierarchy / occurrence metadata for one declared data item.
@@ -54,6 +78,14 @@ pub struct ItemSym {
     /// its ascending flag. Empty unless the OCCURS declared sort keys; drives the
     /// `SEARCH ALL` binary search.
     pub keys: Vec<(String, bool)>,
+    /// DATA DIVISION section that declared this item.
+    pub scope: Option<ItemScope>,
+    /// True if this item belongs to a GLOBAL declaration.
+    pub is_global: bool,
+    /// Raw PIC template, or an empty string for group/index items.
+    pub pic: String,
+    /// Program/form/procedure that declared this item.
+    pub origin: String,
 }
 
 /// The data store for a running COBOL program.
@@ -185,8 +217,19 @@ impl CobolEnvironment {
     /// Like [`from_data_division`], but with the program's `DECIMAL-POINT IS COMMA`
     /// setting (affects how edited PICs are formatted).
     pub fn from_data_division_with(data: &DataDivision, decimal_comma: bool) -> Self {
+        Self::from_data_division_with_origin(data, decimal_comma, "")
+    }
+
+    /// Like [`from_data_division_with`], and records the declaring program/form
+    /// name for debugger variable details.
+    pub fn from_data_division_with_origin(
+        data: &DataDivision,
+        decimal_comma: bool,
+        origin: &str,
+    ) -> Self {
         let mut env = Self::new();
         env.decimal_comma = decimal_comma;
+        let origin = origin.to_owned();
         // Pass 1: count every leaf name so we know which need disambiguation.
         let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for section in &data.sections {
@@ -222,13 +265,25 @@ impl CobolEnvironment {
                 | DataSection::Linkage(items) => {
                     for decl in items {
                         let external = decl.is_external && (decl.level == 1 || decl.level == 77);
-                        env.init_decl_tracking_external(decl, external);
+                        let scope = match section {
+                            DataSection::WorkingStorage(_) => ItemScope::WorkingStorage,
+                            DataSection::LocalStorage(_) => ItemScope::LocalStorage,
+                            DataSection::Linkage(_) => ItemScope::Linkage,
+                            _ => unreachable!(),
+                        };
+                        env.init_decl_tracking_external(decl, external, scope, false, &origin);
                     }
                 }
                 DataSection::FileSection(fds) => {
                     for fd in fds {
                         for rec in &fd.records {
-                            env.init_decl_tracking_external(rec, rec.is_external);
+                            env.init_decl_tracking_external(
+                                rec,
+                                rec.is_external,
+                                ItemScope::FileDescription,
+                                fd.is_global,
+                                &origin,
+                            );
                         }
                     }
                 }
@@ -241,13 +296,20 @@ impl CobolEnvironment {
 
     /// Initialise `decl`; when `external` is set, record every storage key it
     /// creates (the item and all its subordinates) as a run-unit EXTERNAL key.
-    fn init_decl_tracking_external(&mut self, decl: &DataDecl, external: bool) {
+    fn init_decl_tracking_external(
+        &mut self,
+        decl: &DataDecl,
+        external: bool,
+        scope: ItemScope,
+        inherited_global: bool,
+        origin: &str,
+    ) {
         if !external {
-            self.init_decl(decl);
+            self.init_decl(decl, scope, inherited_global, origin);
             return;
         }
         let before: std::collections::HashSet<String> = self.store.keys().cloned().collect();
-        self.init_decl(decl);
+        self.init_decl(decl, scope, inherited_global, origin);
         for k in self.store.keys() {
             if !before.contains(k) {
                 self.external_names.insert(k.clone());
@@ -339,13 +401,34 @@ impl CobolEnvironment {
     }
 
     /// Recursively initialise a data declaration and its children.
-    fn init_decl(&mut self, decl: &DataDecl) {
-        self.init_decl_h(decl, &mut Vec::new(), &mut Vec::new());
+    fn init_decl(
+        &mut self,
+        decl: &DataDecl,
+        scope: ItemScope,
+        inherited_global: bool,
+        origin: &str,
+    ) {
+        self.init_decl_h(
+            decl,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            scope,
+            inherited_global,
+            origin,
+        );
     }
 
     /// Hierarchy-aware initialisation: `dims` accumulates the OCCURS counts of
     /// this item + its ancestors; `quals` the ancestor group names.
-    fn init_decl_h(&mut self, decl: &DataDecl, dims: &mut Vec<usize>, quals: &mut Vec<String>) {
+    fn init_decl_h(
+        &mut self,
+        decl: &DataDecl,
+        dims: &mut Vec<usize>,
+        quals: &mut Vec<String>,
+        scope: ItemScope,
+        inherited_global: bool,
+        origin: &str,
+    ) {
         let occ = decl.occurs.as_ref().map(|o| o.max.max(1) as usize);
         if let Some(n) = occ {
             dims.push(n);
@@ -372,6 +455,7 @@ impl CobolEnvironment {
 
         if is_named {
             let leaf = upper.clone().unwrap();
+            let is_global = inherited_global || decl.is_global;
             // Canonical storage key: the leaf itself when unique, otherwise a
             // path-qualified key that disambiguates duplicated names.
             let key = self.canon_key(&leaf, quals);
@@ -435,6 +519,14 @@ impl CobolEnvironment {
                     index_names: index_names.clone(),
                     occurs: occ.unwrap_or(0),
                     keys,
+                    scope: Some(scope),
+                    is_global,
+                    pic: decl
+                        .picture
+                        .as_ref()
+                        .map(|pic| pic.template.clone())
+                        .unwrap_or_default(),
+                    origin: origin.to_owned(),
                 },
             );
             self.by_leaf
@@ -462,7 +554,14 @@ impl CobolEnvironment {
             if child.level == 88 {
                 continue; // condition-names are not data items
             }
-            self.init_decl_h(child, dims, quals);
+            self.init_decl_h(
+                child,
+                dims,
+                quals,
+                scope,
+                inherited_global || decl.is_global,
+                origin,
+            );
         }
 
         if is_named {
@@ -524,6 +623,14 @@ impl CobolEnvironment {
     /// The symbol-table entry for an item, if declared.
     pub fn symbol(&self, name: &str) -> Option<&ItemSym> {
         self.symbols.get(&name.to_ascii_uppercase())
+    }
+
+    /// Snapshot all symbol metadata entries for a temporary local scope.
+    pub fn symbol_entries(&self) -> Vec<(String, ItemSym)> {
+        self.symbols
+            .iter()
+            .map(|(key, sym)| (key.clone(), sym.clone()))
+            .collect()
     }
 
     /// The 88-level condition-name metadata for `name`, if it is one.
@@ -872,12 +979,22 @@ impl CobolEnvironment {
     ///
     /// Returns the list of keys that were *newly inserted* so that
     /// [`pop_local_scope`] can remove exactly those entries.
-    pub fn push_local_scope(&mut self, items: &[(String, CobolValue)]) -> Vec<String> {
+    pub fn push_local_scope(
+        &mut self,
+        items: &[(String, CobolValue)],
+        symbols: &[(String, ItemSym)],
+    ) -> Vec<String> {
         let mut inserted = Vec::with_capacity(items.len());
         for (key, val) in items {
             let upper = key.to_ascii_uppercase();
             if !self.store.contains_key(&upper) {
                 self.store.insert(upper.clone(), val.clone());
+                if let Some((_, sym)) = symbols
+                    .iter()
+                    .find(|(sym_key, _)| sym_key.eq_ignore_ascii_case(&upper))
+                {
+                    self.symbols.insert(upper.clone(), sym.clone());
+                }
                 inserted.push(upper);
             }
         }
@@ -889,6 +1006,7 @@ impl CobolEnvironment {
     pub fn pop_local_scope(&mut self, keys: &[String]) {
         for key in keys {
             self.store.shift_remove(key);
+            self.symbols.shift_remove(key);
         }
     }
 

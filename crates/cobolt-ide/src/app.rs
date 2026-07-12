@@ -271,6 +271,9 @@ pub struct CoboltApp {
 
     // Running form instances — each has its own OS window (Phase 6)
     form_runtimes: Vec<FormRuntime>,
+    /// Forms running as external `rcrun run-form` processes (the Run Form
+    /// path): own window, own event loop — the IDE stays idle while they run.
+    external_runs: Vec<crate::form_runtime::ExternalFormRun>,
 
     // Run-Form process/memory inspector (toolbar toggle; only samples while a
     // Live Interpreter is running).
@@ -284,6 +287,25 @@ pub struct CoboltApp {
     debug_runner: DebugRunner,
     debugger: DebuggerPanel,
     debug_active: bool,
+    /// When the debug session was started from a RAD designer (Debug Form),
+    /// the owning form's `.cfrm` path — the debugger window then renders
+    /// inside THAT designer viewport (in front of it), not the main IDE
+    /// window. `None` = session started from the code editor.
+    debug_owner_form: Option<PathBuf>,
+
+    // Frame-rate/perf instrumentation (why is the IDE busy while a form runs?)
+    perf_window_start: Option<std::time::Instant>,
+    perf_frames: u32,
+    perf_busy_frames: u32,
+    perf_ms_sum: f32,
+    perf_ms_max: f32,
+    /// Last completed 1-second window — displayed in the Run-Form Inspector.
+    perf_fps: u32,
+    perf_avg_ms: f32,
+    perf_max_ms: f32,
+    /// Last title sent to the OS window, so we only issue the viewport command
+    /// on change (a per-frame AppKit set_title is wasted main-thread work).
+    last_window_title: String,
 
     // Project model
     cobolt_project: Option<CoboltProject>,
@@ -600,12 +622,24 @@ impl CoboltApp {
             raw_preferred_indexed: std::collections::HashSet::new(),
             checked: std::collections::HashMap::new(),
             form_runtimes: Vec::new(),
+            external_runs: Vec::new(),
             inspector: crate::inspector::ProcessInspector::new(Default::default()),
             show_inspector: false,
             inspector_sized: false,
             debug_runner: DebugRunner::new(),
             debugger: DebuggerPanel::new(),
             debug_active: false,
+            debug_owner_form: None,
+
+            perf_window_start: None,
+            perf_frames: 0,
+            perf_busy_frames: 0,
+            perf_ms_sum: 0.0,
+            perf_ms_max: 0.0,
+            perf_fps: 0,
+            perf_avg_ms: 0.0,
+            perf_max_ms: 0.0,
+            last_window_title: String::new(),
 
             cobolt_project: None,
             project_path: None,
@@ -917,7 +951,8 @@ impl CoboltApp {
         // Sync breakpoints into the interpreter's shared set and into the debug window.
         let bp_lines = self.editor.breakpoints_for(&path);
         let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
-        self.debugger.set_source(path.display().to_string(), &source, &bp_set);
+        self.debugger
+            .set_source(path.display().to_string(), &source, &bp_set);
         {
             let mut guard = self.debug_runner.breakpoints.lock().unwrap();
             guard.clear();
@@ -928,16 +963,23 @@ impl CoboltApp {
 
         self.debug_runner.start(path.display().to_string(), source);
         self.debug_active = true;
+        self.debug_owner_form = None; // editor-owned session → main IDE window
     }
 
     fn do_debug_form(&mut self, idx: usize) {
         if idx >= self.designers.len() {
             return;
         }
+
+        // Save + regenerate COBOL (after_form_saved already writes the .cbl file).
         self.do_save_designer(idx);
+
         self.save_alert_msg = None;
         self.save_alert_designer = None;
-        self.do_generate_cobol(idx);
+        // Don't call do_generate_cobol — it's redundant (after_form_saved already
+        // wrote the .cbl) and it sets pending_open_in_editor, which would steal
+        // focus from the debug panel.
+        self.pending_open_in_editor = None;
 
         let form_path = self.designers[idx].0.clone();
         let cbl_path = self.generated_cbl_path(&form_path);
@@ -945,10 +987,8 @@ impl CoboltApp {
         let source = match std::fs::read_to_string(&cbl_path) {
             Ok(s) => s,
             Err(e) => {
-                self.output.push_status(format!(
-                    "Debug: cannot read {}: {e}",
-                    cbl_path.display()
-                ));
+                self.output
+                    .push_status(format!("Debug: cannot read {}: {e}", cbl_path.display()));
                 return;
             }
         };
@@ -962,9 +1002,11 @@ impl CoboltApp {
         self.debugger.reset();
 
         let bp_lines = self.editor.breakpoints_for(&cbl_path);
+
         let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
         self.debugger
             .set_source(cbl_path.display().to_string(), &source, &bp_set);
+
         {
             let mut guard = self.debug_runner.breakpoints.lock().unwrap();
             guard.clear();
@@ -973,8 +1015,13 @@ impl CoboltApp {
             }
         }
 
-        self.debug_runner.start(cbl_path.display().to_string(), source);
+        self.debug_runner
+            .start(cbl_path.display().to_string(), source);
+
         self.debug_active = true;
+        // RAD-owned session: the debugger window renders inside this form's
+        // designer viewport, in front of the canvas.
+        self.debug_owner_form = Some(form_path);
     }
 
     // ── Form Runtime Engine (Phase 6) ─────────────────────────────────────────
@@ -1038,7 +1085,15 @@ impl CoboltApp {
                 .unwrap_or("?")
         ));
 
-        // Kill any existing runtime for this form first.
+        // Kill any existing run for this form first (external + legacy).
+        self.external_runs.retain_mut(|run| {
+            if run.form_path == form_path {
+                run.stop();
+                false
+            } else {
+                true
+            }
+        });
         self.form_runtimes.retain_mut(|rt| {
             if rt.form_path == form_path {
                 rt.stop();
@@ -1048,24 +1103,75 @@ impl CoboltApp {
             }
         });
 
-        let glass = self.designers[idx].1.glass_mode;
-        match FormRuntime::launch(&form, form_path.clone()) {
-            Ok(mut rt) => {
-                rt.glass = glass;
-                self.form_runtimes.push(rt);
+        // Pre-validate in-process so syntax/semantic errors surface instantly
+        // in a modal with the red tree semaphore — execution is refused until
+        // the code is fixed (same contract as the old in-IDE runtime).
+        {
+            use crate::runner::DiagSeverity;
+            let diags = Self::validate_form_source(&form);
+            if let Some(err) = diags
+                .iter()
+                .find(|d| d.severity == DiagSeverity::Error)
+                .map(|d| format!("{} (line {})", d.message, d.line))
+            {
+                self.output
+                    .push_status(format!("Error launching form: {err}"));
+                self.set_element_status(&form_path, ElementStatus::Failed);
+                self.form_error = Some(format!(
+                    "This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{err}"
+                ));
+                return;
+            }
+        }
+
+        // Run the form as a standalone `rcrun run-form` process — its own
+        // window, event loop, and interpreter, exactly like a binary built by
+        // `rcrun build`. The IDE stays idle while the form runs.
+        let cbl_path = self.generated_cbl_path(&form_path);
+        let theme_default = self
+            .cobolt_project
+            .as_ref()
+            .and_then(|p| p.form_theme_default())
+            .map(|s| s.to_owned());
+        match crate::form_runtime::ExternalFormRun::spawn(
+            form_path.clone(),
+            form.name.clone(),
+            &cbl_path,
+            theme_default.as_deref(),
+        ) {
+            Ok(run) => {
+                self.external_runs.push(run);
+                self.output
+                    .push_status("Form running as a separate rcrun process.");
                 // The form's code compiled clean → green semaphore.
                 self.set_element_status(&form_path, ElementStatus::Tested);
             }
             Err(e) => {
-                // Parse / semantic (syntax) errors: log to the console, mark the
-                // form red in the tree, AND show a modal so the failure is
-                // impossible to miss. Execution is refused until it is fixed.
                 self.output
                     .push_status(format!("Error launching form: {e}"));
                 self.set_element_status(&form_path, ElementStatus::Failed);
-                self.form_error = Some(format!(
-                    "This form's code has a syntax or semantic error — it cannot run until you fix it:\n\n{e}"
-                ));
+                self.form_error = Some(e);
+            }
+        }
+    }
+
+    /// Render the debugger window on `ctx` and apply the returned action.
+    /// Called with the main IDE ctx (editor-owned session) or from inside a
+    /// designer viewport (RAD-owned session) so the window appears in front
+    /// of whichever surface started it.
+    fn show_debugger_ui(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
+        if let Some(action) = self.debugger.show(ctx, tr) {
+            match action {
+                DebugAction::Stop => {
+                    self.debug_runner.stop();
+                    self.debug_active = false;
+                    self.debug_owner_form = None;
+                    self.debugger.reset();
+                    self.editor.debug_line = None;
+                }
+                DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
+                DebugAction::StepOver => self.debug_runner.send_cmd(DebugCmd::StepOver),
+                DebugAction::Pause => self.debug_runner.send_cmd(DebugCmd::Pause),
             }
         }
     }
@@ -4687,6 +4793,8 @@ impl eframe::App for CoboltApp {
     }
 
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        let frame_start = std::time::Instant::now();
+
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
         crate::i18n::set_language(ctx, self.lang);
@@ -4709,7 +4817,11 @@ impl eframe::App for CoboltApp {
             } else {
                 format!("PowerRustCOBOL v{VERSION} — {mode_suffix}")
             };
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+            // Only touch the OS window when the title actually changes.
+            if title != self.last_window_title {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+                self.last_window_title = title;
+            }
         }
 
         // Surface AI request activity (sending → streaming → done / errors, plus
@@ -4808,6 +4920,7 @@ impl eframe::App for CoboltApp {
             }
             if !self.debug_runner.is_running() {
                 self.debug_active = false;
+                self.debug_owner_form = None;
                 self.debugger.reset();
                 self.editor.debug_line = None;
             }
@@ -4994,20 +5107,10 @@ impl eframe::App for CoboltApp {
         }
 
         // ── Debugger floating window ──────────────────────────────────────────
-        if self.debug_active {
-            if let Some(action) = self.debugger.show(ctx, &tr) {
-                match action {
-                    DebugAction::Stop => {
-                        self.debug_runner.stop();
-                        self.debug_active = false;
-                        self.debugger.reset();
-                        self.editor.debug_line = None;
-                    }
-                    DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
-                    DebugAction::StepOver => self.debug_runner.send_cmd(DebugCmd::StepOver),
-                    DebugAction::Pause => self.debug_runner.send_cmd(DebugCmd::Pause),
-                }
-            }
+        // Editor-owned debug sessions render in the main IDE window; RAD-owned
+        // ones render inside their designer viewport (see show_designer_window).
+        if self.debug_active && self.debug_owner_form.is_none() {
+            self.show_debugger_ui(ctx, &tr);
         }
 
         // ── Run-Form process/memory inspector (bottom dock) ───────────────────
@@ -5195,6 +5298,14 @@ impl eframe::App for CoboltApp {
                         }
                     }
                     self.show_designer_window(vp_ctx, idx, &tr);
+                    // RAD-owned debug session for THIS form → the debugger
+                    // window renders inside this designer viewport, in front
+                    // of the canvas (not hidden behind it in the IDE window).
+                    if self.debug_active
+                        && self.debug_owner_form.as_ref() == Some(&self.designers[idx].0)
+                    {
+                        self.show_debugger_ui(vp_ctx, &tr);
+                    }
                 },
             );
         }
@@ -5244,6 +5355,43 @@ impl eframe::App for CoboltApp {
                     self.show_preview_window(vp_ctx, idx);
                 },
             );
+        }
+
+        // ── External form runs (`rcrun run-form` processes) ──────────────────────
+        // Pipe their stdout (DISPLAY output) into the Output pane and reap
+        // exited processes, surfacing a failure exit in the error modal.
+        {
+            let mut ext_error: Option<String> = None;
+            for run in &self.external_runs {
+                for line in run.drain_output() {
+                    self.output.push_line(line);
+                }
+            }
+            let mut i = 0;
+            while i < self.external_runs.len() {
+                if self.external_runs[i].is_running() {
+                    i += 1;
+                    continue;
+                }
+                let mut run = self.external_runs.remove(i);
+                // Drain any output that raced the exit.
+                for line in run.drain_output() {
+                    self.output.push_line(line);
+                }
+                if let Some(err) = run.take_exit_error() {
+                    self.output
+                        .push_status(format!("Form {} failed: {err}", run.form_name));
+                    if ext_error.is_none() {
+                        ext_error = Some(err);
+                    }
+                } else {
+                    self.output
+                        .push_status(format!("── Form {} finished ──", run.form_name));
+                }
+            }
+            if let Some(err) = ext_error {
+                self.form_error = Some(err);
+            }
         }
 
         // ── Running form viewports (Phase 6) ─────────────────────────────────────
@@ -5322,6 +5470,54 @@ impl eframe::App for CoboltApp {
             let busy = self.form_runtimes.iter().any(|rt| rt.pending_events() > 0);
             let ms = if busy { 16 } else { 200 };
             ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+        } else if !self.external_runs.is_empty() {
+            // External `rcrun run-form` processes do their own rendering — the
+            // IDE only needs a slow heartbeat to drain their stdout into the
+            // Output pane and to notice when they exit.
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+
+        // ── Perf instrumentation ──────────────────────────────────────────────
+        // Accumulate this frame; once per second publish fps / frame cost to the
+        // Run-Form Inspector and, while a form runs, to /tmp/cobolt-debug.log —
+        // so "why is the IDE busy while the form idles?" is answerable with data.
+        {
+            let frame_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
+            self.perf_frames += 1;
+            self.perf_ms_sum += frame_ms;
+            if frame_ms > self.perf_ms_max {
+                self.perf_ms_max = frame_ms;
+            }
+            if self.form_runtimes.iter().any(|rt| rt.pending_events() > 0) {
+                self.perf_busy_frames += 1;
+            }
+            let elapsed = self
+                .perf_window_start
+                .get_or_insert_with(std::time::Instant::now)
+                .elapsed();
+            if elapsed.as_secs_f32() >= 1.0 {
+                self.perf_fps = self.perf_frames;
+                self.perf_avg_ms = self.perf_ms_sum / self.perf_frames.max(1) as f32;
+                self.perf_max_ms = self.perf_ms_max;
+                if !self.form_runtimes.is_empty() || !self.external_runs.is_empty() {
+                    crate::runner::dbg_log(&format!(
+                        "[PERF] fps={} avg={:.1}ms max={:.1}ms busy_frames={} forms={} external={} designers={} inspector={}",
+                        self.perf_fps,
+                        self.perf_avg_ms,
+                        self.perf_max_ms,
+                        self.perf_busy_frames,
+                        self.form_runtimes.len(),
+                        self.external_runs.len(),
+                        self.designers.len(),
+                        self.show_inspector,
+                    ));
+                }
+                self.perf_frames = 0;
+                self.perf_busy_frames = 0;
+                self.perf_ms_sum = 0.0;
+                self.perf_ms_max = 0.0;
+                self.perf_window_start = Some(std::time::Instant::now());
+            }
         }
     }
 }
@@ -5697,12 +5893,19 @@ impl CoboltApp {
         if !self.show_inspector {
             return;
         }
-        let form_running = !self.form_runtimes.is_empty();
+        let form_running = !self.form_runtimes.is_empty() || !self.external_runs.is_empty();
         // Sample only while a form runs; `processing` = the interpreter has queued
         // work, so growth-while-idle can be told apart from real processing.
         if form_running {
             let processing = self.form_runtimes.iter().any(|rt| rt.pending_events() > 0);
-            self.inspector.maybe_sample(processing);
+            // One CPU timeline per open external rcrun run-form process, keyed
+            // by pid so the inspector can label + retire a series per form.
+            let tracked: Vec<(u32, String)> = self
+                .external_runs
+                .iter()
+                .map(|run| (run.pid(), run.form_name.clone()))
+                .collect();
+            self.inspector.maybe_sample(processing, &tracked);
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
@@ -5756,6 +5959,21 @@ impl CoboltApp {
                 } else {
                     ui.colored_label(egui::Color32::from_rgb(120, 200, 120), "healthy");
                 }
+                // IDE render cost: repaints/sec and time spent inside update().
+                // High fps with a running form = something requests repaints
+                // continuously; high avg ms = each frame itself is expensive.
+                if self.perf_fps > 0 {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "IDE: {} fps · {:.1} ms/frame (max {:.1})",
+                            self.perf_fps, self.perf_avg_ms, self.perf_max_ms
+                        ))
+                        .monospace()
+                        .size(11.0)
+                        .color(egui::Color32::from_gray(170)),
+                    );
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("✕ close").clicked() {
                         self.show_inspector = false;
@@ -5792,6 +6010,9 @@ impl CoboltApp {
             // Reserve the top ~55% for the four charts; the process tree
             // (5th panel) fills the rest of the window below.
             let chart_h = (avail.y * 0.55).clamp(64.0, 190.0);
+            ui.horizontal(|ui| {
+                ui.strong("IDE stats");
+            });
             ui.horizontal(|ui| {
                 Self::sparkline(
                     ui,
@@ -5840,6 +6061,57 @@ impl CoboltApp {
             });
             if n == 0 && form_running {
                 ui.weak("sampling…");
+            }
+
+            // ── Per-form CPU charts ─────────────────────────────────────────
+            // One chart per open `rcrun run-form` process, so a form that's
+            // eating CPU is identifiable by name at a glance instead of only
+            // showing up as a lump in "Child procs" above.
+            let child_count = self.inspector.child_series().len();
+            if child_count > 0 {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong("Per-form CPU (rcrun)");
+                    ui.weak(format!("({child_count} running)"));
+                });
+                let palette = [
+                    egui::Color32::from_rgb(120, 200, 255),
+                    egui::Color32::from_rgb(255, 170, 120),
+                    egui::Color32::from_rgb(180, 220, 120),
+                    egui::Color32::from_rgb(230, 140, 220),
+                    egui::Color32::from_rgb(240, 210, 100),
+                ];
+                let per_row = (avail.x / (chart_w + 8.0)).floor().max(1.0) as usize;
+                egui::ScrollArea::vertical()
+                    .id_salt("per_form_cpu_scroll")
+                    .max_height(chart_h + 12.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        for chunk_idx in 0..child_count.div_ceil(per_row) {
+                            ui.horizontal(|ui| {
+                                let start = chunk_idx * per_row;
+                                let end = (start + per_row).min(child_count);
+                                for (i, series) in
+                                    self.inspector.child_series()[start..end].iter().enumerate()
+                                {
+                                    let cpu_vals: Vec<f32> = series.cpu.iter().cloned().collect();
+                                    let current = cpu_vals.last().cloned().unwrap_or(0.0);
+                                    let color = palette[(start + i) % palette.len()];
+                                    Self::sparkline(
+                                        ui,
+                                        chart_w,
+                                        chart_h,
+                                        &format!("▶ {}", series.label),
+                                        "%",
+                                        &cpu_vals,
+                                        current,
+                                        Some(100.0),
+                                        color,
+                                    );
+                                }
+                            });
+                        }
+                    });
             }
 
             // ── 5th panel: application process tree ───────────────────────
@@ -6678,10 +6950,16 @@ impl CoboltApp {
                     crate::panels::designer::FormatPainter::WaitingForTarget { .. }
                 );
                 let form_path = self.designers[idx].0.clone();
+                // Exited external runs are reaped every frame in update(), so
+                // presence in the list means the process is alive.
                 let form_running = self
                     .form_runtimes
                     .iter()
-                    .any(|rt| rt.form_path == form_path && rt.is_running());
+                    .any(|rt| rt.form_path == form_path && rt.is_running())
+                    || self
+                        .external_runs
+                        .iter()
+                        .any(|run| run.form_path == form_path);
 
                 // Icons (left) + language selector (right) on a SINGLE centred row.
                 // They must share one row: two stacked rows (icon row + a separate
@@ -6760,6 +7038,14 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::StopForm => {
                         let fp = self.designers[idx].0.clone();
+                        self.external_runs.retain_mut(|run| {
+                            if run.form_path == fp {
+                                run.stop();
+                                false
+                            } else {
+                                true
+                            }
+                        });
                         self.form_runtimes.retain_mut(|rt| {
                             if rt.form_path == fp {
                                 rt.stop();
