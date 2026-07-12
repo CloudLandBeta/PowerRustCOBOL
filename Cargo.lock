@@ -955,6 +955,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "image 0.25.10",
  "serde",
  "serde_json",
  "toml",

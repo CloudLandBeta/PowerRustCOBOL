@@ -32,6 +32,8 @@ pub enum DebugCmd {
     Continue,
     /// Execute the next statement, then pause again.
     StepOver,
+    /// Step into the next statement. Currently statement-level, matching StepOver.
+    StepIn,
     /// Request the interpreter to pause at the next statement (async).
     Pause,
 }

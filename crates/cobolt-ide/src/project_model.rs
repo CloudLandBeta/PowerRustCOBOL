@@ -112,6 +112,9 @@ pub struct IdeSettings {
     /// Optional background image (relative to the project root, or absolute).
     #[serde(default)]
     pub background_image: String,
+    /// Optional project icon image for Run Form / built app windows.
+    #[serde(default)]
+    pub project_icon: String,
     /// Background-image opacity, 0 (invisible) … 100 (fully opaque).
     #[serde(default = "default_bg_opacity")]
     pub background_opacity: u8,
@@ -145,6 +148,7 @@ impl Default for IdeSettings {
         Self {
             theme: String::new(),
             background_image: String::new(),
+            project_icon: String::new(),
             background_opacity: default_bg_opacity(),
             inspector_dump_enabled: default_true(),
             inspector_dump_path: default_inspector_dump_path(),

@@ -21,7 +21,7 @@
 //! parse/semantic/runtime errors go to stderr and yield a non-zero exit code.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -30,6 +30,30 @@ use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 use cobolt_runtime::{FormEvent, Interpreter, StateUpdate};
 use cobolt_semantic::analyze;
+
+fn load_run_form_icon(path: Option<&Path>) -> Option<egui::IconData> {
+    path.and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| decode_icon(&bytes))
+        .or_else(|| {
+            decode_icon(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/images/powerrustcobol-icon.png"
+            )))
+        })
+}
+
+fn decode_icon(bytes: &[u8]) -> Option<egui::IconData> {
+    let img = image::load_from_memory(bytes)
+        .ok()?
+        .resize_exact(256, 256, image::imageops::FilterType::Lanczos3)
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    Some(egui::IconData {
+        rgba: img.into_raw(),
+        width: w,
+        height: h,
+    })
+}
 
 // ── Control state (mirrors the compiled-binary template's CtrlState) ──────────
 
@@ -110,7 +134,7 @@ pub fn cmd_run_form(args: &[String]) {
         (Some(a), Some(b)) => (PathBuf::from(a), PathBuf::from(b)),
         _ => {
             eprintln!(
-                "usage: rcrun run-form <form.cfrm> <program.cbl> [--theme-default <id>] [--debug]"
+                "usage: rcrun run-form <form.cfrm> <program.cbl> [--theme-default <id>] [--icon <image>] [--debug]"
             );
             process::exit(2);
         }
@@ -122,6 +146,11 @@ pub fn cmd_run_form(args: &[String]) {
         .position(|a| a == "--theme-default")
         .and_then(|i| args.get(i + 1))
         .cloned();
+    let icon_path: Option<PathBuf> = args
+        .iter()
+        .position(|a| a == "--icon")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from);
     // Debug mode: the IDE (or any future remote host — Android/iOS) controls
     // the interpreter over stdin/stdout. Commands arrive as `@DBG <json>` lines
     // on stdin; DebugEvents leave as `@DBG <json>` lines on stdout. Plain
@@ -365,11 +394,15 @@ pub fn cmd_run_form(args: &[String]) {
         quit_sent: false,
     };
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title(&title)
+        .with_inner_size([fw + 4.0, fh + 4.0])
+        .with_resizable(true);
+    if let Some(icon) = load_run_form_icon(icon_path.as_deref()) {
+        viewport = viewport.with_icon(icon);
+    }
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(&title)
-            .with_inner_size([fw + 4.0, fh + 4.0])
-            .with_resizable(true),
+        viewport,
         ..Default::default()
     };
     let _ = eframe::run_native(

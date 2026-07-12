@@ -799,6 +799,7 @@ impl ExternalFormRun {
         form_name: String,
         cbl_path: &std::path::Path,
         theme_default: Option<&str>,
+        project_icon: Option<&std::path::Path>,
         debug: bool,
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
@@ -809,6 +810,9 @@ impl ExternalFormRun {
             cmd.arg("run-form").arg(&form_path).arg(cbl_path);
             if let Some(id) = theme_default {
                 cmd.arg("--theme-default").arg(id);
+            }
+            if let Some(icon) = project_icon {
+                cmd.arg("--icon").arg(icon);
             }
             if debug {
                 cmd.arg("--debug");

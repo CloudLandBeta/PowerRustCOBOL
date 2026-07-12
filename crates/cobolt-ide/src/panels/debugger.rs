@@ -15,6 +15,7 @@
 use egui::{Color32, Context, Key, RichText, ScrollArea, TextEdit, Vec2};
 use egui_extras::{Column, TableBuilder};
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 use crate::i18n::Tr;
 use crate::runner::{DebugRunner, RunMsg};
@@ -37,6 +38,7 @@ pub enum DebugAction {
     Stop,
     Continue,
     StepOver,
+    StepIn,
     Pause,
 }
 
@@ -57,10 +59,14 @@ pub struct DebuggerPanel {
     source_path: String,
     breakpoints: HashSet<u32>,
     last_scrolled_line: u32,
+    force_center_current: bool,
 
     // UI state
     active_tab: Tab,
     selected_var: Option<VarSnapshot>,
+    animate: bool,
+    animate_speed_lps: f32,
+    last_animate_step: Option<Instant>,
 }
 
 impl Default for DebuggerPanel {
@@ -82,8 +88,12 @@ impl DebuggerPanel {
             source_path: String::new(),
             breakpoints: HashSet::new(),
             last_scrolled_line: 0,
+            force_center_current: false,
             active_tab: Tab::default(),
             selected_var: None,
+            animate: false,
+            animate_speed_lps: 4.0,
+            last_animate_step: None,
         }
     }
 
@@ -95,6 +105,9 @@ impl DebuggerPanel {
         self.is_paused = false;
         self.pending_output.clear();
         self.last_scrolled_line = 0;
+        self.force_center_current = false;
+        self.animate = false;
+        self.last_animate_step = None;
     }
 
     /// Supply the COBOL source text and initial breakpoint set at session start.
@@ -123,6 +136,18 @@ impl DebuggerPanel {
                 self.current_line = line;
                 self.current_para = paragraph;
                 self.vars = vars;
+                if let Some(selected) = self.selected_var.as_ref() {
+                    self.selected_var = self
+                        .vars
+                        .iter()
+                        .find(|v| {
+                            v.name == selected.name
+                                && v.scope == selected.scope
+                                && v.origin == selected.origin
+                        })
+                        .cloned();
+                }
+                self.force_center_current = true;
             }
             DebugEvent::Resumed => {
                 self.is_paused = false;
@@ -176,9 +201,17 @@ impl DebuggerPanel {
                 action = Some(DebugAction::StepOver);
                 self.is_paused = false;
             }
+            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F11)) {
+                action = Some(DebugAction::StepIn);
+                self.is_paused = false;
+            }
         }
 
-        let need_scroll = self.current_line != self.last_scrolled_line && self.current_line > 0;
+        if action.is_none() {
+            action = self.maybe_animate_step(ctx);
+        }
+
+        let need_scroll = self.should_center_current_line();
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.status_row(ui);
@@ -193,6 +226,7 @@ impl DebuggerPanel {
 
         if need_scroll {
             self.last_scrolled_line = self.current_line;
+            self.force_center_current = false;
         }
 
         action
@@ -224,6 +258,14 @@ impl DebuggerPanel {
                 action = Some(DebugAction::StepOver);
                 self.is_paused = false;
             }
+            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F11)) {
+                action = Some(DebugAction::StepIn);
+                self.is_paused = false;
+            }
+        }
+
+        if action.is_none() {
+            action = self.maybe_animate_step(ctx);
         }
 
         let debug_name = std::path::Path::new(&self.source_path)
@@ -231,7 +273,7 @@ impl DebuggerPanel {
             .and_then(|n| n.to_str())
             .unwrap_or("generated code");
 
-        let need_scroll = self.current_line != self.last_scrolled_line && self.current_line > 0;
+        let need_scroll = self.should_center_current_line();
 
         egui::Window::new(format!("Debugging {debug_name} generated code"))
             .id(egui::Id::new("debugger_window"))
@@ -268,6 +310,7 @@ impl DebuggerPanel {
 
         if need_scroll {
             self.last_scrolled_line = self.current_line;
+            self.force_center_current = false;
         }
 
         action
@@ -307,6 +350,7 @@ impl DebuggerPanel {
                 .on_hover_text(tr.dbg_stop)
                 .clicked()
             {
+                self.center_current_line_next_frame();
                 action = Some(DebugAction::Stop);
             }
 
@@ -319,6 +363,7 @@ impl DebuggerPanel {
             {
                 action = Some(DebugAction::Continue);
                 self.is_paused = false;
+                self.last_animate_step = None;
             }
 
             if ui
@@ -328,6 +373,17 @@ impl DebuggerPanel {
             {
                 action = Some(DebugAction::StepOver);
                 self.is_paused = false;
+                self.last_animate_step = None;
+            }
+
+            if ui
+                .add_enabled(self.is_paused, egui::Button::new("↧  Step in   F11"))
+                .on_hover_text("Step into the next statement")
+                .clicked()
+            {
+                action = Some(DebugAction::StepIn);
+                self.is_paused = false;
+                self.last_animate_step = None;
             }
 
             ui.separator();
@@ -337,11 +393,67 @@ impl DebuggerPanel {
                 .on_hover_text(tr.dbg_pause)
                 .clicked()
             {
+                self.center_current_line_next_frame();
                 action = Some(DebugAction::Pause);
+            }
+
+            ui.separator();
+
+            if ui
+                .selectable_label(self.animate, "Animate")
+                .on_hover_text("Follow execution one statement at a time")
+                .clicked()
+            {
+                self.animate = !self.animate;
+                self.last_animate_step = None;
+            }
+            if self.animate {
+                ui.add(
+                    egui::Slider::new(&mut self.animate_speed_lps, 1.0..=10.0)
+                        .text("lines/s")
+                        .step_by(1.0),
+                );
             }
         });
 
         action
+    }
+
+    pub fn center_current_line_next_frame(&mut self) {
+        self.force_center_current = true;
+        self.last_scrolled_line = 0;
+    }
+
+    fn should_center_current_line(&self) -> bool {
+        self.current_line > 0
+            && (self.force_center_current || self.current_line != self.last_scrolled_line)
+    }
+
+    fn maybe_animate_step(&mut self, ctx: &Context) -> Option<DebugAction> {
+        if !self.animate || !self.is_paused {
+            if !self.animate {
+                self.last_animate_step = None;
+            }
+            return None;
+        }
+
+        let speed = self.animate_speed_lps.clamp(1.0, 10.0);
+        let interval = Duration::from_secs_f32(1.0 / speed);
+        ctx.request_repaint_after(interval);
+
+        let now = Instant::now();
+        if self
+            .last_animate_step
+            .map(|last| now.duration_since(last) < interval)
+            .unwrap_or(false)
+        {
+            return None;
+        }
+
+        self.last_animate_step = Some(now);
+        self.force_center_current = true;
+        self.is_paused = false;
+        Some(DebugAction::StepOver)
     }
 
     // ── Split body ────────────────────────────────────────────────────────────
@@ -387,6 +499,7 @@ impl DebuggerPanel {
             .id_salt("dbg_code_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
                 let current = self.current_line;
                 let bps = &self.breakpoints;
 
@@ -394,6 +507,22 @@ impl DebuggerPanel {
                     let line_num = (idx + 1) as u32;
                     let is_current = line_num == current;
                     let is_bp = bps.contains(&line_num);
+
+                    if line_text.trim().is_empty() {
+                        let (rect, _) =
+                            ui.allocate_exact_size(Vec2::new(pane_w, 3.0), egui::Sense::hover());
+                        if is_current {
+                            ui.painter().rect_filled(
+                                rect,
+                                0.0,
+                                Color32::from_rgba_premultiplied(70, 55, 0, 180),
+                            );
+                            if need_scroll {
+                                ui.scroll_to_cursor(Some(egui::Align::Center));
+                            }
+                        }
+                        continue;
+                    }
 
                     // Amber background for the current line
                     if is_current {
@@ -478,6 +607,7 @@ impl DebuggerPanel {
                 let filtered: Vec<&VarSnapshot> = self
                     .vars
                     .iter()
+                    .filter(|v| !Self::is_generated_control_handler_var(v))
                     .filter(|v| {
                         filter.is_empty()
                             || v.name.to_ascii_lowercase().contains(&filter)
@@ -525,7 +655,8 @@ impl DebuggerPanel {
                                     ui.label(RichText::new(&v.scope).monospace());
                                 });
                                 row.col(|ui| {
-                                    let preview = Self::fit_value_preview(ui, &v.value, 90.0);
+                                    let max_px = (ui.available_width() - 6.0).max(24.0);
+                                    let preview = Self::fit_value_preview(ui, &v.value, max_px);
                                     ui.label(
                                         RichText::new(preview).monospace().color(theme.ed_plain),
                                     );
@@ -606,6 +737,14 @@ impl DebuggerPanel {
 
     pub fn current_line(&self) -> u32 {
         self.current_line
+    }
+
+    fn is_generated_control_handler_var(var: &VarSnapshot) -> bool {
+        let name = var.name.to_ascii_uppercase();
+        name.starts_with("COBOL-")
+            || name == "FORM-NAME"
+            || name.starts_with("WS-ANIM-")
+            || (name.starts_with("WS-") && name.contains("-SELECTED-"))
     }
 
     fn variable_value_window(&mut self, ctx: &Context) {

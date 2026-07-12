@@ -8,6 +8,41 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.17] — 2026-07-12
+
+### Fixed
+
+- **Debugger variables show control properties again** — removed the over-broad
+  numeric `WS-*` filter so generated control-property data items return to the
+  Variables list while explicit runtime/event support fields remain hidden.
+
+## [PowerRustCOBOL 1.28.16] — 2026-07-12
+
+### Fixed
+
+- **Debugger data inspection now follows live values** — the data-item detail
+  window refreshes from each new paused variable snapshot instead of keeping the
+  value captured when the item was first clicked.
+- **Debugger variables hide more generated control plumbing** — numeric
+  control-handler support fields such as `WS-SLIDER-2` are filtered out of the
+  Variables list along with the existing runtime event fields.
+- **Run Form windows now have an OS icon** — project settings include a project
+  icon image picker, and `rcrun run-form` applies that icon to the native
+  Dock/Taskbar window with the bundled PowerRustCOBOL icon as fallback.
+
+## [PowerRustCOBOL 1.28.15] — 2026-07-12
+
+### Fixed
+
+- **Debugger code tracking is denser and easier to follow** — blank generated
+  COBOL lines now render as 3 px spacers instead of full-height rows, Step In
+  is available from the toolbar and F11, and the new Animate control advances
+  paused execution at 1–10 lines per second while keeping the active line
+  vertically centered.
+- **Debugger variables focus on user data** — generated control-handler support
+  fields are hidden from the Variables list, and value previews now use the
+  actual Value column width before adding a visual-only ellipsis.
+
 ## [PowerRustCOBOL 1.28.14] — 2026-07-12
 
 ### Fixed

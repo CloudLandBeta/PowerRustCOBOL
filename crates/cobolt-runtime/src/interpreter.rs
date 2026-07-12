@@ -1104,7 +1104,7 @@ impl Interpreter {
     ///   - the statement's source line matches an active breakpoint.
     ///
     /// While paused, sends `DebugEvent::Paused` with a full variable snapshot.
-    /// Resumes on `DebugCmd::Continue` or `DebugCmd::StepOver`.
+    /// Resumes on `DebugCmd::Continue`, `DebugCmd::StepOver`, or `DebugCmd::StepIn`.
     fn debug_check(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
         // Short-circuit when no debug session is attached.
         let (Some(cmd_rx), Some(ev_tx)) =
@@ -1163,7 +1163,7 @@ impl Interpreter {
                     let _ = ev_tx.send(crate::debugger::DebugEvent::Resumed);
                     break;
                 }
-                Ok(crate::debugger::DebugCmd::StepOver) => {
+                Ok(crate::debugger::DebugCmd::StepOver) | Ok(crate::debugger::DebugCmd::StepIn) => {
                     self.debug_stepping = true; // pause again after this stmt
                     let _ = ev_tx.send(crate::debugger::DebugEvent::Resumed);
                     break;

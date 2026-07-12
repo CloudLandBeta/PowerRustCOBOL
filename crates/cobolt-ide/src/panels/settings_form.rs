@@ -44,6 +44,7 @@ pub struct SettingsDraft {
     // ── Appearance ──
     pub theme_id: String,
     pub bg_image: String,
+    pub project_icon: String,
     pub bg_opacity: u8,
     /// Default **form** theme id (spec 007); empty ⇒ Liquid Glass.
     pub form_theme_id: String,
@@ -81,6 +82,7 @@ impl SettingsDraft {
             license_text: p.project.license_text.clone(),
             theme_id: p.ide.theme.clone(),
             bg_image: p.ide.background_image.clone(),
+            project_icon: p.ide.project_icon.clone(),
             bg_opacity: p.ide.background_opacity,
             form_theme_id: p.forms.theme.clone(),
             fixed_format: p.runtime.fixed_format,
@@ -109,6 +111,7 @@ impl SettingsDraft {
         p.project.license_text = self.license_text.clone();
         p.ide.theme = self.theme_id.clone();
         p.ide.background_image = self.bg_image.clone();
+        p.ide.project_icon = self.project_icon.clone();
         p.ide.background_opacity = self.bg_opacity;
         p.forms.theme = self.form_theme_id.clone();
         p.runtime.fixed_format = self.fixed_format;
@@ -134,6 +137,7 @@ pub struct SettingsFormAction {
     /// Reopen the read-only LLM debug modal with the last response (spec 025).
     pub show_debug: bool,
     pub browse_bg: bool,
+    pub browse_project_icon: bool,
     /// Fetch the selected provider's model list (provider just changed, or the
     /// user clicked the refresh button).
     pub fetch_models: bool,
@@ -223,6 +227,11 @@ impl SettingsForm {
     /// Push the just-picked background-image path into the draft.
     pub fn set_bg_image(&mut self, path: String) {
         self.draft.bg_image = path;
+    }
+
+    /// Push the just-picked project icon path into the draft.
+    pub fn set_project_icon(&mut self, path: String) {
+        self.draft.project_icon = path;
     }
 
     /// Reload the embedded prompt editor after the draft changes outside it
@@ -698,6 +707,43 @@ impl SettingsForm {
                                 {
                                     self.draft.bg_opacity = o.clamp(0, 100) as u8;
                                 }
+                            });
+                        });
+
+                        // Project icon (used by Run Form / packaged app windows)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.allocate_ui_at_rect(left_rect, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new("Project icon").truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button("Select image...").clicked() {
+                                        action.browse_project_icon = true;
+                                    }
+                                    let shown = if self.draft.project_icon.is_empty() {
+                                        "No icon".to_owned()
+                                    } else {
+                                        self.draft.project_icon.clone()
+                                    };
+                                    ui.label(RichText::new(shown).small().monospace());
+                                    if !self.draft.project_icon.is_empty()
+                                        && ui.button(tr.settings_bg_clear).clicked()
+                                    {
+                                        self.draft.project_icon.clear();
+                                    }
+                                });
                             });
                         });
 

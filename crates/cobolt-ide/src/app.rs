@@ -442,6 +442,8 @@ enum FileRequest {
     NewForm(Box<cobolt_forms::Form>),
     /// Pick a background image for the IDE appearance settings.
     PickBackgroundImage,
+    /// Pick a project icon image for Run Form / packaged app windows.
+    PickProjectIcon,
     OpenGridData {
         cidx_path: PathBuf,
         def: IndexedDefinition,
@@ -1101,11 +1103,13 @@ impl CoboltApp {
             .as_ref()
             .and_then(|p| p.form_theme_default())
             .map(|s| s.to_owned());
+        let project_icon = self.project_icon_abs_path();
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
             form.name.clone(),
             &cbl_path,
             theme_default.as_deref(),
+            project_icon.as_deref(),
             debug,
         ) {
             Ok(run) => {
@@ -1116,8 +1120,7 @@ impl CoboltApp {
                     // child starts paused at line 1.
                     let source = std::fs::read_to_string(&cbl_path).unwrap_or_default();
                     let bp_lines = self.editor.breakpoints_for(&cbl_path);
-                    let bp_set: std::collections::HashSet<u32> =
-                        bp_lines.iter().cloned().collect();
+                    let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
                     self.debugger.reset();
                     self.debugger
                         .set_source(cbl_path.display().to_string(), &source, &bp_set);
@@ -1191,12 +1194,12 @@ impl CoboltApp {
                 .find(|r| r.debug && owner.as_ref() == Some(&r.form_path));
             match action {
                 DebugAction::Stop => {
+                    self.debugger.center_current_line_next_frame();
                     if let Some(run) = run {
                         run.stop();
                     }
-                    self.external_runs.retain_mut(|r| {
-                        !(r.debug && owner.as_ref() == Some(&r.form_path))
-                    });
+                    self.external_runs
+                        .retain_mut(|r| !(r.debug && owner.as_ref() == Some(&r.form_path)));
                     self.debug_active = false;
                     self.debug_external = false;
                     self.debug_owner_form = None;
@@ -1212,7 +1215,13 @@ impl CoboltApp {
                         run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepOver));
                     }
                 }
+                DebugAction::StepIn => {
+                    if let Some(run) = run {
+                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepIn));
+                    }
+                }
                 DebugAction::Pause => {
+                    self.debugger.center_current_line_next_frame();
                     if let Some(run) = run {
                         run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Pause));
                     }
@@ -1222,6 +1231,7 @@ impl CoboltApp {
         }
         match action {
             DebugAction::Stop => {
+                self.debugger.center_current_line_next_frame();
                 self.debug_runner.stop();
                 self.debug_active = false;
                 self.debug_owner_form = None;
@@ -1230,7 +1240,11 @@ impl CoboltApp {
             }
             DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
             DebugAction::StepOver => self.debug_runner.send_cmd(DebugCmd::StepOver),
-            DebugAction::Pause => self.debug_runner.send_cmd(DebugCmd::Pause),
+            DebugAction::StepIn => self.debug_runner.send_cmd(DebugCmd::StepIn),
+            DebugAction::Pause => {
+                self.debugger.center_current_line_next_frame();
+                self.debug_runner.send_cmd(DebugCmd::Pause);
+            }
         }
     }
 
@@ -3584,6 +3598,27 @@ impl CoboltApp {
         Some(dir.join(p))
     }
 
+    /// Absolute path of the project's icon image, if configured.
+    fn project_icon_abs_path(&self) -> Option<PathBuf> {
+        let proj = self.cobolt_project.as_ref()?;
+        let raw = proj.ide.project_icon.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let p = Path::new(raw);
+        if p.is_absolute() {
+            return Some(p.to_path_buf());
+        }
+        let dir = self.project_path.as_ref()?.parent()?;
+        Some(dir.join(p))
+    }
+
+    fn project_icon_data(&self) -> Option<egui::IconData> {
+        let path = self.project_icon_abs_path()?;
+        let bytes = std::fs::read(path).ok()?;
+        decode_icon_data(&bytes)
+    }
+
     /// Paint the per-project background image (if any) on the background layer of
     /// the main IDE window, scaled to cover, at the configured opacity. The
     /// translucent glass panels then blend over it.
@@ -3887,6 +3922,13 @@ impl CoboltApp {
         if action.browse_bg {
             self.begin_file_dialog(
                 FileRequest::PickBackgroundImage,
+                crate::file_dialog::DialogSpec::open()
+                    .filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp"]),
+            );
+        }
+        if action.browse_project_icon {
+            self.begin_file_dialog(
+                FileRequest::PickProjectIcon,
                 crate::file_dialog::DialogSpec::open()
                     .filter("Images", &["png", "jpg", "jpeg", "bmp", "gif", "webp"]),
             );
@@ -4674,6 +4716,7 @@ impl CoboltApp {
             FileRequest::OpenForm => self.load_form_from_path(path),
             FileRequest::NewForm(form) => self.save_new_form_to(*form, path),
             FileRequest::PickBackgroundImage => self.set_background_image(path),
+            FileRequest::PickProjectIcon => self.set_project_icon(path),
             FileRequest::OpenGridData { cidx_path, def } => {
                 self.open_grid_for_indexed_with_data_path(&cidx_path, &def, &path);
             }
@@ -4692,7 +4735,28 @@ impl CoboltApp {
             .unwrap_or_else(|| path.display().to_string());
         if let Some(proj) = &mut self.cobolt_project {
             proj.ide.background_image = rel;
+            if let Some(form) = &mut self.settings_form {
+                form.set_bg_image(proj.ide.background_image.clone());
+            }
             self.bg_texture = None;
+            self.do_save_project();
+        }
+    }
+
+    /// Store the chosen project icon in IDE settings, relative to the project
+    /// root when possible, and persist it for Run Form / packaged windows.
+    fn set_project_icon(&mut self, path: PathBuf) {
+        let rel = self
+            .project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .and_then(|dir| relative_to(&path, dir))
+            .unwrap_or_else(|| path.display().to_string());
+        if let Some(proj) = &mut self.cobolt_project {
+            proj.ide.project_icon = rel;
+            if let Some(form) = &mut self.settings_form {
+                form.set_project_icon(proj.ide.project_icon.clone());
+            }
             self.do_save_project();
         }
     }
@@ -5415,22 +5479,24 @@ impl eframe::App for CoboltApp {
         {
             let mut ext_error: Option<String> = None;
             let mut dbg_events: Vec<cobolt_runtime::DebugEvent> = Vec::new();
-            let mut route = |run: &crate::form_runtime::ExternalFormRun,
-                             output: &mut crate::panels::output::OutputPanel,
-                             dbg_events: &mut Vec<cobolt_runtime::DebugEvent>| {
-                for line in run.drain_output() {
-                    match line.strip_prefix("@DBG ") {
-                        Some(json) if run.debug => {
-                            match serde_json::from_str::<cobolt_runtime::DebugEvent>(json) {
-                                Ok(ev) => dbg_events.push(ev),
-                                Err(e) => output
-                                    .push_status(format!("debug: bad @DBG event: {e}")),
+            let mut route =
+                |run: &crate::form_runtime::ExternalFormRun,
+                 output: &mut crate::panels::output::OutputPanel,
+                 dbg_events: &mut Vec<cobolt_runtime::DebugEvent>| {
+                    for line in run.drain_output() {
+                        match line.strip_prefix("@DBG ") {
+                            Some(json) if run.debug => {
+                                match serde_json::from_str::<cobolt_runtime::DebugEvent>(json) {
+                                    Ok(ev) => dbg_events.push(ev),
+                                    Err(e) => {
+                                        output.push_status(format!("debug: bad @DBG event: {e}"))
+                                    }
+                                }
                             }
+                            _ => output.push_line(line),
                         }
-                        _ => output.push_line(line),
                     }
-                }
-            };
+                };
             for run in &self.external_runs {
                 route(run, &mut self.output, &mut dbg_events);
             }
@@ -5505,24 +5571,25 @@ impl eframe::App for CoboltApp {
             let title = format!("▶ {}", self.form_runtimes[i].form_title);
             let fw = self.form_runtimes[i].form_width as f32;
             let fh = self.form_runtimes[i].form_height as f32;
+            let icon = self.project_icon_data();
+            let mut builder = ViewportBuilder::default()
+                .with_title(&title)
+                .with_inner_size([fw + 4.0, fh + 4.0])
+                .with_resizable(true)
+                .with_transparent(true);
+            if let Some(icon) = icon {
+                builder = builder.with_icon(icon);
+            }
 
-            ctx.show_viewport_immediate(
-                vp_id,
-                ViewportBuilder::default()
-                    .with_title(&title)
-                    .with_inner_size([fw + 4.0, fh + 4.0])
-                    .with_resizable(true)
-                    .with_transparent(true),
-                |vp_ctx, _class| {
-                    if vp_ctx.input(|inp| inp.viewport().close_requested()) {
-                        // User closed the window → cooperatively cancel + quit so
-                        // even a looping handler aborts and the window can close.
-                        self.form_runtimes[i].request_stop();
-                        vp_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    self.show_running_form_window(vp_ctx, i);
-                },
-            );
+            ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
+                if vp_ctx.input(|inp| inp.viewport().close_requested()) {
+                    // User closed the window → cooperatively cancel + quit so
+                    // even a looping handler aborts and the window can close.
+                    self.form_runtimes[i].request_stop();
+                    vp_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                self.show_running_form_window(vp_ctx, i);
+            });
         }
 
         // Reap finished runtimes.
@@ -8302,6 +8369,19 @@ fn binding_source_basic_label(source: &BindingSourceDescriptor) -> String {
         BindingSourceDescriptor::RestApi { endpoint_name, .. } => endpoint_name.clone(),
         BindingSourceDescriptor::AgentAi { output_name, .. } => output_name.clone(),
     }
+}
+
+fn decode_icon_data(bytes: &[u8]) -> Option<egui::IconData> {
+    let img = image::load_from_memory(bytes)
+        .ok()?
+        .resize_exact(256, 256, image::imageops::FilterType::Lanczos3)
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    Some(egui::IconData {
+        rgba: img.into_raw(),
+        width: w,
+        height: h,
+    })
 }
 
 #[cfg(test)]
