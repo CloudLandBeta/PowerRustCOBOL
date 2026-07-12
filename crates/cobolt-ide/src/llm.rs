@@ -87,17 +87,97 @@ pub enum AiLogKind {
 
 #[derive(Clone)]
 pub struct Provider {
-    pub id: String,
+    pub id: &'static str,
+    pub label: &'static str,
+    pub default_endpoint: &'static str,
 }
 
 impl Provider {
-    pub fn from_id(_id: &str) -> Option<Self> { None }
-    pub fn id(&self) -> &str { &self.id }
-    pub fn label(&self) -> &str { &self.id }
-    pub fn default_endpoint(&self) -> &str { "" }
+    pub fn from_id(id: &str) -> Option<Self> {
+        PROVIDERS.iter().find(|p| p.id == id).cloned()
+    }
+    pub fn id(&self) -> &str { self.id }
+    pub fn label(&self) -> &str { self.label }
+    pub fn default_endpoint(&self) -> &str { self.default_endpoint }
 }
 
-pub const PROVIDERS: &[Provider] = &[];
+pub const PROVIDERS: &[Provider] = &[
+    Provider {
+        id: "openai",
+        label: "OpenAI",
+        default_endpoint: "https://api.openai.com/v1",
+    },
+    Provider {
+        id: "anthropic",
+        label: "Anthropic",
+        default_endpoint: "https://api.anthropic.com/v1",
+    },
+    Provider {
+        id: "cohere",
+        label: "Cohere",
+        default_endpoint: "https://api.cohere.ai/v1",
+    },
+    Provider {
+        id: "gemini",
+        label: "Google Gemini",
+        default_endpoint: "https://generativelanguage.googleapis.com/v1beta",
+    },
+    Provider {
+        id: "perplexity",
+        label: "Perplexity",
+        default_endpoint: "https://api.perplexity.ai",
+    },
+    Provider {
+        id: "groq",
+        label: "Groq",
+        default_endpoint: "https://api.groq.com/openai/v1",
+    },
+    Provider {
+        id: "mistral",
+        label: "Mistral",
+        default_endpoint: "https://api.mistral.ai/v1",
+    },
+    Provider {
+        id: "openrouter",
+        label: "OpenRouter",
+        default_endpoint: "https://openrouter.ai/api/v1",
+    },
+    Provider {
+        id: "huggingface",
+        label: "HuggingFace",
+        default_endpoint: "https://api-inference.huggingface.co/models",
+    },
+    Provider {
+        id: "together",
+        label: "Together AI",
+        default_endpoint: "https://api.together.xyz/v1",
+    },
+    Provider {
+        id: "deepseek",
+        label: "DeepSeek",
+        default_endpoint: "https://api.deepseek.com/v1",
+    },
+    Provider {
+        id: "xai",
+        label: "xAI",
+        default_endpoint: "https://api.x.ai/v1",
+    },
+    Provider {
+        id: "voyageai",
+        label: "Voyage AI",
+        default_endpoint: "https://api.voyageai.com/v1",
+    },
+    Provider {
+        id: "ollama",
+        label: "Ollama (Local)",
+        default_endpoint: "http://localhost:11434/api",
+    },
+    Provider {
+        id: "llamafile",
+        label: "Llamafile (Local)",
+        default_endpoint: "http://localhost:8080/v1",
+    },
+];
 
 pub struct DetectedApi {
     pub models: Vec<String>,
