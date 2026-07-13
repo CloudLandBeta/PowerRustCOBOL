@@ -2114,10 +2114,6 @@ impl CoboltApp {
             return;
         }
         let text = crate::llm::connection_log_text();
-        if text.is_empty() {
-            self.agent_debug_open = false;
-            return;
-        }
         let mut open = true;
         let mut clear = false;
         egui::Window::new(tr.agent_debug_title)

@@ -8,6 +8,35 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.20] — 2026-07-12
+
+### Fixed
+
+- **Ollama Cloud calls work** — the provider pointed at the wrong host
+  (`api.ollama.com`); the service lives at `ollama.com` (`/api` native,
+  `/v1` OpenAI-compatible). The default endpoint is corrected and every
+  outbound path (requests, connection test, model listing) heals endpoints
+  saved with the old host, so existing configs work without re-selecting the
+  provider. Verified live: HTTP 200 with Bearer auth against
+  `https://ollama.com/v1/chat/completions`.
+- **Local Ollama native responses parse** — the orchestrator only understood
+  the OpenAI reply shape (`choices[0].message.content`); it now also parses
+  Ollama-native (`message.content`), and picks the right wire format from the
+  endpoint suffix (`/api` → native, `/v1` → OpenAI-compatible).
+- **Agent requests carry the real prompt again** — the mesh rewrite dropped
+  the composed system prompt, skills, and per-request context on the floor
+  (parameters received but discarded), running every request on a canned
+  one-liner. The full spec-025 composition (system prompt → skills → history →
+  prompt+context) is restored for the dev agent, the editor assistant, and
+  history compaction.
+- **Agentic AI log is real and live** — the orchestrator now streams every
+  step through a log callback into the AI activity pane: specialist routing,
+  resolved URL and wire format, HTTP status with duration and payload size,
+  and token usage (both OpenAI and Ollama accounting). The connection log
+  always records a compact request/response trace (full bodies with the
+  verbose setting), so a "successful" call can no longer be invisible —
+  or faked.
+
 ## [PowerRustCOBOL 1.28.19] — 2026-07-12
 
 ### Fixed

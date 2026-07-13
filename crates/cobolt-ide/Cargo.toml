@@ -72,6 +72,7 @@ toml        = { workspace = true }
 # AI assistant — optional cloud LLM for the COBOL code editor.
 cobolt-agents = { path = "../cobolt-agents" }
 tokio = { workspace = true, features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
 
 # Data structures
 indexmap    = { workspace = true }
@@ -91,6 +92,7 @@ include_dir = "0.7"
 mermaid-rs-renderer = "0.2"
 resvg = "0.46"
 genpdf = { version = "0.2", features = ["images"] }
+dirs = "5.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Syntax highlighting (optional — can be feature-gated later)

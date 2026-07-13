@@ -1,23 +1,99 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use cobolt_agents::orchestrator::Orchestrator;
+use cobolt_agents::orchestrator::{MeshRequest, Orchestrator};
 use cobolt_agents::retrieval::index::LexicalIndex;
+use std::sync::Mutex;
+
+fn probe_request(prompt: &str) -> MeshRequest {
+    MeshRequest {
+        provider: "openai".into(),
+        model: "test-model".into(),
+        api_key: String::new(),
+        // Unreachable on purpose: the request must fail fast AFTER routing
+        // and URL resolution have been logged, so tests stay offline.
+        endpoint: "http://127.0.0.1:1/v1".into(),
+        system_prompt: String::new(),
+        skills: String::new(),
+        context: String::new(),
+        history: vec![],
+        user_prompt: prompt.into(),
+        temperature: 0.0,
+        max_tokens: 16,
+        verbose: false,
+    }
+}
+
+/// Routing decisions are observable through the on_log callback — the first
+/// line names the specialist. The network call then fails (offline test).
+async fn routed_specialist(prompt: &str) -> String {
+    let orch = Orchestrator::new();
+    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let on_log = |line: String| lines.lock().unwrap().push(line);
+    let _ = orch.handle_request(&probe_request(prompt), &on_log).await;
+    let lines = lines.into_inner().unwrap();
+    lines
+        .iter()
+        .find(|l| l.starts_with("routing"))
+        .cloned()
+        .unwrap_or_default()
+}
 
 #[tokio::test]
-async fn test_orchestrator_fan_out() {
-    let orchestrator = Orchestrator::new();
-    
-    // Test FormsDesigner routing
-    let form_res = orchestrator.handle_request("I need a new UI form for login").await.unwrap();
-    assert!(form_res.contains("FormsDesigner"));
-    
-    // Test EventBinder routing
-    let event_res = orchestrator.handle_request("Please bind the click event to my button").await.unwrap();
-    assert!(event_res.contains("EventBinder"));
-    
-    // Test CodeGenerator routing
-    let code_res = orchestrator.handle_request("Write a function to calculate tax").await.unwrap();
-    assert!(code_res.contains("CodeGenerator"));
+async fn orchestrator_routes_by_domain() {
+    assert!(
+        routed_specialist("I need a new UI form for login")
+            .await
+            .contains("FormsDesigner")
+    );
+    assert!(
+        routed_specialist("Please bind the click event to my button")
+            .await
+            .contains("EventBinder")
+    );
+    assert!(
+        routed_specialist("Write a function to calculate tax")
+            .await
+            .contains("CodeGenerator")
+    );
+}
+
+#[tokio::test]
+async fn ollama_cloud_wrong_host_is_healed_and_openai_wire_chosen() {
+    let orch = Orchestrator::new();
+    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let on_log = |line: String| lines.lock().unwrap().push(line);
+    let mut req = probe_request("hello");
+    req.provider = "ollama_cloud".into();
+    // The wrong host previously shipped as the provider default — it must be
+    // healed to ollama.com before the request is attempted.
+    req.endpoint = "https://api.ollama.com/v1/chat/completions".into();
+    req.api_key = "test-key".into();
+    let _ = orch.handle_request(&req, &on_log).await;
+    let lines = lines.into_inner().unwrap();
+    let post = lines
+        .iter()
+        .find(|l| l.starts_with("POST"))
+        .expect("URL resolution must be logged");
+    assert!(
+        post.contains("https://ollama.com/v1/chat/completions"),
+        "wrong host must heal to ollama.com: {post}"
+    );
+    assert!(post.contains("openai wire format"), "{post}");
+}
+
+#[tokio::test]
+async fn local_ollama_native_wire_chosen_from_api_suffix() {
+    let orch = Orchestrator::new();
+    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let on_log = |line: String| lines.lock().unwrap().push(line);
+    let mut req = probe_request("hello");
+    req.provider = "ollama".into();
+    req.endpoint = "http://127.0.0.1:1/api".into();
+    let _ = orch.handle_request(&req, &on_log).await;
+    let lines = lines.into_inner().unwrap();
+    let post = lines.iter().find(|l| l.starts_with("POST")).expect("logged");
+    assert!(post.contains("/api/chat"), "{post}");
+    assert!(post.contains("ollama-native wire format"), "{post}");
 }
 
 #[test]

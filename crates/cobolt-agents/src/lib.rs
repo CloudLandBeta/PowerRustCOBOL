@@ -6,4 +6,4 @@ pub mod sandbox;
 pub mod specialist;
 pub mod embedding;
 
-pub use orchestrator::Orchestrator;
+pub use orchestrator::{MeshRequest, Orchestrator};

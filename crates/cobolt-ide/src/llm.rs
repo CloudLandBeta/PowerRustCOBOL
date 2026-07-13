@@ -35,6 +35,12 @@ pub struct LlmConfig {
 
 impl LlmConfig {
     pub fn load() -> Self {
+        let path = base_dir().join("llm_config.json");
+        if let Ok(data) = std::fs::read_to_string(&path) {
+            if let Ok(cfg) = serde_json::from_str(&data) {
+                return cfg;
+            }
+        }
         Self {
             endpoint: String::new(),
             api_key: String::new(),
@@ -48,8 +54,15 @@ impl LlmConfig {
         }
     }
     
-    pub fn is_configured(&self) -> bool { false }
-    pub fn save(&self) -> Result<(), String> { Ok(()) }
+    pub fn is_configured(&self) -> bool {
+        !self.provider.is_empty() && !self.model.is_empty()
+    }
+    pub fn save(&self) -> Result<(), String> {
+        let path = base_dir().join("llm_config.json");
+        let data = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(&path, data).map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }
 
 pub fn default_system_prompt() -> String { DEFAULT_SYSTEM_PROMPT.to_string() }
@@ -62,7 +75,7 @@ pub enum LlmResponse {
     Err(String),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatTurn {
     pub role: String,
     pub content: String,
@@ -175,7 +188,9 @@ pub const PROVIDERS: &[Provider] = &[
     Provider {
         id: "ollama_cloud",
         label: "Ollama (Cloud)",
-        default_endpoint: "https://api.ollama.com/v1",
+        // ollama.com serves both the native API (/api) and an OpenAI-
+        // compatible one (/v1). NOT api.ollama.com — that host is wrong.
+        default_endpoint: "https://ollama.com/v1",
     },
     Provider {
         id: "llamafile",
@@ -191,58 +206,468 @@ pub struct DetectedApi {
 }
 
 pub fn base_dir() -> PathBuf {
-    PathBuf::from(".gemini/antigravity/scratch") // dummy
+    let dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("cobolt");
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+    }
+    dir
 }
 
-pub fn load_history(_dir: &Path, _key: &str) -> Vec<ChatTurn> { vec![] }
-pub fn save_history(_dir: &Path, _key: &str, _turns: &[ChatTurn]) {}
+use std::sync::{Mutex, LazyLock};
 
-pub fn load_raw_preferred_indexed(_dir: &Path) -> HashSet<String> { HashSet::new() }
-pub fn save_raw_preferred_indexed(_dir: &Path, _rels: &HashSet<String>) {}
+static AI_LOG_QUEUE: LazyLock<Mutex<Vec<AiLogEntry>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+static CONNECTION_LOG: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 
-pub fn spawn_agent_request(_cfg: &LlmConfig, _sys: &str, _skills: &str, _history: &[ChatTurn], _sent: &str, _context: &str) -> Receiver<LlmResponse> {
-    let (_, rx) = mpsc::channel();
+pub fn load_history(_dir: &Path, key: &str) -> Vec<ChatTurn> {
+    let path = base_dir().join(format!("{}.json", key));
+    if let Ok(data) = std::fs::read_to_string(&path) {
+        if let Ok(history) = serde_json::from_str(&data) {
+            return history;
+        }
+    }
+    vec![]
+}
+pub fn save_history(_dir: &Path, key: &str, turns: &[ChatTurn]) {
+    let path = base_dir().join(format!("{}.json", key));
+    if let Ok(data) = serde_json::to_string_pretty(turns) {
+        let _ = std::fs::write(&path, data);
+    }
+}
+
+pub fn load_raw_preferred_indexed(_dir: &Path) -> HashSet<String> {
+    let path = base_dir().join("preferred_indexed.json");
+    if let Ok(data) = std::fs::read_to_string(&path) {
+        if let Ok(rels) = serde_json::from_str(&data) {
+            return rels;
+        }
+    }
+    HashSet::new()
+}
+pub fn save_raw_preferred_indexed(_dir: &Path, rels: &HashSet<String>) {
+    let path = base_dir().join("preferred_indexed.json");
+    if let Ok(data) = serde_json::to_string_pretty(rels) {
+        let _ = std::fs::write(&path, data);
+    }
+}
+
+pub fn push_ai_log(kind: AiLogKind, text: impl Into<String>) {
+    if let Ok(mut q) = AI_LOG_QUEUE.lock() {
+        q.push(AiLogEntry { kind, text: text.into() });
+    }
+}
+
+/// Run one mesh request on a worker thread, streaming progress into the
+/// Agentic AI activity log and the connection log. Shared by the agent,
+/// direct-editor, and compaction entry points.
+fn run_mesh_request(req: cobolt_agents::MeshRequest, label: &'static str) -> Receiver<LlmResponse> {
+    let (tx, rx) = mpsc::channel();
+    push_ai_log(
+        AiLogKind::Info,
+        format!("{label}: \"{}\"", truncate_for_log(&req.user_prompt, 160)),
+    );
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                let _ = tx.send(LlmResponse::Err(format!("Failed to start async runtime: {e}")));
+                return;
+            }
+        };
+        rt.block_on(async {
+            let orch = Orchestrator::new();
+            // Every orchestrator step lands in the activity log as it happens.
+            let on_log = |line: String| push_ai_log(AiLogKind::Detail, format!("agent · {line}"));
+            match orch.handle_request(&req, &on_log).await {
+                Ok((resp, trace)) => {
+                    push_connection_log(&trace);
+                    push_ai_log(
+                        AiLogKind::Reasoning,
+                        format!(
+                            "reply: {} chars — {}",
+                            resp.len(),
+                            truncate_for_log(&resp, 200)
+                        ),
+                    );
+                    let _ = tx.send(LlmResponse::Ok(resp));
+                }
+                Err(e) => {
+                    push_connection_log(&format!("=== ERROR ===\n{e}\n"));
+                    push_ai_log(AiLogKind::Error, e.clone());
+                    let _ = tx.send(LlmResponse::Err(e));
+                }
+            }
+        });
+    });
     rx
 }
 
-pub fn spawn_request(_cfg: &LlmConfig, _history: &[ChatTurn], _prompt: &str, _code: &str, _file: &str, _skills: &str) -> Receiver<LlmResponse> {
-    let (_, rx) = mpsc::channel();
+fn truncate_for_log(s: &str, max: usize) -> String {
+    let s = s.trim().replace('\n', " ");
+    if s.chars().count() <= max {
+        s
+    } else {
+        let cut: String = s.chars().take(max).collect();
+        format!("{cut}…")
+    }
+}
+
+fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
+    cobolt_agents::MeshRequest {
+        provider: cfg.provider.clone(),
+        model: cfg.model.clone(),
+        api_key: cfg.api_key.clone(),
+        endpoint: cfg.endpoint.clone(),
+        system_prompt: String::new(),
+        skills: String::new(),
+        context: String::new(),
+        history: Vec::new(),
+        user_prompt: String::new(),
+        temperature: cfg.temperature,
+        max_tokens: cfg.max_tokens,
+        verbose: cfg.verbose_log,
+    }
+}
+
+pub fn spawn_agent_request(
+    cfg: &LlmConfig,
+    sys: &str,
+    skills: &str,
+    history: &[ChatTurn],
+    sent: &str,
+    context: &str,
+) -> Receiver<LlmResponse> {
+    let mut req = mesh_request_base(cfg);
+    // The composed prompt/skills/context ARE the dev-agent contract (spec 025
+    // R14/R21/R2) — they must reach the model on every request.
+    req.system_prompt = sys.to_string();
+    req.skills = skills.to_string();
+    req.context = context.to_string();
+    req.history = history
+        .iter()
+        .map(|t| (t.role.clone(), t.content.clone()))
+        .collect();
+    req.user_prompt = sent.to_string();
+    run_mesh_request(req, "agent request")
+}
+
+pub fn spawn_request(
+    cfg: &LlmConfig,
+    history: &[ChatTurn],
+    prompt: &str,
+    code: &str,
+    file: &str,
+    skills: &str,
+) -> Receiver<LlmResponse> {
+    let mut req = mesh_request_base(cfg);
+    req.system_prompt = cfg.system_prompt.clone();
+    req.skills = skills.to_string();
+    // The editor request acts on the current file: include it as context so
+    // the model sees the code it is asked to work on.
+    if !code.trim().is_empty() {
+        req.context = format!("Current file `{file}`:\n```cobol\n{code}\n```");
+    }
+    req.history = history
+        .iter()
+        .map(|t| (t.role.clone(), t.content.clone()))
+        .collect();
+    req.user_prompt = prompt.to_string();
+    run_mesh_request(req, "editor request")
+}
+
+pub fn spawn_compaction(cfg: &LlmConfig, history: &[ChatTurn]) -> Receiver<LlmResponse> {
+    let mut req = mesh_request_base(cfg);
+    req.system_prompt =
+        "You summarize a development-assistant conversation, preserving decisions, \
+         names, and unresolved items."
+            .to_string();
+    req.history = history
+        .iter()
+        .map(|t| (t.role.clone(), t.content.clone()))
+        .collect();
+    req.user_prompt = "Summarize the preceding chat history concisely.".to_string();
+    run_mesh_request(req, "history compaction")
+}
+
+/// Heal endpoints saved with the previously shipped wrong Ollama Cloud host
+/// (api.ollama.com → ollama.com). Applied on every outbound use so existing
+/// configs keep working without the user re-picking the provider.
+fn heal_endpoint(ep: &str) -> String {
+    ep.trim().replace("api.ollama.com", "ollama.com")
+}
+
+pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
+    let (tx, rx) = mpsc::channel();
+    let ep = heal_endpoint(&cfg.endpoint);
+    let key = cfg.api_key.clone();
+    let pid = cfg.provider.clone();
+    let verbose = cfg.verbose_log;
+
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                let _ = tx.send(LlmResponse::Err(format!("Failed to start async runtime: {}", e)));
+                return;
+            }
+        };
+        rt.block_on(async {
+            let client = match reqwest::Client::builder().build() {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = tx.send(LlmResponse::Err(format!("Failed to create HTTP client: {}", e)));
+                    return;
+                }
+            };
+            if pid == "ollama" {
+                let url = format!("{}/api/tags", ep.trim_end_matches("/api").trim_end_matches("/v1").trim_end_matches('/'));
+                
+                if verbose {
+                    let mut trace = String::new();
+                    trace.push_str(&format!("=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n", url));
+                    match client.get(&url).send().await {
+                        Ok(res) => {
+                            let status = res.status();
+                            let text = res.text().await.unwrap_or_default();
+                            trace.push_str(&format!("=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n", status, text));
+                            push_connection_log(&trace);
+                            if status.is_success() {
+                                let _ = tx.send(LlmResponse::Ok("Connection successful! Ollama is reachable.".into()));
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            trace.push_str(&format!("=== API ERROR (Test) ===\n{}\n\n", e));
+                            push_connection_log(&trace);
+                        }
+                    }
+                } else {
+                    if let Ok(res) = client.get(&url).send().await {
+                        if res.status().is_success() {
+                            let _ = tx.send(LlmResponse::Ok("Connection successful! Ollama is reachable.".into()));
+                            return;
+                        }
+                    }
+                }
+                let _ = tx.send(LlmResponse::Err("Failed to connect to Ollama endpoint.".into()));
+            } else {
+                let url = if ep.ends_with("/chat/completions") {
+                    ep.replace("/chat/completions", "/models")
+                } else if ep.ends_with("/v1") {
+                    format!("{}/models", ep)
+                } else if ep.ends_with('/') {
+                    format!("{}v1/models", ep)
+                } else {
+                    format!("{}/v1/models", ep)
+                };
+                
+                let mut req = client.get(&url);
+                if !key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", key));
+                } else if pid == "gemini" {
+                    req = req.header("x-goog-api-key", key.clone());
+                }
+                
+                if verbose {
+                    let mut trace = String::new();
+                    trace.push_str(&format!("=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n", url));
+                    match req.try_clone().unwrap().build() {
+                        Ok(built) => {
+                            for (k, v) in built.headers() {
+                                trace.push_str(&format!("{}: {:?}\n", k, v));
+                            }
+                        }
+                        Err(_) => {}
+                    }
+                    trace.push_str("\n");
+                    
+                    match req.send().await {
+                        Ok(res) => {
+                            let status = res.status();
+                            let text = res.text().await.unwrap_or_default();
+                            trace.push_str(&format!("=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n", status, text));
+                            push_connection_log(&trace);
+                            
+                            if status.is_success() {
+                                let _ = tx.send(LlmResponse::Ok("Connection successful! API key is valid.".into()));
+                            } else {
+                                let _ = tx.send(LlmResponse::Err(format!("API Error {}: {}", status, text)));
+                            }
+                        }
+                        Err(e) => {
+                            trace.push_str(&format!("=== API ERROR (Test) ===\n{}\n\n", e));
+                            push_connection_log(&trace);
+                            let _ = tx.send(LlmResponse::Err(format!("Network Error: {}", e)));
+                        }
+                    }
+                } else {
+                    match req.send().await {
+                        Ok(res) => {
+                            if res.status().is_success() {
+                                let _ = tx.send(LlmResponse::Ok("Connection successful! API key is valid.".into()));
+                            } else {
+                                let status = res.status();
+                                let text = res.text().await.unwrap_or_default();
+                                let _ = tx.send(LlmResponse::Err(format!("API Error {}: {}", status, text)));
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.send(LlmResponse::Err(format!("Network Error: {}", e)));
+                        }
+                    }
+                }
+            }
+        });
+    });
     rx
 }
 
-pub fn spawn_compaction(_cfg: &LlmConfig, _history: &[ChatTurn]) -> Receiver<LlmResponse> {
-    let (_, rx) = mpsc::channel();
+pub fn spawn_detect(endpoint: &str) -> Receiver<Result<DetectedApi, String>> {
+    let (tx, rx) = mpsc::channel();
+    let _ep = endpoint.to_string();
+    std::thread::spawn(move || {
+        let _ = tx.send(Err("Auto-detect not implemented. Please manually select a provider.".into()));
+    });
     rx
 }
 
-pub fn spawn_test(_cfg: &LlmConfig) -> Receiver<LlmResponse> {
-    let (_, rx) = mpsc::channel();
+pub fn spawn_list_models(provider: Provider, endpoint: &str, key: &str) -> Receiver<Result<Vec<String>, String>> {
+    let (tx, rx) = mpsc::channel();
+    let ep = heal_endpoint(endpoint);
+    let key = key.to_string();
+    let pid = provider.id().to_string();
+    
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                let _ = tx.send(Err(format!("Failed to start async runtime: {}", e)));
+                return;
+            }
+        };
+        rt.block_on(async {
+            let client = match reqwest::Client::builder().build() {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = tx.send(Err(format!("Failed to create HTTP client: {}", e)));
+                    return;
+                }
+            };
+            if pid == "ollama" {
+                let url = format!("{}/api/tags", ep.trim_end_matches("/api").trim_end_matches("/v1").trim_end_matches('/'));
+                if let Ok(res) = client.get(&url).send().await {
+                    if let Ok(json) = res.json::<serde_json::Value>().await {
+                        if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
+                            let mut names = Vec::new();
+                            for m in models {
+                                if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                                    names.push(name.to_string());
+                                }
+                            }
+                            let _ = tx.send(Ok(names));
+                            return;
+                        }
+                    }
+                }
+                let _ = tx.send(Err("Failed to fetch models from Ollama".into()));
+            } else {
+                let url = if ep.ends_with("/chat/completions") {
+                    ep.replace("/chat/completions", "/models")
+                } else if ep.ends_with("/v1") {
+                    format!("{}/models", ep)
+                } else if ep.ends_with('/') {
+                    format!("{}v1/models", ep)
+                } else {
+                    format!("{}/v1/models", ep)
+                };
+                
+                let mut req = client.get(&url);
+                if !key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", key));
+                } else if pid == "gemini" {
+                    // Google Gemini uses x-goog-api-key or key= in query
+                    req = req.header("x-goog-api-key", key.clone());
+                }
+                
+                if let Ok(res) = req.send().await {
+                    if let Ok(json) = res.json::<serde_json::Value>().await {
+                        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+                            let mut names = Vec::new();
+                            for m in data {
+                                if let Some(id) = m.get("id").and_then(|n| n.as_str()) {
+                                    names.push(id.to_string());
+                                }
+                            }
+                            let _ = tx.send(Ok(names));
+                            return;
+                        }
+                        if let Some(models) = json.get("models").and_then(|d| d.as_array()) { // Gemini might use this
+                             let mut names = Vec::new();
+                             for m in models {
+                                 if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                                     names.push(name.to_string().replace("models/", ""));
+                                 }
+                             }
+                             let _ = tx.send(Ok(names));
+                             return;
+                        }
+                    }
+                }
+                let _ = tx.send(Err("Failed to fetch models from API".into()));
+            }
+        });
+    });
     rx
 }
 
-pub fn spawn_detect(_endpoint: &str) -> Receiver<Result<DetectedApi, String>> {
-    let (_, rx) = mpsc::channel();
-    rx
+pub fn has_connection_log() -> bool {
+    true
 }
-
-pub fn spawn_list_models(_provider: Provider, _endpoint: &str, _key: &str) -> Receiver<Result<Vec<String>, String>> {
-    let (_, rx) = mpsc::channel();
-    rx
+pub fn connection_log_text() -> String {
+    CONNECTION_LOG.lock().map(|l| l.clone()).unwrap_or_default()
 }
-
-pub fn has_connection_log() -> bool { false }
-pub fn connection_log_text() -> String { String::new() }
-pub fn clear_connection_log() {}
+pub fn clear_connection_log() {
+    if let Ok(mut l) = CONNECTION_LOG.lock() {
+        l.clear();
+    }
+}
+pub fn push_connection_log(text: &str) {
+    if let Ok(mut l) = CONNECTION_LOG.lock() {
+        l.push_str(text);
+        l.push('\n');
+    }
+}
 
 pub struct AiLogEntry {
     pub kind: AiLogKind,
     pub text: String,
 }
 
-pub fn drain_ai_log() -> Vec<AiLogEntry> { vec![] }
+pub fn drain_ai_log() -> Vec<AiLogEntry> {
+    if let Ok(mut q) = AI_LOG_QUEUE.lock() {
+        std::mem::take(&mut *q)
+    } else {
+        vec![]
+    }
+}
 
 pub fn normalize_comments(code: &str) -> String { code.to_string() }
-pub fn extract_code(reply: &str) -> Option<String> { Some(reply.to_string()) }
+pub fn extract_code(reply: &str) -> Option<String> {
+    let lower = reply.to_lowercase();
+    if let Some(start) = lower.find("```cobol") {
+        if let Some(end) = reply[start + 8..].find("```") {
+            return Some(reply[start + 8..start + 8 + end].trim().to_string());
+        }
+    }
+    if let Some(start) = reply.find("```") {
+        if let Some(nl) = reply[start..].find('\n') {
+            let body_start = start + nl + 1;
+            if let Some(end) = reply[body_start..].find("```") {
+                return Some(reply[body_start..body_start + end].trim().to_string());
+            }
+        }
+    }
+    None
+}
 pub fn ai_question(_reply: &str) {}
 
 pub struct MeshSession {
