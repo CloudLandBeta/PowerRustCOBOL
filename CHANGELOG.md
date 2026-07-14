@@ -8,6 +8,16 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.28] — 2026-07-14
+
+### Fixed
+
+- **Control defaults and New Form theme selection** — New controls now default
+  to 14px fonts, data-entry controls default to black foreground text, and the
+  New Form dialog includes a procedural Theme dropdown. Choosing `Neumorphic`
+  applies the requested soft-shadow defaults and the `E1E6F8FF` form/control
+  surface color.
+
 ## [PowerRustCOBOL 1.28.27] — 2026-07-14
 
 ### Added

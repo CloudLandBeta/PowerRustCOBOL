@@ -1270,6 +1270,12 @@ impl DesignerPanel {
                     let gy = json_prop_i32(properties, "Y")
                         .unwrap_or(20 + 28 * (self.form.controls.len() + added) as i32);
                     let mut c = Control::new(cid.clone(), ct.clone(), gx, gy);
+                    if matches!(
+                        self.form.glass_style,
+                        cobolt_forms::model::GlassStyle::Neumorphic
+                    ) {
+                        c.apply_neumorphic_defaults();
+                    }
                     if let Some(w) = json_prop_i32(properties, "Width") {
                         c.rect.w = w;
                     }
@@ -1719,6 +1725,12 @@ impl DesignerPanel {
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
+        if matches!(
+            self.form.glass_style,
+            cobolt_forms::model::GlassStyle::Neumorphic
+        ) {
+            ctrl.apply_neumorphic_defaults();
+        }
         // Assign z_order = highest existing + 1
         let max_z = self
             .form
@@ -2909,6 +2921,12 @@ impl DesignerPanel {
             }
             "GlassStyle" => {
                 self.form.glass_style = cobolt_forms::model::GlassStyle::from_str(&value);
+                if matches!(
+                    self.form.glass_style,
+                    cobolt_forms::model::GlassStyle::Neumorphic
+                ) {
+                    self.form.apply_neumorphic_defaults();
+                }
                 self.dirty = true;
             }
             "Target" => {

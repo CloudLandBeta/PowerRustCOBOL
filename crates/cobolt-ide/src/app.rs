@@ -204,6 +204,7 @@ struct NewFormDialog {
     title: String,
     width: String,
     height: String,
+    theme: String,
 }
 
 impl NewFormDialog {
@@ -214,6 +215,7 @@ impl NewFormDialog {
             title: "My Form".into(),
             width: "640".into(),
             height: "480".into(),
+            theme: "Classic".into(),
         }
     }
 }
@@ -4711,6 +4713,20 @@ impl CoboltApp {
                         ui.label(tr.dlg_form_height);
                         ui.text_edit_singleline(&mut self.new_form.height);
                         ui.end_row();
+                        ui.label("Theme");
+                        egui::ComboBox::from_id_salt("new-form-theme")
+                            .selected_text(self.new_form.theme.as_str())
+                            .width(160.0)
+                            .show_ui(ui, |ui| {
+                                for opt in ["Classic", "Enhanced", "Neumorphic"] {
+                                    ui.selectable_value(
+                                        &mut self.new_form.theme,
+                                        opt.to_owned(),
+                                        opt,
+                                    );
+                                }
+                            });
+                        ui.end_row();
                     });
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -4759,7 +4775,15 @@ impl CoboltApp {
             return;
         }
         let mut form = Form::new(form_name.clone(), self.new_form.title.clone(), w, h);
-        form.background_color = "00000000".into(); // transparent — matches IDE glass
+        form.glass_style = cobolt_forms::model::GlassStyle::from_str(&self.new_form.theme);
+        if matches!(
+            form.glass_style,
+            cobolt_forms::model::GlassStyle::Neumorphic
+        ) {
+            form.apply_neumorphic_defaults();
+        } else {
+            form.background_color = "00000000".into(); // transparent — matches IDE glass
+        }
 
         let default_name = format!("{}.cfrm", form_name.to_lowercase());
         let mut spec = crate::file_dialog::DialogSpec::save()
