@@ -1255,6 +1255,7 @@ impl DesignerPanel {
                     control_type,
                     id,
                     parent_id,
+                    parent,
                     properties,
                 } => {
                     let ct = ControlType::from_str(control_type);
@@ -1283,26 +1284,13 @@ impl DesignerPanel {
                             apply_structural_prop(&mut c, k, &pv);
                         }
                     }
-                    // Handle parent_id (top-level field from the agent JSON, e.g.
-                    // "parent_id": "Tab1" or "parent_id": "TabControl-1").
-                    // If the properties already set a Parent, don't overwrite.
                     if c.parent.is_none() {
-                        if let Some(pid) = parent_id {
-                            let pid = pid.trim();
-                            if !pid.is_empty() {
-                                // Check if pid refers to a tab page name (e.g. "Tab1")
-                                // inside a TabControl. If so, resolve to the TabControl
-                                // id and set the tab index.
-                                if let Some((tc_id, tab_idx)) = resolve_tab_page(&self.form, pid) {
-                                    c.parent = Some(tc_id);
-                                    if c.tab.is_none() {
-                                        c.tab = Some(tab_idx);
-                                    }
-                                } else {
-                                    c.parent = Some(pid.to_string());
-                                }
-                            }
+                        let explicit_parent = parent.as_ref().or(parent_id.as_ref());
+                        if let Some(pid) = explicit_parent {
+                            apply_agent_parent_target(&self.form, &mut c, pid);
                         }
+                    } else if let Some(existing_parent) = c.parent.clone() {
+                        apply_agent_parent_target(&self.form, &mut c, &existing_parent);
                     }
                     cmds.push(Cmd::AddControl {
                         index: self.form.controls.len() + added,
@@ -1690,22 +1678,15 @@ impl DesignerPanel {
             if !super::containers::is_visible(&self.form.controls, idx, &self.active_tabs) {
                 continue;
             }
-            let r = c.rect;
-            if cy < r.y || cy > r.y + c.tab_strip_height() || cx < r.x || cx > r.x + r.w {
-                continue;
-            }
-            let tabs: Vec<String> = c
-                .get_prop("Tabs")
-                .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
-                .unwrap_or_default();
-            let mut tx = r.x as f32;
-            let gap = c.tab_padding().max(0) as f32;
-            for (i, t) in tabs.iter().enumerate() {
-                let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
-                if (cx as f32) >= tx && (cx as f32) < tx + tw {
+            let origin = egui::pos2(c.rect.x as f32, c.rect.y as f32);
+            let p = egui::pos2(cx as f32, cy as f32);
+            for (i, tr) in cobolt_forms::paint::tabcontrol_tab_rects(origin, c)
+                .iter()
+                .enumerate()
+            {
+                if tr.contains(p) {
                     return Some((c.id.clone(), i as u32));
                 }
-                tx += tw + gap;
             }
         }
         None
@@ -3140,9 +3121,8 @@ impl DesignerPanel {
         let canvas_h = self.form.height as f32;
 
         let tr = crate::i18n::current_tr(ui.ctx());
-        let mut panel = egui::TopBottomPanel::bottom("global_ai_pane")
-            .resizable(self.ai_pane_open);
-        
+        let mut panel = egui::TopBottomPanel::bottom("global_ai_pane").resizable(self.ai_pane_open);
+
         if self.ai_pane_open {
             panel = panel.default_height(self.ai_pane_height).min_height(100.0);
         }
@@ -3162,27 +3142,27 @@ impl DesignerPanel {
                     let mut do_clear = false;
                     let busy = self.ai_status.as_deref() == Some("Thinking...");
                     let history_len = self.ai_history.len();
-                    
+
                     ui.add_space(4.0);
                     egui::TopBottomPanel::bottom("global_ai_pane_input")
                         .resizable(false)
                         .frame(egui::Frame::none())
                         .show_inside(ui, |ui| {
                             ui.add_space(4.0);
-                            
+
                             // 1. Prompt Editor
                             let ectx = ui.ctx().clone();
                             let btn_col_w = 96.0;
                             let gap = 8.0;
                             let text_w = (ui.available_width() - btn_col_w - gap).max(140.0);
-                            
+
                             ui.horizontal_top(|ui| {
                                 let frame = egui::Frame::none()
                                     .fill(crate::theme::active().bg_extreme)
                                     .stroke(egui::Stroke::new(1.0, crate::theme::active().panel_border()))
                                     .rounding(egui::Rounding::same(6.0))
                                     .inner_margin(egui::Margin::same(2.0));
-                                
+
                                 ui.vertical(|ui| {
                                     let resp = ui.add(
                                         egui::TextEdit::multiline(&mut self.global_ai_prompt)
@@ -3199,7 +3179,7 @@ impl DesignerPanel {
                                         do_send = true;
                                     }
                                 });
-                                
+
                                 ui.add_space(gap);
                                 ui.vertical(|ui| {
                                     ui.label(egui::RichText::new("✨").size(15.0));
@@ -3213,13 +3193,13 @@ impl DesignerPanel {
                                     }
                                 });
                             });
-                            
+
                             if let Some(err) = &self.ai_status {
                                 if err != "Thinking..." {
                                     ui.label(egui::RichText::new(err).small().color(egui::Color32::from_rgb(220, 120, 120)));
                                 }
                             }
-                            
+
                             // 2. Controls
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
@@ -3240,7 +3220,7 @@ impl DesignerPanel {
                                 });
                             });
                         });
-                        
+
                     // Render history
                     egui::ScrollArea::vertical()
                         .id_salt("global_ai_history_scroll")
@@ -3251,13 +3231,13 @@ impl DesignerPanel {
                                 for turn in &self.ai_history {
                                     crate::panels::editor::chat_bubble(ui, &turn.role, &turn.content);
                                 }
-                                
+
                                 if !self.global_ai_streaming.is_empty() {
                                     crate::panels::editor::chat_bubble(ui, "assistant", &self.global_ai_streaming);
                                 }
                             });
                         });
-                    
+
                     if do_close {
                         self.ai_pane_open = false;
                     }
@@ -3345,18 +3325,18 @@ impl DesignerPanel {
                             crate::llm::LlmResponse::Ok(text) => {
                                 self.ai_status = None;
                                 self.global_ai_streaming.clear();
-                                
+
                                 // Try to parse it as operations
                                 if let Ok(cs) = crate::agent::parse_change_set(&text) {
                                     let applied = self.apply_agent_change_set(&cs);
-                                    
+
                                     let mut messages: Vec<String> = Vec::new();
                                     for op in &cs.operations {
                                         if let crate::agent::AgentOp::Message { message } = op {
                                             messages.push(message.clone());
                                         }
                                     }
-                                    
+
                                     let mut combined_note = String::new();
                                     if !messages.is_empty() {
                                         combined_note.push_str(&messages.join("\n"));
@@ -3367,7 +3347,7 @@ impl DesignerPanel {
                                         }
                                         combined_note.push_str(&n);
                                     }
-                                    
+
                                     let actionable_ops = cs.operations.iter().filter(|op| !matches!(op, crate::agent::AgentOp::Message { .. })).count();
 
                                     if actionable_ops == 0 {
@@ -7580,7 +7560,13 @@ fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
         "y" => ctrl.rect.y = value.as_i64() as i32,
         "width" => ctrl.rect.w = value.as_i64() as i32,
         "height" => ctrl.rect.h = value.as_i64() as i32,
-        "parent" => ctrl.parent = if value.as_str().is_empty() { None } else { Some(value.as_str().to_string()) },
+        "parent" => {
+            ctrl.parent = if value.as_str().is_empty() {
+                None
+            } else {
+                Some(value.as_str().to_string())
+            }
+        }
         "tab" => ctrl.tab = Some(value.as_i64() as u32),
         _ => {
             ctrl.properties.insert(key.to_owned(), value.clone());
@@ -7606,6 +7592,26 @@ fn resolve_tab_page(form: &cobolt_forms::Form, name: &str) -> Option<(String, u3
         }
     }
     None
+}
+
+fn apply_agent_parent_target(
+    form: &cobolt_forms::Form,
+    ctrl: &mut cobolt_forms::Control,
+    pid: &str,
+) {
+    let pid = pid.trim();
+    if pid.is_empty() {
+        ctrl.parent = None;
+        return;
+    }
+    if let Some((tc_id, tab_idx)) = resolve_tab_page(form, pid) {
+        ctrl.parent = Some(tc_id);
+        if ctrl.tab.is_none() {
+            ctrl.tab = Some(tab_idx);
+        }
+    } else {
+        ctrl.parent = Some(pid.to_string());
+    }
 }
 
 // ── Target device presets ─────────────────────────────────────────────────────
@@ -9769,6 +9775,7 @@ mod text_align_tests {
                     control_type: "Button".into(),
                     id: Some("SAVE".into()),
                     parent_id: None,
+                    parent: None,
                     properties: props,
                 },
                 AgentOp::SetProperty {
@@ -9837,6 +9844,7 @@ mod text_align_tests {
                     control_type: "Button".into(),
                     id: Some("B".into()),
                     parent_id: None,
+                    parent: None,
                     properties: serde_json::Map::new(),
                 },
                 // one invalid op — must be counted as an error and skipped on approve
@@ -9865,5 +9873,41 @@ mod text_align_tests {
             "approve is one AgentBatch = one Undo"
         );
         assert!(d.form.find_control("B").is_some());
+    }
+
+    #[test]
+    fn agent_deploy_control_resolves_tab_page_parent() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+
+        let mut form = Form::new("F", "T", 640, 480);
+        let mut tabs = Control::new("TabControl-1", ControlType::TabControl, 100, 100);
+        tabs.properties
+            .insert("Tabs".into(), PropValue::String("Tab1\nTab2".into()));
+        form.controls.push(tabs);
+        let mut d = DesignerPanel::new(form);
+
+        let mut props = serde_json::Map::new();
+        props.insert("Caption".into(), serde_json::json!("Nuevo"));
+        props.insert("X".into(), serde_json::json!(120));
+        props.insert("Y".into(), serde_json::json!(150));
+        props.insert("Parent".into(), serde_json::json!("Tab1"));
+
+        let cs = AgentChangeSet {
+            operations: vec![AgentOp::DeployControl {
+                control_type: "Button".into(),
+                id: Some("Button-1".into()),
+                parent_id: None,
+                parent: None,
+                properties: props,
+            }],
+            note: None,
+        };
+
+        assert_eq!(d.apply_agent_change_set(&cs), 1);
+        let button = d.form.find_control("Button-1").expect("button deployed");
+        assert_eq!(button.parent.as_deref(), Some("TabControl-1"));
+        assert_eq!(button.tab, Some(0));
+        assert_eq!(button.rect.x, 120);
+        assert_eq!(button.rect.y, 150);
     }
 }

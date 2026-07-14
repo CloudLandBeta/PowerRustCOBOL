@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 use cobolt_agents::Orchestrator;
 
@@ -53,7 +53,7 @@ impl LlmConfig {
             verbose_log: false,
         }
     }
-    
+
     pub fn is_configured(&self) -> bool {
         !self.provider.is_empty() && !self.model.is_empty()
     }
@@ -65,10 +65,18 @@ impl LlmConfig {
     }
 }
 
-pub fn default_system_prompt() -> String { DEFAULT_SYSTEM_PROMPT.to_string() }
-pub fn default_temperature() -> f32 { 0.7 }
-pub fn default_max_tokens() -> u32 { 8192 }
-pub fn default_timeout_secs() -> u32 { 30 }
+pub fn default_system_prompt() -> String {
+    DEFAULT_SYSTEM_PROMPT.to_string()
+}
+pub fn default_temperature() -> f32 {
+    0.7
+}
+pub fn default_max_tokens() -> u32 {
+    8192
+}
+pub fn default_timeout_secs() -> u32 {
+    30
+}
 
 pub enum LlmResponse {
     Ok(String),
@@ -84,10 +92,16 @@ pub struct ChatTurn {
 
 impl ChatTurn {
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: "user".into(), content: content.into() }
+        Self {
+            role: "user".into(),
+            content: content.into(),
+        }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: "assistant".into(), content: content.into() }
+        Self {
+            role: "assistant".into(),
+            content: content.into(),
+        }
     }
 }
 
@@ -110,9 +124,15 @@ impl Provider {
     pub fn from_id(id: &str) -> Option<Self> {
         PROVIDERS.iter().find(|p| p.id == id).cloned()
     }
-    pub fn id(&self) -> &str { self.id }
-    pub fn label(&self) -> &str { self.label }
-    pub fn default_endpoint(&self) -> &str { self.default_endpoint }
+    pub fn id(&self) -> &str {
+        self.id
+    }
+    pub fn label(&self) -> &str {
+        self.label
+    }
+    pub fn default_endpoint(&self) -> &str {
+        self.default_endpoint
+    }
 }
 
 pub const PROVIDERS: &[Provider] = &[
@@ -207,14 +227,16 @@ pub struct DetectedApi {
 }
 
 pub fn base_dir() -> PathBuf {
-    let dir = dirs::data_dir().unwrap_or_else(|| PathBuf::from(".")).join("cobolt");
+    let dir = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("cobolt");
     if !dir.exists() {
         let _ = std::fs::create_dir_all(&dir);
     }
     dir
 }
 
-use std::sync::{Mutex, LazyLock};
+use std::sync::{LazyLock, Mutex};
 
 static AI_LOG_QUEUE: LazyLock<Mutex<Vec<AiLogEntry>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 static CONNECTION_LOG: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
@@ -253,7 +275,10 @@ pub fn save_raw_preferred_indexed(_dir: &Path, rels: &HashSet<String>) {
 
 pub fn push_ai_log(kind: AiLogKind, text: impl Into<String>) {
     if let Ok(mut q) = AI_LOG_QUEUE.lock() {
-        q.push(AiLogEntry { kind, text: text.into() });
+        q.push(AiLogEntry {
+            kind,
+            text: text.into(),
+        });
     }
 }
 
@@ -270,7 +295,9 @@ fn run_mesh_request(req: cobolt_agents::MeshRequest, label: &'static str) -> Rec
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
-                let _ = tx.send(LlmResponse::Err(format!("Failed to start async runtime: {e}")));
+                let _ = tx.send(LlmResponse::Err(format!(
+                    "Failed to start async runtime: {e}"
+                )));
                 return;
             }
         };
@@ -350,7 +377,10 @@ pub fn spawn_agent_request(
     req.system_prompt = sys.to_string();
     req.skills = skills.to_string();
     req.context = context.to_string();
-    let mut h: Vec<_> = history.iter().map(|t| (t.role.clone(), t.content.clone())).collect();
+    let mut h: Vec<_> = history
+        .iter()
+        .map(|t| (t.role.clone(), t.content.clone()))
+        .collect();
     if let Some(last) = h.last() {
         if last.0 == "user" && last.1 == sent {
             h.pop();
@@ -379,8 +409,11 @@ pub fn spawn_request(
     if !code.trim().is_empty() {
         req.context = format!("Current file `{file}`:\n```cobol\n{code}\n```");
     }
-    
-    let mut h: Vec<_> = history.iter().map(|t| (t.role.clone(), t.content.clone())).collect();
+
+    let mut h: Vec<_> = history
+        .iter()
+        .map(|t| (t.role.clone(), t.content.clone()))
+        .collect();
     if let Some(last) = h.last() {
         if last.0 == "user" && last.1 == prompt {
             h.pop();
@@ -423,7 +456,10 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
-                let _ = tx.send(LlmResponse::Err(format!("Failed to start async runtime: {}", e)));
+                let _ = tx.send(LlmResponse::Err(format!(
+                    "Failed to start async runtime: {}",
+                    e
+                )));
                 return;
             }
         };
@@ -431,24 +467,40 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
             let client = match reqwest::Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = tx.send(LlmResponse::Err(format!("Failed to create HTTP client: {}", e)));
+                    let _ = tx.send(LlmResponse::Err(format!(
+                        "Failed to create HTTP client: {}",
+                        e
+                    )));
                     return;
                 }
             };
             if pid == "ollama" {
-                let url = format!("{}/api/tags", ep.trim_end_matches("/api").trim_end_matches("/v1").trim_end_matches('/'));
-                
+                let url = format!(
+                    "{}/api/tags",
+                    ep.trim_end_matches("/api")
+                        .trim_end_matches("/v1")
+                        .trim_end_matches('/')
+                );
+
                 if verbose {
                     let mut trace = String::new();
-                    trace.push_str(&format!("=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n", url));
+                    trace.push_str(&format!(
+                        "=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n",
+                        url
+                    ));
                     match client.get(&url).send().await {
                         Ok(res) => {
                             let status = res.status();
                             let text = res.text().await.unwrap_or_default();
-                            trace.push_str(&format!("=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n", status, text));
+                            trace.push_str(&format!(
+                                "=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n",
+                                status, text
+                            ));
                             push_connection_log(&trace);
                             if status.is_success() {
-                                let _ = tx.send(LlmResponse::Ok("Connection successful! Ollama is reachable.".into()));
+                                let _ = tx.send(LlmResponse::Ok(
+                                    "Connection successful! Ollama is reachable.".into(),
+                                ));
                                 return;
                             }
                         }
@@ -460,12 +512,16 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
                 } else {
                     if let Ok(res) = client.get(&url).send().await {
                         if res.status().is_success() {
-                            let _ = tx.send(LlmResponse::Ok("Connection successful! Ollama is reachable.".into()));
+                            let _ = tx.send(LlmResponse::Ok(
+                                "Connection successful! Ollama is reachable.".into(),
+                            ));
                             return;
                         }
                     }
                 }
-                let _ = tx.send(LlmResponse::Err("Failed to connect to Ollama endpoint.".into()));
+                let _ = tx.send(LlmResponse::Err(
+                    "Failed to connect to Ollama endpoint.".into(),
+                ));
             } else {
                 let url = if ep.ends_with("/chat/completions") {
                     ep.replace("/chat/completions", "/models")
@@ -476,17 +532,20 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
                 } else {
                     format!("{}/v1/models", ep)
                 };
-                
+
                 let mut req = client.get(&url);
                 if !key.is_empty() {
                     req = req.header("Authorization", format!("Bearer {}", key));
                 } else if pid == "gemini" {
                     req = req.header("x-goog-api-key", key.clone());
                 }
-                
+
                 if verbose {
                     let mut trace = String::new();
-                    trace.push_str(&format!("=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n", url));
+                    trace.push_str(&format!(
+                        "=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n",
+                        url
+                    ));
                     match req.try_clone().unwrap().build() {
                         Ok(built) => {
                             for (k, v) in built.headers() {
@@ -496,18 +555,26 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
                         Err(_) => {}
                     }
                     trace.push_str("\n");
-                    
+
                     match req.send().await {
                         Ok(res) => {
                             let status = res.status();
                             let text = res.text().await.unwrap_or_default();
-                            trace.push_str(&format!("=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n", status, text));
+                            trace.push_str(&format!(
+                                "=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n",
+                                status, text
+                            ));
                             push_connection_log(&trace);
-                            
+
                             if status.is_success() {
-                                let _ = tx.send(LlmResponse::Ok("Connection successful! API key is valid.".into()));
+                                let _ = tx.send(LlmResponse::Ok(
+                                    "Connection successful! API key is valid.".into(),
+                                ));
                             } else {
-                                let _ = tx.send(LlmResponse::Err(format!("API Error {}: {}", status, text)));
+                                let _ = tx.send(LlmResponse::Err(format!(
+                                    "API Error {}: {}",
+                                    status, text
+                                )));
                             }
                         }
                         Err(e) => {
@@ -520,11 +587,16 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
                     match req.send().await {
                         Ok(res) => {
                             if res.status().is_success() {
-                                let _ = tx.send(LlmResponse::Ok("Connection successful! API key is valid.".into()));
+                                let _ = tx.send(LlmResponse::Ok(
+                                    "Connection successful! API key is valid.".into(),
+                                ));
                             } else {
                                 let status = res.status();
                                 let text = res.text().await.unwrap_or_default();
-                                let _ = tx.send(LlmResponse::Err(format!("API Error {}: {}", status, text)));
+                                let _ = tx.send(LlmResponse::Err(format!(
+                                    "API Error {}: {}",
+                                    status, text
+                                )));
                             }
                         }
                         Err(e) => {
@@ -542,17 +614,23 @@ pub fn spawn_detect(endpoint: &str) -> Receiver<Result<DetectedApi, String>> {
     let (tx, rx) = mpsc::channel();
     let _ep = endpoint.to_string();
     std::thread::spawn(move || {
-        let _ = tx.send(Err("Auto-detect not implemented. Please manually select a provider.".into()));
+        let _ = tx.send(Err(
+            "Auto-detect not implemented. Please manually select a provider.".into(),
+        ));
     });
     rx
 }
 
-pub fn spawn_list_models(provider: Provider, endpoint: &str, key: &str) -> Receiver<Result<Vec<String>, String>> {
+pub fn spawn_list_models(
+    provider: Provider,
+    endpoint: &str,
+    key: &str,
+) -> Receiver<Result<Vec<String>, String>> {
     let (tx, rx) = mpsc::channel();
     let ep = heal_endpoint(endpoint);
     let key = key.to_string();
     let pid = provider.id().to_string();
-    
+
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
@@ -570,7 +648,12 @@ pub fn spawn_list_models(provider: Provider, endpoint: &str, key: &str) -> Recei
                 }
             };
             if pid == "ollama" {
-                let url = format!("{}/api/tags", ep.trim_end_matches("/api").trim_end_matches("/v1").trim_end_matches('/'));
+                let url = format!(
+                    "{}/api/tags",
+                    ep.trim_end_matches("/api")
+                        .trim_end_matches("/v1")
+                        .trim_end_matches('/')
+                );
                 if let Ok(res) = client.get(&url).send().await {
                     if let Ok(json) = res.json::<serde_json::Value>().await {
                         if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
@@ -596,7 +679,7 @@ pub fn spawn_list_models(provider: Provider, endpoint: &str, key: &str) -> Recei
                 } else {
                     format!("{}/v1/models", ep)
                 };
-                
+
                 let mut req = client.get(&url);
                 if !key.is_empty() {
                     req = req.header("Authorization", format!("Bearer {}", key));
@@ -604,7 +687,7 @@ pub fn spawn_list_models(provider: Provider, endpoint: &str, key: &str) -> Recei
                     // Google Gemini uses x-goog-api-key or key= in query
                     req = req.header("x-goog-api-key", key.clone());
                 }
-                
+
                 if let Ok(res) = req.send().await {
                     if let Ok(json) = res.json::<serde_json::Value>().await {
                         if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
@@ -617,15 +700,16 @@ pub fn spawn_list_models(provider: Provider, endpoint: &str, key: &str) -> Recei
                             let _ = tx.send(Ok(names));
                             return;
                         }
-                        if let Some(models) = json.get("models").and_then(|d| d.as_array()) { // Gemini might use this
-                             let mut names = Vec::new();
-                             for m in models {
-                                 if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
-                                     names.push(name.to_string().replace("models/", ""));
-                                 }
-                             }
-                             let _ = tx.send(Ok(names));
-                             return;
+                        if let Some(models) = json.get("models").and_then(|d| d.as_array()) {
+                            // Gemini might use this
+                            let mut names = Vec::new();
+                            for m in models {
+                                if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
+                                    names.push(name.to_string().replace("models/", ""));
+                                }
+                            }
+                            let _ = tx.send(Ok(names));
+                            return;
                         }
                     }
                 }
@@ -667,7 +751,9 @@ pub fn drain_ai_log() -> Vec<AiLogEntry> {
     }
 }
 
-pub fn normalize_comments(code: &str) -> String { code.to_string() }
+pub fn normalize_comments(code: &str) -> String {
+    code.to_string()
+}
 pub fn extract_code(reply: &str) -> Option<String> {
     let lower = reply.to_lowercase();
     if let Some(start) = lower.find("```cobol") {

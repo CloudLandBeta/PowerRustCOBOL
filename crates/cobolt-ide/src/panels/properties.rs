@@ -5098,6 +5098,15 @@ impl PropertiesPanel {
                     action,
                     &["Top", "Bottom", "Left", "Right"],
                 );
+                color_prop_row_fallback(
+                    ui,
+                    id,
+                    "ActiveTabColor",
+                    "Active tab color",
+                    ctrl,
+                    action,
+                    "#2C6FD2FF",
+                );
                 int_row_inline(ui, id, "TabPadding", "Tab padding", ctrl, action, 0..=64);
                 // Container behaviour (spec 012).
                 bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);
@@ -7127,6 +7136,30 @@ fn color_prop_row(
     if ctrl.get_prop(key).is_none() {
         return;
     }
+    color_prop_row_inner(ui, ctrl_id, key, label, ctrl, action, fallback);
+}
+
+fn color_prop_row_fallback(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    fallback: &str,
+) {
+    color_prop_row_inner(ui, ctrl_id, key, label, ctrl, action, fallback);
+}
+
+fn color_prop_row_inner(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    fallback: &str,
+) {
     let hex = ctrl
         .get_prop(key)
         .map(|v| v.as_str().to_owned())

@@ -539,6 +539,17 @@ fn file_mtime(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
+fn normalize_form_cobol_id(name: &str) -> String {
+    name.trim().to_ascii_uppercase()
+}
+
+fn same_file_path(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
 /// A one-line, human-readable label + accent colour for one agent operation
 /// (spec 025 T10 preview).
 fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, Color32) {
@@ -578,10 +589,7 @@ fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, C
             format!("{} {name}", tr.agent_op_procedure),
             Color32::from_rgb(190, 150, 210),
         ),
-        AgentOp::Message { message } => (
-            message.clone(),
-            Color32::from_rgb(150, 150, 150),
-        ),
+        AgentOp::Message { message } => (message.clone(), Color32::from_rgb(150, 150, 150)),
     }
 }
 
@@ -1918,7 +1926,8 @@ impl CoboltApp {
                         Ok(cs) => {
                             self.agent_status = cs.note.clone();
                             if !cs.operations.is_empty() {
-                                self.agent_preview = Some(crate::agent::AgentPreview::build(cs, &form));
+                                self.agent_preview =
+                                    Some(crate::agent::AgentPreview::build(cs, &form));
                             } else {
                                 self.agent_preview = None;
                             }
@@ -2090,7 +2099,7 @@ impl CoboltApp {
                 &self.agent_history,
                 &sent,
                 &context,
-                None // Let Orchestrator route to FormsDesigner or EventBinder
+                None, // Let Orchestrator route to FormsDesigner or EventBinder
             );
             self.agent_status = None;
             self.agent_preview = None;
@@ -2199,6 +2208,63 @@ impl CoboltApp {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_owned())
+    }
+
+    fn form_cobol_id_conflict(
+        &self,
+        form_name: &str,
+        exclude_path: Option<&Path>,
+    ) -> Option<PathBuf> {
+        let wanted = normalize_form_cobol_id(form_name);
+        if wanted.is_empty() {
+            return None;
+        }
+
+        for (path, designer) in &self.designers {
+            if exclude_path.is_some_and(|exclude| same_file_path(path, exclude)) {
+                continue;
+            }
+            if normalize_form_cobol_id(&designer.form.name) == wanted {
+                return Some(path.clone());
+            }
+        }
+
+        let Some(project) = &self.cobolt_project else {
+            return None;
+        };
+        let Some(project_dir) = self.project_dir() else {
+            return None;
+        };
+        for rel in &project.files.forms {
+            let path = project_dir.join(rel);
+            if exclude_path.is_some_and(|exclude| same_file_path(&path, exclude)) {
+                continue;
+            }
+            let Ok(form) = load_form(&path) else {
+                continue;
+            };
+            if normalize_form_cobol_id(&form.name) == wanted {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    fn reject_duplicate_form_cobol_id(
+        &mut self,
+        form_name: &str,
+        exclude_path: Option<&Path>,
+        action: &str,
+    ) -> bool {
+        if let Some(conflict) = self.form_cobol_id_conflict(form_name, exclude_path) {
+            self.output.push_status(format!(
+                "Cannot {action}: form COBOL ID '{form_name}' is already used by {}.",
+                conflict.display()
+            ));
+            true
+        } else {
+            false
+        }
     }
 
     /// First available `<base>.<ext>` / `<base>-N.<ext>` name in `dir`.
@@ -2315,6 +2381,20 @@ impl CoboltApp {
             Some(p) => p.parent().unwrap_or(p.as_path()).to_owned(),
             None => return,
         };
+
+        if kind == FileKind::Form {
+            let form = match load_form(&path) {
+                Ok(form) => form,
+                Err(e) => {
+                    self.output
+                        .push_status(format!("Could not import form: {e}"));
+                    return;
+                }
+            };
+            if self.reject_duplicate_form_cobol_id(&form.name, Some(&path), "import form") {
+                return;
+            }
+        }
 
         // Resolve to a project-relative path, importing (copying) when external.
         let rel = match relative_to(&path, &proj_dir) {
@@ -2479,6 +2559,9 @@ impl CoboltApp {
         }
         refresh_data_binding_target_properties(&mut self.designers[idx].1.form);
         let form_name = self.designers[idx].1.form.name.clone();
+        if self.reject_duplicate_form_cobol_id(&form_name, Some(&path), "save form") {
+            return;
+        }
         let result = save_form(&self.designers[idx].1.form, &path);
         match result {
             Ok(()) => {
@@ -4636,15 +4719,18 @@ impl CoboltApp {
     fn create_new_form(&mut self) {
         let w: u32 = self.new_form.width.parse().unwrap_or(640);
         let h: u32 = self.new_form.height.parse().unwrap_or(480);
-        let mut form = Form::new(
-            self.new_form.form_name.clone(),
-            self.new_form.title.clone(),
-            w,
-            h,
-        );
+        let form_name = self.new_form.form_name.trim().to_owned();
+        if form_name.is_empty() {
+            self.output.push_status("Form COBOL ID cannot be empty.");
+            return;
+        }
+        if self.reject_duplicate_form_cobol_id(&form_name, None, "create form") {
+            return;
+        }
+        let mut form = Form::new(form_name.clone(), self.new_form.title.clone(), w, h);
         form.background_color = "00000000".into(); // transparent — matches IDE glass
 
-        let default_name = format!("{}.cfrm", self.new_form.form_name.to_lowercase());
+        let default_name = format!("{}.cfrm", form_name.to_lowercase());
         let mut spec = crate::file_dialog::DialogSpec::save()
             .filter("RustCOBOL Form", &["cfrm"])
             .file_name(default_name);
@@ -4659,6 +4745,9 @@ impl CoboltApp {
 
     /// Save a freshly-created form to `path`, register it, and open its designer.
     fn save_new_form_to(&mut self, form: Form, path: PathBuf) {
+        if self.reject_duplicate_form_cobol_id(&form.name, Some(&path), "create form") {
+            return;
+        }
         if let Err(e) = save_form(&form, &path) {
             self.output
                 .push_status(format!("Could not save new form: {e}"));
@@ -5701,6 +5790,7 @@ pub(crate) fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str 
         CT::TextBox => "Text",
         CT::PictureBox => "ImagePath",
         CT::CheckBox | CT::RadioButton => "Checked",
+        CT::TabControl => "SelectedTab",
         CT::ComboBox | CT::ListBox | CT::Slider | CT::ProgressBar | CT::NumericUpDown => "Value",
         _ => "Caption",
     }
@@ -6007,7 +6097,16 @@ impl CoboltApp {
                 image_mode: d.form.bg_image_mode,
             }
         };
-        let active_tabs = cobolt_forms::containers::ActiveTabs::default();
+        let active_tabs: cobolt_forms::containers::ActiveTabs = controls
+            .iter()
+            .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::TabControl))
+            .filter_map(|c| {
+                values_snap
+                    .get(&c.id)
+                    .and_then(|v| v.trim().parse::<u32>().ok())
+                    .map(|tab| (c.id.clone(), tab))
+            })
+            .collect();
         let st = PreviewState {
             values: &values_snap,
             anim: &preview_anim_snap,
@@ -6041,8 +6140,15 @@ impl CoboltApp {
         // Apply the engine's value updates back to the preview value map so the
         // next frame renders the edited state (text typed, slider moved, combo
         // selected, checkbox toggled).
-        for (id, _key, val) in updates {
-            self.designers[idx].1.preview_state.insert(id, val);
+        for (id, key, val) in updates {
+            let expected = controls
+                .iter()
+                .find(|c| c.id == id)
+                .map(|c| preview_value_key(&c.control_type))
+                .unwrap_or("Caption");
+            if key == expected {
+                self.designers[idx].1.preview_state.insert(id, val);
+            }
         }
 
         // Use a conservative heartbeat for the preview viewport. The animation
@@ -8423,6 +8529,15 @@ mod manifest_name_tests {
         assert_eq!(sanitize_file_stem("  My/Project:v2  "), "My-Project-v2");
         assert_eq!(sanitize_file_stem("...."), "project");
         assert_eq!(sanitize_file_stem(""), "project");
+    }
+
+    #[test]
+    fn form_cobol_id_normalization_is_case_insensitive_and_trimmed() {
+        assert_eq!(normalize_form_cobol_id(" main-form "), "MAIN-FORM");
+        assert_eq!(
+            normalize_form_cobol_id("CustomerEntry"),
+            normalize_form_cobol_id("customerentry")
+        );
     }
 
     #[test]

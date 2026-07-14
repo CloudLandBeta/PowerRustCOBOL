@@ -32,6 +32,8 @@ pub enum AgentOp {
         id: Option<String>,
         #[serde(default)]
         parent_id: Option<String>,
+        #[serde(default, alias = "parent", alias = "Parent")]
+        parent: Option<String>,
         #[serde(default)]
         properties: serde_json::Map<String, serde_json::Value>,
     },
@@ -180,7 +182,7 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
             }
             // Property keys, if any, must be valid for the new control's type.
             for key in properties.keys() {
-                if !property_valid(&ct, key) {
+                if !deploy_property_valid(&ct, key) {
                     return Some(format!("'{control_type}' has no property '{key}'."));
                 }
             }
@@ -413,6 +415,13 @@ fn property_valid(ct: &ControlType, key: &str) -> bool {
         .any(|k| k.eq_ignore_ascii_case(key))
 }
 
+fn deploy_property_valid(ct: &ControlType, key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "x" | "y" | "width" | "height" | "parent" | "parent_id" | "tab"
+    ) || property_valid(ct, key)
+}
+
 // ── Default assets, scaffold & resolvers (T4) ────────────────────────────────
 
 use std::path::{Path, PathBuf};
@@ -432,15 +441,15 @@ pub fn agentic_dir() -> PathBuf {
 
 /// Project-specific overrides directory inside the IDE `agentic_ai` directory.
 pub fn project_agentic_dir(project_dir: &Path) -> Option<PathBuf> {
-    project_dir.file_name().map(|name| {
-        agentic_dir().join("projects").join(name)
-    })
+    project_dir
+        .file_name()
+        .map(|name| agentic_dir().join("projects").join(name))
 }
 
 /// The effective system prompt for a project (R14).
 pub fn effective_prompt(project_dir: &Path) -> String {
     let mut text = String::new();
-    
+
     // Load global prompt
     let global_path = agentic_dir().join(PROMPT_FILE);
     if let Ok(content) = std::fs::read_to_string(&global_path) {
@@ -448,7 +457,7 @@ pub fn effective_prompt(project_dir: &Path) -> String {
     } else {
         text.push_str("You are an expert dev agent. No prompt found.");
     }
-    
+
     // Append project-specific prompt
     if let Some(proj_dir) = project_agentic_dir(project_dir) {
         let proj_path = proj_dir.join(PROMPT_FILE);
@@ -459,14 +468,14 @@ pub fn effective_prompt(project_dir: &Path) -> String {
             text.push_str(&content);
         }
     }
-    
+
     text
 }
 
 /// The effective **general assistant** prompt (code editor / event editor).
 pub fn effective_assistant_prompt(project_dir: &Path) -> String {
     let mut text = String::new();
-    
+
     // Load global prompt
     let global_path = agentic_dir().join(ASSISTANT_PROMPT_FILE);
     if let Ok(content) = std::fs::read_to_string(&global_path) {
@@ -474,7 +483,7 @@ pub fn effective_assistant_prompt(project_dir: &Path) -> String {
     } else {
         text.push_str(&crate::llm::DEFAULT_SYSTEM_PROMPT.to_string());
     }
-    
+
     // Append project-specific prompt
     if let Some(proj_dir) = project_agentic_dir(project_dir) {
         let proj_path = proj_dir.join(ASSISTANT_PROMPT_FILE);
@@ -485,7 +494,7 @@ pub fn effective_assistant_prompt(project_dir: &Path) -> String {
             text.push_str(&content);
         }
     }
-    
+
     text
 }
 
@@ -493,7 +502,7 @@ pub fn effective_assistant_prompt(project_dir: &Path) -> String {
 /// plus any project-specific skills under `agentic_ai/projects/<project>/skills/`.
 pub fn load_skills(project_dir: &Path) -> String {
     let mut out = String::new();
-    
+
     let mut append_skills_from_dir = |dir: &Path| {
         let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
             .into_iter()
@@ -516,12 +525,12 @@ pub fn load_skills(project_dir: &Path) -> String {
 
     // Load global skills
     append_skills_from_dir(&agentic_dir().join(SKILLS_DIR));
-    
+
     // Load project-specific skills
     if let Some(proj_dir) = project_agentic_dir(project_dir) {
         append_skills_from_dir(&proj_dir.join(SKILLS_DIR));
     }
-    
+
     out
 }
 
@@ -563,7 +572,40 @@ pub fn build_context(form: &Form) -> String {
     }
 
     let all_types = [
-        "Button", "TextBox", "Label", "CheckBox", "RadioButton", "ListBox", "ComboBox", "GroupBox", "Panel", "TabControl", "DataGrid", "PictureBox", "ProgressBar", "MenuBar", "ToolBar", "StatusBar", "Line", "DateTimePicker", "NumericUpDown", "TreeView", "Splitter", "Timer", "Shape", "Animator", "AgentObject", "RestClient", "SqlDatabase", "Slider", "BarChart", "LineChart", "PieChart", "AreaChart", "ScatterChart", "DonutChart"
+        "Button",
+        "TextBox",
+        "Label",
+        "CheckBox",
+        "RadioButton",
+        "ListBox",
+        "ComboBox",
+        "GroupBox",
+        "Panel",
+        "TabControl",
+        "DataGrid",
+        "PictureBox",
+        "ProgressBar",
+        "MenuBar",
+        "ToolBar",
+        "StatusBar",
+        "Line",
+        "DateTimePicker",
+        "NumericUpDown",
+        "TreeView",
+        "Splitter",
+        "Timer",
+        "Shape",
+        "Animator",
+        "AgentObject",
+        "RestClient",
+        "SqlDatabase",
+        "Slider",
+        "BarChart",
+        "LineChart",
+        "PieChart",
+        "AreaChart",
+        "ScatterChart",
+        "DonutChart",
     ];
 
     out.push_str("PROPERTY KEYS BY TYPE (for all available controls):\n");
@@ -710,6 +752,7 @@ mod tests {
                     control_type: "Button".into(),
                     id: Some("B1".into()),
                     parent_id: None,
+                    parent: None,
                     properties: Default::default(),
                 },
                 // error: unsupported control type
@@ -717,6 +760,7 @@ mod tests {
                     control_type: "Frobnicator".into(),
                     id: None,
                     parent_id: None,
+                    parent: None,
                     properties: Default::default(),
                 },
                 // error: unknown control id
@@ -864,5 +908,19 @@ mod tests {
         assert!(ctx.contains("dropshadow"));
         assert!(ctx.contains("ShadowEnabled"));
         assert!(ctx.contains("PROCEDURES:"));
+    }
+
+    #[test]
+    fn deploy_control_accepts_structural_parent_and_tab_properties() {
+        let reply = r#"```json
+{ "operations": [
+  { "op": "deploy_control", "control_type": "Button", "id": "B1",
+    "properties": { "Caption": "OK", "X": 40, "Y": 80, "Parent": "Tab1", "Tab": 0 } }
+] }
+```"#;
+        let cs = parse_change_set(reply).expect("structural deploy properties parse");
+        let form = form_with_label();
+        let v = validate(&cs, &form);
+        assert_eq!(v, vec![None]);
     }
 }

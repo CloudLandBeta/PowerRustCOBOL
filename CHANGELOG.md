@@ -8,6 +8,54 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.26] — 2026-07-14
+
+### Fixed
+
+- **Form COBOL IDs must be unique** — The IDE now blocks duplicate form
+  `name`/COBOL IDs when creating a form, saving a renamed/edited form, or
+  importing an existing `.cfrm` into a project. The check is case-insensitive and
+  ignores the form's own file while saving.
+
+## [PowerRustCOBOL 1.28.25] — 2026-07-14
+
+### Fixed
+
+- **TabControl selected-tab color and page layout** — Existing TabControls now
+  show the `ActiveTabColor` picker even when opened from older `.cfrm` files,
+  and non-top tab navbars now reserve page-frame space instead of overlaying the
+  TabControl content.
+
+## [PowerRustCOBOL 1.28.24] — 2026-07-14
+
+### Fixed
+
+- **TabControl selection and navbar behavior** — Added an `ActiveTabColor`
+  property, made preview/run/binary tab selection update `SelectedTab`, and made
+  TabControl drawing, hit testing, and child clipping obey `TabPosition`
+  (`Top`, `Bottom`, `Left`, `Right`) consistently across surfaces.
+
+## [PowerRustCOBOL 1.28.23] — 2026-07-14
+
+### Fixed
+
+- **AI agent routing now covers every supported UI language** — form/control
+  requests and event-binding requests are recognized across English, Spanish,
+  Portuguese, Japanese, Chinese, and French. Event intent now takes precedence
+  over control nouns, so “bind the click event to my button” routes to the
+  Event Binder instead of the Forms Designer.
+
+## [PowerRustCOBOL 1.28.22] — 2026-07-13
+
+### Fixed
+
+- **AI agent can place controls inside TabControl pages** — Spanish/Portuguese
+  form-edit requests such as “Añade un botón a la Tab1 del TabControl-1” now
+  route to the Forms Designer specialist instead of the COBOL Code Generator.
+  Agent `deploy_control` operations now accept structural `Parent`/`Tab`
+  placement fields and resolve tab-page names like `Tab1` to the owning
+  `TabControl` plus the correct tab index.
+
 ## [PowerRustCOBOL 1.28.21] — 2026-07-13
 
 ### Added

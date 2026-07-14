@@ -3203,6 +3203,10 @@ impl Control {
                 props.insert("Tabs".into(), PropValue::String("Tab1\nTab2".into()));
                 props.insert("TabPosition".into(), PropValue::String("Top".into()));
                 props.insert("SelectedTab".into(), PropValue::Int(0));
+                props.insert(
+                    "ActiveTabColor".into(),
+                    PropValue::String("#2C6FD2FF".into()),
+                );
                 props.insert("TabPadding".into(), PropValue::Int(7));
                 // Container behaviour (spec 012).
                 props.insert("HScroll".into(), PropValue::Bool(false));
@@ -3591,9 +3595,9 @@ impl Control {
     }
 
     /// The interior rectangle into which child controls are placed and clipped.
-    /// Insets the control's `rect` for the border. Captions and TabControl tab
-    /// titles are painted later as overlays, so they do not shrink the child
-    /// clipping area. Non-containers return their plain `rect` (spec 012).
+    /// Insets the control's `rect` for the border. GroupBox captions are painted
+    /// later as overlays, while TabControl tabs reserve space based on
+    /// `TabPosition`. Non-containers return their plain `rect` (spec 012).
     pub fn content_rect(&self) -> Rect {
         let r = self.rect;
         match self.control_type {
@@ -3607,16 +3611,36 @@ impl Control {
             }
             ControlType::Panel => Rect::new(r.x + 2, r.y + 2, (r.w - 4).max(0), (r.h - 4).max(0)),
             ControlType::TabControl => {
-                let top = self.tab_content_top_inset();
-                Rect::new(
-                    r.x + 2,
-                    r.y + top + 2,
-                    (r.w - 4).max(0),
-                    (r.h - top - 4).max(0),
-                )
+                let inset = self.tab_strip_extent();
+                match self.tab_position().as_str() {
+                    "bottom" => {
+                        Rect::new(r.x + 2, r.y + 2, (r.w - 4).max(0), (r.h - inset - 4).max(0))
+                    }
+                    "left" => Rect::new(
+                        r.x + inset + 2,
+                        r.y + 2,
+                        (r.w - inset - 4).max(0),
+                        (r.h - 4).max(0),
+                    ),
+                    "right" => {
+                        Rect::new(r.x + 2, r.y + 2, (r.w - inset - 4).max(0), (r.h - 4).max(0))
+                    }
+                    _ => Rect::new(
+                        r.x + 2,
+                        r.y + inset + 2,
+                        (r.w - 4).max(0),
+                        (r.h - inset - 4).max(0),
+                    ),
+                }
             }
             _ => r,
         }
+    }
+
+    pub fn tab_position(&self) -> String {
+        self.get_prop("TabPosition")
+            .map(|v| v.as_str().to_ascii_lowercase())
+            .unwrap_or_else(|| "top".to_string())
     }
 
     pub fn tab_strip_height(&self) -> i32 {
@@ -3632,6 +3656,23 @@ impl Control {
 
     pub fn tab_content_top_inset(&self) -> i32 {
         self.tab_strip_height() + self.tab_padding()
+    }
+
+    pub fn tab_strip_extent(&self) -> i32 {
+        match self.tab_position().as_str() {
+            "left" | "right" => {
+                let tabs = self
+                    .get_prop("Tabs")
+                    .map(|v| v.as_str())
+                    .unwrap_or_default();
+                tabs.lines()
+                    .map(|t| (t.chars().count() as i32 * 7 + 18).clamp(56, 160))
+                    .max()
+                    .unwrap_or(80)
+                    + self.tab_padding().max(0)
+            }
+            _ => self.tab_content_top_inset(),
+        }
     }
 
     /// Whether the control's position is anchored (locked against mouse dragging).
@@ -4810,6 +4851,7 @@ mod tests {
             );
             if is_tab {
                 assert_eq!(c.get_prop("TabPadding").unwrap().as_i64(), 7);
+                assert_eq!(c.get_prop("ActiveTabColor").unwrap().as_str(), "#2C6FD2FF");
                 assert_eq!(c.tab_strip_height(), 26);
                 assert_eq!(c.tab_content_top_inset(), 33);
                 assert_eq!(cr.y, c.rect.y + 35);
@@ -4823,6 +4865,31 @@ mod tests {
         assert_eq!(b.content_rect(), b.rect);
         // parent/tab default to None.
         assert!(b.parent.is_none() && b.tab.is_none());
+    }
+
+    #[test]
+    fn tabcontrol_content_rect_obeys_tab_position() {
+        let mut c = Control::new("Tabs", ControlType::TabControl, 10, 20);
+        c.rect.w = 300;
+        c.rect.h = 200;
+
+        c.set_prop("TabPosition", PropValue::String("Top".into()));
+        assert_eq!(c.content_rect(), Rect::new(12, 55, 296, 163));
+
+        c.set_prop("TabPosition", PropValue::String("Bottom".into()));
+        assert_eq!(c.content_rect(), Rect::new(12, 22, 296, 163));
+
+        c.set_prop("TabPosition", PropValue::String("Left".into()));
+        let left = c.content_rect();
+        assert!(left.x > c.rect.x + 2, "left tabs reserve horizontal chrome");
+        assert_eq!(left.y, 22);
+        assert_eq!(left.h, 196);
+
+        c.set_prop("TabPosition", PropValue::String("Right".into()));
+        let right = c.content_rect();
+        assert_eq!(right.x, 12);
+        assert_eq!(right.y, 22);
+        assert!(right.w < 296, "right tabs reserve horizontal chrome");
     }
 
     #[test]

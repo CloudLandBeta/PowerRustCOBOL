@@ -886,7 +886,8 @@ pub struct KnownControl {
 /// Build KnownControl list from a form, enriching with dynamic methods
 /// (e.g. RefreshBinding for databound repeating GroupBoxes).
 pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
-    let mut list: Vec<KnownControl> = form.controls
+    let mut list: Vec<KnownControl> = form
+        .controls
         .iter()
         .map(|c| {
             let type_name = format!("{:?}", c.control_type);
@@ -921,12 +922,22 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
         id: "self".to_string(),
         ctrl_type: "Form".to_string(),
         properties: vec![
-            "X".into(), "Y".into(), "Width".into(), "Height".into(),
-            "Title".into(), "TitleBar".into(), "border".into(), "icon".into()
+            "X".into(),
+            "Y".into(),
+            "Width".into(),
+            "Height".into(),
+            "Title".into(),
+            "TitleBar".into(),
+            "border".into(),
+            "icon".into(),
         ],
         extra_methods: vec![
-            "Close".into(), "OpenForm".into(), "Alert".into(),
-            "Minimize".into(), "Restore".into(), "Maximize".into()
+            "Close".into(),
+            "OpenForm".into(),
+            "Alert".into(),
+            "Minimize".into(),
+            "Restore".into(),
+            "Maximize".into(),
         ],
     });
 
@@ -1511,7 +1522,10 @@ impl EditorPanel {
                 loop {
                     match rx.try_recv() {
                         Ok(crate::llm::LlmResponse::Chunk(text)) => {
-                            self.ai_streaming_reply.entry(path.clone()).or_default().push_str(&text);
+                            self.ai_streaming_reply
+                                .entry(path.clone())
+                                .or_default()
+                                .push_str(&text);
                             ctx.request_repaint();
                         }
                         Ok(resp) => {
@@ -1692,7 +1706,6 @@ impl EditorPanel {
                         .color(Color32::from_gray(165)),
                 );
             }
-
         };
         match inline_ui {
             Some(ui) => render(ui),
@@ -3549,7 +3562,8 @@ fn detect_invoke_context(
 /// databound array/repeating GroupBoxes).
 fn member_completions(known: &KnownControl, member_pfx: &str) -> Vec<AcItem> {
     let up = member_pfx.to_ascii_uppercase();
-    let mut v: Vec<AcItem> = known.properties
+    let mut v: Vec<AcItem> = known
+        .properties
         .iter()
         .filter(|p| p.to_ascii_uppercase().starts_with(&up))
         .map(|p| AcItem::prop(p, "property"))

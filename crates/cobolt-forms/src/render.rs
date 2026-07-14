@@ -3967,13 +3967,10 @@ fn render_interactive(
         }
         CT::TabControl => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            let tabs: Vec<String> = sv(ctrl, "Tabs").lines().map(|s| s.to_owned()).collect();
-            let mut x = screen.min.x;
-            let tab_h = ctrl.tab_strip_height().max(0) as f32;
-            let gap = ctrl.tab_padding().max(0) as f32;
-            for (i, tab) in tabs.iter().enumerate() {
-                let w = (tab.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
-                let tr = Rect::from_min_size(pos2(x, screen.min.y), vec2(w, tab_h));
+            for (i, tr) in paint::tabcontrol_tab_rects(screen.min, ctrl)
+                .into_iter()
+                .enumerate()
+            {
                 if ui
                     .interact(tr, ctrl_id.with(("tab", i)), Sense::click())
                     .clicked()
@@ -3983,7 +3980,6 @@ fn render_interactive(
                         .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
                     out.events.push(UiEvent::ev(id, "onChange"));
                 }
-                x += w + gap;
             }
         }
         CT::TreeView => {

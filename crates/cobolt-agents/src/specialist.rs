@@ -52,8 +52,8 @@ When you write COBOL code, you MUST output it inside a markdown code block:
 Do not output JSON.
 If the user asks a conversational question (like syntax, guidelines, style) or you need more information, simply reply with text (do NOT include a ```cobol code block). Engage in conversation to fill any gaps of understanding.".to_string(),
         };
-        
-        Self { 
+
+        Self {
             name: name_str,
             system_prompt: prompt,
         }

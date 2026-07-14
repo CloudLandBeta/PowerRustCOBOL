@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Once, Mutex};
-use rig_core::embeddings::{EmbeddingModel, EmbeddingError, Embedding};
 use ort::session::Session;
 use ort::value::Value;
-use tokenizers::Tokenizer;
+use rig_core::embeddings::{Embedding, EmbeddingError, EmbeddingModel};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, Once};
 use thiserror::Error;
+use tokenizers::Tokenizer;
 
 static ORT_INIT: Once = Once::new();
 
@@ -33,23 +33,23 @@ pub struct LocalEmbeddingModel {
 impl LocalEmbeddingModel {
     pub fn new(model_dir: impl AsRef<Path>) -> Result<Self, LocalEmbeddingError> {
         let model_dir = model_dir.as_ref();
-        
+
         let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json"))
             .map_err(LocalEmbeddingError::Tokenize)?;
-        
+
         ORT_INIT.call_once(|| {
             let _ = ort::init().commit();
         });
-            
+
         let session = Session::builder()
             .map_err(|e| LocalEmbeddingError::Ort(e.to_string()))?
             .with_intra_threads(num_cpus::get() as usize)
             .map_err(|e| LocalEmbeddingError::Ort(e.to_string()))?
             .commit_from_file(model_dir.join("model.onnx"))
             .map_err(|e| LocalEmbeddingError::Ort(e.to_string()))?;
-            
+
         // all-MiniLM-L6-v2 outputs 384 dimensions
-        let ndims = 384; 
+        let ndims = 384;
 
         Ok(Self {
             session: Arc::new(Mutex::new(session)),
@@ -82,9 +82,11 @@ impl EmbeddingModel for LocalEmbeddingModel {
             return Ok(vec![]);
         }
 
-        let encodings = self.tokenizer.encode_batch(texts.clone(), true)
+        let encodings = self
+            .tokenizer
+            .encode_batch(texts.clone(), true)
             .map_err(|e| EmbeddingError::ProviderError(e.to_string()))?;
-        
+
         let batch_size = encodings.len();
         let seq_len = encodings[0].get_ids().len();
 
@@ -115,14 +117,16 @@ impl EmbeddingModel for LocalEmbeddingModel {
         ];
 
         let mut session_guard = self.session.lock().unwrap();
-        let outputs = session_guard.run(inputs)
-        .map_err(|e| EmbeddingError::ProviderError(e.to_string()))?;
-
-        let extracted = outputs["last_hidden_state"].try_extract_tensor::<f32>()
+        let outputs = session_guard
+            .run(inputs)
             .map_err(|e| EmbeddingError::ProviderError(e.to_string()))?;
-        
+
+        let extracted = outputs["last_hidden_state"]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| EmbeddingError::ProviderError(e.to_string()))?;
+
         let (_shape, embeddings_data) = extracted;
-        
+
         let mut final_embeddings = Vec::with_capacity(batch_size);
 
         for i in 0..batch_size {

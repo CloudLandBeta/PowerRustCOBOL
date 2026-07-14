@@ -1257,11 +1257,7 @@ pub fn draw_control(
     );
     let rect = scale_rect_about_center(base_rect, scale);
     let frame_rect = if matches!(ctrl.control_type, CT::TabControl) {
-        let top = ctrl.tab_content_top_inset().max(0) as f32;
-        egui::Rect::from_min_max(
-            Pos2::new(rect.min.x, (rect.min.y + top).min(rect.max.y)),
-            rect.max,
-        )
+        tabcontrol_page_rect(rect, ctrl)
     } else {
         rect
     };
@@ -2998,43 +2994,152 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
         return;
     }
 
+    let tab_rects = tabcontrol_tab_rects(origin, ctrl);
+    if tab_rects.is_empty() {
+        return;
+    }
+
     let tabs: Vec<String> = ctrl
         .get_prop("Tabs")
         .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
         .unwrap_or_default();
-    if tabs.is_empty() {
-        return;
-    }
-
-    let rect = egui::Rect::from_min_size(
-        origin,
-        Vec2::new(ctrl.rect.w.max(0) as f32, ctrl.rect.h.max(0) as f32),
-    );
     let sel = ctrl
         .get_prop("SelectedTab")
         .map(|v| v.as_i64())
         .unwrap_or(0)
         .max(0) as usize;
-    let strip_h = ctrl.tab_strip_height() as f32;
-    let tab_gap = ctrl.tab_padding().max(0) as f32;
-    let mut tx = rect.min.x;
-    let ty = rect.min.y;
-    for (i, t) in tabs.iter().enumerate() {
-        let tw = (t.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0);
-        if tx + tw > rect.max.x {
-            break;
-        }
-        let tr = egui::Rect::from_min_size(Pos2::new(tx, ty), Vec2::new(tw, strip_h));
+    let active_color = ctrl
+        .get_prop("ActiveTabColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::from_rgb(44, 111, 210));
+    for (i, (t, tr)) in tabs.iter().zip(tab_rects.iter()).enumerate() {
         let active = i == sel;
         let mut tab = Control::new(format!("{}__tab_{}", ctrl.id, i), ControlType::Button, 0, 0);
-        tab.rect = crate::model::Rect::new(0, 0, tw.round() as i32, strip_h.round() as i32);
+        tab.rect =
+            crate::model::Rect::new(0, 0, tr.width().round() as i32, tr.height().round() as i32);
         tab.properties = ctrl.properties.clone();
         tab.set_prop("Caption", PropValue::String(t.to_owned()));
         tab.set_prop("CornerRadius", PropValue::Int(4));
         tab.set_prop("BorderStyle", PropValue::String("Single".into()));
         tab.set_prop("BorderWidth", PropValue::Int(1));
+        if active {
+            tab.set_prop(
+                "BackgroundColor",
+                PropValue::String(color_to_hex(active_color)),
+            );
+        }
         draw_control(painter, tr.min, &tab, active, true, alpha_mul, 1.0, None);
-        tx += tw + tab_gap;
+    }
+}
+
+pub fn tabcontrol_tab_rects(origin: Pos2, ctrl: &Control) -> Vec<egui::Rect> {
+    if !matches!(ctrl.control_type, ControlType::TabControl) {
+        return Vec::new();
+    }
+    let tabs: Vec<String> = ctrl
+        .get_prop("Tabs")
+        .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    let rect = egui::Rect::from_min_size(
+        origin,
+        Vec2::new(ctrl.rect.w.max(0) as f32, ctrl.rect.h.max(0) as f32),
+    );
+    let strip_h = ctrl.tab_strip_height().max(0) as f32;
+    let strip_w = ctrl.tab_strip_extent().max(0) as f32;
+    let gap = ctrl.tab_padding().max(0) as f32;
+    let pos = ctrl.tab_position();
+    let mut out = Vec::new();
+    match pos.as_str() {
+        "bottom" => {
+            let mut x = rect.min.x;
+            let y = rect.max.y - strip_h;
+            for tab in tabs {
+                let w = tab_width(&tab);
+                if x + w > rect.max.x {
+                    break;
+                }
+                out.push(egui::Rect::from_min_size(
+                    Pos2::new(x, y),
+                    Vec2::new(w, strip_h),
+                ));
+                x += w + gap;
+            }
+        }
+        "left" => {
+            let mut y = rect.min.y;
+            for _ in tabs {
+                if y + strip_h > rect.max.y {
+                    break;
+                }
+                out.push(egui::Rect::from_min_size(
+                    Pos2::new(rect.min.x, y),
+                    Vec2::new(strip_w - gap, strip_h),
+                ));
+                y += strip_h + gap;
+            }
+        }
+        "right" => {
+            let mut y = rect.min.y;
+            let x = rect.max.x - strip_w;
+            for _ in tabs {
+                if y + strip_h > rect.max.y {
+                    break;
+                }
+                out.push(egui::Rect::from_min_size(
+                    Pos2::new(x, y),
+                    Vec2::new(strip_w - gap, strip_h),
+                ));
+                y += strip_h + gap;
+            }
+        }
+        _ => {
+            let mut x = rect.min.x;
+            for tab in tabs {
+                let w = tab_width(&tab);
+                if x + w > rect.max.x {
+                    break;
+                }
+                out.push(egui::Rect::from_min_size(
+                    Pos2::new(x, rect.min.y),
+                    Vec2::new(w, strip_h),
+                ));
+                x += w + gap;
+            }
+        }
+    }
+    out
+}
+
+fn tab_width(tab: &str) -> f32 {
+    (tab.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0)
+}
+
+fn color_to_hex(c: Color32) -> String {
+    format!("#{:02X}{:02X}{:02X}{:02X}", c.r(), c.g(), c.b(), c.a())
+}
+
+pub fn tabcontrol_page_rect(rect: egui::Rect, ctrl: &Control) -> egui::Rect {
+    if !matches!(ctrl.control_type, ControlType::TabControl) {
+        return rect;
+    }
+    let inset = ctrl.tab_strip_extent().max(0) as f32;
+    match ctrl.tab_position().as_str() {
+        "bottom" => egui::Rect::from_min_max(
+            rect.min,
+            Pos2::new(rect.max.x, (rect.max.y - inset).max(rect.min.y)),
+        ),
+        "left" => egui::Rect::from_min_max(
+            Pos2::new((rect.min.x + inset).min(rect.max.x), rect.min.y),
+            rect.max,
+        ),
+        "right" => egui::Rect::from_min_max(
+            rect.min,
+            Pos2::new((rect.max.x - inset).max(rect.min.x), rect.max.y),
+        ),
+        _ => egui::Rect::from_min_max(
+            Pos2::new(rect.min.x, (rect.min.y + inset).min(rect.max.y)),
+            rect.max,
+        ),
     }
 }
 
@@ -6176,6 +6281,53 @@ mod theme_render_tests {
                 "no inverted dest rect"
             );
         }
+    }
+
+    #[test]
+    fn tabcontrol_tab_rects_obey_tab_position() {
+        let mut ctrl = Control::new("Tabs", ControlType::TabControl, 0, 0);
+        ctrl.rect.w = 300;
+        ctrl.rect.h = 200;
+        ctrl.set_prop("Tabs", PropValue::String("Tab1\nTab2".into()));
+
+        ctrl.set_prop("TabPosition", PropValue::String("Top".into()));
+        let top = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
+        assert_eq!(top[0].min, Pos2::new(0.0, 0.0));
+
+        ctrl.set_prop("TabPosition", PropValue::String("Bottom".into()));
+        let bottom = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
+        assert_eq!(bottom[0].min.y, 174.0);
+
+        ctrl.set_prop("TabPosition", PropValue::String("Left".into()));
+        let left = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
+        assert_eq!(left[0].min, Pos2::new(0.0, 0.0));
+        assert!(left[0].width() > left[0].height());
+        assert_eq!(left[1].min.y, 33.0);
+
+        ctrl.set_prop("TabPosition", PropValue::String("Right".into()));
+        let right = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
+        assert!(right[0].min.x > 200.0);
+        assert_eq!(right[0].min.y, 0.0);
+    }
+
+    #[test]
+    fn tabcontrol_page_rect_reserves_navbar_space() {
+        let mut ctrl = Control::new("Tabs", ControlType::TabControl, 0, 0);
+        ctrl.rect.w = 300;
+        ctrl.rect.h = 200;
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0));
+
+        ctrl.set_prop("TabPosition", PropValue::String("Top".into()));
+        assert_eq!(tabcontrol_page_rect(rect, &ctrl).min.y, 33.0);
+
+        ctrl.set_prop("TabPosition", PropValue::String("Bottom".into()));
+        assert_eq!(tabcontrol_page_rect(rect, &ctrl).max.y, 167.0);
+
+        ctrl.set_prop("TabPosition", PropValue::String("Left".into()));
+        assert!(tabcontrol_page_rect(rect, &ctrl).min.x > 0.0);
+
+        ctrl.set_prop("TabPosition", PropValue::String("Right".into()));
+        assert!(tabcontrol_page_rect(rect, &ctrl).max.x < 300.0);
     }
 
     #[test]

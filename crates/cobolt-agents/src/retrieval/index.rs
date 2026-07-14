@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use tantivy::schema::*;
-use tantivy::{Index as TantivyIndex, IndexWriter, TantivyDocument, ReloadPolicy, IndexReader};
-use tantivy::query::QueryParser;
-use tantivy::collector::TopDocs;
 use std::collections::HashMap;
+use tantivy::collector::TopDocs;
+use tantivy::query::QueryParser;
+use tantivy::schema::*;
+use tantivy::{Index as TantivyIndex, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
 
 pub struct LexicalIndex {
     index: TantivyIndex,
@@ -21,15 +21,19 @@ impl LexicalIndex {
 
         let index = TantivyIndex::create_in_ram(schema.clone());
         let mut index_writer: IndexWriter = index.writer(15_000_000)?;
-        
+
         index_writer.commit()?;
-        
+
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
 
-        Ok(Self { index, reader, schema })
+        Ok(Self {
+            index,
+            reader,
+            schema,
+        })
     }
 
     pub fn expand_query(query: &str) -> String {
@@ -44,7 +48,7 @@ impl LexicalIndex {
         synonyms.insert("window", "Form");
         synonyms.insert("screen", "Form");
         synonyms.insert("component", "Control");
-        
+
         let mut expanded = String::new();
         for word in query.split_whitespace() {
             expanded.push_str(word);
@@ -65,29 +69,33 @@ impl LexicalIndex {
         let mut doc = TantivyDocument::default();
         doc.add_text(id_field, id);
         doc.add_text(text_field, text);
-        
+
         index_writer.add_document(doc)?;
         index_writer.commit()?;
         Ok(())
     }
 
-    pub fn search(&self, query_str: &str, top_n: usize) -> Result<Vec<(f32, String, String)>, tantivy::TantivyError> {
+    pub fn search(
+        &self,
+        query_str: &str,
+        top_n: usize,
+    ) -> Result<Vec<(f32, String, String)>, tantivy::TantivyError> {
         let _ = self.reader.reload();
         let text_field = self.schema.get_field("text").unwrap();
         let id_field = self.schema.get_field("id").unwrap();
-        
+
         let searcher = self.reader.searcher();
         let query_parser = QueryParser::for_index(&self.index, vec![text_field]);
-        
+
         let expanded_query = Self::expand_query(query_str);
-        
+
         let query = match query_parser.parse_query(&expanded_query) {
             Ok(q) => q,
             Err(_) => return Ok(Vec::new()), // If invalid query syntax, return empty
         };
-            
+
         let top_docs = searcher.search(&query, &TopDocs::with_limit(top_n))?;
-        
+
         let mut results = Vec::new();
         for (score, doc_address) in top_docs {
             let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
@@ -101,7 +109,7 @@ impl LexicalIndex {
             };
             results.push((score, id, text));
         }
-        
+
         Ok(results)
     }
 }

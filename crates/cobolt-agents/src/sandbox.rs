@@ -28,10 +28,10 @@ impl Sandbox {
     pub fn validate_code(&self, code: &str) -> Result<(), SandboxError> {
         use std::io::Write;
         use tempfile::NamedTempFile;
-        
+
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(code.as_bytes())?;
-        
+
         // Wait, rcrun might not be in PATH if it's a binary from this repo.
         // Usually, the CLI binary is compiled to target/debug/cobolt.
         // We will just invoke "cargo" "run" "--bin" "cobolt" "--" "check" "--pedantic" <file>
@@ -47,11 +47,13 @@ impl Sandbox {
             .arg("--pedantic")
             .arg(temp_file.path())
             .output()?;
-            
+
         if !output.status.success() {
-            return Err(SandboxError::ValidationFailed(output.status.code().unwrap_or(-1)));
+            return Err(SandboxError::ValidationFailed(
+                output.status.code().unwrap_or(-1),
+            ));
         }
-        
+
         Ok(())
     }
 }

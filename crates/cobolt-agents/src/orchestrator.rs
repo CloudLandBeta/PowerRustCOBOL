@@ -75,14 +75,7 @@ impl Orchestrator {
         let target = if let Some(ref explicit) = req.specialist {
             explicit.clone()
         } else {
-            let lower = req.user_prompt.to_lowercase();
-            if lower.contains("form") || lower.contains("ui") || lower.contains("screen") {
-                "FormsDesigner".to_string()
-            } else if lower.contains("event") || lower.contains("click") || lower.contains("bind") {
-                "EventBinder".to_string()
-            } else {
-                "CodeGenerator".to_string()
-            }
+            route_specialist(&req.user_prompt).to_string()
         };
         let specialist = self
             .specialists
@@ -96,7 +89,11 @@ impl Orchestrator {
         let system = if req.system_prompt.trim().is_empty() {
             specialist.system_prompt.clone()
         } else {
-            format!("{}\n\n{}", req.system_prompt.trim(), specialist.system_prompt)
+            format!(
+                "{}\n\n{}",
+                req.system_prompt.trim(),
+                specialist.system_prompt
+            )
         };
         let mut messages = vec![serde_json::json!({ "role": "system", "content": system })];
         if !req.skills.trim().is_empty() {
@@ -205,11 +202,14 @@ impl Orchestrator {
             let started = std::time::Instant::now();
             let mut resp = http.json(&body).send().await.map_err(|e| {
                 let msg = format!("Could not reach the model: {e}");
-                on_log(format!("network error after {:.1}s: {e}", started.elapsed().as_secs_f32()));
+                on_log(format!(
+                    "network error after {:.1}s: {e}",
+                    started.elapsed().as_secs_f32()
+                ));
                 msg
             })?;
             let status = resp.status();
-            
+
             let mut raw = String::new();
             let mut full_content = String::new();
             let mut line_buf = String::new();
@@ -236,7 +236,9 @@ impl Orchestrator {
                                 if json_str == "[DONE]" {
                                     continue;
                                 }
-                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                if let Ok(json) =
+                                    serde_json::from_str::<serde_json::Value>(json_str)
+                                {
                                     if let Some(content) = json
                                         .get("choices")
                                         .and_then(|c| c.get(0))
@@ -248,8 +250,16 @@ impl Orchestrator {
                                         on_chunk(content);
                                     }
                                     if let Some(usage) = json.get("usage") {
-                                        if let Some(i) = usage.get("prompt_tokens").and_then(|v| v.as_u64()) { inp_tokens = Some(i); }
-                                        if let Some(o) = usage.get("completion_tokens").and_then(|v| v.as_u64()) { out_tokens = Some(o); }
+                                        if let Some(i) =
+                                            usage.get("prompt_tokens").and_then(|v| v.as_u64())
+                                        {
+                                            inp_tokens = Some(i);
+                                        }
+                                        if let Some(o) =
+                                            usage.get("completion_tokens").and_then(|v| v.as_u64())
+                                        {
+                                            out_tokens = Some(o);
+                                        }
                                     }
                                 }
                             } else {
@@ -262,10 +272,14 @@ impl Orchestrator {
                                         full_content.push_str(content);
                                         on_chunk(content);
                                     }
-                                    if let Some(usage) = json.get("prompt_eval_count").and_then(|v| v.as_u64()) {
+                                    if let Some(usage) =
+                                        json.get("prompt_eval_count").and_then(|v| v.as_u64())
+                                    {
                                         inp_tokens = Some(usage);
                                     }
-                                    if let Some(usage) = json.get("eval_count").and_then(|v| v.as_u64()) {
+                                    if let Some(usage) =
+                                        json.get("eval_count").and_then(|v| v.as_u64())
+                                    {
                                         out_tokens = Some(usage);
                                     }
                                 }
@@ -298,8 +312,12 @@ impl Orchestrator {
             if let (Some(inp), Some(out)) = (inp_tokens, out_tokens) {
                 on_log(format!("tokens: {inp} in / {out} out"));
             } else if req.verbose {
-                if let Some(inp) = inp_tokens { on_log(format!("Verbose: tokens: {inp} in")); }
-                if let Some(out) = out_tokens { on_log(format!("Verbose: tokens: {out} out")); }
+                if let Some(inp) = inp_tokens {
+                    on_log(format!("Verbose: tokens: {inp} in"));
+                }
+                if let Some(out) = out_tokens {
+                    on_log(format!("Verbose: tokens: {out} out"));
+                }
             }
 
             if full_content.is_empty() {
@@ -316,8 +334,14 @@ impl Orchestrator {
                     operations_acc.extend(ops.clone());
                 }
 
-                let has_more = json.get("has_more").and_then(|h| h.as_bool()).unwrap_or(false);
-                let response_id = json.get("response_id").and_then(|r| r.as_str()).unwrap_or("");
+                let has_more = json
+                    .get("has_more")
+                    .and_then(|h| h.as_bool())
+                    .unwrap_or(false);
+                let response_id = json
+                    .get("response_id")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("");
                 let next_cursor = json.get("next_cursor").and_then(|c| c.as_str());
 
                 if has_more && next_cursor.is_some() && loop_count < max_loops {
@@ -329,11 +353,14 @@ impl Orchestrator {
                         "role": "user",
                         "content": format!("Continue response {} from cursor {}. Return only the next complete JSON batch.", response_id, next_cursor.unwrap())
                     }));
-                    on_log(format!("Pagination detected! Fetching batch {}...", loop_count + 1));
+                    on_log(format!(
+                        "Pagination detected! Fetching batch {}...",
+                        loop_count + 1
+                    ));
                     continue;
                 }
             }
-            
+
             // Loop break condition reached
             if !operations_acc.is_empty() {
                 let synthesized = serde_json::json!({ "operations": operations_acc });
@@ -346,4 +373,120 @@ impl Orchestrator {
 
         Ok((final_content, full_trace))
     }
+}
+
+pub fn route_specialist(prompt: &str) -> &'static str {
+    let lower = prompt.to_lowercase();
+
+    // PowerRustCOBOL UI languages: English, Spanish, Portuguese, Japanese,
+    // Chinese, and French. Event intent wins over form/control nouns so
+    // "bind the click event to my button" does not route to form layout.
+    if contains_any(
+        &lower,
+        &[
+            "event",
+            "evento",
+            "événement",
+            "evenement",
+            "イベント",
+            "事件",
+            "click",
+            "clic",
+            "clique",
+            "クリック",
+            "单击",
+            "点击",
+            "handler",
+            "manejador",
+            "manipulador",
+            "gestionnaire",
+            "ハンドラ",
+            "处理",
+            "bind",
+            "enlazar",
+            "vincular",
+            "ligar",
+            "associer",
+            "バインド",
+            "绑定",
+            "onload",
+            "onclose",
+        ],
+    ) {
+        return "EventBinder";
+    }
+
+    if contains_any(
+        &lower,
+        &[
+            "form",
+            "formulario",
+            "formulário",
+            "formulaire",
+            "フォーム",
+            "表单",
+            "窗体",
+            "ui",
+            "screen",
+            "pantalla",
+            "tela",
+            "janela",
+            "écran",
+            "ecran",
+            "画面",
+            "屏幕",
+            "control",
+            "controle",
+            "contrôle",
+            "コントロール",
+            "控件",
+            "button",
+            "boton",
+            "botón",
+            "botao",
+            "botão",
+            "bouton",
+            "ボタン",
+            "按钮",
+            "tabcontrol",
+            "tab control",
+            "tab1",
+            "aba",
+            "pestaña",
+            "onglet",
+            "タブ",
+            "选项卡",
+            "add",
+            "create",
+            "insert",
+            "place",
+            "deploy",
+            "añade",
+            "agrega",
+            "agregue",
+            "adicion",
+            "adicione",
+            "coloca",
+            "poner",
+            "ponga",
+            "ajouter",
+            "créer",
+            "creer",
+            "insérer",
+            "inserer",
+            "追加",
+            "作成",
+            "添加",
+            "新增",
+            "创建",
+        ],
+    ) {
+        return "FormsDesigner";
+    }
+
+    "CodeGenerator"
+}
+
+fn contains_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| haystack.contains(needle))
 }
