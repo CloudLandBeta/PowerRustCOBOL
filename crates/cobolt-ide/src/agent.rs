@@ -25,10 +25,13 @@ use serde::Deserialize;
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum AgentOp {
     /// Deploy a new control onto the form.
+    #[serde(alias = "add_control")]
     DeployControl {
         control_type: String,
-        #[serde(default)]
+        #[serde(default, alias = "control_id")]
         id: Option<String>,
+        #[serde(default)]
+        parent_id: Option<String>,
         #[serde(default)]
         properties: serde_json::Map<String, serde_json::Value>,
     },
@@ -169,6 +172,7 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
             control_type,
             id,
             properties,
+            ..
         } => {
             let ct = ControlType::from_str(control_type);
             if matches!(ct, ControlType::Custom { .. }) {
@@ -536,7 +540,7 @@ pub fn build_context(form: &Form) -> String {
         form.name, form.width, form.height
     ));
 
-    out.push_str("AVAILABLE CONTROL TYPES (use these for 'add_control'):\n");
+    out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
     out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
 
     out.push_str("CONTROLS:\n");
@@ -705,12 +709,14 @@ mod tests {
                 AgentOp::DeployControl {
                     control_type: "Button".into(),
                     id: Some("B1".into()),
+                    parent_id: None,
                     properties: Default::default(),
                 },
                 // error: unsupported control type
                 AgentOp::DeployControl {
                     control_type: "Frobnicator".into(),
                     id: None,
+                    parent_id: None,
                     properties: Default::default(),
                 },
                 // error: unknown control id

@@ -1101,7 +1101,7 @@ pub fn property_names_for(type_name: &str) -> Vec<String> {
     // Field-backed properties: stored on the `Control` struct (not the property
     // map) but still settable/gettable by name via `set_property`.
     for f in [
-        "Name", "Visible", "Enabled", "X", "Y", "Width", "Height", "TabOrder",
+        "Name", "Visible", "Enabled", "X", "Y", "Width", "Height", "TabOrder", "Parent", "Tab",
     ] {
         names.push(f.to_string());
     }

@@ -1254,6 +1254,7 @@ impl DesignerPanel {
                 AgentOp::DeployControl {
                     control_type,
                     id,
+                    parent_id,
                     properties,
                 } => {
                     let ct = ControlType::from_str(control_type);
@@ -1280,6 +1281,27 @@ impl DesignerPanel {
                         }
                         if let Some(pv) = json_to_prop(v) {
                             apply_structural_prop(&mut c, k, &pv);
+                        }
+                    }
+                    // Handle parent_id (top-level field from the agent JSON, e.g.
+                    // "parent_id": "Tab1" or "parent_id": "TabControl-1").
+                    // If the properties already set a Parent, don't overwrite.
+                    if c.parent.is_none() {
+                        if let Some(pid) = parent_id {
+                            let pid = pid.trim();
+                            if !pid.is_empty() {
+                                // Check if pid refers to a tab page name (e.g. "Tab1")
+                                // inside a TabControl. If so, resolve to the TabControl
+                                // id and set the tab index.
+                                if let Some((tc_id, tab_idx)) = resolve_tab_page(&self.form, pid) {
+                                    c.parent = Some(tc_id);
+                                    if c.tab.is_none() {
+                                        c.tab = Some(tab_idx);
+                                    }
+                                } else {
+                                    c.parent = Some(pid.to_string());
+                                }
+                            }
                         }
                     }
                     cmds.push(Cmd::AddControl {
@@ -7566,6 +7588,26 @@ fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
     }
 }
 
+/// Resolve a tab-page name (e.g. `"Tab1"`) to `(tab_control_id, tab_index)` by
+/// searching every `TabControl` on the form. Returns `None` if no tab page with
+/// that name is found.
+fn resolve_tab_page(form: &cobolt_forms::Form, name: &str) -> Option<(String, u32)> {
+    for ctrl in &form.controls {
+        if ctrl.control_type != cobolt_forms::ControlType::TabControl {
+            continue;
+        }
+        if let Some(tabs_prop) = ctrl.properties.get("Tabs") {
+            let tabs_str = tabs_prop.as_str();
+            for (i, tab_name) in tabs_str.split('\n').enumerate() {
+                if tab_name.trim().eq_ignore_ascii_case(name) {
+                    return Some((ctrl.id.clone(), i as u32));
+                }
+            }
+        }
+    }
+    None
+}
+
 // ── Target device presets ─────────────────────────────────────────────────────
 
 /// All available target device presets: (label, width, height).
@@ -9726,6 +9768,7 @@ mod text_align_tests {
                 AgentOp::DeployControl {
                     control_type: "Button".into(),
                     id: Some("SAVE".into()),
+                    parent_id: None,
                     properties: props,
                 },
                 AgentOp::SetProperty {
@@ -9793,6 +9836,7 @@ mod text_align_tests {
                 AgentOp::DeployControl {
                     control_type: "Button".into(),
                     id: Some("B".into()),
+                    parent_id: None,
                     properties: serde_json::Map::new(),
                 },
                 // one invalid op — must be counted as an error and skipped on approve
