@@ -53,20 +53,20 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 ## What's implemented
 
 ### The IDE (PowerRustCOBOL)
-- **Visual form designer** with a glass/"liquid" theme, grid snapping, drag-resize of
-  controls *and* the form canvas, multi-select, alignment tools, and z-ordering.
-- **34 widgets** across Common, Container, Data, Graphics, Menu, Non-visual and
-  Charts categories — including a new **Animator** widget that plays **GIF / WebP / APNG**
-  animations natively.
-- **Properties inspector**, **toolbox** with vector icons, **forms list**, **project tree**,
-  and an **output panel**.
-- **System-font picker**: choose any installed font (rendered in its own typeface), applied
-  live in the canvas, preview and run windows, with an Arial fallback.
-- **Interactive debugger**: breakpoints, step controls, and a variable watch.
-- **Multi-window** preview/run via per-form OS windows (egui multi-viewport).
-- **Internationalised UI** in 6 languages (English, Spanish, Portuguese, Japanese, Chinese,
-  French).
-- **Non-blocking native file dialogs** (open/save/browse) that never stall the event loop.
+- **Visual form designer**: Complete design canvas supporting multiple themes (**Liquid Glass** and **Cobalt Steel**), grid snapping, drag-resize of controls and the canvas, multi-select alignment tools, and z-ordering.
+- **Unified rendering engine**: Ensures 100% pixel-parity between the visual designer, the form previewer, the running application, and the compiled native binary outputs.
+- **Universal corner radius & rounded clipping**: GroupBoxes, Panels, and other containers support configurable `CornerRadius`. Nested child controls (e.g. PictureBoxes, Panels) clip perfectly to their parent's rounded border, utilizing custom corner-notch masking.
+- **34 widgets** across Common, Container, Data, Graphics, Menu, Non-visual, and Charts categories — including the **Animator** widget which natively renders **GIF / WebP / APNG** assets.
+- **Advanced Menu editor**: A visual tree editor for menus, featuring 122 built-in vector icons, pulldown hierarchical nesting, and HMAC configuration integrity signatures to prevent tampering.
+- **Data binding & Control arrays**: Direct binding to SQL/Data sources. Dynamic *Visual Repeating Groups* expand GroupBox or Panel control arrays automatically based on runtime `DataSource` queries and row counts.
+- **Visual validation & Form inspector**: Real-time error badges highlight malformed event handlers, incomplete bindings, and layout anomalies. Integrated `rcrun` process manager tracks CPU%, RSS memory, active logs, and thread counts live from inside the IDE.
+- **Properties inspector**, **toolbox** with vector icons, **forms list**, **project tree**, and a dockable **output panel**.
+- **System-font picker**: Choose any installed system font (rendered in its own typeface), applied live across the designer canvas, previews, and running forms.
+- **Form Debugger (RAD debugging)**: Opens as a standalone, always-on-top OS window featuring breakpoints, step execution (In, Out, Over), visual variable inspector, and custom animation playback controls (advancing execution at 1-10 lines/second).
+- **Agentic AI assistant mesh**: A **rig-core** powered LLM orchestrator (supporting Ollama, OpenAI, and cloud APIs) running a multi-agent mesh (Dev Agent, Editor Assistant, History Compactor). Includes a live observability activity log (duration, HTTP status, token counts) and an interactive chat pane with bubble styled history.
+- **Multi-window runtime**: Preview and run screens rendered in dedicated OS viewports via egui multi-viewport.
+- **Internationalised UI**: Built-in support for 6 interface languages (English, Spanish, Portuguese, Japanese, Chinese, French).
+- **Non-blocking native file dialogs** (open/save/browse) that never stall the UI event loop.
 
 ### The RustCOBOL language & runtime
 - **Fixed-form and free-form** source.
@@ -94,6 +94,9 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 - **CALL**: COBOL-85 **nested programs** *and* multiple sequential program units in one file,
   `USING BY REFERENCE/CONTENT/VALUE`, `RETURNING`, `ON EXCEPTION` / `NOT ON
   EXCEPTION`; plus a library of runtime built-ins (see below).
+- **INVOKE & Rust FFI repository**: Native bridge to call custom Rust compiled plugins. External modules are configured under `REPOSITORY` and dispatched via `INVOKE` or direct property mappings.
+- **User procedures**: Shared COBOL procedures editable in the IDE, callable from event handlers via `CALL "PROCEDURE-NAME"`.
+- **Concise property expressions**: Get/set properties directly using the `::` operator inside formulas (`COMPUTE Output::Value = Input-1::Value * Input-2::Value`) eliminating temporary working-storage variables.
 - **Intrinsic functions**: `LENGTH`, `UPPER-CASE`, `LOWER-CASE`, `NUMVAL`, `NUMVAL-C`,
   `MAX`, `MIN`, `SQRT`, `MOD`, `REM`, `ABS`, `INTEGER`, `INTEGER-PART`, `RANDOM`,
   `CURRENT-DATE`, `TRIM`, `REVERSE`, `CONCATENATE`, `ORD`, `CHAR`, `ORD-MAX`,
