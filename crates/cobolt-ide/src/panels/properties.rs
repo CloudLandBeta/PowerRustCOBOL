@@ -3120,10 +3120,11 @@ impl PropertiesPanel {
                 }
                 ui.add_space(4.0);
 
-                // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase) only
+                // Non-visual controls (Timer, AgentObject, RestClient, SqlDatabase,
+                // IndexedFile) only
                 // show geometry + type-specific settings + events — no style, no animations.
                 if ctrl.control_type.is_non_visual() {
-                    self.show_type_specific(ui, ctrl, &id, action, tr);
+                    self.show_type_specific(ui, ctrl, &id, indexed_files, action, tr);
                     return;
                 }
 
@@ -3217,7 +3218,7 @@ impl PropertiesPanel {
                 }
 
                 // ── Type-specific ─────────────────────────────────────────────────────
-                self.show_type_specific(ui, ctrl, &id, action, tr);
+                self.show_type_specific(ui, ctrl, &id, indexed_files, action, tr);
 
                 // ── Deployed User Control child properties ───────────────────────────
                 self.show_user_control_children(ui, form, ctrl, action, tr);
@@ -4594,6 +4595,7 @@ impl PropertiesPanel {
         ui: &mut Ui,
         ctrl: &Control,
         id: &str,
+        indexed_files: &[String],
         action: &mut InspectorAction,
         tr: &Tr,
     ) {
@@ -6065,6 +6067,88 @@ impl PropertiesPanel {
                         "resultset1",
                         action,
                     );
+                }
+                ui.add_space(4.0);
+            }
+
+            // ── Indexed File ─────────────────────────────────────────────────
+            ControlType::IndexedFile => {
+                section_header(ui, "Indexed file");
+                let current_file = ctrl
+                    .get_prop("IndexedFile")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default();
+                property_row(ui, "Indexed file:", |ui| {
+                    let selected = if current_file.trim().is_empty() {
+                        "Select indexed file"
+                    } else {
+                        current_file.as_str()
+                    };
+                    egui::ComboBox::from_id_salt(format!("pg_{id}_IndexedFile"))
+                        .selected_text(selected)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            if indexed_files.is_empty() {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Label::new("No indexed files in project"),
+                                );
+                            } else {
+                                for file in indexed_files {
+                                    if ui
+                                        .selectable_label(current_file == *file, file.as_str())
+                                        .clicked()
+                                    {
+                                        action.set_props.push((
+                                            id.to_owned(),
+                                            "IndexedFile".into(),
+                                            PropValue::String(file.clone()),
+                                        ));
+                                    }
+                                }
+                            }
+                        });
+                });
+                combo_prop_row(
+                    ui,
+                    id,
+                    "OpenMode",
+                    "Open mode:",
+                    ctrl,
+                    action,
+                    &["INPUT", "I-O"],
+                    "INPUT",
+                );
+                combo_prop_row(
+                    ui,
+                    id,
+                    "LoadStrategy",
+                    "Load strategy:",
+                    ctrl,
+                    action,
+                    &["Disk", "Memory"],
+                    "Disk",
+                );
+                bool_row_inline(ui, id, "AutoOpen", "Open with form:", ctrl, action);
+
+                section_header(ui, "COBOL Integration");
+                for (key, label, hint) in [
+                    ("RecordName", "Record name:", "CUSTOMER-RECORD"),
+                    ("KeyName", "Default key:", "CUSTOMER-ID"),
+                    ("CurrentKeyDataItem", "Current key item:", "CUSTOMER-ID"),
+                    (
+                        "CurrentRecordDataItem",
+                        "Current record item:",
+                        "CUSTOMER-RECORD",
+                    ),
+                    ("StatusDataItem", "Status item:", "WS-CUSTOMER-FILE-STATUS"),
+                    ("OperatorName", "Operator name:", "optional audit/user item"),
+                ] {
+                    let cur = ctrl
+                        .get_prop(key)
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(ui, &mut self.text_bufs, id, key, &cur, label, hint, action);
                 }
                 ui.add_space(4.0);
             }

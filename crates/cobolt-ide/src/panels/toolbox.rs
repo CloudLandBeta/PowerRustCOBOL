@@ -168,6 +168,11 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::SqlDatabase,
         category: "NonVisual",
     },
+    ToolEntry {
+        label: "IndexedFile",
+        ct: ControlType::IndexedFile,
+        category: "NonVisual",
+    },
     // ── Charts ─────────────────────────────────────────────────────────────────
     ToolEntry {
         label: "BarChart",

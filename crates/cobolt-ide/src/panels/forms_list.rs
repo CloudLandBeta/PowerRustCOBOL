@@ -16,6 +16,11 @@ use egui::{Color32, RichText, ScrollArea, Ui};
 
 // ── FormsListPanel ────────────────────────────────────────────────────────────
 
+pub enum FormsListAction {
+    Open(PathBuf),
+    Delete(PathBuf),
+}
+
 pub struct FormsListPanel {
     /// Project root to scan.
     root: Option<PathBuf>,
@@ -63,13 +68,13 @@ impl FormsListPanel {
     ///
     /// * `open_paths` — paths of forms currently open in designer tabs.
     ///
-    /// Returns the path that was double-clicked (to open), if any.
-    pub fn show(&mut self, ui: &mut Ui, open_paths: &[&Path], tr: &Tr) -> Option<PathBuf> {
+    /// Returns the requested form-list action, if any.
+    pub fn show(&mut self, ui: &mut Ui, open_paths: &[&Path], tr: &Tr) -> Option<FormsListAction> {
         if self.needs_rescan {
             self.rescan();
         }
 
-        let mut to_open: Option<PathBuf> = None;
+        let mut action: Option<FormsListAction> = None;
 
         ui.horizontal(|ui| {
             ui.strong(tr.forms_list_title);
@@ -111,28 +116,37 @@ impl FormsListPanel {
                     // Icon: open tab marker vs plain form icon
                     let icon = if is_open { "🖊" } else { "🗔" };
 
-                    let label = RichText::new(format!("{icon} {stem}")).color(if is_open {
-                        Color32::from_rgb(100, 200, 100)
-                    } else {
-                        crate::theme::active().text_bright
+                    ui.horizontal(|ui| {
+                        let delete_resp = ui
+                            .small_button("🗑")
+                            .on_hover_text(format!("Delete form {}", path.display()));
+                        if delete_resp.clicked() {
+                            action = Some(FormsListAction::Delete(path.clone()));
+                        }
+
+                        let label = RichText::new(format!("{icon} {stem}")).color(if is_open {
+                            Color32::from_rgb(100, 200, 100)
+                        } else {
+                            crate::theme::active().text_bright
+                        });
+
+                        let resp = ui.selectable_label(is_selected, label);
+
+                        if resp.clicked() {
+                            self.selected = Some(path.clone());
+                        }
+
+                        if resp.double_clicked() {
+                            action = Some(FormsListAction::Open(path.clone()));
+                        }
+
+                        // Tooltip: full path
+                        resp.on_hover_text(path.display().to_string());
                     });
-
-                    let resp = ui.selectable_label(is_selected, label);
-
-                    if resp.clicked() {
-                        self.selected = Some(path.clone());
-                    }
-
-                    if resp.double_clicked() {
-                        to_open = Some(path.clone());
-                    }
-
-                    // Tooltip: full path
-                    resp.on_hover_text(path.display().to_string());
                 }
             });
 
-        to_open
+        action
     }
 
     // ── Directory scan ────────────────────────────────────────────────────────

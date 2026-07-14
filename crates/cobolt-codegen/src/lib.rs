@@ -569,6 +569,13 @@ fn write_procedure_division(out: &mut String, form: &Form) {
         out.push_str("           PERFORM COBOL-START-TIMERS\n");
     }
 
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::IndexedFile && prop_bool(c, "AutoOpen", false))
+    {
+        out.push_str(&format!("           PERFORM {}-OPEN\n", ctrl.id));
+    }
+
     // Call OnLoad nested program
     if let Some(ev) = form.form_events.iter().find(|e| e.event == "onLoad") {
         out.push_str(&format!("           CALL \"{}\"\n", ev.paragraph));
@@ -586,6 +593,13 @@ fn write_procedure_division(out: &mut String, form: &Form) {
         out.push_str(&format!("           CALL \"{}\"\n", ev.paragraph));
     }
 
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::IndexedFile && prop_bool(c, "AutoOpen", false))
+    {
+        out.push_str(&format!("           PERFORM {}-CLOSE\n", ctrl.id));
+    }
+
     out.push_str("           STOP RUN.\n");
     out.push('\n');
 
@@ -597,6 +611,7 @@ fn write_procedure_division(out: &mut String, form: &Form) {
     write_csv_export_stubs(out, &all_controls);
     write_rest_client_stubs(out, &all_controls);
     write_sql_stubs(out, &all_controls);
+    write_indexed_file_stubs(out, &all_controls);
     write_agent_stubs(out, &all_controls);
     write_animation_stubs(out, form, &all_controls);
     write_chart_stubs(out, &all_controls);
@@ -1205,6 +1220,175 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
     }
 }
 
+// ── IndexedFile control stub generator ───────────────────────────────────────
+
+fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::IndexedFile)
+    {
+        let id = ctrl.id.as_str();
+        let file = indexed_control_file_name(ctrl);
+        let record = prop_string(ctrl, "RecordName")
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| format!("{file}-RECORD"));
+        let key = prop_string(ctrl, "KeyName")
+            .or_else(|| prop_string(ctrl, "CurrentKeyDataItem"))
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| format!("{record}-KEY"));
+        let status_item = prop_string(ctrl, "StatusDataItem")
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| format!("WS-{}-STATUS", id.to_ascii_uppercase()));
+        let open_mode = prop_string(ctrl, "OpenMode").unwrap_or_else(|| "INPUT".into());
+        let operator = prop_string(ctrl, "OperatorName").unwrap_or_default();
+        let cobol_open_mode = if open_mode.eq_ignore_ascii_case("I-O") {
+            "I-O"
+        } else {
+            "INPUT"
+        };
+
+        out.push_str(&format!("       {id}-OPEN.\n"));
+        out.push_str(&format!(
+            "      *>  Opens indexed file {file} for {cobol_open_mode}.\n"
+        ));
+        out.push_str(&format!("           IF WS-{id}-IS-OPEN = 0\n"));
+        if operator.trim().is_empty() {
+            out.push_str(&format!("               OPEN {cobol_open_mode} {file}\n"));
+        } else {
+            out.push_str(&format!(
+                "               OPEN {cobol_open_mode} {file} REGISTERED USER {operator}\n"
+            ));
+        }
+        out.push_str(&format!("               MOVE '00' TO {status_item}\n"));
+        out.push_str(&format!("               MOVE 1 TO WS-{id}-IS-OPEN\n"));
+        out.push_str(&format!("               MOVE 0 TO WS-{id}-AT-END\n"));
+        out.push_str(&format!("               MOVE 0 TO WS-{id}-HAS-RECORD\n"));
+        out.push_str("           END-IF.\n\n");
+
+        out.push_str(&format!("       {id}-START.\n"));
+        out.push_str(&format!(
+            "      *>  Set {key}, then PERFORM {id}-START to position the current pointer.\n"
+        ));
+        out.push_str(&format!(
+            "           START {file} KEY IS GREATER THAN OR EQUAL TO {key}\n"
+        ));
+        out.push_str(&format!("               INVALID KEY\n"));
+        out.push_str(&format!("                   MOVE '23' TO {status_item}\n"));
+        out.push_str(&format!(
+            "                   MOVE 0 TO WS-{id}-HAS-RECORD\n"
+        ));
+        out.push_str("               NOT INVALID KEY\n");
+        out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+        out.push_str(&format!("                   MOVE 0 TO WS-{id}-AT-END\n"));
+        out.push_str("           END-START.\n\n");
+
+        for (suffix, direction) in [
+            ("READ-NEXT", "NEXT"),
+            ("READ-PREVIOUS", "PREVIOUS"),
+            ("READ-FIRST", "NEXT"),
+            ("READ-LAST", "PREVIOUS"),
+        ] {
+            out.push_str(&format!("       {id}-{suffix}.\n"));
+            if suffix == "READ-FIRST" {
+                out.push_str(&format!(
+                    "      *>  Set {key} to the lowest desired value, position, then read NEXT.\n"
+                ));
+                out.push_str(&format!(
+                    "           START {file} KEY IS GREATER THAN OR EQUAL TO {key}\n"
+                ));
+                out.push_str("               INVALID KEY CONTINUE\n");
+                out.push_str("           END-START\n");
+            } else if suffix == "READ-LAST" {
+                out.push_str(&format!(
+                    "      *>  Set {key} to the highest desired value, position, then read PREVIOUS.\n"
+                ));
+                out.push_str(&format!(
+                    "           START {file} KEY IS LESS THAN OR EQUAL TO {key}\n"
+                ));
+                out.push_str("               INVALID KEY CONTINUE\n");
+                out.push_str("           END-START\n");
+            }
+            out.push_str(&format!("           READ {file} {direction}\n"));
+            out.push_str("               AT END\n");
+            out.push_str(&format!("                   MOVE '10' TO {status_item}\n"));
+            out.push_str(&format!("                   MOVE 1 TO WS-{id}-AT-END\n"));
+            out.push_str(&format!(
+                "                   MOVE 0 TO WS-{id}-HAS-RECORD\n"
+            ));
+            out.push_str("               NOT AT END\n");
+            out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+            out.push_str(&format!("                   MOVE 0 TO WS-{id}-AT-END\n"));
+            out.push_str(&format!(
+                "                   MOVE 1 TO WS-{id}-HAS-RECORD\n"
+            ));
+            out.push_str("           END-READ.\n\n");
+        }
+
+        out.push_str(&format!("       {id}-READ-INVALID.\n"));
+        out.push_str(&format!(
+            "      *>  Direct keyed read. Set {key} before calling this paragraph.\n"
+        ));
+        out.push_str(&format!("           READ {file}\n"));
+        out.push_str("               INVALID KEY\n");
+        out.push_str(&format!("                   MOVE '23' TO {status_item}\n"));
+        out.push_str(&format!(
+            "                   MOVE 0 TO WS-{id}-HAS-RECORD\n"
+        ));
+        out.push_str("               NOT INVALID KEY\n");
+        out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+        out.push_str(&format!(
+            "                   MOVE 1 TO WS-{id}-HAS-RECORD\n"
+        ));
+        out.push_str("           END-READ.\n\n");
+
+        for (suffix, verb) in [
+            ("WRITE", "WRITE"),
+            ("REWRITE", "REWRITE"),
+            ("DELETE", "DELETE"),
+        ] {
+            out.push_str(&format!("       {id}-{suffix}.\n"));
+            out.push_str(&format!(
+                "      *>  Requires {file} opened I-O. Data comes from bound/set record fields.\n"
+            ));
+            if verb == "DELETE" {
+                out.push_str(&format!("           DELETE {file}\n"));
+            } else {
+                out.push_str(&format!("           {verb} {record}\n"));
+            }
+            out.push_str("               INVALID KEY\n");
+            out.push_str(&format!("                   MOVE '23' TO {status_item}\n"));
+            out.push_str("               NOT INVALID KEY\n");
+            out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+            out.push_str(&format!("           END-{verb}.\n\n"));
+        }
+
+        out.push_str(&format!("       {id}-COMMIT.\n"));
+        out.push_str(&format!(
+            "      *>  Flushes pending indexed-file changes for {file}.\n"
+        ));
+        out.push_str(&format!("           CLOSE {file}\n"));
+        out.push_str(&format!("           OPEN I-O {file}\n"));
+        out.push_str(&format!("           MOVE '00' TO {status_item}.\n\n"));
+
+        out.push_str(&format!("       {id}-ROLLBACK.\n"));
+        out.push_str("      *>  Transaction rollback is storage-engine dependent; reopen to discard pending cursor state.\n");
+        out.push_str(&format!("           CLOSE {file}\n"));
+        out.push_str(&format!("           OPEN {cobol_open_mode} {file}\n"));
+        out.push_str(&format!("           MOVE '00' TO {status_item}.\n\n"));
+
+        out.push_str(&format!("       {id}-CLOSE.\n"));
+        out.push_str("      *>  No-op when already closed. I-O close commits automatically.\n");
+        out.push_str(&format!("           IF WS-{id}-IS-OPEN = 1\n"));
+        if cobol_open_mode == "I-O" {
+            out.push_str(&format!("               PERFORM {id}-COMMIT\n"));
+        }
+        out.push_str(&format!("               CLOSE {file}\n"));
+        out.push_str(&format!("               MOVE 0 TO WS-{id}-IS-OPEN\n"));
+        out.push_str(&format!("               MOVE '00' TO {status_item}\n"));
+        out.push_str("           END-IF.\n\n");
+    }
+}
+
 // ── Chart INVOKE verb paragraph generator ─────────────────────────────────────
 
 fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
@@ -1290,6 +1474,68 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
             "           CALL \"COBOL-CHART-REFRESH\" USING \"{id}\"\n"
         ));
         out.push_str("           CONTINUE.\n");
+        out.push('\n');
+    }
+
+    // ── Indexed File control fields ───────────────────────────────────────
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::IndexedFile)
+    {
+        let pfx = format!("WS-{}", ctrl.id.to_ascii_uppercase());
+        let selected = ctrl
+            .get_prop("IndexedFile")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        let mode = ctrl
+            .get_prop("OpenMode")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "INPUT".into());
+        let strategy = ctrl
+            .get_prop("LoadStrategy")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Disk".into());
+        let status_item = ctrl
+            .get_prop("StatusDataItem")
+            .map(|v| v.as_str().to_owned())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| format!("{pfx}-STATUS"));
+
+        out.push_str(&format!(
+            "      *>── IndexedFile control: {} ─────────────────────────────\n",
+            ctrl.id
+        ));
+        out.push_str(&format!(
+            "      *>   Project indexed file: {}\n",
+            if selected.trim().is_empty() {
+                "<not selected>"
+            } else {
+                selected.as_str()
+            }
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-OPEN-MODE      PIC X(8)    VALUE '{}'.\n",
+            cobol_lit(&mode)
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-LOAD-STRATEGY  PIC X(8)    VALUE '{}'.\n",
+            cobol_lit(&strategy)
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-IS-OPEN        PIC 9       VALUE 0.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-AT-END         PIC 9       VALUE 0.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-HAS-RECORD     PIC 9       VALUE 0.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {pfx}-CURRENT-OP     PIC X(16)   VALUE SPACES.\n"
+        ));
+        out.push_str(&format!(
+            "       01 {status_item:<24} PIC X(2)    VALUE '00'.\n"
+        ));
         out.push('\n');
     }
 }
@@ -1448,6 +1694,17 @@ fn write_event_loop(out: &mut String, form: &Form) {
                     "                           WHEN \"{}\"\n",
                     ev.event
                 ));
+                if matches!(ev.event.as_str(), "onDeactivate" | "onDeactivated") {
+                    for ctrl in all_controls.iter().filter(|c| {
+                        c.control_type == ControlType::IndexedFile
+                            && prop_bool(c, "AutoOpen", false)
+                    }) {
+                        out.push_str(&format!(
+                            "                               PERFORM {}-CLOSE\n",
+                            ctrl.id
+                        ));
+                    }
+                }
                 out.push_str(&format!(
                     "                               CALL \"{}\"\n",
                     ev.paragraph
@@ -1512,6 +1769,50 @@ fn collect_rec<'a>(ctrl: &'a Control, out: &mut Vec<&'a Control>) {
     }
 }
 
+fn prop_string(ctrl: &Control, key: &str) -> Option<String> {
+    ctrl.get_prop(key).map(|v| v.as_str().to_owned())
+}
+
+fn prop_bool(ctrl: &Control, key: &str, fallback: bool) -> bool {
+    ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(fallback)
+}
+
+fn cobol_lit(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+fn indexed_control_file_name(ctrl: &Control) -> String {
+    let selected = prop_string(ctrl, "IndexedFile").unwrap_or_default();
+    let stem = selected
+        .rsplit(|ch| ch == '/' || ch == '\\')
+        .next()
+        .unwrap_or(selected.as_str())
+        .rsplit_once('.')
+        .map(|(left, _)| left)
+        .unwrap_or_else(|| selected.as_str());
+    let source = if stem.trim().is_empty() {
+        ctrl.id.as_str()
+    } else {
+        stem
+    };
+    let mut out = String::new();
+    for ch in source.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_uppercase());
+        } else if ch == '-' || ch == '_' || ch.is_whitespace() {
+            if !out.ends_with('-') {
+                out.push('-');
+            }
+        }
+    }
+    let out = out.trim_matches('-').to_owned();
+    if out.is_empty() {
+        ctrl.id.to_ascii_uppercase()
+    } else {
+        out
+    }
+}
+
 /// Which property key holds the display text for a given control type.
 fn caption_prop_key(ct: &ControlType) -> &'static str {
     match ct {
@@ -1553,6 +1854,33 @@ mod tests {
     fn generate_contains_program_id() {
         let src = generate(&make_form());
         assert!(src.contains("PROGRAM-ID. MAIN-FORM."), "missing PROGRAM-ID");
+    }
+
+    #[test]
+    fn generate_indexed_file_control_facade() {
+        let mut form = Form::new("CUSTOMER-FORM", "Customers", 800, 600);
+        let mut idx = Control::new("CustomerFile", ControlType::IndexedFile, 0, 0);
+        idx.set_prop(
+            "IndexedFile",
+            PropValue::String("indexed/customers.cidx".into()),
+        );
+        idx.set_prop("OpenMode", PropValue::String("I-O".into()));
+        idx.set_prop("AutoOpen", PropValue::Bool(true));
+        idx.set_prop("RecordName", PropValue::String("CUSTOMER-REC".into()));
+        idx.set_prop("KeyName", PropValue::String("CUSTOMER-ID".into()));
+        form.controls.push(idx);
+
+        let src = generate(&form);
+
+        assert!(src.contains("PERFORM CustomerFile-OPEN"));
+        assert!(src.contains("PERFORM CustomerFile-CLOSE"));
+        assert!(src.contains("OPEN I-O CUSTOMERS"));
+        assert!(src.contains("CustomerFile-START."));
+        assert!(src.contains("CustomerFile-READ-NEXT."));
+        assert!(src.contains("CustomerFile-READ-PREVIOUS."));
+        assert!(src.contains("CustomerFile-WRITE."));
+        assert!(src.contains("WRITE CUSTOMER-REC"));
+        assert!(src.contains("CustomerFile-COMMIT."));
     }
 
     #[test]

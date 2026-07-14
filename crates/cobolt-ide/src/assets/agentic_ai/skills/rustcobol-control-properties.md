@@ -64,6 +64,49 @@ does nothing. This skill prevents that.
 If the exact property for an intent is not in this table **and** not in the
 CONTEXT legend, treat it as non-existent (Rule 1, last bullet).
 
+## IndexedFile non-visual control
+
+`IndexedFile` is a non-visual control representing one project-registered indexed
+file (`.cidx`). Use it for CRUD/search/navigation forms over indexed files. Do
+not invent file-object properties. Use only these properties:
+
+- `IndexedFile` — selected project indexed file path/name from the project tree.
+- `OpenMode` — `INPUT` or `I-O`.
+- `LoadStrategy` — `Disk` or `Memory`.
+- `AutoOpen` — opens with the form and closes when the form closes/deactivates.
+- `RecordName` — COBOL FD record data item used by `WRITE`/`REWRITE`.
+- `KeyName` / `CurrentKeyDataItem` — key data item used by `START` and keyed reads.
+- `CurrentRecordDataItem` — optional bound/current record item.
+- `StatusDataItem` — file-status item updated by generated paragraphs.
+- `OperatorName` — optional `REGISTERED USER` name for `OPEN`.
+
+Generated code exposes method paragraphs named with the control id:
+`<id>-OPEN`, `<id>-START`, `<id>-READ-INVALID`, `<id>-READ-NEXT`,
+`<id>-READ-PREVIOUS`, `<id>-READ-FIRST`, `<id>-READ-LAST`, `<id>-WRITE`,
+`<id>-REWRITE`, `<id>-DELETE`, `<id>-COMMIT`, `<id>-ROLLBACK`, and
+`<id>-CLOSE`. Event handlers should `PERFORM` these paragraphs. Do not emit raw
+indexed-file boilerplate unless the user asks for low-level COBOL.
+
+CRUD/grid recipe:
+1. Inspect `PROJECT TREE INVENTORY` and choose a registered `.cidx`; ask if more
+   than one plausible file matches.
+2. Add one `IndexedFile` non-visual control, set `IndexedFile` to that project
+   entry, `OpenMode` to `I-O` for save/update/delete or `INPUT` for browse-only,
+   and usually set `AutoOpen` to true.
+3. Set `RecordName`, `KeyName`, and `StatusDataItem` from the indexed definition
+   context when available; otherwise ask instead of guessing.
+4. Add TextBox/ComboBox/etc. controls for editable record fields and a DataGrid
+   for browse/list views when useful.
+5. Wire buttons through EventBinder:
+   - New/Clear: clear bound controls / record fields.
+   - Save: move control values to record fields, then `PERFORM <id>-WRITE`.
+   - Update: move control values to record fields, then `PERFORM <id>-REWRITE`.
+   - Delete: set the key, then `PERFORM <id>-DELETE`.
+   - Find: set the key, then `PERFORM <id>-READ-INVALID`.
+   - First/Previous/Next/Last: `PERFORM <id>-READ-FIRST`,
+     `<id>-READ-PREVIOUS`, `<id>-READ-NEXT`, `<id>-READ-LAST`.
+   - Commit/Rollback/Close: call the matching generated paragraph.
+
 ## Rule 3 — the shadow / Neumorphic property group (deep reference)
 
 These properties exist on visual controls; they drive the drop-shadow, and — under

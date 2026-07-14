@@ -1069,7 +1069,8 @@ pub fn draw_neumorphic_user_border(
 
 // ── Non-visual control rendering (standardised "liquid glass" icons) ─────────────
 //
-// All non-visual controls (Timer / AgentObject / RestClient / SqlDatabase) share
+// All non-visual controls (Timer / AgentObject / RestClient / SqlDatabase /
+// IndexedFile) share
 // one dark glass card + a consistent light, stroke-drawn ("hand-drawn") icon and
 // a larger label, so they look uniform on the canvas.
 
@@ -1543,7 +1544,7 @@ pub fn draw_control(
     // ── Non-visual controls — standardised glass card + stroke icon + label ─────
     if matches!(
         ctrl.control_type,
-        CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase
+        CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase | CT::IndexedFile
     ) {
         nv_card(painter, rect, selected, glass, alpha_mul, a);
         let (cen, s, st) = nv_icon_geom(rect, a);
@@ -1561,9 +1562,13 @@ pub fn draw_control(
                 nv_icon_globe(painter, cen, s, st);
                 ctrl.get_prop("DefaultMethod").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "GET".into())
             }
-            _ /* SqlDatabase */ => {
+            CT::SqlDatabase => {
                 nv_icon_database(painter, cen, s, st);
                 ctrl.get_prop("Driver").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "sqlite".into())
+            }
+            _ /* IndexedFile */ => {
+                nv_icon_database(painter, cen, s, st);
+                ctrl.get_prop("OpenMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "INPUT".into())
             }
         };
         nv_label(painter, rect, &label, a);
@@ -5194,7 +5199,12 @@ fn regular_drop_shadow(
             .unwrap_or(false)
         || matches!(
             ctrl.control_type,
-            CT::Line | CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase
+            CT::Line
+                | CT::Timer
+                | CT::AgentObject
+                | CT::RestClient
+                | CT::SqlDatabase
+                | CT::IndexedFile
         )
     {
         return None;

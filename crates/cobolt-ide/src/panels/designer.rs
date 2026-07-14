@@ -31,7 +31,7 @@ use crate::app::{
     refresh_data_binding_target_properties, seed_control_array_binding_preview_values,
     DesignerClipboard,
 };
-use crate::project_model::{UserControlDef, UserControlEntry};
+use crate::project_model::{CoboltProject, UserControlDef, UserControlEntry};
 use cobolt_forms::render::{card_appear_transform, PlacementEffect};
 
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
@@ -3048,6 +3048,7 @@ impl DesignerPanel {
         clipboard: &mut Option<DesignerClipboard>,
         user_controls: &[UserControlDef],
         llm_cfg: &crate::llm::LlmConfig,
+        project: Option<&CoboltProject>,
         project_root: Option<&std::path::Path>,
     ) -> DesignerShowResult {
         let mut result = DesignerShowResult::default();
@@ -3145,6 +3146,17 @@ impl DesignerPanel {
             panel = panel.default_height(self.ai_pane_height).min_height(100.0);
         }
 
+        let original_style = ui.style().clone();
+        let mut ai_pane_style = (*original_style).clone();
+        ai_pane_style.visuals.widgets.noninteractive.bg_stroke =
+            egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+        ai_pane_style.visuals.widgets.hovered.fg_stroke =
+            egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+        ai_pane_style.visuals.widgets.active.fg_stroke =
+            egui::Stroke::new(0.0, egui::Color32::TRANSPARENT);
+        ai_pane_style.interaction.resize_grab_radius_side = 8.0;
+        ui.set_style(ai_pane_style);
+
         let resp = panel.show_inside(ui, |ui| {
                 if !self.ai_pane_open {
                     ui.vertical_centered(|ui| {
@@ -3162,6 +3174,15 @@ impl DesignerPanel {
                     let history_len = self.ai_history.len();
 
                     ui.add_space(4.0);
+                    let pane_style = ui.style().clone();
+                    let mut input_style = (*pane_style).clone();
+                    input_style.visuals.widgets.noninteractive.bg_stroke =
+                        egui::Stroke::new(1.0, egui::Color32::WHITE);
+                    input_style.visuals.widgets.hovered.fg_stroke =
+                        egui::Stroke::new(1.0, egui::Color32::WHITE);
+                    input_style.visuals.widgets.active.fg_stroke =
+                        egui::Stroke::new(1.0, egui::Color32::WHITE);
+                    ui.set_style(input_style);
                     egui::TopBottomPanel::bottom("global_ai_pane_input")
                         .resizable(false)
                         .frame(egui::Frame::none())
@@ -3238,6 +3259,7 @@ impl DesignerPanel {
                                 });
                             });
                         });
+                    ui.set_style(pane_style);
 
                     // Render history
                     egui::ScrollArea::vertical()
@@ -3275,7 +3297,11 @@ impl DesignerPanel {
                                     crate::agent::load_skills(std::path::Path::new("")),
                                 ),
                             };
-                            let context = crate::agent::build_context(&self.form);
+                            let context = crate::agent::build_context_with_project(
+                                &self.form,
+                                project,
+                                project_root,
+                            );
                             self.ai_rx = Some(crate::llm::spawn_agent_request(
                                 llm_cfg,
                                 &sys_prompt,
@@ -3393,6 +3419,17 @@ impl DesignerPanel {
                     }
                 }
             });
+        if self.ai_pane_open {
+            let panel_rect = resp.response.rect;
+            let y = panel_rect.min.y - 1.5;
+            let line_rect = egui::Rect::from_min_max(
+                egui::pos2(panel_rect.min.x, y),
+                egui::pos2(panel_rect.max.x, y + 3.0),
+            );
+            ui.painter()
+                .rect_filled(line_rect, 0.0, egui::Color32::WHITE);
+        }
+        ui.set_style(original_style);
 
         egui::ScrollArea::both()
             .id_salt("designer_canvas")
@@ -7332,6 +7369,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::RestClient => "RestClient",
         CT::Slider => "Slider",
         CT::SqlDatabase => "SqlDatabase",
+        CT::IndexedFile => "IndexedFile",
         CT::BarChart => "BarChart",
         CT::LineChart => "LineChart",
         CT::PieChart => "PieChart",

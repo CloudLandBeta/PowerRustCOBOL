@@ -49,7 +49,7 @@ use crate::panels::debugger::{DebugAction, DebuggerPanel};
 use crate::panels::{
     designer::DesignerPanel,
     editor::EditorPanel,
-    forms_list::FormsListPanel,
+    forms_list::{FormsListAction, FormsListPanel},
     indexed_editor::{IndexedEditorPanel, IndexedSelection, RawDialogResult, StructureAction},
     indexed_grid::{GridAction, IndexedGridPanel},
     indexed_new_dialog::{NewIndexedAction, NewIndexedDialog},
@@ -320,6 +320,8 @@ pub struct CoboltApp {
     // Project model
     cobolt_project: Option<CoboltProject>,
     project_path: Option<PathBuf>,
+    pending_form_delete: Option<PathBuf>,
+    pending_generated_delete: Option<PathBuf>,
     pending_user_control_delete: Option<String>,
     pending_indexed_delete: Option<String>,
     delete_cidx_file: bool,
@@ -670,6 +672,8 @@ impl CoboltApp {
 
             cobolt_project: None,
             project_path: None,
+            pending_form_delete: None,
+            pending_generated_delete: None,
             pending_user_control_delete: None,
             pending_indexed_delete: None,
             delete_cidx_file: false,
@@ -2087,7 +2091,12 @@ impl CoboltApp {
 
         if do_send && !busy {
             let form = self.inspect.as_ref().unwrap().designer.form.clone();
-            let context = crate::agent::build_context(&form);
+            let project_dir = self.project_dir();
+            let context = crate::agent::build_context_with_project(
+                &form,
+                self.cobolt_project.as_ref(),
+                project_dir.as_deref(),
+            );
             let (sys, skills) = match &dir {
                 Some(d) => (
                     crate::agent::effective_prompt(d),
@@ -5477,6 +5486,12 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
                     ProjectPanelEvent::Add(kind) => self.do_add_file_to_project(kind),
                     ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
+                    ProjectPanelEvent::ConfirmRemoveForm(path) => {
+                        self.pending_form_delete = Some(path);
+                    }
+                    ProjectPanelEvent::ConfirmRemoveGenerated(path) => {
+                        self.pending_generated_delete = Some(path);
+                    }
                     ProjectPanelEvent::ConfirmRemoveIndexed(rel) => {
                         self.pending_indexed_delete = Some(rel);
                     }
@@ -5544,6 +5559,8 @@ impl eframe::App for CoboltApp {
             }
         }
 
+        self.show_form_delete_confirm(ctx, &tr);
+        self.show_generated_delete_confirm(ctx, &tr);
         self.show_indexed_delete_confirm(ctx, &tr);
 
         // Tree semaphore: the active file, if edited since its last check, goes
@@ -7035,6 +7052,143 @@ impl CoboltApp {
 // ── Designer window contents ──────────────────────────────────────────────────
 
 impl CoboltApp {
+    fn show_form_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(path) = self.pending_form_delete.clone() else {
+            return;
+        };
+        let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new("Delete form")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Delete form '{}' from the project and remove its .cfrm file from disk?",
+                    name
+                ));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(path.display().to_string()).small());
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_form_delete = None;
+        }
+        if confirm {
+            self.pending_form_delete = None;
+            self.delete_form_path(path);
+        }
+    }
+
+    fn delete_form_path(&mut self, path: PathBuf) {
+        let rel = self.project_dir().and_then(|dir| relative_to(&path, &dir));
+        self.designers.retain(|(open_path, _)| open_path != &path);
+        if let Some(rel) = rel {
+            self.do_remove_file_from_project(rel);
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                self.forms_list.refresh();
+                self.output
+                    .push_status(format!("Deleted form {}", path.display()));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.forms_list.refresh();
+                self.output
+                    .push_status(format!("Form file was already missing: {}", path.display()));
+            }
+            Err(e) => {
+                self.output
+                    .push_status(format!("Could not delete form {}: {e}", path.display()));
+            }
+        }
+    }
+
+    fn show_generated_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(path) = self.pending_generated_delete.clone() else {
+            return;
+        };
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("generated COBOL");
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new("Delete generated COBOL")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Delete generated COBOL '{}' from the project and remove its .cbl file from disk?",
+                    name
+                ));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(path.display().to_string()).small());
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_generated_delete = None;
+        }
+        if confirm {
+            self.pending_generated_delete = None;
+            self.delete_generated_path(path);
+        }
+    }
+
+    fn delete_generated_path(&mut self, path: PathBuf) {
+        let rel = self.project_dir().and_then(|dir| relative_to(&path, &dir));
+        if let Some(rel) = rel {
+            self.do_remove_file_from_project(rel);
+        }
+        if self.pending_open_in_editor.as_ref() == Some(&path) {
+            self.pending_open_in_editor = None;
+        }
+        self.editor.tabs.retain(|tab| tab.path != path);
+        if self.editor.active >= self.editor.tabs.len() && !self.editor.tabs.is_empty() {
+            self.editor.active = self.editor.tabs.len() - 1;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                self.output
+                    .push_status(format!("Deleted generated COBOL {}", path.display()));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.output.push_status(format!(
+                    "Generated COBOL file was already missing: {}",
+                    path.display()
+                ));
+            }
+            Err(e) => {
+                self.output.push_status(format!(
+                    "Could not delete generated COBOL {}: {e}",
+                    path.display()
+                ));
+            }
+        }
+    }
+
     fn show_user_control_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
         let Some(name) = self.pending_user_control_delete.clone() else {
             return;
@@ -7237,22 +7391,29 @@ impl CoboltApp {
             .map(|project| project.user_controls.clone())
             .unwrap_or_default();
 
-        let (form_to_open, toolbox_action) = egui::SidePanel::left(format!("dl_{idx}"))
+        let (forms_list_action, toolbox_action) = egui::SidePanel::left(format!("dl_{idx}"))
             .resizable(true)
             .default_width(150.0)
             .show(ctx, |ui| {
-                let to_open = self.forms_list.show(ui, &open_path_refs, tr);
+                let forms_action = self.forms_list.show(ui, &open_path_refs, tr);
                 ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(2.0);
                 let tb = self.designers[idx].1.toolbox.show(ui, tr, &user_controls);
-                (to_open, tb)
+                (forms_action, tb)
             })
             .inner;
 
-        if let Some(path) = form_to_open {
-            self.load_form_from_path(path);
-            return; // re-render next frame with the new designer added
+        if let Some(action) = forms_list_action {
+            match action {
+                FormsListAction::Open(path) => {
+                    self.load_form_from_path(path);
+                    return; // re-render next frame with the new designer added
+                }
+                FormsListAction::Delete(path) => {
+                    self.pending_form_delete = Some(path);
+                }
+            }
         }
 
         // ── Unified 50-px icon toolbar (replaces both old toolbars) ──────────
@@ -7611,6 +7772,7 @@ impl CoboltApp {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_path_buf());
+        let project_snapshot = self.cobolt_project.clone();
         let designer_result = egui::CentralPanel::default()
             .show(ctx, |ui| {
                 self.designers[idx].1.show(
@@ -7618,6 +7780,7 @@ impl CoboltApp {
                     &mut self.clipboard,
                     &user_controls,
                     &llm_cfg,
+                    project_snapshot.as_ref(),
                     proj_root.as_deref(),
                 )
             })

@@ -66,6 +66,11 @@ layout live in `AGENTS.md`; this file is the do/don't list.)
   kept on Button/CheckBox/RadioButton. Never render a centered `<id>` placeholder on other controls.
 - Container membership is by a control's **`parent`** field (set on drop via
   `containers::resolve_drop_target`), not geometry — a visually-overlapping sibling is **not** a child.
+- **egui resizable panes:** never use `egui::TopBottomPanel::show_inside(...)`
+  (or the equivalent `SidePanel::show_inside(...)`) for panes the user must resize.
+  In egui 0.29, nested resizable panels renegotiate their parent rectangle every
+  frame and can snap the pane back to its minimum size. Use a top-level panel,
+  a manual splitter, or persisted explicit pane dimensions instead.
 
 ## Spec-driven workflow
 

@@ -1799,6 +1799,7 @@ pub enum ControlType {
     AgentObject, // AI Agent (non-visual) — connects to local LLM
     RestClient,  // REST API client (non-visual) — INVOKE-based HTTP calls
     SqlDatabase, // SQL database client (non-visual) — SQLx-backed open/query/fetch
+    IndexedFile, // Indexed file object (non-visual) — generated COBOL file-method facade
     Slider,      // Horizontal or vertical slider with min/max/step/tick marks
     // Charts — each binds to a COBOL data structure (table/array) and supports INVOKE
     BarChart,     // Vertical / horizontal bar chart
@@ -1909,6 +1910,7 @@ impl ControlType {
             ControlType::AgentObject => "AgentObject",
             ControlType::RestClient => "RestClient",
             ControlType::SqlDatabase => "SqlDatabase",
+            ControlType::IndexedFile => "IndexedFile",
             ControlType::Slider => "Slider",
             ControlType::BarChart => "BarChart",
             ControlType::LineChart => "LineChart",
@@ -1952,6 +1954,7 @@ impl ControlType {
             "AgentObject" => ControlType::AgentObject,
             "RestClient" => ControlType::RestClient,
             "SqlDatabase" => ControlType::SqlDatabase,
+            "IndexedFile" => ControlType::IndexedFile,
             "Slider" => ControlType::Slider,
             "BarChart" => ControlType::BarChart,
             "LineChart" => ControlType::LineChart,
@@ -2004,6 +2007,7 @@ impl ControlType {
             ControlType::AgentObject => (56, 56),
             ControlType::RestClient => (56, 56),
             ControlType::SqlDatabase => (64, 64),
+            ControlType::IndexedFile => (64, 64),
             ControlType::Slider => (200, 36),
             ControlType::BarChart => (320, 220),
             ControlType::LineChart => (320, 220),
@@ -2030,6 +2034,7 @@ impl ControlType {
             ControlType::AgentObject => "onResponse",
             ControlType::RestClient => "onResponseReceived",
             ControlType::SqlDatabase => "onQueryComplete",
+            ControlType::IndexedFile => "onOpen",
             ControlType::Slider => "onChange",
             ControlType::BarChart
             | ControlType::LineChart
@@ -2508,6 +2513,17 @@ impl ControlType {
                 "onQueryError",
                 "onRowFetched",
             ],
+            ControlType::IndexedFile => &[
+                "onOpen",
+                "onClose",
+                "onRead",
+                "onInvalidKey",
+                "onEndOfFile",
+                "onWrite",
+                "onRewrite",
+                "onDelete",
+                "onError",
+            ],
             ControlType::GroupBox | ControlType::Panel => &[
                 "onClick",
                 "onDblClick",
@@ -2729,6 +2745,7 @@ impl ControlType {
                 | ControlType::AgentObject
                 | ControlType::RestClient
                 | ControlType::SqlDatabase
+                | ControlType::IndexedFile
         )
     }
 }
@@ -3392,6 +3409,18 @@ impl Control {
                 props.insert("ResultSetDataItem".into(), PropValue::String("".into()));
                 // e.g. resultset1
                 // COBOL paragraphs
+            }
+            ControlType::IndexedFile => {
+                props.insert("IndexedFile".into(), PropValue::String("".into()));
+                props.insert("OpenMode".into(), PropValue::String("INPUT".into()));
+                props.insert("LoadStrategy".into(), PropValue::String("Disk".into()));
+                props.insert("AutoOpen".into(), PropValue::Bool(false));
+                props.insert("RecordName".into(), PropValue::String("".into()));
+                props.insert("KeyName".into(), PropValue::String("".into()));
+                props.insert("CurrentKeyDataItem".into(), PropValue::String("".into()));
+                props.insert("StatusDataItem".into(), PropValue::String("".into()));
+                props.insert("CurrentRecordDataItem".into(), PropValue::String("".into()));
+                props.insert("OperatorName".into(), PropValue::String("".into()));
             }
 
             // ── Charts ────────────────────────────────────────────────────────

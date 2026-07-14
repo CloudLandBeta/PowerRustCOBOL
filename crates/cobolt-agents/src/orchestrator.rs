@@ -403,14 +403,58 @@ pub fn route_specialist(prompt: &str) -> &'static str {
             "ハンドラ",
             "处理",
             "bind",
+            "wire",
+            "wiring",
+            "connect",
+            "hook",
+            "handle",
+            "make the",
+            "make my",
+            "when pressed",
+            "when clicked",
+            "action",
             "enlazar",
             "vincular",
             "ligar",
+            "conectar",
+            "conecte",
+            "conecta",
+            "acionar",
+            "acione",
+            "quando clicar",
+            "ao clicar",
+            "acción",
+            "acao",
+            "ação",
             "associer",
+            "connecter",
             "バインド",
             "绑定",
             "onload",
             "onclose",
+            "save/update/delete",
+            "save",
+            "update",
+            "delete",
+            "navigate",
+            "next",
+            "previous",
+            "first",
+            "last",
+            "indexed file",
+            "indexed",
+            "guardar",
+            "salvar",
+            "actualizar",
+            "atualizar",
+            "eliminar",
+            "excluir",
+            "borrar",
+            "navegar",
+            "siguiente",
+            "próximo",
+            "proximo",
+            "anterior",
         ],
     ) {
         return "EventBinder";
@@ -489,4 +533,35 @@ pub fn route_specialist(prompt: &str) -> &'static str {
 
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::route_specialist;
+
+    #[test]
+    fn routes_crud_navigation_wiring_to_event_binder() {
+        assert_eq!(
+            route_specialist(
+                "wire the Save, Update, Delete, Next and Previous buttons to the indexed file"
+            ),
+            "EventBinder"
+        );
+        assert_eq!(
+            route_specialist("conecte guardar actualizar eliminar y navegar el archivo indexado"),
+            "EventBinder"
+        );
+        assert_eq!(
+            route_specialist("fazer os botões salvar atualizar excluir e navegar funcionarem"),
+            "EventBinder"
+        );
+    }
+
+    #[test]
+    fn routes_plain_layout_request_to_forms_designer() {
+        assert_eq!(
+            route_specialist("add a button to Tab1 of TabControl-1"),
+            "FormsDesigner"
+        );
+    }
 }

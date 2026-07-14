@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use cobolt_agents::orchestrator::{route_specialist, MeshRequest, Orchestrator};
+#[cfg(feature = "local-retrieval")]
 use cobolt_agents::retrieval::index::LexicalIndex;
 use std::sync::Mutex;
 
@@ -81,6 +82,15 @@ fn router_recognizes_power_rust_cobol_languages() {
     for prompt in event_requests {
         assert_eq!(route_specialist(prompt), "EventBinder", "{prompt}");
     }
+
+    let event_wiring_requests = [
+        "Wire the Save, Update, Delete, Next and Previous buttons to the indexed file",
+        "Conecte guardar actualizar eliminar y navegar el archivo indexado",
+        "Fazer os botoes salvar atualizar excluir e navegar funcionarem",
+    ];
+    for prompt in event_wiring_requests {
+        assert_eq!(route_specialist(prompt), "EventBinder", "{prompt}");
+    }
 }
 
 #[tokio::test]
@@ -126,6 +136,7 @@ async fn local_ollama_native_wire_chosen_from_api_suffix() {
 }
 
 #[test]
+#[cfg(feature = "local-retrieval")]
 fn test_lexical_index_synonyms() {
     let index = LexicalIndex::new().expect("Failed to create index");
 

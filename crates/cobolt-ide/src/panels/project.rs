@@ -70,6 +70,10 @@ pub enum ProjectPanelEvent {
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
     Remove(String),
+    /// User requested deleting a form file from the project tree.
+    ConfirmRemoveForm(PathBuf),
+    /// User requested deleting generated COBOL from the project tree.
+    ConfirmRemoveGenerated(PathBuf),
     /// User requested removing an indexed file — prompts confirmation.
     ConfirmRemoveIndexed(String),
     /// User clicked the top/root project node in the tree (📁 ProjectName).
@@ -653,6 +657,7 @@ impl ProjectPanel {
                             "🔒",
                             Some(crate::theme::active().ed_generated),
                             false,
+                            true,
                             st,
                             cur,
                             &root,
@@ -661,7 +666,7 @@ impl ProjectPanel {
                     } else {
                         // The icon string is only used as a selector for vector draw
                         // (see file_row); real drawing no longer depends on FileKind::icon().
-                        file_row(ui, rel, "doc", None, true, st, cur, &root, events);
+                        file_row(ui, rel, "doc", None, true, false, st, cur, &root, events);
                     }
                 }
             });
@@ -696,6 +701,14 @@ impl ProjectPanel {
                 .show_header(ui, |ui| {
                     ui.add_space(8.0);
                     status_dot(ui, form_status);
+                    if let Some(p) = &abs {
+                        let delete_resp = ui
+                            .small_button("🗑")
+                            .on_hover_text(format!("Delete form {rel}"));
+                        if delete_resp.clicked() {
+                            events.push(ProjectPanelEvent::ConfirmRemoveForm(p.clone()));
+                        }
+                    }
                     tree_icon(ui, draw_document_icon);
                     full_width_select(ui, form_selected, RichText::new(name)).on_hover_text(rel)
                 })
@@ -1009,6 +1022,7 @@ fn file_row(
     icon: &str,
     color: Option<Color32>,
     removable: bool,
+    delete_generated: bool,
     status: ElementStatus,
     cur: &Option<String>,
     root: &Option<PathBuf>,
@@ -1032,6 +1046,17 @@ fn file_row(
                 tree_icon(ui, draw_lock_icon);
             } else {
                 tree_icon(ui, draw_document_icon);
+            }
+            if delete_generated {
+                if let Some(dir) = root {
+                    if ui
+                        .small_button("🗑")
+                        .on_hover_text(format!("Delete generated COBOL {rel}"))
+                        .clicked()
+                    {
+                        events.push(ProjectPanelEvent::ConfirmRemoveGenerated(dir.join(rel)));
+                    }
+                }
             }
             full_width_select(ui, is_sel, text).on_hover_text(rel)
         })

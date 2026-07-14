@@ -16,21 +16,31 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tantivy = "0.22.1"
-rig-sqlite = "0.40.0"
-tokenizers = "0.23.1"
+tantivy = { version = "0.22.1", optional = true }
+rig-sqlite = { version = "0.40.0", optional = true }
+tokenizers = { version = "0.23.1", optional = true }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", optional = true, features = ["http", "http-proto", "internal-logs", "logs", "metrics", "opentelemetry-http", "prost", "reqwest-blocking-client", "trace"] }
-ndarray = "0.15"
+ndarray = { version = "0.15", optional = true }
 num_cpus = "1.16"
-ort = "2.0.0-rc.12"
-sqlite-vec = "0.1"
-rusqlite = { version = "0.32", features = ["bundled"] }
-tokio-rusqlite = "0.6"
+ort = { version = "2.0.0-rc.12", optional = true }
+sqlite-vec = { version = "0.1", optional = true }
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+tokio-rusqlite = { version = "0.6", optional = true }
 cobolt-forms = { path = "../cobolt-forms" }
 tempfile = "3.10"
 reqwest = { version = "0.13.3", features = ["json", "stream"] }
 
 [features]
 default = []
+local-retrieval = [
+    "dep:tantivy",
+    "dep:rig-sqlite",
+    "dep:tokenizers",
+    "dep:ndarray",
+    "dep:ort",
+    "dep:sqlite-vec",
+    "dep:rusqlite",
+    "dep:tokio-rusqlite",
+]
 otel = [] # Optional OpenTelemetry export support

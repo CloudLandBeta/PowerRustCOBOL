@@ -15,6 +15,9 @@
 //! validation (T2), the request CONTEXT builder (T3), and the `agentic_ai/`
 //! scaffold + prompt/skill resolvers (T4).
 
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
+
 use serde::Deserialize;
 
 // ── Change-set data model (T1) ───────────────────────────────────────────────
@@ -424,8 +427,6 @@ fn deploy_property_valid(ct: &ControlType, key: &str) -> bool {
 
 // ── Default assets, scaffold & resolvers (T4) ────────────────────────────────
 
-use std::path::{Path, PathBuf};
-
 /// Relative locations under the IDE working directory.
 const AGENTIC_DIR: &str = "agentic_ai";
 const PROMPT_FILE: &str = "system-prompt.md";
@@ -538,6 +539,8 @@ pub fn load_skills(project_dir: &Path) -> String {
 
 use cobolt_forms::{Control, PropValue};
 
+use crate::project_model::{CoboltProject, ProjectFiles};
+
 /// Build the compact CONTEXT block appended to each agent request (R2): the form's
 /// control inventory (id, type, geometry, non-default properties), a per-type
 /// property/event legend, and existing procedure names. Kept terse to save tokens.
@@ -550,7 +553,7 @@ pub fn build_context(form: &Form) -> String {
     ));
 
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
-    out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
+    out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
 
     out.push_str("CONTROLS:\n");
     if form.controls.is_empty() {
@@ -667,6 +670,165 @@ pub fn build_context(form: &Form) -> String {
         }
     ));
     out
+}
+
+/// Build the request context with both the current form API and the project tree
+/// inventory. The project inventory is what lets the assistant discover indexed
+/// files, generated/common COBOL, assets, documentation, and project-scoped
+/// controls without the user spelling out exact filenames.
+pub fn build_context_with_project(
+    form: &Form,
+    project: Option<&CoboltProject>,
+    project_root: Option<&Path>,
+) -> String {
+    let mut out = build_context(form);
+    out.push('\n');
+    out.push_str(&build_project_tree_context(project, project_root));
+    out
+}
+
+fn build_project_tree_context(
+    project: Option<&CoboltProject>,
+    project_root: Option<&Path>,
+) -> String {
+    let mut out = String::new();
+    out.push_str("PROJECT TREE INVENTORY\n");
+    out.push_str(
+        "Use this inventory to discover project resources before proposing changes. \
+         For CRUD forms over indexed files, inspect the INDEXED FILES section first. \
+         If the request matches multiple resources, ask the user which one to use.\n",
+    );
+
+    let Some(project) = project else {
+        out.push_str("  (no project is currently open)\n");
+        return out;
+    };
+
+    let _ = writeln!(
+        out,
+        "PROJECT: {} version {} main {}",
+        project.project.name, project.project.version, project.project.main
+    );
+    append_file_section(&mut out, "COMMON COBOL SOURCES", &project.files.sources);
+    append_file_section(&mut out, "FORMS", &project.files.forms);
+    append_indexed_section(&mut out, &project.files, project_root);
+    append_file_section(&mut out, "GENERATED COBOL", &project.files.generated);
+    append_file_section(&mut out, "ASSETS", &project.files.assets);
+    append_file_section(&mut out, "DOCUMENTATION", &project.files.documentation);
+
+    out.push_str("PROJECT USER CONTROLS:\n");
+    if project.user_controls.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for uc in &project.user_controls {
+            let _ = writeln!(
+                out,
+                "  {} ({}x{}, {} child controls)",
+                uc.name,
+                uc.width,
+                uc.height,
+                uc.controls.len()
+            );
+        }
+    }
+
+    out
+}
+
+fn append_file_section(out: &mut String, title: &str, files: &[String]) {
+    let _ = writeln!(out, "{title}:");
+    if files.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for rel in files {
+            let _ = writeln!(out, "  - {rel}");
+        }
+    }
+}
+
+fn append_indexed_section(out: &mut String, files: &ProjectFiles, project_root: Option<&Path>) {
+    out.push_str("INDEXED FILES (.cidx):\n");
+    if files.indexed.is_empty() {
+        out.push_str("  (none)\n");
+        return;
+    }
+
+    for rel in &files.indexed {
+        let _ = writeln!(out, "  - {rel}");
+        let Some(abs) = project_root.map(|root| resolve_project_path(root, rel)) else {
+            continue;
+        };
+        match cobolt_indexed::load_indexed(&abs) {
+            Ok(def) => {
+                let _ = writeln!(
+                    out,
+                    "      COBOL file name: {}; ASSIGN: {}; record length: {}",
+                    def.name,
+                    def.assign_path,
+                    def.record_length()
+                );
+                if let Some(root) = def.record_root() {
+                    let _ = writeln!(out, "      Record root: {}", root.name);
+                }
+                if !def.keys.primary.parts.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "      Primary key: {}",
+                        key_part_names(&def.keys.primary.parts)
+                    );
+                }
+                if !def.keys.alternates.is_empty() {
+                    let names: Vec<String> = def
+                        .keys
+                        .alternates
+                        .iter()
+                        .map(|k| k.name.clone().unwrap_or_else(|| key_part_names(&k.parts)))
+                        .collect();
+                    let _ = writeln!(out, "      Alternate keys: {}", names.join(", "));
+                }
+                let mut leaves = Vec::new();
+                if let Some(root) = def.record_root() {
+                    for leaf in root.all_leaves() {
+                        leaves.push(format!(
+                            "{} PIC {} offset {:?} length {:?}",
+                            leaf.name, leaf.pic, leaf.offset, leaf.length
+                        ));
+                    }
+                }
+                if leaves.is_empty() {
+                    out.push_str("      Fields: (none)\n");
+                } else {
+                    let visible: Vec<&str> = leaves.iter().take(24).map(String::as_str).collect();
+                    let suffix = if leaves.len() > visible.len() {
+                        format!(" ... +{} more", leaves.len() - visible.len())
+                    } else {
+                        String::new()
+                    };
+                    let _ = writeln!(out, "      Fields: {}{}", visible.join("; "), suffix);
+                }
+            }
+            Err(err) => {
+                let _ = writeln!(out, "      (definition could not be read: {err})");
+            }
+        }
+    }
+}
+
+fn key_part_names(parts: &[cobolt_indexed::KeyPartDef]) -> String {
+    parts
+        .iter()
+        .map(|p| p.field_name.as_str())
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
+fn resolve_project_path(project_root: &Path, rel: &str) -> PathBuf {
+    let path = Path::new(rel);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_root.join(path)
+    }
 }
 
 /// Properties whose value differs from a fresh control of the same type — the ones
@@ -908,6 +1070,37 @@ mod tests {
         assert!(ctx.contains("dropshadow"));
         assert!(ctx.contains("ShadowEnabled"));
         assert!(ctx.contains("PROCEDURES:"));
+    }
+
+    #[test]
+    fn context_lists_project_tree_and_indexed_files() {
+        let mut project = crate::project_model::CoboltProject::new("Demo", "src/main.cbl");
+        project.files.sources.push("src/common.cbl".into());
+        project.files.forms.push("forms/customer.cfrm".into());
+        project.files.indexed.push("indexed/customer.cidx".into());
+        project
+            .files
+            .generated
+            .push("generated/customer.cbl".into());
+        project.files.assets.push("assets/logo.png".into());
+        project.files.documentation.push("docs/readme.md".into());
+        project
+            .user_controls
+            .push(crate::project_model::UserControlDef {
+                name: "AddressBlock".into(),
+                width: 240,
+                height: 80,
+                controls: Vec::new(),
+            });
+
+        let ctx = build_context_with_project(&form_with_label(), Some(&project), None);
+        assert!(ctx.contains("PROJECT TREE INVENTORY"), "inventory: {ctx}");
+        assert!(ctx.contains("INDEXED FILES (.cidx):"), "inventory: {ctx}");
+        assert!(ctx.contains("indexed/customer.cidx"), "inventory: {ctx}");
+        assert!(ctx.contains("COMMON COBOL SOURCES:"), "inventory: {ctx}");
+        assert!(ctx.contains("src/common.cbl"), "inventory: {ctx}");
+        assert!(ctx.contains("PROJECT USER CONTROLS:"), "inventory: {ctx}");
+        assert!(ctx.contains("AddressBlock"), "inventory: {ctx}");
     }
 
     #[test]

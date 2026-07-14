@@ -8,6 +8,143 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.29.0] — 2026-07-14
+
+### Added
+
+- **IndexedFile non-visual control** — Introduced a non-visual Form Designer
+  control for project-registered indexed files, with INPUT/I-O mode,
+  Disk/Memory load strategy, auto-open lifecycle support, project `.cidx`
+  selection, and generated COBOL paragraphs for open, start, navigation reads,
+  write/rewrite/delete, commit, rollback, and close.
+- **Form Designer Agent desktop-design skill** — Added a dedicated desktop form
+  design skill for the agent, covering typography, readable foreground colors,
+  15px corner radius, Neumorphic defaults, label/input alignment,
+  tab/container ownership, preservation rules, resize behavior, accessibility,
+  and atomic operation output.
+
+### Fixed
+
+- **Agent indexed-file CRUD awareness** — The agent now knows to use
+  `IndexedFile` controls, real properties, generated method paragraphs, and
+  project-tree `.cidx` discovery when creating CRUD, browse, search, navigation,
+  and grid forms over indexed files.
+- **Form Designer AI project discovery and routing** — The agent receives a
+  project-tree inventory, routes CRUD/navigation event wiring to EventBinder,
+  and avoids producing raw COBOL that is not attached to control events.
+- **Windows IDE link error** — The optional local embedding/retrieval stack is no
+  longer linked by default, avoiding the MSVC runtime-library mismatch from the
+  ONNX/tokenizers dependency chain.
+- **Designer usability polish** — Added generated-COBOL delete actions, improved
+  form delete affordances, stabilized the AI pane resize line, and documented the
+  egui nested-panel resizing guardrail.
+
+## [PowerRustCOBOL 1.28.43] — 2026-07-14
+
+### Fixed
+
+- **Form Designer Agent desktop-design skill** — Added the
+  `rustcobol-desktop-form-design` skill to the agent skill set and embedded IDE
+  assets, and anchored the FormsDesigner specialist to its desktop form design
+  rules for typography, colors, corner radius, alignment, themes, tab/container
+  ownership, preservation, validation, resizing, accessibility, and atomic
+  operation output.
+
+## [PowerRustCOBOL 1.28.42] — 2026-07-14
+
+### Fixed
+
+- **Agent IndexedFile awareness** — Updated the agent prompts and
+  RustCOBOL control-property skill so CRUD, browse, search, and grid requests
+  over indexed files prefer the non-visual `IndexedFile` control, its real
+  properties, and its generated method paragraphs instead of hand-rolled
+  indexed-file boilerplate.
+
+## [PowerRustCOBOL 1.28.41] — 2026-07-14
+
+### Added
+
+- **IndexedFile non-visual control** — Added an IndexedFile designer control
+  with project-registered indexed-file selection, INPUT/I-O open mode,
+  Disk/Memory load strategy, auto-open on form load, generated close on form
+  shutdown, and generated COBOL method paragraphs for open, start, reads,
+  write/rewrite/delete, commit, rollback, and close.
+
+## [PowerRustCOBOL 1.28.40] — 2026-07-14
+
+### Fixed
+
+- **Form Designer AI event wiring** — Requests to wire/connect CRUD and
+  navigation buttons for indexed files now route to the Event Binder specialist
+  instead of the raw Code Generator, so generated handler code is returned as
+  `generate_event_handler` operations and creates the control `onClick`
+  bindings on apply.
+
+## [PowerRustCOBOL 1.28.39] — 2026-07-14
+
+### Fixed
+
+- **Windows IDE link error** — The default `cobolt-agents` build no longer links
+  the local ONNX/tokenizers retrieval stack used for optional local embeddings.
+  This avoids the MSVC runtime-library mismatch between `ort_sys` and
+  `esaxx-rs` when building `cobolt-ide` on Windows, while keeping the retrieval
+  modules available behind the `local-retrieval` feature.
+
+## [PowerRustCOBOL 1.28.38] — 2026-07-14
+
+### Fixed
+
+- **Generated COBOL delete button** — The Project pane's Generated Code tree
+  now shows a trashcan-only delete button for generated `.cbl` files, with a
+  confirmation dialog that removes the file from the project, closes an open
+  editor tab for it, and deletes the `.cbl` from disk.
+
+## [PowerRustCOBOL 1.28.37] — 2026-07-14
+
+### Fixed
+
+- **Form Designer AI project discovery** — The Form Designer assistant and the
+  IDE agent bar now receive a project-tree inventory in their request context,
+  including forms, common/generated COBOL, assets, documentation, project user
+  controls, and indexed-file definitions with record/key/field summaries when
+  the `.cidx` can be read.
+
+## [PowerRustCOBOL 1.28.36] — 2026-07-14
+
+### Fixed
+
+- **AI assistant pane resize affordance** — The Form Designer AI assistant pane
+  now draws one stable 3px white resize line while making egui's hover/active
+  separator stroke transparent, removing the flickering ghost line above the
+  pane boundary. The internal prompt separator remains 1px.
+
+## [PowerRustCOBOL 1.28.31] — 2026-07-14
+
+### Fixed
+
+- **Project tree form delete button** — The trashcan-only form delete button now
+  appears next to form names in the Project pane's Forms tree as well as in the
+  Form Designer's Forms pane, using the same confirmation flow.
+
+## [PowerRustCOBOL 1.28.30] — 2026-07-14
+
+### Added
+
+- **Delete form from the Forms list** — The Form Designer's Forms pane now shows
+  a trashcan-only button before each form name. Clicking it asks for
+  confirmation, then removes the `.cfrm` from disk, removes it from the project,
+  closes any open designer for that form, and refreshes the list.
+
+## [PowerRustCOBOL 1.28.29] — 2026-07-14
+
+### Fixed
+
+- **AI assistant pane resize guardrail** — Identified
+  `egui::TopBottomPanel::show_inside(...)` / `SidePanel::show_inside(...)` as
+  the nested-panel pattern that can make resizable panes snap back to their
+  minimum size, and added explicit project/agent prompt rules forbidding it for
+  user-resizable panes.
+
 ## [PowerRustCOBOL 1.28.28] — 2026-07-14
 
 ### Fixed
