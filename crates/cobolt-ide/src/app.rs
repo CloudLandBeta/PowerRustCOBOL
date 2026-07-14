@@ -389,6 +389,7 @@ pub struct CoboltApp {
     /// A fatal form-runtime / codegen error to surface in a modal dialog. The
     /// IDE stays open; execution has already stopped on the interpreter thread.
     form_error: Option<String>,
+    alert_error: Option<String>,
     save_alert_msg: Option<String>,
     /// Which surface owns the save alert: `Some(idx)` = the designer viewport at
     /// `idx` (so the alert is not hidden behind it), `None` = the main IDE window.
@@ -699,6 +700,7 @@ impl CoboltApp {
             about_open: false,
             doc_viewer: Default::default(),
             form_error: None,
+            alert_error: None,
             save_alert_msg: None,
             save_alert_designer: None,
             agent_preview: None,
@@ -2257,10 +2259,12 @@ impl CoboltApp {
         action: &str,
     ) -> bool {
         if let Some(conflict) = self.form_cobol_id_conflict(form_name, exclude_path) {
-            self.output.push_status(format!(
+            let msg = format!(
                 "Cannot {action}: form COBOL ID '{form_name}' is already used by {}.",
                 conflict.display()
-            ));
+            );
+            self.output.push_status(msg.clone());
+            self.alert_error = Some(msg);
             true
         } else {
             false
@@ -4384,6 +4388,33 @@ impl CoboltApp {
         }
     }
 
+    fn show_alert_error(&mut self, ctx: &Context) {
+        let msg = match &self.alert_error {
+            Some(m) => m.clone(),
+            None => return,
+        };
+        let mut open = true;
+        egui::Window::new("⛔ Error")
+            .id(egui::Id::new("alert_error_dialog"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(&msg).size(14.0).strong());
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        self.alert_error = None;
+                    }
+                });
+            });
+        if !open {
+            self.alert_error = None;
+        }
+    }
+
     fn show_save_alert(&mut self, ctx: &Context) {
         let form_name = match &self.save_alert_msg {
             Some(n) => n.clone(),
@@ -5223,6 +5254,8 @@ impl eframe::App for CoboltApp {
         self.show_building_modal(ctx);
         // Fatal COBOL error (launch or runtime) — modal, IDE stays open.
         self.show_form_error(ctx);
+        // Duplicate COBOL ID / Validation alert — modal.
+        self.show_alert_error(ctx);
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
