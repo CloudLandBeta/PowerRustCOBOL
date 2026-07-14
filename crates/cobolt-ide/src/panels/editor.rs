@@ -4487,7 +4487,7 @@ END-EVALUATE
         let dummy = KnownControl {
             id: "s".into(),
             ctrl_type: "Slider".into(),
-            properties: vec![],
+            properties: cobolt_forms::model::property_names_for("Slider"),
             extra_methods: vec![],
         };
         let items = member_completions(&dummy, "");
@@ -4512,7 +4512,7 @@ END-EVALUATE
         let dummy = KnownControl {
             id: "s".into(),
             ctrl_type: "Slider".into(),
-            properties: vec![],
+            properties: cobolt_forms::model::property_names_for("Slider"),
             extra_methods: vec![],
         };
         let v = member_completions(&dummy, "vis");

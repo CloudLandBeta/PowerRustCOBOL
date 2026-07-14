@@ -2895,6 +2895,8 @@ pub const DEFAULT_BACKGROUND_COLOR: &str = "#F0F0F0";
 /// and the DataGrid renderer's gate can never drift apart.
 pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 
+const TAB_CONTROL_MCP_TOOL: &str = r#"{"name":"manage_tab_control_tabs","description":"Creates, updates, reorders, selects, or removes tabs that belong to a TabControl in the form designer. A tab is a child container owned by exactly one TabControl and represents one selectable page within that control. Tabs must not be created as independent top-level form controls. Controls placed on a tab belong to that tab page and are visible only when the tab is active, unless the designer is explicitly displaying inactive pages for editing.","inputSchema":{"type":"object","required":["operation","tab_control_id"],"properties":{"operation":{"type":"string","enum":["create","update","remove","reorder","select"],"description":"The operation to perform on a tab belonging to the specified TabControl."},"tab_control_id":{"type":"string","description":"The unique identifier of the parent TabControl that owns the tab. The referenced control must exist and must be a TabControl."},"tab_id":{"type":"string","description":"The stable unique identifier of the tab page. Required for update, remove, reorder, and select operations. The tab must belong to the specified TabControl."},"caption":{"type":"string","description":"The text displayed in the tab header. Changing the caption does not change the tab identifier or the ownership of controls placed inside the tab."},"index":{"type":"integer","minimum":0,"description":"The zero-based position of the tab within the parent TabControl. Tabs are displayed according to this order. Reordering a tab must preserve its identifier and child controls."},"selected":{"type":"boolean","description":"Determines whether this tab becomes the active page of the TabControl. Only one tab within the same TabControl may be selected at a time."},"enabled":{"type":"boolean","description":"Determines whether the user can activate the tab at runtime. A disabled tab remains part of the TabControl and retains its child controls."},"visible":{"type":"boolean","description":"Determines whether the tab header and its page are available at runtime. Hiding a tab must not delete the tab or its child controls."},"tooltip":{"type":"string","description":"Optional explanatory text displayed when the user points to the tab header."},"icon":{"type":["string","null"],"description":"Optional icon resource associated with the tab header. The value must reference a valid project resource or be null to remove the icon."},"confirm_remove_with_children":{"type":"boolean","default":false,"description":"Confirms removal of a tab that contains child controls. Removing a tab may also remove or orphan its contained controls, depending on the designer policy. The tool must reject destructive removal unless this value is true."}},"allOf":[{"if":{"properties":{"operation":{"const":"create"}}},"then":{"required":["caption"]}},{"if":{"properties":{"operation":{"enum":["update","remove","reorder","select"]}}},"then":{"required":["tab_id"]}},{"if":{"properties":{"operation":{"const":"reorder"}}},"then":{"required":["index"]}}]}}"#;
+
 impl Control {
     pub fn new(id: impl Into<String>, control_type: ControlType, x: i32, y: i32) -> Self {
         let (w, h) = control_type.default_size();
@@ -3077,6 +3079,7 @@ impl Control {
                     "BackgroundGradientDirection".into(),
                     PropValue::String("Vertical".into()),
                 );
+                props.insert("mcp_tool".into(), PropValue::String("".into()));
             }
             ControlType::GroupBox => {
                 props.insert("Caption".into(), PropValue::String(String::new()));
@@ -3086,6 +3089,7 @@ impl Control {
                 // Container behaviour (spec 012).
                 props.insert("HScroll".into(), PropValue::Bool(false));
                 props.insert("VScroll".into(), PropValue::Bool(false));
+                props.insert("mcp_tool".into(), PropValue::String("".into()));
                 // Project-scoped composite-control marker (spec 020). Empty for
                 // normal GroupBoxes; deployed User Controls store the definition
                 // name here.
@@ -3203,6 +3207,10 @@ impl Control {
                 // Container behaviour (spec 012).
                 props.insert("HScroll".into(), PropValue::Bool(false));
                 props.insert("VScroll".into(), PropValue::Bool(false));
+                props.insert(
+                    "mcp_tool".into(),
+                    PropValue::String(TAB_CONTROL_MCP_TOOL.into()),
+                );
             }
             ControlType::MenuBar => {
                 props.insert(

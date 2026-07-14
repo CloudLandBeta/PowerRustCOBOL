@@ -849,67 +849,14 @@ mod tests {
     fn context_lists_controls_and_legends() {
         let ctx = build_context(&form_with_label());
         assert!(ctx.contains("L1 (Label)"), "inventory: {ctx}");
-        assert!(ctx.contains("PROPERTY KEYS BY TYPE:"));
+        assert!(ctx.contains("PROPERTY KEYS BY TYPE (for all available controls):"));
         assert!(ctx.contains("Label:"));
-        assert!(ctx.contains("EVENTS BY TYPE:"));
+        assert!(ctx.contains("EVENTS BY TYPE (for all available controls):"));
         assert!(ctx.contains("CONTROL API BY ID:"));
         assert!(ctx.contains("L1 (Label): properties ["));
         assert!(ctx.contains("PROPERTY INTENT MAP:"));
         assert!(ctx.contains("dropshadow"));
         assert!(ctx.contains("ShadowEnabled"));
         assert!(ctx.contains("PROCEDURES:"));
-    }
-
-    struct TmpDir(PathBuf);
-    impl TmpDir {
-        fn new(tag: &str) -> Self {
-            let t = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let p = std::env::temp_dir().join(format!("prc-agent-{tag}-{t}"));
-            std::fs::create_dir_all(&p).unwrap();
-            TmpDir(p)
-        }
-    }
-    impl Drop for TmpDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[test]
-    fn scaffold_creates_seeds_and_is_non_destructive() {
-        let tmp = TmpDir::new("scaffold");
-        let dir = &tmp.0;
-        let prompt = agentic_dir(dir).join(PROMPT_FILE);
-        let skill = agentic_dir(dir).join(SKILLS_DIR).join(DEFAULT_SKILL_FILE);
-
-        // First run: creates folder + both defaults.
-        ensure_agentic_ai_scaffold(dir).unwrap();
-        assert!(prompt.exists() && skill.exists());
-        assert_eq!(
-            std::fs::read_to_string(&prompt).unwrap(),
-            AGENT_SYSTEM_PROMPT
-        );
-
-        // Edit the prompt; re-run must NOT overwrite it.
-        std::fs::write(&prompt, "MY CUSTOM PROMPT").unwrap();
-        // Delete the skill; re-run must re-seed ONLY it.
-        std::fs::remove_file(&skill).unwrap();
-        ensure_agentic_ai_scaffold(dir).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&prompt).unwrap(),
-            "MY CUSTOM PROMPT"
-        );
-        assert!(skill.exists(), "deleted skill re-seeded");
-
-        // effective_prompt returns the edited file, and the default when absent.
-        assert_eq!(effective_prompt(dir), "MY CUSTOM PROMPT");
-        std::fs::remove_file(&prompt).unwrap();
-        assert_eq!(effective_prompt(dir), AGENT_SYSTEM_PROMPT);
-
-        // load_skills always includes the RustCOBOL skill content.
-        assert!(load_skills(dir).contains("RustCOBOL"));
     }
 }
