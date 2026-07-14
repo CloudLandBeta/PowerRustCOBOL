@@ -8,6 +8,20 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.21] — 2026-07-13
+
+### Added
+
+- **Common Code COBOL Editor Buttons** — Added Save and Cancel buttons at the bottom of the editor panel for common code procedures.
+- **AI Agent `message` Operation** — Added a dedicated `message` operation to the agent protocol to support clean conversational responses and help messages without corrupting JSON payloads.
+
+### Changed
+
+- **AI Assistant UX & Theme Consistency** — Styled AI assistant chat bubbles with a 15px corner radius, white foreground color, and distinct blue (AI) and green (User) backgrounds.
+- **AI Assistant Height Constraint** — Replaced auto-resizing behavior with a fixed panel height in egui, preventing the AI pane from expanding to fit growing history.
+- **Absolute Coordinates in Forms** — Enforced absolute positioning for child controls nested within `TabControl` or `Panel` components. Updated the layout designer skill and system prompts to make the agent aware of absolute coordinates.
+- **Architecture & System Prompts** — Documented the multi-agent mesh architecture with detailed diagrams, restructured agent skills (types, extensions, layout, properties, concise), and updated prompts.
+
 ## [PowerRustCOBOL 1.28.20] — 2026-07-12
 
 ### Fixed
