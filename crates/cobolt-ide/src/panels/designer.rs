@@ -512,7 +512,8 @@ const STYLE_PROP_KEYS: &[&str] = &[
 ///   1. User selects the source control on the canvas normally.
 ///   2. User clicks "🖌 Copy Style" — style is captured immediately from the selection.
 ///   3. Painter enters `WaitingForTarget`; cursor becomes a crosshair.
-///   4. User clicks any target control → style is pasted; returns to `Idle`.
+///   4. User clicks one or more target controls → style is pasted and the
+///      painter remains active.
 ///   Clicking the button again while in `WaitingForTarget` cancels.
 #[allow(dead_code)]
 pub(crate) enum FormatPainter {
@@ -2994,7 +2995,7 @@ impl DesignerPanel {
         !self.redo_stack.is_empty()
     }
 
-    /// Toggle the format-painter state machine (same logic as the old toolbar click).
+    /// Toggle the format-painter state machine.
     pub(crate) fn toggle_format_painter(&mut self) {
         match &self.format_painter {
             FormatPainter::WaitingForTarget { .. } | FormatPainter::WaitingForSource => {
@@ -6691,11 +6692,16 @@ impl DesignerPanel {
                         for (k, v) in &props {
                             tgt.properties.insert(k.clone(), v.clone());
                         }
-                        tgt.animations = animations;
+                        tgt.animations = animations.clone();
                         // Copy only size (w, h) from source — preserve target's x, y position
                         tgt.rect.w = src_rect.w;
                         tgt.rect.h = src_rect.h;
                     }
+                    self.format_painter = FormatPainter::WaitingForTarget {
+                        props,
+                        animations,
+                        src_rect,
+                    };
                     self.dirty = true;
                 }
                 return; // Consume the click — don't fall through to selection logic
@@ -8049,7 +8055,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             has_sel,
             fp_active,
-            "Format Painter — copy/paste control style",
+            "Format Painter — copy/paste control style. Hit ESCape key to stop pasting style",
             &icon_format_painter,
         ) {
             action = DesignerToolbarAction::FormatPainter;
@@ -9475,6 +9481,25 @@ mod clipboard_tests {
         event.code = code.to_owned();
         ctrl.events.push(event);
         ctrl
+    }
+
+    #[test]
+    fn format_painter_click_toggles_persistent_mode() {
+        let mut designer = DesignerPanel::new(Form::new("FormA", "A", 640, 480));
+        designer
+            .form
+            .controls
+            .push(Control::new("Button-1", ControlType::Button, 10, 20));
+        designer.selected_ids = vec!["Button-1".to_owned()];
+
+        designer.toggle_format_painter();
+        match &designer.format_painter {
+            FormatPainter::WaitingForTarget { .. } => {}
+            _ => panic!("click should capture a persistent format painter"),
+        }
+
+        designer.toggle_format_painter();
+        assert!(matches!(designer.format_painter, FormatPainter::Idle));
     }
 
     #[test]

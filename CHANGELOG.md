@@ -8,6 +8,14 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.29.1] — 2026-07-14
+
+### Fixed
+
+- **Form Designer Copy Style latch** — Clicking the Copy Style toolbar icon now
+  keeps the format painter active so the captured style can be applied to one
+  or more controls until the icon is clicked again or Escape is pressed.
+
 ## [PowerRustCOBOL 1.29.0] — 2026-07-14
 
 ### Added
