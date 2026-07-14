@@ -53,6 +53,15 @@ impl OutputPanel {
         Self::default()
     }
 
+    /// Plain-text snapshot of the current log, suitable for clipboard/export.
+    pub fn all_text(&self) -> String {
+        self.lines
+            .iter()
+            .map(OutputLine::as_text)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// Push a new line from the runner.
     pub fn push_msg(&mut self, msg: &RunMsg) {
         match msg {
@@ -125,6 +134,13 @@ impl OutputPanel {
                 ui.horizontal(|ui| {
                     ui.strong(tr.panel_output);
                     ui.separator();
+                    if ui
+                        .add_enabled(!self.lines.is_empty(), egui::Button::new("Copy log"))
+                        .on_hover_text("Copy the entire current log to the clipboard")
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(self.all_text());
+                    }
                     if ui.small_button(tr.panel_clear).clicked() {
                         self.clear();
                     }
@@ -226,5 +242,28 @@ impl OutputPanel {
 
                 self.scroll_to_bottom = false;
             });
+    }
+}
+
+impl OutputLine {
+    fn as_text(&self) -> String {
+        match self {
+            OutputLine::Output(s)
+            | OutputLine::Status(s)
+            | OutputLine::Reasoning(s)
+            | OutputLine::AiInfo(s)
+            | OutputLine::AiDetail(s) => s.clone(),
+            OutputLine::Diagnostic(d) => {
+                let prefix = match d.severity {
+                    DiagSeverity::Error => "error",
+                    DiagSeverity::Warning => "warning",
+                    DiagSeverity::Info => "note",
+                };
+                format!("{}:{}: {}: {}", d.line, d.col, prefix, d.message)
+            }
+            OutputLine::Error(e) => format!("error: {e}"),
+            OutputLine::AiError(s) => format!("ai error: {s}"),
+            OutputLine::AiQuestion(s) => format!("ai: {s}"),
+        }
     }
 }

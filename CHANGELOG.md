@@ -8,6 +8,13 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.28.27] — 2026-07-14
+
+### Added
+
+- **Copy full IDE log** — The Log/Output pane now has a `Copy log` button that
+  copies every line currently in the log to the OS clipboard.
+
 ## [PowerRustCOBOL 1.28.26] — 2026-07-14
 
 ### Fixed
