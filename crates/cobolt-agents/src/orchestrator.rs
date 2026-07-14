@@ -20,6 +20,9 @@ pub struct MeshRequest {
     pub model: String,
     pub api_key: String,
     pub endpoint: String,
+    /// Explicit target specialist (FormsDesigner, EventBinder, CodeGenerator).
+    /// If None, the orchestrator routes based on the user prompt.
+    pub specialist: Option<String>,
     /// Full system prompt composed by the host. Empty ⇒ the routed
     /// specialist's built-in preamble is used instead.
     pub system_prompt: String,
@@ -66,16 +69,20 @@ impl Orchestrator {
         &self,
         req: &MeshRequest,
         on_log: &(dyn Fn(String) + Send + Sync),
+        on_chunk: &(dyn Fn(&str) + Send + Sync),
     ) -> Result<(String, String), String> {
         // ── Route ────────────────────────────────────────────────────────────
-        let lower = req.user_prompt.to_lowercase();
-        let target = if lower.contains("form") || lower.contains("ui") || lower.contains("screen")
-        {
-            "FormsDesigner"
-        } else if lower.contains("event") || lower.contains("click") || lower.contains("bind") {
-            "EventBinder"
+        let target = if let Some(ref explicit) = req.specialist {
+            explicit.clone()
         } else {
-            "CodeGenerator"
+            let lower = req.user_prompt.to_lowercase();
+            if lower.contains("form") || lower.contains("ui") || lower.contains("screen") {
+                "FormsDesigner".to_string()
+            } else if lower.contains("event") || lower.contains("click") || lower.contains("bind") {
+                "EventBinder".to_string()
+            } else {
+                "CodeGenerator".to_string()
+            }
         };
         let specialist = self
             .specialists
@@ -85,10 +92,11 @@ impl Orchestrator {
         on_log(format!("routing → {} specialist", specialist.name));
 
         // ── Compose messages (host prompt wins; specialist is the fallback) ──
+        // ── Compose messages (host prompt + specialist is combined) ──
         let system = if req.system_prompt.trim().is_empty() {
             specialist.system_prompt.clone()
         } else {
-            req.system_prompt.clone()
+            format!("{}\n\n{}", req.system_prompt.trim(), specialist.system_prompt)
         };
         let mut messages = vec![serde_json::json!({ "role": "system", "content": system })];
         if !req.skills.trim().is_empty() {
@@ -110,145 +118,232 @@ impl Orchestrator {
         };
         messages.push(serde_json::json!({ "role": "user", "content": user }));
 
-        // ── Resolve URL + wire shape ─────────────────────────────────────────
-        // Heal the previously shipped wrong Ollama Cloud host: the service
-        // lives at ollama.com (native `/api`, OpenAI-compatible `/v1`), NOT
-        // api.ollama.com. Saved configs may still carry the old value.
-        let base = req
-            .endpoint
-            .trim()
-            .trim_end_matches('/')
-            .replace("api.ollama.com", "ollama.com");
-        // `native` = Ollama-native chat API (`…/api/chat`, response shape
-        // `{"message":{"content":…}}`); otherwise OpenAI-compatible
-        // (`…/chat/completions`, response shape `choices[0].message.content`).
-        let (url, native) = if base.ends_with("/api/chat") {
-            (base.clone(), true)
-        } else if base.ends_with("/chat/completions") {
-            (base.clone(), false)
-        } else if base.ends_with("/api") {
-            (format!("{base}/chat"), true)
-        } else if base.ends_with("/v1") {
-            (format!("{base}/chat/completions"), false)
-        } else if req.provider == "ollama" {
-            (format!("{base}/api/chat"), true)
-        } else {
-            (format!("{base}/v1/chat/completions"), false)
-        };
+        let mut full_trace = String::new();
+        let mut final_content = String::new();
+        let mut operations_acc: Vec<serde_json::Value> = Vec::new();
+        let mut loop_count = 0;
+        let max_loops = 10;
 
-        let body = if native {
-            serde_json::json!({
-                "model": req.model,
-                "messages": messages,
-                "stream": false,
-                "options": {
+        loop {
+            loop_count += 1;
+            // ── Resolve URL + wire shape ─────────────────────────────────────────
+            // Heal the previously shipped wrong Ollama Cloud host: the service
+            // lives at ollama.com (native `/api`, OpenAI-compatible `/v1`), NOT
+            // api.ollama.com. Saved configs may still carry the old value.
+            let base = req
+                .endpoint
+                .trim()
+                .trim_end_matches('/')
+                .replace("api.ollama.com", "ollama.com");
+            // `native` = Ollama-native chat API (`…/api/chat`, response shape
+            // `{"message":{"content":…}}`); otherwise OpenAI-compatible
+            // (`…/chat/completions`, response shape `choices[0].message.content`).
+            let (url, native) = if base.ends_with("/api/chat") {
+                (base.clone(), true)
+            } else if base.ends_with("/chat/completions") {
+                (base.clone(), false)
+            } else if base.ends_with("/api") {
+                (format!("{base}/chat"), true)
+            } else if base.ends_with("/v1") {
+                (format!("{base}/chat/completions"), false)
+            } else if req.provider == "ollama" {
+                (format!("{base}/api/chat"), true)
+            } else {
+                (format!("{base}/v1/chat/completions"), false)
+            };
+
+            let body = if native {
+                serde_json::json!({
+                    "model": req.model,
+                    "messages": messages,
+                    "stream": true,
+                    "options": {
+                        "temperature": req.temperature,
+                        "num_predict": req.max_tokens,
+                    },
+                })
+            } else {
+                serde_json::json!({
+                    "model": req.model,
+                    "messages": messages,
                     "temperature": req.temperature,
-                    "num_predict": req.max_tokens,
-                },
-            })
-        } else {
-            serde_json::json!({
-                "model": req.model,
-                "messages": messages,
-                "temperature": req.temperature,
-                "max_tokens": req.max_tokens,
-                "stream": false,
-            })
-        };
+                    "max_tokens": req.max_tokens,
+                    "stream": true,
+                })
+            };
 
-        on_log(format!(
-            "POST {url} · model {} · {} message(s) · {} wire format",
-            req.model,
-            messages.len(),
-            if native { "ollama-native" } else { "openai" },
-        ));
-
-        let mut trace = format!(
-            "=== API REQUEST ===\nEndpoint: {url}\nWire: {}\nModel: {}\nMessages: {}\n",
-            if native { "ollama-native" } else { "openai" },
-            req.model,
-            messages.len(),
-        );
-        if req.verbose {
-            trace.push_str(&format!(
-                "Payload:\n{}\n",
-                serde_json::to_string_pretty(&body).unwrap_or_default()
+            on_log(format!(
+                "POST {url} · model {} · {} message(s) · {} wire format (batch {loop_count})",
+                req.model,
+                messages.len(),
+                if native { "ollama-native" } else { "openai" },
             ));
+
+            let mut trace = format!(
+                "=== API REQUEST ===\nEndpoint: {url}\nWire: {}\nModel: {}\nMessages: {}\n",
+                if native { "ollama-native" } else { "openai" },
+                req.model,
+                messages.len(),
+            );
+            if req.verbose {
+                let payload_str = serde_json::to_string_pretty(&body).unwrap_or_default();
+                trace.push_str(&format!("Payload:\n{}\n", payload_str));
+                if loop_count == 1 {
+                    on_log(format!("Verbose: Loaded Skills:\n{}", req.skills));
+                }
+                on_log(format!("Verbose: Request URL: {}", url));
+                on_log(format!("Verbose: Payload:\n{}", payload_str));
+            }
+
+            // ── Call ─────────────────────────────────────────────────────────────
+            let client = reqwest::Client::new();
+            let mut http = client.post(&url);
+            if !req.api_key.trim().is_empty() {
+                http = http.bearer_auth(req.api_key.trim());
+            }
+
+            let started = std::time::Instant::now();
+            let mut resp = http.json(&body).send().await.map_err(|e| {
+                let msg = format!("Could not reach the model: {e}");
+                on_log(format!("network error after {:.1}s: {e}", started.elapsed().as_secs_f32()));
+                msg
+            })?;
+            let status = resp.status();
+            
+            let mut raw = String::new();
+            let mut full_content = String::new();
+            let mut line_buf = String::new();
+            let mut inp_tokens: Option<u64> = None;
+            let mut out_tokens: Option<u64> = None;
+
+            while let match_result = resp.chunk().await {
+                match match_result {
+                    Ok(Some(chunk)) => {
+                        let text = String::from_utf8_lossy(&chunk);
+                        raw.push_str(&text);
+                        line_buf.push_str(&text);
+
+                        while let Some(idx) = line_buf.find('\n') {
+                            let line = line_buf[..idx].trim_end().to_string();
+                            line_buf = line_buf[idx + 1..].to_string();
+
+                            if line.is_empty() {
+                                continue;
+                            }
+
+                            if line.starts_with("data: ") {
+                                let json_str = line.strip_prefix("data: ").unwrap();
+                                if json_str == "[DONE]" {
+                                    continue;
+                                }
+                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                    if let Some(content) = json
+                                        .get("choices")
+                                        .and_then(|c| c.get(0))
+                                        .and_then(|c| c.get("delta"))
+                                        .and_then(|m| m.get("content"))
+                                        .and_then(|c| c.as_str())
+                                    {
+                                        full_content.push_str(content);
+                                        on_chunk(content);
+                                    }
+                                    if let Some(usage) = json.get("usage") {
+                                        if let Some(i) = usage.get("prompt_tokens").and_then(|v| v.as_u64()) { inp_tokens = Some(i); }
+                                        if let Some(o) = usage.get("completion_tokens").and_then(|v| v.as_u64()) { out_tokens = Some(o); }
+                                    }
+                                }
+                            } else {
+                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                                    if let Some(content) = json
+                                        .get("message")
+                                        .and_then(|m| m.get("content"))
+                                        .and_then(|c| c.as_str())
+                                    {
+                                        full_content.push_str(content);
+                                        on_chunk(content);
+                                    }
+                                    if let Some(usage) = json.get("prompt_eval_count").and_then(|v| v.as_u64()) {
+                                        inp_tokens = Some(usage);
+                                    }
+                                    if let Some(usage) = json.get("eval_count").and_then(|v| v.as_u64()) {
+                                        out_tokens = Some(usage);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => return Err(format!("Stream error: {e}")),
+                }
+            }
+
+            let secs = started.elapsed().as_secs_f32();
+            on_log(format!("HTTP {status} in {secs:.1}s · {} bytes", raw.len()));
+
+            trace.push_str(&format!(
+                "=== API RESPONSE ===\nStatus: {status}\nDuration: {secs:.1}s\nBytes: {}\n",
+                raw.len()
+            ));
+            if req.verbose {
+                trace.push_str(&format!("Body:\n{raw}\n"));
+            }
+
+            full_trace.push_str(&trace);
+            full_trace.push_str("\n");
+
+            if !status.is_success() {
+                return Err(format!("Model returned HTTP {status}. {raw}"));
+            }
+
+            if let (Some(inp), Some(out)) = (inp_tokens, out_tokens) {
+                on_log(format!("tokens: {inp} in / {out} out"));
+            } else if req.verbose {
+                if let Some(inp) = inp_tokens { on_log(format!("Verbose: tokens: {inp} in")); }
+                if let Some(out) = out_tokens { on_log(format!("Verbose: tokens: {out} out")); }
+            }
+
+            if full_content.is_empty() {
+                return Err(format!(
+                    "The model response did not contain any message content. \
+                     First 300 bytes: {}",
+                    &raw.chars().take(300).collect::<String>()
+                ));
+            }
+
+            // ── Pagination Loop Check ──
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&full_content) {
+                if let Some(ops) = json.get("operations").and_then(|o| o.as_array()) {
+                    operations_acc.extend(ops.clone());
+                }
+
+                let has_more = json.get("has_more").and_then(|h| h.as_bool()).unwrap_or(false);
+                let response_id = json.get("response_id").and_then(|r| r.as_str()).unwrap_or("");
+                let next_cursor = json.get("next_cursor").and_then(|c| c.as_str());
+
+                if has_more && next_cursor.is_some() && loop_count < max_loops {
+                    messages.push(serde_json::json!({
+                        "role": "assistant",
+                        "content": full_content
+                    }));
+                    messages.push(serde_json::json!({
+                        "role": "user",
+                        "content": format!("Continue response {} from cursor {}. Return only the next complete JSON batch.", response_id, next_cursor.unwrap())
+                    }));
+                    on_log(format!("Pagination detected! Fetching batch {}...", loop_count + 1));
+                    continue;
+                }
+            }
+            
+            // Loop break condition reached
+            if !operations_acc.is_empty() {
+                let synthesized = serde_json::json!({ "operations": operations_acc });
+                final_content = serde_json::to_string_pretty(&synthesized).unwrap_or(full_content);
+            } else {
+                final_content = full_content;
+            }
+            break;
         }
 
-        // ── Call ─────────────────────────────────────────────────────────────
-        let client = reqwest::Client::new();
-        let mut http = client.post(&url);
-        if !req.api_key.trim().is_empty() {
-            http = http.bearer_auth(req.api_key.trim());
-        }
-
-        let started = std::time::Instant::now();
-        let resp = http.json(&body).send().await.map_err(|e| {
-            let msg = format!("Could not reach the model: {e}");
-            on_log(format!("network error after {:.1}s: {e}", started.elapsed().as_secs_f32()));
-            msg
-        })?;
-        let status = resp.status();
-        let raw = resp.text().await.unwrap_or_default();
-        let secs = started.elapsed().as_secs_f32();
-        on_log(format!("HTTP {status} in {secs:.1}s · {} bytes", raw.len()));
-
-        trace.push_str(&format!(
-            "=== API RESPONSE ===\nStatus: {status}\nDuration: {secs:.1}s\nBytes: {}\n",
-            raw.len()
-        ));
-        if req.verbose {
-            trace.push_str(&format!("Body:\n{raw}\n"));
-        }
-
-        if !status.is_success() {
-            return Err(format!("Model returned HTTP {status}. {raw}"));
-        }
-
-        // ── Parse (accept both wire shapes regardless of what we guessed) ────
-        let json: serde_json::Value = serde_json::from_str(&raw)
-            .map_err(|e| format!("Could not read the model response: {e}"))?;
-        let content = json
-            // OpenAI-compatible: choices[0].message.content
-            .get("choices")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
-            .and_then(|c| c.as_str())
-            // Ollama-native: message.content
-            .or_else(|| {
-                json.get("message")
-                    .and_then(|m| m.get("content"))
-                    .and_then(|c| c.as_str())
-            });
-        // Token accounting when the provider reports it (both shapes).
-        let tokens = json
-            .get("usage") // openai
-            .map(|u| {
-                (
-                    u.get("prompt_tokens").and_then(|v| v.as_u64()),
-                    u.get("completion_tokens").and_then(|v| v.as_u64()),
-                )
-            })
-            .or_else(|| {
-                // ollama-native
-                Some((
-                    json.get("prompt_eval_count").and_then(|v| v.as_u64()),
-                    json.get("eval_count").and_then(|v| v.as_u64()),
-                ))
-            });
-        if let Some((Some(inp), Some(out))) = tokens {
-            on_log(format!("tokens: {inp} in / {out} out"));
-        }
-
-        match content {
-            Some(text) => Ok((text.to_string(), trace)),
-            None => Err(format!(
-                "The model response did not contain any message content. \
-                 First 300 bytes: {}",
-                &raw.chars().take(300).collect::<String>()
-            )),
-        }
+        Ok((final_content, full_trace))
     }
 }

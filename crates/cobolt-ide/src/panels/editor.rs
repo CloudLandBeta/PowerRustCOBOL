@@ -886,7 +886,7 @@ pub struct KnownControl {
 /// Build KnownControl list from a form, enriching with dynamic methods
 /// (e.g. RefreshBinding for databound repeating GroupBoxes).
 pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
-    form.controls
+    let mut list: Vec<KnownControl> = form.controls
         .iter()
         .map(|c| {
             let type_name = format!("{:?}", c.control_type);
@@ -915,7 +915,22 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
                 extra_methods,
             }
         })
-        .collect()
+        .collect();
+
+    list.push(KnownControl {
+        id: "self".to_string(),
+        ctrl_type: "Form".to_string(),
+        properties: vec![
+            "X".into(), "Y".into(), "Width".into(), "Height".into(),
+            "Title".into(), "TitleBar".into(), "border".into(), "icon".into()
+        ],
+        extra_methods: vec![
+            "Close".into(), "OpenForm".into(), "Alert".into(),
+            "Minimize".into(), "Restore".into(), "Maximize".into()
+        ],
+    });
+
+    list
 }
 
 /// Collect the form's global data-item names (from the WORKING-STORAGE source the
@@ -994,6 +1009,8 @@ pub struct EditorPanel {
     ai_compact_pending: Option<(PathBuf, std::sync::mpsc::Receiver<crate::llm::LlmResponse>)>,
     /// Target whose history the user asked to clear, awaiting confirmation.
     ai_confirm_clear: Option<PathBuf>,
+    /// Streaming text chunk for the active LLM request.
+    ai_streaming_reply: HashMap<PathBuf, String>,
 
     // ── Status bar ───────────────────────────────────────────────────────────
     /// 1-based caret line / column in the active tab (last known).
@@ -1029,6 +1046,7 @@ impl Default for EditorPanel {
             ai_show_history: false,
             ai_compact_pending: None,
             ai_confirm_clear: None,
+            ai_streaming_reply: HashMap::new(),
             cur_line: 1,
             cur_col: 1,
             overwrite: false,
@@ -1048,11 +1066,7 @@ pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
     } else {
         Color32::from_rgba_premultiplied(0x3D, 0x8B, 0xCD, 0xFF)
     };
-    let fg = if is_user {
-        Color32::from_rgba_premultiplied(0x55, 0x57, 0x53, 0xFF)
-    } else {
-        Color32::from_rgba_premultiplied(0xE6, 0xE6, 0xE6, 0xFF)
-    };
+    let fg = egui::Color32::WHITE;
     let max_w = (ui.available_width() * 0.82).max(120.0);
 
     // Developer bubbles hug the right, assistant bubbles the left; text inside both
@@ -1065,7 +1079,7 @@ pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
     ui.with_layout(layout, |ui| {
         egui::Frame::none()
             .fill(fill)
-            .rounding(egui::Rounding::same(9.0))
+            .rounding(egui::Rounding::same(15.0))
             .inner_margin(egui::Margin::symmetric(10.0, 6.0))
             .show(ui, |ui| {
                 ui.set_max_width(max_w);
@@ -1491,26 +1505,44 @@ impl EditorPanel {
 
         // Poll an in-flight request for this target.
         let mut completed: Option<crate::llm::LlmResponse> = None;
-        if let Some((pending_path, rx)) = &self.ai_pending {
-            if pending_path == &path {
-                match rx.try_recv() {
-                    Ok(resp) => completed = Some(resp),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => {
-                        ctx.request_repaint();
-                    }
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        completed = Some(crate::llm::LlmResponse::Err(
-                            "The assistant worker stopped unexpectedly.".into(),
-                        ));
+        if let Some((pending_path, rx)) = self.ai_pending.take() {
+            if pending_path == path {
+                let mut keep_pending = true;
+                loop {
+                    match rx.try_recv() {
+                        Ok(crate::llm::LlmResponse::Chunk(text)) => {
+                            self.ai_streaming_reply.entry(path.clone()).or_default().push_str(&text);
+                            ctx.request_repaint();
+                        }
+                        Ok(resp) => {
+                            self.ai_streaming_reply.remove(&path);
+                            completed = Some(resp);
+                            keep_pending = false;
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            ctx.request_repaint();
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            completed = Some(crate::llm::LlmResponse::Err(
+                                "The assistant worker stopped unexpectedly.".into(),
+                            ));
+                            keep_pending = false;
+                            break;
+                        }
                     }
                 }
+                if keep_pending {
+                    self.ai_pending = Some((pending_path, rx));
+                }
             } else {
+                self.ai_pending = Some((pending_path, rx));
                 ctx.request_repaint();
             }
         }
         let mut applied: Option<String> = None;
         if let Some(resp) = completed {
-            self.ai_pending = None;
             applied = self.apply_ai_response(&path, resp, tr, read_only, project_root);
         }
 
@@ -1561,6 +1593,24 @@ impl EditorPanel {
         let mut do_compact = false;
 
         let mut render = |ui: &mut egui::Ui| {
+            // Conversation transcript.
+            let streaming_text = self.ai_streaming_reply.get(&path).cloned();
+            if show_history && (!history_snapshot.is_empty() || streaming_text.is_some()) {
+                egui::ScrollArea::vertical()
+                    .max_height(170.0)
+                    .auto_shrink([false, true])
+                    .id_salt(transcript_salt)
+                    .show(ui, |ui| {
+                        for turn in &history_snapshot {
+                            chat_bubble(ui, &turn.role, &turn.content);
+                        }
+                        if let Some(text) = streaming_text {
+                            chat_bubble(ui, "assistant", &text);
+                        }
+                    });
+                ui.separator();
+            }
+
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("✨").size(15.0));
 
@@ -1570,6 +1620,7 @@ impl EditorPanel {
                     .clicked()
                 {
                     do_send = true;
+                    show_history = true;
                 }
                 if busy || compacting {
                     ui.add(egui::Spinner::new());
@@ -1624,6 +1675,7 @@ impl EditorPanel {
                     && !prompt.trim().is_empty();
                 if entered && !busy {
                     do_send = true;
+                    show_history = true;
                 }
             });
 
@@ -1641,19 +1693,6 @@ impl EditorPanel {
                 );
             }
 
-            // Conversation transcript.
-            if show_history && !history_snapshot.is_empty() {
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .max_height(170.0)
-                    .auto_shrink([false, true])
-                    .id_salt(transcript_salt)
-                    .show(ui, |ui| {
-                        for turn in &history_snapshot {
-                            chat_bubble(ui, &turn.role, &turn.content);
-                        }
-                    });
-            }
         };
         match inline_ui {
             Some(ui) => render(ui),
@@ -1715,7 +1754,8 @@ impl EditorPanel {
             }
             if confirm {
                 self.ai_confirm_clear = None;
-                self.ai_history.remove(&path);
+                self.ai_history.get_mut(&path).map(|h| h.clear());
+                self.ai_streaming_reply.remove(&path);
                 Self::persist_history(project_root, &path, &[]);
                 self.ai_status = None;
                 self.ai_show_history = false;
@@ -1784,7 +1824,7 @@ impl EditorPanel {
         let skills = project_root
             .map(crate::agent::load_skills)
             .unwrap_or_default();
-        let rx = crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename, &skills);
+        let rx = crate::llm::spawn_request(cfg, &prior, &prompt, code, &filename, &skills, None);
 
         // Record the developer's turn (prompt only, to keep the log readable).
         let log = self.ai_history.entry(path.clone()).or_default();
@@ -1826,7 +1866,7 @@ impl EditorPanel {
                         // No code block ⇒ the model answered / asked a question.
                         // Surface it prominently in the log, never in the buffer.
                         crate::llm::ai_question(reply.trim());
-                        self.ai_status = Some(tr.ai_no_code.to_string());
+                        self.ai_status = None; // Treat as a valid conversational turn
                         None
                     }
                 }
@@ -1835,6 +1875,7 @@ impl EditorPanel {
                 self.ai_status = Some(e);
                 None
             }
+            crate::llm::LlmResponse::Chunk(_) => None,
         }
     }
 
@@ -1876,6 +1917,7 @@ impl EditorPanel {
             crate::llm::LlmResponse::Err(e) => {
                 self.ai_status = Some(e);
             }
+            crate::llm::LlmResponse::Chunk(_) => {}
         }
     }
 
@@ -3507,10 +3549,10 @@ fn detect_invoke_context(
 /// databound array/repeating GroupBoxes).
 fn member_completions(known: &KnownControl, member_pfx: &str) -> Vec<AcItem> {
     let up = member_pfx.to_ascii_uppercase();
-    let mut v: Vec<AcItem> = cobolt_forms::model::property_names_for(&known.ctrl_type)
-        .into_iter()
+    let mut v: Vec<AcItem> = known.properties
+        .iter()
         .filter(|p| p.to_ascii_uppercase().starts_with(&up))
-        .map(|p| AcItem::prop(&p, "property"))
+        .map(|p| AcItem::prop(p, "property"))
         .collect();
     for (m, d) in methods_for_type(&known.ctrl_type)
         .iter()
@@ -3520,10 +3562,12 @@ fn member_completions(known: &KnownControl, member_pfx: &str) -> Vec<AcItem> {
     }
     for m in &known.extra_methods {
         if m.to_ascii_uppercase().starts_with(&up) {
-            v.push(AcItem::method(
-                m,
-                "Refresh / recreate databound array instances and re-apply effects",
-            ));
+            let desc = if m == "RefreshBinding" {
+                "Refresh / recreate databound array instances and re-apply effects"
+            } else {
+                "Method"
+            };
+            v.push(AcItem::method(m, desc));
         }
     }
     v

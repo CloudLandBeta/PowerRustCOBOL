@@ -62,6 +62,8 @@ pub struct SettingsDraft {
     pub llm_system_prompt: String,
     /// Request timeout in seconds (spec 025).
     pub llm_timeout: u32,
+    /// Max tokens for AI generation (spec 025).
+    pub llm_max_tokens: u32,
     /// Verbose AI activity logging (model info + full context + timings).
     pub llm_verbose: bool,
 }
@@ -94,6 +96,7 @@ impl SettingsDraft {
             llm_model: llm.model.clone(),
             llm_system_prompt: llm.system_prompt.clone(),
             llm_timeout: llm.timeout_secs,
+            llm_max_tokens: llm.max_tokens,
             llm_verbose: llm.verbose_log,
         }
     }
@@ -123,6 +126,7 @@ impl SettingsDraft {
         llm.model = self.llm_model.clone();
         llm.system_prompt = self.llm_system_prompt.clone();
         llm.timeout_secs = self.llm_timeout.max(1);
+        llm.max_tokens = self.llm_max_tokens.max(1);
         llm.verbose_log = self.llm_verbose;
     }
 }
@@ -1055,14 +1059,20 @@ impl SettingsForm {
                                         action.show_debug = true;
                                     }
                                     ui.separator();
-                                    ui.label(RichText::new(tr.settings_ai_timeout).small());
+                                    ui.label(RichText::new("Timeout (s)").small());
                                     ui.add(
                                         egui::DragValue::new(&mut self.draft.llm_timeout)
                                             .speed(1.0)
-                                            .range(1..=1200)
-                                            .suffix(" s"),
+                                            .range(1..=1200),
                                     )
                                     .on_hover_text(tr.settings_ai_timeout_hint);
+                                    ui.add_space(8.0);
+                                    ui.label(RichText::new("Max Tokens").small());
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.draft.llm_max_tokens)
+                                            .speed(100.0)
+                                            .range(256..=128000),
+                                    );
                                     if let Some(s) = test_status {
                                         ui.label(RichText::new(s).small());
                                     }

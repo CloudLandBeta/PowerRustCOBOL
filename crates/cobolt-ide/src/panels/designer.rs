@@ -678,6 +678,8 @@ pub struct EventEditorModal {
     ai_prompt: String,
     /// In-flight AI request for this handler; `Some` while the model is thinking.
     ai_pending: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    /// Streaming buffer for the current in-flight AI request.
+    pub ai_streaming_reply: String,
     /// Last AI error to surface below the prompt row (`None` ⇒ no error).
     ai_status: Option<String>,
     /// Syntax errors blocking a save/close. `Some` ⇒ the syntax-error modal is up.
@@ -723,6 +725,7 @@ impl EventEditorModal {
             orig_source: source.into(),
             ai_prompt: String::new(),
             ai_pending: None,
+            ai_streaming_reply: String::new(),
             ai_status: None,
             syntax_errors: None,
             ai_history: Vec::new(),
@@ -1042,6 +1045,16 @@ pub struct DesignerPanel {
     cs_editor: super::editor::EditorPanel,
     cs_loaded: Option<super::cobol_structure::CsTarget>,
 
+    // ── Global AI Assistant (Designer bottom pane) ────────────────────────────
+    pub ai_pane_open: bool,
+    pub ai_history: Vec<crate::llm::ChatTurn>,
+    pub ai_status: Option<String>,
+    pub ai_last_seen_turns: usize,
+    pub ai_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    pub ai_pane_height: f32,
+    pub global_ai_prompt: String,
+    pub global_ai_streaming: String,
+
     // ── Form preview ──────────────────────────────────────────────────────────
     /// Whether the live preview viewport is open.
     pub show_preview: bool,
@@ -1095,6 +1108,14 @@ impl DesignerPanel {
             ai_prompt_editor: super::editor::EditorPanel::new(),
             cs_editor: super::editor::EditorPanel::new(),
             cs_loaded: None,
+            ai_pane_open: false,
+            ai_history: Vec::new(),
+            ai_status: None,
+            ai_last_seen_turns: 0,
+            ai_rx: None,
+            ai_pane_height: 250.0,
+            global_ai_prompt: String::new(),
+            global_ai_streaming: String::new(),
             show_preview: false,
             cobol_structure_edit: None,
             preview_state: HashMap::new(),
@@ -1317,6 +1338,9 @@ impl DesignerPanel {
                         old,
                         new: crate::llm::normalize_comments(code),
                     });
+                }
+                AgentOp::Message { .. } => {
+                    // Handled during chat history building.
                 }
             }
         }
@@ -3092,6 +3116,263 @@ impl DesignerPanel {
 
         let canvas_w = self.form.width as f32;
         let canvas_h = self.form.height as f32;
+
+        let tr = crate::i18n::current_tr(ui.ctx());
+        let mut panel = egui::TopBottomPanel::bottom("global_ai_pane")
+            .resizable(self.ai_pane_open);
+        
+        if self.ai_pane_open {
+            panel = panel.default_height(self.ai_pane_height).min_height(100.0);
+        }
+
+        let resp = panel.show_inside(ui, |ui| {
+                if !self.ai_pane_open {
+                    ui.vertical_centered(|ui| {
+                        if ui.button("AI Assistant").clicked() {
+                            self.ai_pane_open = true;
+                        }
+                    });
+                } else {
+                    let mut do_send = false;
+                    let mut do_close = false;
+                    let mut do_save = false;
+                    let mut do_compact = false;
+                    let mut do_clear = false;
+                    let busy = self.ai_status.as_deref() == Some("Thinking...");
+                    let history_len = self.ai_history.len();
+                    
+                    ui.add_space(4.0);
+                    egui::TopBottomPanel::bottom("global_ai_pane_input")
+                        .resizable(false)
+                        .frame(egui::Frame::none())
+                        .show_inside(ui, |ui| {
+                            ui.add_space(4.0);
+                            
+                            // 1. Prompt Editor
+                            let ectx = ui.ctx().clone();
+                            let btn_col_w = 96.0;
+                            let gap = 8.0;
+                            let text_w = (ui.available_width() - btn_col_w - gap).max(140.0);
+                            
+                            ui.horizontal_top(|ui| {
+                                let frame = egui::Frame::none()
+                                    .fill(crate::theme::active().bg_extreme)
+                                    .stroke(egui::Stroke::new(1.0, crate::theme::active().panel_border()))
+                                    .rounding(egui::Rounding::same(6.0))
+                                    .inner_margin(egui::Margin::same(2.0));
+                                
+                                ui.vertical(|ui| {
+                                    let resp = ui.add(
+                                        egui::TextEdit::multiline(&mut self.global_ai_prompt)
+                                            .hint_text("How can I help you today?")
+                                            .desired_width(text_w)
+                                            .desired_rows(3)
+                                            .interactive(!busy),
+                                    );
+                                    let submit = ui.input(|i| {
+                                        i.key_pressed(egui::Key::Enter)
+                                            && (i.modifiers.command || i.modifiers.ctrl)
+                                    }) && !self.global_ai_prompt.trim().is_empty();
+                                    if submit && !busy {
+                                        do_send = true;
+                                    }
+                                });
+                                
+                                ui.add_space(gap);
+                                ui.vertical(|ui| {
+                                    ui.label(egui::RichText::new("✨").size(15.0));
+                                    let can_send = !busy && !self.global_ai_prompt.trim().is_empty();
+                                    if ui.add_enabled(can_send, egui::Button::new(tr.ai_send)).clicked() {
+                                        do_send = true;
+                                    }
+                                    if busy {
+                                        ui.add(egui::Spinner::new());
+                                        ui.label(egui::RichText::new(tr.ai_thinking).small().color(egui::Color32::from_gray(170)));
+                                    }
+                                });
+                            });
+                            
+                            if let Some(err) = &self.ai_status {
+                                if err != "Thinking..." {
+                                    ui.label(egui::RichText::new(err).small().color(egui::Color32::from_rgb(220, 120, 120)));
+                                }
+                            }
+                            
+                            // 2. Controls
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(format!("💬 {}", history_len)).small().color(egui::Color32::from_gray(150)));
+                                if ui.add_enabled(history_len > 0, egui::Button::new(format!("💾 {}", tr.ai_save_history))).clicked() {
+                                    do_save = true;
+                                }
+                                if ui.add_enabled(history_len > 0, egui::Button::new(format!("🗜 {}", tr.ai_compact_history))).clicked() {
+                                    do_compact = true;
+                                }
+                                if ui.add_enabled(history_len > 0, egui::Button::new(format!("🗑 {}", tr.ai_clear_history))).clicked() {
+                                    do_clear = true;
+                                }
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button("Close AI Assistant").clicked() {
+                                        do_close = true;
+                                    }
+                                });
+                            });
+                        });
+                        
+                    // Render history
+                    egui::ScrollArea::vertical()
+                        .id_salt("global_ai_history_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            let w = ui.available_width();
+                            ui.vertical(|ui| {
+                                for turn in &self.ai_history {
+                                    crate::panels::editor::chat_bubble(ui, &turn.role, &turn.content);
+                                }
+                                
+                                if !self.global_ai_streaming.is_empty() {
+                                    crate::panels::editor::chat_bubble(ui, "assistant", &self.global_ai_streaming);
+                                }
+                            });
+                        });
+                    
+                    if do_close {
+                        self.ai_pane_open = false;
+                    }
+                    if do_send {
+                        let prompt = self.global_ai_prompt.clone();
+                        if !prompt.trim().is_empty() {
+                            self.ai_history.push(crate::llm::ChatTurn::user(prompt.clone()));
+                            self.global_ai_prompt.clear();
+                            self.ai_status = Some("Thinking...".to_string());
+                            let (sys_prompt, skills) = match project_root {
+                                Some(d) => (
+                                    crate::agent::effective_prompt(d),
+                                    crate::agent::load_skills(d),
+                                ),
+                                None => (
+                                    crate::agent::effective_prompt(std::path::Path::new("")),
+                                    crate::agent::load_skills(std::path::Path::new("")),
+                                ),
+                            };
+                            let context = crate::agent::build_context(&self.form);
+                            self.ai_rx = Some(crate::llm::spawn_agent_request(
+                                llm_cfg,
+                                &sys_prompt,
+                                &skills,
+                                &self.ai_history,
+                                &prompt,
+                                &context,
+                                None // Let Orchestrator route to FormsDesigner or EventBinder
+                            ));
+                        }
+                    }
+                    if do_clear {
+                        self.ai_history.clear();
+                        self.ai_status = None;
+                        self.global_ai_prompt.clear();
+                        self.global_ai_streaming.clear();
+                    }
+                    if do_compact {
+                        self.ai_status = Some("Thinking...".to_string());
+                        self.ai_rx = Some(crate::llm::spawn_compaction(llm_cfg, &self.ai_history));
+                    }
+                    if do_save {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .set_file_name("global_conversation.json")
+                            .save_file()
+                        {
+                            if let Ok(json) = serde_json::to_string_pretty(&self.ai_history) {
+                                let _ = std::fs::write(path, json);
+                            }
+                        }
+                    }
+                    let mut keep_rx = true;
+                    let mut ai_reply = None;
+                    if let Some(rx) = self.ai_rx.take() {
+                        loop {
+                            match rx.try_recv() {
+                                Ok(crate::llm::LlmResponse::Chunk(text)) => {
+                                    self.global_ai_streaming.push_str(&text);
+                                    ui.ctx().request_repaint();
+                                }
+                                Ok(resp) => {
+                                    ai_reply = Some(resp);
+                                    keep_rx = false;
+                                    break;
+                                }
+                                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                    ui.ctx().request_repaint();
+                                    break;
+                                }
+                                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                    ai_reply = Some(crate::llm::LlmResponse::Err(
+                                        "The assistant worker stopped unexpectedly.".into(),
+                                    ));
+                                    keep_rx = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if keep_rx {
+                            self.ai_rx = Some(rx);
+                        }
+                    }
+                    if let Some(resp) = ai_reply {
+                        match resp {
+                            crate::llm::LlmResponse::Ok(text) => {
+                                self.ai_status = None;
+                                self.global_ai_streaming.clear();
+                                
+                                // Try to parse it as operations
+                                if let Ok(cs) = crate::agent::parse_change_set(&text) {
+                                    let applied = self.apply_agent_change_set(&cs);
+                                    
+                                    let mut messages: Vec<String> = Vec::new();
+                                    for op in &cs.operations {
+                                        if let crate::agent::AgentOp::Message { message } = op {
+                                            messages.push(message.clone());
+                                        }
+                                    }
+                                    
+                                    let mut combined_note = String::new();
+                                    if !messages.is_empty() {
+                                        combined_note.push_str(&messages.join("\n"));
+                                    }
+                                    if let Some(n) = cs.note {
+                                        if !combined_note.is_empty() {
+                                            combined_note.push_str("\n\n");
+                                        }
+                                        combined_note.push_str(&n);
+                                    }
+                                    
+                                    let actionable_ops = cs.operations.iter().filter(|op| !matches!(op, crate::agent::AgentOp::Message { .. })).count();
+
+                                    if actionable_ops == 0 {
+                                        if !combined_note.is_empty() {
+                                            self.ai_history.push(crate::llm::ChatTurn::assistant(combined_note));
+                                        } else {
+                                            self.ai_history.push(crate::llm::ChatTurn::assistant("I didn't find any actionable changes to apply based on your request. If I misunderstood, please clarify!".to_string()));
+                                        }
+                                    } else {
+                                        if !combined_note.is_empty() {
+                                            self.ai_history.push(crate::llm::ChatTurn::assistant(format!("Applied {} changes.\n\n{}", applied, combined_note)));
+                                        } else {
+                                            self.ai_history.push(crate::llm::ChatTurn::assistant(format!("Applied {} changes.", applied)));
+                                        }
+                                    }
+                                } else {
+                                    self.ai_history.push(crate::llm::ChatTurn::assistant(text));
+                                }
+                            }
+                            crate::llm::LlmResponse::Chunk(_) => {}
+                            crate::llm::LlmResponse::Err(err) => {
+                                self.ai_status = Some(format!("Model returned {}.", err));
+                            }
+                        }
+                    }
+                }
+            });
 
         egui::ScrollArea::both()
             .id_salt("designer_canvas")
@@ -5353,23 +5634,39 @@ impl DesignerPanel {
         // editor's buffer (or surface the error) so the developer can review /
         // tweak / save it like any hand-written handler.
         let mut ai_reply: Option<crate::llm::LlmResponse> = None;
-        if let Some(m) = self.event_modal.as_ref() {
-            if let Some(rx) = &m.ai_pending {
-                match rx.try_recv() {
-                    Ok(resp) => ai_reply = Some(resp),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint(),
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        ai_reply = Some(crate::llm::LlmResponse::Err(
-                            "The assistant worker stopped unexpectedly.".into(),
-                        ));
+        if let Some(m) = self.event_modal.as_mut() {
+            let mut keep_pending = true;
+            if let Some(rx) = m.ai_pending.take() {
+                loop {
+                    match rx.try_recv() {
+                        Ok(crate::llm::LlmResponse::Chunk(text)) => {
+                            m.ai_streaming_reply.push_str(&text);
+                            ui.ctx().request_repaint();
+                        }
+                        Ok(resp) => {
+                            ai_reply = Some(resp);
+                            keep_pending = false;
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            ui.ctx().request_repaint();
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            ai_reply = Some(crate::llm::LlmResponse::Err(
+                                "The assistant worker stopped unexpectedly.".into(),
+                            ));
+                            keep_pending = false;
+                            break;
+                        }
                     }
+                }
+                if keep_pending {
+                    m.ai_pending = Some(rx);
                 }
             }
         }
         if let Some(resp) = ai_reply {
-            if let Some(m) = self.event_modal.as_mut() {
-                m.ai_pending = None;
-            }
             match resp {
                 crate::llm::LlmResponse::Ok(reply) => {
                     // Always record the assistant's turn (even when its code is
@@ -5446,6 +5743,7 @@ impl DesignerPanel {
                                         &code,
                                         &format!("{program_id}.cob"),
                                         &skills,
+                                        Some("CodeGenerator".to_string()),
                                     );
                                     if let Some(m) = self.event_modal.as_mut() {
                                         m.ai_history.push(crate::llm::ChatTurn::user(&fix_prompt));
@@ -5478,6 +5776,7 @@ impl DesignerPanel {
                         }
                     }
                 }
+                crate::llm::LlmResponse::Chunk(_) => {}
                 crate::llm::LlmResponse::Err(e) => {
                     if let Some(m) = self.event_modal.as_mut() {
                         m.ai_status = Some(e);
@@ -5488,23 +5787,39 @@ impl DesignerPanel {
 
         // ── Poll an in-flight compaction request for this handler ────────────
         let mut compact_reply: Option<crate::llm::LlmResponse> = None;
-        if let Some(m) = self.event_modal.as_ref() {
-            if let Some(rx) = &m.ai_compact_pending {
-                match rx.try_recv() {
-                    Ok(resp) => compact_reply = Some(resp),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint(),
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        compact_reply = Some(crate::llm::LlmResponse::Err(
-                            "The assistant worker stopped unexpectedly.".into(),
-                        ));
+        if let Some(m) = self.event_modal.as_mut() {
+            let mut keep_pending = true;
+            if let Some(rx) = m.ai_compact_pending.take() {
+                loop {
+                    match rx.try_recv() {
+                        Ok(crate::llm::LlmResponse::Chunk(_)) => {
+                            // Compaction streams don't show UI, ignore chunks
+                            ui.ctx().request_repaint();
+                        }
+                        Ok(resp) => {
+                            compact_reply = Some(resp);
+                            keep_pending = false;
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            ui.ctx().request_repaint();
+                            break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            compact_reply = Some(crate::llm::LlmResponse::Err(
+                                "The assistant worker stopped unexpectedly.".into(),
+                            ));
+                            keep_pending = false;
+                            break;
+                        }
                     }
+                }
+                if keep_pending {
+                    m.ai_compact_pending = Some(rx);
                 }
             }
         }
         if let Some(resp) = compact_reply {
-            if let Some(m) = self.event_modal.as_mut() {
-                m.ai_compact_pending = None;
-            }
             match resp {
                 crate::llm::LlmResponse::Ok(summary) => {
                     let summary = summary.trim().to_string();
@@ -5523,6 +5838,7 @@ impl DesignerPanel {
                         }
                     }
                 }
+                crate::llm::LlmResponse::Chunk(_) => {}
                 crate::llm::LlmResponse::Err(e) => {
                     if let Some(m) = self.event_modal.as_mut() {
                         m.ai_status = Some(e);
@@ -5884,6 +6200,7 @@ impl DesignerPanel {
                 &code,
                 &format!("{program_id}.cob"),
                 &skills,
+                Some("CodeGenerator".to_string()),
             );
             if let Some(m) = self.event_modal.as_mut() {
                 // Record the developer's turn (the clean prompt, not the guided
@@ -6260,17 +6577,21 @@ impl DesignerPanel {
                 }
 
                 ui.add_space(6.0);
-                if ui.button(tr.cs_close).clicked() {
-                    close = true;
-                }
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_save).clicked() {
+                        if let Some(content) = self.cs_editor.buffer_for_save() {
+                            if cs::set_block_text(&mut self.form, target, content) {
+                                self.dirty = true;
+                            }
+                        }
+                        close = true;
+                    }
+                    if ui.button(tr.btn_cancel).clicked() {
+                        close = true;
+                    }
+                });
             });
 
-        // Live-sync the edited buffer back to the form block.
-        if let Some(content) = self.cs_editor.buffer_for_save() {
-            if cs::set_block_text(&mut self.form, target, content) {
-                self.dirty = true;
-            }
-        }
         if close {
             self.cobol_structure_edit = None;
             self.cs_loaded = None;
@@ -7227,11 +7548,18 @@ fn json_prop_i32(map: &serde_json::Map<String, serde_json::Value>, key: &str) ->
 }
 
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
-    match key {
-        "Visible" => ctrl.visible = value.as_bool(),
-        "Enabled" => ctrl.enabled = value.as_bool(),
-        "TabOrder" => ctrl.tab_order = value.as_i64() as u32,
-        "ZOrder" => ctrl.z_order = value.as_i64() as i32,
+    let lower_key = key.to_ascii_lowercase();
+    match lower_key.as_str() {
+        "visible" => ctrl.visible = value.as_bool(),
+        "enabled" => ctrl.enabled = value.as_bool(),
+        "taborder" => ctrl.tab_order = value.as_i64() as u32,
+        "zorder" => ctrl.z_order = value.as_i64() as i32,
+        "x" => ctrl.rect.x = value.as_i64() as i32,
+        "y" => ctrl.rect.y = value.as_i64() as i32,
+        "width" => ctrl.rect.w = value.as_i64() as i32,
+        "height" => ctrl.rect.h = value.as_i64() as i32,
+        "parent" => ctrl.parent = if value.as_str().is_empty() { None } else { Some(value.as_str().to_string()) },
+        "tab" => ctrl.tab = Some(value.as_i64() as u32),
         _ => {
             ctrl.properties.insert(key.to_owned(), value.clone());
         }

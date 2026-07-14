@@ -27,6 +27,7 @@ fn main() {
         model,
         api_key,
         endpoint,
+        specialist: None,
         system_prompt: "You are a terse assistant. Answer in one short sentence.".into(),
         skills: String::new(),
         context: String::new(),
@@ -41,7 +42,8 @@ fn main() {
     rt.block_on(async {
         let orch = Orchestrator::new();
         let on_log = |line: String| println!("[log] {line}");
-        match orch.handle_request(&req, &on_log).await {
+        let on_chunk = |chunk: &str| print!("{chunk}");
+        match orch.handle_request(&req, &on_log, &on_chunk).await {
             Ok((reply, trace)) => {
                 println!("[reply] {reply}");
                 println!("---- trace ----\n{trace}");

@@ -47,7 +47,7 @@ impl LlmConfig {
             model: String::new(),
             system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
             temperature: 0.7,
-            max_tokens: 1024,
+            max_tokens: 8192,
             timeout_secs: 30,
             provider: String::new(),
             verbose_log: false,
@@ -67,11 +67,12 @@ impl LlmConfig {
 
 pub fn default_system_prompt() -> String { DEFAULT_SYSTEM_PROMPT.to_string() }
 pub fn default_temperature() -> f32 { 0.7 }
-pub fn default_max_tokens() -> u32 { 1024 }
+pub fn default_max_tokens() -> u32 { 8192 }
 pub fn default_timeout_secs() -> u32 { 30 }
 
 pub enum LlmResponse {
     Ok(String),
+    Chunk(String),
     Err(String),
 }
 
@@ -277,7 +278,11 @@ fn run_mesh_request(req: cobolt_agents::MeshRequest, label: &'static str) -> Rec
             let orch = Orchestrator::new();
             // Every orchestrator step lands in the activity log as it happens.
             let on_log = |line: String| push_ai_log(AiLogKind::Detail, format!("agent · {line}"));
-            match orch.handle_request(&req, &on_log).await {
+            let tx_clone = tx.clone();
+            let on_chunk = move |chunk: &str| {
+                let _ = tx_clone.send(LlmResponse::Chunk(chunk.to_string()));
+            };
+            match orch.handle_request(&req, &on_log, &on_chunk).await {
                 Ok((resp, trace)) => {
                     push_connection_log(&trace);
                     push_ai_log(
@@ -317,6 +322,7 @@ fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
         model: cfg.model.clone(),
         api_key: cfg.api_key.clone(),
         endpoint: cfg.endpoint.clone(),
+        specialist: None,
         system_prompt: String::new(),
         skills: String::new(),
         context: String::new(),
@@ -335,17 +341,22 @@ pub fn spawn_agent_request(
     history: &[ChatTurn],
     sent: &str,
     context: &str,
+    specialist: Option<String>,
 ) -> Receiver<LlmResponse> {
     let mut req = mesh_request_base(cfg);
+    req.specialist = specialist;
     // The composed prompt/skills/context ARE the dev-agent contract (spec 025
     // R14/R21/R2) — they must reach the model on every request.
     req.system_prompt = sys.to_string();
     req.skills = skills.to_string();
     req.context = context.to_string();
-    req.history = history
-        .iter()
-        .map(|t| (t.role.clone(), t.content.clone()))
-        .collect();
+    let mut h: Vec<_> = history.iter().map(|t| (t.role.clone(), t.content.clone())).collect();
+    if let Some(last) = h.last() {
+        if last.0 == "user" && last.1 == sent {
+            h.pop();
+        }
+    }
+    req.history = h;
     req.user_prompt = sent.to_string();
     run_mesh_request(req, "agent request")
 }
@@ -357,8 +368,10 @@ pub fn spawn_request(
     code: &str,
     file: &str,
     skills: &str,
+    specialist: Option<String>,
 ) -> Receiver<LlmResponse> {
     let mut req = mesh_request_base(cfg);
+    req.specialist = specialist;
     req.system_prompt = cfg.system_prompt.clone();
     req.skills = skills.to_string();
     // The editor request acts on the current file: include it as context so
@@ -366,10 +379,14 @@ pub fn spawn_request(
     if !code.trim().is_empty() {
         req.context = format!("Current file `{file}`:\n```cobol\n{code}\n```");
     }
-    req.history = history
-        .iter()
-        .map(|t| (t.role.clone(), t.content.clone()))
-        .collect();
+    
+    let mut h: Vec<_> = history.iter().map(|t| (t.role.clone(), t.content.clone())).collect();
+    if let Some(last) = h.last() {
+        if last.0 == "user" && last.1 == prompt {
+            h.pop();
+        }
+    }
+    req.history = h;
     req.user_prompt = prompt.to_string();
     run_mesh_request(req, "editor request")
 }

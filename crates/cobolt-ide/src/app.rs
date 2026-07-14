@@ -578,6 +578,10 @@ fn agent_op_line(op: &crate::agent::AgentOp, tr: &crate::i18n::Tr) -> (String, C
             format!("{} {name}", tr.agent_op_procedure),
             Color32::from_rgb(190, 150, 210),
         ),
+        AgentOp::Message { message } => (
+            message.clone(),
+            Color32::from_rgb(150, 150, 150),
+        ),
     }
 }
 
@@ -1561,12 +1565,6 @@ impl CoboltApp {
                                 .push_status(format!("Could not create {sub}/: {e}"));
                         }
                     }
-                    // Scaffold the agentic_ai/ folder + default prompt/skill so the
-                    // dev agent is ready in every new project (spec 025 R19).
-                    if let Err(e) = crate::agent::ensure_agentic_ai_scaffold(&dir) {
-                        self.output
-                            .push_status(format!("Could not create agentic_ai/: {e}"));
-                    }
                     // Scaffold a runnable starter main program so the project can
                     // be Run immediately. Track it under Common Code and open it.
                     let proj_name = self.cobolt_project.as_ref().unwrap().project.name.clone();
@@ -1670,10 +1668,6 @@ impl CoboltApp {
                         self.output
                             .push_status(format!("Added {created} standard project folder(s)"));
                     }
-                    // Ensure the agentic_ai/ scaffold (folder + default prompt/skill)
-                    // exists, seeding only what's missing (spec 025 R19). Non-
-                    // destructive, so older projects are brought up to date on open.
-                    let _ = crate::agent::ensure_agentic_ai_scaffold(&dir);
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
                 }
@@ -1885,34 +1879,62 @@ impl CoboltApp {
 
         // Poll an in-flight request.
         let mut completed: Option<(String, crate::llm::LlmResponse)> = None;
-        if let Some((prompt, rx)) = &self.agent_pending {
-            match rx.try_recv() {
-                Ok(resp) => completed = Some((prompt.clone(), resp)),
-                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    completed = Some((
-                        prompt.clone(),
-                        crate::llm::LlmResponse::Err("The agent worker stopped.".into()),
-                    ))
+        if let Some((prompt, rx)) = self.agent_pending.take() {
+            let mut keep_pending = true;
+            loop {
+                match rx.try_recv() {
+                    Ok(crate::llm::LlmResponse::Chunk(_text)) => {
+                        // In the future, we can stream this text to the UI.
+                        ctx.request_repaint();
+                    }
+                    Ok(resp) => {
+                        completed = Some((prompt.clone(), resp));
+                        keep_pending = false;
+                        break;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        ctx.request_repaint();
+                        break;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        completed = Some((
+                            prompt.clone(),
+                            crate::llm::LlmResponse::Err("The agent worker stopped.".into()),
+                        ));
+                        keep_pending = false;
+                        break;
+                    }
                 }
+            }
+            if keep_pending {
+                self.agent_pending = Some((prompt, rx));
             }
         }
         if let Some((prompt, resp)) = completed {
-            self.agent_pending = None;
             match resp {
                 crate::llm::LlmResponse::Ok(reply) => {
                     let form = self.inspect.as_ref().unwrap().designer.form.clone();
                     match crate::agent::parse_change_set(&reply) {
                         Ok(cs) => {
                             self.agent_status = cs.note.clone();
-                            self.agent_preview = Some(crate::agent::AgentPreview::build(cs, &form));
+                            if !cs.operations.is_empty() {
+                                self.agent_preview = Some(crate::agent::AgentPreview::build(cs, &form));
+                            } else {
+                                self.agent_preview = None;
+                            }
                         }
                         Err(e) => {
-                            // The full request/response is in the connection log; open
-                            // the debug modal so the developer can inspect it.
-                            self.agent_debug_open = true;
-                            self.agent_status = Some(e);
-                            self.agent_preview = None;
+                            if e.contains("did not contain a JSON change-set") {
+                                // The model answered in plain text without JSON. Treat it as a conversation turn.
+                                self.agent_status = Some(reply.trim().to_string());
+                                self.agent_preview = None;
+                            } else {
+                                // The full request/response is in the connection log; open
+                                // the debug modal so the developer can inspect it.
+                                self.agent_debug_open = true;
+                                self.agent_status = Some(e);
+                                self.agent_preview = None;
+                            }
                         }
                     }
                     // Record only the turns to memory (R16).
@@ -1929,6 +1951,7 @@ impl CoboltApp {
                     self.agent_status = Some(e);
                     self.agent_preview = None;
                 }
+                crate::llm::LlmResponse::Chunk(_) => {}
             }
         }
 
@@ -2057,7 +2080,7 @@ impl CoboltApp {
                     crate::agent::effective_prompt(d),
                     crate::agent::load_skills(d),
                 ),
-                None => (crate::agent::AGENT_SYSTEM_PROMPT.to_string(), String::new()),
+                None => (crate::agent::effective_prompt(Path::new("")), String::new()),
             };
             let sent = std::mem::take(&mut self.agent_prompt);
             let rx = crate::llm::spawn_agent_request(
@@ -2067,6 +2090,7 @@ impl CoboltApp {
                 &self.agent_history,
                 &sent,
                 &context,
+                None // Let Orchestrator route to FormsDesigner or EventBinder
             );
             self.agent_status = None;
             self.agent_preview = None;
@@ -3685,6 +3709,7 @@ impl CoboltApp {
                     self.llm_test_error = Some(e);
                     self.llm_test_rx = None;
                 }
+                Ok(crate::llm::LlmResponse::Chunk(_)) => {}
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.llm_test_status = Some("The test worker stopped unexpectedly.".into());

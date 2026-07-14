@@ -46,6 +46,8 @@ pub enum AgentOp {
     },
     /// Create a common (shared) procedure.
     CreateProcedure { name: String, code: String },
+    /// Return a conversational message to the user.
+    Message { message: String },
 }
 
 /// A parsed agent reply: an ordered list of operations, plus an optional note used
@@ -149,11 +151,10 @@ use std::collections::HashMap;
 /// (R9). Controls introduced by an earlier `deploy_control` in the same change-set
 /// count as valid targets for later ops.
 pub fn validate(cs: &AgentChangeSet, form: &Form) -> Vec<Option<String>> {
-    // id → type for everything the change-set may legally target.
     let mut known: HashMap<String, ControlType> = form
         .controls
         .iter()
-        .map(|c| (c.id.clone(), c.control_type.clone()))
+        .map(|c| (c.id.to_ascii_uppercase(), c.control_type.clone()))
         .collect();
 
     cs.operations
@@ -180,13 +181,13 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
                 }
             }
             if let Some(id) = id {
-                known.insert(id.clone(), ct);
+                known.insert(id.to_ascii_uppercase(), ct);
             }
             None
         }
         AgentOp::SetProperty {
             control_id, key, ..
-        } => match known.get(control_id) {
+        } => match known.get(&control_id.to_ascii_uppercase()) {
             None => Some(format!("No control named '{control_id}'.")),
             Some(ct) if !property_valid(ct, key) => {
                 Some(format!("Control '{control_id}' has no property '{key}'."))
@@ -198,7 +199,7 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
             event,
             code,
         } => {
-            let base = match known.get(control_id) {
+            let base = match known.get(&control_id.to_ascii_uppercase()) {
                 None => Some(format!("No control named '{control_id}'.")),
                 Some(ct)
                     if !ct
@@ -221,6 +222,7 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
                     .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
             }
         }
+        AgentOp::Message { .. } => None,
     }
 }
 
@@ -389,11 +391,7 @@ fn unknown_property_ref(
         if r.is_call {
             continue; // methods handled elsewhere
         }
-        if let Some(ct) = known
-            .iter()
-            .find(|(id, _)| id.eq_ignore_ascii_case(&r.recv))
-            .map(|(_, ct)| ct)
-        {
+        if let Some(ct) = known.get(&r.recv.to_ascii_uppercase()) {
             if !property_valid(ct, &r.member) {
                 return Some((r.recv, r.member));
             }
@@ -415,181 +413,111 @@ fn property_valid(ct: &ControlType, key: &str) -> bool {
 
 use std::path::{Path, PathBuf};
 
-/// The built-in dev-agent system prompt (seed / reset default). Embedded so the
-/// binary never depends on the `specs/` tree.
-pub const AGENT_SYSTEM_PROMPT: &str = include_str!("assets/agentic_ai/system-prompt.md");
-
-/// The default RustCOBOL-extensions skill, always injected into the agent context.
-const DEFAULT_RUSTCOBOL_SKILL: &str =
-    include_str!("assets/agentic_ai/skills/rustcobol-extensions.md");
-
-/// The RustCOBOL **type-system** skill — level numbers, PICTURE/USAGE rules, and
-/// every deviation from COBOL-85 — so the agent never emits an invalid type.
-const DEFAULT_RUSTCOBOL_TYPES_SKILL: &str =
-    include_str!("assets/agentic_ai/skills/rustcobol-types.md");
-
-/// The RustCOBOL **conciseness** skill — inline expressions as MOVE/SET/COMPUTE
-/// sources and direct property assignment, so generated code isn't verbose.
-const DEFAULT_RUSTCOBOL_CONCISE_SKILL: &str =
-    include_str!("assets/agentic_ai/skills/rustcobol-concise.md");
-
-/// The **control-properties** skill — pick the real property (never invent one),
-/// with the concept→property map (e.g. depth ⇒ `ShadowBlurStrength`, no `Depth`).
-const DEFAULT_RUSTCOBOL_PROPS_SKILL: &str =
-    include_str!("assets/agentic_ai/skills/rustcobol-control-properties.md");
-
-/// Relative locations under a project directory.
+/// Relative locations under the IDE working directory.
 const AGENTIC_DIR: &str = "agentic_ai";
 const PROMPT_FILE: &str = "system-prompt.md";
 /// The general code/event assistant's own prompt (separate from the dev agent's
 /// `system-prompt.md`): it asks for COBOL in a fenced block, not JSON change-sets.
 const ASSISTANT_PROMPT_FILE: &str = "assistant-prompt.md";
 const SKILLS_DIR: &str = "skills";
-const DEFAULT_SKILL_FILE: &str = "rustcobol-extensions.md";
-const TYPES_SKILL_FILE: &str = "rustcobol-types.md";
-const CONCISE_SKILL_FILE: &str = "rustcobol-concise.md";
-const PROPS_SKILL_FILE: &str = "rustcobol-control-properties.md";
 
-/// `<project>/agentic_ai`.
-pub fn agentic_dir(project_dir: &Path) -> PathBuf {
-    project_dir.join(AGENTIC_DIR)
+/// Base IDE `agentic_ai` directory (always loaded).
+pub fn agentic_dir() -> PathBuf {
+    PathBuf::from(AGENTIC_DIR)
 }
 
-/// Ensure the `agentic_ai/` scaffold exists (R18/R19). Creates the folder and
-/// writes **only the missing** default files — the prompt and the default skill —
-/// never overwriting an existing file, so an edited prompt/skill is preserved.
-/// Idempotent: safe to call on every project create and open.
-pub fn ensure_agentic_ai_scaffold(project_dir: &Path) -> std::io::Result<()> {
-    let base = agentic_dir(project_dir);
-    let skills = base.join(SKILLS_DIR);
-    std::fs::create_dir_all(&skills)?;
-
-    let prompt = base.join(PROMPT_FILE);
-    if !prompt.exists() {
-        std::fs::write(&prompt, AGENT_SYSTEM_PROMPT)?;
-    }
-    let assistant_prompt = base.join(ASSISTANT_PROMPT_FILE);
-    if !assistant_prompt.exists() {
-        std::fs::write(&assistant_prompt, crate::llm::DEFAULT_SYSTEM_PROMPT)?;
-    }
-    let skill = skills.join(DEFAULT_SKILL_FILE);
-    if !skill.exists() {
-        std::fs::write(&skill, DEFAULT_RUSTCOBOL_SKILL)?;
-    }
-    let types_skill = skills.join(TYPES_SKILL_FILE);
-    if !types_skill.exists() {
-        std::fs::write(&types_skill, DEFAULT_RUSTCOBOL_TYPES_SKILL)?;
-    }
-    let concise_skill = skills.join(CONCISE_SKILL_FILE);
-    if !concise_skill.exists() {
-        std::fs::write(&concise_skill, DEFAULT_RUSTCOBOL_CONCISE_SKILL)?;
-    }
-    let props_skill = skills.join(PROPS_SKILL_FILE);
-    if !props_skill.exists() {
-        std::fs::write(&props_skill, DEFAULT_RUSTCOBOL_PROPS_SKILL)?;
-    }
-    Ok(())
+/// Project-specific overrides directory inside the IDE `agentic_ai` directory.
+pub fn project_agentic_dir(project_dir: &Path) -> Option<PathBuf> {
+    project_dir.file_name().map(|name| {
+        agentic_dir().join("projects").join(name)
+    })
 }
 
-/// The effective system prompt for a project (R14): the edited
-/// `agentic_ai/system-prompt.md` when present and non-empty, otherwise the built-in
-/// default.
+/// The effective system prompt for a project (R14).
 pub fn effective_prompt(project_dir: &Path) -> String {
-    let path = agentic_dir(project_dir).join(PROMPT_FILE);
-    match std::fs::read_to_string(&path) {
-        Ok(text) if !text.trim().is_empty() => text,
-        _ => AGENT_SYSTEM_PROMPT.to_string(),
+    let mut text = String::new();
+    
+    // Load global prompt
+    let global_path = agentic_dir().join(PROMPT_FILE);
+    if let Ok(content) = std::fs::read_to_string(&global_path) {
+        text.push_str(&content);
+    } else {
+        text.push_str("You are an expert dev agent. No prompt found.");
     }
-}
-
-/// The effective **general assistant** prompt (code editor / event editor): the
-/// edited `agentic_ai/assistant-prompt.md` when present and non-empty, otherwise
-/// the built-in COBOL code-assistant default. Kept separate from the dev agent's
-/// `system-prompt.md` so the two never collide.
-pub fn effective_assistant_prompt(project_dir: &Path) -> String {
-    let path = agentic_dir(project_dir).join(ASSISTANT_PROMPT_FILE);
-    match std::fs::read_to_string(&path) {
-        Ok(text) if !text.trim().is_empty() => text,
-        _ => crate::llm::DEFAULT_SYSTEM_PROMPT.to_string(),
-    }
-}
-
-/// Concatenated text of every `*.md` skill under `agentic_ai/skills/` (R21). Always
-/// includes the default RustCOBOL skill even if the file is missing.
-pub fn load_skills(project_dir: &Path) -> String {
-    let dir = agentic_dir(project_dir).join(SKILLS_DIR);
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().map(|x| x == "md").unwrap_or(false))
-        .collect();
-    files.sort();
-
-    let mut out = String::new();
-    let mut saw_default = false;
-    let mut saw_types = false;
-    let mut saw_concise = false;
-    let mut saw_props = false;
-    for f in &files {
-        if f.file_name()
-            .map(|n| n == DEFAULT_SKILL_FILE)
-            .unwrap_or(false)
-        {
-            saw_default = true;
-        }
-        if f.file_name()
-            .map(|n| n == TYPES_SKILL_FILE)
-            .unwrap_or(false)
-        {
-            saw_types = true;
-        }
-        if f.file_name()
-            .map(|n| n == CONCISE_SKILL_FILE)
-            .unwrap_or(false)
-        {
-            saw_concise = true;
-        }
-        if f.file_name()
-            .map(|n| n == PROPS_SKILL_FILE)
-            .unwrap_or(false)
-        {
-            saw_props = true;
-        }
-        if let Ok(text) = std::fs::read_to_string(f) {
-            if !out.is_empty() {
-                out.push_str("\n\n");
+    
+    // Append project-specific prompt
+    if let Some(proj_dir) = project_agentic_dir(project_dir) {
+        let proj_path = proj_dir.join(PROMPT_FILE);
+        if let Ok(content) = std::fs::read_to_string(&proj_path) {
+            if !text.is_empty() {
+                text.push_str("\n\n");
             }
-            out.push_str(&text);
+            text.push_str(&content);
         }
     }
-    // Both the extensions and the (critical) type-system skills are always
-    // present in context, even if the developer deleted the files.
-    if !saw_default {
-        if !out.is_empty() {
-            out.push_str("\n\n");
-        }
-        out.push_str(DEFAULT_RUSTCOBOL_SKILL);
+    
+    text
+}
+
+/// The effective **general assistant** prompt (code editor / event editor).
+pub fn effective_assistant_prompt(project_dir: &Path) -> String {
+    let mut text = String::new();
+    
+    // Load global prompt
+    let global_path = agentic_dir().join(ASSISTANT_PROMPT_FILE);
+    if let Ok(content) = std::fs::read_to_string(&global_path) {
+        text.push_str(&content);
+    } else {
+        text.push_str(&crate::llm::DEFAULT_SYSTEM_PROMPT.to_string());
     }
-    if !saw_types {
-        if !out.is_empty() {
-            out.push_str("\n\n");
+    
+    // Append project-specific prompt
+    if let Some(proj_dir) = project_agentic_dir(project_dir) {
+        let proj_path = proj_dir.join(ASSISTANT_PROMPT_FILE);
+        if let Ok(content) = std::fs::read_to_string(&proj_path) {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(&content);
         }
-        out.push_str(DEFAULT_RUSTCOBOL_TYPES_SKILL);
     }
-    if !saw_concise {
-        if !out.is_empty() {
-            out.push_str("\n\n");
+    
+    text
+}
+
+/// Concatenated text of every `*.md` skill under `agentic_ai/skills/` (R21),
+/// plus any project-specific skills under `agentic_ai/projects/<project>/skills/`.
+pub fn load_skills(project_dir: &Path) -> String {
+    let mut out = String::new();
+    
+    let mut append_skills_from_dir = |dir: &Path| {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "md").unwrap_or(false))
+            .collect();
+        files.sort();
+
+        for f in &files {
+            if let Ok(text) = std::fs::read_to_string(f) {
+                if !out.is_empty() {
+                    out.push_str("\n\n");
+                }
+                out.push_str(&text);
+            }
         }
-        out.push_str(DEFAULT_RUSTCOBOL_CONCISE_SKILL);
+    };
+
+    // Load global skills
+    append_skills_from_dir(&agentic_dir().join(SKILLS_DIR));
+    
+    // Load project-specific skills
+    if let Some(proj_dir) = project_agentic_dir(project_dir) {
+        append_skills_from_dir(&proj_dir.join(SKILLS_DIR));
     }
-    if !saw_props {
-        if !out.is_empty() {
-            out.push_str("\n\n");
-        }
-        out.push_str(DEFAULT_RUSTCOBOL_PROPS_SKILL);
-    }
+    
     out
 }
 
@@ -607,6 +535,9 @@ pub fn build_context(form: &Form) -> String {
         "FORM: {} ({}x{})\n",
         form.name, form.width, form.height
     ));
+
+    out.push_str("AVAILABLE CONTROL TYPES (use these for 'add_control'):\n");
+    out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
 
     out.push_str("CONTROLS:\n");
     if form.controls.is_empty() {
@@ -627,21 +558,16 @@ pub fn build_context(form: &Form) -> String {
         out.push('\n');
     }
 
-    // Legends only for the types actually in use.
-    let mut types: Vec<String> = form
-        .controls
-        .iter()
-        .map(|c| c.control_type.as_str().to_string())
-        .collect();
-    types.sort();
-    types.dedup();
+    let all_types = [
+        "Button", "TextBox", "Label", "CheckBox", "RadioButton", "ListBox", "ComboBox", "GroupBox", "Panel", "TabControl", "DataGrid", "PictureBox", "ProgressBar", "MenuBar", "ToolBar", "StatusBar", "Line", "DateTimePicker", "NumericUpDown", "TreeView", "Splitter", "Timer", "Shape", "Animator", "AgentObject", "RestClient", "SqlDatabase", "Slider", "BarChart", "LineChart", "PieChart", "AreaChart", "ScatterChart", "DonutChart"
+    ];
 
-    out.push_str("PROPERTY KEYS BY TYPE:\n");
-    for t in &types {
+    out.push_str("PROPERTY KEYS BY TYPE (for all available controls):\n");
+    for t in &all_types {
         out.push_str(&format!("  {}: {}\n", t, property_names_for(t).join(", ")));
     }
-    out.push_str("EVENTS BY TYPE:\n");
-    for t in &types {
+    out.push_str("EVENTS BY TYPE (for all available controls):\n");
+    for t in &all_types {
         let evs = ControlType::from_str(t).supported_events().join(", ");
         out.push_str(&format!("  {}: {}\n", t, evs));
     }

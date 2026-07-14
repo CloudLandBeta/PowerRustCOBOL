@@ -12,6 +12,7 @@ fn probe_request(prompt: &str) -> MeshRequest {
         // Unreachable on purpose: the request must fail fast AFTER routing
         // and URL resolution have been logged, so tests stay offline.
         endpoint: "http://127.0.0.1:1/v1".into(),
+        specialist: None,
         system_prompt: String::new(),
         skills: String::new(),
         context: String::new(),
@@ -29,7 +30,7 @@ async fn routed_specialist(prompt: &str) -> String {
     let orch = Orchestrator::new();
     let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let on_log = |line: String| lines.lock().unwrap().push(line);
-    let _ = orch.handle_request(&probe_request(prompt), &on_log).await;
+    let _ = orch.handle_request(&probe_request(prompt), &on_log, &|_: &str| {}).await;
     let lines = lines.into_inner().unwrap();
     lines
         .iter()
@@ -68,7 +69,7 @@ async fn ollama_cloud_wrong_host_is_healed_and_openai_wire_chosen() {
     // healed to ollama.com before the request is attempted.
     req.endpoint = "https://api.ollama.com/v1/chat/completions".into();
     req.api_key = "test-key".into();
-    let _ = orch.handle_request(&req, &on_log).await;
+    let _ = orch.handle_request(&req, &on_log, &|_: &str| {}).await;
     let lines = lines.into_inner().unwrap();
     let post = lines
         .iter()
@@ -89,7 +90,7 @@ async fn local_ollama_native_wire_chosen_from_api_suffix() {
     let mut req = probe_request("hello");
     req.provider = "ollama".into();
     req.endpoint = "http://127.0.0.1:1/api".into();
-    let _ = orch.handle_request(&req, &on_log).await;
+    let _ = orch.handle_request(&req, &on_log, &|_: &str| {}).await;
     let lines = lines.into_inner().unwrap();
     let post = lines.iter().find(|l| l.starts_with("POST")).expect("logged");
     assert!(post.contains("/api/chat"), "{post}");
