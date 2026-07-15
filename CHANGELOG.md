@@ -8,6 +8,156 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.29.18] — 2026-07-15
+
+### Fixed
+
+- **AI model picker NaN crash** — The Project Settings model dropdown no longer
+  passes infinite dimensions to egui while sizing the filter row, preventing
+  `assertion failed: !max_rect.any_nan()` when opening the picker.
+
+## [PowerRustCOBOL 1.29.17] — 2026-07-15
+
+### Fixed
+
+- **AI model picker spacing** — The Project Settings model dropdown now uses
+  taller filter and model rows with extra vertical spacing, making model
+  selection easier when many provider models are listed.
+
+## [PowerRustCOBOL 1.29.16] — 2026-07-15
+
+### Fixed
+
+- **Retired AI model guard** — The IDE now clears and blocks the retired
+  `qwen3-coder-next` model from saved AI settings, outbound requests, test
+  requests, and refreshed model lists, avoiding Ollama Cloud HTTP 410 failures.
+
+## [PowerRustCOBOL 1.29.15] — 2026-07-15
+
+### Fixed
+
+- **SVG button icon rendering** — Button SVG icons are now rendered from vector
+  data at their final on-screen icon rectangle size, avoiding artifacts from
+  scaling a cached raster texture.
+
+## [PowerRustCOBOL 1.29.14] — 2026-07-15
+
+### Fixed
+
+- **Button top/bottom icon text limits** — Button text now aligns within the
+  vertical space left after a top or bottom icon is placed, so captions no
+  longer overlap icons and zero icon padding makes the text touch the icon edge
+  exactly.
+
+## [PowerRustCOBOL 1.29.13] — 2026-07-15
+
+### Fixed
+
+- **Button right-icon spacing** — Button captions are now measured by their
+  actual glyph width before laying out left/right icons, so `IconAlignment=Right`
+  with zero padding places the icon immediately after the last text character
+  instead of after hidden paragraph space.
+
+## [PowerRustCOBOL 1.29.12] — 2026-07-15
+
+### Fixed
+
+- **Button icon/text block layout** — Left/right Button icons now stay
+  immediately before or after the text as a single aligned block, shrinking the
+  icon when needed so it never overlaps the caption or spills past the button.
+  Top/bottom icon alignment remains independent from text alignment.
+
+## [PowerRustCOBOL 1.29.11] — 2026-07-15
+
+### Fixed
+
+- **Button icon properties** — Renamed Button `ImagePath`, `ImageAlignment`,
+  and `ImagePadding` to `IconPath`, `IconAlignment`, and `IconPadding`, added
+  `IconSize` with fixed dropdown sizes from 16px to 128px, and kept legacy
+  image-property fallbacks for existing forms.
+
+## [PowerRustCOBOL 1.29.10] — 2026-07-15
+
+### Fixed
+
+- **Button text/image alignment rules** — Button `TextAlignment` now places text
+  in the requested 3x3 grid position. Top/bottom images are centered to the
+  button edge independently of text alignment, while left/right images stay next
+  to the text with the configured padding.
+
+## [PowerRustCOBOL 1.29.9] — 2026-07-15
+
+### Fixed
+
+- **Button border and hover behavior** — Buttons now expose `BorderWidth`, apply
+  their configured border color/thickness, render `Fixed3D`, `Raised`, and
+  `Sunken` border styles as bevels, and honor `Tooltip` plus `Cursor` while
+  hovering in interactive forms.
+
+## [PowerRustCOBOL 1.29.8] — 2026-07-15
+
+### Fixed
+
+- **Button text and image layout** — Button `TextAlignment` now controls caption
+  placement, `ImagePath` renders an image beside the caption, and
+  `ImageAlignment` supports `Left`, `Right`, `Top`, and `Bottom` with a new
+  `ImagePadding` property defaulting to 10px.
+
+## [PowerRustCOBOL 1.29.7] — 2026-07-15
+
+### Fixed
+
+- **Button property cleanup** — Removed unused or duplicate Button inspector
+  properties: `FlatStyle`, type-specific `CornerRadius`, `IsCancel`, and
+  `ModalResult`. Button corner radius remains available in the Geometry section.
+
+## [PowerRustCOBOL 1.29.6] — 2026-07-15
+
+### Fixed
+
+- **Default button Enter key** — Pressing Enter in preview/run/compiled forms
+  now triggers the explicit `IsDefault` button when no input control has focus,
+  and is ignored when the form has no default button.
+
+## [PowerRustCOBOL 1.29.5] — 2026-07-15
+
+### Fixed
+
+- **Runtime tab order traversal** — Pressing Tab or Shift+Tab in preview/run/
+  compiled forms now moves keyboard focus through enabled visible controls using
+  the form's `TabOrder` values instead of leaving focus stuck.
+
+## [PowerRustCOBOL 1.29.4] — 2026-07-15
+
+### Fixed
+
+- **Control font styles** — Bold, Italic, Underline, and Strikethrough now render
+  through the shared text painter for text-bearing controls instead of only
+  applying to Labels.
+
+## [PowerRustCOBOL 1.29.3] — 2026-07-15
+
+### Fixed
+
+- **Agent control invocation prompts** — All embedded agent prompts now instruct
+  COBOL generation to use COBOL-2002-style inline control members
+  (`<control>::<method>(...)` and `<control>::<property>`) instead of `CALL` or
+  legacy `INVOKE Control "Method" USING ...` forms for control methods,
+  property access, chart actions, data bindings, REST/SQL controls, and
+  IndexedFile controls.
+
+## [PowerRustCOBOL 1.29.2] — 2026-07-15
+
+### Fixed
+
+- **Neumorphic control defaults** — Applying the Neumorphic style now forces
+  black foreground text for buttons, tab headers, and data-input controls, and
+  applies the expected 15px corner radius so controls remain readable and match
+  the soft-UI style.
+- **IDE OS app label** — The native IDE app/process name now uses
+  `PowerRustCOBOL <version>` so OS dock/taskbar hover labels no longer fall back
+  to the internal binary name `cobolt-ide`.
+
 ## [PowerRustCOBOL 1.29.1] — 2026-07-14
 
 ### Fixed

@@ -80,12 +80,14 @@ not invent file-object properties. Use only these properties:
 - `StatusDataItem` — file-status item updated by generated paragraphs.
 - `OperatorName` — optional `REGISTERED USER` name for `OPEN`.
 
-Generated code exposes method paragraphs named with the control id:
-`<id>-OPEN`, `<id>-START`, `<id>-READ-INVALID`, `<id>-READ-NEXT`,
-`<id>-READ-PREVIOUS`, `<id>-READ-FIRST`, `<id>-READ-LAST`, `<id>-WRITE`,
-`<id>-REWRITE`, `<id>-DELETE`, `<id>-COMMIT`, `<id>-ROLLBACK`, and
-`<id>-CLOSE`. Event handlers should `PERFORM` these paragraphs. Do not emit raw
-indexed-file boilerplate unless the user asks for low-level COBOL.
+Generated code exposes methods through the control object. Event handlers should
+use COBOL-2002-style inline method syntax:
+`<id>::Open(mode)`, `<id>::Start(key, value)`, `<id>::ReadInvalid()`,
+`<id>::ReadNext()`, `<id>::ReadPrevious()`, `<id>::ReadFirst()`,
+`<id>::ReadLast()`, `<id>::Write()`, `<id>::Rewrite()`, `<id>::Delete()`,
+`<id>::Commit()`, `<id>::Rollback()`, and `<id>::Close()`. Do not emit raw
+indexed-file boilerplate or `CALL` runtime helpers unless the user explicitly asks
+for low-level COBOL.
 
 CRUD/grid recipe:
 1. Inspect `PROJECT TREE INVENTORY` and choose a registered `.cidx`; ask if more
@@ -99,13 +101,14 @@ CRUD/grid recipe:
    for browse/list views when useful.
 5. Wire buttons through EventBinder:
    - New/Clear: clear bound controls / record fields.
-   - Save: move control values to record fields, then `PERFORM <id>-WRITE`.
-   - Update: move control values to record fields, then `PERFORM <id>-REWRITE`.
-   - Delete: set the key, then `PERFORM <id>-DELETE`.
-   - Find: set the key, then `PERFORM <id>-READ-INVALID`.
-   - First/Previous/Next/Last: `PERFORM <id>-READ-FIRST`,
-     `<id>-READ-PREVIOUS`, `<id>-READ-NEXT`, `<id>-READ-LAST`.
-   - Commit/Rollback/Close: call the matching generated paragraph.
+   - Save: move control values to record fields, then `<id>::Write()`.
+   - Update: move control values to record fields, then `<id>::Rewrite()`.
+   - Delete: set the key, then `<id>::Delete()`.
+   - Find: set the key, then `<id>::ReadInvalid()`.
+   - First/Previous/Next/Last: `<id>::ReadFirst()`,
+     `<id>::ReadPrevious()`, `<id>::ReadNext()`, `<id>::ReadLast()`.
+   - Commit/Rollback/Close: use `<id>::Commit()`, `<id>::Rollback()`, and
+     `<id>::Close()`.
 
 ## Rule 3 — the shadow / Neumorphic property group (deep reference)
 

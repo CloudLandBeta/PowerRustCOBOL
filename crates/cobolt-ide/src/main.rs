@@ -46,7 +46,8 @@ fn main() -> eframe::Result<()> {
         .with_target(false)
         .init();
 
-    let ide_title = format!("PowerRustCOBOL v{VERSION}");
+    let ide_title = format!("PowerRustCOBOL {VERSION}");
+    set_os_app_name(&ide_title);
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -67,6 +68,68 @@ fn main() -> eframe::Result<()> {
         Box::new(|cc| Ok(Box::new(CoboltApp::new(cc)))),
     )
 }
+
+#[cfg(target_os = "macos")]
+fn set_os_app_name(name: &str) {
+    use std::ffi::{c_char, c_void, CString};
+
+    #[link(name = "objc")]
+    extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+
+    unsafe fn selector(name: &str) -> *mut c_void {
+        let name = CString::new(name).ok();
+        name.map(|s| unsafe { sel_registerName(s.as_ptr()) })
+            .unwrap_or(std::ptr::null_mut())
+    }
+
+    let Ok(process_name) = CString::new(name) else {
+        return;
+    };
+    let Ok(ns_process_info_name) = CString::new("NSProcessInfo") else {
+        return;
+    };
+    let Ok(ns_string_name) = CString::new("NSString") else {
+        return;
+    };
+
+    unsafe {
+        let ns_process_info = objc_getClass(ns_process_info_name.as_ptr());
+        let ns_string = objc_getClass(ns_string_name.as_ptr());
+        if ns_process_info.is_null() || ns_string.is_null() {
+            return;
+        }
+
+        let msg_class_obj: extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+            std::mem::transmute(objc_msgSend as *const ());
+        let msg_init_utf8: extern "C" fn(*mut c_void, *mut c_void, *const c_char) -> *mut c_void =
+            std::mem::transmute(objc_msgSend as *const ());
+        let msg_set_name: extern "C" fn(*mut c_void, *mut c_void, *mut c_void) =
+            std::mem::transmute(objc_msgSend as *const ());
+        let msg_void: extern "C" fn(*mut c_void, *mut c_void) =
+            std::mem::transmute(objc_msgSend as *const ());
+
+        let process_info = msg_class_obj(ns_process_info, selector("processInfo"));
+        let raw_string = msg_class_obj(ns_string, selector("alloc"));
+        let process_name = msg_init_utf8(
+            raw_string,
+            selector("initWithUTF8String:"),
+            process_name.as_ptr(),
+        );
+        if process_info.is_null() || process_name.is_null() {
+            return;
+        }
+
+        msg_set_name(process_info, selector("setProcessName:"), process_name);
+        msg_void(process_name, selector("release"));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_os_app_name(_name: &str) {}
 
 /// The IDE window / dock / taskbar icon. Uses the bundled PowerRustCOBOL samurai
 /// icon as-is; users can override it by dropping an `app-icon.png` into the

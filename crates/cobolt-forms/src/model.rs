@@ -3060,17 +3060,13 @@ impl Control {
             }
             ControlType::Button => {
                 props.insert("IsDefault".into(), PropValue::Bool(false));
-                props.insert("IsCancel".into(), PropValue::Bool(false));
-                props.insert("ModalResult".into(), PropValue::String("None".into()));
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
                 props.insert("BorderStyle".into(), PropValue::String("Single".into()));
-                props.insert("CornerRadius".into(), PropValue::Int(3));
-                props.insert("FlatStyle".into(), PropValue::Bool(false));
-                props.insert("ImagePath".into(), PropValue::String("".into()));
-                props.insert(
-                    "ImageAlignment".into(),
-                    PropValue::String("MiddleLeft".into()),
-                );
+                props.insert("BorderWidth".into(), PropValue::Int(1));
+                props.insert("IconPath".into(), PropValue::String("".into()));
+                props.insert("IconAlignment".into(), PropValue::String("Left".into()));
+                props.insert("IconPadding".into(), PropValue::Int(10));
+                props.insert("IconSize".into(), PropValue::String("32".into()));
                 props.insert(
                     "TextAlignment".into(),
                     PropValue::String("MiddleCenter".into()),
@@ -3785,6 +3781,10 @@ impl Control {
             "BackgroundColor",
             PropValue::String(NEUMORPHIC_SURFACE_COLOR.into()),
         );
+        if self.control_type.uses_neumorphic_black_foreground() {
+            self.set_prop("ForegroundColor", PropValue::String("#000000".into()));
+        }
+        self.set_prop("CornerRadius", PropValue::Int(15));
         self.set_prop("ShadowEnabled", PropValue::Bool(true));
         self.set_prop("ShadowOpacity", PropValue::Int(6));
         self.set_prop("ShadowDirection", PropValue::String("SouthEast".into()));
@@ -3848,6 +3848,11 @@ impl ControlType {
                 | ControlType::TreeView
                 | ControlType::Slider
         )
+    }
+
+    pub fn uses_neumorphic_black_foreground(&self) -> bool {
+        self.is_data_input_control()
+            || matches!(self, ControlType::Button | ControlType::TabControl)
     }
 }
 
@@ -4860,21 +4865,33 @@ mod tests {
         let mut form = Form::new("MAIN", "Main", 320, 200);
         form.controls
             .push(Control::new("Button-1", ControlType::Button, 10, 10));
+        let mut text = Control::new("TextBox-1", ControlType::TextBox, 10, 50);
+        text.set_prop("ForegroundColor", PropValue::String("#FFFFFF".into()));
+        form.controls.push(text);
+        form.controls.push(Control::new(
+            "TabControl-1",
+            ControlType::TabControl,
+            10,
+            90,
+        ));
         form.apply_neumorphic_defaults();
 
         assert_eq!(form.glass_style, GlassStyle::Neumorphic);
         assert_eq!(form.background_color, NEUMORPHIC_FORM_BACKGROUND);
-        let c = &form.controls[0];
-        assert_eq!(
-            c.get_prop("BackgroundColor").unwrap().as_str(),
-            NEUMORPHIC_SURFACE_COLOR
-        );
-        assert!(c.get_prop("ShadowEnabled").unwrap().as_bool());
-        assert_eq!(c.get_prop("ShadowOpacity").unwrap().as_i64(), 6);
-        assert_eq!(c.get_prop("ShadowDistance").unwrap().as_i64(), 7);
-        assert_eq!(c.get_prop("ShadowDirection").unwrap().as_str(), "SouthEast");
-        assert!(c.get_prop("ShadowBlur").unwrap().as_bool());
-        assert_eq!(c.get_prop("ShadowBlurStrength").unwrap().as_i64(), 8);
+        for c in &form.controls {
+            assert_eq!(
+                c.get_prop("BackgroundColor").unwrap().as_str(),
+                NEUMORPHIC_SURFACE_COLOR
+            );
+            assert_eq!(c.get_prop("ForegroundColor").unwrap().as_str(), "#000000");
+            assert_eq!(c.get_prop("CornerRadius").unwrap().as_i64(), 15);
+            assert!(c.get_prop("ShadowEnabled").unwrap().as_bool());
+            assert_eq!(c.get_prop("ShadowOpacity").unwrap().as_i64(), 6);
+            assert_eq!(c.get_prop("ShadowDistance").unwrap().as_i64(), 7);
+            assert_eq!(c.get_prop("ShadowDirection").unwrap().as_str(), "SouthEast");
+            assert!(c.get_prop("ShadowBlur").unwrap().as_bool());
+            assert_eq!(c.get_prop("ShadowBlurStrength").unwrap().as_i64(), 8);
+        }
     }
 
     #[test]
@@ -5697,6 +5714,16 @@ mod tests {
         let (w, h) = ControlType::Button.default_size();
         assert_eq!(w, 80);
         assert_eq!(h, 28);
+    }
+
+    #[test]
+    fn button_icon_properties_default_to_left_with_padding_and_size() {
+        let b = Control::new("Button1", ControlType::Button, 0, 0);
+        assert_eq!(b.get_prop("IconPath").unwrap().as_str(), "");
+        assert_eq!(b.get_prop("IconAlignment").unwrap().as_str(), "Left");
+        assert_eq!(b.get_prop("IconPadding").unwrap().as_i64(), 10);
+        assert_eq!(b.get_prop("IconSize").unwrap().as_i64(), 32);
+        assert_eq!(b.get_prop("BorderWidth").unwrap().as_i64(), 1);
     }
 
     #[test]

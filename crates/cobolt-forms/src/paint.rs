@@ -23,6 +23,7 @@
 use crate::model::PropValue;
 use crate::theme_pack::{ControlState, Slice, ThemePack};
 use crate::{Control, ControlType};
+use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use std::collections::HashMap;
 use std::f32::consts::TAU;
@@ -100,6 +101,300 @@ pub fn text_halign(value: &str) -> egui::Align {
     } else {
         egui::Align::LEFT
     }
+}
+
+fn styled_text_job(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    text: &str,
+    font_name: &str,
+    fsize: f32,
+    color: Color32,
+    max_width: f32,
+    halign: egui::Align,
+) -> LayoutJob {
+    let font_id = crate::fonts::font_id(painter.ctx(), font_name, fsize);
+    let underline = ctrl
+        .get_prop("Underline")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    let strikeout = ctrl
+        .get_prop("Strikethrough")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let mut job = LayoutJob::default();
+    job.halign = halign;
+    job.wrap.max_width = max_width;
+    job.wrap.break_anywhere = false;
+    job.append(
+        text,
+        0.0,
+        TextFormat {
+            font_id,
+            color,
+            italics: ctrl
+                .get_prop("Italic")
+                .map(|v| v.as_bool())
+                .unwrap_or(false),
+            underline: if underline {
+                Stroke::new(1.0, color)
+            } else {
+                Stroke::NONE
+            },
+            strikethrough: if strikeout {
+                Stroke::new(1.0, color)
+            } else {
+                Stroke::NONE
+            },
+            ..Default::default()
+        },
+    );
+    job
+}
+
+fn paint_styled_galley(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    pos: Pos2,
+    galley: std::sync::Arc<egui::Galley>,
+    color: Color32,
+) {
+    painter.galley(pos, galley.clone(), color);
+    if ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false) {
+        // Egui does not guarantee a registered bold face for arbitrary system
+        // fonts. Repaint with a tiny offset to make the weight visibly heavier.
+        painter.galley(pos + Vec2::new(0.5, 0.0), galley, color);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ButtonImageAlignment {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+fn button_image_alignment(value: &str) -> ButtonImageAlignment {
+    let v = value.trim();
+    if v.eq_ignore_ascii_case("Right") || v.ends_with("Right") {
+        ButtonImageAlignment::Right
+    } else if v.eq_ignore_ascii_case("Top") || v.starts_with("Top") {
+        ButtonImageAlignment::Top
+    } else if v.eq_ignore_ascii_case("Bottom") || v.starts_with("Bottom") {
+        ButtonImageAlignment::Bottom
+    } else {
+        ButtonImageAlignment::Left
+    }
+}
+
+fn button_image_padding(ctrl: &Control) -> f32 {
+    ctrl.get_prop("IconPadding")
+        .or_else(|| ctrl.get_prop("ImagePadding"))
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(10.0)
+        .clamp(0.0, 64.0)
+}
+
+fn button_icon_size(ctrl: &Control) -> f32 {
+    ctrl.get_prop("IconSize")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(32.0)
+        .clamp(16.0, 128.0)
+}
+
+fn button_content_anchor_with_inset(
+    rect: Rect,
+    content_size: Vec2,
+    text_alignment: &str,
+    x_inset: f32,
+    y_inset: f32,
+) -> Pos2 {
+    let h = text_halign(text_alignment);
+    let v = if text_alignment.starts_with("Top") || text_alignment.eq_ignore_ascii_case("Top") {
+        egui::Align::Min
+    } else if text_alignment.starts_with("Bottom") || text_alignment.eq_ignore_ascii_case("Bottom")
+    {
+        egui::Align::Max
+    } else {
+        egui::Align::Center
+    };
+    let x = match h {
+        egui::Align::Center => rect.center().x - content_size.x * 0.5,
+        egui::Align::Max => rect.right() - x_inset - content_size.x,
+        _ => rect.left() + x_inset,
+    };
+    let y = match v {
+        egui::Align::Center => rect.center().y - content_size.y * 0.5,
+        egui::Align::Max => rect.bottom() - y_inset - content_size.y,
+        _ => rect.top() + y_inset,
+    };
+    Pos2::new(
+        x.clamp(
+            rect.left() + x_inset,
+            (rect.right() - x_inset - content_size.x).max(rect.left() + x_inset),
+        ),
+        y.clamp(
+            rect.top() + y_inset,
+            (rect.bottom() - y_inset - content_size.y).max(rect.top() + y_inset),
+        ),
+    )
+}
+
+fn button_content_anchor(rect: Rect, content_size: Vec2, text_alignment: &str, inset: f32) -> Pos2 {
+    button_content_anchor_with_inset(rect, content_size, text_alignment, inset, inset)
+}
+
+fn button_image_size(_native: Vec2, slot: Vec2) -> Vec2 {
+    if slot.x <= 0.0 || slot.y <= 0.0 {
+        return Vec2::ZERO;
+    }
+    slot
+}
+
+fn button_image_slot(ctrl: &Control) -> Vec2 {
+    let size = button_icon_size(ctrl);
+    Vec2::new(size, size)
+}
+
+fn button_svg_icon_available(path: &str) -> bool {
+    is_svg_path(path) && std::fs::metadata(path).is_ok()
+}
+
+fn button_content_layout(
+    rect: Rect,
+    text_size: Vec2,
+    image_size: Option<Vec2>,
+    image_alignment: ButtonImageAlignment,
+    padding: f32,
+    text_alignment: &str,
+) -> (Pos2, Option<Rect>) {
+    let inset = 6.0_f32.min(rect.width() * 0.25).min(rect.height() * 0.25);
+    let text_pos = button_content_anchor(rect, text_size, text_alignment, inset);
+    let Some(img_size) = image_size.filter(|s| s.x > 0.0 && s.y > 0.0) else {
+        return (text_pos, None);
+    };
+    let has_text = text_size.x > 0.0 && text_size.y > 0.0;
+    let gap = if has_text { padding } else { 0.0 };
+    let (text_pos, image_rect) = match image_alignment {
+        ButtonImageAlignment::Left => {
+            let avail_w = (rect.width() - inset * 2.0).max(1.0);
+            let avail_h = (rect.height() - inset * 2.0).max(1.0);
+            let max_icon_w = (avail_w - gap - text_size.x).max(0.0);
+            let img_size = Vec2::new(img_size.x.min(max_icon_w), img_size.y.min(avail_h));
+            let pair_size = Vec2::new(img_size.x + gap + text_size.x, img_size.y.max(text_size.y));
+            let origin = button_content_anchor(rect, pair_size, text_alignment, inset);
+            (
+                Pos2::new(
+                    origin.x + img_size.x + gap,
+                    origin.y + (pair_size.y - text_size.y) * 0.5,
+                ),
+                Rect::from_min_size(
+                    Pos2::new(origin.x, origin.y + (pair_size.y - img_size.y) * 0.5),
+                    img_size,
+                ),
+            )
+        }
+        ButtonImageAlignment::Right => {
+            let avail_w = (rect.width() - inset * 2.0).max(1.0);
+            let avail_h = (rect.height() - inset * 2.0).max(1.0);
+            let max_icon_w = (avail_w - gap - text_size.x).max(0.0);
+            let img_size = Vec2::new(img_size.x.min(max_icon_w), img_size.y.min(avail_h));
+            let pair_size = Vec2::new(text_size.x + gap + img_size.x, text_size.y.max(img_size.y));
+            let origin = button_content_anchor(rect, pair_size, text_alignment, inset);
+            (
+                Pos2::new(origin.x, origin.y + (pair_size.y - text_size.y) * 0.5),
+                Rect::from_min_size(
+                    Pos2::new(
+                        origin.x + text_size.x + gap,
+                        origin.y + (pair_size.y - img_size.y) * 0.5,
+                    ),
+                    img_size,
+                ),
+            )
+        }
+        ButtonImageAlignment::Top => {
+            let image_rect = Rect::from_min_size(
+                Pos2::new(rect.center().x - img_size.x * 0.5, rect.top() + inset),
+                img_size,
+            );
+            let text_top = (image_rect.bottom() + gap).min(rect.bottom() - inset);
+            let text_rect =
+                Rect::from_min_max(Pos2::new(rect.left(), text_top), rect.right_bottom());
+            (
+                button_content_anchor_with_inset(text_rect, text_size, text_alignment, inset, 0.0),
+                image_rect,
+            )
+        }
+        ButtonImageAlignment::Bottom => {
+            let image_rect = Rect::from_min_size(
+                Pos2::new(
+                    rect.center().x - img_size.x * 0.5,
+                    rect.bottom() - inset - img_size.y,
+                ),
+                img_size,
+            );
+            let text_bottom = (image_rect.top() - gap).max(rect.top() + inset);
+            let text_rect =
+                Rect::from_min_max(rect.left_top(), Pos2::new(rect.right(), text_bottom));
+            (
+                button_content_anchor_with_inset(text_rect, text_size, text_alignment, inset, 0.0),
+                image_rect,
+            )
+        }
+    };
+    (text_pos, Some(image_rect))
+}
+
+fn draw_control_border(
+    painter: &egui::Painter,
+    rect: Rect,
+    rounding: egui::Rounding,
+    style: &str,
+    width: f32,
+    color: Color32,
+) {
+    let bw = width.clamp(0.0, 20.0);
+    if bw <= 0.5 || style.eq_ignore_ascii_case("None") {
+        return;
+    }
+    let style_l = style.trim().to_ascii_lowercase();
+    if style_l == "single" {
+        let half = bw * 0.5;
+        painter.rect_stroke(
+            rect.shrink(half),
+            round_map(
+                rounding,
+                |c| {
+                    if c <= 0.0 {
+                        0.0
+                    } else {
+                        (c - half).max(1.0)
+                    }
+                },
+            ),
+            Stroke::new(bw, color),
+        );
+        return;
+    }
+
+    let light = shade(color, 0.35);
+    let dark = shade(color, -0.35);
+    let inset = bw * 0.5;
+    let r = rect.shrink(inset);
+    let top_left_light = style_l == "raised" || style_l == "fixed3d" || style_l == "3d";
+    let (top_left, bottom_right) = if top_left_light {
+        (light, dark)
+    } else {
+        (dark, light)
+    };
+    let stroke_tl = Stroke::new(bw, top_left);
+    let stroke_br = Stroke::new(bw, bottom_right);
+    painter.line_segment([r.left_top(), r.right_top()], stroke_tl);
+    painter.line_segment([r.left_top(), r.left_bottom()], stroke_tl);
+    painter.line_segment([r.right_top(), r.right_bottom()], stroke_br);
+    painter.line_segment([r.left_bottom(), r.right_bottom()], stroke_br);
 }
 
 // ── Shared control renderer (moved here from the Form Designer) ────────────
@@ -2324,18 +2619,7 @@ pub fn draw_control(
                 } else {
                     alpha_color(stroke_color)
                 };
-                let half = bw * 0.5;
-                painter.rect_stroke(
-                    border_rect.shrink(half),
-                    round_map(frame_round, |c| {
-                        if c <= 0.0 {
-                            0.0
-                        } else {
-                            (c - half).max(1.0)
-                        }
-                    }),
-                    Stroke::new(bw, bc),
-                );
+                draw_control_border(painter, border_rect, frame_round, &border_style, bw, bc);
             }
         }
         // Buttons get a subtle top specular — a soft vertical light reflection
@@ -2400,7 +2684,7 @@ pub fn draw_control(
             } else {
                 frame_rect
             };
-            painter.rect_stroke(border_rect, frame_round, Stroke::new(bw, bc));
+            draw_control_border(painter, border_rect, frame_round, &border_style, bw, bc);
         } else if selected {
             let sel_rect = if is_container {
                 debug_frame(
@@ -2668,28 +2952,73 @@ pub fn draw_control(
             .map(|v| v.as_str())
             .unwrap_or_default();
 
-        // For Label controls, apply font-style properties via LayoutJob.
-        if matches!(ctrl.control_type, CT::Label) {
-            use egui::text::{LayoutJob, TextFormat};
-
-            let bold = ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false);
-            let italic = ctrl
-                .get_prop("Italic")
-                .map(|v| v.as_bool())
-                .unwrap_or(false);
-            let underline = ctrl
-                .get_prop("Underline")
-                .map(|v| v.as_bool())
-                .unwrap_or(false);
-            let strikeout = ctrl
-                .get_prop("Strikethrough")
-                .map(|v| v.as_bool())
-                .unwrap_or(false);
-
-            // Egui doesn't have a separate bold typeface registered by default.
-            // Simulate bold by painting the galley twice with a tiny x-offset.
-            let font_id = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
-
+        if matches!(ctrl.control_type, CT::Button) {
+            let text_alignment = ctrl
+                .get_prop("TextAlignment")
+                .map(|v| v.as_str())
+                .unwrap_or("MiddleCenter");
+            let galley = painter.layout_job(styled_text_job(
+                painter,
+                ctrl,
+                &label,
+                &font_name,
+                fsize,
+                txt_color,
+                f32::INFINITY,
+                egui::Align::LEFT,
+            ));
+            let image_path = ctrl
+                .get_prop("IconPath")
+                .or_else(|| ctrl.get_prop("ImagePath"))
+                .map(|v| v.as_str().trim().to_owned())
+                .unwrap_or_default();
+            let is_svg_icon = button_svg_icon_available(&image_path);
+            let raster_texture = if is_svg_icon {
+                None
+            } else {
+                picturebox_texture(painter.ctx(), &image_path)
+            };
+            let image_alignment = button_image_alignment(
+                ctrl.get_prop("IconAlignment")
+                    .or_else(|| ctrl.get_prop("ImageAlignment"))
+                    .map(|v| v.as_str())
+                    .unwrap_or("Left"),
+            );
+            let image_size = if is_svg_icon {
+                Some(button_image_slot(ctrl))
+            } else {
+                raster_texture
+                    .as_ref()
+                    .map(|tex| button_image_size(tex.size_vec2(), button_image_slot(ctrl)))
+            };
+            let (text_pos, image_rect) = button_content_layout(
+                rect,
+                galley.size(),
+                image_size,
+                image_alignment,
+                button_image_padding(ctrl),
+                text_alignment,
+            );
+            let texture = image_rect.and_then(|img_rect| {
+                if is_svg_icon {
+                    picturebox_svg_texture(painter.ctx(), &image_path, img_rect.size())
+                } else {
+                    raster_texture.clone()
+                }
+                .map(|tex| (tex, img_rect))
+            });
+            if let Some((tex, img_rect)) = texture {
+                if img_rect.width() > 0.5 && img_rect.height() > 0.5 {
+                    painter.image(
+                        tex.id(),
+                        img_rect,
+                        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        Color32::from_white_alpha(a),
+                    );
+                }
+            }
+            paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
+        } else if matches!(ctrl.control_type, CT::Label) {
             // Honour the Label's TextAlignment (Left / Center / Right).
             let halign = text_halign(
                 ctrl.get_prop("TextAlignment")
@@ -2697,32 +3026,16 @@ pub fn draw_control(
                     .unwrap_or(""),
             );
 
-            let mut job = LayoutJob::default();
-            job.halign = halign;
-            job.wrap.max_width = rect.width();
-            job.wrap.break_anywhere = false;
-            job.append(
+            let galley = painter.layout_job(styled_text_job(
+                painter,
+                ctrl,
                 &label,
-                0.0,
-                TextFormat {
-                    font_id: font_id.clone(),
-                    color: txt_color,
-                    italics: italic,
-                    underline: if underline {
-                        Stroke::new(1.0, txt_color)
-                    } else {
-                        Stroke::NONE
-                    },
-                    strikethrough: if strikeout {
-                        Stroke::new(1.0, txt_color)
-                    } else {
-                        Stroke::NONE
-                    },
-                    ..Default::default()
-                },
-            );
-
-            let galley = painter.layout_job(job);
+                &font_name,
+                fsize,
+                txt_color,
+                rect.width(),
+                halign,
+            ));
             // The galley's draw origin follows `halign`: top-left for LEFT,
             // top-centre for CENTER, top-right for RIGHT. Anchor x to the
             // matching edge of the rect (with a small inset off the border);
@@ -2734,19 +3047,13 @@ pub fn draw_control(
                 _ => rect.left() + pad,
             };
             let text_pos = egui::pos2(anchor_x, rect.center().y - galley.size().y / 2.0);
-            painter.galley(text_pos, galley.clone(), txt_color);
-
-            // Simulate bold: repaint shifted by 0.5 px
-            if bold {
-                painter.galley(text_pos + Vec2::new(0.5, 0.0), galley, txt_color);
-            }
+            paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
         } else if matches!(ctrl.control_type, CT::TextBox) {
             // Inset by at least the corner radius so text stays inside the rounded
             // arc and never bleeds past the box's own rounded corners.
             let pad = textbox_inner_padding(ctrl)
                 .max(corner_radius(ctrl))
                 .min(rect.width() * 0.45);
-            let font_id = crate::fonts::font_id(painter.ctx(), &font_name, fsize);
             let multiline = ctrl
                 .get_prop("Multiline")
                 .map(|v| v.as_bool())
@@ -2755,53 +3062,66 @@ pub fn draw_control(
                 // Multiline preview: lay the value out top-left, wrapping to the
                 // field width when WordWrap is on (matching the run-time editor),
                 // clipped to the control so long text doesn't spill past the border.
-                use egui::text::{LayoutJob, TextFormat};
                 let word_wrap = ctrl
                     .get_prop("WordWrap")
                     .map(|v| v.as_bool())
                     .unwrap_or(true);
-                let mut job = LayoutJob::default();
-                job.wrap.max_width = if word_wrap {
+                let max_width = if word_wrap {
                     (rect.width() - 2.0 * pad).max(1.0)
                 } else {
                     f32::INFINITY
                 };
-                job.wrap.break_anywhere = false;
-                job.append(
+                let galley = painter.layout_job(styled_text_job(
+                    painter,
+                    ctrl,
                     &label,
-                    0.0,
-                    TextFormat {
-                        font_id,
-                        color: txt_color,
-                        ..Default::default()
-                    },
-                );
-                let galley = painter.layout_job(job);
+                    &font_name,
+                    fsize,
+                    txt_color,
+                    max_width,
+                    egui::Align::LEFT,
+                ));
                 // Clip to the padded inner rect so wrapped lines stay clear of the
                 // rounded corners (top/bottom) instead of spilling past the arc.
                 let clipped = painter.with_clip_rect(rect.shrink(pad));
-                clipped.galley(
+                paint_styled_galley(
+                    &clipped,
+                    ctrl,
                     egui::pos2(rect.left() + pad, rect.top() + pad),
                     galley,
                     txt_color,
                 );
             } else {
-                painter.text(
-                    egui::pos2(rect.left() + pad, rect.center().y),
-                    egui::Align2::LEFT_CENTER,
+                let galley = painter.layout_job(styled_text_job(
+                    painter,
+                    ctrl,
                     &label,
-                    font_id,
+                    &font_name,
+                    fsize,
                     txt_color,
-                );
+                    (rect.width() - 2.0 * pad).max(1.0),
+                    egui::Align::LEFT,
+                ));
+                let text_pos =
+                    egui::pos2(rect.left() + pad, rect.center().y - galley.size().y / 2.0);
+                paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
             }
         } else {
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
+            let galley = painter.layout_job(styled_text_job(
+                painter,
+                ctrl,
                 &label,
-                crate::fonts::font_id(painter.ctx(), &font_name, fsize),
+                &font_name,
+                fsize,
                 txt_color,
+                rect.width(),
+                egui::Align::Center,
+            ));
+            let text_pos = egui::pos2(
+                rect.center().x - galley.size().x / 2.0,
+                rect.center().y - galley.size().y / 2.0,
             );
+            paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
         }
     }
 
@@ -6371,6 +6691,29 @@ mod theme_render_tests {
     }
 
     #[test]
+    fn svg_picturebox_texture_uses_requested_destination_size() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("button-icon.svg");
+        std::fs::write(
+            &path,
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8">
+                <circle cx="6" cy="4" r="3" fill="#000000"/>
+            </svg>"##,
+        )
+        .expect("write svg");
+
+        let ctx = egui::Context::default();
+        let tex = picturebox_svg_texture(
+            &ctx,
+            path.to_str().expect("utf8 path"),
+            Vec2::new(48.0, 32.0),
+        )
+        .expect("svg texture at requested size");
+
+        assert_eq!(tex.size(), [48, 32]);
+    }
+
+    #[test]
     fn svg_icc_color_fallbacks_are_stripped_before_parse() {
         let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">
             <rect width="4" height="4" fill="#000000 icc-color(sRGB-IEC61966-2, 0.1, 0, 0, 0)"/>
@@ -6553,6 +6896,162 @@ mod theme_render_tests {
 
         c.set_prop("InnerPadding", PropValue::Int(500));
         assert_eq!(textbox_inner_padding(&c), 128.0);
+    }
+
+    #[test]
+    fn button_icon_alignment_aliases_padding_and_size_default() {
+        use crate::model::{Control, ControlType};
+
+        let c = Control::new("Button1", ControlType::Button, 0, 0);
+        assert_eq!(button_image_padding(&c), 10.0);
+        assert_eq!(button_icon_size(&c), 32.0);
+        assert_eq!(
+            button_image_alignment("MiddleRight"),
+            ButtonImageAlignment::Right
+        );
+        assert_eq!(button_image_alignment("TopLeft"), ButtonImageAlignment::Top);
+        assert_eq!(
+            button_image_alignment("BottomLeft"),
+            ButtonImageAlignment::Bottom
+        );
+        assert_eq!(button_image_alignment("Left"), ButtonImageAlignment::Left);
+
+        let mut large = c.clone();
+        large.set_prop("IconSize", PropValue::String("96".into()));
+        assert_eq!(button_image_slot(&large), Vec2::new(96.0, 96.0));
+        assert_eq!(
+            button_image_size(Vec2::new(12.0, 200.0), button_image_slot(&large)),
+            Vec2::new(96.0, 96.0)
+        );
+    }
+
+    #[test]
+    fn button_content_layout_places_image_around_text() {
+        let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(160.0, 60.0));
+        let text = Vec2::new(48.0, 16.0);
+        let image = Some(Vec2::new(20.0, 20.0));
+
+        let (left_text, left_img) = button_content_layout(
+            rect,
+            text,
+            image,
+            ButtonImageAlignment::Left,
+            10.0,
+            "MiddleCenter",
+        );
+        let left_img = left_img.expect("left image rect");
+        assert_eq!(left_text.x, left_img.right() + 10.0);
+        assert!(
+            (left_text.y + text.y * 0.5 - left_img.center().y).abs() < 0.1,
+            "left image and text should be vertically centered"
+        );
+
+        let (right_text, right_img) = button_content_layout(
+            rect,
+            text,
+            image,
+            ButtonImageAlignment::Right,
+            10.0,
+            "MiddleCenter",
+        );
+        let right_img = right_img.expect("right image rect");
+        assert_eq!(right_img.left(), right_text.x + text.x + 10.0);
+
+        let (right_zero_text, right_zero_img) = button_content_layout(
+            rect,
+            text,
+            image,
+            ButtonImageAlignment::Right,
+            0.0,
+            "MiddleLeft",
+        );
+        let right_zero_img = right_zero_img.expect("right image rect with zero padding");
+        assert_eq!(right_zero_text.x, rect.left() + 6.0);
+        assert_eq!(right_zero_img.left(), right_zero_text.x + text.x);
+
+        let tight_rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(90.0, 32.0));
+        let (tight_text, tight_img) = button_content_layout(
+            tight_rect,
+            text,
+            Some(Vec2::new(80.0, 80.0)),
+            ButtonImageAlignment::Left,
+            10.0,
+            "MiddleCenter",
+        );
+        let tight_img = tight_img.expect("tight left image rect");
+        assert_eq!(tight_text.x, tight_img.right() + 10.0);
+        assert!(
+            tight_img.left() >= tight_rect.left() + 6.0
+                && tight_text.x + text.x <= tight_rect.right() - 6.0,
+            "left icon/text block must stay inside the button without overlap"
+        );
+
+        let (top_text, top_img) = button_content_layout(
+            rect,
+            text,
+            image,
+            ButtonImageAlignment::Top,
+            10.0,
+            "MiddleRight",
+        );
+        let top_img = top_img.expect("top image rect");
+        assert!((top_img.center().x - rect.center().x).abs() < 0.1);
+        assert_eq!(top_img.top(), 6.0);
+        assert_eq!(top_text.x, rect.right() - 6.0 - text.x);
+        assert!(top_text.y >= top_img.bottom() + 10.0);
+
+        let (top_zero_text, top_zero_img) =
+            button_content_layout(rect, text, image, ButtonImageAlignment::Top, 0.0, "TopLeft");
+        let top_zero_img = top_zero_img.expect("top image rect with zero padding");
+        assert_eq!(top_zero_text.x, rect.left() + 6.0);
+        assert_eq!(top_zero_text.y, top_zero_img.bottom());
+
+        let (bottom_text, bottom_img) = button_content_layout(
+            rect,
+            text,
+            image,
+            ButtonImageAlignment::Bottom,
+            10.0,
+            "BottomLeft",
+        );
+        let bottom_img = bottom_img.expect("bottom image rect");
+        assert!((bottom_img.center().x - rect.center().x).abs() < 0.1);
+        assert_eq!(bottom_img.bottom(), rect.bottom() - 6.0);
+        assert_eq!(bottom_text.x, rect.left() + 6.0);
+        assert!(bottom_text.y + text.y <= bottom_img.top() - 10.0);
+
+        let (bottom_zero_text, bottom_zero_img) = button_content_layout(
+            rect,
+            text,
+            image,
+            ButtonImageAlignment::Bottom,
+            0.0,
+            "BottomLeft",
+        );
+        let bottom_zero_img = bottom_zero_img.expect("bottom image rect with zero padding");
+        assert_eq!(bottom_zero_text.x, rect.left() + 6.0);
+        assert_eq!(bottom_zero_text.y + text.y, bottom_zero_img.top());
+    }
+
+    #[test]
+    fn control_border_accepts_button_3d_styles_without_panic() {
+        let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(80.0, 28.0));
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let painter = ui.painter();
+                for style in ["Single", "Fixed3D", "3D", "Raised", "Sunken", "None"] {
+                    draw_control_border(
+                        painter,
+                        rect,
+                        egui::Rounding::same(3.0),
+                        style,
+                        2.0,
+                        Color32::from_rgb(80, 100, 140),
+                    );
+                }
+            });
+        });
     }
 
     #[test]

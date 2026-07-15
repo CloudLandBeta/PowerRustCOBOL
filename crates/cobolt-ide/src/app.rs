@@ -5109,9 +5109,9 @@ impl eframe::App for CoboltApp {
                 })
                 .unwrap_or("");
             let title = if mode_suffix.is_empty() {
-                format!("PowerRustCOBOL v{VERSION}")
+                format!("PowerRustCOBOL {VERSION}")
             } else {
-                format!("PowerRustCOBOL v{VERSION} — {mode_suffix}")
+                format!("PowerRustCOBOL {VERSION} — {mode_suffix}")
             };
             // Only touch the OS window when the title actually changes.
             if title != self.last_window_title {

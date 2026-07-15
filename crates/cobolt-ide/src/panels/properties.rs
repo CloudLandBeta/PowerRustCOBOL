@@ -4604,29 +4604,6 @@ impl PropertiesPanel {
             ControlType::Button => {
                 section_header(ui, "Basic properties");
                 bool_row_inline(ui, id, "IsDefault", "Default button", ctrl, action);
-                bool_row_inline(ui, id, "IsCancel", "Cancel button", ctrl, action);
-                bool_row_inline(ui, id, "FlatStyle", "Flat style", ctrl, action);
-                int_prop_row(
-                    ui,
-                    id,
-                    "CornerRadius",
-                    "CornerRadius",
-                    ctrl,
-                    action,
-                    0..=50,
-                    None,
-                    3,
-                );
-                combo_row_inline(
-                    ui,
-                    id,
-                    "ModalResult",
-                    ctrl,
-                    action,
-                    &[
-                        "None", "OK", "Cancel", "Yes", "No", "Abort", "Retry", "Ignore",
-                    ],
-                );
                 combo_row_inline(
                     ui,
                     id,
@@ -4645,21 +4622,34 @@ impl PropertiesPanel {
                         "BottomRight",
                     ],
                 );
-                // Image
-                image_browse_row(ui, id, "ImagePath", ctrl, action, &mut self.text_bufs);
+                // Icon
+                image_browse_row(ui, id, "IconPath", ctrl, action, &mut self.text_bufs);
                 combo_row_inline(
                     ui,
                     id,
-                    "ImageAlignment",
+                    "IconAlignment",
                     ctrl,
                     action,
-                    &[
-                        "MiddleLeft",
-                        "MiddleCenter",
-                        "MiddleRight",
-                        "TopLeft",
-                        "BottomLeft",
-                    ],
+                    &["Left", "Right", "Top", "Bottom"],
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "IconPadding",
+                    "Icon padding",
+                    ctrl,
+                    action,
+                    0..=64,
+                    Some("px"),
+                    10,
+                );
+                combo_row_inline(
+                    ui,
+                    id,
+                    "IconSize",
+                    ctrl,
+                    action,
+                    &["16", "32", "48", "64", "80", "96", "128"],
                 );
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);

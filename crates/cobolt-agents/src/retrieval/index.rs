@@ -43,8 +43,8 @@ impl LexicalIndex {
         synonyms.insert("grid", "DataGrid");
         synonyms.insert("table", "DataGrid");
         synonyms.insert("array", "table");
-        synonyms.insert("call", "INVOKE");
-        synonyms.insert("method", "INVOKE");
+        synonyms.insert("call", "::");
+        synonyms.insert("method", "::");
         synonyms.insert("window", "Form");
         synonyms.insert("screen", "Form");
         synonyms.insert("component", "Control");

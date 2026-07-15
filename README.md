@@ -64,6 +64,8 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 - **System-font picker**: Choose any installed system font (rendered in its own typeface), applied live across the designer canvas, previews, and running forms.
 - **Form Debugger (RAD debugging)**: Opens as a standalone, always-on-top OS window featuring breakpoints, step execution (In, Out, Over), visual variable inspector, and custom animation playback controls (advancing execution at 1-10 lines/second).
 - **Agentic AI assistant mesh**: A **rig-core** powered LLM orchestrator (supporting Ollama, OpenAI, and cloud APIs) running a multi-agent mesh (Dev Agent, Editor Assistant, History Compactor). Includes a live observability activity log (duration, HTTP status, token counts) and an interactive chat pane with bubble styled history.
+
+  ![PowerRustCOBOL Agentic AI assistant architecture](docs/AI_Assistant_Architecture.jpg)
 - **Multi-window runtime**: Preview and run screens rendered in dedicated OS viewports via egui multi-viewport.
 - **Internationalised UI**: Built-in support for 6 interface languages (English, Spanish, Portuguese, Japanese, Chinese, French).
 - **Non-blocking native file dialogs** (open/save/browse) that never stall the UI event loop.

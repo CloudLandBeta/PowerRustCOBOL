@@ -239,10 +239,10 @@ async fn populate_language_features(
     let features = vec![
         LanguageFeatureMetadata {
             feature_name: "Object-Oriented Syntax / Method Invocation".into(),
-            description: "RustCOBOL extends COBOL-85 with object-oriented capabilities similar to COBOL 2002/2014. It uses the `::` operator for method invocation and property access on objects. Do NOT use the legacy CALL verb when interacting with controls or objects. You must use `<object>::<method>()` or `<object>::<property>` syntax.".into(),
+            description: "RustCOBOL extends COBOL-85 with object-oriented capabilities similar to COBOL 2002/2014. It uses the `::` operator for method invocation and property access on objects. Do NOT use the legacy CALL verb or legacy INVOKE verb when interacting with controls or objects. You must use `<object>::<method>(<parameters>)` or `<object>::<property>` syntax.".into(),
             syntax_examples: vec![
                 "MOVE 1 TO my-checkbox::checked".into(),
-                "INVOKE my-button::onClick()".into(),
+                "my-button::onClick()".into(),
                 "my-datagrid::refreshBinding()".into(),
                 "MOVE \"Hello\" TO my-textbox::text".into(),
             ],

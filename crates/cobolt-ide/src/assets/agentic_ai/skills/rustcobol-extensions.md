@@ -6,7 +6,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 ---
 name: rustcobol-extensions
 description: How RustCOBOL extends COBOL-85 — event-handler / procedure structure,
-  the `::` control-property syntax, shared vs local state, and calling procedures.
+  the COBOL-2002-style `::` control method/property syntax, shared vs local state,
+  and procedure reuse without low-level control CALLs.
   Load this whenever generating COBOL for a handler or procedure.
 ---
 
@@ -68,15 +69,28 @@ Rules:
     ```
 - Include only the sections you use (an empty `WORKING-STORAGE` / `LINKAGE` may be
   dropped), but always end with a real `PROCEDURE DIVISION`.
-- A procedure (`create_procedure`) has the **same** shape; it is `CALL`-able by its
-  name.
+- A procedure (`create_procedure`) has the **same** body shape. Do not assume it
+  should be invoked with `CALL`; follow the invocation mechanism listed in the
+  IDE context, or ask when unclear.
 
-## 2. Read and write control properties with `::`
+## 2. Read/write properties and invoke methods with `::`
 
-This is the main GUI extension. A control's property is reached with the **`::`**
-member operator, using the exact property name from the properties pane
+This is the main GUI extension. A control property or method is reached with the
+COBOL-2002-style **`::`** member operator, using the exact property/method name
+from the properties pane and method context
 (**case-insensitive**): `Caption`, `Text`, `BackgroundColor`, `ForegroundColor`,
-`Value`, `Visible`, `Enabled`, `Checked`, …
+`Value`, `Visible`, `Enabled`, `Checked`, `RefreshBinding`, `SetFocus`, …
+
+**Never use the `CALL` verb for controls or control-backed runtime services.**
+Do not emit `CALL "COBOL-SET-PROPERTY"`, `CALL "COBOL-GET-PROPERTY"`,
+`CALL "COBOL-CHART-..."`, or any other `CALL` as a substitute for a control
+property or method. Do not use legacy `INVOKE Control "Method" USING ...`
+syntax either. Use:
+
+```text
+<control>::<property>
+<control>::<method>(<parameters>)
+```
 
 **Read (GET)** — `control-id::Property` is a value usable anywhere:
 
@@ -86,7 +100,6 @@ member operator, using the exact property name from the properties pane
            IF     TextBox-1::Text = SPACES
                DISPLAY "empty".
            MOVE   Button-1::"Caption" TO WS-NAME.      *> quoted name = identical
-           INVOKE Button-1 "Caption" RETURNING WS-NAME. *> INVOKE form
 ```
 
 **Write (SET)** — assign to `control-id::Property`:
@@ -94,7 +107,15 @@ member operator, using the exact property name from the properties pane
 ```cobol
            MOVE "Hello!" TO Button-1::Caption.
            SET  Button-1::"Caption" TO "Hello!".
-           INVOKE Button-1 "Caption" USING "Hello!".    *> INVOKE form (USING = set)
+```
+
+**Invoke a method** — call the method inline with parentheses:
+
+```cobol
+           TextBox-1::SetFocus().
+           DataGrid-1::RefreshBinding().
+           LineChart-1::Clear().
+           LineChart-1::AddPoint("Jan", WS-TOTAL).
 ```
 
 - **Numeric** properties are algebraic: `IF Slider-1::Value > 50`,
@@ -104,8 +125,8 @@ member operator, using the exact property name from the properties pane
   `Name(CONTROL-ARRAY-INDEX)::Property`, e.g.
   `MOVE "#FFCC00" TO Row-Label(CONTROL-ARRAY-INDEX)::BackgroundColor`.
 
-Prefer `::` over the low-level `CALL "COBOL-SET-PROPERTY"` / `"COBOL-GET-PROPERTY"`
-runtime primitives (those exist but `::` is the idiomatic form).
+If a requested method/property is not listed in the CONTEXT, do not invent it.
+Ask the user for directions or leave a `*>` comment explaining the missing member.
 
 ## 3. State: shared vs local
 
@@ -114,13 +135,16 @@ runtime primitives (those exist but `::` is the idiomatic form).
   `GLOBAL` in the outer program; visible to every handler). Do not redeclare it
   locally; just reference the names the form already defines (given in context).
 
-## 4. Calling a common procedure
+## 4. Reusing common logic
 
-Factor shared logic into a `create_procedure` and `CALL` it by name from handlers:
+Prefer direct handler code or generated reusable procedures only when the IDE
+context makes their invocation form clear. Do not introduce `CALL` in handlers
+unless the user explicitly asks for a raw external COBOL subprogram call and
+provides its exact signature.
 
 ```cobol
-           CALL "VALIDATE-INPUT".
-           CALL "RECALC-TOTAL" USING WS-QTY WS-PRICE.
+           PERFORM VALIDATE-INPUT.
+           PERFORM RECALC-TOTAL.
 ```
 
 Procedure names are UPPER-CASE with hyphens (`VALIDATE-INPUT`, `RECALC-TOTAL`).
@@ -133,25 +157,27 @@ lists for that event. Most events currently deliver **no** data → an empty
 `LINKAGE SECTION` and a plain `PROCEDURE DIVISION.` (no `USING`). Array handlers
 receive `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5` (the 1-based firing index).
 
-## 6. Advanced runtime call families (only when the control/request needs them)
+## 6. Advanced controls and services
 
-These non-standard runtime programs back the data/network controls; use them only
-when the request clearly calls for that control:
+Use the control object methods/properties for data, network, and chart controls.
+Do not write low-level runtime `CALL`s for these services.
 
-- **SQL** (SqlDatabase): `CALL "COBOL-OPEN-DB"`, `"COBOL-EXEC-SQL"`,
-  `"COBOL-FETCH-ROW"`/`"COBOL-NEXT-ROW"`, `"COBOL-CLOSE-DB"`.
-- **HTTP** (RestClient): `CALL "COBOL-HTTP-GET"`, `"COBOL-HTTP-SET-HEADER"`,
-  `"COBOL-HTTP-CLEAR-HEADERS"`.
-- **Charts:** `CALL "COBOL-CHART-ADD-POINT"`, `"COBOL-CHART-CLEAR"`,
-  `"COBOL-CHART-REFRESH"`, `"COBOL-CHART-SET-TABLE"`.
+- **SQL** (SqlDatabase): use methods on the SqlDatabase control.
+- **HTTP** (RestClient): use methods on the RestClient control.
+- **Charts:** use methods such as `Chart-1::Clear()`, `Chart-1::AddPoint(...)`,
+  `Chart-1::Refresh()`, or properties such as `Chart-1::DataSource`.
+- **IndexedFile:** use methods such as `File-1::Open("I-O")`,
+  `File-1::ReadNext()`, `File-1::Write()`, and `File-1::Close()`.
 
-Do not invent runtime CALL names. If unsure of the exact argument list, keep the
-handler simple and leave a `*>` comment noting what the developer must fill in.
+Do not invent method names. If unsure of the exact method/property, keep the
+handler simple and ask for directions.
 
 ## 7. Never write
 
-- The generated program wrapper, the event loop (`CALL "COBOL-WAIT-EVENT"`),
-  `COBOL-INIT-FORM`, or any other control's working-storage.
+- The generated program wrapper, the event loop, form initialization, or any
+  other control's working-storage.
+- `CALL` for control methods, property get/set, chart actions, data bindings,
+  REST actions, SQL actions, or IndexedFile actions.
 - `IDENTIFICATION DIVISION` / `PROGRAM-ID` / `GOBACK` / `END PROGRAM` in a handler
   or procedure body.
 - Non-English identifiers, comments, or literals-as-identifiers.

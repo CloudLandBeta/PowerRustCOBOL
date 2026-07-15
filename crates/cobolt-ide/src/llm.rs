@@ -37,7 +37,11 @@ impl LlmConfig {
     pub fn load() -> Self {
         let path = base_dir().join("llm_config.json");
         if let Ok(data) = std::fs::read_to_string(&path) {
-            if let Ok(cfg) = serde_json::from_str(&data) {
+            if let Ok(mut cfg) = serde_json::from_str::<Self>(&data) {
+                if retired_model_message(&cfg.model).is_some() {
+                    cfg.model.clear();
+                    let _ = cfg.save();
+                }
                 return cfg;
             }
         }
@@ -59,9 +63,26 @@ impl LlmConfig {
     }
     pub fn save(&self) -> Result<(), String> {
         let path = base_dir().join("llm_config.json");
-        let data = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let mut cfg = self.clone();
+        if retired_model_message(&cfg.model).is_some() {
+            cfg.model.clear();
+        }
+        let data = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
         std::fs::write(&path, data).map_err(|e| e.to_string())?;
         Ok(())
+    }
+}
+
+fn retired_model_message(model: &str) -> Option<String> {
+    let model = model.trim();
+    if model.eq_ignore_ascii_case("qwen3-coder-next") {
+        Some(
+            "`qwen3-coder-next` was retired by Ollama on 2026-07-15. \
+             Refresh the model list and select a currently available model."
+                .to_string(),
+        )
+    } else {
+        None
     }
 }
 
@@ -291,6 +312,12 @@ fn run_mesh_request(req: cobolt_agents::MeshRequest, label: &'static str) -> Rec
         AiLogKind::Info,
         format!("{label}: \"{}\"", truncate_for_log(&req.user_prompt, 160)),
     );
+    if let Some(msg) = retired_model_message(&req.model) {
+        push_ai_log(AiLogKind::Error, msg.clone());
+        push_connection_log(&format!("=== ERROR ===\n{msg}\n"));
+        let _ = tx.send(LlmResponse::Err(msg));
+        return rx;
+    }
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
@@ -447,6 +474,11 @@ fn heal_endpoint(ep: &str) -> String {
 
 pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
     let (tx, rx) = mpsc::channel();
+    if let Some(msg) = retired_model_message(&cfg.model) {
+        push_connection_log(&format!("=== ERROR ===\n{msg}\n"));
+        let _ = tx.send(LlmResponse::Err(msg));
+        return rx;
+    }
     let ep = heal_endpoint(&cfg.endpoint);
     let key = cfg.api_key.clone();
     let pid = cfg.provider.clone();
@@ -663,7 +695,7 @@ pub fn spawn_list_models(
                                     names.push(name.to_string());
                                 }
                             }
-                            let _ = tx.send(Ok(names));
+                            let _ = tx.send(Ok(filter_retired_models(names)));
                             return;
                         }
                     }
@@ -697,7 +729,7 @@ pub fn spawn_list_models(
                                     names.push(id.to_string());
                                 }
                             }
-                            let _ = tx.send(Ok(names));
+                            let _ = tx.send(Ok(filter_retired_models(names)));
                             return;
                         }
                         if let Some(models) = json.get("models").and_then(|d| d.as_array()) {
@@ -708,7 +740,7 @@ pub fn spawn_list_models(
                                     names.push(name.to_string().replace("models/", ""));
                                 }
                             }
-                            let _ = tx.send(Ok(names));
+                            let _ = tx.send(Ok(filter_retired_models(names)));
                             return;
                         }
                     }
@@ -718,6 +750,13 @@ pub fn spawn_list_models(
         });
     });
     rx
+}
+
+fn filter_retired_models(models: Vec<String>) -> Vec<String> {
+    models
+        .into_iter()
+        .filter(|m| retired_model_message(m).is_none())
+        .collect()
 }
 
 pub fn has_connection_log() -> bool {
@@ -785,4 +824,23 @@ impl MeshSession {
     }
 
     pub fn execute_request(&self, _request: &str) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retired_qwen_coder_next_is_blocked_and_filtered() {
+        assert!(retired_model_message("qwen3-coder-next").is_some());
+        assert!(retired_model_message("QWEN3-CODER-NEXT").is_some());
+        assert!(retired_model_message("qwen3-coder-plus").is_none());
+
+        let models = filter_retired_models(vec![
+            "qwen3-coder-next".into(),
+            "qwen3-coder-plus".into(),
+            "gpt-5".into(),
+        ]);
+        assert_eq!(models, vec!["qwen3-coder-plus", "gpt-5"]);
+    }
 }

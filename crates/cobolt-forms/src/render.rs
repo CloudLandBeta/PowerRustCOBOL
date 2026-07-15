@@ -1075,6 +1075,18 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     // ComboBox dropdowns are drawn in a second pass so they float above every
     // other control: (id, items, header rect, current value).
     let mut open_combos: Vec<(String, Vec<String>, Rect, String)> = Vec::new();
+    let tab_focus_request = if interactive {
+        apply_pending_tab_focus(ui);
+        let mut tab_targets = collect_tab_targets(input, controls, &order);
+        resolve_tab_traversal(ui, &mut tab_targets)
+    } else {
+        None
+    };
+    let default_button_click = if interactive {
+        resolve_default_button_enter(input, controls, &order, ui)
+    } else {
+        None
+    };
     for &idx in &order {
         let base = &controls[idx];
         if base
@@ -1290,6 +1302,12 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
             );
         }
     }
+    if let Some(focus_id) = tab_focus_request {
+        ui.data_mut(|d| d.insert_temp(tab_pending_id(), Some(focus_id)));
+    }
+    if let Some(button_id) = default_button_click {
+        out.events.push(UiEvent::click(&button_id));
+    }
 
     // ── Corner-notch masks: cut any child content that bled past a rounded
     // container's arc by repainting the backdrop in its corner notches (spec 017).
@@ -1323,6 +1341,221 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         }
     }
     out
+}
+
+#[derive(Clone)]
+struct TabTarget {
+    tab_order: u32,
+    sequence: usize,
+    focus_id: egui::Id,
+}
+
+struct DefaultButtonTarget {
+    sequence: usize,
+    ctrl_id: String,
+}
+
+fn collect_tab_targets(
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    order: &[usize],
+) -> Vec<TabTarget> {
+    let mut targets = Vec::new();
+    let mut sequence = 0usize;
+    for &idx in order {
+        let base = &controls[idx];
+        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
+            continue;
+        }
+        if input.state.enabled(base) && is_tab_focusable(&base.control_type) {
+            let live = input.state.live(base);
+            targets.push(TabTarget {
+                tab_order: base.tab_order,
+                sequence,
+                focus_id: tab_focus_id(&live),
+            });
+        }
+        sequence += 1;
+    }
+    targets
+}
+
+fn resolve_default_button_enter(
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    order: &[usize],
+    ui: &egui::Ui,
+) -> Option<String> {
+    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+    if !enter || focused_control_is_input(ui, input, controls) {
+        return None;
+    }
+    let target = collect_default_button_target(input, controls, order)?;
+    ui.input_mut(|i| {
+        i.consume_key(egui::Modifiers::default(), egui::Key::Enter);
+        i.events.retain(|event| {
+            !matches!(
+                event,
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    ..
+                }
+            )
+        });
+    });
+    Some(target.ctrl_id)
+}
+
+fn collect_default_button_target(
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    order: &[usize],
+) -> Option<DefaultButtonTarget> {
+    let mut explicit: Option<DefaultButtonTarget> = None;
+    let mut sequence = 0usize;
+    for &idx in order {
+        let base = &controls[idx];
+        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
+            continue;
+        }
+        if input.state.enabled(base) && matches!(base.control_type, ControlType::Button) {
+            let live = input.state.live(base);
+            let target = DefaultButtonTarget {
+                sequence,
+                ctrl_id: live.id.clone(),
+            };
+            if live.get_prop("IsDefault").map_or(false, |v| v.as_bool()) {
+                if explicit
+                    .as_ref()
+                    .map_or(true, |current| target.sequence < current.sequence)
+                {
+                    explicit = Some(target);
+                }
+            }
+        }
+        sequence += 1;
+    }
+    explicit
+}
+
+fn focused_control_is_input(ui: &egui::Ui, input: &RenderInput<'_>, controls: &[Control]) -> bool {
+    let focused = match ui.ctx().memory(|m| m.focused()) {
+        Some(id) => id,
+        None => return false,
+    };
+    controls.iter().enumerate().any(|(idx, base)| {
+        input.state.visible(base)
+            && containers::is_visible(controls, idx, input.active_tabs)
+            && input.state.enabled(base)
+            && is_enter_input_control(&base.control_type)
+            && tab_focus_id(&input.state.live(base)) == focused
+    })
+}
+
+fn is_enter_input_control(ct: &ControlType) -> bool {
+    use ControlType as CT;
+    matches!(
+        ct,
+        CT::TextBox
+            | CT::ComboBox
+            | CT::DateTimePicker
+            | CT::NumericUpDown
+            | CT::DataGrid
+            | CT::ListBox
+            | CT::TreeView
+            | CT::Slider
+            | CT::Custom { .. }
+    )
+}
+
+fn is_tab_focusable(ct: &ControlType) -> bool {
+    use ControlType as CT;
+    matches!(
+        ct,
+        CT::Button
+            | CT::TextBox
+            | CT::CheckBox
+            | CT::RadioButton
+            | CT::ListBox
+            | CT::ComboBox
+            | CT::DataGrid
+            | CT::DateTimePicker
+            | CT::NumericUpDown
+            | CT::TreeView
+            | CT::Slider
+            | CT::Custom { .. }
+    )
+}
+
+fn tab_focus_id(ctrl: &Control) -> egui::Id {
+    let base = rt_id(&ctrl.id);
+    if matches!(ctrl.control_type, ControlType::DataGrid) {
+        base.with("datagrid-focus")
+    } else {
+        base
+    }
+}
+
+fn tab_memory_id() -> egui::Id {
+    egui::Id::new("powerrustcobol-tab-order-current")
+}
+
+fn tab_pending_id() -> egui::Id {
+    egui::Id::new("powerrustcobol-tab-order-pending")
+}
+
+fn apply_pending_tab_focus(ui: &egui::Ui) {
+    let pending_id = tab_pending_id();
+    let pending = ui.data(|d| d.get_temp::<Option<egui::Id>>(pending_id));
+    if let Some(Some(focus_id)) = pending {
+        ui.ctx().memory_mut(|m| m.request_focus(focus_id));
+        ui.data_mut(|d| d.insert_temp(pending_id, None::<egui::Id>));
+    }
+}
+
+fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> Option<egui::Id> {
+    if targets.is_empty() {
+        return None;
+    }
+    let (tab, shift) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
+    if !tab {
+        return None;
+    }
+    ui.input_mut(|i| {
+        let modifiers = egui::Modifiers {
+            shift,
+            ..egui::Modifiers::default()
+        };
+        i.consume_key(modifiers, egui::Key::Tab);
+        i.events.retain(|event| {
+            !matches!(
+                event,
+                egui::Event::Key {
+                    key: egui::Key::Tab,
+                    ..
+                }
+            )
+        });
+    });
+
+    targets.sort_by_key(|t| (t.tab_order, t.sequence));
+    let current = ui
+        .data(|d| d.get_temp::<egui::Id>(tab_memory_id()))
+        .or_else(|| ui.ctx().memory(|m| m.focused()));
+    let current_idx =
+        current.and_then(|focused| targets.iter().position(|t| t.focus_id == focused));
+    let target_idx = if shift {
+        current_idx
+            .map(|idx| if idx == 0 { targets.len() - 1 } else { idx - 1 })
+            .unwrap_or_else(|| targets.len() - 1)
+    } else {
+        current_idx
+            .map(|idx| (idx + 1) % targets.len())
+            .unwrap_or(0)
+    };
+    let focus_id = targets[target_idx].focus_id;
+    ui.data_mut(|d| d.insert_temp(tab_memory_id(), focus_id));
+    Some(focus_id)
 }
 
 /// Draw just the control **faces** (no backdrop, no interaction) onto an existing
@@ -1935,6 +2168,47 @@ fn control_pointer_events(
     }
 }
 
+fn cursor_icon_for(value: &str) -> Option<egui::CursorIcon> {
+    let v = value.trim().to_ascii_lowercase();
+    match v.as_str() {
+        "" | "default" | "arrow" => None,
+        "hand" | "pointinghand" | "pointing_hand" | "pointer" => {
+            Some(egui::CursorIcon::PointingHand)
+        }
+        "text" | "ibeam" | "i-beam" => Some(egui::CursorIcon::Text),
+        "wait" | "busy" => Some(egui::CursorIcon::Wait),
+        "crosshair" | "cross" => Some(egui::CursorIcon::Crosshair),
+        "no" | "notallowed" | "not_allowed" => Some(egui::CursorIcon::NotAllowed),
+        "sizeall" | "move" => Some(egui::CursorIcon::Move),
+        "sizens" | "resizevertical" | "resize_vertical" => Some(egui::CursorIcon::ResizeVertical),
+        "sizewe" | "resizehorizontal" | "resize_horizontal" => {
+            Some(egui::CursorIcon::ResizeHorizontal)
+        }
+        "help" => Some(egui::CursorIcon::Help),
+        _ => None,
+    }
+}
+
+fn decorate_hover_response(resp: egui::Response, ctrl: &Control) -> egui::Response {
+    let tooltip = ctrl
+        .get_prop("Tooltip")
+        .map(|v| v.as_str().trim().to_owned())
+        .unwrap_or_default();
+    let resp = if tooltip.is_empty() {
+        resp
+    } else {
+        resp.on_hover_text(tooltip)
+    };
+    if let Some(icon) = ctrl
+        .get_prop("Cursor")
+        .and_then(|v| cursor_icon_for(v.as_str()))
+    {
+        resp.on_hover_cursor(icon)
+    } else {
+        resp
+    }
+}
+
 fn draw_datagrid_line(
     painter: &egui::Painter,
     points: [egui::Pos2; 2],
@@ -2013,7 +2287,7 @@ fn render_interactive(
     match ct {
         CT::Button => {
             // WYSIWYG face; only the press/hover feedback is added here.
-            let resp = ui.interact(screen, ctrl_id, Sense::click());
+            let resp = decorate_hover_response(ui.interact(screen, ctrl_id, Sense::click()), ctrl);
             let pressed = resp.is_pointer_button_down_on() && enabled;
             let hovered = resp.hovered() && enabled;
             let draw_rect = if pressed { screen.shrink(1.5) } else { screen };
@@ -5597,6 +5871,168 @@ mod tests {
         ] {
             assert!(n.contains(&want), "TextBox: missing {want}; got {n:?}");
         }
+    }
+
+    fn tab_key(shift: bool, pressed: bool) -> Event {
+        Event::Key {
+            key: Key::Tab,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers {
+                shift,
+                ..Modifiers::default()
+            },
+        }
+    }
+
+    fn enter_key(pressed: bool) -> Event {
+        Event::Key {
+            key: Key::Enter,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        }
+    }
+
+    #[test]
+    fn engine_cursor_property_maps_to_egui_icons() {
+        assert_eq!(cursor_icon_for("Default"), None);
+        assert_eq!(
+            cursor_icon_for("Hand"),
+            Some(egui::CursorIcon::PointingHand)
+        );
+        assert_eq!(cursor_icon_for("Text"), Some(egui::CursorIcon::Text));
+        assert_eq!(cursor_icon_for("Wait"), Some(egui::CursorIcon::Wait));
+        assert_eq!(
+            cursor_icon_for("Crosshair"),
+            Some(egui::CursorIcon::Crosshair)
+        );
+        assert_eq!(cursor_icon_for("No"), Some(egui::CursorIcon::NotAllowed));
+        assert_eq!(cursor_icon_for("SizeAll"), Some(egui::CursorIcon::Move));
+        assert_eq!(
+            cursor_icon_for("SizeNS"),
+            Some(egui::CursorIcon::ResizeVertical)
+        );
+        assert_eq!(
+            cursor_icon_for("SizeWE"),
+            Some(egui::CursorIcon::ResizeHorizontal)
+        );
+        assert_eq!(cursor_icon_for("Help"), Some(egui::CursorIcon::Help));
+    }
+
+    #[test]
+    fn engine_tab_moves_focus_by_tab_order() {
+        let mut first_visual = ctrlp(
+            "VisualFirst",
+            ControlType::TextBox,
+            0,
+            0,
+            160,
+            24,
+            &[("Text", "")],
+        );
+        first_visual.tab_order = 2;
+        let mut first_tab = ctrlp(
+            "TabFirst",
+            ControlType::TextBox,
+            0,
+            40,
+            160,
+            24,
+            &[("Text", "")],
+        );
+        first_tab.tab_order = 1;
+        let controls = [first_visual, first_tab];
+
+        let (_evs, map) = drive(
+            &controls,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![tab_key(false, true)]),
+                (2.0, vec![tab_key(false, false)]),
+                (3.0, vec![Event::Text("A".to_owned())]),
+                (4.0, vec![tab_key(false, true)]),
+                (5.0, vec![tab_key(false, false)]),
+                (6.0, vec![Event::Text("B".to_owned())]),
+            ],
+        );
+
+        assert_eq!(
+            map.get("TabFirst")
+                .and_then(|m| m.get("Text"))
+                .map(String::as_str),
+            Some("A"),
+            "first Tab should focus the lower TabOrder TextBox"
+        );
+        assert_eq!(
+            map.get("VisualFirst")
+                .and_then(|m| m.get("Text"))
+                .map(String::as_str),
+            Some("B"),
+            "second Tab should advance to the next TextBox by TabOrder"
+        );
+    }
+
+    #[test]
+    fn engine_enter_clicks_default_button_without_input_focus() {
+        let mut default_button = ctrlp_events(
+            "Save",
+            ControlType::Button,
+            0,
+            0,
+            100,
+            30,
+            &[],
+            &["onClick"],
+        );
+        default_button.set_prop("IsDefault".to_owned(), PropValue::Bool(true));
+        let ordinary_button = ctrlp_events(
+            "Cancel",
+            ControlType::Button,
+            120,
+            0,
+            100,
+            30,
+            &[],
+            &["onClick"],
+        );
+        let controls = [ordinary_button, default_button];
+
+        let (evs, _) = drive(&controls, vec![(0.0, vec![enter_key(true)])]);
+
+        assert!(
+            evs.iter()
+                .any(|event| event.ctrl_id == "Save" && event.event == "onClick"),
+            "Enter should click the explicit default button; got {evs:?}"
+        );
+        assert!(
+            evs.iter()
+                .all(|event| !(event.ctrl_id == "Cancel" && event.event == "onClick")),
+            "Enter must not click a non-default button; got {evs:?}"
+        );
+    }
+
+    #[test]
+    fn engine_enter_ignores_when_no_default_button_exists() {
+        let ordinary_button = ctrlp_events(
+            "Cancel",
+            ControlType::Button,
+            0,
+            0,
+            100,
+            30,
+            &[],
+            &["onClick"],
+        );
+
+        let (evs, _) = drive(&[ordinary_button], vec![(0.0, vec![enter_key(true)])]);
+
+        assert!(
+            evs.iter().all(|event| event.event != "onClick"),
+            "Enter should be ignored when no default button exists; got {evs:?}"
+        );
     }
 
     #[test]

@@ -3414,7 +3414,12 @@ impl DesignerPanel {
                             }
                             crate::llm::LlmResponse::Chunk(_) => {}
                             crate::llm::LlmResponse::Err(err) => {
-                                self.ai_status = Some(format!("Model returned {}.", err));
+                                let err = err.trim_end_matches('.');
+                                self.ai_status = Some(if err.starts_with("Model returned") {
+                                    err.to_string()
+                                } else {
+                                    format!("Model returned {err}.")
+                                });
                             }
                         }
                     }
@@ -9222,10 +9227,15 @@ mod render_behavior_tests {
         );
     }
 
-    // ── Label font-style properties (LayoutJob format) ────────────────────────
-    fn label_with(prop: &str) -> egui::epaint::TextShape {
-        let mut c = Control::new("LBL", ControlType::Label, 5, 7);
-        c.set_prop("Caption", PropValue::String("STYLE-RC".into()));
+    // ── Text-bearing control font-style properties (LayoutJob format) ─────────
+    fn styled_control_with(control_type: ControlType, prop: &str) -> egui::epaint::TextShape {
+        let is_textbox = matches!(control_type, ControlType::TextBox);
+        let mut c = Control::new("TXT", control_type, 5, 7);
+        if is_textbox {
+            c.set_prop("Text", PropValue::String("STYLE-RC".into()));
+        } else {
+            c.set_prop("Caption", PropValue::String("STYLE-RC".into()));
+        }
         if !prop.is_empty() {
             c.set_prop(prop, PropValue::Bool(true));
         }
@@ -9238,7 +9248,7 @@ mod render_behavior_tests {
     #[test]
     fn label_italic_underline_strike_apply() {
         assert!(
-            label_with("Italic")
+            styled_control_with(ControlType::Label, "Italic")
                 .galley
                 .job
                 .sections
@@ -9247,7 +9257,7 @@ mod render_behavior_tests {
             "Italic not applied"
         );
         assert!(
-            label_with("Underline")
+            styled_control_with(ControlType::Label, "Underline")
                 .galley
                 .job
                 .sections
@@ -9256,7 +9266,7 @@ mod render_behavior_tests {
             "Underline not applied"
         );
         assert!(
-            label_with("Strikethrough")
+            styled_control_with(ControlType::Label, "Strikethrough")
                 .galley
                 .job
                 .sections
@@ -9265,11 +9275,44 @@ mod render_behavior_tests {
             "Strikethrough not applied"
         );
         // Sanity: a plain label has none of them.
-        let plain = label_with("");
+        let plain = styled_control_with(ControlType::Label, "");
         assert!(
             plain.galley.job.sections.iter().all(|s| !s.format.italics),
             "plain label unexpectedly italic"
         );
+    }
+
+    #[test]
+    fn button_and_textbox_font_styles_apply() {
+        for control_type in [ControlType::Button, ControlType::TextBox] {
+            assert!(
+                styled_control_with(control_type.clone(), "Italic")
+                    .galley
+                    .job
+                    .sections
+                    .iter()
+                    .any(|s| s.format.italics),
+                "{control_type:?} italic not applied"
+            );
+            assert!(
+                styled_control_with(control_type.clone(), "Underline")
+                    .galley
+                    .job
+                    .sections
+                    .iter()
+                    .any(|s| s.format.underline.width > 0.0),
+                "{control_type:?} underline not applied"
+            );
+            assert!(
+                styled_control_with(control_type.clone(), "Strikethrough")
+                    .galley
+                    .job
+                    .sections
+                    .iter()
+                    .any(|s| s.format.strikethrough.width > 0.0),
+                "{control_type:?} strikethrough not applied"
+            );
+        }
     }
 
     #[test]
@@ -9291,6 +9334,34 @@ mod render_behavior_tests {
             n_bold > n_plain,
             "Bold did not add an extra paint pass (plain={n_plain}, bold={n_bold})"
         );
+    }
+
+    #[test]
+    fn button_and_textbox_bold_paints_extra_glyph_pass() {
+        for control_type in [ControlType::Button, ControlType::TextBox] {
+            let is_textbox = matches!(control_type, ControlType::TextBox);
+            let mut plain = Control::new("TXT", control_type.clone(), 5, 7);
+            if is_textbox {
+                plain.set_prop("Text", PropValue::String("BOLD-RC".into()));
+            } else {
+                plain.set_prop("Caption", PropValue::String("BOLD-RC".into()));
+            }
+            let mut bold = plain.clone();
+            bold.set_prop("Bold", PropValue::Bool(true));
+            let n_plain = texts(&render(&plain))
+                .iter()
+                .filter(|t| t.galley.text().contains("BOLD-RC"))
+                .count();
+            let n_bold = texts(&render(&bold))
+                .iter()
+                .filter(|t| t.galley.text().contains("BOLD-RC"))
+                .count();
+            assert!(
+                n_bold > n_plain,
+                "{control_type:?} bold did not add an extra paint pass \
+                 (plain={n_plain}, bold={n_bold})"
+            );
+        }
     }
 
     #[test]

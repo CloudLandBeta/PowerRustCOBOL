@@ -948,18 +948,23 @@ impl SettingsForm {
                                         // (egui's default cap is only 200px).
                                         .height(360.0)
                                         .show_ui(ui, |ui| {
+                                            let row_height = 34.0;
+                                            ui.spacing_mut().item_spacing.y = 8.0;
+                                            ui.spacing_mut().interact_size.y = row_height;
                                             if models.is_empty() {
                                                 ui.weak(tr.settings_ai_model_empty);
                                                 return;
                                             }
                                             // Type-to-filter box at the top of the
                                             // dropdown (case-insensitive substring).
+                                            let popup_width = ui.available_width().max(60.0);
                                             let filter = ui.add(
                                                 egui::TextEdit::singleline(
                                                     &mut self.model_filter,
                                                 )
                                                 .hint_text(tr.settings_ai_model_filter)
-                                                .desired_width(f32::INFINITY),
+                                                .min_size(egui::vec2(popup_width, row_height))
+                                                .desired_width(popup_width),
                                             );
                                             // Keep the caret in the filter as it opens
                                             // so the user can just start typing.
@@ -979,11 +984,14 @@ impl SettingsForm {
                                                             continue;
                                                         }
                                                         shown += 1;
-                                                        ui.selectable_value(
-                                                            &mut self.draft.llm_model,
-                                                            m.clone(),
-                                                            m,
+                                                        let selected = self.draft.llm_model == *m;
+                                                        let response = ui.add_sized(
+                                                            [ui.available_width(), row_height],
+                                                            egui::SelectableLabel::new(selected, m),
                                                         );
+                                                        if response.clicked() {
+                                                            self.draft.llm_model = m.clone();
+                                                        }
                                                     }
                                                     if shown == 0 {
                                                         ui.weak(tr.settings_ai_model_no_match);
