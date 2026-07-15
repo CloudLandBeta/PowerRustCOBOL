@@ -1071,6 +1071,15 @@ impl Default for EditorPanel {
 /// code/structure editor `ai_bar` and the event editor transcript so the
 /// conversation reads like a natural chat.
 pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
+    chat_bubble_with_font_size(ui, role, content, 14.0);
+}
+
+pub(crate) fn chat_bubble_with_font_size(
+    ui: &mut egui::Ui,
+    role: &str,
+    content: &str,
+    font_size: f32,
+) {
     let is_user = role != "assistant";
     let fill = if is_user {
         Color32::from_rgba_premultiplied(0x3D, 0xCD, 0x8B, 0xFF)
@@ -1095,8 +1104,13 @@ pub(crate) fn chat_bubble(ui: &mut egui::Ui, role: &str, content: &str) {
             .show(ui, |ui| {
                 ui.set_max_width(max_w);
                 ui.add(
-                    egui::Label::new(egui::RichText::new(content.trim()).monospace().color(fg))
-                        .wrap(),
+                    egui::Label::new(
+                        egui::RichText::new(content.trim())
+                            .monospace()
+                            .size(font_size)
+                            .color(fg),
+                    )
+                    .wrap(),
                 );
             });
     });

@@ -34,6 +34,14 @@ use crate::app::{
 use crate::project_model::{CoboltProject, UserControlDef, UserControlEntry};
 use cobolt_forms::render::{card_appear_transform, PlacementEffect};
 
+// The prompt/input block is a fixed 170px slab pinned to the pane bottom (an
+// arbitrary fixed size, not a min or max); the history takes everything above
+// it, so the pane's top-edge resizer is the single resizer for the history
+// (default pane height gives it ~70px to start).
+const GLOBAL_AI_HISTORY_MIN_HEIGHT: f32 = 48.0;
+const GLOBAL_AI_INPUT_HEIGHT: f32 = 170.0;
+const GLOBAL_AI_PANE_MIN_HEIGHT: f32 = GLOBAL_AI_HISTORY_MIN_HEIGHT + GLOBAL_AI_INPUT_HEIGHT + 24.0;
+
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
 // designer, preview, run form and compiled binaries all draw identically.
 // Re-exported here so existing `designer::draw_control` call sites keep working.
@@ -1050,9 +1058,14 @@ pub struct DesignerPanel {
     pub ai_pane_open: bool,
     pub ai_history: Vec<crate::llm::ChatTurn>,
     pub ai_status: Option<String>,
+    /// When set, a user-resizable modal window shows this AI error message
+    /// (Copy / Save… / font size / OK). Replaces the old inline red label.
+    pub ai_error_modal: Option<String>,
     pub ai_last_seen_turns: usize,
     pub ai_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
     pub ai_pane_height: f32,
+    pub ai_history_font_size: f32,
+    pub ai_error_font_size: f32,
     pub global_ai_prompt: String,
     pub global_ai_streaming: String,
 
@@ -1112,9 +1125,13 @@ impl DesignerPanel {
             ai_pane_open: false,
             ai_history: Vec::new(),
             ai_status: None,
+            ai_error_modal: None,
             ai_last_seen_turns: 0,
             ai_rx: None,
-            ai_pane_height: 250.0,
+            // Sized so the history above the fixed 170px input starts at ~70px.
+            ai_pane_height: 254.0,
+            ai_history_font_size: 14.0,
+            ai_error_font_size: 13.0,
             global_ai_prompt: String::new(),
             global_ai_streaming: String::new(),
             show_preview: false,
@@ -3144,7 +3161,9 @@ impl DesignerPanel {
         let mut panel = egui::TopBottomPanel::bottom("global_ai_pane").resizable(self.ai_pane_open);
 
         if self.ai_pane_open {
-            panel = panel.default_height(self.ai_pane_height).min_height(100.0);
+            panel = panel
+                .default_height(self.ai_pane_height.max(GLOBAL_AI_PANE_MIN_HEIGHT))
+                .min_height(GLOBAL_AI_PANE_MIN_HEIGHT);
         }
 
         let original_style = ui.style().clone();
@@ -3171,10 +3190,73 @@ impl DesignerPanel {
                     let mut do_save = false;
                     let mut do_compact = false;
                     let mut do_clear = false;
+                    let mut show_error_modal = false;
+                    let mut decrease_history_font = false;
+                    let mut increase_history_font = false;
                     let busy = self.ai_status.as_deref() == Some("Thinking...");
                     let history_len = self.ai_history.len();
+                    let history_font_size = self.ai_history_font_size;
 
-                    ui.add_space(4.0);
+                    // Keep the history clear of the pane's resize handle, which
+                    // egui hit-tests ±resize_grab_radius_side around the top edge
+                    // — a bubble inside that band steals the drag as text select.
+                    ui.add_space(10.0);
+                    // The history takes everything above the fixed input slab, so
+                    // the pane's top-edge resizer is the ONLY resizer — dragging
+                    // it effectively resizes the history.
+                    let history_h = (ui.available_height()
+                        - GLOBAL_AI_INPUT_HEIGHT
+                        - ui.spacing().item_spacing.y)
+                        .max(0.0);
+                    let (history_rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), history_h),
+                        egui::Sense::hover(),
+                    );
+                    if std::env::var_os("COBOLT_AI_PANE_DEBUG").is_some() {
+                        eprintln!(
+                            "[ai-pane] max_rect={:?} h={:.1} hist_rect={:?} turns={}",
+                            ui.max_rect(),
+                            history_h,
+                            history_rect,
+                            self.ai_history.len(),
+                        );
+                    }
+                    // Detached child: paints inside history_rect without reporting
+                    // its size back to the panel — overflow here must never grow
+                    // the pane (egui stores a resizable panel's height from its
+                    // content rect, so any overflow compounds frame over frame).
+                    let mut hist_ui = ui.new_child(egui::UiBuilder::new().max_rect(history_rect));
+                    {
+                        let ui = &mut hist_ui;
+                        ui.set_clip_rect(history_rect);
+                        egui::ScrollArea::vertical()
+                            .id_salt("global_ai_history_scroll")
+                            .auto_shrink([false, false])
+                            .max_height(history_rect.height())
+                            .show(ui, |ui| {
+                                ui.set_min_height(history_rect.height());
+                                ui.vertical(|ui| {
+                                    for turn in &self.ai_history {
+                                        crate::panels::editor::chat_bubble_with_font_size(
+                                            ui,
+                                            &turn.role,
+                                            &turn.content,
+                                            history_font_size,
+                                        );
+                                    }
+
+                                    if !self.global_ai_streaming.is_empty() {
+                                        crate::panels::editor::chat_bubble_with_font_size(
+                                            ui,
+                                            "assistant",
+                                            &self.global_ai_streaming,
+                                            history_font_size,
+                                        );
+                                    }
+                                });
+                            });
+                    }
+
                     let pane_style = ui.style().clone();
                     let mut input_style = (*pane_style).clone();
                     input_style.visuals.widgets.noninteractive.bg_stroke =
@@ -3184,10 +3266,22 @@ impl DesignerPanel {
                     input_style.visuals.widgets.active.fg_stroke =
                         egui::Stroke::new(1.0, egui::Color32::WHITE);
                     ui.set_style(input_style);
-                    egui::TopBottomPanel::bottom("global_ai_pane_input")
-                        .resizable(false)
-                        .frame(egui::Frame::none())
-                        .show_inside(ui, |ui| {
+                    // Pin the input block to the pane bottom and fill the gap above
+                    // it: egui persists a resizable panel's height from its CONTENT
+                    // rect, so if the content is shorter than the dragged height the
+                    // pane snaps back on mouse release.
+                    ui.add_space((ui.available_height() - GLOBAL_AI_INPUT_HEIGHT).max(0.0));
+                    let (input_rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), GLOBAL_AI_INPUT_HEIGHT),
+                        egui::Sense::hover(),
+                    );
+                    // Detached child (see history above): the busy spinner/status
+                    // rows can overflow input_rect; reporting that overflow to the
+                    // panel inflates the pane by ~18px every frame while streaming.
+                    let mut input_ui = ui.new_child(egui::UiBuilder::new().max_rect(input_rect));
+                    {
+                        let ui = &mut input_ui;
+                        ui.set_clip_rect(input_rect);
                             ui.add_space(4.0);
 
                             // 1. Prompt Editor
@@ -3236,7 +3330,20 @@ impl DesignerPanel {
 
                             if let Some(err) = &self.ai_status {
                                 if err != "Thinking..." {
-                                    ui.label(egui::RichText::new(err).small().color(egui::Color32::from_rgb(220, 120, 120)));
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("AI error")
+                                                .small()
+                                                .color(egui::Color32::from_rgb(220, 120, 120)),
+                                        );
+                                        if ui
+                                            .small_button("Details")
+                                            .on_hover_text("Open the full AI error message")
+                                            .clicked()
+                                        {
+                                            show_error_modal = true;
+                                        }
+                                    });
                                 }
                             }
 
@@ -3253,34 +3360,45 @@ impl DesignerPanel {
                                 if ui.add_enabled(history_len > 0, egui::Button::new(format!("🗑 {}", tr.ai_clear_history))).clicked() {
                                     do_clear = true;
                                 }
+                                ui.separator();
+                                if ui
+                                    .add(egui::Button::new("−"))
+                                    .on_hover_text("Decrease history font size")
+                                    .clicked()
+                                {
+                                    decrease_history_font = true;
+                                }
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} pt",
+                                        self.ai_history_font_size.round() as i32
+                                    ))
+                                    .small()
+                                    .color(egui::Color32::from_gray(170)),
+                                );
+                                if ui
+                                    .add(egui::Button::new("+"))
+                                    .on_hover_text("Increase history font size")
+                                    .clicked()
+                                {
+                                    increase_history_font = true;
+                                }
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui.button("Close AI Assistant").clicked() {
                                         do_close = true;
                                     }
                                 });
                             });
-                        });
+                    }
                     ui.set_style(pane_style);
-
-                    // Render history
-                    egui::ScrollArea::vertical()
-                        .id_salt("global_ai_history_scroll")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            let w = ui.available_width();
-                            ui.vertical(|ui| {
-                                for turn in &self.ai_history {
-                                    crate::panels::editor::chat_bubble(ui, &turn.role, &turn.content);
-                                }
-
-                                if !self.global_ai_streaming.is_empty() {
-                                    crate::panels::editor::chat_bubble(ui, "assistant", &self.global_ai_streaming);
-                                }
-                            });
-                        });
 
                     if do_close {
                         self.ai_pane_open = false;
+                    }
+                    if show_error_modal {
+                        if let Some(err) = &self.ai_status {
+                            self.ai_error_modal = Some(err.clone());
+                        }
                     }
                     if do_send {
                         let prompt = self.global_ai_prompt.clone();
@@ -3288,6 +3406,7 @@ impl DesignerPanel {
                             self.ai_history.push(crate::llm::ChatTurn::user(prompt.clone()));
                             self.global_ai_prompt.clear();
                             self.ai_status = Some("Thinking...".to_string());
+                            self.ai_error_modal = None;
                             let (sys_prompt, skills) = match project_root {
                                 Some(d) => (
                                     crate::agent::effective_prompt(d),
@@ -3317,8 +3436,15 @@ impl DesignerPanel {
                     if do_clear {
                         self.ai_history.clear();
                         self.ai_status = None;
+                        self.ai_error_modal = None;
                         self.global_ai_prompt.clear();
                         self.global_ai_streaming.clear();
+                    }
+                    if decrease_history_font {
+                        self.ai_history_font_size = (self.ai_history_font_size - 1.0).max(10.0);
+                    }
+                    if increase_history_font {
+                        self.ai_history_font_size = (self.ai_history_font_size + 1.0).min(28.0);
                     }
                     if do_compact {
                         self.ai_status = Some("Thinking...".to_string());
@@ -3415,11 +3541,13 @@ impl DesignerPanel {
                             crate::llm::LlmResponse::Chunk(_) => {}
                             crate::llm::LlmResponse::Err(err) => {
                                 let err = err.trim_end_matches('.');
-                                self.ai_status = Some(if err.starts_with("Model returned") {
+                                let msg = if err.starts_with("Model returned") {
                                     err.to_string()
                                 } else {
                                     format!("Model returned {err}.")
-                                });
+                                };
+                                self.ai_status = Some(msg.clone());
+                                self.ai_error_modal = Some(msg);
                             }
                         }
                     }
@@ -3436,13 +3564,24 @@ impl DesignerPanel {
                 .rect_filled(line_rect, 0.0, egui::Color32::WHITE);
         }
         ui.set_style(original_style);
+        self.show_global_ai_error_modal(ui.ctx());
 
+        // The canvas is registered after the AI pane, so egui's hit test lets it
+        // win the few pixels around the pane's resize handle — grabbing the pane
+        // edge could scroll the canvas or drag a form control. Reserve a thin
+        // dead strip above the pane to keep the handle uncontested.
+        let canvas_max_h = if self.ai_pane_open {
+            (ui.available_height() - 10.0).max(0.0)
+        } else {
+            ui.available_height()
+        };
         egui::ScrollArea::both()
             .id_salt("designer_canvas")
             // Fill the available panel rather than growing to the form size, so
             // the canvas actually scrolls when the form is larger than the view
             // (spec 012 follow-up: restore lost form-content scrolling).
             .auto_shrink([false, false])
+            .max_height(canvas_max_h)
             .show(ui, |ui| {
                 let (resp, painter) =
                     ui.allocate_painter(Vec2::new(canvas_w, canvas_h), Sense::click_and_drag());
@@ -5654,6 +5793,125 @@ impl DesignerPanel {
         if cancel_clicked {
             self.menu_modal = None;
         }
+    }
+
+    fn show_global_ai_error_modal(&mut self, ctx: &egui::Context) {
+        let Some(message) = self.ai_error_modal.clone() else {
+            return;
+        };
+
+        let mut open = true;
+        let mut close = false;
+        // Sizing (anti self-inflation) — same pattern as the debugger window:
+        // the outer Window is NOT resizable; the inner `egui::Resize` is the
+        // single size authority. Its size comes from the 800×450 seed plus the
+        // user's grip drag only — never from measured content or the screen —
+        // so the modal cannot grow on its own.
+        egui::Window::new("AI Assistant Error")
+            .id(egui::Id::new("form_designer_ai_error_modal"))
+            .open(&mut open)
+            .resizable(false) // the inner `Resize` grip is the sole size control
+            .collapsible(false)
+            .show(ctx, |ui| {
+                egui::Resize::default()
+                    .id_salt("form_designer_ai_error_resize")
+                    .resizable([true, true])
+                    .min_size(egui::vec2(380.0, 220.0))
+                    .max_size(egui::vec2(4000.0, 4000.0))
+                    .default_size(egui::vec2(800.0, 450.0)) // seed only
+                    .show(ui, |ui| {
+                        // `sz` is the Resize box: user/default state, bounded —
+                        // NOT "remaining space" of an auto-sizing container.
+                        let sz = ui.available_size();
+                        ui.allocate_ui(sz, |ui| {
+                            // Fill the box exactly so the reported content
+                            // min-size equals the box: the Resize can neither
+                            // auto-grow nor auto-shrink to measured content.
+                            ui.set_min_size(sz);
+                            self.ai_error_modal_body(ui, &message, &mut close);
+                        });
+                    });
+            });
+
+        if close || !open {
+            self.ai_error_modal = None;
+        }
+    }
+
+    /// Body of the AI error modal: header, scrollable message, button row.
+    /// Laid out inside the fixed Resize box, so all "available" space here is
+    /// user-controlled state, not measured content.
+    fn ai_error_modal_body(&mut self, ui: &mut egui::Ui, message: &str, close: &mut bool) {
+        ui.label(
+            egui::RichText::new("The model returned an error or unusable response.")
+                .strong()
+                .color(egui::Color32::from_rgb(240, 160, 130)),
+        );
+        ui.add_space(8.0);
+
+        // Reserve a fixed footer for the button row; the scroll area gets the
+        // rest of the box.
+        let footer_h = 40.0;
+        let scroll_h = (ui.available_height() - footer_h).max(60.0);
+        egui::ScrollArea::both()
+            .id_salt("form_designer_ai_error_scroll")
+            .auto_shrink([false, false])
+            .max_height(scroll_h)
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(message)
+                        .monospace()
+                        .size(self.ai_error_font_size)
+                        .color(egui::Color32::from_gray(220)),
+                );
+            });
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.button("OK").clicked() {
+                *close = true;
+            }
+            ui.separator();
+            if ui
+                .button("Copy")
+                .on_hover_text("Copy the full error message to the clipboard")
+                .clicked()
+            {
+                ui.ctx().copy_text(message.to_owned());
+            }
+            if ui
+                .button("Save...")
+                .on_hover_text("Save the full error message to a text file")
+                .clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Text file", &["txt", "log"])
+                    .set_file_name("ai-assistant-error.txt")
+                    .save_file()
+                {
+                    let _ = std::fs::write(path, message);
+                }
+            }
+            ui.separator();
+            if ui
+                .small_button("A-")
+                .on_hover_text("Decrease error font size")
+                .clicked()
+            {
+                self.ai_error_font_size = (self.ai_error_font_size - 1.0).max(8.0);
+            }
+            ui.label(
+                egui::RichText::new(format!("{} px", self.ai_error_font_size.round() as i32))
+                    .small(),
+            );
+            if ui
+                .small_button("A+")
+                .on_hover_text("Increase error font size")
+                .clicked()
+            {
+                self.ai_error_font_size = (self.ai_error_font_size + 1.0).min(28.0);
+            }
+        });
     }
 
     /// Render the event code editor modal (if open).

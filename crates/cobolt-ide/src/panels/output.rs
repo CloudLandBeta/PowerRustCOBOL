@@ -39,13 +39,28 @@ pub enum OutputLine {
 
 // ── OutputPanel ───────────────────────────────────────────────────────────────
 
+const DEFAULT_LOG_FONT_SIZE: f32 = 14.0;
+const MIN_LOG_FONT_SIZE: f32 = 9.0;
+const MAX_LOG_FONT_SIZE: f32 = 28.0;
+
 /// State for the output console panel.
-#[derive(Default)]
 pub struct OutputPanel {
     /// All lines accumulated in this session.
     lines: Vec<OutputLine>,
     /// If true the view scrolls to the bottom on next frame.
     scroll_to_bottom: bool,
+    /// Font size, in screen points/pixels, used by the log body.
+    font_size: f32,
+}
+
+impl Default for OutputPanel {
+    fn default() -> Self {
+        Self {
+            lines: Vec::new(),
+            scroll_to_bottom: false,
+            font_size: DEFAULT_LOG_FONT_SIZE,
+        }
+    }
 }
 
 impl OutputPanel {
@@ -135,11 +150,45 @@ impl OutputPanel {
                     ui.strong(tr.panel_output);
                     ui.separator();
                     if ui
+                        .small_button("−")
+                        .on_hover_text("Decrease log font size")
+                        .clicked()
+                    {
+                        self.font_size = (self.font_size - 1.0).max(MIN_LOG_FONT_SIZE);
+                    }
+                    ui.label(
+                        RichText::new(format!("{} px", self.font_size.round() as i32))
+                            .small()
+                            .color(Color32::from_gray(170)),
+                    );
+                    if ui
+                        .small_button("+")
+                        .on_hover_text("Increase log font size")
+                        .clicked()
+                    {
+                        self.font_size = (self.font_size + 1.0).min(MAX_LOG_FONT_SIZE);
+                    }
+                    ui.separator();
+                    if ui
                         .add_enabled(!self.lines.is_empty(), egui::Button::new("Copy log"))
                         .on_hover_text("Copy the entire current log to the clipboard")
                         .clicked()
                     {
                         ui.ctx().copy_text(self.all_text());
+                    }
+                    if ui
+                        .add_enabled(!self.lines.is_empty(), egui::Button::new("Save log"))
+                        .on_hover_text("Save the entire current log to an .ai.log file")
+                        .clicked()
+                    {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("AI log", &["ai.log", "log", "txt"])
+                            .set_file_name("powerrustcobol.ai.log")
+                            .save_file()
+                        {
+                            let path = ensure_ai_log_extension(path);
+                            let _ = std::fs::write(path, self.all_text());
+                        }
                     }
                     if ui.small_button(tr.panel_clear).clicked() {
                         self.clear();
@@ -153,12 +202,14 @@ impl OutputPanel {
                     .stick_to_bottom(self.scroll_to_bottom);
 
                 scroll.show(ui, |ui| {
+                    let font_size = self.font_size;
                     for line in &self.lines {
                         match line {
                             OutputLine::Output(s) => {
                                 ui.label(
                                     RichText::new(s)
                                         .monospace()
+                                        .size(font_size)
                                         .color(crate::theme::active().ed_plain),
                                 );
                             }
@@ -178,16 +229,23 @@ impl OutputPanel {
                                         d.line, d.col, prefix, d.message
                                     ))
                                     .monospace()
+                                    .size(font_size)
                                     .color(color),
                                 );
                             }
                             OutputLine::Status(s) => {
-                                ui.label(RichText::new(s).color(Color32::from_gray(130)).italics());
+                                ui.label(
+                                    RichText::new(s)
+                                        .size(font_size)
+                                        .color(Color32::from_gray(130))
+                                        .italics(),
+                                );
                             }
                             OutputLine::Error(e) => {
                                 ui.label(
                                     RichText::new(format!("✖ {e}"))
                                         .monospace()
+                                        .size(font_size)
                                         .color(Color32::from_rgb(240, 80, 80)),
                                 );
                             }
@@ -196,6 +254,7 @@ impl OutputPanel {
                                     RichText::new(s)
                                         .monospace()
                                         .italics()
+                                        .size(font_size)
                                         .color(Color32::from_rgb(150, 140, 190)),
                                 );
                             }
@@ -203,6 +262,7 @@ impl OutputPanel {
                                 ui.label(
                                     RichText::new(s)
                                         .monospace()
+                                        .size(font_size)
                                         .color(Color32::from_rgb(110, 190, 220)),
                                 );
                             }
@@ -210,7 +270,7 @@ impl OutputPanel {
                                 ui.label(
                                     RichText::new(s)
                                         .monospace()
-                                        .small()
+                                        .size((font_size - 1.0).max(MIN_LOG_FONT_SIZE))
                                         .color(Color32::from_gray(140)),
                                 );
                             }
@@ -218,21 +278,16 @@ impl OutputPanel {
                                 ui.label(
                                     RichText::new(s)
                                         .monospace()
+                                        .size(font_size)
                                         .color(Color32::from_rgb(240, 120, 90)),
                                 );
                             }
                             OutputLine::AiQuestion(s) => {
                                 // 2× the monospace body size — a model question must
                                 // stand out in the log (and never lands in code).
-                                let base = ui
-                                    .style()
-                                    .text_styles
-                                    .get(&egui::TextStyle::Monospace)
-                                    .map(|f| f.size)
-                                    .unwrap_or(13.0);
                                 ui.label(
                                     RichText::new(format!("💬 {s}"))
-                                        .size(base * 2.0)
+                                        .size(font_size * 2.0)
                                         .color(Color32::from_rgb(150, 210, 160)),
                                 );
                             }
@@ -242,6 +297,18 @@ impl OutputPanel {
 
                 self.scroll_to_bottom = false;
             });
+    }
+}
+
+fn ensure_ai_log_extension(path: std::path::PathBuf) -> std::path::PathBuf {
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    if name.ends_with(".ai.log") {
+        path
+    } else {
+        path.with_file_name(format!("{name}.ai.log"))
     }
 }
 

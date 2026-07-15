@@ -17,6 +17,7 @@
 //! tracking all source files, forms, and assets and enabling one-click zip
 //! packaging.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use egui::{Color32, Context, Key, KeyboardShortcut, Modifiers, Vec2, ViewportBuilder, ViewportId};
@@ -348,6 +349,7 @@ pub struct CoboltApp {
     llm: crate::llm::LlmConfig,
     /// In-flight "Test connection" request from the settings dialog.
     llm_test_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    llm_test_from_model_selection: bool,
     /// Last test-connection result/status line.
     llm_test_status: Option<String>,
     /// A failed connection/model test to surface in a modal dialog (`Some` ⇒ the
@@ -358,6 +360,11 @@ pub struct CoboltApp {
     llm_detect_rx: Option<std::sync::mpsc::Receiver<Result<crate::llm::DetectedApi, String>>>,
     /// In-flight provider model-list fetch from the settings dialog.
     llm_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
+    llm_benchmark_offer: Option<crate::llm::LlmConfig>,
+    llm_benchmark_config: Option<crate::llm::LlmConfig>,
+    llm_benchmark_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
+    llm_benchmark_status: Option<String>,
+    llm_benchmark_report: Option<String>,
 
     // Dialog state
     new_form: NewFormDialog,
@@ -394,6 +401,9 @@ pub struct CoboltApp {
     /// IDE stays open; execution has already stopped on the interpreter thread.
     form_error: Option<String>,
     alert_error: Option<String>,
+    /// Font size for the message text in the error modals (adjusted with the
+    /// A− / A+ buttons in the dialog; session-only, like the output-log size).
+    error_font_size: f32,
     save_alert_msg: Option<String>,
     /// Which surface owns the save alert: `Some(idx)` = the designer viewport at
     /// `idx` (so the alert is not hidden behind it), `None` = the main IDE window.
@@ -453,10 +463,22 @@ enum FileRequest {
         cidx_path: PathBuf,
         def: IndexedDefinition,
     },
+    /// Save the given error-modal message text to the chosen file.
+    SaveErrorText(String),
+    /// Export the COBOL proficiency benchmark report to PDF.
+    SaveBenchmarkPdf(String),
 }
 
 /// The shared egui key for the single app-level file dialog.
 const APP_FILE_KEY: &str = "app-file-dialog";
+
+/// Initial size of the (user-resizable) error modals. A seed only: after the
+/// first frame the size lives in egui's window state and changes exclusively
+/// through the user's resize drag.
+const ERROR_MODAL_SIZE: [f32; 2] = [800.0, 450.0];
+/// Clamp range for the error-modal message font size.
+const MIN_ERROR_FONT_SIZE: f32 = 8.0;
+const MAX_ERROR_FONT_SIZE: f32 = 28.0;
 
 /// Standard project sub-folders — one per category plus working/build folders.
 /// Created when a project is made, and back-filled (if missing) when one is opened.
@@ -542,6 +564,72 @@ impl InspectState {
 /// Last-modified time of a file, if available.
 fn file_mtime(path: &Path) -> Option<std::time::SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+fn ensure_pdf_extension(path: PathBuf) -> PathBuf {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("pdf") => path,
+        _ => path.with_extension("pdf"),
+    }
+}
+
+fn sanitize_filename_component(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_was_sep = false;
+    for ch in value.trim().chars() {
+        let valid =
+            !matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') && !ch.is_control();
+        let mapped = if valid { ch } else { '-' };
+        let mapped = if mapped.is_whitespace() { '-' } else { mapped };
+        if mapped == '-' || mapped == '_' || mapped == '.' {
+            if last_was_sep {
+                continue;
+            }
+            last_was_sep = true;
+        } else {
+            last_was_sep = false;
+        }
+        out.push(mapped);
+    }
+    let trimmed = out
+        .trim_matches(|c| c == '-' || c == '_' || c == '.' || c == ' ')
+        .to_string();
+    let candidate = if trimmed.is_empty() {
+        "model".to_string()
+    } else {
+        trimmed
+    };
+    let upper = candidate.to_ascii_uppercase();
+    let reserved = matches!(
+        upper.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+    if reserved {
+        format!("model-{candidate}")
+    } else {
+        candidate
+    }
 }
 
 fn normalize_form_cobol_id(name: &str) -> String {
@@ -687,10 +775,16 @@ impl CoboltApp {
             bg_texture: None,
             llm: crate::llm::LlmConfig::load(),
             llm_test_rx: None,
+            llm_test_from_model_selection: false,
             llm_test_status: None,
             llm_test_error: None,
             llm_detect_rx: None,
             llm_models_rx: None,
+            llm_benchmark_offer: None,
+            llm_benchmark_config: None,
+            llm_benchmark_rx: None,
+            llm_benchmark_status: None,
+            llm_benchmark_report: None,
 
             new_form: NewFormDialog::new(),
             new_indexed: NewIndexedDialog::new(),
@@ -707,6 +801,7 @@ impl CoboltApp {
             doc_viewer: Default::default(),
             form_error: None,
             alert_error: None,
+            error_font_size: 13.0,
             save_alert_msg: None,
             save_alert_designer: None,
             agent_preview: None,
@@ -3798,6 +3893,17 @@ impl CoboltApp {
             match rx.try_recv() {
                 Ok(crate::llm::LlmResponse::Ok(_)) => {
                     self.llm_test_status = Some(tr.ai_test_ok.to_string());
+                    if let Some(form) = &self.settings_form {
+                        let mut cfg = self.llm.clone();
+                        cfg.provider = form.draft.llm_provider.clone();
+                        cfg.endpoint = form.draft.llm_endpoint.clone();
+                        cfg.api_key = form.draft.llm_api_key.clone();
+                        cfg.model = form.draft.llm_model.clone();
+                        if !cfg.model.trim().is_empty() {
+                            self.llm_benchmark_offer = Some(cfg);
+                        }
+                    }
+                    self.llm_test_from_model_selection = false;
                     self.llm_test_rx = None;
                 }
                 Ok(crate::llm::LlmResponse::Err(e)) => {
@@ -3805,17 +3911,1214 @@ impl CoboltApp {
                     // in the connection log, reachable via the modal's Details).
                     self.llm_test_status = Some(e.clone());
                     self.llm_test_error = Some(e);
+                    self.llm_test_from_model_selection = false;
                     self.llm_test_rx = None;
                 }
                 Ok(crate::llm::LlmResponse::Chunk(_)) => {}
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.llm_test_status = Some("The test worker stopped unexpectedly.".into());
+                    self.llm_test_from_model_selection = false;
                     self.llm_test_rx = None;
                 }
             }
         }
         self.poll_llm_detect();
+    }
+
+    fn poll_llm_benchmark(&mut self) {
+        let Some(rx) = &self.llm_benchmark_rx else {
+            return;
+        };
+        let final_result = loop {
+            match rx.try_recv() {
+                Ok(crate::llm::LlmResponse::Chunk(_)) => {
+                    self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+                }
+                Ok(crate::llm::LlmResponse::Ok(report)) => {
+                    break Ok(report);
+                }
+                Ok(crate::llm::LlmResponse::Err(e)) => {
+                    break Err(e);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    break Err("The benchmark worker stopped unexpectedly.".into());
+                }
+            }
+        };
+        self.llm_benchmark_rx = None;
+        match final_result {
+            Ok(report) => {
+                self.llm_benchmark_status = Some("COBOL proficiency check complete.".into());
+                self.save_llm_benchmark_stats(&report);
+                self.llm_benchmark_report = Some(report);
+            }
+            Err(e) => {
+                self.llm_benchmark_status = Some(e.clone());
+                self.llm_test_error = Some(format!("COBOL proficiency check failed: {e}"));
+            }
+        }
+    }
+
+    fn save_llm_benchmark_stats(&mut self, report: &str) {
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        let dir = root.join("agentic_ai");
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            self.output
+                .push_status(format!("Could not create benchmark folder: {e}"));
+            return;
+        }
+        let path = dir.join("model-benchmarks.jsonl");
+        let cfg = self.llm_benchmark_config.as_ref().unwrap_or(&self.llm);
+        let entry = serde_json::json!({
+            "timestamp_unix": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            "provider": cfg.provider,
+            "model": cfg.model,
+            "endpoint": cfg.endpoint,
+            "report": report,
+        });
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(mut f) => {
+                if let Err(e) = writeln!(f, "{entry}") {
+                    self.output
+                        .push_status(format!("Could not save benchmark result: {e}"));
+                }
+            }
+            Err(e) => self
+                .output
+                .push_status(format!("Could not open benchmark history: {e}")),
+        }
+    }
+
+    fn llm_benchmark_metrics(report: &str) -> Option<serde_json::Value> {
+        let mut candidates = Vec::new();
+        let mut rest = report;
+        while let Some(start) = rest.find("```") {
+            rest = &rest[start + 3..];
+            let Some(end) = rest.find("```") else {
+                break;
+            };
+            let block = &rest[..end];
+            rest = &rest[end + 3..];
+            let trimmed = block.trim();
+            let mut json_text = trimmed
+                .strip_prefix("json")
+                .or_else(|| trimmed.strip_prefix("metrics"))
+                .map(str::trim)
+                .unwrap_or(trimmed);
+            if let Some(stripped) = json_text.strip_prefix('=') {
+                json_text = stripped.trim();
+            }
+            candidates.push(json_text.to_string());
+        }
+        if let (Some(start), Some(end)) = (report.rfind('{'), report.rfind('}')) {
+            if start < end {
+                candidates.push(report[start..=end].to_string());
+            }
+        }
+        for text in candidates {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(metrics) = value.get("metrics") {
+                    return Some(metrics.clone());
+                }
+                if value.get("overall_score").is_some() {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
+
+    fn metric_score(metrics: &serde_json::Value, key: &str) -> Option<f32> {
+        metrics
+            .get(key)
+            .and_then(|v| v.as_f64())
+            .map(|v| v.clamp(0.0, 100.0) as f32)
+    }
+
+    fn fallback_benchmark_metrics(report: &str) -> serde_json::Value {
+        let mut obj = serde_json::Map::new();
+        for key in [
+            "overall_score",
+            "compilation_score",
+            "functional_score",
+            "instruction_following",
+            "semantic_correctness",
+            "code_preservation",
+            "runtime_correctness",
+            "hallucination_resistance",
+            "formatting_preservation",
+            "cobol85_score",
+            "powerrustcobol_score",
+            "program_structure_score",
+            "data_description_score",
+            "control_flow_score",
+            "file_handling_score",
+            "forms_extensions_score",
+            "unsupported_feature_avoidance",
+        ] {
+            if let Some(v) = Self::scan_metric_number(report, key) {
+                obj.insert(key.to_string(), serde_json::json!(v));
+            }
+        }
+        obj.insert("_metrics_inferred".to_string(), serde_json::json!(true));
+        serde_json::Value::Object(obj)
+    }
+
+    fn scan_metric_number(text: &str, key: &str) -> Option<f32> {
+        let key_pos = text.find(key)?;
+        let after_key = &text[key_pos + key.len()..];
+        let colon_pos = after_key.find(':')?;
+        let mut chars = after_key[colon_pos + 1..]
+            .chars()
+            .skip_while(|c| c.is_whitespace() || *c == '"' || *c == '`');
+        let mut n = String::new();
+        while let Some(c) = chars.next() {
+            if c.is_ascii_digit() || c == '.' {
+                n.push(c);
+            } else if !n.is_empty() {
+                break;
+            } else if !c.is_whitespace() {
+                return None;
+            }
+        }
+        n.parse::<f32>().ok().map(|v| v.clamp(0.0, 100.0))
+    }
+
+    fn benchmark_scope_scores() -> [(&'static str, &'static str, &'static str); 8] {
+        [
+            (
+                "Program structure",
+                "program_structure_score",
+                "compilation_score",
+            ),
+            (
+                "Data descriptions",
+                "data_description_score",
+                "semantic_correctness",
+            ),
+            ("Control flow", "control_flow_score", "functional_score"),
+            (
+                "File handling",
+                "file_handling_score",
+                "runtime_correctness",
+            ),
+            (
+                "Forms/extensions",
+                "forms_extensions_score",
+                "powerrustcobol_score",
+            ),
+            (
+                "Avoid unsupported",
+                "unsupported_feature_avoidance",
+                "hallucination_resistance",
+            ),
+            (
+                "Code preservation",
+                "code_preservation",
+                "code_preservation",
+            ),
+            (
+                "Formatting",
+                "formatting_preservation",
+                "formatting_preservation",
+            ),
+        ]
+    }
+
+    fn benchmark_metric_score(
+        metrics: &serde_json::Value,
+        key: &str,
+        fallback_key: &str,
+    ) -> Option<f32> {
+        Self::metric_score(metrics, key).or_else(|| Self::metric_score(metrics, fallback_key))
+    }
+
+    fn benchmark_scores_are_all_perfect(metrics: &serde_json::Value) -> bool {
+        let keys = [
+            "overall_score",
+            "compilation_score",
+            "functional_score",
+            "instruction_following",
+            "semantic_correctness",
+            "code_preservation",
+            "runtime_correctness",
+            "hallucination_resistance",
+            "formatting_preservation",
+            "cobol85_score",
+            "powerrustcobol_score",
+            "program_structure_score",
+            "data_description_score",
+            "control_flow_score",
+            "file_handling_score",
+            "forms_extensions_score",
+            "unsupported_feature_avoidance",
+        ];
+        keys.iter()
+            .filter_map(|key| Self::metric_score(metrics, key))
+            .all(|score| score >= 100.0)
+    }
+
+    fn benchmark_metric_description(label: &str) -> &'static str {
+        match label {
+            "Program structure" => "Keeps COBOL divisions and program shape valid.",
+            "Data descriptions" => "Uses PIC, WS, FD, and storage items correctly.",
+            "Control flow" => "Builds valid decisions, loops, and handler flow.",
+            "File handling" => "Handles indexed-file and record operations safely.",
+            "Forms/extensions" => "Uses controls, events, properties, and methods.",
+            "Avoid unsupported" => "Stays inside implemented PowerRustCOBOL features.",
+            "Code preservation" => "Edits without deleting required existing code.",
+            "Formatting" => "Preserves readable COBOL layout and spacing.",
+            "COBOL-85 coverage" => "Understands supported COBOL-85 syntax and patterns.",
+            "PowerRustCOBOL coverage" => "Understands PowerRustCOBOL GUI extensions.",
+            "Unsupported avoided" => "Avoids invented APIs and unsupported syntax.",
+            _ => "Benchmark score for this capability.",
+        }
+    }
+
+    fn benchmark_text_list(metrics: &serde_json::Value, key: &str) -> Vec<String> {
+        metrics
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn benchmark_summary_markdown(metrics: &serde_json::Value) -> String {
+        let overall = Self::metric_score(metrics, "overall_score").unwrap_or(0.0);
+        let cobol85 = Self::metric_score(metrics, "cobol85_score").unwrap_or(overall);
+        let prc = Self::metric_score(metrics, "powerrustcobol_score").unwrap_or(overall);
+        let unsupported =
+            Self::metric_score(metrics, "unsupported_feature_avoidance").unwrap_or(overall);
+        let hallucination =
+            Self::metric_score(metrics, "hallucination_resistance").unwrap_or(overall);
+        let recommendation = if overall >= 90.0 && unsupported >= 90.0 && hallucination >= 90.0 {
+            "Recommended"
+        } else if overall >= 75.0 {
+            "Use with review"
+        } else {
+            "Not recommended"
+        };
+        let usage = metrics
+            .get("recommended_usage")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Review the detailed benchmark before using this model.");
+
+        let mut out = String::new();
+        out.push_str("## Summary\n\n");
+        if Self::benchmark_scores_are_all_perfect(metrics) {
+            out.push_str("**Warning:** every metric was returned as 100%. This is a model-estimated, chat-only benchmark and was not independently compiled or runtime-verified by PowerRustCOBOL. Treat this as suspicious until the generated COBOL is checked by the compiler/runtime.\n\n");
+        }
+        out.push_str(&format!(
+            "**Decision:** {recommendation}. **Overall competency:** {overall:.0}%.\n\n"
+        ));
+        out.push_str(&format!(
+            "The model scored {cobol85:.0}% on COBOL-85 coverage and {prc:.0}% on PowerRustCOBOL-specific behavior. It scored {unsupported:.0}% for avoiding unsupported features and {hallucination:.0}% for hallucination resistance.\n\n"
+        ));
+        out.push_str(&format!("**Recommended usage:** {usage}\n\n"));
+
+        let strengths = Self::benchmark_text_list(metrics, "strengths");
+        if !strengths.is_empty() {
+            out.push_str("**Strengths:**\n\n");
+            for item in strengths.iter().take(5) {
+                out.push_str(&format!("- {item}\n"));
+            }
+            out.push('\n');
+        }
+
+        let weaknesses = Self::benchmark_text_list(metrics, "weaknesses");
+        if !weaknesses.is_empty() {
+            out.push_str("**Watch points:**\n\n");
+            for item in weaknesses.iter().take(5) {
+                out.push_str(&format!("- {item}\n"));
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn benchmark_tested_points_markdown(metrics: &serde_json::Value) -> String {
+        let mut out = String::new();
+        out.push_str("## Tested points\n\n");
+        out.push_str("This benchmark evaluates whether the model can produce complete, valid COBOL-85 and PowerRustCOBOL code inside the features currently supported by the project.\n\n");
+
+        let points = [
+            (
+                "Overall competency",
+                "overall_score",
+                "End-to-end suitability for using the model in PowerRustCOBOL-assisted development.",
+            ),
+            (
+                "Compilation",
+                "compilation_score",
+                "Ability to emit code that is syntactically valid and suitable for the current compiler/parser pipeline.",
+            ),
+            (
+                "Functional behavior",
+                "functional_score",
+                "Ability to generate code that performs the requested business or form behavior instead of producing inert stubs.",
+            ),
+            (
+                "Instruction following",
+                "instruction_following",
+                "Respect for user constraints, requested scope, and PowerRustCOBOL-specific directions.",
+            ),
+            (
+                "Semantic correctness",
+                "semantic_correctness",
+                "Correct variable usage, paragraph/program structure, data item references, and control/property semantics.",
+            ),
+            (
+                "Code preservation",
+                "code_preservation",
+                "Ability to modify existing code without deleting required divisions, declarations, handlers, or unrelated logic.",
+            ),
+            (
+                "Runtime correctness",
+                "runtime_correctness",
+                "Likelihood that generated code behaves correctly when interpreted or run through the form/runtime path.",
+            ),
+            (
+                "Hallucination resistance",
+                "hallucination_resistance",
+                "Avoidance of invented APIs, unsupported syntax, fake properties, or unavailable runtime calls.",
+            ),
+            (
+                "Formatting preservation",
+                "formatting_preservation",
+                "Ability to preserve readable COBOL formatting and avoid damaging source layout during edits.",
+            ),
+            (
+                "COBOL-85 coverage",
+                "cobol85_score",
+                "Knowledge of supported COBOL-85 structure, data descriptions, control flow, and file-oriented patterns.",
+            ),
+            (
+                "PowerRustCOBOL coverage",
+                "powerrustcobol_score",
+                "Knowledge of PowerRustCOBOL inline object syntax, form controls, properties, events, and extensions.",
+            ),
+            (
+                "Program structure",
+                "program_structure_score",
+                "Correct use and preservation of IDENTIFICATION, ENVIRONMENT, DATA, and PROCEDURE divisions.",
+            ),
+            (
+                "Data descriptions",
+                "data_description_score",
+                "Correct use of WORKING-STORAGE, FD records, local/global data items, PIC clauses, and supported numeric formats.",
+            ),
+            (
+                "Control flow",
+                "control_flow_score",
+                "Correct use of PERFORM, IF/EVALUATE-style decisions, loops, and handler-friendly flow.",
+            ),
+            (
+                "File handling",
+                "file_handling_score",
+                "Correct use of supported indexed-file and record-oriented patterns without assuming unimplemented features.",
+            ),
+            (
+                "Forms/extensions",
+                "forms_extensions_score",
+                "Correct use of controls, properties, events, non-visual controls, and inline get/set/invoke syntax.",
+            ),
+            (
+                "Unsupported feature avoidance",
+                "unsupported_feature_avoidance",
+                "Ability to stay inside implemented PowerRustCOBOL behavior and ask for direction instead of inventing missing APIs.",
+            ),
+        ];
+
+        for (label, key, description) in points {
+            if let Some(score) = Self::metric_score(metrics, key) {
+                out.push_str(&format!("### {label}: {score:.0}%\n\n{description}\n\n"));
+            }
+        }
+
+        let failures = Self::benchmark_text_list(metrics, "typical_failure_patterns");
+        if !failures.is_empty() {
+            out.push_str("### Typical failure patterns\n\n");
+            for item in failures {
+                out.push_str(&format!("- {item}\n"));
+            }
+            out.push('\n');
+        }
+
+        out
+    }
+
+    fn benchmark_generated_cobol_markdown(report: &str) -> String {
+        let blocks = Self::extract_benchmark_cobol_blocks(report);
+        let mut out = String::new();
+        out.push_str("## Generated COBOL code and accuracy analysis\n\n");
+        if blocks.is_empty() {
+            out.push_str("No fenced COBOL code block was returned by the model. Future benchmark runs request generated COBOL samples explicitly; if this section is empty, treat the report as incomplete for code-level review.\n\n");
+            return out;
+        }
+
+        out.push_str("The following COBOL/PowerRustCOBOL code blocks were returned by the model during the benchmark. Review them together with the accuracy notes below and the metric explanations.\n\n");
+        for (idx, code) in blocks.iter().enumerate() {
+            out.push_str(&format!("### Generated code sample {}\n\n", idx + 1));
+            out.push_str("```cobol\n");
+            out.push_str(code.trim());
+            out.push_str("\n```\n\n");
+        }
+        out.push_str("### Accuracy checklist\n\n");
+        out.push_str("- Division completeness: verify IDENTIFICATION, ENVIRONMENT, DATA, and PROCEDURE divisions are present when the sample is a full program.\n");
+        out.push_str("- Data correctness: verify PIC, USAGE, WORKING-STORAGE, FD, LOCAL-STORAGE, GLOBAL, and file status items match the generated behavior.\n");
+        out.push_str("- Procedure behavior: verify statements implement the requested behavior, not inert stubs.\n");
+        out.push_str("- PowerRustCOBOL syntax: verify controls use inline `Control::Property` and `Control::Method(...)` syntax instead of legacy helper CALLs.\n");
+        out.push_str("- Unsupported features: verify the sample does not invent controls, methods, properties, runtime calls, or compiler internals.\n");
+        out.push_str("- Runtime plausibility: verify file handling, invalid-key paths, EOF paths, commits/rollbacks, and event handlers can execute safely.\n\n");
+        out
+    }
+
+    fn extract_benchmark_cobol_blocks(report: &str) -> Vec<String> {
+        let mut blocks = Vec::new();
+        let mut rest = report;
+        while let Some(start) = rest.find("```") {
+            rest = &rest[start + 3..];
+            let Some(end) = rest.find("```") else {
+                break;
+            };
+            let block = &rest[..end];
+            rest = &rest[end + 3..];
+            let mut lines = block.lines();
+            let first = lines.next().unwrap_or("").trim().to_ascii_lowercase();
+            let body = if first == "cobol"
+                || first == "cbl"
+                || first == "rustcobol"
+                || first == "powerrustcobol"
+            {
+                lines.collect::<Vec<_>>().join("\n")
+            } else {
+                block.to_string()
+            };
+            let upper = body.to_ascii_uppercase();
+            let looks_like_cobol = matches!(
+                first.as_str(),
+                "cobol" | "cbl" | "rustcobol" | "powerrustcobol"
+            ) || upper.contains("IDENTIFICATION DIVISION")
+                || upper.contains("PROCEDURE DIVISION")
+                || upper.contains("WORKING-STORAGE SECTION")
+                || upper.contains("ENVIRONMENT DIVISION")
+                || upper.contains("DATA DIVISION");
+            if looks_like_cobol {
+                blocks.push(body);
+            }
+        }
+        blocks
+    }
+
+    fn benchmark_metadata_markdown(
+        cfg: &crate::llm::LlmConfig,
+        metrics: &serde_json::Value,
+        report: &str,
+    ) -> String {
+        let mut out = String::new();
+        out.push_str("## Model tested\n\n");
+        out.push_str(&format!("- **Provider:** {}\n", Self::provider_label(cfg)));
+        out.push_str(&format!(
+            "- **Model:** {}\n",
+            Self::display_or_unknown(&cfg.model)
+        ));
+        out.push_str(&format!(
+            "- **Endpoint:** {}\n",
+            Self::display_or_unknown(&cfg.endpoint)
+        ));
+        out.push_str("- **Access/subscription:** connection verified; no subscription error was returned during the test.\n");
+        out.push_str("- **Scoring basis:** model-estimated chat benchmark; no independent compiler/runtime verification was performed.\n");
+        if Self::benchmark_scores_are_all_perfect(metrics) {
+            out.push_str("- **Score warning:** all returned metrics are 100%; treat this report as suspicious and verify the generated COBOL manually.\n");
+        }
+        out.push_str(&format!(
+            "- **Configured max output tokens:** {}\n",
+            cfg.max_tokens
+        ));
+        out.push_str(&format!(
+            "- **Input tokens:** {}\n",
+            Self::benchmark_usage_value(metrics, report, &["input_tokens", "prompt_tokens"])
+        ));
+        out.push_str(&format!(
+            "- **Output tokens:** {}\n",
+            Self::benchmark_usage_value(metrics, report, &["output_tokens", "completion_tokens"])
+        ));
+        out.push_str(&format!(
+            "- **Total tokens:** {}\n",
+            Self::benchmark_usage_value(metrics, report, &["total_tokens"])
+        ));
+        out.push_str(&format!(
+            "- **Tokenizer:** {}\n\n",
+            Self::benchmark_string_value(metrics, report, &["tokenizer", "tokenizer_name"])
+        ));
+        out
+    }
+
+    fn provider_label(cfg: &crate::llm::LlmConfig) -> String {
+        crate::llm::Provider::from_id(&cfg.provider)
+            .map(|p| p.label.to_string())
+            .unwrap_or_else(|| Self::display_or_unknown(&cfg.provider))
+    }
+
+    fn display_or_unknown(value: &str) -> String {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            "not set".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    fn benchmark_usage_value(metrics: &serde_json::Value, report: &str, keys: &[&str]) -> String {
+        for key in keys {
+            if let Some(v) = metrics.get(*key).and_then(|v| v.as_u64()) {
+                return v.to_string();
+            }
+            if let Some(v) = Self::scan_metric_number(report, key) {
+                return format!("{v:.0}");
+            }
+        }
+        "not reported by provider".to_string()
+    }
+
+    fn benchmark_string_value(metrics: &serde_json::Value, report: &str, keys: &[&str]) -> String {
+        for key in keys {
+            if let Some(v) = metrics.get(*key).and_then(|v| v.as_str()) {
+                return v.to_string();
+            }
+            if let Some(v) = Self::scan_metric_string(report, key) {
+                return v;
+            }
+        }
+        "not reported by provider".to_string()
+    }
+
+    fn scan_metric_string(text: &str, key: &str) -> Option<String> {
+        let key_pos = text.find(key)?;
+        let after_key = &text[key_pos + key.len()..];
+        let colon_pos = after_key.find(':')?;
+        let mut value = after_key[colon_pos + 1..].trim_start();
+        value = value.trim_start_matches(|c| c == '"' || c == '`');
+        let mut out = String::new();
+        for c in value.chars() {
+            if c == '"' || c == '`' || c == ',' || c == '\n' || c == '\r' {
+                break;
+            }
+            out.push(c);
+        }
+        let out = out.trim();
+        if out.is_empty() {
+            None
+        } else {
+            Some(out.to_string())
+        }
+    }
+
+    fn render_benchmark_metadata(
+        ui: &mut egui::Ui,
+        cfg: &crate::llm::LlmConfig,
+        metrics: &serde_json::Value,
+        report: &str,
+    ) {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(10, 18, 28))
+            .stroke(egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)))
+            .rounding(8.0)
+            .inner_margin(egui::Margin::same(10.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Model tested").strong().size(16.0));
+                    ui.separator();
+                    Self::metadata_chip(ui, "Provider", &Self::provider_label(cfg));
+                    Self::metadata_chip(ui, "Model", &Self::display_or_unknown(&cfg.model));
+                    Self::metadata_chip(
+                        ui,
+                        "Subscription",
+                        "verified; no subscription error returned",
+                    );
+                    Self::metadata_chip(
+                        ui,
+                        "Input tokens",
+                        &Self::benchmark_usage_value(
+                            metrics,
+                            report,
+                            &["input_tokens", "prompt_tokens"],
+                        ),
+                    );
+                    Self::metadata_chip(
+                        ui,
+                        "Output tokens",
+                        &Self::benchmark_usage_value(
+                            metrics,
+                            report,
+                            &["output_tokens", "completion_tokens"],
+                        ),
+                    );
+                    Self::metadata_chip(
+                        ui,
+                        "Tokenizer",
+                        &Self::benchmark_string_value(
+                            metrics,
+                            report,
+                            &["tokenizer", "tokenizer_name"],
+                        ),
+                    );
+                    Self::metadata_chip(ui, "Max out", &cfg.max_tokens.to_string());
+                });
+                ui.add_space(4.0);
+                ui.weak(format!(
+                    "Endpoint: {}",
+                    Self::display_or_unknown(&cfg.endpoint)
+                ));
+            });
+    }
+
+    fn metadata_chip(ui: &mut egui::Ui, label: &str, value: &str) {
+        ui.label(
+            egui::RichText::new(format!("{label}: "))
+                .strong()
+                .color(Color32::from_rgb(169, 206, 236)),
+        );
+        ui.label(value);
+        ui.add_space(8.0);
+    }
+
+    fn benchmark_pdf_markdown(
+        report: &str,
+        metrics: Option<&serde_json::Value>,
+        cfg: &crate::llm::LlmConfig,
+    ) -> String {
+        let mut out = String::new();
+        out.push_str("# COBOL proficiency report\n\n");
+        let Some(metrics) = metrics else {
+            out.push_str(report.trim());
+            out.push_str("\n\n");
+            return out;
+        };
+
+        out.push_str(&Self::benchmark_metadata_markdown(cfg, metrics, report));
+        out.push_str("## Benchmark dashboard\n\n");
+        if let Some(overall) = Self::metric_score(metrics, "overall_score") {
+            out.push_str(&format!("**Overall competency:** {:.0}%\n\n", overall));
+        }
+        if let Some(usage) = metrics.get("recommended_usage").and_then(|v| v.as_str()) {
+            out.push_str(&format!("**Recommended usage:** {}\n\n", usage));
+        }
+
+        out.push_str("### Score distribution\n\n");
+        for (label, key, fallback_key) in Self::benchmark_scope_scores() {
+            if let Some(v) = Self::benchmark_metric_score(metrics, key, fallback_key) {
+                let filled = (v / 5.0).round() as usize;
+                let bar = format!(
+                    "{}{}",
+                    "#".repeat(filled),
+                    "-".repeat(20usize.saturating_sub(filled))
+                );
+                out.push_str(&format!("- **{}:** {:>3.0}% `{}`\n", label, v, bar));
+            }
+        }
+
+        out.push('\n');
+        out.push_str(&Self::benchmark_summary_markdown(metrics));
+        out.push_str(&Self::benchmark_tested_points_markdown(metrics));
+        out.push_str(&Self::benchmark_generated_cobol_markdown(report));
+        out.push_str("## Model report\n\n");
+        out.push_str(report.trim());
+        out.push_str("\n\n");
+        out
+    }
+
+    fn render_llm_benchmark_dashboard(ui: &mut egui::Ui, metrics: &serde_json::Value) {
+        let overall = Self::metric_score(metrics, "overall_score").unwrap_or(0.0);
+        let inferred = metrics
+            .get("_metrics_inferred")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        ui.add_space(16.0);
+        ui.separator();
+        ui.add_space(10.0);
+        ui.heading("Benchmark dashboard");
+        if inferred {
+            ui.weak(
+                "Structured metrics JSON was not found or was incomplete; this dashboard uses any score fields that could be recovered from the report text.",
+            );
+        }
+        if Self::benchmark_scores_are_all_perfect(metrics) {
+            ui.colored_label(
+                Color32::from_rgb(230, 187, 79),
+                "Warning: all metrics are 100%. This is model-estimated and was not compiler/runtime verified.",
+            );
+        }
+        ui.add_space(8.0);
+
+        let scores = Self::benchmark_scope_scores();
+
+        ui.horizontal_top(|ui| {
+            let kpi_size = egui::vec2(210.0, 150.0);
+            let (rect, _) = ui.allocate_exact_size(kpi_size, egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            painter.rect_filled(rect, 8.0, Color32::from_rgb(13, 24, 36));
+            painter.rect_stroke(
+                rect,
+                8.0,
+                egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)),
+            );
+            let accent = if overall >= 85.0 {
+                Color32::from_rgb(61, 205, 139)
+            } else if overall >= 70.0 {
+                Color32::from_rgb(230, 187, 79)
+            } else {
+                Color32::from_rgb(238, 101, 101)
+            };
+            painter.text(
+                rect.center_top() + egui::vec2(0.0, 18.0),
+                egui::Align2::CENTER_TOP,
+                "Overall competency",
+                egui::FontId::proportional(17.0),
+                ui.visuals().strong_text_color(),
+            );
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("{overall:.0}%"),
+                egui::FontId::proportional(46.0),
+                accent,
+            );
+            painter.text(
+                rect.center_bottom() - egui::vec2(0.0, 22.0),
+                egui::Align2::CENTER_BOTTOM,
+                metrics
+                    .get("recommended_usage")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Review report before production use"),
+                egui::FontId::proportional(12.0),
+                ui.visuals().weak_text_color(),
+            );
+
+            ui.add_space(14.0);
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Supported-scope scores").strong());
+                ui.add_space(4.0);
+                for (label, key, fallback_key) in scores {
+                    if let Some(v) = Self::benchmark_metric_score(metrics, key, fallback_key) {
+                        Self::draw_metric_bar(
+                            ui,
+                            label,
+                            Self::benchmark_metric_description(label),
+                            v,
+                        );
+                    }
+                }
+            });
+
+            ui.add_space(16.0);
+            Self::draw_metric_radar(ui, metrics, &scores);
+        });
+
+        ui.add_space(12.0);
+        ui.horizontal_top(|ui| {
+            let decision = if overall >= 90.0
+                && Self::metric_score(metrics, "unsupported_feature_avoidance").unwrap_or(0.0)
+                    >= 90.0
+                && Self::metric_score(metrics, "hallucination_resistance").unwrap_or(0.0) >= 90.0
+            {
+                ("Recommended", Color32::from_rgb(61, 205, 139))
+            } else if overall >= 75.0 {
+                ("Use with review", Color32::from_rgb(230, 187, 79))
+            } else {
+                ("Not recommended", Color32::from_rgb(238, 101, 101))
+            };
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Decision").strong());
+                ui.colored_label(
+                    decision.1,
+                    egui::RichText::new(decision.0).strong().size(22.0),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    metrics
+                        .get("recommended_usage")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Use this model only after reviewing the full report."),
+                );
+            });
+            ui.add_space(30.0);
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Scope fit").strong());
+                for (label, key) in [
+                    ("COBOL-85 coverage", "cobol85_score"),
+                    ("PowerRustCOBOL coverage", "powerrustcobol_score"),
+                    ("Unsupported avoided", "unsupported_feature_avoidance"),
+                ] {
+                    if let Some(v) = Self::metric_score(metrics, key) {
+                        Self::draw_metric_bar(
+                            ui,
+                            label,
+                            Self::benchmark_metric_description(label),
+                            v,
+                        );
+                    }
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+        ui.columns(3, |cols| {
+            Self::draw_benchmark_text_card(
+                &mut cols[0],
+                "Best at",
+                Color32::from_rgb(61, 205, 139),
+                &Self::benchmark_text_list(metrics, "strengths"),
+                "No structured strengths were returned.",
+            );
+            Self::draw_benchmark_text_card(
+                &mut cols[1],
+                "Watch",
+                Color32::from_rgb(230, 187, 79),
+                &Self::benchmark_text_list(metrics, "weaknesses"),
+                "No structured weaknesses were returned.",
+            );
+            Self::draw_benchmark_text_card(
+                &mut cols[2],
+                "Failure pattern",
+                Color32::from_rgb(238, 101, 101),
+                &Self::benchmark_text_list(metrics, "typical_failure_patterns"),
+                "No structured failure patterns were returned.",
+            );
+        });
+    }
+
+    fn draw_benchmark_text_card(
+        ui: &mut egui::Ui,
+        title: &str,
+        accent: Color32,
+        items: &[String],
+        empty: &str,
+    ) {
+        egui::Frame::none()
+            .fill(Color32::from_rgb(10, 18, 28))
+            .stroke(egui::Stroke::new(1.0, accent.linear_multiply(0.8)))
+            .rounding(8.0)
+            .inner_margin(egui::Margin::same(10.0))
+            .show(ui, |ui| {
+                ui.colored_label(accent, egui::RichText::new(title).strong());
+                ui.add_space(4.0);
+                if items.is_empty() {
+                    ui.weak(empty);
+                } else {
+                    for item in items.iter().take(4) {
+                        ui.label(format!("- {item}"));
+                    }
+                }
+            });
+    }
+
+    fn draw_metric_bar(ui: &mut egui::Ui, label: &str, description: &str, value: f32) {
+        let width = ui.available_width().clamp(320.0, 760.0);
+        let size = egui::vec2(width, 62.0);
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let painter = ui.painter_at(rect);
+        let text_clip =
+            egui::Rect::from_min_max(rect.left_top(), rect.right_top() + egui::vec2(-48.0, 36.0));
+        let text_painter = painter.with_clip_rect(text_clip);
+        let bar_rect = egui::Rect::from_min_max(
+            rect.left_bottom() + egui::vec2(0.0, -20.0),
+            rect.right_bottom() - egui::vec2(44.0, 6.0),
+        );
+        text_painter.text(
+            rect.left_top() + egui::vec2(0.0, 9.0),
+            egui::Align2::LEFT_CENTER,
+            label,
+            egui::FontId::proportional(12.5),
+            ui.visuals().text_color(),
+        );
+        text_painter.text(
+            rect.left_top() + egui::vec2(0.0, 30.0),
+            egui::Align2::LEFT_CENTER,
+            description,
+            egui::FontId::proportional(10.5),
+            ui.visuals().weak_text_color(),
+        );
+        painter.rect_filled(bar_rect, 5.0, Color32::from_rgb(20, 31, 42));
+        let fill_w = bar_rect.width() * (value / 100.0);
+        let fill = egui::Rect::from_min_size(bar_rect.min, egui::vec2(fill_w, bar_rect.height()));
+        let color = if value >= 85.0 {
+            Color32::from_rgb(61, 205, 139)
+        } else if value >= 70.0 {
+            Color32::from_rgb(230, 187, 79)
+        } else {
+            Color32::from_rgb(238, 101, 101)
+        };
+        painter.rect_filled(fill, 5.0, color);
+        painter.text(
+            bar_rect.right_center() + egui::vec2(44.0, 0.0),
+            egui::Align2::RIGHT_CENTER,
+            format!("{value:.0}"),
+            egui::FontId::monospace(12.0),
+            ui.visuals().strong_text_color(),
+        );
+    }
+
+    fn draw_metric_radar(
+        ui: &mut egui::Ui,
+        metrics: &serde_json::Value,
+        scores: &[(&str, &str, &str)],
+    ) {
+        let size = egui::vec2(390.0, 310.0);
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 8.0, Color32::from_rgb(10, 18, 28));
+        painter.rect_stroke(
+            rect,
+            8.0,
+            egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)),
+        );
+        painter.text(
+            rect.center_top() + egui::vec2(0.0, 10.0),
+            egui::Align2::CENTER_TOP,
+            "Ability radar",
+            egui::FontId::proportional(16.0),
+            ui.visuals().strong_text_color(),
+        );
+        let center = rect.center() + egui::vec2(0.0, 18.0);
+        let radius = 92.0;
+        let count = scores.len().max(3);
+        for ring in 1..=4 {
+            let r = radius * ring as f32 / 4.0;
+            let mut pts = Vec::new();
+            for i in 0..count {
+                let angle =
+                    -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::TAU / count as f32;
+                pts.push(center + egui::vec2(angle.cos() * r, angle.sin() * r));
+            }
+            painter.add(egui::Shape::closed_line(
+                pts,
+                egui::Stroke::new(1.0, Color32::from_gray(55)),
+            ));
+        }
+        let mut data = Vec::new();
+        for (i, (label, key, fallback_key)) in scores.iter().enumerate() {
+            let angle =
+                -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::TAU / count as f32;
+            let outer = center + egui::vec2(angle.cos() * radius, angle.sin() * radius);
+            painter.line_segment(
+                [center, outer],
+                egui::Stroke::new(1.0, Color32::from_gray(50)),
+            );
+            let v = Self::benchmark_metric_score(metrics, key, fallback_key).unwrap_or(0.0) / 100.0;
+            data.push(center + egui::vec2(angle.cos() * radius * v, angle.sin() * radius * v));
+            let label_pos =
+                center + egui::vec2(angle.cos() * (radius + 42.0), angle.sin() * (radius + 42.0));
+            let align = if angle.cos() > 0.35 {
+                egui::Align2::LEFT_CENTER
+            } else if angle.cos() < -0.35 {
+                egui::Align2::RIGHT_CENTER
+            } else if angle.sin() < 0.0 {
+                egui::Align2::CENTER_BOTTOM
+            } else {
+                egui::Align2::CENTER_TOP
+            };
+            let score = (v * 100.0).round() as i32;
+            painter.text(
+                label_pos,
+                align,
+                format!("{} {score}", Self::radar_label(label)),
+                egui::FontId::proportional(11.0),
+                ui.visuals().text_color(),
+            );
+        }
+        painter.add(egui::Shape::convex_polygon(
+            data.clone(),
+            Color32::from_rgba_unmultiplied(61, 205, 139, 72),
+            egui::Stroke::new(2.0, Color32::from_rgb(61, 205, 139)),
+        ));
+        for p in data {
+            painter.circle_filled(p, 3.0, Color32::from_rgb(230, 246, 255));
+        }
+    }
+
+    fn radar_label(label: &str) -> &'static str {
+        match label {
+            "Program structure" => "Structure",
+            "Data descriptions" => "Data",
+            "Control flow" => "Flow",
+            "File handling" => "Files",
+            "Forms/extensions" => "Forms",
+            "Avoid unsupported" => "Supported",
+            "Code preservation" => "Preserve",
+            "Formatting" => "Format",
+            _ => "Score",
+        }
+    }
+
+    fn render_llm_benchmark_modals(&mut self, ctx: &Context) {
+        if let Some(cfg) = self.llm_benchmark_offer.clone() {
+            let mut run = false;
+            let mut skip = false;
+            egui::Window::new("COBOL proficiency check")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.set_max_width(520.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Model `{}` is reachable. Do you want to check how proficient it is at producing valid COBOL-85 and PowerRustCOBOL code?",
+                            cfg.model
+                        ))
+                        .strong(),
+                    );
+                    ui.add_space(6.0);
+                    ui.label("This runs a lightweight benchmark prompt, shows a report, and saves the result for later model comparisons. It will not modify the project.");
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Run check").clicked() {
+                            run = true;
+                        }
+                        if ui.button("Not now").clicked() {
+                            skip = true;
+                        }
+                    });
+                });
+            if run {
+                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+                self.llm_benchmark_config = Some(cfg.clone());
+                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
+                self.llm_benchmark_offer = None;
+            }
+            if skip {
+                self.llm_benchmark_offer = None;
+            }
+        }
+
+        if self.llm_benchmark_rx.is_some() {
+            egui::Window::new("COBOL proficiency check")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.set_max_width(420.0);
+                    ui.label(
+                        self.llm_benchmark_status
+                            .as_deref()
+                            .unwrap_or("Running COBOL proficiency check..."),
+                    );
+                    ui.add(egui::Spinner::new());
+                });
+        }
+
+        if let Some(report) = self.llm_benchmark_report.clone() {
+            let mut close = false;
+            let mut copy = false;
+            let mut save_pdf = false;
+            let metrics = Self::llm_benchmark_metrics(&report)
+                .unwrap_or_else(|| Self::fallback_benchmark_metrics(&report));
+            let benchmark_cfg = self
+                .llm_benchmark_config
+                .as_ref()
+                .unwrap_or(&self.llm)
+                .clone();
+            egui::Window::new("COBOL proficiency report")
+                .id(egui::Id::new("llm_cobol_proficiency_report"))
+                .collapsible(false)
+                .resizable(true)
+                .default_size(egui::vec2(980.0, 700.0))
+                .show(ctx, |ui| {
+                    ui.label("Use this report to decide whether this model is suitable for COBOL-85 and PowerRustCOBOL work. No project action is applied.");
+                    ui.add_space(8.0);
+                    let scroll_h = (ctx.available_rect().height() * 0.72).clamp(320.0, 680.0);
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .max_height(scroll_h)
+                        .show(ui, |ui| {
+                            let opts = crate::panels::md_render::RenderOpts {
+                                search: "",
+                                base: 15.0,
+                                scroll_to_heading: None,
+                                active_match: None,
+                                scroll_to_active: false,
+                                anchors: &[],
+                            };
+                            Self::render_benchmark_metadata(ui, &benchmark_cfg, &metrics, &report);
+                            ui.add_space(12.0);
+                            Self::render_llm_benchmark_dashboard(ui, &metrics);
+                            ui.add_space(14.0);
+                            crate::panels::md_render::render(
+                                ui,
+                                &Self::benchmark_summary_markdown(&metrics),
+                                &opts,
+                                &mut |ui, code| {
+                                    ui.label(egui::RichText::new(code).monospace());
+                                },
+                            );
+                            crate::panels::md_render::render(
+                                ui,
+                                &Self::benchmark_tested_points_markdown(&metrics),
+                                &opts,
+                                &mut |ui, code| {
+                                    ui.label(egui::RichText::new(code).monospace());
+                                },
+                            );
+                            crate::panels::md_render::render(
+                                ui,
+                                &Self::benchmark_generated_cobol_markdown(&report),
+                                &opts,
+                                &mut |ui, code| {
+                                    ui.label(egui::RichText::new(code).monospace());
+                                },
+                            );
+                            ui.heading("Model report");
+                            ui.add_space(4.0);
+                            crate::panels::md_render::render(ui, &report, &opts, &mut |ui, code| {
+                                ui.label(egui::RichText::new(code).monospace());
+                            });
+                        });
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Copy").clicked() {
+                            copy = true;
+                        }
+                        if ui.button("Save as PDF").clicked() {
+                            save_pdf = true;
+                        }
+                        if ui.button("Close").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+            if copy {
+                ctx.copy_text(report.clone());
+            }
+            if save_pdf {
+                let model_id = sanitize_filename_component(&benchmark_cfg.model);
+                let pdf_name = format!("cobol-proficiency-report-{model_id}.pdf");
+                self.begin_file_dialog(
+                    FileRequest::SaveBenchmarkPdf(report.clone()),
+                    crate::file_dialog::DialogSpec::save()
+                        .filter("PDF", &["pdf"])
+                        .file_name(&pdf_name),
+                );
+            }
+            if close {
+                self.llm_benchmark_report = None;
+            }
+        }
     }
 
     /// Poll an in-flight "Detect API" probe (spec 025). On success it fills the
@@ -3994,11 +5297,13 @@ impl CoboltApp {
         if action.test_connection {
             if let Some(form) = &self.settings_form {
                 let mut cfg = self.llm.clone();
+                cfg.provider = form.draft.llm_provider.clone();
                 cfg.endpoint = form.draft.llm_endpoint.clone();
                 cfg.api_key = form.draft.llm_api_key.clone();
                 cfg.model = form.draft.llm_model.clone();
                 self.llm_test_status = Some(tr.ai_testing.to_string());
                 self.llm_test_error = None;
+                self.llm_test_from_model_selection = action.test_connection_from_model_selection;
                 self.llm_test_rx = Some(crate::llm::spawn_test(&cfg));
             }
         }
@@ -4370,31 +5675,23 @@ impl CoboltApp {
             None => return,
         };
         let mut open = true;
+        let mut close = false;
         egui::Window::new("⛔ COBOL error")
             .id(egui::Id::new("form_runtime_error"))
             .collapsible(false)
-            .resizable(true)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .default_width(520.0)
+            .resizable(false) // the inner `Resize` grip is the sole size control
+            .default_pos(Self::error_modal_default_pos(ctx))
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new("Execution stopped. See the Output panel for details.")
-                        .strong(),
-                );
-                ui.add_space(6.0);
-                egui::ScrollArea::vertical()
-                    .max_height(240.0)
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new(&msg).monospace());
-                    });
-                ui.add_space(8.0);
-                if ui.button("OK").clicked() {
-                    self.form_error = None;
-                }
+                close = self.error_modal_resize_box(ui, "form_runtime_error_resize", |app, ui| {
+                    app.error_modal_body(
+                        ui,
+                        Some("Execution stopped. See the Output panel for details."),
+                        &msg,
+                    )
+                });
             });
-        if !open {
+        if !open || close {
             self.form_error = None;
         }
     }
@@ -4405,25 +5702,137 @@ impl CoboltApp {
             None => return,
         };
         let mut open = true;
+        let mut close = false;
         egui::Window::new("⛔ Error")
             .id(egui::Id::new("alert_error_dialog"))
             .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .resizable(false) // the inner `Resize` grip is the sole size control
+            .default_pos(Self::error_modal_default_pos(ctx))
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new(&msg).size(14.0).strong());
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
-                        self.alert_error = None;
-                    }
+                close = self.error_modal_resize_box(ui, "alert_error_resize", |app, ui| {
+                    app.error_modal_body(ui, None, &msg)
                 });
             });
-        if !open {
+        if !open || close {
             self.alert_error = None;
         }
+    }
+
+    /// Top-left position that centers a freshly opened error modal. A seed for
+    /// `default_pos` only — NOT an anchor: in egui 0.29 an anchored `Area`
+    /// re-pins its position from the current size every frame, which fights
+    /// the edge-drag rect during a user resize (the grip drifts away from the
+    /// pointer). A one-time centered default keeps resizing well-behaved.
+    fn error_modal_default_pos(ctx: &Context) -> egui::Pos2 {
+        ctx.screen_rect().center() - 0.5 * egui::Vec2::from(ERROR_MODAL_SIZE)
+    }
+
+    /// Wrap an error-modal body in the sizing pattern shared with the debugger
+    /// window (anti self-inflation): the inner `egui::Resize` is the single
+    /// size authority — seeded at `ERROR_MODAL_SIZE`, changed only by the
+    /// user's grip drag, never by measured content — and the content fills the
+    /// box exactly so its reported min-size equals the box.
+    fn error_modal_resize_box(
+        &mut self,
+        ui: &mut egui::Ui,
+        id_salt: &str,
+        body: impl FnOnce(&mut Self, &mut egui::Ui) -> bool,
+    ) -> bool {
+        let mut close = false;
+        egui::Resize::default()
+            .id_salt(id_salt)
+            .resizable([true, true])
+            .min_size(egui::vec2(380.0, 220.0))
+            .max_size(egui::vec2(4000.0, 4000.0))
+            .default_size(egui::Vec2::from(ERROR_MODAL_SIZE)) // seed only
+            .show(ui, |ui| {
+                // `sz` is the Resize box: user/default state, bounded —
+                // NOT "remaining space" of an auto-sizing container.
+                let sz = ui.available_size();
+                ui.allocate_ui(sz, |ui| {
+                    ui.set_min_size(sz);
+                    close = body(self, ui);
+                });
+            });
+        close
+    }
+
+    /// Shared body of the two error modals: optional intro line, the message
+    /// in a two-axis scroll area, and the Copy / Save / font-size / OK row.
+    /// Returns `true` when OK was clicked (the caller clears its message).
+    ///
+    /// Laid out inside the fixed `error_modal_resize_box`, so all "available"
+    /// space here is user-controlled state, not measured content.
+    fn error_modal_body(&mut self, ui: &mut egui::Ui, intro: Option<&str>, msg: &str) -> bool {
+        let mut close = false;
+        ui.add_space(4.0);
+        if let Some(intro) = intro {
+            ui.label(egui::RichText::new(intro).strong());
+            ui.add_space(6.0);
+        }
+        // Reserve a fixed footer for the button row; the scroll area gets the
+        // rest of the box.
+        let footer_h = 40.0;
+        let scroll_h = (ui.available_height() - footer_h).max(60.0);
+        egui::ScrollArea::both()
+            .id_salt("error_modal_scroll")
+            .auto_shrink([false, false])
+            .max_height(scroll_h)
+            .show(ui, |ui| {
+                // `both()` disables wrapping, so long single-line errors
+                // scroll horizontally instead of inflating the window.
+                ui.label(
+                    egui::RichText::new(msg)
+                        .monospace()
+                        .size(self.error_font_size),
+                );
+            });
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui.button("OK").clicked() {
+                close = true;
+            }
+            ui.separator();
+            if ui
+                .button("Copy")
+                .on_hover_text("Copy the error message to the clipboard")
+                .clicked()
+            {
+                ui.ctx().copy_text(msg.to_owned());
+            }
+            if ui
+                .button("Save…")
+                .on_hover_text("Save the error message to a text file")
+                .clicked()
+            {
+                self.begin_file_dialog(
+                    FileRequest::SaveErrorText(msg.to_owned()),
+                    crate::file_dialog::DialogSpec::save()
+                        .filter("Text file", &["txt"])
+                        .file_name("error.txt"),
+                );
+            }
+            ui.separator();
+            if ui
+                .small_button("A−")
+                .on_hover_text("Decrease font size")
+                .clicked()
+            {
+                self.error_font_size = (self.error_font_size - 1.0).max(MIN_ERROR_FONT_SIZE);
+            }
+            ui.label(
+                egui::RichText::new(format!("{} px", self.error_font_size.round() as i32)).small(),
+            );
+            if ui
+                .small_button("A+")
+                .on_hover_text("Increase font size")
+                .clicked()
+            {
+                self.error_font_size = (self.error_font_size + 1.0).min(MAX_ERROR_FONT_SIZE);
+            }
+        });
+        close
     }
 
     fn show_save_alert(&mut self, ctx: &Context) {
@@ -4894,6 +6303,33 @@ impl CoboltApp {
             FileRequest::OpenGridData { cidx_path, def } => {
                 self.open_grid_for_indexed_with_data_path(&cidx_path, &def, &path);
             }
+            // Status lines only here — never set `alert_error` from the
+            // error-save path, or a failed save would reopen the modal.
+            FileRequest::SaveErrorText(text) => match std::fs::write(&path, text) {
+                Ok(()) => self
+                    .output
+                    .push_status(format!("Error message saved to {}", path.display())),
+                Err(e) => self.output.push_status(format!(
+                    "Could not save error message to {}: {e}",
+                    path.display()
+                )),
+            },
+            FileRequest::SaveBenchmarkPdf(report) => {
+                let path = ensure_pdf_extension(path);
+                let metrics = Self::llm_benchmark_metrics(&report)
+                    .unwrap_or_else(|| Self::fallback_benchmark_metrics(&report));
+                let benchmark_cfg = self.llm_benchmark_config.as_ref().unwrap_or(&self.llm);
+                let markdown = Self::benchmark_pdf_markdown(&report, Some(&metrics), benchmark_cfg);
+                match crate::pdf_export::export("COBOL proficiency report", &markdown, &path) {
+                    Ok(()) => self
+                        .output
+                        .push_status(format!("COBOL proficiency PDF saved to {}", path.display())),
+                    Err(e) => self.output.push_status(format!(
+                        "Could not save COBOL proficiency PDF to {}: {e}",
+                        path.display()
+                    )),
+                }
+            }
         }
     }
 
@@ -5094,6 +6530,10 @@ impl eframe::App for CoboltApp {
         // ── Compute the translation table for this frame ───────────────────────
         let tr = self.lang.tr();
         crate::i18n::set_language(ctx, self.lang);
+        self.poll_llm_benchmark();
+        if self.llm_benchmark_rx.is_some() {
+            ctx.request_repaint();
+        }
 
         // Update window title to reflect the current project's build mode.
         {
@@ -5289,6 +6729,9 @@ impl eframe::App for CoboltApp {
         self.show_form_error(ctx);
         // Duplicate COBOL ID / Validation alert — modal.
         self.show_alert_error(ctx);
+        // Model benchmark offer/progress/report is global: the worker can finish
+        // after the user leaves Project Settings.
+        self.render_llm_benchmark_modals(ctx);
 
         // ── Menu bar ─────────────────────────────────────────────────────────
         let has_project = self.cobolt_project.is_some();
@@ -7804,6 +9247,11 @@ impl CoboltApp {
         if self.save_alert_designer == Some(idx) {
             self.show_save_alert(ctx);
         }
+
+        // Model benchmark dialogs must also be painted in the designer viewport.
+        // Otherwise a report produced from the designer assistant can be visible
+        // only behind the active OS window, which looks like "it only went to log".
+        self.render_llm_benchmark_modals(ctx);
     }
 }
 

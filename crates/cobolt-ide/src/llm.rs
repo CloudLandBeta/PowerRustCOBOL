@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use cobolt_agents::Orchestrator;
 
@@ -473,173 +472,92 @@ fn heal_endpoint(ep: &str) -> String {
 }
 
 pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
-    let (tx, rx) = mpsc::channel();
-    if let Some(msg) = retired_model_message(&cfg.model) {
-        push_connection_log(&format!("=== ERROR ===\n{msg}\n"));
-        let _ = tx.send(LlmResponse::Err(msg));
-        return rx;
-    }
-    let ep = heal_endpoint(&cfg.endpoint);
-    let key = cfg.api_key.clone();
-    let pid = cfg.provider.clone();
-    let verbose = cfg.verbose_log;
+    let mut test_cfg = cfg.clone();
+    test_cfg.endpoint = heal_endpoint(&test_cfg.endpoint);
+    test_cfg.temperature = 0.0;
+    test_cfg.max_tokens = test_cfg.max_tokens.clamp(1, 16);
 
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(e) => {
-                let _ = tx.send(LlmResponse::Err(format!(
-                    "Failed to start async runtime: {}",
-                    e
-                )));
-                return;
-            }
-        };
-        rt.block_on(async {
-            let client = match reqwest::Client::builder().build() {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = tx.send(LlmResponse::Err(format!(
-                        "Failed to create HTTP client: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
-            if pid == "ollama" {
-                let url = format!(
-                    "{}/api/tags",
-                    ep.trim_end_matches("/api")
-                        .trim_end_matches("/v1")
-                        .trim_end_matches('/')
-                );
+    let mut req = mesh_request_base(&test_cfg);
+    req.specialist = Some("CodeGenerator".to_string());
+    req.system_prompt =
+        "You are testing model access. Reply with the exact text OK and nothing else.".to_string();
+    req.user_prompt = "Reply with OK only.".to_string();
+    run_mesh_request(req, "connection/model access test")
+}
 
-                if verbose {
-                    let mut trace = String::new();
-                    trace.push_str(&format!(
-                        "=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n",
-                        url
-                    ));
-                    match client.get(&url).send().await {
-                        Ok(res) => {
-                            let status = res.status();
-                            let text = res.text().await.unwrap_or_default();
-                            trace.push_str(&format!(
-                                "=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n",
-                                status, text
-                            ));
-                            push_connection_log(&trace);
-                            if status.is_success() {
-                                let _ = tx.send(LlmResponse::Ok(
-                                    "Connection successful! Ollama is reachable.".into(),
-                                ));
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            trace.push_str(&format!("=== API ERROR (Test) ===\n{}\n\n", e));
-                            push_connection_log(&trace);
-                        }
-                    }
-                } else {
-                    if let Ok(res) = client.get(&url).send().await {
-                        if res.status().is_success() {
-                            let _ = tx.send(LlmResponse::Ok(
-                                "Connection successful! Ollama is reachable.".into(),
-                            ));
-                            return;
-                        }
-                    }
-                }
-                let _ = tx.send(LlmResponse::Err(
-                    "Failed to connect to Ollama endpoint.".into(),
-                ));
-            } else {
-                let url = if ep.ends_with("/chat/completions") {
-                    ep.replace("/chat/completions", "/models")
-                } else if ep.ends_with("/v1") {
-                    format!("{}/models", ep)
-                } else if ep.ends_with('/') {
-                    format!("{}v1/models", ep)
-                } else {
-                    format!("{}/v1/models", ep)
-                };
+const COBOL_PROFICIENCY_BENCHMARK_PROMPT: &str = r#"You are an expert evaluator of Large Language Models for COBOL-85 and PowerRustCOBOL development.
 
-                let mut req = client.get(&url);
-                if !key.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", key));
-                } else if pid == "gemini" {
-                    req = req.header("x-goog-api-key", key.clone());
-                }
+Run a deterministic self-contained proficiency assessment of this model. Do not browse. Do not ask follow-up questions. Do not modify any project files. This is a chat-only benchmark: you are not compiling, running, or externally verifying generated code.
 
-                if verbose {
-                    let mut trace = String::new();
-                    trace.push_str(&format!(
-                        "=== API REQUEST (Test) ===\nEndpoint: {}\nMethod: GET\n\n",
-                        url
-                    ));
-                    match req.try_clone().unwrap().build() {
-                        Ok(built) => {
-                            for (k, v) in built.headers() {
-                                trace.push_str(&format!("{}: {:?}\n", k, v));
-                            }
-                        }
-                        Err(_) => {}
-                    }
-                    trace.push_str("\n");
+Evaluate engineering quality, not natural-language style. Evaluate only features currently supported by PowerRustCOBOL. Do not test, reward, or penalize for unsupported or superseded features. Be adversarial and skeptical: the evaluator must look for concrete defects in the generated COBOL, not praise the sample by default.
 
-                    match req.send().await {
-                        Ok(res) => {
-                            let status = res.status();
-                            let text = res.text().await.unwrap_or_default();
-                            trace.push_str(&format!(
-                                "=== API RESPONSE (Test) ===\nStatus: {}\nBody: {}\n\n",
-                                status, text
-                            ));
-                            push_connection_log(&trace);
+Supported benchmark scope:
+1. COBOL source structure: fixed/free form source; IDENTIFICATION, ENVIRONMENT, DATA, PROCEDURE divisions; CONFIGURATION, INPUT-OUTPUT, FILE-CONTROL, FILE, WORKING-STORAGE, LOCAL-STORAGE, and LINKAGE sections; nested programs and multiple program units; complete programs with no omitted divisions.
+2. Data descriptions: level 01-49, 66, 77, 88; FILLER; VALUE; GLOBAL; EXTERNAL; REDEFINES; RENAMES; OCCURS and OCCURS DEPENDING ON; ASCENDING/DESCENDING KEY; INDEXED BY; USAGE DISPLAY, BINARY/COMP/COMP-4, COMP-1, COMP-2, COMP-3/PACKED-DECIMAL, COMP-5, INDEX, POINTER; PIC X/A/9/S/V/P plus supported edited symbols.
+3. Implemented statements and control flow: MOVE, COMPUTE, ADD, SUBTRACT, MULTIPLY, DIVIDE, STRING, UNSTRING, INSPECT, INITIALIZE, SEARCH, SEARCH ALL, SORT, MERGE, RELEASE, RETURN, PERFORM, EVALUATE, IF, GO TO, ALTER, CONTINUE, NEXT SENTENCE, SET, CALL for COBOL nested programs/user procedures, CANCEL, EXIT, GOBACK, STOP RUN, ACCEPT, DISPLAY, TRY/CATCH/FINALLY/END-TRY, THROW, EXEC RUST.
+4. File handling: sequential, line sequential, and indexed files; random/dynamic indexed access; primary and alternate keys, including duplicate alternate keys; OPEN/CLOSE; READ, READ NEXT, READ PREVIOUS; START; WRITE; REWRITE; DELETE; COMMIT; ROLLBACK; FILE STATUS; EOF/INVALID KEY handling; advisory per-run locking phrases that PowerRustCOBOL supports. Do not require RELATIVE files or cross-process locking semantics.
+5. Existing-code modification: add/remove/rename/refactor while preserving comments, formatting, identifiers, behavior, and required divisions/sections.
+6. Bug fixing: incorrect PIC/USAGE, numeric overflow or truncation, wrong file key, invalid file status handling, incorrect OCCURS/ODO bounds, off-by-one table searches, broken nested IF/EVALUATE logic, decimal mistakes, COMP/COMP-3 misuse, stale generated handler structure.
+7. PowerRustCOBOL GUI/extensions: RAD forms, controls, events, generated event handlers, Form Designer/runtime behavior, data binding, indexed-file controls, REST Client and SQL Database controls where present, themes, animation properties, Rust FFI repository objects via INVOKE, and inline method/property syntax such as `Control-1::Text`, `Control-1::Refresh()`, and `SET Control-1::ShadowEnabled TO 1`.
 
-                            if status.is_success() {
-                                let _ = tx.send(LlmResponse::Ok(
-                                    "Connection successful! API key is valid.".into(),
-                                ));
-                            } else {
-                                let _ = tx.send(LlmResponse::Err(format!(
-                                    "API Error {}: {}",
-                                    status, text
-                                )));
-                            }
-                        }
-                        Err(e) => {
-                            trace.push_str(&format!("=== API ERROR (Test) ===\n{}\n\n", e));
-                            push_connection_log(&trace);
-                            let _ = tx.send(LlmResponse::Err(format!("Network Error: {}", e)));
-                        }
-                    }
-                } else {
-                    match req.send().await {
-                        Ok(res) => {
-                            if res.status().is_success() {
-                                let _ = tx.send(LlmResponse::Ok(
-                                    "Connection successful! API key is valid.".into(),
-                                ));
-                            } else {
-                                let status = res.status();
-                                let text = res.text().await.unwrap_or_default();
-                                let _ = tx.send(LlmResponse::Err(format!(
-                                    "API Error {}: {}",
-                                    status, text
-                                )));
-                            }
-                        }
-                        Err(e) => {
-                            let _ = tx.send(LlmResponse::Err(format!("Network Error: {}", e)));
-                        }
-                    }
-                }
-            }
-        });
-    });
-    rx
+Out of scope for this benchmark: REPORT SECTION and report writer verbs; COMMUNICATION SECTION; field-level SCREEN SECTION editing; RELATIVE file organization; COBOL OO class/method definitions; undocumented `cbl_`/runtime helper calls; invented REST/SQLite verbs; unimplemented controls, events, properties, methods, or compiler internals.
+
+Important PowerRustCOBOL rule: for controls and form objects, prefer inline object syntax `ControlName::Method(args)` and `ControlName::Property` / `SET ControlName::Property TO value`. Do not propose `CALL "COBOL-SET-PROPERTY"`, `CALL "COBOL-GET-PROPERTY"`, chart helper CALLs, or legacy `INVOKE Control "Method" USING ...` forms for control work. If the required method/property is not listed in context, the correct behavior is to ask for directions instead of guessing.
+
+The report must include these sections in this order before the metrics JSON:
+1. Executive summary: concise recommendation and major risks.
+2. Generated COBOL sample: include every COBOL or PowerRustCOBOL code sample produced during the assessment in fenced `cobol` code blocks. Do not omit, summarize, or replace the generated code with prose.
+3. Code accuracy analysis: analyze the generated COBOL sample against the benchmark rules. Explicitly discuss division completeness, DATA DIVISION correctness, PROCEDURE DIVISION behavior, file handling, inline PowerRustCOBOL object syntax, unsupported-feature avoidance, code preservation risks, formatting, and runtime plausibility. Tie each issue or strength to the relevant score.
+4. Detailed tested points: describe what was tested and how the score was assigned for each metric.
+
+Scoring guardrails:
+- Do not assign 100 to any metric in this chat-only benchmark. A score of 100 is reserved for independently compiled and runtime-verified code, which this benchmark does not perform.
+- Because this is not a compiler-run benchmark, `compilation_score` must be 90 or lower, `runtime_correctness` must be 85 or lower, and `overall_score` must be 95 or lower.
+- If the generated code has likely parser/compiler errors, `compilation_score` must be 70 or lower.
+- If method calls are written as property assignments, such as `SET Control::Refresh()`, `forms_extensions_score` and `semantic_correctness` must be reduced.
+- If a GUI control is invented as a PIC X data item instead of using a real form/control context, reduce `forms_extensions_score`.
+- If a string literal is moved into a numeric field, reduce `semantic_correctness`, `runtime_correctness`, and `compilation_score`.
+- If indexed file code omits important INVALID KEY/AT END handling, CLOSE/COMMIT behavior, or file-status checks, reduce `file_handling_score` and `runtime_correctness`.
+- The `weaknesses` array must not be empty. If no defect is found, list residual uncertainty from the lack of compiler/runtime verification.
+- The report must explicitly state that the scores are model-estimated and not independently verified by PowerRustCOBOL.
+
+Return the report in clear language, followed by one fenced JSON block named `metrics` with this exact schema:
+{
+  "overall_score": 0-100,
+  "compilation_score": 0-100,
+  "functional_score": 0-100,
+  "instruction_following": 0-100,
+  "semantic_correctness": 0-100,
+  "code_preservation": 0-100,
+  "runtime_correctness": 0-100,
+  "hallucination_resistance": 0-100,
+  "formatting_preservation": 0-100,
+  "cobol85_score": 0-100,
+  "powerrustcobol_score": 0-100,
+  "program_structure_score": 0-100,
+  "data_description_score": 0-100,
+  "control_flow_score": 0-100,
+  "file_handling_score": 0-100,
+  "forms_extensions_score": 0-100,
+  "unsupported_feature_avoidance": 0-100,
+  "recommended_usage": "short text",
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "typical_failure_patterns": ["..."]
+}
+
+Be honest about uncertainty: this is a lightweight interactive benchmark, not a full compiler-run benchmark. The overall score must use these weights: 15% compilation, 30% functional correctness, 15% instruction following, 10% semantic correctness, 10% code preservation, 5% runtime correctness, 5% formatting preservation, 10% unsupported-feature avoidance. The dashboard-specific scores must reflect only the supported benchmark scope listed above."#;
+
+pub fn spawn_cobol_proficiency_benchmark(cfg: &LlmConfig) -> Receiver<LlmResponse> {
+    let mut bench_cfg = cfg.clone();
+    bench_cfg.endpoint = heal_endpoint(&bench_cfg.endpoint);
+    bench_cfg.temperature = 0.0;
+
+    let mut req = mesh_request_base(&bench_cfg);
+    req.specialist = Some("CodeGenerator".to_string());
+    req.system_prompt = "You are a strict COBOL-85 and PowerRustCOBOL model evaluator.".to_string();
+    req.user_prompt = COBOL_PROFICIENCY_BENCHMARK_PROMPT.to_string();
+    run_mesh_request(req, "COBOL proficiency benchmark")
 }
 
 pub fn spawn_detect(endpoint: &str) -> Receiver<Result<DetectedApi, String>> {

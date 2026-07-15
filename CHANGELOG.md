@@ -8,6 +8,36 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.0] — 2026-07-15
+
+### Added
+
+- **Resizable error windows** — Error messages (COBOL runtime errors, IDE
+  alerts, and the Form Designer AI assistant) now open in a modal window that
+  starts at 800×450 and resizes only when the user drags the grip. Each window
+  offers Copy to clipboard, Save to a text file via a native dialog, an A−/A+
+  font-size control, and an OK button.
+- **AI COBOL proficiency benchmark** — New benchmark that scores the configured
+  model on COBOL-85 / PowerRustCOBOL tasks and shows the results in a dashboard
+  with per-scope metric bars, a radar chart, tested-points summary, and PDF
+  export of the full report.
+- **AI connection test** — Selecting a model can immediately run a minimal
+  "reply with OK" round-trip to verify endpoint, key, and model access.
+- **Output log font size** — The IDE log pane gained a −/+ font-size control
+  (9–28 px).
+
+### Fixed
+
+- **Reasoning models rejected safely** — The agent orchestrator now counts
+  streamed `reasoning` deltas, asks Ollama endpoints to disable thinking
+  (`think: false`), and reports a clear error when a model returns hidden
+  reasoning but no message content instead of applying an empty response.
+- **Error windows growing on their own** — The error modals no longer size
+  their content from remaining window space (the egui self-inflation feedback
+  loop); the resize box is the single size authority, seeded at 800×450.
+- **Project tree** — The first level of project folders expands automatically
+  when a project opens.
+
 ## [PowerRustCOBOL 1.29.18] — 2026-07-15
 
 ### Fixed

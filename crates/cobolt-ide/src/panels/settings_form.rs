@@ -136,6 +136,7 @@ impl SettingsDraft {
 pub struct SettingsFormAction {
     pub save: bool,
     pub test_connection: bool,
+    pub test_connection_from_model_selection: bool,
     /// Auto-detect the LLM API/models from the endpoint host (spec 025).
     pub detect_api: bool,
     /// Reopen the read-only LLM debug modal with the last response (spec 025).
@@ -943,14 +944,15 @@ impl SettingsForm {
                                     let resp = egui::ComboBox::from_id_salt("ai_model")
                                         .selected_text(self.draft.llm_model.clone())
                                         .width(combo_w)
-                                        // Taller popup so the filter box plus at least
-                                        // ~6 models are visible without scrolling
-                                        // (egui's default cap is only 200px).
-                                        .height(360.0)
+                                        // Keep the model picker tall enough to
+                                        // browse comfortably without dominating
+                                        // the settings pane.
+                                        .height(250.0)
                                         .show_ui(ui, |ui| {
                                             let row_height = 34.0;
-                                            ui.spacing_mut().item_spacing.y = 8.0;
+                                            ui.spacing_mut().item_spacing.y = 2.0;
                                             ui.spacing_mut().interact_size.y = row_height;
+                                            ui.set_min_width(combo_w);
                                             if models.is_empty() {
                                                 ui.weak(tr.settings_ai_model_empty);
                                                 return;
@@ -972,31 +974,27 @@ impl SettingsForm {
                                             let needle =
                                                 self.model_filter.trim().to_ascii_lowercase();
                                             let mut shown = 0usize;
-                                            egui::ScrollArea::vertical()
-                                                .max_height(320.0)
-                                                .show(ui, |ui| {
-                                                    for m in &models {
-                                                        if !needle.is_empty()
-                                                            && !m
-                                                                .to_ascii_lowercase()
-                                                                .contains(&needle)
-                                                        {
-                                                            continue;
-                                                        }
-                                                        shown += 1;
-                                                        let selected = self.draft.llm_model == *m;
-                                                        let response = ui.add_sized(
-                                                            [ui.available_width(), row_height],
-                                                            egui::SelectableLabel::new(selected, m),
-                                                        );
-                                                        if response.clicked() {
-                                                            self.draft.llm_model = m.clone();
-                                                        }
-                                                    }
-                                                    if shown == 0 {
-                                                        ui.weak(tr.settings_ai_model_no_match);
-                                                    }
-                                                });
+                                            for m in &models {
+                                                if !needle.is_empty()
+                                                    && !m.to_ascii_lowercase().contains(&needle)
+                                                {
+                                                    continue;
+                                                }
+                                                shown += 1;
+                                                if ui
+                                                    .selectable_value(
+                                                        &mut self.draft.llm_model,
+                                                        m.clone(),
+                                                        m,
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    self.draft.llm_model = m.clone();
+                                                }
+                                            }
+                                            if shown == 0 {
+                                                ui.weak(tr.settings_ai_model_no_match);
+                                            }
                                         });
                                     // `inner` is `None` while the dropdown is closed —
                                     // reset the filter so it starts fresh next open.
@@ -1008,6 +1006,7 @@ impl SettingsForm {
                                     // error surfaces in a modal — see app.rs).
                                     if self.draft.llm_model != prev_model {
                                         action.test_connection = true;
+                                        action.test_connection_from_model_selection = true;
                                     }
                                     if ui
                                         .add_enabled(

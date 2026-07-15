@@ -183,8 +183,23 @@ impl ProjectPanel {
 
     /// Set the root directory shown in tree mode.
     pub fn set_root(&mut self, root: impl Into<PathBuf>) {
-        self.root = Some(root.into());
+        let root = root.into();
         self.expanded.clear();
+        self.expand_first_level_dirs(&root);
+        self.root = Some(root);
+    }
+
+    fn expand_first_level_dirs(&mut self, root: &Path) {
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for path in entries.filter_map(|e| e.ok().map(|e| e.path())) {
+                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+                if path.is_dir() && !name.starts_with('.') {
+                    self.expanded.insert(path);
+                }
+            }
+        }
     }
 
     /// Drop the cached copy of a form so the controls sub-tree reloads it (after
@@ -603,7 +618,7 @@ impl ProjectPanel {
         let root = self.root.clone();
 
         let id = ui.make_persistent_id(("project_cat", label));
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
             .show_header(ui, |ui| {
                 match cat {
                     Category::IndexedFiles => tree_icon(ui, draw_indexed_icon),
@@ -695,9 +710,10 @@ impl ProjectPanel {
         let form_selected = cur.as_deref() == Some(form_key.as_str());
 
         let id = ui.make_persistent_id(("form_item", rel));
-        // L3 form node is open by default (collapse only kicks in below it).
+        // Only the root project node starts open. User-expanded form nodes keep
+        // their egui memory state after startup.
         let (_toggle, header_inner, _body) =
-            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
                 .show_header(ui, |ui| {
                     ui.add_space(8.0);
                     status_dot(ui, form_status);
@@ -795,7 +811,7 @@ impl ProjectPanel {
         let mut remove_clicked = false;
         let id = ui.make_persistent_id(("indexed_item", rel));
         let (_toggle, header_inner, _body) =
-            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
                 .show_header(ui, |ui| {
                     ui.add_space(8.0);
                     status_dot(ui, status);

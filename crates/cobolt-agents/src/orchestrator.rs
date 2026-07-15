@@ -135,7 +135,9 @@ impl Orchestrator {
             // `native` = Ollama-native chat API (`…/api/chat`, response shape
             // `{"message":{"content":…}}`); otherwise OpenAI-compatible
             // (`…/chat/completions`, response shape `choices[0].message.content`).
-            let (url, native) = if base.ends_with("/api/chat") {
+            let (url, native) = if provider_is_ollama(&req.provider) {
+                (ollama_native_chat_url(&base), true)
+            } else if base.ends_with("/api/chat") {
                 (base.clone(), true)
             } else if base.ends_with("/chat/completions") {
                 (base.clone(), false)
@@ -149,11 +151,12 @@ impl Orchestrator {
                 (format!("{base}/v1/chat/completions"), false)
             };
 
-            let body = if native {
+            let mut body = if native {
                 serde_json::json!({
                     "model": req.model,
                     "messages": messages,
                     "stream": true,
+                    "think": false,
                     "options": {
                         "temperature": req.temperature,
                         "num_predict": req.max_tokens,
@@ -168,6 +171,12 @@ impl Orchestrator {
                     "stream": true,
                 })
             };
+            if !native && provider_uses_ollama_reasoning(&req.provider, &base) {
+                // Ollama-family OpenAI-compatible endpoints accept this hint for
+                // thinking models. Other providers can reject unknown fields, so
+                // keep it scoped to endpoints we know may emit `delta.reasoning`.
+                body["think"] = serde_json::Value::Bool(false);
+            }
 
             on_log(format!(
                 "POST {url} · model {} · {} message(s) · {} wire format (batch {loop_count})",
@@ -212,6 +221,7 @@ impl Orchestrator {
 
             let mut raw = String::new();
             let mut full_content = String::new();
+            let mut reasoning_chars: usize = 0;
             let mut line_buf = String::new();
             let mut inp_tokens: Option<u64> = None;
             let mut out_tokens: Option<u64> = None;
@@ -249,6 +259,18 @@ impl Orchestrator {
                                         full_content.push_str(content);
                                         on_chunk(content);
                                     }
+                                    if let Some(reasoning) = json
+                                        .get("choices")
+                                        .and_then(|c| c.get(0))
+                                        .and_then(|c| c.get("delta"))
+                                        .and_then(|m| {
+                                            m.get("reasoning")
+                                                .or_else(|| m.get("reasoning_content"))
+                                        })
+                                        .and_then(|c| c.as_str())
+                                    {
+                                        reasoning_chars += reasoning.chars().count();
+                                    }
                                     if let Some(usage) = json.get("usage") {
                                         if let Some(i) =
                                             usage.get("prompt_tokens").and_then(|v| v.as_u64())
@@ -271,6 +293,16 @@ impl Orchestrator {
                                     {
                                         full_content.push_str(content);
                                         on_chunk(content);
+                                    }
+                                    if let Some(reasoning) = json
+                                        .get("message")
+                                        .and_then(|m| {
+                                            m.get("reasoning")
+                                                .or_else(|| m.get("reasoning_content"))
+                                        })
+                                        .and_then(|c| c.as_str())
+                                    {
+                                        reasoning_chars += reasoning.chars().count();
                                     }
                                     if let Some(usage) =
                                         json.get("prompt_eval_count").and_then(|v| v.as_u64())
@@ -318,6 +350,16 @@ impl Orchestrator {
                 if let Some(out) = out_tokens {
                     on_log(format!("Verbose: tokens: {out} out"));
                 }
+            }
+
+            if full_content.is_empty() && reasoning_chars > 0 {
+                return Err(format!(
+                    "The model returned {reasoning_chars} reasoning characters but no assistant \
+                     message content. PowerRustCOBOL cannot apply hidden reasoning as form \
+                     operations. Use a non-reasoning/chat model or disable thinking/reasoning for \
+                     this model. First 300 bytes: {}",
+                    &raw.chars().take(300).collect::<String>()
+                ));
             }
 
             if full_content.is_empty() {
@@ -531,13 +573,42 @@ pub fn route_specialist(prompt: &str) -> &'static str {
     "CodeGenerator"
 }
 
+fn provider_uses_ollama_reasoning(provider: &str, base_url: &str) -> bool {
+    let provider = provider.to_ascii_lowercase();
+    let base_url = base_url.to_ascii_lowercase();
+    provider.contains("ollama")
+        || base_url.contains("ollama.com")
+        || base_url.contains("localhost")
+        || base_url.contains("127.0.0.1")
+}
+
+fn provider_is_ollama(provider: &str) -> bool {
+    provider.to_ascii_lowercase().contains("ollama")
+}
+
+fn ollama_native_chat_url(base: &str) -> String {
+    for suffix in ["/v1/chat/completions", "/api/chat", "/chat/completions"] {
+        if let Some(root) = base.strip_suffix(suffix) {
+            return format!("{root}/api/chat");
+        }
+    }
+    if let Some(root) = base.strip_suffix("/v1") {
+        return format!("{root}/api/chat");
+    }
+    if base.ends_with("/api") {
+        format!("{base}/chat")
+    } else {
+        format!("{base}/api/chat")
+    }
+}
+
 fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::route_specialist;
+    use super::{ollama_native_chat_url, route_specialist};
 
     #[test]
     fn routes_crud_navigation_wiring_to_event_binder() {
@@ -562,6 +633,22 @@ mod tests {
         assert_eq!(
             route_specialist("add a button to Tab1 of TabControl-1"),
             "FormsDesigner"
+        );
+    }
+
+    #[test]
+    fn normalizes_ollama_openai_urls_to_native_chat() {
+        assert_eq!(
+            ollama_native_chat_url("https://ollama.com/v1"),
+            "https://ollama.com/api/chat"
+        );
+        assert_eq!(
+            ollama_native_chat_url("https://ollama.com/v1/chat/completions"),
+            "https://ollama.com/api/chat"
+        );
+        assert_eq!(
+            ollama_native_chat_url("http://localhost:11434/api"),
+            "http://localhost:11434/api/chat"
         );
     }
 }
