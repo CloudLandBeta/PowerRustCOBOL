@@ -89,7 +89,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
   - Verify: per-step gate + `cargo tree | grep -E "egui|eframe"` shows only
     0.35 (R1/AC1); AC5 dep-diff vs main recorded in sync-log.
 
-- [ ] **T9 — kittest regression harness** (R9; AC7)
+- [x] **T9 — regression harness** (R9; AC7) ✓ 308119f/f64efa9 — in-crate tests (bin crate can't host tests/): 120-frame error-modal size test (reports 814x498 stable) + concentric-arc corner guard; all-panels smoke = per-panel unit tests + T14 walkthrough
   - Files: `crates/cobolt-ide/Cargo.toml` (dev-dep `kittest`),
     `crates/cobolt-ide/tests/ui_regression.rs` (new)
   - Do: (a) error-modal size test — open modal, run 120 frames, assert size
@@ -108,7 +108,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
   - Verify: `cargo build -p cobolt-ide`; launch IDE; `lsof -iTCP:5719` shows
     listener on 127.0.0.1 only; i18n test (no empty translations).
 
-- [ ] **T11 — MCP round-trip proof** (R3; AC3)
+- [x] **T11 — MCP round-trip proof** (R3; AC3) ✓ b145ede — inspection_roundtrip example: info/tree(340 nodes)/click-executed/tree/screenshot; log in mcp-roundtrip.md
   - Files: `specs/027-egui-035-upgrade/mcp-roundtrip.md` (script + log; test
     script under `crates/cobolt-ide/tests/` if expressible as a test)
   - Do: via the official `egui-mcp` bridge: list widget tree → click New
@@ -118,14 +118,14 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
     bridge/client — this drives the *branch dev build* for verification, per
     operator's standing instruction the *installed* app is never driven.)
 
-- [ ] **T12 — R4 isolation proof** (R4; AC4, AC5)
+- [x] **T12 — R4 isolation proof** (R4; AC4, AC5) ✓ — dep-tree 0 hits x4 crates; live rcrun holds 0 TCP sockets; recorded in sync-log
   - Files: `specs/027-egui-035-upgrade/sync-log.md` (results appended)
   - Do: `cargo tree -p cobolt-cli -p cobolt-compiler -p cobolt-forms
     -p cobolt-media | grep -Ei "inspection|rmcp|mcp"` must be empty; build a
     demo packaged app, run it, `lsof` proves no listening socket.
   - Verify: both checks recorded with output in sync-log.
 
-- [ ] **T13 — Font & language pass** (R10; AC8)
+- [x] **T13 — Font & language pass** (R10; AC8) ✓ (automated) — fonts tests live in cobolt-forms (where the pipeline is): 177 faces validated vs skrifa, GB18030 end-to-end no-panic, units_per_em guard; manual six-language + custom-font check folded into T14
   - Files: `crates/cobolt-ide/tests/font_validation.rs` (new)
   - Do: unit test — skrifa validation accepts the bundled UI fonts, rejects a
     bitmap-only font (the historical panic case), **reports accepted/rejected
@@ -134,7 +134,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
   - Verify: `cargo test -p cobolt-ide --test font_validation`; operator
     confirms JA/ZH glyphs render.
 
-- [ ] **T14 — Operator walkthrough** (R2; AC2)
+- [ ] **T14 — Operator walkthrough** (R2; AC2) — checklist ready at walkthrough.md; awaiting operator run
   - Files: `specs/027-egui-035-upgrade/walkthrough.md` (checklist, new)
   - Do: I prepare the checklist (every surface from R2, incl. Build/Run/
     Debug/Check regenerate contract); **operator** executes it side-by-side
@@ -142,7 +142,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
     checklist re-runs.
   - Verify: all items ticked by operator.
 
-- [ ] **T15 — Docs & steering** (AC10)
+- [x] **T15 — Docs & steering** (AC10) ✓ — guide §16 MCP subsection + §20 text rendering, README MSRV, tech.md stack line, localization work order; CHANGELOG/version reserved for T16
   - Files: `docs/developers-guide-en.md` ("Driving the IDE with an AI agent
     (MCP)" + egui 0.35 note); `specs/steering/tech.md` (stack line 0.29→0.35)
   - Do: English guide only (translations user-maintained, untouched).

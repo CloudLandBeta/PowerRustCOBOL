@@ -1772,6 +1772,26 @@ reference: `docs/database-runtime.md`.
 > timeouts in COBOL, and never embed secrets (API keys, tokens) in a form you
 > intend to ship. Treat those as runtime configuration.
 
+### Driving the IDE with an AI agent (MCP)
+
+The IDE itself is agent-operable. At startup it serves the **egui inspection
+protocol** on `127.0.0.1:5719` (change the port under ⚙ *Settings* → AI —
+takes effect on restart; the Output console shows the listen address). Through
+it an agent can read the live widget tree, click and type on real IDE
+controls, resize the window, and capture screenshots.
+
+- **External agents** (Claude and other MCP clients) connect through the
+  official `egui-mcp` bridge — configure it as an MCP server pointing at the
+  IDE's address, and the agent gets see-and-drive access to every IDE surface.
+- **The built-in AI assistant** uses the same machinery in-process: each
+  request includes a snapshot of the rendered widget tree alongside the form
+  model, so the model reasons about what your form actually looks like — and
+  after applying changes it re-reads the tree to verify them.
+
+> ⚠️ **Caveat.** The endpoint is bound to `127.0.0.1` only — it is never
+> reachable from the network. It also exists **only in the IDE**: applications
+> you build and ship, and `rcrun`, contain no inspection endpoint at all.
+
 ---
 
 ## 17. The command line (rcrun)

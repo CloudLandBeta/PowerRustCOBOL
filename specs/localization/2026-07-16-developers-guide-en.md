@@ -23,6 +23,13 @@ bullet (no other text in the section changed). English text to translate:
 >   a face the engine cannot rasterise (for example a bitmap-only system font)
 >   is skipped and the control falls back to Arial instead of failing.
 
+## Delta 2 — section `#16-http--rest-and-ai-agents`
+
+**Change:** one **new subsection** "Driving the IDE with an AI agent (MCP)"
+appended after the existing caveat (three paragraphs + two bullets + one
+caveat block). Translate the whole subsection; keep `egui-mcp`,
+`127.0.0.1:5719`, `rcrun`, menu names and *Settings* untranslated.
+
 ## Glossary — do NOT translate
 
 `PowerRustCOBOL`, product and menu names (e.g. **Font** as the property name,

@@ -3417,11 +3417,20 @@ impl DesignerPanel {
                                     crate::agent::load_skills(std::path::Path::new("")),
                                 ),
                             };
-                            let context = crate::agent::build_context_with_project(
+                            let mut context = crate::agent::build_context_with_project(
                                 &self.form,
                                 project,
                                 project_root,
                             );
+                            // Live-UI eyes (spec 027): append the latest
+                            // inspection tree snapshot so the model sees the
+                            // rendered IDE, not just the form model — and
+                            // queue a fresh snapshot for the next turn.
+                            if let Some(tree) = crate::agent_inspection::latest_summary() {
+                                context.push_str("\n\n");
+                                context.push_str(&tree);
+                            }
+                            crate::agent_inspection::request_snapshot(ui.ctx());
                             self.ai_rx = Some(crate::llm::spawn_agent_request(
                                 llm_cfg,
                                 &sys_prompt,
@@ -3500,6 +3509,10 @@ impl DesignerPanel {
                                 // Try to parse it as operations
                                 if let Ok(cs) = crate::agent::parse_change_set(&text) {
                                     let applied = self.apply_agent_change_set(&cs);
+                                    // Snapshot the post-change UI so the next
+                                    // agent turn can verify its own edits
+                                    // rendered as intended (spec 027).
+                                    crate::agent_inspection::request_snapshot(ui.ctx());
 
                                     let mut messages: Vec<String> = Vec::new();
                                     for op in &cs.operations {

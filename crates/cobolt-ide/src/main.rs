@@ -15,6 +15,7 @@
 //! ```
 
 pub mod agent;
+pub mod agent_inspection;
 mod app;
 pub mod data_binding_guardian;
 pub mod docs_embed;
