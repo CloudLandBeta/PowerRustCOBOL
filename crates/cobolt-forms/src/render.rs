@@ -6632,6 +6632,76 @@ mod shape_dump {
         println!("scene C dumped {} shapes", out.len());
     }
 
+
+    /// Scene D — TRANSPARENT Panel + DataGrid child on image backdrop, Classic
+    /// glass (COBOLT_SHAPE_DUMP_D=<file>). Mirrors the operator's failing form.
+    #[test]
+    fn dump_transparent_panel_datagrid_shapes() {
+        let Some(path) = std::env::var_os("COBOLT_SHAPE_DUMP_D") else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+
+        let mut pnl = Control::new("PNL", ControlType::Panel, 40, 40);
+        pnl.rect = crate::model::Rect::new(40, 40, 400, 200);
+        pnl.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+        pnl.set_prop(
+            "BackgroundColor",
+            crate::model::PropValue::String("00000000".into()),
+        );
+        let mut grid = Control::new("GRID", ControlType::DataGrid, 60, 60);
+        grid.rect = crate::model::Rect::new(60, 60, 200, 120);
+        grid.set_prop("CornerRadius", crate::model::PropValue::Int(16));
+        grid.parent = Some("PNL".into());
+        let controls = vec![pnl, grid];
+
+        let tex = ctx.load_texture(
+            "dump_bg_d",
+            egui::ColorImage {
+                size: [4, 4],
+                source_size: egui::vec2(4.0, 4.0),
+                pixels: vec![egui::Color32::from_rgb(160, 120, 60); 16],
+            },
+            egui::TextureOptions::LINEAR,
+        );
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            Vec2::new(600.0, 300.0),
+        ));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: "8a6a3c".into(),
+                            transparency: 0,
+                            image: Some((tex.id(), egui::vec2(4.0, 4.0))),
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            dump_shape(&mut out, cs.clip_rect, &cs.shape);
+        }
+        std::fs::write(&path, out.join("\n")).unwrap();
+        println!("scene D dumped {} shapes", out.len());
+    }
+
     /// Corner-bleed guard (egui 0.35 regression): every stroked rect that is
     /// concentric with the panel face must keep its corner radius STRICTLY
     /// inside the face radius. u8 radii can't express `face - 0.5`, and

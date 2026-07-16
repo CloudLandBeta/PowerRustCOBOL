@@ -36,6 +36,17 @@ pub struct LlmConfig {
     /// Always bound on 127.0.0.1 only; a change takes effect on restart.
     #[serde(default = "default_inspection_port")]
     pub inspection_port: u16,
+    /// Per-model API keys, keyed by `"{provider}::{model}"` — selecting a
+    /// model in Project Settings restores its remembered key (or clears the
+    /// field when none is stored, so a stale key never masquerades as valid).
+    #[serde(default)]
+    pub api_keys: std::collections::HashMap<String, String>,
+}
+
+/// Map key for [`LlmConfig::api_keys`]: keys are provider-scoped so the same
+/// model name under two providers keeps two independent credentials.
+pub fn api_key_slot(provider: &str, model: &str) -> String {
+    format!("{}::{}", provider.trim(), model.trim())
 }
 
 /// Default localhost port for the egui inspection / MCP agent endpoint.
@@ -67,6 +78,7 @@ impl LlmConfig {
             provider: String::new(),
             verbose_log: false,
             inspection_port: default_inspection_port(),
+            api_keys: std::collections::HashMap::new(),
         }
     }
 

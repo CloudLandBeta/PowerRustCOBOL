@@ -67,6 +67,9 @@ pub struct SettingsDraft {
     /// Verbose AI activity logging (model info + full context + timings).
     pub llm_verbose: bool,
     pub llm_inspection_port: u16,
+    /// Per-model API keys (provider::model -> key), edited alongside the
+    /// visible key field and written back on Apply.
+    pub llm_api_keys: std::collections::HashMap<String, String>,
 }
 
 impl SettingsDraft {
@@ -104,6 +107,7 @@ impl SettingsDraft {
             llm_max_tokens: llm.max_tokens,
             llm_verbose: llm.verbose_log,
             llm_inspection_port: llm.inspection_port,
+            llm_api_keys: llm.api_keys.clone(),
         }
     }
 
@@ -129,6 +133,16 @@ impl SettingsDraft {
         llm.provider = self.llm_provider.clone();
         llm.endpoint = self.llm_endpoint.clone();
         llm.api_key = self.llm_api_key.clone();
+        let mut keys = self.llm_api_keys.clone();
+        let slot = crate::llm::api_key_slot(&self.llm_provider, &self.llm_model);
+        if !self.llm_model.trim().is_empty() {
+            if self.llm_api_key.trim().is_empty() {
+                keys.remove(&slot);
+            } else {
+                keys.insert(slot, self.llm_api_key.clone());
+            }
+        }
+        llm.api_keys = keys;
         llm.model = self.llm_model.clone();
         llm.cobol_proficiency_prompt = self.llm_cobol_proficiency_prompt.clone();
         llm.timeout_secs = self.llm_timeout.max(1);
@@ -859,6 +873,23 @@ impl SettingsForm {
                                         // the caller when empty — never seeded or
                                         // overwritten here, so a developer's edit is
                                         // preserved.
+                                        // Remember the key for the provider/model we
+                                        // are leaving, then clear the visible field —
+                                        // the new provider has no model selected yet,
+                                        // so no stored key applies (and a stale key
+                                        // must not look valid).
+                                        if !self.draft.llm_model.trim().is_empty()
+                                            && !self.draft.llm_api_key.trim().is_empty()
+                                        {
+                                            self.draft.llm_api_keys.insert(
+                                                crate::llm::api_key_slot(
+                                                    &prev,
+                                                    &self.draft.llm_model,
+                                                ),
+                                                self.draft.llm_api_key.clone(),
+                                            );
+                                        }
+                                        self.draft.llm_api_key.clear();
                                         self.draft.llm_model.clear();
                                         self.available_models.clear();
                                         action.fetch_models = true;
@@ -973,6 +1004,34 @@ impl SettingsForm {
                                             }
                                         });
                                     if self.draft.llm_model != prev_model {
+                                        // Remember the key typed for the model we
+                                        // are leaving, then restore the stored key
+                                        // for the newly selected model — or clear
+                                        // the field, so a leftover key never looks
+                                        // like a valid credential for this model.
+                                        let provider = self.draft.llm_provider.clone();
+                                        if !prev_model.trim().is_empty() {
+                                            let prev_slot =
+                                                crate::llm::api_key_slot(&provider, &prev_model);
+                                            if self.draft.llm_api_key.trim().is_empty() {
+                                                self.draft.llm_api_keys.remove(&prev_slot);
+                                            } else {
+                                                self.draft.llm_api_keys.insert(
+                                                    prev_slot,
+                                                    self.draft.llm_api_key.clone(),
+                                                );
+                                            }
+                                        }
+                                        let slot = crate::llm::api_key_slot(
+                                            &provider,
+                                            &self.draft.llm_model,
+                                        );
+                                        self.draft.llm_api_key = self
+                                            .draft
+                                            .llm_api_keys
+                                            .get(&slot)
+                                            .cloned()
+                                            .unwrap_or_default();
                                         action.test_connection = true;
                                         action.test_connection_from_model_selection = true;
                                     }

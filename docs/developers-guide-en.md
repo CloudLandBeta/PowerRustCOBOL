@@ -279,7 +279,7 @@ project, so the API key never travels in a repository:
 | Field | Meaning |
 |-------|---------|
 | **Endpoint URL** | The full model URL. Use an OpenAI-compatible chat endpoint such as `https://…/v1/chat/completions`, or the xAI/Grok Responses endpoint `https://api.x.ai/v1/responses`. |
-| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. |
+| **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. Keys are remembered **per provider + model**: selecting a model restores its stored key, and the field is cleared when no key is stored for that model — an empty field always means "no credential yet". |
 | **Model** | The model identifier passed in each request. |
 | **Temperature** | Sampling randomness (0 = deterministic). |
 | **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
