@@ -56,15 +56,22 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
 
     let popup_id = resp.id.with("__closing_color_popup");
     let anchor_id = resp.id.with("__closing_color_anchor");
+    let open_id = resp.id.with("__closing_color_open");
+    // Own the open/closed state ourselves (a bool in temp memory) instead of
+    // egui's popup manager: since 0.32 the manager force-closes any popup that
+    // isn't re-registered through the `Popup::show` API each frame, so a
+    // hand-rolled Area popup registered via `Popup::toggle_id` dies after one
+    // frame ("opens then closes by itself").
+    let mut open: bool = ui.memory(|m| m.data.get_temp(open_id)).unwrap_or(false);
     if resp.clicked() {
-        egui::Popup::toggle_id(ui.ctx(), popup_id);
+        open = !open;
         // Pin the popup to where the swatch is *at open time*. Using the live
         // swatch rect each frame makes the popup drift when the panel reflows or
         // scrolls during a drag (e.g. dragging the 2-D picker to its border).
         ui.memory_mut(|m| m.data.insert_temp(anchor_id, resp.rect.left_bottom()));
     }
 
-    if egui::Popup::is_id_open(ui.ctx(), popup_id) {
+    if open {
         let anchor: Pos2 = ui
             .memory(|m| m.data.get_temp(anchor_id))
             .unwrap_or_else(|| resp.rect.left_bottom());
@@ -155,9 +162,10 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
         if !resp.clicked()
             && (ui.input(|i| i.key_pressed(Key::Escape)) || area.response.clicked_elsewhere())
         {
-            egui::Popup::close_all(ui.ctx());
+            open = false;
         }
     }
+    ui.memory_mut(|m| m.data.insert_temp(open_id, open));
 
     resp
 }

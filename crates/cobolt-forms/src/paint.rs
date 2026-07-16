@@ -369,20 +369,15 @@ fn draw_control_border(
     }
     let style_l = style.trim().to_ascii_lowercase();
     if style_l == "single" {
-        let half = bw * 0.5;
+        // StrokeKind::Inside keeps the whole stroke within `rect` at the exact
+        // integer face radius — no fractional concentric radius (inexpressible
+        // in egui>=0.31's u8) and no outward spill (spec 027 corner bleed).
         painter.rect_stroke(
-            rect.shrink(half),
-            round_map(
-                rounding,
-                |c| {
-                    if c <= 0.0 {
-                        0.0
-                    } else {
-                        (c - half).max(1.0)
-                    }
-                },
-            ),
-            Stroke::new(bw, color), egui::StrokeKind::Middle);
+            rect,
+            rounding,
+            Stroke::new(bw, color),
+            egui::StrokeKind::Inside,
+        );
         return;
     }
 
@@ -693,11 +688,12 @@ pub fn draw_glass(
     // Inset the stroke by half its width so it is fully inside `rect` (egui
     // centres strokes on the path; a centred stroke spills half-a-pixel past
     // the rect, and that overhang is exactly the bright corner fringe).
-    let half = border_w * 0.5;
     painter.rect_stroke(
-        rect.shrink(half),
-        round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-        Stroke::new(border_w, border_c), egui::StrokeKind::Middle);
+        rect,
+        rnd,
+        Stroke::new(border_w, border_c),
+        egui::StrokeKind::Inside,
+    );
 }
 
 /// Liquid Glass Enhanced — a two-part stack per the Setproduct spec:
@@ -890,11 +886,12 @@ pub fn draw_glass_enhanced(
     } else {
         (1.4, white(170))
     };
-    let half = border_w * 0.5;
     painter.rect_stroke(
-        rect.shrink(half),
-        round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-        Stroke::new(border_w, border_c), egui::StrokeKind::Middle);
+        rect,
+        rnd,
+        Stroke::new(border_w, border_c),
+        egui::StrokeKind::Inside,
+    );
 
     // ── 7. Stabilized plate (scrim under content) ────────────────────────────
     // A very subtle denser patch in the center area. This ensures text/icons
@@ -1037,11 +1034,7 @@ pub fn draw_glass_neumorphic(
             (240.0 * am) as u8,
             (200.0 * am) as u8,
         );
-        let half = 1.0_f32;
-        painter.rect_stroke(
-            rect.shrink(half),
-            round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-            Stroke::new(2.0, sel_color), egui::StrokeKind::Middle);
+        painter.rect_stroke(rect, rnd, Stroke::new(2.0, sel_color), egui::StrokeKind::Inside);
     }
 }
 
@@ -1308,12 +1301,9 @@ pub fn draw_neumorphic_user_border(
     }
     let am = alpha_mul.clamp(0.0, 1.0);
     let bw = border_width;
-    let half = bw * 0.5;
-    let inner = rect.shrink(half);
-    let rnd = round_map(
-        rounding,
-        |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) },
-    );
+    // Inside strokes at the exact integer face radius (see draw_control_border).
+    let inner = rect;
+    let rnd = rounding;
 
     // Light edges (top + left) — clip to top-left half
     {
@@ -1339,9 +1329,9 @@ pub fn draw_neumorphic_user_border(
             Pos2::new(rect.center().x, rect.max.y + bw),
         );
         let p_top = painter.with_clip_rect(painter.clip_rect().intersect(top_clip));
-        p_top.rect_stroke(inner, rnd, Stroke::new(bw, light), egui::StrokeKind::Middle);
+        p_top.rect_stroke(inner, rnd, Stroke::new(bw, light), egui::StrokeKind::Inside);
         let p_left = painter.with_clip_rect(painter.clip_rect().intersect(left_clip));
-        p_left.rect_stroke(inner, rnd, Stroke::new(bw, light), egui::StrokeKind::Middle);
+        p_left.rect_stroke(inner, rnd, Stroke::new(bw, light), egui::StrokeKind::Inside);
     }
     // Dark edges (bottom + right)
     {
@@ -1360,9 +1350,9 @@ pub fn draw_neumorphic_user_border(
             Pos2::new(rect.max.x + bw, rect.max.y + bw),
         );
         let p_bottom = painter.with_clip_rect(painter.clip_rect().intersect(bottom_clip));
-        p_bottom.rect_stroke(inner, rnd, Stroke::new(bw, dark), egui::StrokeKind::Middle);
+        p_bottom.rect_stroke(inner, rnd, Stroke::new(bw, dark), egui::StrokeKind::Inside);
         let p_right = painter.with_clip_rect(painter.clip_rect().intersect(right_clip));
-        p_right.rect_stroke(inner, rnd, Stroke::new(bw, dark), egui::StrokeKind::Middle);
+        p_right.rect_stroke(inner, rnd, Stroke::new(bw, dark), egui::StrokeKind::Inside);
     }
 }
 
@@ -5754,19 +5744,20 @@ fn container_image_rounding(
 
 /// Apply `f` to each corner radius of a `Rounding`.
 ///
-/// Converts back to egui's `u8` unit with **floor**, not round: `f` is used
-/// for concentric derivations (e.g. a border stroke at `face_radius - half`,
-/// which yields fractional radii like 23.5). Rounding UP would push the
-/// stroke's corner arc back OUTSIDE the face it must stay inside, leaking a
-/// dark half-pixel arc at every corner (the egui-0.35 "corner bleed"
-/// regression); flooring tucks it inside, where the face covers it.
+/// Every remaining caller derives radii for soft **fills** (shadow/glow
+/// layers at `r + fractional expand`), where round-to-nearest is the best u8
+/// approximation — flooring makes each layer systematically squarer, which
+/// bands dark exactly on the corner diagonals. Concentric border STROKES no
+/// longer come through here at all: they are painted with
+/// `StrokeKind::Inside` at the exact integer face radius (egui>=0.31 cannot
+/// express `face - half` in its u8 radii; see the spec-027 corner-bleed
+/// post-mortem skill).
 fn round_map(r: egui::CornerRadius, f: impl Fn(f32) -> f32) -> egui::CornerRadius {
-    let fl = |v: f32| v.floor().clamp(0.0, 255.0) as u8;
     egui::CornerRadius {
-        nw: fl(f(f32::from(r.nw))),
-        ne: fl(f(f32::from(r.ne))),
-        sw: fl(f(f32::from(r.sw))),
-        se: fl(f(f32::from(r.se))),
+        nw: cr8(f(f32::from(r.nw))),
+        ne: cr8(f(f32::from(r.ne))),
+        sw: cr8(f(f32::from(r.sw))),
+        se: cr8(f(f32::from(r.se))),
     }
 }
 
@@ -6095,16 +6086,15 @@ pub fn restore_container_outline(
             let bw = 1.4_f32;
             let half = bw * 0.5;
             p.rect_stroke(
-                rect.shrink(half),
-                round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-                Stroke::new(bw, Color32::from_rgba_premultiplied(170, 170, 170, 170)), egui::StrokeKind::Middle);
+                rect,
+                rnd,
+                Stroke::new(bw, Color32::from_rgba_premultiplied(170, 170, 170, 170)),
+                egui::StrokeKind::Inside,
+            );
         }
         if let Some((bw, bc)) = user_border {
             let half = bw * 0.5;
-            p.rect_stroke(
-                rect.shrink(half),
-                round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-                Stroke::new(bw, bc), egui::StrokeKind::Middle);
+            p.rect_stroke(rect, rnd, Stroke::new(bw, bc), egui::StrokeKind::Inside);
         }
     };
 
