@@ -364,6 +364,7 @@ pub struct CoboltApp {
     llm_detect_rx: Option<std::sync::mpsc::Receiver<Result<crate::llm::DetectedApi, String>>>,
     /// In-flight provider model-list fetch from the settings dialog.
     llm_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
+    llm_reviewer_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
     llm_benchmark_offer: Option<crate::llm::LlmConfig>,
     llm_benchmark_config: Option<crate::llm::LlmConfig>,
     llm_benchmark_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
@@ -944,6 +945,7 @@ impl CoboltApp {
             llm_test_error: None,
             llm_detect_rx: None,
             llm_models_rx: None,
+            llm_reviewer_models_rx: None,
             llm_benchmark_offer: None,
             llm_benchmark_config: None,
             llm_benchmark_rx: None,
@@ -4226,17 +4228,26 @@ impl CoboltApp {
                 candidates.push(report[start..=end].to_string());
             }
         }
+        let mut first_valid: Option<serde_json::Value> = None;
         for text in candidates {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(metrics) = value.get("metrics") {
-                    return Some(metrics.clone());
-                }
-                if value.get("overall_score").is_some() {
-                    return Some(value);
+                let v = value
+                    .get("metrics")
+                    .cloned()
+                    .or_else(|| value.get("overall_score").is_some().then(|| value.clone()));
+                if let Some(v) = v {
+                    // The Pedantic Agent's FINAL assessment overrides the
+                    // primary's self-scores whenever the tandem loop ran.
+                    if value.get("pedantic_final").is_some() || v.get("pedantic_final").is_some() {
+                        return Some(v);
+                    }
+                    if first_valid.is_none() {
+                        first_valid = Some(v);
+                    }
                 }
             }
         }
-        None
+        first_valid
     }
 
     fn metric_score(metrics: &serde_json::Value, key: &str) -> Option<f32> {
@@ -5422,6 +5433,32 @@ impl CoboltApp {
         }
     }
 
+    /// Poll the reviewer-model list fetch (Pedantic Agent model picker).
+    fn poll_llm_reviewer_models(&mut self) {
+        let result = match &self.llm_reviewer_models_rx {
+            Some(rx) => match rx.try_recv() {
+                Ok(r) => Some(r),
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("The model-list worker stopped unexpectedly.".into()))
+                }
+            },
+            None => return,
+        };
+        self.llm_reviewer_models_rx = None;
+        match result {
+            Some(Ok(models)) => {
+                if let Some(form) = &mut self.settings_form {
+                    form.set_available_reviewer_models(models);
+                }
+            }
+            Some(Err(e)) => {
+                self.llm_test_status = Some(e);
+            }
+            None => {}
+        }
+    }
+
     /// Poll the in-flight provider model-list fetch; on completion populate the
     /// settings form's picker (and auto-select the first model if none is set).
     fn poll_llm_models(&mut self) {
@@ -5494,6 +5531,7 @@ impl CoboltApp {
 
         self.poll_llm_test(tr);
         self.poll_llm_models();
+        self.poll_llm_reviewer_models();
         if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {
             ctx.request_repaint();
         }
@@ -5582,6 +5620,19 @@ impl CoboltApp {
                         provider,
                         &form.draft.llm_endpoint,
                         &form.draft.llm_api_key,
+                    ));
+                }
+            }
+        }
+        if action.fetch_reviewer_models {
+            if let Some(form) = &self.settings_form {
+                if let Some(provider) =
+                    crate::llm::Provider::from_id(&form.draft.llm_reviewer_provider)
+                {
+                    self.llm_reviewer_models_rx = Some(crate::llm::spawn_list_models(
+                        provider,
+                        &form.draft.llm_reviewer_endpoint,
+                        &form.draft.llm_reviewer_api_key,
                     ));
                 }
             }

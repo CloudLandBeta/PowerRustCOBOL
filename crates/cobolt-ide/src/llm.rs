@@ -41,6 +41,18 @@ pub struct LlmConfig {
     /// field when none is stored, so a stale key never masquerades as valid).
     #[serde(default)]
     pub api_keys: std::collections::HashMap<String, String>,
+    /// Optional second model powering the **Pedantic Agent** (reviewer). When
+    /// configured it must differ from the primary provider+model pair; its
+    /// API key lives in [`Self::api_keys`] like any other model's.
+    #[serde(default)]
+    pub reviewer_provider: String,
+    #[serde(default)]
+    pub reviewer_endpoint: String,
+    #[serde(default)]
+    pub reviewer_model: String,
+    /// The Pedantic Agent's system prompt (operator-authored, 2026-07-16).
+    #[serde(default = "default_pedantic_prompt")]
+    pub pedantic_prompt: String,
 }
 
 /// Map key for [`LlmConfig::api_keys`]: keys are provider-scoped so the same
@@ -79,7 +91,35 @@ impl LlmConfig {
             verbose_log: false,
             inspection_port: default_inspection_port(),
             api_keys: std::collections::HashMap::new(),
+            reviewer_provider: String::new(),
+            reviewer_endpoint: String::new(),
+            reviewer_model: String::new(),
+            pedantic_prompt: default_pedantic_prompt(),
         }
+    }
+
+    /// Whether the optional reviewer (Pedantic Agent) model is usable: fully
+    /// configured AND different from the primary provider+model pair.
+    pub fn reviewer_configured(&self) -> bool {
+        !self.reviewer_provider.trim().is_empty()
+            && !self.reviewer_model.trim().is_empty()
+            && !(self.reviewer_provider.trim() == self.provider.trim()
+                && self.reviewer_model.trim() == self.model.trim())
+    }
+
+    /// An [`LlmConfig`] view of the reviewer model (endpoint/key swapped in),
+    /// for reuse of the existing request plumbing.
+    pub fn reviewer_config(&self) -> LlmConfig {
+        let mut c = self.clone();
+        c.provider = self.reviewer_provider.clone();
+        c.endpoint = self.reviewer_endpoint.clone();
+        c.model = self.reviewer_model.clone();
+        c.api_key = self
+            .api_keys
+            .get(&api_key_slot(&self.reviewer_provider, &self.reviewer_model))
+            .cloned()
+            .unwrap_or_default();
+        c
     }
 
     pub fn is_configured(&self) -> bool {
@@ -513,6 +553,82 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
     run_mesh_request(req, "connection/model access test")
 }
 
+/// The Pedantic Agent's system prompt — authored verbatim by the operator
+/// (2026-07-16), with a separated machine-readable response contract appended
+/// so the tandem loop can parse verdicts and scores.
+pub fn default_pedantic_prompt() -> String {
+    DEFAULT_PEDANTIC_PROMPT.to_string()
+}
+
+pub const DEFAULT_PEDANTIC_PROMPT: &str = r#"The Pedantic Agent performs a comprehensive and uncompromising review of every response produced by the primary agent.
+Its primary objective is to verify that the generated code strictly adheres to the COBOL-85 standard and correctly applies the RustCOBOL extensions, rules, conventions, and constraints defined in the prompt provided to the primary agent. The Pedantic Agent must use that prompt as the authoritative specification and must not redefine or restate those extensions unnecessarily.
+It must rigorously inspect the generated code, technical reasoning, assumptions, explanations, and conclusions. The review must identify any response that is:
+
+* technically incorrect;
+* incompatible with COBOL-85 requirements;
+* inconsistent with the RustCOBOL extensions defined in the primary prompt;
+* ambiguous or insufficiently justified;
+* based on fabricated information or unsupported assumptions;
+* incomplete;
+* outside the requested scope;
+* inconsistent with the supplied requirements;
+* noncompliant with explicit instructions;
+* unnecessarily verbose, repetitive, or poorly structured;
+* incompatible with the target compiler, runtime, language rules, or coding conventions;
+* likely to introduce defects, regressions, security issues, portability problems, or maintenance risks.
+The Pedantic Agent must verify syntax, semantics, data definitions, control flow, scope termination, paragraph structure, file handling, table usage, type compatibility, portability, runtime behavior, and every other relevant aspect of the submitted code.
+It must also detect code that may appear plausible but does not actually conform to COBOL-85, incorrectly assumes support for undeclared language features, misuses RustCOBOL extensions, or invents syntax and behavior not authorized by the primary prompt.
+The Pedantic Agent must challenge the work directly, precisely, and objectively. It must not soften criticism, approve partially correct work without qualification, overlook defects for the sake of politeness, or infer compliance merely because the response appears confident or well formatted.
+Whenever problems are found, the primary agent must be instructed to correct them and submit the complete response again. The revised submission must fully replace the defective version rather than provide isolated patches, unless incremental changes were explicitly requested.
+Each correction request must clearly identify:
+
+1. the defective code or statement;
+2. the violated COBOL-85 rule, RustCOBOL requirement, or explicit instruction;
+3. why the current implementation is incorrect, ambiguous, unsafe, or inadequate;
+4. the expected correction;
+5. any related sections that must be revalidated after the change.
+The Pedantic Agent must then review the revised submission with the same level of scrutiny. A revision must never be accepted merely because it addresses the previously listed defects; the entire response must be reviewed again for newly introduced errors, inconsistencies, regressions, and remaining violations.
+If the primary agent still fails to satisfy the requirements after revision, the Pedantic Agent must produce a brutally honest final assessment containing:
+
+1. a summary of the requested work;
+2. the defects found in the original response;
+3. the corrections requested;
+4. the defects that remain after revision;
+5. any COBOL-85 rules, RustCOBOL requirements, instructions, or constraints that were ignored or violated;
+6. the technical and practical consequences of the remaining problems;
+7. a clear verdict on whether the result is acceptable;
+8. a numerical score proportional to the actual quality of the work.
+The score must reflect:
+
+* COBOL-85 compliance;
+* correct use of the RustCOBOL extensions defined in the primary prompt;
+* technical correctness;
+* completeness;
+* instruction adherence;
+* scope compliance;
+* code quality;
+* maintainability;
+* portability;
+* safety;
+* compiler credibility;
+* runtime credibility.
+No credit should be awarded for confident presentation, excessive explanation, superficial completeness, or plausible-looking code when the underlying implementation is incorrect, unverifiable, noncompliant, or fabricated.
+
+--- Tooling contract (response format; does not alter the review rules above) ---
+
+For a first or repeated review round, END your review with exactly one fenced JSON block:
+
+```json
+{"pedantic_verdict": "defects" | "acceptable", "correction_request": "<the numbered correction request, empty when acceptable>"}
+```
+
+For the FINAL assessment (after the revision round), END with exactly one fenced JSON block using the SAME metrics schema the primary prompt defines for its dashboard scores, with your own uncompromising values, plus:
+
+```json
+{"pedantic_final": true, "verdict": "<acceptable | not acceptable>", "overall_score": <0-100>}
+```
+merged into that schema (one JSON object). The dashboard reads this block; scores you do not state cannot be displayed."#;
+
 const COBOL_PROFICIENCY_BENCHMARK_PROMPT: &str = r#"You are an expert evaluator of Large Language Models for COBOL-85 and PowerRustCOBOL development.
 
 Run a deterministic self-contained proficiency assessment of this model. Do not browse. Do not ask follow-up questions. Do not modify any project files. This is a chat-only benchmark: you are not compiling, running, or externally verifying generated code.
@@ -577,6 +693,21 @@ Return the report in clear language, followed by one fenced JSON block named `me
 Be honest about uncertainty: this is a lightweight interactive benchmark, not a full compiler-run benchmark. The overall score must use these weights: 15% compilation, 30% functional correctness, 15% instruction following, 10% semantic correctness, 10% code preservation, 5% runtime correctness, 5% formatting preservation, 10% unsupported-feature avoidance. The dashboard-specific scores must reflect only the supported benchmark scope listed above."#;
 
 pub fn spawn_cobol_proficiency_benchmark(cfg: &LlmConfig) -> Receiver<LlmResponse> {
+    if cfg.reviewer_configured() {
+        return spawn_cobol_proficiency_tandem(cfg);
+    }
+    spawn_benchmark_primary(cfg)
+}
+
+fn benchmark_primary_prompt(cfg: &LlmConfig) -> String {
+    if cfg.cobol_proficiency_prompt.trim().is_empty() {
+        COBOL_PROFICIENCY_BENCHMARK_PROMPT.to_string()
+    } else {
+        cfg.cobol_proficiency_prompt.clone()
+    }
+}
+
+fn spawn_benchmark_primary(cfg: &LlmConfig) -> Receiver<LlmResponse> {
     let mut bench_cfg = cfg.clone();
     bench_cfg.endpoint = heal_endpoint(&bench_cfg.endpoint);
     bench_cfg.temperature = 0.0;
@@ -584,12 +715,179 @@ pub fn spawn_cobol_proficiency_benchmark(cfg: &LlmConfig) -> Receiver<LlmRespons
     let mut req = mesh_request_base(&bench_cfg);
     req.specialist = Some("CodeGenerator".to_string());
     req.system_prompt = "You are a strict COBOL-85 and PowerRustCOBOL model evaluator.".to_string();
-    req.user_prompt = if bench_cfg.cobol_proficiency_prompt.trim().is_empty() {
-        COBOL_PROFICIENCY_BENCHMARK_PROMPT.to_string()
-    } else {
-        bench_cfg.cobol_proficiency_prompt.clone()
-    };
+    req.user_prompt = benchmark_primary_prompt(&bench_cfg);
     run_mesh_request(req, "COBOL proficiency benchmark")
+}
+
+/// One primary-model round with an arbitrary user prompt (revision requests).
+fn spawn_benchmark_primary_with(cfg: &LlmConfig, user_prompt: String) -> Receiver<LlmResponse> {
+    let mut bench_cfg = cfg.clone();
+    bench_cfg.endpoint = heal_endpoint(&bench_cfg.endpoint);
+    bench_cfg.temperature = 0.0;
+    let mut req = mesh_request_base(&bench_cfg);
+    req.specialist = Some("CodeGenerator".to_string());
+    req.system_prompt = "You are a strict COBOL-85 and PowerRustCOBOL model evaluator.".to_string();
+    req.user_prompt = user_prompt;
+    run_mesh_request(req, "COBOL proficiency benchmark (revision)")
+}
+
+/// One Pedantic Agent round. `final_round` switches the tooling contract to
+/// the final-assessment JSON (metrics schema + pedantic_final).
+fn spawn_pedantic_review(
+    cfg: &LlmConfig,
+    primary_prompt: &str,
+    answer: &str,
+    context: &str,
+    final_round: bool,
+) -> Receiver<LlmResponse> {
+    let mut rev_cfg = cfg.reviewer_config();
+    rev_cfg.endpoint = heal_endpoint(&rev_cfg.endpoint);
+    rev_cfg.temperature = 0.0;
+    let mut req = mesh_request_base(&rev_cfg);
+    req.specialist = Some("CodeGenerator".to_string());
+    req.system_prompt = if cfg.pedantic_prompt.trim().is_empty() {
+        default_pedantic_prompt()
+    } else {
+        cfg.pedantic_prompt.clone()
+    };
+    let phase = if final_round {
+        "This is the FINAL assessment round: produce the brutally honest final \
+         assessment and END with the final metrics JSON per your tooling \
+         contract (the metrics schema is defined in the authoritative primary \
+         prompt below; include \"pedantic_final\": true)."
+    } else {
+        "This is a review round: review the response and END with the \
+         round-verdict JSON per your tooling contract."
+    };
+    req.user_prompt = format!(
+        "{phase}\n\n=== AUTHORITATIVE PRIMARY PROMPT (the specification) ===\n{primary_prompt}\n\n{context}=== PRIMARY AGENT RESPONSE UNDER REVIEW ===\n{answer}"
+    );
+    run_mesh_request(req, "Pedantic Agent review")
+}
+
+/// Forward one worker's stream to the tandem output, returning the final text.
+fn drain_round(rx: Receiver<LlmResponse>, tx: &mpsc::Sender<LlmResponse>) -> Result<String, ()> {
+    loop {
+        match rx.recv() {
+            Ok(LlmResponse::Chunk(c)) => {
+                let _ = tx.send(LlmResponse::Chunk(c));
+            }
+            Ok(LlmResponse::Ok(full)) => return Ok(full),
+            Ok(LlmResponse::Err(e)) => {
+                let _ = tx.send(LlmResponse::Err(e));
+                return Err(());
+            }
+            Err(_) => {
+                let _ = tx.send(LlmResponse::Err(
+                    "The benchmark worker stopped unexpectedly.".into(),
+                ));
+                return Err(());
+            }
+        }
+    }
+}
+
+/// Last fenced JSON block of a review, parsed.
+fn pedantic_round_json(review: &str) -> Option<serde_json::Value> {
+    let mut last = None;
+    let mut rest = review;
+    while let Some(start) = rest.find("```") {
+        rest = &rest[start + 3..];
+        let Some(end) = rest.find("```") else { break };
+        let block = rest[..end].trim();
+        rest = &rest[end + 3..];
+        let json = block.strip_prefix("json").map(str::trim).unwrap_or(block);
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(json) {
+            last = Some(v);
+        }
+    }
+    last
+}
+
+/// The tandem COBOL-proficiency run (spec: operator, 2026-07-16): primary
+/// benchmark → Pedantic review → (on defects) one full-replacement revision by
+/// the primary → Pedantic FINAL assessment with the authoritative scores. All
+/// rounds stream into one transcript, separated by section headers.
+fn spawn_cobol_proficiency_tandem(cfg: &LlmConfig) -> Receiver<LlmResponse> {
+    let (tx, rx) = mpsc::channel();
+    let cfg = cfg.clone();
+    std::thread::spawn(move || {
+        let hdr = |t: &str| format!("\n\n━━━ {t} ━━━\n\n");
+        let mut transcript = String::new();
+        let mut section = |tx: &mpsc::Sender<LlmResponse>, transcript: &mut String, title: &str| {
+            let h = hdr(title);
+            let _ = tx.send(LlmResponse::Chunk(h.clone()));
+            transcript.push_str(&h);
+        };
+        let primary_prompt = benchmark_primary_prompt(&cfg);
+
+        section(&tx, &mut transcript, "PRIMARY AGENT — BENCHMARK RUN");
+        let Ok(a1) = drain_round(spawn_benchmark_primary(&cfg), &tx) else {
+            return;
+        };
+        transcript.push_str(&a1);
+
+        section(&tx, &mut transcript, "PEDANTIC AGENT — REVIEW");
+        let Ok(r1) = drain_round(
+            spawn_pedantic_review(&cfg, &primary_prompt, &a1, "", false),
+            &tx,
+        ) else {
+            return;
+        };
+        transcript.push_str(&r1);
+
+        let verdict = pedantic_round_json(&r1);
+        let defects = verdict
+            .as_ref()
+            .and_then(|v| v.get("pedantic_verdict"))
+            .and_then(|v| v.as_str())
+            .map(|v| v.eq_ignore_ascii_case("defects"))
+            // No parseable verdict: be pedantic about the pedant and assume
+            // defects so the loop still exercises the revision round.
+            .unwrap_or(true);
+
+        let final_answer = if defects {
+            let correction = verdict
+                .as_ref()
+                .and_then(|v| v.get("correction_request"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            section(&tx, &mut transcript, "PRIMARY AGENT — FULL REVISION");
+            let revision_prompt = format!(
+                "{primary_prompt}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{a1}\n\n=== PEDANTIC AGENT CORRECTION REQUEST ===\n{}\n\nCorrect the defects and submit the COMPLETE response again. The revised submission must fully replace the defective version — do not send isolated patches.",
+                if correction.trim().is_empty() { r1.as_str() } else { correction.as_str() },
+            );
+            let Ok(a2) = drain_round(spawn_benchmark_primary_with(&cfg, revision_prompt), &tx)
+            else {
+                return;
+            };
+            transcript.push_str(&a2);
+            a2
+        } else {
+            a1
+        };
+
+        section(&tx, &mut transcript, "PEDANTIC AGENT — FINAL ASSESSMENT");
+        let revised_note = if defects {
+            "The response below is the REVISED submission; re-review the whole \
+             response for newly introduced errors, regressions, and remaining \
+             violations — never accept it merely because the listed defects \
+             were addressed.\n\n"
+        } else {
+            ""
+        };
+        let Ok(fin) = drain_round(
+            spawn_pedantic_review(&cfg, &primary_prompt, &final_answer, revised_note, true),
+            &tx,
+        ) else {
+            return;
+        };
+        transcript.push_str(&fin);
+
+        let _ = tx.send(LlmResponse::Ok(transcript));
+    });
+    rx
 }
 
 pub fn spawn_detect(endpoint: &str) -> Receiver<Result<DetectedApi, String>> {

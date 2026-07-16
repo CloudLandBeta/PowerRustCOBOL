@@ -36,6 +36,14 @@ caveat block). Translate the whole subsection; keep `egui-mcp`,
 (keys remembered per provider + model; field cleared when none stored).
 Translate the extended cell; keep `Authorization: Bearer` untranslated.
 
+## Delta 4 — section `#5` AI-settings table
+
+**Change:** new table row **Reviewer model (Pedantic Agent)** describing the
+optional second model and the tandem COBOL Proficiency review flow. Translate
+the row; keep "Pedantic Agent", "COBOL Proficiency" (feature names) as-is per
+product-name policy if your language keeps feature names in English; otherwise
+translate consistently with the UI strings.
+
 ## Glossary — do NOT translate
 
 `PowerRustCOBOL`, product and menu names (e.g. **Font** as the property name,

@@ -281,6 +281,7 @@ project, so the API key never travels in a repository:
 | **Endpoint URL** | The full model URL. Use an OpenAI-compatible chat endpoint such as `https://…/v1/chat/completions`, or the xAI/Grok Responses endpoint `https://api.x.ai/v1/responses`. |
 | **API key** | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. Keys are remembered **per provider + model**: selecting a model restores its stored key, and the field is cleared when no key is stored for that model — an empty field always means "no credential yet". |
 | **Model** | The model identifier passed in each request. |
+| **Reviewer model (Pedantic Agent)** | Optional second model that reviews the primary agent's answers with uncompromising scrutiny. If set, it must differ from the primary model (the IDE enforces this). With a reviewer configured, the **COBOL Proficiency** check runs in tandem: the primary model answers, the Pedantic Agent reviews it against the primary prompt as the authoritative specification, demands a full corrected resubmission when defects are found, re-reviews the revision, and produces the final brutally honest assessment — the dashboard then shows the *reviewer's* scores, not the model's self-scores. |
 | **Temperature** | Sampling randomness (0 = deterministic). |
 | **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
 
