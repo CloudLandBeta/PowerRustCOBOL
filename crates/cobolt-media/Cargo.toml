@@ -14,5 +14,5 @@ license.workspace      = true
 repository.workspace   = true
 
 [dependencies]
-egui  = "0.34"
+egui  = "0.35"
 image = { version = "0.25", default-features = false, features = ["gif", "png", "jpeg", "bmp", "webp"] }

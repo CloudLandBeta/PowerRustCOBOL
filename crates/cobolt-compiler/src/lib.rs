@@ -695,9 +695,9 @@ tracing         = "0.1"
         s.push_str(&format!(
             r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
-eframe          = {{ version = "0.34", features = ["default_fonts"] }}
-egui            = "0.34"
-egui_extras     = {{ version = "0.34", features = ["image"] }}
+eframe          = {{ version = "0.35", features = ["default_fonts"] }}
+egui            = "0.35"
+egui_extras     = {{ version = "0.35", features = ["image"] }}
 "#
         ));
     }
@@ -936,8 +936,8 @@ impl eframe::App for FormApp {
             };
             let mut out = cobolt_forms::render::RenderOutput::default();
             egui::CentralPanel::default()
-                .frame(egui::Frame::none().fill(bg_fill))
-                .show(ctx, |ui| {
+                .frame(egui::Frame::NONE.fill(bg_fill))
+                .show(root_ui, |ui| {
                     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
                         ui.set_min_size(form_size);
                         let input = cobolt_forms::render::RenderInput {

@@ -70,6 +70,20 @@ fn inner() -> &'static Mutex<Inner> {
     })
 }
 
+/// Whether egui/epaint (>=0.34: skrifa + vello_cpu) can safely rasterise this
+/// face: it must parse with skrifa AND have a non-zero `units_per_em` —
+/// epaint divides by it to compute `px_scale_factor` and panics with
+/// "Bad px_scale_factor: inf" on degenerate (e.g. bitmap-only) faces.
+fn egui_can_rasterize(bytes: &[u8], index: u32) -> bool {
+    use skrifa::raw::TableProvider;
+    let Ok(font) = skrifa::FontRef::from_index(bytes, index) else {
+        return false;
+    };
+    font.head()
+        .map(|h| h.units_per_em() > 0)
+        .unwrap_or(false)
+}
+
 fn load_font_bytes(family: &str) -> Option<Vec<u8>> {
     let q = fontdb::Query {
         families: &[fontdb::Family::Name(family)],
@@ -81,7 +95,7 @@ fn load_font_bytes(family: &str) -> Option<Vec<u8>> {
     let bytes = db().with_face_data(id, |data, _idx| data.to_vec())?;
     // Reject faces egui's rasteriser can't parse (e.g. bitmap-only fonts such as
     // "GB18030 Bitmap"), which would otherwise panic inside `set_fonts`.
-    if ab_glyph::FontRef::try_from_slice(&bytes).is_err() {
+    if !egui_can_rasterize(&bytes, 0) {
         return None;
     }
     Some(bytes)
@@ -143,7 +157,7 @@ fn cjk_font() -> Option<(Vec<u8>, u32)> {
             continue;
         };
         // Must parse with egui's rasteriser (collections need the right index).
-        if ab_glyph::FontRef::try_from_slice_and_index(&bytes, idx).is_ok() {
+        if egui_can_rasterize(&bytes, idx) {
             return Some((bytes, idx));
         }
     }
@@ -276,23 +290,50 @@ mod tests {
 
     #[test]
     fn load_font_bytes_only_returns_egui_parseable_faces() {
-        // Whatever we hand to egui must parse with egui's own rasteriser, so a
-        // bitmap-only face (e.g. "GB18030 Bitmap") never panics inside set_fonts.
+        // Whatever we hand to egui must parse with egui's own font stack
+        // (skrifa since epaint 0.34), so no accepted face can panic inside
+        // set_fonts.
         let mut checked = 0usize;
         for fam in system_fonts() {
             if let Some(bytes) = load_font_bytes(fam) {
                 assert!(
-                    ab_glyph::FontRef::try_from_slice(&bytes).is_ok(),
-                    "load_font_bytes returned a face egui can't parse: {fam:?}"
+                    egui_can_rasterize(&bytes, 0),
+                    "load_font_bytes returned a face egui can't rasterise: {fam:?}"
                 );
                 checked += 1;
             }
         }
         assert!(checked > 0, "no loadable fonts to validate");
+        println!("validated {checked} loadable system faces against skrifa");
 
-        // The specific bitmap font from the bug report, if present, must be rejected.
+        // The bitmap-only face from the original bug report used to be
+        // rejected because ab_glyph (epaint <=0.33) could not parse it.
+        // skrifa CAN parse it, so the guarantee is now exercised end-to-end:
+        // if the loader accepts it, installing and laying it out must not
+        // panic anywhere in egui.
         if system_fonts().iter().any(|f| f == "GB18030 Bitmap") {
-            assert!(load_font_bytes("GB18030 Bitmap").is_none());
+            if let Some(bytes) = load_font_bytes("GB18030 Bitmap") {
+                let ctx = egui::Context::default();
+                let mut defs = base_font_definitions();
+                defs.font_data.insert(
+                    "gb18030_bitmap_test".to_owned(),
+                    std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+                );
+                defs.families
+                    .entry(egui::FontFamily::Name("gb18030_bitmap_test".into()))
+                    .or_default()
+                    .push("gb18030_bitmap_test".to_owned());
+                ctx.set_fonts(defs);
+                let _ = ctx.run_ui(Default::default(), |ui| {
+                    ui.label(
+                        egui::RichText::new("汉字 GB18030 ABC")
+                            .family(egui::FontFamily::Name("gb18030_bitmap_test".into())),
+                    );
+                });
+                println!("GB18030 Bitmap accepted by skrifa and laid out without panic");
+            } else {
+                println!("GB18030 Bitmap present but rejected by the loader");
+            }
         }
     }
 

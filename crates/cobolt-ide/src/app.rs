@@ -2011,7 +2011,12 @@ impl CoboltApp {
     /// which holds the live form. Submit sends the request (prompt + skills + memory
     /// + fresh form context); the reply is parsed into a previewed change-set that
     /// the developer Approves (applied as one undoable action, then saved) or Rejects.
-    fn agent_bar(&mut self, ctx: &Context, tr: &crate::i18n::Tr) {
+    fn agent_bar(&mut self, panel_ui: &mut egui::Ui, tr: &crate::i18n::Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let Some(form_path) = self.inspect.as_ref().map(|s| s.path.clone()) else {
             return;
         };
@@ -2122,9 +2127,9 @@ impl CoboltApp {
             ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
-        egui::TopBottomPanel::top("inspector_agent")
+        egui::Panel::top("inspector_agent")
             .frame(frame)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("🤖").size(15.0));
                     ui.label(egui::RichText::new(tr.agent_mode).small().strong());
@@ -2869,7 +2874,12 @@ impl CoboltApp {
     }
 
     /// Render the inline inspector in the Main Pane (central panel).
-    fn show_inspector(&mut self, ctx: &egui::Context, tr: &Tr) {
+    fn show_inspector(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let mut open_designer = false;
         let mut close = false;
         let mut changed = false;
@@ -2884,12 +2894,12 @@ impl CoboltApp {
         // the agent can propose control/property/handler/procedure changes that the
         // developer previews and approves.
         if self.llm.is_configured() && self.inspect.is_some() {
-            self.agent_bar(ctx, tr);
+            self.agent_bar(panel_ui, tr);
         }
 
         let card =
             crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
-        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
             let Some(st) = &mut self.inspect else {
                 return;
             };
@@ -3531,7 +3541,12 @@ impl CoboltApp {
         self.open_indexed_inspect(cidx_path, None);
     }
 
-    fn show_indexed_inspector(&mut self, ctx: &egui::Context, tr: &Tr) {
+    fn show_indexed_inspector(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let mut close = false;
         let mut open_grid = false;
         let mut property_edit = PropertyEdit::None;
@@ -3541,7 +3556,7 @@ impl CoboltApp {
         let card =
             crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
 
-        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
             let Some(st) = &mut self.indexed_inspect else { return; };
 
             if st.prefer_raw_editor {
@@ -5333,7 +5348,12 @@ impl CoboltApp {
 
     /// Render the project Settings form in the Main Pane. Returns the pending
     /// "Test connection" / "Browse background" actions for the caller to run.
-    fn show_settings_pane(&mut self, ctx: &Context, tr: &Tr) {
+    fn show_settings_pane(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         self.poll_llm_test(tr);
         self.poll_llm_models();
         if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {
@@ -5372,7 +5392,7 @@ impl CoboltApp {
             top: 6,
             bottom: 50,
         });
-        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
             if let Some(form) = &mut self.settings_form {
                 let avail = ui.available_rect_before_wrap();
                 let bottom_res = 80.0; // dedicated inner lift for full button visibility
@@ -5482,10 +5502,15 @@ impl CoboltApp {
     }
 
     /// The PowerRustCOBOL mascot shown in the Main Pane when no project is open.
-    fn show_mascot_pane(&mut self, ctx: &Context, tr: &Tr) {
+    fn show_mascot_pane(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let card =
             crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
-        egui::CentralPanel::default().frame(card).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(ui.available_height() * 0.18);
                 let tex = self.mascot_texture(ctx);
@@ -5521,8 +5546,13 @@ impl CoboltApp {
     /// Shown on startup (or when no project is open) as a single full-width
     /// pane below the menubar/toolbar. Centered text with cycling quotes
     /// using the exact requested format and timings.
-    fn show_welcome_pane(&mut self, ctx: &Context, tr: &Tr) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn show_welcome_pane(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::CentralPanel::default().show(panel_ui, |ui| {
             const CYCLE: f64 = 7.5;
             // Schedule the next repaint only when the quote cycle or fade requires it.
             // Avoids continuous max-FPS repaints when the welcome pane is visible.
@@ -5847,7 +5877,12 @@ impl CoboltApp {
         false
     }
 
-    fn show_asset_preview(&mut self, ctx: &Context, _tr: &Tr) {
+    fn show_asset_preview(&mut self, panel_ui: &mut egui::Ui, _tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let Some(preview) = self.asset_preview.clone() else {
             return;
         };
@@ -5866,7 +5901,7 @@ impl CoboltApp {
         let mut zoom_delta = 0.0;
         let mut zoom_exact: Option<f32> = None;
         let mut toggle_play = false;
-        egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(frame).show(panel_ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Asset preview");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -7414,7 +7449,7 @@ impl eframe::App for CoboltApp {
         // "Active" = a project is open or a file is being edited; gates the
         // Run / View menus (and the Save/Check toolbar buttons below).
         let menu_has_active = has_project || self.editor.active_source().is_some();
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+        egui::Panel::top("menu_bar").show(root_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr.menu_file, |ui| {
                     if ui.button(tr.menu_new_project).clicked()     { self.do_new_project();  ui.close(); }
@@ -7503,6 +7538,7 @@ impl eframe::App for CoboltApp {
         // Check (toolbar) and the Run / View menus.
         let has_active = self.cobolt_project.is_some() || self.editor.active_source().is_some();
         match toolbar::show(
+            root_ui,
             ctx,
             &self.runner,
             &tr,
@@ -7541,9 +7577,9 @@ impl eframe::App for CoboltApp {
         // New/Open a project.
         let has_project = self.cobolt_project.is_some();
         if has_project {
-            self.output.show(ctx, &tr);
+            self.output.show(root_ui, &tr);
 
-            let proj_events = self.project.show(ctx, self.cobolt_project.as_ref(), &tr);
+            let proj_events = self.project.show(root_ui, self.cobolt_project.as_ref(), &tr);
             for ev in proj_events {
                 match ev {
                     ProjectPanelEvent::Open(path) => {
@@ -7639,22 +7675,22 @@ impl eframe::App for CoboltApp {
         // Main Pane priority: when no project show the localized welcome
         // (developer's guide); otherwise the previous logic (settings / inspector / editor).
         if !has_project {
-            self.show_welcome_pane(ctx, &tr);
+            self.show_welcome_pane(root_ui, &tr);
         } else if self.show_project_settings && self.settings_form.is_some() {
-            self.show_settings_pane(ctx, &tr);
+            self.show_settings_pane(root_ui, &tr);
         } else if self.indexed_inspect.is_some() {
-            self.show_indexed_inspector(ctx, &tr);
+            self.show_indexed_inspector(root_ui, &tr);
         } else if self.asset_preview.is_some() {
-            self.show_asset_preview(ctx, &tr);
+            self.show_asset_preview(root_ui, &tr);
         } else if self.inspect.is_some() {
-            self.show_inspector(ctx, &tr);
+            self.show_inspector(root_ui, &tr);
         } else {
             let root = self
                 .project_path
                 .as_ref()
                 .and_then(|p| p.parent())
                 .map(|p| p.to_path_buf());
-            self.editor.show(ctx, Some(&self.llm), &tr, root.as_deref());
+            self.editor.show(root_ui, ctx, Some(&self.llm), &tr, root.as_deref());
         }
 
         // ── Unsaved project settings close-confirmation dialog (main window) ────
@@ -8109,7 +8145,12 @@ impl cobolt_forms::render::FormState for RunState<'_> {
 }
 
 impl CoboltApp {
-    fn show_preview_window(&mut self, ctx: &Context, idx: usize) {
+    fn show_preview_window(&mut self, panel_ui: &mut egui::Ui, idx: usize) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         use crate::panels::designer::AnimState;
         use egui::Color32;
 
@@ -8324,7 +8365,7 @@ impl CoboltApp {
         let mut updates: Vec<(String, String, String)> = Vec::new();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
@@ -8695,7 +8736,12 @@ impl CoboltApp {
     ///  1. Control states were already updated by `drain_state()` in the main loop.
     ///  2. We render each control from `FormRuntime::ctrl_state`.
     ///  3. User interactions (clicks, text changes) fire `send_event()`.
-    fn show_running_form_window(&mut self, ctx: &Context, idx: usize) {
+    fn show_running_form_window(&mut self, panel_ui: &mut egui::Ui, idx: usize) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         use cobolt_forms::ControlType as CT;
         use cobolt_runtime::FormEvent;
         use egui::Color32;
@@ -8895,7 +8941,7 @@ impl CoboltApp {
         let mut output = cobolt_forms::render::RenderOutput::default();
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(bg_color))
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 // Scrollbars appear automatically when the form is larger than the
                 // window viewport; the content area is at least the form's size.
                 egui::ScrollArea::both()
@@ -9147,7 +9193,12 @@ impl CoboltApp {
         }
     }
 
-    fn show_indexed_grid_window(&mut self, ctx: &Context, gi: usize, tr: &Tr) {
+    fn show_indexed_grid_window(&mut self, panel_ui: &mut egui::Ui, gi: usize, tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         if gi >= self.indexed_grids.len() {
             return;
         }
@@ -9158,7 +9209,7 @@ impl CoboltApp {
         let mut status_msg: Option<String> = None;
         egui::CentralPanel::default()
             .frame(panel_frame)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 let st = &mut self.indexed_grids[gi].1;
                 let (act, msg) = st.panel.show(ui, &st.def, tr);
                 toolbar_action = act;
@@ -9519,7 +9570,12 @@ impl CoboltApp {
         }
     }
 
-    fn show_designer_window(&mut self, ctx: &Context, idx: usize, tr: &Tr) {
+    fn show_designer_window(&mut self, panel_ui: &mut egui::Ui, idx: usize, tr: &Tr) {
+        // Panels are Ui-hosted since egui 0.35; everything else in this
+        // method still wants a Context.
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         if idx >= self.designers.len() {
             return;
         }
@@ -9589,10 +9645,10 @@ impl CoboltApp {
             .map(|project| project.user_controls.clone())
             .unwrap_or_default();
 
-        let (forms_list_action, toolbox_action) = egui::SidePanel::left(format!("dl_{idx}"))
+        let (forms_list_action, toolbox_action) = egui::Panel::left(format!("dl_{idx}"))
             .resizable(true)
-            .default_width(150.0)
-            .show(ctx, |ui| {
+            .default_size(150.0)
+            .show(panel_ui, |ui| {
                 let forms_action = self.forms_list.show(ui, &open_path_refs, tr);
                 ui.add_space(4.0);
                 ui.separator();
@@ -9618,11 +9674,11 @@ impl CoboltApp {
         use crate::panels::designer::{draw_icon_toolbar, DesignerToolbarAction};
         // Transparent frame + no separator line; `draw_icon_toolbar` fills the
         // whole reserved height itself with the toolbox colour (see designer.rs).
-        egui::TopBottomPanel::top(format!("dtb_{idx}"))
-            .exact_height(50.0)
+        egui::Panel::top(format!("dtb_{idx}"))
+            .exact_size(50.0)
             .frame(egui::Frame::NONE)
             .show_separator_line(false)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 let d = &self.designers[idx].1;
                 let can_undo = d.can_undo();
                 let can_redo = d.can_redo();
@@ -9844,13 +9900,13 @@ impl CoboltApp {
             top: 6,
             bottom: 6,
         });
-        let inspector_action = egui::SidePanel::right(format!("props_{idx}"))
+        let inspector_action = egui::Panel::right(format!("props_{idx}"))
             .resizable(true)
-            .default_width(300.0)
-            .min_width(220.0)
-            .max_width(half_win)
+            .default_size(300.0)
+            .min_size(220.0)
+            .max_size(half_win)
             .frame(props_frame)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 // Split-borrow: form (immutable) and properties (mutable) from DesignerPanel.
                 let d = &mut self.designers[idx].1;
                 let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
@@ -9972,7 +10028,7 @@ impl CoboltApp {
             .map(|p| p.to_path_buf());
         let project_snapshot = self.cobolt_project.clone();
         let designer_result = egui::CentralPanel::default()
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 self.designers[idx].1.show(
                     ui,
                     &mut self.clipboard,

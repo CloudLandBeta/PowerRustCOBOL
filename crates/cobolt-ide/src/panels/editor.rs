@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use egui::{
-    CentralPanel, Color32, Context, FontId, Key, Pos2, ScrollArea, TextEdit, TopBottomPanel,
+    CentralPanel, Color32, Context, FontId, Key, Panel, Pos2, ScrollArea, TextEdit,
 };
 
 use crate::runner::DiagMsg;
@@ -1451,6 +1451,7 @@ impl EditorPanel {
     /// the current `code`, and the developer's request.
     pub fn ai_bar(
         &mut self,
+        panel_ui: &mut egui::Ui,
         ctx: &Context,
         cfg: &crate::llm::LlmConfig,
         tr: &crate::i18n::Tr,
@@ -1461,6 +1462,7 @@ impl EditorPanel {
         project_root: Option<&std::path::Path>,
     ) -> Option<String> {
         self.ai_bar_impl(
+            Some(panel_ui),
             ctx,
             cfg,
             tr,
@@ -1489,6 +1491,7 @@ impl EditorPanel {
     ) -> Option<String> {
         let ctx = ui.ctx().clone();
         self.ai_bar_impl(
+            None,
             &ctx,
             cfg,
             tr,
@@ -1504,6 +1507,7 @@ impl EditorPanel {
     #[allow(clippy::too_many_arguments)]
     fn ai_bar_impl(
         &mut self,
+        panel_ui: Option<&mut egui::Ui>,
         ctx: &Context,
         cfg: &crate::llm::LlmConfig,
         tr: &crate::i18n::Tr,
@@ -1728,9 +1732,10 @@ impl EditorPanel {
                     ctx.global_style().visuals.panel_fill,
                     &crate::theme::active(),
                 );
-                TopBottomPanel::top(panel)
+                let host = panel_ui.expect("ai_bar panel variant requires a host Ui");
+                Panel::top(panel)
                     .frame(frame)
-                    .show(ctx, |ui| render(ui));
+                    .show(host, |ui| render(ui));
             }
         }
 
@@ -1950,13 +1955,13 @@ impl EditorPanel {
 
     /// The bottom status bar: caret position, Insert/Overwrite mode, a
     /// trim-on-save toggle, and a Beautify command. Dimmed-green text.
-    fn show_status_bar(&mut self, ctx: &Context) {
+    fn show_status_bar(&mut self, panel_ui: &mut egui::Ui, ctx: &Context) {
         let frame = egui::Frame::default()
             .fill(ctx.global_style().visuals.panel_fill)
             .inner_margin(egui::Margin::symmetric(8, 3));
-        TopBottomPanel::bottom("editor_status")
+        Panel::bottom("editor_status")
             .frame(frame)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 self.status_row(ui);
             });
     }
@@ -2008,13 +2013,14 @@ impl EditorPanel {
 
     pub fn show(
         &mut self,
+        panel_ui: &mut egui::Ui,
         ctx: &Context,
         llm: Option<&crate::llm::LlmConfig>,
         tr: &crate::i18n::Tr,
         project_root: Option<&std::path::Path>,
     ) {
         // ─── Tab bar ─────────────────────────────────────────────────────────
-        TopBottomPanel::top("editor_tabs").show(ctx, |ui| {
+        Panel::top("editor_tabs").show(panel_ui, |ui| {
             ui.horizontal(|ui| {
                 let mut close_idx: Option<usize> = None;
                 for (i, tab) in self.tabs.iter().enumerate() {
@@ -2070,6 +2076,7 @@ impl EditorPanel {
                 };
                 if !tro {
                     if let Some(new_code) = self.ai_bar(
+                        panel_ui,
                         ctx,
                         cfg,
                         tr,
@@ -2090,7 +2097,7 @@ impl EditorPanel {
 
         // ─── Status bar (bottom) ──────────────────────────────────────────────
         if !self.tabs.is_empty() {
-            self.show_status_bar(ctx);
+            self.show_status_bar(panel_ui, ctx);
         }
 
         // ─── Editor body ──────────────────────────────────────────────────────
@@ -2098,7 +2105,7 @@ impl EditorPanel {
             ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
-        CentralPanel::default().frame(body_frame).show(ctx, |ui| {
+        CentralPanel::default().frame(body_frame).show(panel_ui, |ui| {
             self.render_code_area(ctx, ui);
         });
     }
@@ -2350,11 +2357,11 @@ impl EditorPanel {
                             if let Some(mut st) = egui::TextEdit::load_state(ctx, editor_id) {
                                 if let Some(range) = st.cursor.char_range() {
                                     if range.primary == range.secondary {
-                                        let idx = range.primary.index;
+                                        let idx = range.primary.index.0;
                                         let next = content.chars().nth(idx);
                                         if matches!(next, Some(c) if c != '\n') {
                                             let mut r = range;
-                                            r.secondary.index = idx + 1;
+                                            r.secondary.index = egui::text::CharIndex(idx + 1);
                                             st.cursor.set_char_range(Some(r));
                                             st.store(ctx, editor_id);
                                         }
@@ -2514,7 +2521,7 @@ impl EditorPanel {
 
                     // ── IntelliSense update ───────────────────────────────
                     if let Some(cr) = te_out.cursor_range {
-                        let char_idx = cr.primary.index;
+                        let char_idx = cr.primary.index.0;
                         let (l, c) = char_index_to_line_col(&tab.content, char_idx);
                         self.cur_line = l;
                         self.cur_col = c;
@@ -3253,8 +3260,8 @@ fn beautify_cobol(text: &str) -> String {
 }
 
 fn insert_auto_indented_newline(text: &mut String, range: egui::text::CCursorRange) -> usize {
-    let start_char = range.primary.index.min(range.secondary.index);
-    let end_char = range.primary.index.max(range.secondary.index);
+    let start_char = range.primary.index.0.min(range.secondary.index.0);
+    let end_char = range.primary.index.0.max(range.secondary.index.0);
     let start_byte = char_to_byte(text, start_char);
     let end_byte = char_to_byte(text, end_char);
     let indent = first_nonblank_column_indent(text, start_byte);

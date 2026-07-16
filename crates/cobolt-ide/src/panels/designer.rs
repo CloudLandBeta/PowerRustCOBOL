@@ -3158,12 +3158,12 @@ impl DesignerPanel {
         let canvas_h = self.form.height as f32;
 
         let tr = crate::i18n::current_tr(ui.ctx());
-        let mut panel = egui::TopBottomPanel::bottom("global_ai_pane").resizable(self.ai_pane_open);
+        let mut panel = egui::Panel::bottom("global_ai_pane").resizable(self.ai_pane_open);
 
         if self.ai_pane_open {
             panel = panel
-                .default_height(self.ai_pane_height.max(GLOBAL_AI_PANE_MIN_HEIGHT))
-                .min_height(GLOBAL_AI_PANE_MIN_HEIGHT);
+                .default_size(self.ai_pane_height.max(GLOBAL_AI_PANE_MIN_HEIGHT))
+                .min_size(GLOBAL_AI_PANE_MIN_HEIGHT);
         }
 
         let original_style = ui.style().clone();
@@ -3177,7 +3177,7 @@ impl DesignerPanel {
         ai_pane_style.interaction.resize_grab_radius_side = 8.0;
         ui.set_style(ai_pane_style);
 
-        let resp = panel.show_inside(ui, |ui| {
+        let resp = panel.show(ui, |ui| {
                 if !self.ai_pane_open {
                     ui.vertical_centered(|ui| {
                         if ui.button("AI Assistant").clicked() {
@@ -9309,7 +9309,7 @@ mod render_behavior_tests {
             // exactly what `draw_control` emitted (no full-panel fill skewing bbox).
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     let painter = ui.painter().clone();
                     draw_control(&painter, origin, ctrl, false, false, 1.0, 1.0, None);
                 });

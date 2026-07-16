@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use egui::{Color32, Context, RichText, ScrollArea, SidePanel, Ui};
+use egui::{Color32, Context, Panel, RichText, ScrollArea, Ui};
 
 use cobolt_forms::model::Form;
 use cobolt_indexed::{IndexedDefinition, IndexedField};
@@ -242,22 +242,25 @@ impl ProjectPanel {
     ///   the raw file-tree fallback.
     pub fn show(
         &mut self,
-        ctx: &Context,
+        panel_ui: &mut egui::Ui,
         project: Option<&CoboltProject>,
         tr: &Tr,
     ) -> Vec<ProjectPanelEvent> {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let mut events = Vec::new();
 
         let frame = crate::theme::glass_panel_frame(
             ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
-        SidePanel::left("project_panel")
+        Panel::left("project_panel")
             .resizable(true)
-            .default_width(410.0)
-            .min_width(140.0)
+            .default_size(410.0)
+            .min_size(140.0)
             .frame(frame)
-            .show(ctx, |ui| match project {
+            .show(panel_ui, |ui| match project {
                 Some(proj) => self.show_project_mode(ui, proj, &mut events, tr),
                 None => self.show_tree_mode(ui, &mut events, tr),
             });
@@ -1454,7 +1457,7 @@ mod control_node_tests {
             let ctx = &ctx;
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     let tr = crate::i18n::Language::English.tr();
                     let used = ui
                         .vertical(|ui| {
@@ -1573,9 +1576,9 @@ mod control_node_in_real_wrappers {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
             let tr = crate::i18n::Language::English.tr();
-            SidePanel::left("project_panel")
-                .default_width(410.0)
-                .show(ctx, |ui| {
+            Panel::left("project_panel")
+                .default_size(410.0)
+                .show(root_ui, |ui| {
                     ScrollArea::vertical().show(ui, |ui| {
                         let gid = ui.make_persistent_id(("form_grp", "forms/f.cfrm", "common"));
                         egui::collapsing_header::CollapsingState::load_with_default_open(

@@ -295,7 +295,9 @@ impl DocViewer {
                 .with_inner_size([1100.0, 760.0])
                 .with_min_inner_size([640.0, 420.0])
                 .with_transparent(true),
-            |ctx, _class| {
+            |root_ui, _class| {
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 ctx.set_global_style((*parent_style).clone());
                 if !self.fonts_ready {
                     Self::install_doc_fonts(ctx);
@@ -320,13 +322,13 @@ impl DocViewer {
                     self.open = false;
                 }
                 self.handle_shortcuts(ctx);
-                self.menu_bar(ctx, tr);
-                self.toolbar(ctx, tr);
-                self.left_pane(ctx, tr);
+                self.menu_bar(root_ui, tr);
+                self.toolbar(root_ui, tr);
+                self.left_pane(root_ui, tr);
                 if self.show_outline {
-                    self.outline_pane(ctx);
+                    self.outline_pane(root_ui);
                 }
-                self.viewer_pane(ctx, tr);
+                self.viewer_pane(root_ui, tr);
                 self.modals(ctx, tr);
             },
         );
@@ -386,8 +388,11 @@ impl DocViewer {
         }
     }
 
-    fn menu_bar(&mut self, ctx: &Context, tr: &Tr) {
-        egui::TopBottomPanel::top("doc_menubar").show(ctx, |ui| {
+    fn menu_bar(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::top("doc_menubar").show(panel_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr.doc_menu_file, |ui| {
                     if ui.button(tr.doc_print).clicked() {
@@ -431,8 +436,11 @@ impl DocViewer {
     /// Icon toolbar mirroring the keyboard shortcuts (open / view-source / on-top
     /// / print / close). Icons are drawn as vectors so they are theme-aware and
     /// need no image assets.
-    fn toolbar(&mut self, ctx: &Context, tr: &Tr) {
-        egui::TopBottomPanel::top("doc_toolbar").show(ctx, |ui| {
+    fn toolbar(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::top("doc_toolbar").show(panel_ui, |ui| {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 ui.add_space(2.0);
@@ -478,12 +486,15 @@ impl DocViewer {
         });
     }
 
-    fn left_pane(&mut self, ctx: &Context, tr: &Tr) {
-        egui::SidePanel::left("doc_list_panel")
+    fn left_pane(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::left("doc_list_panel")
             .resizable(true)
-            .default_width(260.0)
-            .min_width(170.0)
-            .show(ctx, |ui| {
+            .default_size(260.0)
+            .min_size(170.0)
+            .show(panel_ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(tr.doc_search);
                     ui.text_edit_singleline(&mut self.list_filter);
@@ -512,12 +523,15 @@ impl DocViewer {
             });
     }
 
-    fn outline_pane(&mut self, ctx: &Context) {
-        egui::SidePanel::right("doc_outline_panel")
+    fn outline_pane(&mut self, panel_ui: &mut egui::Ui) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
+        egui::Panel::right("doc_outline_panel")
             .resizable(true)
-            .default_width(220.0)
-            .min_width(150.0)
-            .show(ctx, |ui| {
+            .default_size(220.0)
+            .min_size(150.0)
+            .show(panel_ui, |ui| {
                 ui.label(egui::RichText::new("☰").size(self.font_pt + 2.0));
                 ui.separator();
                 egui::ScrollArea::vertical()
@@ -540,9 +554,12 @@ impl DocViewer {
             });
     }
 
-    fn viewer_pane(&mut self, ctx: &Context, tr: &Tr) {
+    fn viewer_pane(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         // Search bar + nav + font-size control (right-aligned).
-        egui::TopBottomPanel::top("doc_viewer_search").show(ctx, |ui| {
+        egui::Panel::top("doc_viewer_search").show(panel_ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(tr.doc_search);
                 let resp = ui.text_edit_singleline(&mut self.find_query);
@@ -599,7 +616,7 @@ impl DocViewer {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(panel_ui, |ui| {
             if self.selected.is_none() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() * 0.35);

@@ -7034,7 +7034,7 @@ mod theme_render_tests {
         let _ = ctx.run_ui(Default::default(), |root_ui| {
             let ctx = root_ui.ctx().clone();
             let ctx = &ctx;
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
                 let painter = ui.painter();
                 for style in ["Single", "Fixed3D", "3D", "Raised", "Sunken", "None"] {
                     draw_control_border(

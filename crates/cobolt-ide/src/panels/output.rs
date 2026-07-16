@@ -6,7 +6,7 @@
 
 //! Output / console panel — displays program output and diagnostic messages.
 
-use egui::{Color32, Context, RichText, ScrollArea, TopBottomPanel};
+use egui::{Color32, Context, Panel, RichText, ScrollArea};
 
 use crate::i18n::Tr;
 use crate::runner::{DiagMsg, DiagSeverity, RunMsg};
@@ -134,17 +134,20 @@ impl OutputPanel {
     }
 
     /// Render the output panel at the bottom.
-    pub fn show(&mut self, ctx: &Context, tr: &Tr) {
+    pub fn show(&mut self, panel_ui: &mut egui::Ui, tr: &Tr) {
+        let ctx = panel_ui.ctx().clone();
+        let ctx = &ctx;
+
         let frame = crate::theme::glass_panel_frame(
             ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
-        TopBottomPanel::bottom("output_panel")
+        Panel::bottom("output_panel")
             .resizable(true)
-            .default_height(160.0)
-            .min_height(60.0)
+            .default_size(160.0)
+            .min_size(60.0)
             .frame(frame)
-            .show(ctx, |ui| {
+            .show(panel_ui, |ui| {
                 // Header bar
                 ui.horizontal(|ui| {
                     ui.strong(tr.panel_output);

@@ -619,7 +619,7 @@ impl eframe::App for FormApp {
             let mut out = cobolt_forms::render::RenderOutput::default();
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(bg_fill))
-                .show(ctx, |ui| {
+                .show(root_ui, |ui| {
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
