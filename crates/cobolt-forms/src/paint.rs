@@ -5753,12 +5753,20 @@ fn container_image_rounding(
 }
 
 /// Apply `f` to each corner radius of a `Rounding`.
+///
+/// Converts back to egui's `u8` unit with **floor**, not round: `f` is used
+/// for concentric derivations (e.g. a border stroke at `face_radius - half`,
+/// which yields fractional radii like 23.5). Rounding UP would push the
+/// stroke's corner arc back OUTSIDE the face it must stay inside, leaking a
+/// dark half-pixel arc at every corner (the egui-0.35 "corner bleed"
+/// regression); flooring tucks it inside, where the face covers it.
 fn round_map(r: egui::CornerRadius, f: impl Fn(f32) -> f32) -> egui::CornerRadius {
+    let fl = |v: f32| v.floor().clamp(0.0, 255.0) as u8;
     egui::CornerRadius {
-        nw: cr8(f(f32::from(r.nw))),
-        ne: cr8(f(f32::from(r.ne))),
-        sw: cr8(f(f32::from(r.sw))),
-        se: cr8(f(f32::from(r.se))),
+        nw: fl(f(f32::from(r.nw))),
+        ne: fl(f(f32::from(r.ne))),
+        sw: fl(f(f32::from(r.sw))),
+        se: fl(f(f32::from(r.se))),
     }
 }
 

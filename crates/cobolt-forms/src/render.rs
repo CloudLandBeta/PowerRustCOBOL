@@ -4171,7 +4171,7 @@ fn render_interactive(
                     let half = o_stroke.width * 0.5;
                     painter.rect_stroke(
                         screen.shrink(half),
-                        egui::CornerRadius::same(crate::paint::cr8((grid_cr - half).max(0.0))),
+                        egui::CornerRadius::same((grid_cr - half).max(0.0).floor().clamp(0.0, 255.0) as u8),
                         o_stroke, egui::StrokeKind::Middle);
                 } else {
                     // Square grid: left + bottom outer lines (obey GridLineStyle).
@@ -6362,5 +6362,233 @@ fn char_to_key(c: char) -> egui::Key {
         '\u{001B}' => egui::Key::Escape,
         ' ' => egui::Key::Space,
         _ => egui::Key::A,
+    }
+}
+// Shape-dump differ (spec 027 corner-bleed hunt) — egui 0.35 branch flavor.
+// Appended to cobolt-forms/src/render.rs tests; renders one neumorphic-panel
+// frame and dumps every non-text paint shape, normalized, to a file given in
+// COBOLT_SHAPE_DUMP.
+#[cfg(test)]
+mod shape_dump {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap as Map;
+
+    fn dump_shape(out: &mut Vec<String>, clip: egui::Rect, shape: &egui::Shape) {
+        use egui::Shape as S;
+        let r2 = |v: f32| (v * 4.0).round() / 4.0;
+        let fr = |r: egui::Rect| {
+            format!(
+                "[{} {} {} {}]",
+                r2(r.min.x),
+                r2(r.min.y),
+                r2(r.max.x),
+                r2(r.max.y)
+            )
+        };
+        match shape {
+            S::Vec(v) => {
+                for s in v {
+                    dump_shape(out, clip, s);
+                }
+            }
+            S::Text(_) => {} // font engines differ across versions — geometry only
+            S::Rect(rs) => out.push(format!(
+                "RECT bbox={} fill=#{:02x}{:02x}{:02x}{:02x} stroke={}@#{:02x}{:02x}{:02x}{:02x} r=[{} {} {} {}] clip={}",
+                fr(rs.rect),
+                rs.fill.r(), rs.fill.g(), rs.fill.b(), rs.fill.a(),
+                r2(rs.stroke.width),
+                rs.stroke.color.r(), rs.stroke.color.g(), rs.stroke.color.b(), rs.stroke.color.a(),
+                rs.corner_radius.nw, rs.corner_radius.ne, rs.corner_radius.sw, rs.corner_radius.se,
+                fr(clip),
+            )),
+            S::Path(ps) => out.push(format!(
+                "PATH n={} bbox={} fill=#{:02x}{:02x}{:02x}{:02x} stroke={} clip={}",
+                ps.points.len(),
+                fr(shape.visual_bounding_rect()),
+                ps.fill.r(), ps.fill.g(), ps.fill.b(), ps.fill.a(),
+                r2(ps.stroke.width),
+                fr(clip),
+            )),
+            S::Mesh(m) => out.push(format!(
+                "MESH v={} i={} bbox={} c0=#{:02x}{:02x}{:02x}{:02x} clip={}",
+                m.vertices.len(),
+                m.indices.len(),
+                fr(shape.visual_bounding_rect()),
+                m.vertices.first().map(|v| v.color.r()).unwrap_or(0),
+                m.vertices.first().map(|v| v.color.g()).unwrap_or(0),
+                m.vertices.first().map(|v| v.color.b()).unwrap_or(0),
+                m.vertices.first().map(|v| v.color.a()).unwrap_or(0),
+                fr(clip),
+            )),
+            S::LineSegment { points, stroke } => out.push(format!(
+                "LINE [{} {}]-[{} {}] w={} c=#{:02x}{:02x}{:02x}{:02x} clip={}",
+                r2(points[0].x), r2(points[0].y), r2(points[1].x), r2(points[1].y),
+                r2(stroke.width),
+                stroke.color.r(), stroke.color.g(), stroke.color.b(), stroke.color.a(),
+                fr(clip),
+            )),
+            S::Circle(cs) => out.push(format!(
+                "CIRCLE c=[{} {}] r={} fill=#{:02x}{:02x}{:02x}{:02x} clip={}",
+                r2(cs.center.x), r2(cs.center.y), r2(cs.radius),
+                cs.fill.r(), cs.fill.g(), cs.fill.b(), cs.fill.a(),
+                fr(clip),
+            )),
+            other => out.push(format!(
+                "OTHER {:?} bbox={}",
+                std::mem::discriminant(other),
+                fr(other.visual_bounding_rect()),
+            )),
+        }
+    }
+
+    #[test]
+    fn dump_neumorphic_panel_shapes() {
+        let Some(path) = std::env::var_os("COBOLT_SHAPE_DUMP") else {
+            return; // only runs when explicitly requested
+        };
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+
+        let container = {
+            let mut c = Control::new("PNL", ControlType::Panel, 40, 40);
+            c.rect = crate::model::Rect::new(40, 40, 400, 200);
+            c.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+            c
+        };
+        let controls = vec![container];
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            Vec2::new(600.0, 300.0),
+        ));
+        input.focused = true;
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: String::new(),
+                            transparency: 0,
+                            image: None,
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            dump_shape(&mut out, cs.clip_rect, &cs.shape);
+        }
+        std::fs::write(&path, out.join("\n")).unwrap();
+        println!("dumped {} shapes", out.len());
+    }
+
+    /// Corner-bleed guard (egui 0.35 regression): every stroked rect that is
+    /// concentric with the panel face must keep its corner radius STRICTLY
+    /// inside the face radius. u8 radii can't express `face - 0.5`, and
+    /// rounding UP pushed the dark border arc outside the face — the visible
+    /// black corner arcs. Flooring keeps it inside; this test pins that.
+    #[test]
+    fn concentric_border_arcs_stay_inside_the_face() {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+        let container = {
+            let mut c = Control::new("PNL", ControlType::Panel, 40, 40);
+            c.rect = crate::model::Rect::new(40, 40, 400, 200);
+            c.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+            c
+        };
+        let controls = vec![container];
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            Vec2::new(600.0, 300.0),
+        ));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: String::new(),
+                            transparency: 0,
+                            image: None,
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        fn walk(shape: &egui::Shape, face_r: &mut Option<u8>, checked: &mut usize) {
+            match shape {
+                egui::Shape::Vec(v) => {
+                    for s in v {
+                        walk(s, face_r, checked);
+                    }
+                }
+                egui::Shape::Rect(rs) => {
+                    let panel_area = rs.rect.min.x >= 39.0
+                        && rs.rect.max.x <= 441.0
+                        && rs.rect.min.y >= 39.0
+                        && rs.rect.max.y <= 241.0;
+                    if !panel_area {
+                        return;
+                    }
+                    if rs.fill.a() > 0 && rs.stroke.width == 0.0 {
+                        *face_r = Some(rs.corner_radius.nw);
+                    } else if rs.stroke.width > 0.0 {
+                        if let Some(fr) = *face_r {
+                            assert!(
+                                rs.corner_radius.nw < fr,
+                                "concentric border arc (r={}) must stay strictly inside                                  the face arc (r={fr}) — corner bleed regression",
+                                rs.corner_radius.nw,
+                            );
+                            *checked += 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut face_r = None;
+        let mut checked = 0usize;
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut face_r, &mut checked);
+        }
+        assert!(checked >= 2, "expected border strokes to check, saw {checked}");
+        println!("verified {checked} concentric border arcs inside face r={face_r:?}");
+    }
+
+    struct MapState_dump<'a>(&'a RefCell<Map<String, Map<String, String>>>);
+    impl FormState for MapState_dump<'_> {
+        fn live(&self, base: &Control) -> Control {
+            let m = self.0.borrow();
+            match m.get(&base.id) {
+                Some(p) => merge_props(base, p.iter()),
+                None => base.clone(),
+            }
+        }
     }
 }
