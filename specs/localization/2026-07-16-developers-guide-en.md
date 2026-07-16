@@ -30,6 +30,12 @@ appended after the existing caveat (three paragraphs + two bullets + one
 caveat block). Translate the whole subsection; keep `egui-mcp`,
 `127.0.0.1:5719`, `rcrun`, menu names and *Settings* untranslated.
 
+## Delta 3 — section `#5` AI-settings table
+
+**Change:** the **API key** row's description gained a second sentence
+(keys remembered per provider + model; field cleared when none stored).
+Translate the extended cell; keep `Authorization: Bearer` untranslated.
+
 ## Glossary — do NOT translate
 
 `PowerRustCOBOL`, product and menu names (e.g. **Font** as the property name,
