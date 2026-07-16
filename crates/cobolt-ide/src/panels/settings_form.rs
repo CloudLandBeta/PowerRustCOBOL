@@ -1089,11 +1089,11 @@ impl SettingsForm {
                                 });
                                 let w = ui.available_width();
                                 let h = 120.0;
-                                let frame = egui::Frame::none()
+                                let frame = egui::Frame::NONE
                                     .fill(theme.bg_extreme)
                                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-                                    .rounding(egui::Rounding::same(6.0))
-                                    .inner_margin(egui::Margin::same(2.0));
+                                    .corner_radius(egui::CornerRadius::same(6))
+                                    .inner_margin(egui::Margin::same(2));
                                 ui.set_min_height(h);
                                 let ectx = ui.ctx().clone();
                                 frame.show(ui, |ui| {

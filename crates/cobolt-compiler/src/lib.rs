@@ -695,9 +695,9 @@ tracing         = "0.1"
         s.push_str(&format!(
             r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
-eframe          = {{ version = "0.30", features = ["default_fonts"] }}
-egui            = "0.30"
-egui_extras     = {{ version = "0.30", features = ["image"] }}
+eframe          = {{ version = "0.31", features = ["default_fonts"] }}
+egui            = "0.31"
+egui_extras     = {{ version = "0.31", features = ["image"] }}
 "#
         ));
     }

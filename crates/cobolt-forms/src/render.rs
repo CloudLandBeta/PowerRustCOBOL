@@ -305,17 +305,17 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
 ///
 /// Both notch-mask call sites (runtime `mask_container_notches` and the designer's
 /// notch loop) MUST route through this — do not call `draw_container_notch_mask`
-/// with a blanket `Rounding::same(rad)`.
+/// with a blanket `CornerRadius::same(rad)`.
 pub fn corner_notch_rounding(
     container: Rect,
     radius: f32,
     controls: &[Control],
     container_idx: usize,
     control_rects: &HashMap<String, Rect>,
-) -> egui::Rounding {
+) -> egui::CornerRadius {
     let r = radius.max(0.0);
     if r < 0.5 {
-        return egui::Rounding::ZERO;
+        return egui::CornerRadius::ZERO;
     }
     let child_rects: Vec<Rect> = containers::collect_descendants(controls, container_idx)
         .into_iter()
@@ -328,26 +328,26 @@ pub fn corner_notch_rounding(
         .collect();
     let corner = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), Vec2::new(r, r));
     let hit = |sq: Rect| child_rects.iter().any(|cr| cr.intersects(sq));
-    egui::Rounding {
+    egui::CornerRadius {
         nw: if hit(corner(container.min.x, container.min.y)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
         ne: if hit(corner(container.max.x - r, container.min.y)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
         se: if hit(corner(container.max.x - r, container.max.y - r)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
         sw: if hit(corner(container.min.x, container.max.y - r)) {
-            r
+            crate::paint::cr8(r)
         } else {
-            0.0
+            0
         },
     }
 }
@@ -2685,8 +2685,7 @@ fn render_interactive(
                         p.rect_stroke(
                             area_rect,
                             6.0,
-                            Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)),
-                        );
+                            Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)), egui::StrokeKind::Middle);
                         let prev = ui.put(
                             Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
                             egui::Button::new("◀").frame(false),
@@ -3053,7 +3052,7 @@ fn render_interactive(
                         &sv(ctrl, "SelectionMode"),
                         &sv(ctrl, "CSVDelimiter"),
                     ) {
-                        ui.output_mut(|o| o.copied_text = text);
+                        ui.ctx().copy_text(text);
                     }
                 }
             }
@@ -3288,11 +3287,11 @@ fn render_interactive(
             let header_radius = paint::corner_radius(ctrl) as f32;
             painter.rect_filled(
                 header_rect,
-                egui::Rounding {
-                    nw: header_radius,
-                    ne: header_radius,
-                    sw: 0.0,
-                    se: 0.0,
+                egui::CornerRadius {
+                    nw: crate::paint::cr8(header_radius),
+                    ne: crate::paint::cr8(header_radius),
+                    sw: 0,
+                    se: 0,
                 },
                 header_bg,
             );
@@ -3540,26 +3539,26 @@ fn render_interactive(
             // notch-mask can't be used).
             //
             // Clamping is essential: the last row's rect usually extends *past*
-            // `screen.max.y` and is cut square by the body clip. Rounding that
+            // `screen.max.y` and is cut square by the body clip. CornerRadius that
             // off-clip rect is invisible — so we intersect with the grid rect first,
             // then round the now-on-edge bottom corners.
             let grid_cr = paint::corner_radius(ctrl);
-            let confine_bottom = move |r: Rect| -> (Rect, egui::Rounding) {
+            let confine_bottom = move |r: Rect| -> (Rect, egui::CornerRadius) {
                 let c = r.intersect(screen);
                 let eps = 0.5;
                 let at_bottom = (c.max.y - screen.max.y).abs() < eps;
-                let rnd = egui::Rounding {
-                    nw: 0.0,
-                    ne: 0.0,
+                let rnd = egui::CornerRadius {
+                    nw: 0,
+                    ne: 0,
                     sw: if at_bottom && (c.min.x - screen.min.x).abs() < eps {
-                        grid_cr
+                        crate::paint::cr8(grid_cr)
                     } else {
-                        0.0
+                        0
                     },
                     se: if at_bottom && (c.max.x - screen.max.x).abs() < eps {
-                        grid_cr
+                        crate::paint::cr8(grid_cr)
                     } else {
-                        0.0
+                        0
                     },
                 };
                 (c, rnd)
@@ -3812,25 +3811,26 @@ fn render_interactive(
                                     // Soft two-layer drop shadow beneath the image.
                                     img_painter.rect_filled(
                                         dest.translate(vec2(0.0, 2.0)).expand(1.0),
-                                        egui::Rounding::same(corner + 1.0),
+                                        egui::CornerRadius::same(crate::paint::cr8(corner + 1.0)),
                                         Color32::from_black_alpha(55),
                                     );
                                     img_painter.rect_filled(
                                         dest.translate(vec2(0.0, 4.0)).expand(2.5),
-                                        egui::Rounding::same(corner + 2.0),
+                                        egui::CornerRadius::same(crate::paint::cr8(corner + 2.0)),
                                         Color32::from_black_alpha(28),
                                     );
                                 }
                                 if corner > 0.0 {
-                                    img_painter.add(egui::Shape::Rect(egui::epaint::RectShape {
-                                        rect: dest,
-                                        rounding: egui::Rounding::same(corner),
-                                        fill: Color32::WHITE,
-                                        stroke: Stroke::NONE,
-                                        blur_width: 0.0,
-                                        fill_texture_id: tex.id(),
-                                        uv,
-                                    }));
+                                    img_painter.add(egui::Shape::Rect(
+                                        egui::epaint::RectShape::new(
+                                            dest,
+                                            egui::CornerRadius::same(crate::paint::cr8(corner)),
+                                            Color32::WHITE,
+                                            Stroke::NONE,
+                                            egui::StrokeKind::Middle,
+                                        )
+                                        .with_texture(tex.id(), uv),
+                                    ));
                                 } else {
                                     img_painter.image(tex.id(), dest, uv, Color32::WHITE);
                                 }
@@ -3865,8 +3865,7 @@ fn render_interactive(
                         body_painter.rect_stroke(
                             button_rect,
                             4.0,
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(130, 175, 255, 210)),
-                        );
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(130, 175, 255, 210)), egui::StrokeKind::Middle);
                         body_painter.with_clip_rect(button_rect.shrink(3.0)).text(
                             button_rect.center(),
                             Align2::CENTER_CENTER,
@@ -3901,8 +3900,7 @@ fn render_interactive(
                         body_painter.rect_stroke(
                             check_rect,
                             3.0,
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 180)),
-                        );
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 180)), egui::StrokeKind::Middle);
                         let truthy = matches!(
                             raw.trim().to_ascii_lowercase().as_str(),
                             "y" | "yes" | "true" | "1" | "x" | "checked"
@@ -3942,8 +3940,7 @@ fn render_interactive(
                         body_painter.rect_stroke(
                             dropdown_rect,
                             4.0,
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 120)),
-                        );
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 120)), egui::StrokeKind::Middle);
                         let text_clip = Rect::from_min_max(
                             dropdown_rect.min + vec2(6.0, 0.0),
                             pos2(dropdown_rect.max.x - 18.0, dropdown_rect.max.y),
@@ -4008,8 +4005,7 @@ fn render_interactive(
                                 body_painter.rect_stroke(
                                     cell,
                                     2.0,
-                                    Stroke::new(1.0, Color32::from_rgb(110, 120, 160)),
-                                );
+                                    Stroke::new(1.0, Color32::from_rgb(110, 120, 160)), egui::StrokeKind::Middle);
                             }
                         }
                         if cell_selected {
@@ -4117,11 +4113,11 @@ fn render_interactive(
                     let r = paint::corner_radius(ctrl);
                     painter.rect_filled(
                         filler_rect,
-                        egui::Rounding {
-                            nw: 0.0,
-                            ne: 0.0,
-                            sw: 0.0,
-                            se: r,
+                        egui::CornerRadius {
+                            nw: 0,
+                            ne: 0,
+                            sw: 0,
+                            se: crate::paint::cr8(r),
                         },
                         fill,
                     );
@@ -4177,9 +4173,8 @@ fn render_interactive(
                     let half = o_stroke.width * 0.5;
                     painter.rect_stroke(
                         screen.shrink(half),
-                        egui::Rounding::same((grid_cr - half).max(0.0)),
-                        o_stroke,
-                    );
+                        egui::CornerRadius::same(crate::paint::cr8((grid_cr - half).max(0.0))),
+                        o_stroke, egui::StrokeKind::Middle);
                 } else {
                     // Square grid: left + bottom outer lines (obey GridLineStyle).
                     draw_datagrid_line(
@@ -4395,7 +4390,7 @@ fn render_interactive(
                             .fixed_pos(dropdown_pos)
                             .show(ui.ctx(), |ui| {
                                 egui::Frame::popup(&ui.ctx().style())
-                                    .inner_margin(egui::Margin::same(4.0))
+                                    .inner_margin(egui::Margin::same(4))
                                     .show(ui, |ui| {
                                         for item in &entry.items {
                                             if item.item_type
@@ -4698,7 +4693,7 @@ mod tests {
         let r = corner_notch_rounding(cont, 20.0, &controls, 0, &rects);
         assert_eq!(
             r,
-            egui::Rounding::ZERO,
+            egui::CornerRadius::ZERO,
             "no child at any corner ⇒ NOTHING masked (panel keeps its own corners)"
         );
     }
@@ -4719,10 +4714,10 @@ mod tests {
             Rect::from_min_size(pos2(0.0, 140.0), Vec2::new(30.0, 20.0)),
         );
         let r = corner_notch_rounding(cont, 20.0, &controls, 0, &rects);
-        assert_eq!(r.sw, 20.0, "child in bottom-left ⇒ SW masked");
-        assert_eq!(r.nw, 0.0, "NW is clean ⇒ untouched");
-        assert_eq!(r.ne, 0.0, "NE is clean ⇒ untouched");
-        assert_eq!(r.se, 0.0, "SE is clean ⇒ untouched");
+        assert_eq!(r.sw, 20, "child in bottom-left ⇒ SW masked");
+        assert_eq!(r.nw, 0, "NW is clean ⇒ untouched");
+        assert_eq!(r.ne, 0, "NE is clean ⇒ untouched");
+        assert_eq!(r.se, 0, "SE is clean ⇒ untouched");
     }
 
     fn bound_repeating_group(count: i64) -> Vec<Control> {
@@ -5472,7 +5467,7 @@ mod tests {
             let st = MapState(&overrides);
             let _ = ctx.run(input, |ctx| {
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
+                    .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
                         egui::ScrollArea::both()
                             .auto_shrink([false, false])
@@ -5577,7 +5572,7 @@ mod tests {
             let st = MapState(&overrides);
             let _ = ctx.run(input, |ctx| {
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
+                    .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
                         let out =
                             egui::ScrollArea::both()
@@ -5673,7 +5668,7 @@ mod tests {
             let st = MapState(&overrides);
             let _ = ctx.run(input, |ctx| {
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
+                    .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
                         let inp = RenderInput {
@@ -6219,7 +6214,7 @@ mod tests {
             let events = RefCell::new(Vec::<UiEvent>::new());
             let _ = ctx.run(input, |ctx| {
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none())
+                    .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
                         let inp = RenderInput {

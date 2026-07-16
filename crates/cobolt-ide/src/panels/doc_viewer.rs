@@ -935,9 +935,10 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, selected: bool, tip: &str) -> bool
     if selected || resp.hovered() {
         ui.painter().rect(
             rect.shrink(1.0),
-            egui::Rounding::same(4.0),
+            egui::CornerRadius::same(4),
             v.bg_fill,
             egui::Stroke::NONE,
+            egui::StrokeKind::Middle,
         );
     }
     paint_icon(ui.painter(), rect, v.fg_stroke.color, icon);
@@ -1017,9 +1018,8 @@ fn paint_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, i
             ));
             painter.rect_stroke(
                 egui::Rect::from_min_max(pos2(l, t + h * 0.30), pos2(l + w, t + h * 0.74)),
-                egui::Rounding::same(2.0),
-                s,
-            );
+                egui::CornerRadius::same(2),
+                s, egui::StrokeKind::Middle);
             painter.add(Shape::closed_line(
                 vec![
                     pos2(l + w * 0.22, t + h * 0.60),

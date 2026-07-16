@@ -3567,7 +3567,7 @@ impl CoboltApp {
                 } else {
                     ui.visuals().text_color().linear_multiply(0.35)
                 };
-                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0, border_color));
+                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0, border_color), egui::StrokeKind::Middle);
 
                 if resp.hovered() {
                     ui.painter().rect_filled(rect, 3.0, ui.visuals().widgets.hovered.bg_fill);
@@ -3629,7 +3629,7 @@ impl CoboltApp {
                     if icon_btn(ui, egui::vec2(22.0, 18.0), "Edit record as text (raw COBOL)", &|p, r, c| {
                         let s = egui::Stroke::new(1.5, c);
                         let body = egui::Rect::from_center_size(r.center(), egui::Vec2::new(r.width() * 0.60, r.height() * 0.68));
-                        p.rect_stroke(body, 1.4, s);
+                        p.rect_stroke(body, 1.4, s, egui::StrokeKind::Middle);
                         for i in 0..3 {
                             let y = body.min.y + body.height() * (0.26 + i as f32 * 0.22);
                             p.line_segment([egui::Pos2::new(body.min.x + 2.5, y), egui::Pos2::new(body.max.x - 2.5, y)], egui::Stroke::new(1.0, c));
@@ -4583,11 +4583,11 @@ impl CoboltApp {
         metrics: &serde_json::Value,
         report: &str,
     ) {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgb(10, 18, 28))
             .stroke(egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)))
-            .rounding(8.0)
-            .inner_margin(egui::Margin::same(10.0))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("Model tested").strong().size(16.0));
@@ -4782,8 +4782,7 @@ impl CoboltApp {
             painter.rect_stroke(
                 rect,
                 8.0,
-                egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)),
-            );
+                egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)), egui::StrokeKind::Middle);
             let accent = if overall >= 85.0 {
                 Color32::from_rgb(61, 205, 139)
             } else if overall >= 70.0 {
@@ -4916,11 +4915,11 @@ impl CoboltApp {
         items: &[String],
         empty: &str,
     ) {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(Color32::from_rgb(10, 18, 28))
             .stroke(egui::Stroke::new(1.0, accent.linear_multiply(0.8)))
-            .rounding(8.0)
-            .inner_margin(egui::Margin::same(10.0))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.colored_label(accent, egui::RichText::new(title).strong());
                 ui.add_space(4.0);
@@ -4992,8 +4991,7 @@ impl CoboltApp {
         painter.rect_stroke(
             rect,
             8.0,
-            egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)),
-        );
+            egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)), egui::StrokeKind::Middle);
         painter.text(
             rect.center_top() + egui::vec2(0.0, 10.0),
             egui::Align2::CENTER_TOP,
@@ -5369,10 +5367,10 @@ impl CoboltApp {
         // buttons within the glass). This fixes the clipping while keeping the
         // overall "right pane" full 100% height conforming.
         card = card.outer_margin(egui::Margin {
-            left: 6.0,
-            right: 6.0,
-            top: 6.0,
-            bottom: 50.0,
+            left: 6,
+            right: 6,
+            top: 6,
+            bottom: 50,
         });
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             if let Some(form) = &mut self.settings_form {
@@ -6253,8 +6251,7 @@ impl CoboltApp {
         painter.rect_stroke(
             outer,
             6.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(92, 111, 128)),
-        );
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(92, 111, 128)), egui::StrokeKind::Middle);
         let image_rect = egui::Rect::from_center_size(outer.center(), display);
         painter.image(
             texture.id(),
@@ -7050,7 +7047,7 @@ impl CoboltApp {
 
 fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     use egui::Color32;
-    use egui::{style::WidgetVisuals, Rounding, Shadow, Stroke, Visuals};
+    use egui::{style::WidgetVisuals, CornerRadius, Shadow, Stroke, Visuals};
 
     // Publish the editor palette for this theme so the syntax layouter picks it up.
     crate::theme::set_active(theme);
@@ -7085,12 +7082,12 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     // ── Window chrome ─────────────────────────────────────────────────────
     v.window_stroke = Stroke::new(1.0, border_hi);
     v.window_shadow = Shadow {
-        offset: Vec2::new(0.0, 10.0),
-        blur: 40.0,
-        spread: 0.0,
+        offset: [0, 10],
+        blur: 40,
+        spread: 0,
         color: Color32::from_rgba_unmultiplied(0, 0, 0, 100),
     };
-    v.window_rounding = Rounding::same(12.0);
+    v.window_corner_radius = CornerRadius::same(12);
     v.window_highlight_topmost = false;
 
     // ── Control states ─────────────────────────────────────────────────────
@@ -7099,7 +7096,7 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
         bg_fill: bg,
         bg_stroke: Stroke::new(1.0, stroke_c),
         fg_stroke: Stroke::new(1.5, text),
-        rounding: Rounding::same(8.0),
+        corner_radius: CornerRadius::same(8),
         expansion: 0.0,
     };
 
@@ -7136,8 +7133,8 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     style.spacing.item_spacing = egui::Vec2::new(8.0, 8.0);
     style.spacing.button_padding = egui::Vec2::new(12.0, 7.0);
     style.spacing.indent = 20.0;
-    style.spacing.window_margin = egui::Margin::same(12.0);
-    style.spacing.menu_margin = egui::Margin::same(8.0);
+    style.spacing.window_margin = egui::Margin::same(12);
+    style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.interact_size.y = 30.0;
     // No vertical indent guide lines in the tree (the grey lines looked noisy).
     style.visuals.indent_has_left_vline = false;
@@ -8219,12 +8216,12 @@ impl CoboltApp {
         visuals.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
         visuals.widgets.active.bg_stroke =
             egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
-        // Rounding
-        let rnd = egui::Rounding::same(8.0);
-        visuals.widgets.noninteractive.rounding = rnd;
-        visuals.widgets.inactive.rounding = rnd;
-        visuals.widgets.hovered.rounding = rnd;
-        visuals.widgets.active.rounding = rnd;
+        // CornerRadius
+        let rnd = egui::CornerRadius::same(8);
+        visuals.widgets.noninteractive.corner_radius = rnd;
+        visuals.widgets.inactive.corner_radius = rnd;
+        visuals.widgets.hovered.corner_radius = rnd;
+        visuals.widgets.active.corner_radius = rnd;
         // Text
         visuals.override_text_color = Some(Color32::from_rgb(230, 235, 255));
         // Window / panel background — transparent so the OS shows through
@@ -8321,7 +8318,7 @@ impl CoboltApp {
 
         let mut updates: Vec<(String, String, String)> = Vec::new();
         egui::CentralPanel::default()
-            .frame(egui::Frame::none())
+            .frame(egui::Frame::NONE)
             .show(ctx, |ui| {
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
@@ -8788,11 +8785,11 @@ impl CoboltApp {
         vis.widgets.active.bg_fill = Color32::from_rgba_premultiplied(90, 100, 160, 100);
         vis.widgets.active.bg_stroke =
             egui::Stroke::new(1.5, Color32::from_rgba_premultiplied(220, 230, 255, 160));
-        let rnd = egui::Rounding::same(8.0);
-        vis.widgets.noninteractive.rounding = rnd;
-        vis.widgets.inactive.rounding = rnd;
-        vis.widgets.hovered.rounding = rnd;
-        vis.widgets.active.rounding = rnd;
+        let rnd = egui::CornerRadius::same(8);
+        vis.widgets.noninteractive.corner_radius = rnd;
+        vis.widgets.inactive.corner_radius = rnd;
+        vis.widgets.hovered.corner_radius = rnd;
+        vis.widgets.active.corner_radius = rnd;
         vis.override_text_color = Some(Color32::from_rgb(230, 235, 255));
         vis.panel_fill = Color32::TRANSPARENT;
         vis.window_fill = Color32::TRANSPARENT;
@@ -8892,7 +8889,7 @@ impl CoboltApp {
 
         let mut output = cobolt_forms::render::RenderOutput::default();
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(bg_color))
+            .frame(egui::Frame::NONE.fill(bg_color))
             .show(ctx, |ui| {
                 // Scrollbars appear automatically when the form is larger than the
                 // window viewport; the content area is at least the form's size.
@@ -9618,7 +9615,7 @@ impl CoboltApp {
         // whole reserved height itself with the toolbox colour (see designer.rs).
         egui::TopBottomPanel::top(format!("dtb_{idx}"))
             .exact_height(50.0)
-            .frame(egui::Frame::none())
+            .frame(egui::Frame::NONE)
             .show_separator_line(false)
             .show(ctx, |ui| {
                 let d = &self.designers[idx].1;
@@ -9837,10 +9834,10 @@ impl CoboltApp {
         // 10px right inner margin so the pane's content keeps a small gap from the
         // window border instead of butting against it.
         let props_frame = egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin {
-            left: 6.0,
-            right: 10.0,
-            top: 6.0,
-            bottom: 6.0,
+            left: 6,
+            right: 10,
+            top: 6,
+            bottom: 6,
         });
         let inspector_action = egui::SidePanel::right(format!("props_{idx}"))
             .resizable(true)

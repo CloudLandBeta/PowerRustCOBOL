@@ -51,7 +51,7 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
     if ui.is_rect_visible(rect) {
         show_color_at(ui.painter(), *color, rect);
         ui.painter()
-            .rect_stroke(rect, 2.0, Stroke::new(1.0, Color32::from_gray(120)));
+            .rect_stroke(rect, 2.0, Stroke::new(1.0, Color32::from_gray(120)), egui::StrokeKind::Middle);
     }
 
     let popup_id = resp.id.with("__closing_color_popup");
@@ -99,8 +99,7 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
                         ui.painter().rect_stroke(
                             sw_rect,
                             2.0,
-                            Stroke::new(1.0, Color32::from_gray(120)),
-                        );
+                            Stroke::new(1.0, Color32::from_gray(120)), egui::StrokeKind::Middle);
 
                         ui.label("#");
 
@@ -1606,11 +1605,11 @@ fn show_binding_source_selector(ui: &mut Ui, editor: &mut BindingEditorState, tr
 }
 
 fn show_clear_selection_banner(ui: &mut Ui, editor: &mut BindingEditorState) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(78, 31, 30, 130))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(112, 58, 56)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.colored_label(Color32::from_rgb(255, 115, 100), "!");
@@ -1777,10 +1776,10 @@ fn show_preview_pagination(
 }
 
 fn show_preview_grid(ui: &mut Ui) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(15, 18, 22, 210))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(58, 64, 72)))
-        .rounding(egui::Rounding::same(5.0))
+        .corner_radius(egui::CornerRadius::same(5))
         .show(ui, |ui| {
             egui::Grid::new("data_binding_preview_grid")
                 .num_columns(6)
@@ -2030,11 +2029,11 @@ fn show_rest_auth_fields(ui: &mut Ui, auth: &mut RestAuth) {
 }
 
 fn show_json_code_preview(ui: &mut Ui, json: &str, max_height: f32) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(7, 10, 13, 235))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(55, 65, 78)))
-        .rounding(egui::Rounding::same(5.0))
-        .inner_margin(egui::Margin::symmetric(8.0, 8.0))
+        .corner_radius(egui::CornerRadius::same(5))
+        .inner_margin(egui::Margin::symmetric(8, 8))
         .show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .max_height(max_height)
@@ -2099,11 +2098,11 @@ fn show_rest_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState)
         .id_salt("rest_data_binding_source_fields_scroll")
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
                 .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-                .rounding(egui::Rounding::same(6.0))
-                .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                .corner_radius(egui::CornerRadius::same(6))
+                .inner_margin(egui::Margin::symmetric(8, 6))
                 .show(ui, |ui| {
                     let mut remove_at = None;
                     egui::Grid::new("rest_data_binding_source_fields")
@@ -2277,11 +2276,11 @@ fn show_cobol_table_field_actions(ui: &mut Ui, editor: &mut BindingEditorState) 
 }
 
 fn show_jsonpath_help_panel(ui: &mut Ui) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(14, 17, 21, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, |ui| {
             ui.heading("JSONPath help");
             ui.add_space(8.0);
@@ -2331,11 +2330,11 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
     ui.add_space(8.0);
     let show_sql_type = editor.selected_source == Some(BindingEditorSourceKind::Sql);
     let show_cobol_table = editor.selected_source == Some(BindingEditorSourceKind::CobolTable);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(8, 6))
         .show(ui, |ui| {
             let mut remove_at = None;
             egui::Grid::new("data_binding_source_fields")
@@ -2596,11 +2595,11 @@ fn show_dropdown_config_modal(ctx: &egui::Context, editor: &mut BindingEditorSta
 }
 
 fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 10))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("Dropdown configuration")
@@ -2734,11 +2733,11 @@ fn show_cobol_table_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow)
 }
 
 fn show_dropdown_config_body(ui: &mut Ui, row: &mut BindingFieldRow) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(10, 13, 16, 230))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 67, 76)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
             ui.label(
                 RichText::new("Dropdown configuration")
@@ -2966,11 +2965,11 @@ fn field_name_only(field: &str) -> &str {
 }
 
 fn source_placeholder(ui: &mut Ui, message: &str) {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgba_unmultiplied(18, 21, 25, 215))
         .stroke(egui::Stroke::new(1.0, Color32::from_rgb(50, 57, 64)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
             ui.label(RichText::new(message).color(Color32::GRAY));
         });
@@ -3245,10 +3244,10 @@ impl PropertiesPanel {
         } else {
             Color32::from_rgba_unmultiplied(245, 247, 250, 190)
         };
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(fill)
             .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-            .inner_margin(egui::Margin::symmetric(3.0, 3.0))
+            .inner_margin(egui::Margin::symmetric(3, 3))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     for (tab, label) in [
@@ -6268,8 +6267,7 @@ impl PropertiesPanel {
                             p.rect_stroke(
                                 cell_rect.shrink(1.5),
                                 0.0,
-                                egui::Stroke::new(2.0, Color32::BLACK),
-                            );
+                                egui::Stroke::new(2.0, Color32::BLACK), egui::StrokeKind::Middle);
                         }
                     }
                     // Internal 1px pure-white grid lines only (no outer border).
@@ -7269,7 +7267,7 @@ fn section_header(ui: &mut Ui, title: &str) {
     } else {
         Color32::from_rgb(56, 64, 76)
     };
-    ui.painter().rect_filled(rect, egui::Rounding::ZERO, fill);
+    ui.painter().rect_filled(rect, egui::CornerRadius::ZERO, fill);
     ui.painter().text(
         rect.left_center() + egui::vec2(3.0, 0.0),
         egui::Align2::LEFT_CENTER,

@@ -3291,11 +3291,11 @@ impl DesignerPanel {
                             let text_w = (ui.available_width() - btn_col_w - gap).max(140.0);
 
                             ui.horizontal_top(|ui| {
-                                let frame = egui::Frame::none()
+                                let frame = egui::Frame::NONE
                                     .fill(crate::theme::active().bg_extreme)
                                     .stroke(egui::Stroke::new(1.0, crate::theme::active().panel_border()))
-                                    .rounding(egui::Rounding::same(6.0))
-                                    .inner_margin(egui::Margin::same(2.0));
+                                    .corner_radius(egui::CornerRadius::same(6))
+                                    .inner_margin(egui::Margin::same(2));
 
                                 ui.vertical(|ui| {
                                     let resp = ui.add(
@@ -3615,14 +3615,13 @@ impl DesignerPanel {
                     ui.visuals().panel_fill,
                 );
                 if self.glass_mode {
-                    let corner = egui::Rounding::same(6.0);
+                    let corner = egui::CornerRadius::same(6);
                     painter.rect_filled(resp.rect, corner, canvas_bg);
                     // Thin border so the form boundary is always visible
                     painter.rect_stroke(
                         resp.rect,
                         corner,
-                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 60)),
-                    );
+                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 60)), egui::StrokeKind::Middle);
                 } else {
                     painter.rect_filled(resp.rect, 0.0, canvas_bg);
                 }
@@ -3943,7 +3942,7 @@ impl DesignerPanel {
                                     &painter,
                                     resp.rect,
                                     *crect,
-                                    egui::Rounding::same(rad),
+                                    egui::CornerRadius::same(crate::cr8(rad)),
                                     self.form.grid_size.max(4) as f32,
                                     self.glass_mode,
                                 );
@@ -4030,8 +4029,7 @@ impl DesignerPanel {
                         painter.rect_stroke(
                             *crect,
                             corner,
-                            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)),
-                        );
+                            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)), egui::StrokeKind::Middle);
                     }
                 }
 
@@ -4250,8 +4248,7 @@ impl DesignerPanel {
                         painter.rect_stroke(
                             rect,
                             2.0,
-                            Stroke::new(1.5, Color32::from_rgba_premultiplied(100, 200, 255, 200)),
-                        );
+                            Stroke::new(1.5, Color32::from_rgba_premultiplied(100, 200, 255, 200)), egui::StrokeKind::Middle);
                     }
                 }
 
@@ -4276,8 +4273,7 @@ impl DesignerPanel {
                     painter.rect_stroke(
                         band_rect,
                         0.0,
-                        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 170, 255, 220)),
-                    );
+                        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 170, 255, 220)), egui::StrokeKind::Middle);
                 }
 
                 // Right-click context menu
@@ -4736,7 +4732,7 @@ impl DesignerPanel {
                 screen.center().x - 400.0,
                 screen.center().y - 250.0,
             ))
-            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12.0)))
+            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12)))
             .show(ui.ctx(), |ui| {
                 let modal = self.menu_modal.as_mut().unwrap();
 
@@ -5261,7 +5257,7 @@ impl DesignerPanel {
                     .default_pos([screen.center().x - 300.0, screen.center().y - 250.0])
                     .frame(
                         egui::Frame::window(&ui.ctx().style())
-                            .inner_margin(egui::Margin::same(12.0)),
+                            .inner_margin(egui::Margin::same(12)),
                     )
                     .show(ui.ctx(), |ui| {
                         // Search field
@@ -6257,7 +6253,7 @@ impl DesignerPanel {
             .min_height(420.0)
             .default_pos(default_pos)
             .constrain(true)
-            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)))
+            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16)))
             .show(ui.ctx(), |ui| {
                 let scaffold_color = Color32::from_rgb(140, 200, 140); // muted green
                 let readonly_color = Color32::from_rgb(160, 170, 190); // subdued blue-gray
@@ -6295,11 +6291,11 @@ impl DesignerPanel {
                 let theme = crate::theme::active();
                 // A snug container (no outer gap) that fills the allocated box;
                 // the editor scrolls *inside* it.
-                let frame = egui::Frame::none()
+                let frame = egui::Frame::NONE
                     .fill(theme.bg_extreme)
                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-                    .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin::same(2.0));
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::same(2));
                 egui::Resize::default()
                     .id_salt("event_editor_code_box")
                     .resizable([false, true])
@@ -6671,7 +6667,7 @@ impl DesignerPanel {
                 .default_width(560.0)
                 .default_pos(overlay.center() - egui::vec2(280.0, 180.0))
                 .frame(
-                    egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16.0)),
+                    egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16)),
                 )
                 .show(ui.ctx(), |ui| {
                     ui.label(
@@ -6833,7 +6829,7 @@ impl DesignerPanel {
             .default_height(default_h)
             .max_height(screen.height() * 0.7)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .frame(egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::same(14.0)))
+            .frame(egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::same(14)))
             .show(ctx, |ui| {
                 // Editable procedure name, or the fixed section keyword.
                 if let cs::CsTarget::Procedure(i) = target {
@@ -6869,11 +6865,11 @@ impl DesignerPanel {
                 let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
-                let frame = egui::Frame::none()
+                let frame = egui::Frame::NONE
                     .fill(theme.bg_extreme)
                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-                    .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin::same(2.0));
+                    .corner_radius(egui::CornerRadius::same(6))
+                    .inner_margin(egui::Margin::same(2));
                 ui.allocate_ui(egui::vec2(editor_w, editor_h), |ui| {
                     frame.show(ui, |ui| {
                         self.cs_editor.render_code_area(&ectx, ui);
@@ -7202,8 +7198,7 @@ impl DesignerPanel {
                         painter.rect_stroke(
                             ghost,
                             2.0,
-                            Stroke::new(1.5, Color32::from_rgb(80, 140, 255)),
-                        );
+                            Stroke::new(1.5, Color32::from_rgb(80, 140, 255)), egui::StrokeKind::Middle);
                     }
                 }
                 DragState::RubberBand {
@@ -7506,8 +7501,7 @@ impl DesignerPanel {
         painter.rect_stroke(
             ghost,
             2.0,
-            Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 160, 255, 220)),
-        );
+            Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 160, 255, 220)), egui::StrokeKind::Middle);
         painter.text(
             ghost.center(),
             egui::Align2::CENTER_CENTER,
@@ -7538,7 +7532,7 @@ fn draw_grid_in_rounded_notches(
     painter: &egui::Painter,
     canvas: egui::Rect,
     rect: egui::Rect,
-    rounding: egui::Rounding,
+    rounding: egui::CornerRadius,
     step: f32,
     glass: bool,
 ) {
@@ -7548,10 +7542,10 @@ fn draw_grid_in_rounded_notches(
     let cap = 0.5 * rect.width().min(rect.height());
     let clamp_r = |r: f32| r.max(0.0).min(cap);
     let radii = [
-        clamp_r(rounding.nw),
-        clamp_r(rounding.ne),
-        clamp_r(rounding.se),
-        clamp_r(rounding.sw),
+        clamp_r(f32::from(rounding.nw)),
+        clamp_r(f32::from(rounding.ne)),
+        clamp_r(f32::from(rounding.se)),
+        clamp_r(f32::from(rounding.sw)),
     ];
     if radii.iter().all(|r| *r < 0.5) {
         return;
@@ -7811,8 +7805,7 @@ fn draw_form_resize_grips(
     painter.rect_stroke(
         crect,
         1.5,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 180)),
-    );
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 180)), egui::StrokeKind::Middle);
 }
 
 /// Set (`Some`) or remove (`None`) the COBOL code of a control's event handler
@@ -8444,17 +8437,17 @@ fn icon_redo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 
 fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.6, c);
-    out.push(Shape::rect_stroke(r.shrink(2.0), 1.5, s));
+    out.push(Shape::rect_stroke(r.shrink(2.0), 1.5, s, egui::StrokeKind::Middle));
     let bot = Rect::from_min_max(
         Pos2::new(r.min.x + 4.0, r.max.y - r.height() * 0.32),
         r.max - egui::vec2(4.0, 2.0),
     );
-    out.push(Shape::rect_stroke(bot, 0.0, s));
+    out.push(Shape::rect_stroke(bot, 0.0, s, egui::StrokeKind::Middle));
     let notch = Rect::from_min_size(
         Pos2::new(r.max.x - r.width() * 0.38, r.min.y + 2.0),
         Vec2::new(r.width() * 0.25, r.height() * 0.30),
     );
-    out.push(Shape::rect_stroke(notch, 0.0, Stroke::new(1.4, c)));
+    out.push(Shape::rect_stroke(notch, 0.0, Stroke::new(1.4, c), egui::StrokeKind::Middle));
     let mid_x = r.center().x - 1.0;
     out.push(Shape::line_segment(
         [
@@ -8566,7 +8559,7 @@ fn icon_grid(out: &mut Vec<Shape>, r: Rect, c: Color32) {
             out.push(Shape::circle_filled(pt, 1.5, c));
         }
     }
-    out.push(Shape::rect_stroke(sr, 1.0, s));
+    out.push(Shape::rect_stroke(sr, 1.0, s, egui::StrokeKind::Middle));
 }
 
 fn icon_glass(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -8670,9 +8663,8 @@ fn icon_copy(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_stroke(
         back,
         1.5,
-        Stroke::new(1.2, c.linear_multiply(0.75)),
-    ));
-    out.push(Shape::rect_stroke(front, 1.5, s));
+        Stroke::new(1.2, c.linear_multiply(0.75)), egui::StrokeKind::Middle));
+    out.push(Shape::rect_stroke(front, 1.5, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [
             Pos2::new(front.min.x + 3.0, front.min.y + 5.0),
@@ -8696,18 +8688,18 @@ fn icon_paste(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Pos2::new(r.center().x, board.min.y),
         Vec2::new(r.width() * 0.34, r.height() * 0.18),
     );
-    out.push(Shape::rect_stroke(board, 2.0, s));
+    out.push(Shape::rect_stroke(board, 2.0, s, egui::StrokeKind::Middle));
     out.push(Shape::rect_filled(
         clip,
         2.0,
         Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 35),
     ));
-    out.push(Shape::rect_stroke(clip, 2.0, Stroke::new(1.4, c)));
+    out.push(Shape::rect_stroke(clip, 2.0, Stroke::new(1.4, c), egui::StrokeKind::Middle));
     let page = Rect::from_min_max(
         board.min + egui::vec2(5.0, 7.0),
         board.max - egui::vec2(5.0, 4.0),
     );
-    out.push(Shape::rect_stroke(page, 1.0, Stroke::new(1.2, c)));
+    out.push(Shape::rect_stroke(page, 1.0, Stroke::new(1.2, c), egui::StrokeKind::Middle));
 }
 
 fn icon_duplicate(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -8732,7 +8724,7 @@ fn icon_delete(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Pos2::new(sr.min.x + 2.0, sr.min.y + sr.height() * 0.28),
         sr.max,
     );
-    out.push(Shape::rect_stroke(body, 1.0, s));
+    out.push(Shape::rect_stroke(body, 1.0, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [
             Pos2::new(sr.min.x, sr.min.y + sr.height() * 0.22),
@@ -8778,14 +8770,13 @@ fn icon_bring_front(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ),
-    ));
+        ), egui::StrokeKind::Middle));
     out.push(Shape::rect_filled(
         r1,
         1.0,
         Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 40),
     ));
-    out.push(Shape::rect_stroke(r1, 1.0, s));
+    out.push(Shape::rect_stroke(r1, 1.0, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [Pos2::new(cx, top - 1.0), Pos2::new(cx, top + 6.0)],
         s,
@@ -8824,9 +8815,8 @@ fn icon_send_back(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ),
-    ));
-    out.push(Shape::rect_stroke(r2, 1.0, s));
+        ), egui::StrokeKind::Middle));
+    out.push(Shape::rect_stroke(r2, 1.0, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [Pos2::new(cx, bot + 4.0), Pos2::new(cx, bot - 3.0)],
         s,
@@ -8851,13 +8841,11 @@ fn icon_fwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ),
-    ));
+        ), egui::StrokeKind::Middle));
     out.push(Shape::rect_stroke(
         Rect::from_center_size(Pos2::new(cx + 1.0, cy - 1.0), Vec2::new(10.0, 8.0)),
         1.0,
-        s,
-    ));
+        s, egui::StrokeKind::Middle));
     // "+" marker (Bring Forward = +1 z-order)
     let mx = cx + 1.0;
     let my = cy - 1.0;
@@ -8881,13 +8869,11 @@ fn icon_bwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ),
-    ));
+        ), egui::StrokeKind::Middle));
     out.push(Shape::rect_stroke(
         Rect::from_center_size(Pos2::new(cx - 1.0, cy + 1.0), Vec2::new(10.0, 8.0)),
         1.0,
-        s,
-    ));
+        s, egui::StrokeKind::Middle));
     // "−" marker (Send Backward = -1 z-order)
     let mx = cx - 1.0;
     let my = cy + 1.0;
@@ -8912,8 +8898,7 @@ fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: 
             out.push(Shape::rect_stroke(
                 Rect::from_min_size(Pos2::new(x_rect, y), Vec2::new(w, h)),
                 1.0,
-                s,
-            ));
+                s, egui::StrokeKind::Middle));
         }
     } else {
         let y = if lo_side { sr.min.y } else { sr.max.y };
@@ -8927,8 +8912,7 @@ fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: 
             out.push(Shape::rect_stroke(
                 Rect::from_min_size(Pos2::new(x, y_rect), Vec2::new(w, h)),
                 1.0,
-                s,
-            ));
+                s, egui::StrokeKind::Middle));
         }
     }
 }
@@ -8958,8 +8942,7 @@ fn icon_center_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         out.push(Shape::rect_stroke(
             Rect::from_center_size(Pos2::new(cx, y + 2.0), Vec2::new(w, 4.0)),
             1.0,
-            s,
-        ));
+            s, egui::StrokeKind::Middle));
     }
 }
 
@@ -8976,8 +8959,7 @@ fn icon_center_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         out.push(Shape::rect_stroke(
             Rect::from_center_size(Pos2::new(x + 2.0, cy), Vec2::new(4.0, h)),
             1.0,
-            s,
-        ));
+            s, egui::StrokeKind::Middle));
     }
 }
 
@@ -8992,8 +8974,7 @@ fn icon_space_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
                 Vec2::new(3.5, sr.height() - 6.0),
             ),
             1.0,
-            s,
-        ));
+            s, egui::StrokeKind::Middle));
     }
     let y = sr.max.y - 2.0;
     out.push(Shape::line_segment(
@@ -9021,8 +9002,7 @@ fn icon_space_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
                 Vec2::new(sr.width() - 6.0, 3.5),
             ),
             1.0,
-            s,
-        ));
+            s, egui::StrokeKind::Middle));
     }
     let x = sr.max.x - 2.0;
     out.push(Shape::line_segment(
@@ -9054,8 +9034,7 @@ fn icon_format_painter(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_stroke(
         Rect::from_min_size(Pos2::new(cx - 6.0, cy - 5.0), Vec2::new(10.0, 5.0)),
         1.0,
-        s,
-    ));
+        s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [Pos2::new(cx + 2.0, cy + 4.0), Pos2::new(cx + 2.0, cy + 7.0)],
         Stroke::new(1.2, c),
@@ -9069,8 +9048,7 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_stroke(
         Rect::from_min_size(sr.min, Vec2::new(sr.width() * 0.38, 4.5)),
         1.0,
-        s,
-    ));
+        s, egui::StrokeKind::Middle));
     out.push(Shape::rect_stroke(
         Rect::from_min_size(
             Pos2::new(sr.min.x + sr.width() * 0.45, sr.min.y),
@@ -9080,14 +9058,12 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.4,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
-        ),
-    ));
+        ), egui::StrokeKind::Middle));
     let y2 = sr.min.y + 7.0;
     out.push(Shape::rect_stroke(
         Rect::from_min_size(Pos2::new(sr.min.x, y2), Vec2::new(sr.width() * 0.30, 4.5)),
         1.0,
-        s,
-    ));
+        s, egui::StrokeKind::Middle));
     out.push(Shape::rect_stroke(
         Rect::from_min_size(
             Pos2::new(sr.min.x + sr.width() * 0.45, y2),
@@ -9097,8 +9073,7 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.4,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
-        ),
-    ));
+        ), egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [
             Pos2::new(sr.center().x - 1.0, sr.max.y - 5.0),
@@ -9276,8 +9251,8 @@ mod animator_tests {
         });
         out.shapes.into_iter().find_map(|cs| match cs.shape {
             egui::Shape::Mesh(m) => Some(m.texture_id),
-            egui::Shape::Rect(r) if r.fill_texture_id != egui::TextureId::default() => {
-                Some(r.fill_texture_id)
+            egui::Shape::Rect(r) if r.fill_texture_id() != egui::TextureId::default() => {
+                Some(r.fill_texture_id())
             }
             _ => None,
         })
@@ -9329,7 +9304,7 @@ mod render_behavior_tests {
             // Frame::none → the panel paints no background, so captured shapes are
             // exactly what `draw_control` emitted (no full-panel fill skewing bbox).
             egui::CentralPanel::default()
-                .frame(egui::Frame::none())
+                .frame(egui::Frame::NONE)
                 .show(ctx, |ui| {
                     let painter = ui.painter().clone();
                     draw_control(&painter, origin, ctrl, false, false, 1.0, 1.0, None);

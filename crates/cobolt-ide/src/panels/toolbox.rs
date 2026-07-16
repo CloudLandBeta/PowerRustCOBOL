@@ -513,10 +513,10 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
             Color32::from_rgba_premultiplied(120, 120, 140, 25)
         };
 
-        let rounding = visuals.rounding;
+        let rounding = visuals.corner_radius;
         ui.painter().rect_filled(rect, rounding, bg);
         ui.painter()
-            .rect_stroke(rect, rounding, Stroke::new(1.0, border_color));
+            .rect_stroke(rect, rounding, Stroke::new(1.0, border_color), egui::StrokeKind::Middle);
 
         // Theme-aware icon strokes: dark on light themes, light on dark ones.
         let theme = crate::theme::active();
@@ -583,7 +583,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         // ── Common ─────────────────────────────────────────────────────────────
         ControlType::Button => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 1.6));
-            painter.rect_stroke(b, r * 0.4, s);
+            painter.rect_stroke(b, r * 0.4, s, egui::StrokeKind::Middle);
             painter.line_segment(
                 [Pos2::new(c.x - r * 0.5, c.y), Pos2::new(c.x + r * 0.5, c.y)],
                 Stroke::new(1.0, dim),
@@ -600,7 +600,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::TextBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 1.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let ix = b.min.x + b.width() * 0.20;
             let (iy0, iy1) = (c.y - r * 0.38, c.y + r * 0.38);
             painter.line_segment([Pos2::new(ix, iy0), Pos2::new(ix, iy1)], s);
@@ -617,7 +617,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             let bsz = r * 1.2;
             let bc = Pos2::new(c.x - r * 0.75, c.y);
             let b = egui::Rect::from_center_size(bc, Vec2::splat(bsz));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             painter.line_segment(
                 [
                     Pos2::new(b.min.x + bsz * 0.18, b.center().y),
@@ -654,7 +654,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::ComboBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 1.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let divx = b.max.x - r * 0.75;
             painter.line_segment(
                 [
@@ -681,7 +681,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::ListBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let rh = b.height() / 4.0;
             painter.rect_filled(
                 egui::Rect::from_min_size(b.min, Vec2::new(b.width(), rh)),
@@ -695,7 +695,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::NumericUpDown => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 1.4));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let dvx = b.max.x - r * 0.78;
             let midy = b.center().y;
             painter.line_segment([Pos2::new(dvx, b.min.y), Pos2::new(dvx, b.max.y)], th);
@@ -732,7 +732,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::DateTimePicker => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.4, r * 2.2));
-            painter.rect_stroke(b, 1.2, s);
+            painter.rect_stroke(b, 1.2, s, egui::StrokeKind::Middle);
             let hry = b.min.y + b.height() * 0.28;
             painter.line_segment([Pos2::new(b.min.x, hry), Pos2::new(b.max.x, hry)], th);
             for bx in [b.min.x + b.width() * 0.28, b.min.x + b.width() * 0.72] {
@@ -771,7 +771,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         ControlType::Panel => {
             let shd =
                 egui::Rect::from_center_size(c + Vec2::new(1.5, 1.5), Vec2::new(r * 2.6, r * 2.2));
-            painter.rect_stroke(shd, 0.0, Stroke::new(0.8, dim));
+            painter.rect_stroke(shd, 0.0, Stroke::new(0.8, dim), egui::StrokeKind::Middle);
             let fr = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.2));
             painter.rect_filled(
                 fr,
@@ -783,14 +783,14 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                     (color.a() as f32 * 0.12) as u8,
                 ),
             );
-            painter.rect_stroke(fr, 0.0, s);
+            painter.rect_stroke(fr, 0.0, s, egui::StrokeKind::Middle);
         }
         ControlType::TabControl => {
             let body = egui::Rect::from_center_size(
                 c + Vec2::new(0.0, r * 0.3),
                 Vec2::new(r * 2.8, r * 1.8),
             );
-            painter.rect_stroke(body, 2.0, s);
+            painter.rect_stroke(body, 2.0, s, egui::StrokeKind::Middle);
             let tab = egui::Rect::from_min_size(
                 Pos2::new(body.min.x, body.min.y - r * 0.7),
                 Vec2::new(r * 1.2, r * 0.7),
@@ -817,7 +817,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::Splitter => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 2.2));
-            painter.rect_stroke(b, 0.0, th);
+            painter.rect_stroke(b, 0.0, th, egui::StrokeKind::Middle);
             painter.line_segment(
                 [Pos2::new(c.x, b.min.y + 2.5), Pos2::new(c.x, b.max.y - 2.5)],
                 s,
@@ -830,7 +830,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         // ── Data ───────────────────────────────────────────────────────────────
         ControlType::DataGrid => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.4));
-            painter.rect_stroke(b, 0.0, s);
+            painter.rect_stroke(b, 0.0, s, egui::StrokeKind::Middle);
             let hh = b.height() * 0.28;
             painter.rect_filled(
                 egui::Rect::from_min_size(b.min, Vec2::new(b.width(), hh)),
@@ -877,7 +877,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         // ── Graphics ───────────────────────────────────────────────────────────
         ControlType::PictureBox => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.6, r * 2.2));
-            painter.rect_stroke(b, 0.0, s);
+            painter.rect_stroke(b, 0.0, s, egui::StrokeKind::Middle);
             painter.circle_stroke(
                 Pos2::new(b.min.x + b.width() * 0.28, b.min.y + b.height() * 0.28),
                 r * 0.30,
@@ -917,7 +917,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         ControlType::Animator => {
             // Film/play motif: a frame with sprocket ticks + a centred play triangle.
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 2.0));
-            painter.rect_stroke(b, r * 0.25, s);
+            painter.rect_stroke(b, r * 0.25, s, egui::StrokeKind::Middle);
             for i in 0..3 {
                 let sx = b.min.x + b.width() * (0.25 + i as f32 * 0.25);
                 painter.line_segment(
@@ -948,7 +948,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         }
         ControlType::ProgressBar => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 0.95));
-            painter.rect_stroke(b, 2.0, s);
+            painter.rect_stroke(b, 2.0, s, egui::StrokeKind::Middle);
             let fill = egui::Rect::from_min_size(b.min, Vec2::new(b.width() * 0.62, b.height()));
             painter.rect_filled(fill, 2.0, dim);
             for i in 0..3 {
@@ -1017,13 +1017,13 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 let br =
                     egui::Rect::from_min_size(Pos2::new(bx, c.y - bh * 0.5), Vec2::new(bw, bh));
                 painter.rect_filled(br, 1.0, dim);
-                painter.rect_stroke(br, 1.0, th);
+                painter.rect_stroke(br, 1.0, th, egui::StrokeKind::Middle);
             }
         }
         ControlType::StatusBar => {
             let b = egui::Rect::from_center_size(c, Vec2::new(r * 2.8, r * 0.85));
             painter.rect_filled(b, 0.0, dim);
-            painter.rect_stroke(b, 0.0, s);
+            painter.rect_stroke(b, 0.0, s, egui::StrokeKind::Middle);
             for i in 1..3 {
                 let x = b.min.x + b.width() * i as f32 / 3.0;
                 painter.line_segment([Pos2::new(x, b.min.y), Pos2::new(x, b.max.y)], th);
@@ -1057,7 +1057,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
         ControlType::AgentObject => {
             let hc = c + Vec2::new(0.0, r * 0.14);
             let head = egui::Rect::from_center_size(hc, Vec2::new(r * 1.75, r * 1.28));
-            painter.rect_stroke(head, r * 0.28, s);
+            painter.rect_stroke(head, r * 0.28, s, egui::StrokeKind::Middle);
             let ey = head.center().y - r * 0.08;
             painter.circle_stroke(Pos2::new(hc.x - r * 0.36, ey), r * 0.20, th);
             painter.circle_stroke(Pos2::new(hc.x + r * 0.36, ey), r * 0.20, th);
@@ -1132,7 +1132,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             for h in &heights {
                 let br = egui::Rect::from_min_size(Pos2::new(bx, base_y - h), Vec2::new(bar_w, *h));
                 painter.rect_filled(br, 1.0, dim);
-                painter.rect_stroke(br, 1.0, s);
+                painter.rect_stroke(br, 1.0, s, egui::StrokeKind::Middle);
                 bx += bar_w + r * 0.2;
             }
             painter.line_segment(
@@ -1270,8 +1270,7 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             painter.rect_stroke(
                 egui::Rect::from_center_size(c, Vec2::new(r * 2.0, r * 1.6)),
                 2.0,
-                s,
-            );
+                s, egui::StrokeKind::Middle);
         }
     }
 }

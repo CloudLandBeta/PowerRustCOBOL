@@ -157,7 +157,7 @@ fn full_width_select(
     };
     if fill != egui::Color32::TRANSPARENT {
         ui.painter()
-            .rect_filled(rect, egui::Rounding::same(7.0), fill);
+            .rect_filled(rect, egui::CornerRadius::same(7), fill);
     }
 
     // Left-aligned, vertically-centred label. RichText colours (e.g. generated
@@ -476,7 +476,7 @@ fn draw_folder_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
         r.min + egui::vec2(0.0, tab_h * 0.45),
         egui::vec2(r.width(), r.height() - tab_h * 0.45),
     );
-    p.rect_stroke(body, 1.8, s);
+    p.rect_stroke(body, 1.8, s, egui::StrokeKind::Middle);
 }
 
 /// Indexed file / data cabinet (replacement for 🗂️). Two record lines + index accent tab.
@@ -484,7 +484,7 @@ fn draw_folder_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
 pub(crate) fn draw_indexed_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let s = egui::Stroke::new(1.55, c);
     let body = r.shrink(1.5);
-    p.rect_stroke(body, 1.4, s);
+    p.rect_stroke(body, 1.4, s, egui::StrokeKind::Middle);
     // Record / row lines inside the "file"
     for i in 0..3 {
         let y = body.min.y + body.height() * (0.30 + i as f32 * 0.18);
@@ -510,7 +510,7 @@ pub(crate) fn draw_indexed_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
 fn draw_document_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
     let s = egui::Stroke::new(1.5, c);
     let body = r.shrink(2.0);
-    p.rect_stroke(body, 1.5, s);
+    p.rect_stroke(body, 1.5, s, egui::StrokeKind::Middle);
     // Folded corner suggestion (small diagonal)
     let fold = egui::pos2(body.max.x - 5.0, body.min.y + 2.0);
     p.line_segment(
@@ -566,7 +566,7 @@ fn draw_lock_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
         egui::pos2(cx, cy + 3.2),
         egui::vec2(r.width() * 0.70, r.height() * 0.40),
     );
-    p.rect_stroke(body, 1.2, s);
+    p.rect_stroke(body, 1.2, s, egui::StrokeKind::Middle);
 }
 
 // ── Category tree node (L2) ─────────────────────────────────────────────────────
@@ -1451,7 +1451,7 @@ mod control_node_tests {
         let mut height = 0.0;
         let _ = ctx.run(input, |ctx| {
             egui::CentralPanel::default()
-                .frame(egui::Frame::none())
+                .frame(egui::Frame::NONE)
                 .show(ctx, |ui| {
                     let tr = crate::i18n::Language::English.tr();
                     let used = ui

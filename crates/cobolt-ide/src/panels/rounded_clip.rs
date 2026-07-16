@@ -72,9 +72,8 @@ fn label_frame(painter: &egui::Painter, rect: egui::Rect, radius: f32, name: &st
     );
     overlay.rect_stroke(
         rect,
-        egui::Rounding::same(radius),
-        egui::Stroke::new(1.5, color),
-    );
+        egui::CornerRadius::same(crate::cr8(radius)),
+        egui::Stroke::new(1.5, color), egui::StrokeKind::Middle);
     let t = 4.0;
     for c in [
         rect.left_top(),

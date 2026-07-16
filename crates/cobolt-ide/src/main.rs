@@ -36,6 +36,17 @@ pub mod welcome;
 use app::CoboltApp;
 use version::VERSION;
 
+/// Convert an `f32` corner radius to egui 0.31+'s `u8` unit (round + clamp).
+/// UI math stays in `f32`; conversion happens only at the egui boundary.
+pub fn cr8(v: f32) -> u8 {
+    v.round().clamp(0.0, 255.0) as u8
+}
+
+/// Convert an `f32` margin to egui 0.31+'s `i8` unit (round + clamp).
+pub fn mr8(v: f32) -> i8 {
+    v.round().clamp(-128.0, 127.0) as i8
+}
+
 fn main() -> eframe::Result<()> {
     // Initialise logging.
     tracing_subscriber::fmt()

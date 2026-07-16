@@ -1097,10 +1097,10 @@ pub(crate) fn chat_bubble_with_font_size(
         egui::Layout::left_to_right(egui::Align::TOP)
     };
     ui.with_layout(layout, |ui| {
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(fill)
-            .rounding(egui::Rounding::same(15.0))
-            .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+            .corner_radius(egui::CornerRadius::same(15))
+            .inner_margin(egui::Margin::symmetric(10, 6))
             .show(ui, |ui| {
                 ui.set_max_width(max_w);
                 ui.add(
@@ -1953,7 +1953,7 @@ impl EditorPanel {
     fn show_status_bar(&mut self, ctx: &Context) {
         let frame = egui::Frame::default()
             .fill(ctx.style().visuals.panel_fill)
-            .inner_margin(egui::Margin::symmetric(8.0, 3.0));
+            .inner_margin(egui::Margin::symmetric(8, 3));
         TopBottomPanel::bottom("editor_status")
             .frame(frame)
             .show(ctx, |ui| {
@@ -2710,7 +2710,7 @@ impl EditorPanel {
                 .interactable(true)
                 .show(ctx, |ui| {
                     egui::Frame::popup(ui.style())
-                        .rounding(egui::Rounding::same(7.0))
+                        .corner_radius(egui::CornerRadius::same(7))
                         .show(ui, |ui| {
                             ui.set_min_width(320.0);
                             ui.set_max_width(480.0);
@@ -2737,7 +2737,7 @@ impl EditorPanel {
                                                 .fill(Color32::from_rgba_unmultiplied(
                                                     65, 115, 225, 170,
                                                 ))
-                                                .rounding(egui::Rounding::same(4.0))
+                                                .corner_radius(egui::CornerRadius::same(4))
                                         } else {
                                             egui::Frame::default()
                                         };
@@ -2873,8 +2873,8 @@ impl EditorPanel {
                 .interactable(true)
                 .show(ctx, |ui| {
                     egui::Frame::popup(ui.style())
-                        .rounding(egui::Rounding::same(7.0))
-                        .inner_margin(egui::Margin::same(6.0))
+                        .corner_radius(egui::CornerRadius::same(7))
+                        .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
                             ui.set_min_width(bar_w - 12.0);
                             ui.horizontal(|ui| {

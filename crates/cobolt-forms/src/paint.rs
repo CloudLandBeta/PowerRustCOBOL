@@ -31,6 +31,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 // ── Public API (the designer-derived appearance) ─────────────────────────────
 
+/// Convert a model-space `f32` corner radius to egui 0.31+'s `u8` unit,
+/// rounding to the nearest pixel and clamping to the representable range.
+/// The `.cfrm` model keeps radii as `f32`; the conversion happens only here,
+/// at the paint edge.
+pub fn cr8(v: f32) -> u8 {
+    v.round().clamp(0.0, 255.0) as u8
+}
+
 /// Scale `base` uniformly about its centre by `scale` (1.0 = unchanged).
 /// Shared by the designer canvas, the preview window and the run form so that
 /// zoom/spin/flip animations resize controls identically everywhere.
@@ -350,7 +358,7 @@ fn button_content_layout(
 fn draw_control_border(
     painter: &egui::Painter,
     rect: Rect,
-    rounding: egui::Rounding,
+    rounding: egui::CornerRadius,
     style: &str,
     width: f32,
     color: Color32,
@@ -374,8 +382,7 @@ fn draw_control_border(
                     }
                 },
             ),
-            Stroke::new(bw, color),
-        );
+            Stroke::new(bw, color), egui::StrokeKind::Middle);
         return;
     }
 
@@ -554,7 +561,7 @@ pub fn draw_glass(
     // shifts the frost's hue by ~3.5%). Only set when the user actually picked a
     // BackgroundColor, so default controls stay fully translucent glass.
     bg_underlay: Option<Color32>,
-    rounding: impl Into<egui::Rounding>, // uniform `f32` corner OR per-corner Rounding
+    rounding: impl Into<egui::CornerRadius>, // uniform `f32` corner OR per-corner Rounding
     selected: bool,
     alpha_mul: f32,
 ) {
@@ -588,7 +595,7 @@ pub fn draw_glass(
     // clamped to half the smaller side. `max_radius` drives the uniform-ish bits
     // (shadow spread, fill inset) so a control with one rounded corner still looks
     // right (spec 017 — clip children to a container's rounded border).
-    let rnd0: egui::Rounding = rounding.into();
+    let rnd0: egui::CornerRadius = rounding.into();
     let cap = (w * 0.5).min(h * 0.5);
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
     let max_radius = rnd.nw.max(rnd.ne).max(rnd.sw).max(rnd.se);
@@ -632,8 +639,8 @@ pub fn draw_glass(
             }
 
             // Use the y closest to each corner edge for tightest inset
-            let left_inset = arc_inset(y_top, rnd.nw, y0).max(arc_inset(y_bot, rnd.sw, y1));
-            let right_inset = arc_inset(y_top, rnd.ne, y0).max(arc_inset(y_bot, rnd.se, y1));
+            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(y_bot, f32::from(rnd.sw), y1));
+            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(y_bot, f32::from(rnd.se), y1));
             let bx0 = x0 + left_inset;
             let bx1 = x1 - right_inset;
             if bx1 <= bx0 {
@@ -690,8 +697,7 @@ pub fn draw_glass(
     painter.rect_stroke(
         rect.shrink(half),
         round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-        Stroke::new(border_w, border_c),
-    );
+        Stroke::new(border_w, border_c), egui::StrokeKind::Middle);
 }
 
 /// Liquid Glass Enhanced — a two-part stack per the Setproduct spec:
@@ -717,7 +723,7 @@ pub fn draw_glass_enhanced(
     // See `draw_glass`: explicit user background painted solid under the frost;
     // `None` keeps the default translucent glass look.
     bg_underlay: Option<Color32>,
-    rounding: impl Into<egui::Rounding>,
+    rounding: impl Into<egui::CornerRadius>,
     selected: bool,
     alpha_mul: f32,
 ) {
@@ -746,7 +752,7 @@ pub fn draw_glass_enhanced(
     let w = (x1 - x0).max(1.0);
     let h = (y1 - y0).max(1.0);
 
-    let rnd0: egui::Rounding = rounding.into();
+    let rnd0: egui::CornerRadius = rounding.into();
     let cap = (w * 0.5).min(h * 0.5);
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
     let max_radius = rnd.nw.max(rnd.ne).max(rnd.sw).max(rnd.se);
@@ -784,8 +790,8 @@ pub fn draw_glass_enhanced(
             if y_bot <= y_top {
                 continue;
             }
-            let left_inset = arc_inset(y_top, rnd.nw, y0).max(arc_inset(y_bot, rnd.sw, y1));
-            let right_inset = arc_inset(y_top, rnd.ne, y0).max(arc_inset(y_bot, rnd.se, y1));
+            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(y_bot, f32::from(rnd.sw), y1));
+            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(y_bot, f32::from(rnd.se), y1));
             let bx0 = x0 + left_inset;
             let bx1 = x1 - right_inset;
             if bx1 <= bx0 {
@@ -838,8 +844,8 @@ pub fn draw_glass_enhanced(
             if yb <= yt {
                 continue;
             }
-            let li = arc_hi(yt, rnd.nw, y0);
-            let ri = arc_hi(yt, rnd.ne, y0);
+            let li = arc_hi(yt, f32::from(rnd.nw), y0);
+            let ri = arc_hi(yt, f32::from(rnd.ne), y0);
             let bx0 = x0 + li;
             let bx1 = x1 - ri;
             if bx1 <= bx0 {
@@ -868,7 +874,7 @@ pub fn draw_glass_enhanced(
             (c - inner_inset).max(1.0)
         }
     });
-    painter.rect_stroke(inner_rect, inner_round, Stroke::new(0.6, white(55)));
+    painter.rect_stroke(inner_rect, inner_round, Stroke::new(0.6, white(55)), egui::StrokeKind::Middle);
 
     // ── 6. Outer border edge ─────────────────────────────────────────────────
     let (border_w, border_c) = if selected {
@@ -888,14 +894,13 @@ pub fn draw_glass_enhanced(
     painter.rect_stroke(
         rect.shrink(half),
         round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-        Stroke::new(border_w, border_c),
-    );
+        Stroke::new(border_w, border_c), egui::StrokeKind::Middle);
 
     // ── 7. Stabilized plate (scrim under content) ────────────────────────────
     // A very subtle denser patch in the center area. This ensures text/icons
     // remain readable over hotspots and busy backgrounds. It is intentionally
     // barely visible on calm backgrounds — that subtlety is correct.
-    let plate_inset = (4.0 + max_radius * 0.3).min(w * 0.15).min(h * 0.15);
+    let plate_inset = (4.0 + f32::from(max_radius) * 0.3).min(w * 0.15).min(h * 0.15);
     let plate_rect = rect.shrink(plate_inset);
     if plate_rect.width() > 4.0 && plate_rect.height() > 4.0 {
         let plate_round = round_map(rnd, |c| (c - plate_inset).max(2.0));
@@ -921,7 +926,7 @@ pub fn draw_glass_neumorphic(
     rect: egui::Rect,
     base: Color32, // control's BackgroundColor — used as the literal surface fill
     bg_underlay: Option<Color32>, // explicit user background (overrides `base` when set)
-    rounding: impl Into<egui::Rounding>,
+    rounding: impl Into<egui::CornerRadius>,
     selected: bool,
     alpha_mul: f32,
 ) {
@@ -935,7 +940,7 @@ pub fn draw_glass_neumorphic(
     let w = (x1 - x0).max(1.0);
     let h = (y1 - y0).max(1.0);
 
-    let rnd0: egui::Rounding = rounding.into();
+    let rnd0: egui::CornerRadius = rounding.into();
     let cap = (w * 0.5).min(h * 0.5);
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
 
@@ -1036,8 +1041,7 @@ pub fn draw_glass_neumorphic(
         painter.rect_stroke(
             rect.shrink(half),
             round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-            Stroke::new(2.0, sel_color),
-        );
+            Stroke::new(2.0, sel_color), egui::StrokeKind::Middle);
     }
 }
 
@@ -1052,14 +1056,14 @@ pub fn draw_glass_neumorphic(
 pub fn draw_neumorphic_shadow_only(
     painter: &egui::Painter,
     rect: egui::Rect,
-    rounding: impl Into<egui::Rounding>,
+    rounding: impl Into<egui::CornerRadius>,
     alpha_mul: f32,
 ) {
     if alpha_mul <= 0.0 {
         return;
     }
     let am = alpha_mul.clamp(0.0, 1.0);
-    let rnd0: egui::Rounding = rounding.into();
+    let rnd0: egui::CornerRadius = rounding.into();
     let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
 
@@ -1146,7 +1150,7 @@ fn neumorphic_shadow_overlays(params: &NeumorphicShadowParams) -> bool {
 fn draw_neumorphic_overlay_shadow_only(
     painter: &egui::Painter,
     rect: egui::Rect,
-    rounding: impl Into<egui::Rounding>,
+    rounding: impl Into<egui::CornerRadius>,
     alpha_mul: f32,
 ) {
     let params = painter
@@ -1168,7 +1172,7 @@ fn neumorphic_inset_shadow_metrics(params: &NeumorphicShadowParams) -> (f32, usi
 fn draw_neumorphic_overlay_shadow(
     painter: &egui::Painter,
     rect: egui::Rect,
-    rounding: impl Into<egui::Rounding>,
+    rounding: impl Into<egui::CornerRadius>,
     params: &NeumorphicShadowParams,
     alpha_mul: f32,
 ) {
@@ -1177,7 +1181,7 @@ fn draw_neumorphic_overlay_shadow(
     }
 
     let am = alpha_mul.clamp(0.0, 1.0);
-    let rnd0: egui::Rounding = rounding.into();
+    let rnd0: egui::CornerRadius = rounding.into();
     let cap = (rect.width() * 0.5).min(rect.height() * 0.5);
     let rnd = round_map(rnd0, |c| c.max(0.0).min(cap));
     let (spread, layers, opacity_scale, _stroke_w) = neumorphic_inset_shadow_metrics(params);
@@ -1227,8 +1231,8 @@ fn draw_neumorphic_overlay_shadow(
             }
             let left_r = if top { rnd.nw } else { rnd.sw };
             let right_r = if top { rnd.ne } else { rnd.se };
-            let left_inset = edge_inset(distance, left_r);
-            let right_inset = edge_inset(distance, right_r);
+            let left_inset = edge_inset(distance, f32::from(left_r));
+            let right_inset = edge_inset(distance, f32::from(right_r));
             let band = egui::Rect::from_min_max(
                 Pos2::new(rect.left() + left_inset, y0.max(rect.top())),
                 Pos2::new(rect.right() - right_inset, y1),
@@ -1261,8 +1265,8 @@ fn draw_neumorphic_overlay_shadow(
             }
             let top_r = if left { rnd.nw } else { rnd.ne };
             let bottom_r = if left { rnd.sw } else { rnd.se };
-            let top_inset = edge_inset(distance, top_r);
-            let bottom_inset = edge_inset(distance, bottom_r);
+            let top_inset = edge_inset(distance, f32::from(top_r));
+            let bottom_inset = edge_inset(distance, f32::from(bottom_r));
             let band = egui::Rect::from_min_max(
                 Pos2::new(x0.max(rect.left()), rect.top() + top_inset),
                 Pos2::new(x1, rect.bottom() - bottom_inset),
@@ -1295,7 +1299,7 @@ fn draw_neumorphic_overlay_shadow(
 pub fn draw_neumorphic_user_border(
     painter: &egui::Painter,
     rect: egui::Rect,
-    rounding: egui::Rounding,
+    rounding: egui::CornerRadius,
     border_width: f32,
     alpha_mul: f32,
 ) {
@@ -1335,9 +1339,9 @@ pub fn draw_neumorphic_user_border(
             Pos2::new(rect.center().x, rect.max.y + bw),
         );
         let p_top = painter.with_clip_rect(painter.clip_rect().intersect(top_clip));
-        p_top.rect_stroke(inner, rnd, Stroke::new(bw, light));
+        p_top.rect_stroke(inner, rnd, Stroke::new(bw, light), egui::StrokeKind::Middle);
         let p_left = painter.with_clip_rect(painter.clip_rect().intersect(left_clip));
-        p_left.rect_stroke(inner, rnd, Stroke::new(bw, light));
+        p_left.rect_stroke(inner, rnd, Stroke::new(bw, light), egui::StrokeKind::Middle);
     }
     // Dark edges (bottom + right)
     {
@@ -1356,9 +1360,9 @@ pub fn draw_neumorphic_user_border(
             Pos2::new(rect.max.x + bw, rect.max.y + bw),
         );
         let p_bottom = painter.with_clip_rect(painter.clip_rect().intersect(bottom_clip));
-        p_bottom.rect_stroke(inner, rnd, Stroke::new(bw, dark));
+        p_bottom.rect_stroke(inner, rnd, Stroke::new(bw, dark), egui::StrokeKind::Middle);
         let p_right = painter.with_clip_rect(painter.clip_rect().intersect(right_clip));
-        p_right.rect_stroke(inner, rnd, Stroke::new(bw, dark));
+        p_right.rect_stroke(inner, rnd, Stroke::new(bw, dark), egui::StrokeKind::Middle);
     }
 }
 
@@ -1399,8 +1403,7 @@ pub fn nv_card(
         painter.rect_stroke(
             rect,
             12.0,
-            Stroke::new(if selected { 2.0 } else { 1.0 }, border),
-        );
+            Stroke::new(if selected { 2.0 } else { 1.0 }, border), egui::StrokeKind::Middle);
     }
 }
 
@@ -1451,7 +1454,7 @@ pub fn nv_icon_clock(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
 pub fn nv_icon_robot(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     let head =
         egui::Rect::from_center_size(c + Vec2::new(0.0, s * 0.1), Vec2::new(s * 1.7, s * 1.5));
-    painter.rect_stroke(head, s * 0.28, st);
+    painter.rect_stroke(head, s * 0.28, st, egui::StrokeKind::Middle);
     // antenna
     painter.line_segment(
         [
@@ -1648,7 +1651,7 @@ pub fn draw_control(
             debug_frame(
                 painter,
                 frame_rect,
-                egui::Rounding::same(corner_radius(ctrl)),
+                egui::CornerRadius::same(crate::paint::cr8(corner_radius(ctrl))),
                 0,
                 "CONTAINER_SHADOW",
                 container_diag,
@@ -1819,7 +1822,7 @@ pub fn draw_control(
             // Rectangle / RoundRect — draw frosted glass using the user's FillColor as tint.
             draw_glass_auto(painter, rect, fill_color, rr, selected, alpha_mul);
             if thickness > 0.0 {
-                painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c));
+                painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c), egui::StrokeKind::Middle);
             }
         } else {
             let fill = if fill_style == "None" {
@@ -1828,7 +1831,7 @@ pub fn draw_control(
                 alpha_color(fill_color)
             };
             painter.rect_filled(rect, rr, fill);
-            painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c));
+            painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c), egui::StrokeKind::Middle);
         }
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
             draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -1933,7 +1936,7 @@ pub fn draw_control(
                                body: Color32,
                                sheen: bool,
                                rim: Color32| {
-            // Rounding follows the SHORT axis so a tall/narrow pill (a vertical
+            // CornerRadius follows the SHORT axis so a tall/narrow pill (a vertical
             // slider track) stays a capsule instead of over-rounding on height.
             let r = pill.width().min(pill.height()) * 0.5;
             painter.rect_filled(pill, r, body);
@@ -1976,7 +1979,7 @@ pub fn draw_control(
                     .extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
                 painter.add(egui::Shape::mesh(mesh));
             }
-            painter.rect_stroke(pill, r, Stroke::new(1.0, rim));
+            painter.rect_stroke(pill, r, Stroke::new(1.0, rim), egui::StrokeKind::Middle);
         };
 
         // ── Helper: draw radial lens highlight at bottom-center of thumb ──────
@@ -2259,8 +2262,7 @@ pub fn draw_control(
             painter.rect_stroke(
                 rect,
                 3.0,
-                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-            );
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
         }
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
             draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -2314,8 +2316,7 @@ pub fn draw_control(
         painter.rect_stroke(
             rect,
             2.0,
-            Stroke::new(if selected { 2.0 } else { 1.0 }, border_c),
-        );
+            Stroke::new(if selected { 2.0 } else { 1.0 }, border_c), egui::StrokeKind::Middle);
         if ctrl
             .get_prop("ShowValue")
             .map(|v| v.as_bool())
@@ -2452,7 +2453,7 @@ pub fn draw_control(
         }
         if selected {
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
-            painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c));
+            painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c), egui::StrokeKind::Middle);
         }
     } else if container_gradient {
         // Directional gradient background (spec 015). Fill via a per-vertex mesh,
@@ -2477,7 +2478,7 @@ pub fn draw_control(
         let face_rect = debug_frame(
             painter,
             frame_rect,
-            egui::Rounding::ZERO,
+            egui::CornerRadius::ZERO,
             1,
             "CONTAINER_GRADIENT",
             container_diag,
@@ -2493,7 +2494,7 @@ pub fn draw_control(
         let border_rect = debug_frame(
             painter,
             frame_rect,
-            egui::Rounding::same(corner),
+            egui::CornerRadius::same(crate::paint::cr8(corner)),
             2,
             "CONTAINER_BORDER",
             container_diag,
@@ -2501,8 +2502,7 @@ pub fn draw_control(
         painter.rect_stroke(
             border_rect,
             corner,
-            Stroke::new(if selected { 2.0 } else { 1.0 }, bc),
-        );
+            Stroke::new(if selected { 2.0 } else { 1.0 }, bc), egui::StrokeKind::Middle);
     } else if let Some((pack, skin)) = &theme_skin {
         let state = if selected {
             ControlState::Focused
@@ -2517,7 +2517,7 @@ pub fn draw_control(
                 debug_frame(
                     painter,
                     frame_rect,
-                    egui::Rounding::ZERO,
+                    egui::CornerRadius::ZERO,
                     1,
                     "CONTAINER_THEME",
                     container_diag,
@@ -2532,7 +2532,7 @@ pub fn draw_control(
                     debug_frame(
                         painter,
                         frame_rect,
-                        egui::Rounding::same(corner),
+                        egui::CornerRadius::same(crate::paint::cr8(corner)),
                         2,
                         "CONTAINER_SELECTED",
                         container_diag,
@@ -2543,8 +2543,7 @@ pub fn draw_control(
                 painter.rect_stroke(
                     sel_rect,
                     corner,
-                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-                );
+                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
             }
         } else {
             // Image missing / undecodable → never fail; fall back to glass (R11).
@@ -2701,8 +2700,7 @@ pub fn draw_control(
             painter.rect_stroke(
                 sel_rect,
                 frame_round,
-                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-            );
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
         }
     }
 
@@ -2800,8 +2798,7 @@ pub fn draw_control(
                     painter.rect_stroke(
                         rect,
                         corner,
-                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-                    );
+                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
                 }
                 if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
                     draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -2839,8 +2836,7 @@ pub fn draw_control(
                     painter.rect_stroke(
                         rect,
                         corner,
-                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-                    );
+                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
                 }
                 if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
                     draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -3182,8 +3178,7 @@ pub fn draw_control(
             painter.rect_stroke(
                 rect,
                 frame_round,
-                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-            );
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
         }
     }
 
@@ -3716,17 +3711,16 @@ fn paint_picturebox_texture(
         else {
             return;
         };
-        painter
-            .with_clip_rect(rect)
-            .add(egui::Shape::Rect(egui::epaint::RectShape {
-                rect: visible,
-                rounding: egui::Rounding::same(clamped_corner),
-                fill: Color32::from_white_alpha(alpha),
-                stroke: Stroke::NONE,
-                blur_width: 0.0,
-                fill_texture_id: texture_id,
-                uv,
-            }));
+        painter.with_clip_rect(rect).add(egui::Shape::Rect(
+            egui::epaint::RectShape::new(
+                visible,
+                egui::CornerRadius::same(cr8(clamped_corner)),
+                Color32::from_white_alpha(alpha),
+                Stroke::NONE,
+                egui::StrokeKind::Middle,
+            )
+            .with_texture(texture_id, uv),
+        ));
     } else {
         let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         painter
@@ -4210,8 +4204,7 @@ pub fn glass_combo_header(
     painter.rect_stroke(
         rect,
         6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)),
-    );
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)), egui::StrokeKind::Middle);
     painter.text(
         Pos2::new(rect.min.x + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -4273,8 +4266,7 @@ pub fn glass_combo_popup(
     pp.rect_stroke(
         popup_rect,
         6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)),
-    );
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)), egui::StrokeKind::Middle);
 
     let mut action = None;
     for (i, item) in items.iter().enumerate() {
@@ -4363,8 +4355,7 @@ pub fn draw_animator(
             painter.rect_stroke(
                 rect,
                 round,
-                Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 150, 230, a)),
-            );
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 150, 230, a)), egui::StrokeKind::Middle);
             let label = if source.is_empty() {
                 "▶ Animator"
             } else {
@@ -4384,8 +4375,7 @@ pub fn draw_animator(
         painter.rect_stroke(
             rect,
             round,
-            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-        );
+            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
     }
 }
 
@@ -4854,7 +4844,7 @@ pub fn draw_chart_preview(
     alpha_mul: f32,
     glass: bool,
     selected: bool,
-    rounding: egui::Rounding, // per-corner: own radius, lifted to a container border
+    rounding: egui::CornerRadius, // per-corner: own radius, lifted to a container border
 ) {
     use crate::model::ControlType as CT;
 
@@ -4925,7 +4915,7 @@ pub fn draw_chart_preview(
             "CHART_BORDER",
             chart_diag,
         );
-        painter.rect_stroke(border_rect, rounding, Stroke::new(1.0, border));
+        painter.rect_stroke(border_rect, rounding, Stroke::new(1.0, border), egui::StrokeKind::Middle);
     }
 
     let frame_painter = painter;
@@ -5459,7 +5449,7 @@ pub fn draw_chart_preview(
             "CHART_OUTLINE",
             chart_diag,
         );
-        frame_painter.rect_stroke(outline_rect, rounding, Stroke::new(1.0, outline));
+        frame_painter.rect_stroke(outline_rect, rounding, Stroke::new(1.0, outline), egui::StrokeKind::Middle);
     }
 }
 
@@ -5684,7 +5674,7 @@ fn container_image_rounding(
     rad: f32,
     flags: [bool; 4],
     own: f32,
-) -> egui::Rounding {
+) -> egui::CornerRadius {
     let cap = 0.5 * visible.width().min(visible.height());
     let rr = |raw: f32| own.max(raw.max(0.0).min(cap));
     let chord_cut = |inset: f32| -> f32 {
@@ -5751,21 +5741,21 @@ fn container_image_rounding(
         rr((chord_cut(inset_y) - inset_x).min(chord_cut(inset_x) - inset_y))
     };
 
-    egui::Rounding {
-        nw: if flags[0] { nw() } else { own },
-        ne: if flags[1] { ne() } else { own },
-        sw: if flags[2] { sw() } else { own },
-        se: if flags[3] { se() } else { own },
+    egui::CornerRadius {
+        nw: if flags[0] { crate::paint::cr8(nw()) } else { crate::paint::cr8(own) },
+        ne: if flags[1] { crate::paint::cr8(ne()) } else { crate::paint::cr8(own) },
+        sw: if flags[2] { crate::paint::cr8(sw()) } else { crate::paint::cr8(own) },
+        se: if flags[3] { crate::paint::cr8(se()) } else { crate::paint::cr8(own) },
     }
 }
 
 /// Apply `f` to each corner radius of a `Rounding`.
-fn round_map(r: egui::Rounding, f: impl Fn(f32) -> f32) -> egui::Rounding {
-    egui::Rounding {
-        nw: f(r.nw),
-        ne: f(r.ne),
-        sw: f(r.sw),
-        se: f(r.se),
+fn round_map(r: egui::CornerRadius, f: impl Fn(f32) -> f32) -> egui::CornerRadius {
+    egui::CornerRadius {
+        nw: cr8(f(f32::from(r.nw))),
+        ne: cr8(f(f32::from(r.ne))),
+        sw: cr8(f(f32::from(r.sw))),
+        se: cr8(f(f32::from(r.se))),
     }
 }
 
@@ -5823,7 +5813,7 @@ fn debug_frame_offset(slot: usize) -> Vec2 {
 fn debug_frame(
     painter: &egui::Painter,
     rect: egui::Rect,
-    rounding: egui::Rounding,
+    rounding: egui::CornerRadius,
     slot: usize,
     name: &str,
     enabled: bool,
@@ -5847,7 +5837,7 @@ fn debug_frame(
     );
     // The layer's true silhouette (its real rounding) at its exploded position, so a
     // square corner reads plainly against the rounded ones fanned alongside it.
-    overlay.rect_stroke(rect, rounding, Stroke::new(1.25, color));
+    overlay.rect_stroke(rect, rounding, Stroke::new(1.25, color), egui::StrokeKind::Middle);
     // Crosshairs on the four square (un-rounded) box corners — the exact leak points.
     let t = 4.0;
     for c in [
@@ -5925,7 +5915,7 @@ fn push_notch_fan(
 /// each vertex via `uv_fn` (texture) + `color` (tint).
 fn notch_mesh(
     rect: egui::Rect,
-    rounding: egui::Rounding,
+    rounding: egui::CornerRadius,
     uv_fn: &dyn Fn(egui::Pos2) -> egui::Pos2,
     color: Color32,
 ) -> egui::epaint::Mesh {
@@ -5934,10 +5924,10 @@ fn notch_mesh(
     let cap = 0.5 * rect.width().min(rect.height());
     let cl = |v: f32| v.max(0.0).min(cap);
     let (x0, y0, x1, y1) = (rect.min.x, rect.min.y, rect.max.x, rect.max.y);
-    let nw = cl(rounding.nw);
-    let ne = cl(rounding.ne);
-    let sw = cl(rounding.sw);
-    let se = cl(rounding.se);
+    let nw = cl(f32::from(rounding.nw));
+    let ne = cl(f32::from(rounding.ne));
+    let sw = cl(f32::from(rounding.sw));
+    let se = cl(f32::from(rounding.se));
     push_notch_fan(
         &mut m,
         egui::pos2(x0, y0),
@@ -5994,12 +5984,12 @@ fn notch_mesh(
 pub fn draw_container_notch_mask(
     painter: &egui::Painter,
     rect: egui::Rect,
-    rounding: egui::Rounding,
+    rounding: egui::CornerRadius,
     fill: Color32,
     image: Option<(egui::TextureId, egui::Rect)>,
     img_alpha: u8,
 ) {
-    if rounding.nw < 0.5 && rounding.ne < 0.5 && rounding.sw < 0.5 && rounding.se < 0.5 {
+    if rounding.nw < crate::paint::cr8(0.5) && rounding.ne < crate::paint::cr8(0.5) && rounding.sw < crate::paint::cr8(0.5) && rounding.se < crate::paint::cr8(0.5) {
         return;
     }
     debug_frame(
@@ -6052,12 +6042,12 @@ pub fn restore_container_outline(
     debug_frame(
         painter,
         rect,
-        egui::Rounding::same(radius),
+        egui::CornerRadius::same(crate::paint::cr8(radius)),
         4,
         "CONTAINER_RESTORE_OUTLINE",
         frame_diagnostics_enabled(),
     );
-    let rnd = egui::Rounding::same(radius);
+    let rnd = egui::CornerRadius::same(crate::paint::cr8(radius));
 
     // Neumorphic surfaces have no glass rim and no hard user border — their
     // edge accents (outer contour, inner bevel, tinted rim) live only on the
@@ -6096,16 +6086,14 @@ pub fn restore_container_outline(
             p.rect_stroke(
                 rect.shrink(half),
                 round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-                Stroke::new(bw, Color32::from_rgba_premultiplied(170, 170, 170, 170)),
-            );
+                Stroke::new(bw, Color32::from_rgba_premultiplied(170, 170, 170, 170)), egui::StrokeKind::Middle);
         }
         if let Some((bw, bc)) = user_border {
             let half = bw * 0.5;
             p.rect_stroke(
                 rect.shrink(half),
                 round_map(rnd, |c| if c <= 0.0 { 0.0 } else { (c - half).max(1.0) }),
-                Stroke::new(bw, bc),
-            );
+                Stroke::new(bw, bc), egui::StrokeKind::Middle);
         }
     };
 
@@ -6125,12 +6113,12 @@ pub fn restore_container_outline(
 /// to the container radius on any corner that lands on the parent's rounded border
 /// (when `ctrl` carries a `_ContainerClip`). Used for non-image fills/strokes that
 /// must follow a container corner (e.g. the Animator placeholder/film) — spec 017.
-fn control_border_rounding(ctrl: &Control, rect: egui::Rect, own: f32) -> egui::Rounding {
+fn control_border_rounding(ctrl: &Control, rect: egui::Rect, own: f32) -> egui::CornerRadius {
     if let Some((border, rad, flags)) = parse_container_clip(ctrl) {
         let visible = rect.intersect(border);
         container_image_rounding(visible, border, rad, flags, own)
     } else {
-        egui::Rounding::same(own)
+        egui::CornerRadius::same(crate::paint::cr8(own))
     }
 }
 
@@ -6155,7 +6143,7 @@ pub fn draw_media_image(
     // control rect (and the container border). We draw one textured rect over it
     // with the UV remapped from the full image, so the texture stays put.
     let mut visible = dest.intersect(rect);
-    let mut rounding = egui::Rounding::same(own);
+    let mut rounding = egui::CornerRadius::same(crate::paint::cr8(own));
     if let Some((border, rad, flags)) = parse_container_clip(ctrl) {
         visible = visible.intersect(border);
         rounding = container_image_rounding(visible, border, rad, flags, own);
@@ -6176,17 +6164,10 @@ pub fn draw_media_image(
         ),
     );
     let tint = Color32::from_rgba_premultiplied(255, 255, 255, a);
-    painter
-        .with_clip_rect(rect)
-        .add(egui::Shape::Rect(egui::epaint::RectShape {
-            rect: visible,
-            rounding,
-            fill: tint,
-            stroke: Stroke::NONE,
-            blur_width: 0.0,
-            fill_texture_id: tex_id,
-            uv,
-        }));
+    painter.with_clip_rect(rect).add(egui::Shape::Rect(
+        egui::epaint::RectShape::new(visible, rounding, tint, Stroke::NONE, egui::StrokeKind::Middle)
+            .with_texture(tex_id, uv),
+    ));
 }
 
 pub fn control_colors(ct: &ControlType, selected: bool) -> (Color32, Color32, Color32) {
@@ -6328,7 +6309,7 @@ pub fn draw_glass_auto(
     painter: &egui::Painter,
     rect: egui::Rect,
     base: Color32,
-    rounding: impl Into<egui::Rounding>,
+    rounding: impl Into<egui::CornerRadius>,
     selected: bool,
     alpha_mul: f32,
 ) {
@@ -6345,7 +6326,7 @@ pub fn draw_glass_auto_bg(
     rect: egui::Rect,
     base: Color32,
     bg_underlay: Option<Color32>,
-    rounding: impl Into<egui::Rounding>,
+    rounding: impl Into<egui::CornerRadius>,
     selected: bool,
     alpha_mul: f32,
 ) {
@@ -7054,7 +7035,7 @@ mod theme_render_tests {
                     draw_control_border(
                         painter,
                         rect,
-                        egui::Rounding::same(3.0),
+                        egui::CornerRadius::same(3),
                         style,
                         2.0,
                         Color32::from_rgb(80, 100, 140),
@@ -7262,14 +7243,14 @@ mod theme_render_tests {
         let inside_arc_band =
             egui::Rect::from_min_max(Pos2::new(25.0, 35.0), Pos2::new(100.0, 110.0));
         let r = container_image_rounding(inside_arc_band, border, 60.0, flags, 0.0);
-        assert_eq!(r.nw, 0.0);
+        assert_eq!(r.nw, 0);
 
         // A child that actually crosses the parent corner still receives rounding,
         // but inset-aware rounding is much smaller than the full parent radius.
         let crossing_arc = egui::Rect::from_min_max(Pos2::new(0.0, 30.0), Pos2::new(100.0, 130.0));
         let r = container_image_rounding(crossing_arc, border, 60.0, flags, 0.0);
-        assert!(r.nw > 0.0, "corner crossing parent arc should be clipped");
-        assert!(r.nw < 60.0, "inset child must not get full parent radius");
+        assert!(r.nw > 0, "corner crossing parent arc should be clipped");
+        assert!(r.nw < 60, "inset child must not get full parent radius");
     }
 
     #[test]

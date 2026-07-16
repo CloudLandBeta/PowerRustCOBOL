@@ -30,7 +30,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
     verified 2026-07-15).
   - Verify: `cargo build --workspace` green.
 
-- [ ] **T3 — Step 1: egui 0.30** (R1, R8)
+- [x] **T3 — Step 1: egui 0.30** (R1, R8) ✓ 4889991 — gate: 0 errors, 0 deprecations, 160/161 ide tests (1 pre-existing main failure, sync-log)
   - Files: 5× `Cargo.toml` (egui-family 0.30 + matching `egui_commonmark`);
     ~7 `Area::new` sites; any hit-test-rewrite fallout (`interact` closures)
   - Do: lockstep bump; fix `Area::new(Id)` signature; audit
