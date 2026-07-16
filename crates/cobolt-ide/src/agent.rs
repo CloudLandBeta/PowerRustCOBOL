@@ -434,43 +434,219 @@ const PROMPT_FILE: &str = "system-prompt.md";
 /// `system-prompt.md`): it asks for COBOL in a fenced block, not JSON change-sets.
 const ASSISTANT_PROMPT_FILE: &str = "assistant-prompt.md";
 const SKILLS_DIR: &str = "skills";
+const STEERING_FILE: &str = "steering.md";
+pub const FORM_DESIGNER_AGENT_DIR: &str = "form-designer-agent";
+pub const EVENT_HANDLER_AGENT_DIR: &str = "cobol-event-handler-agent";
+pub const RUSTCOBOL_SKILL_FILE: &str = "rustcobol-extensions.md";
+pub const FORM_DESIGNER_SKILL_FILE: &str = "form-designer.md";
+pub const EVENT_HANDLER_SKILL_FILE: &str = "event-handler.md";
+
+const FORM_DESIGNER_STEERING: &str = r#"# Form Designer Agent Steering
+
+- Build form changes as structured operations only; do not describe changes that are not present in the JSON change-set.
+- Use the supplied project inventory before claiming a file, form, indexed file, control, data item, property, or event does not exist.
+- Use exact control property names from the supplied schema. If the user uses a friendly name, map it to the real property before emitting an operation.
+- Prefer inline PowerRustCOBOL object syntax for generated COBOL: `<control>::<method>(...)` and `<control>::<property>`.
+- Never remove required COBOL divisions from generated handlers. If the correct change is unclear after validation feedback, ask the developer for directions.
+"#;
+
+const EVENT_HANDLER_STEERING: &str = r#"# COBOL Event Handler Script Agent Steering
+
+- Return a complete event-handler body only when the user asks to write or change code.
+- The editable body must include `ENVIRONMENT DIVISION.`, `DATA DIVISION.`, and `PROCEDURE DIVISION.`.
+- Do not return `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK`, or `END PROGRAM`; the IDE owns that scaffold.
+- Preserve existing declarations and code unless the user explicitly asks to change them.
+- Use inline PowerRustCOBOL object syntax: `<control>::<method>(...)` and `<control>::<property>`. Do not use `CALL` for control methods or properties.
+- If a property, method, data item, or intended behavior cannot be determined, ask the developer for directions instead of guessing.
+"#;
+
+const FORM_DESIGNER_SKILL: &str = r#"# Form Designer Agent Skill
+
+The Form Designer Agent receives:
+
+- A project tree inventory including forms, generated COBOL, indexed files, common code, assets, and documentation.
+- The current form with controls, events, properties, methods, and data-binding information.
+- A schema of valid operations: deploy controls, set properties, generate event handlers, create procedures, or answer with a message.
+
+When creating controls inside containers, always set the correct parent/container target in the operation. For TabControl pages, target the requested tab page rather than the TabControl shell.
+
+For property requests, use exact PowerRustCOBOL property names. Examples:
+
+- dropshadow, drop shadow, shadow on -> `ShadowEnabled`
+- selected tab color, active tab color -> `SelectedTabColor`
+- icon image path -> `IconPath`
+
+For indexed-file workflows, inspect the project indexed-file inventory and use IndexedFile controls and their methods when available.
+"#;
+
+const EVENT_HANDLER_SKILL: &str = r#"# COBOL Event Handler Script Agent Skill
+
+Generate event-handler COBOL that is valid in the PowerRustCOBOL nested-program body edited by the IDE.
+
+Expected shape:
+
+```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-VALUE PIC X(80).
+       PROCEDURE DIVISION.
+           *> code here
+```
+
+Use inline control access:
+
+```cobol
+       SET Button-1::Text TO "Save".
+       SET Panel-1::ShadowEnabled TO 1.
+       Button-1::Refresh().
+```
+
+Do not use `CALL` for form/control methods or properties. Keep `CALL` only for real runtime/library procedures that have no inline method equivalent.
+"#;
+
+const RUSTCOBOL_SKILL: &str = r#"# PowerRustCOBOL Extensions Skill
+
+PowerRustCOBOL extends COBOL-85 with inline form/control access:
+
+- Get a property with `<control>::<property>`.
+- Set a property with `SET <control>::<property> TO <value>`.
+- Invoke a method with `<control>::<method>(<parameters>)`.
+
+Generated COBOL must remain COBOL-85 compatible unless a documented PowerRustCOBOL extension is required. Preserve divisions, data declarations, paragraph structure, and existing user code.
+"#;
 
 /// Base IDE `agentic_ai` directory (always loaded).
 pub fn agentic_dir() -> PathBuf {
     PathBuf::from(AGENTIC_DIR)
 }
 
-/// Project-specific overrides directory inside the IDE `agentic_ai` directory.
+/// Legacy project-specific overrides directory inside the IDE `agentic_ai`
+/// directory. Kept so older projects keep working, but new projects use
+/// `project_agentic_root()` directly inside the project.
 pub fn project_agentic_dir(project_dir: &Path) -> Option<PathBuf> {
     project_dir
         .file_name()
         .map(|name| agentic_dir().join("projects").join(name))
 }
 
-/// The effective system prompt for a project (R14).
-pub fn effective_prompt(project_dir: &Path) -> String {
-    let mut text = String::new();
+/// Project-owned `agentic_ai` directory shown in the Project Tree.
+pub fn project_agentic_root(project_dir: &Path) -> PathBuf {
+    project_dir.join(AGENTIC_DIR)
+}
 
-    // Load global prompt
-    let global_path = agentic_dir().join(PROMPT_FILE);
-    if let Ok(content) = std::fs::read_to_string(&global_path) {
-        text.push_str(&content);
-    } else {
-        text.push_str("You are an expert dev agent. No prompt found.");
+pub fn project_agent_dir(project_dir: &Path, agent_dir: &str) -> PathBuf {
+    project_agentic_root(project_dir).join(agent_dir)
+}
+
+fn default_form_designer_prompt() -> String {
+    std::fs::read_to_string(agentic_dir().join(PROMPT_FILE))
+        .unwrap_or_else(|_| "You are the PowerRustCOBOL Form Designer Agent.".to_string())
+}
+
+fn default_event_handler_prompt() -> String {
+    let base = std::fs::read_to_string(agentic_dir().join(ASSISTANT_PROMPT_FILE))
+        .unwrap_or_else(|_| crate::llm::DEFAULT_SYSTEM_PROMPT.to_string());
+    format!("{base}\n\n{EVENT_HANDLER_STEERING}")
+}
+
+fn write_if_missing(path: &Path, content: &str) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Could not create {}: {e}", parent.display()))?;
+    }
+    std::fs::write(path, content).map_err(|e| format!("Could not write {}: {e}", path.display()))
+}
+
+/// Create the project-local editable agent files if they do not exist yet.
+pub fn ensure_project_agentic_files(project_dir: &Path) -> Result<(), String> {
+    if project_dir.as_os_str().is_empty() {
+        return Ok(());
     }
 
-    // Append project-specific prompt
-    if let Some(proj_dir) = project_agentic_dir(project_dir) {
-        let proj_path = proj_dir.join(PROMPT_FILE);
-        if let Ok(content) = std::fs::read_to_string(&proj_path) {
-            if !text.is_empty() {
-                text.push_str("\n\n");
+    let form_dir = project_agent_dir(project_dir, FORM_DESIGNER_AGENT_DIR);
+    let form_skills = form_dir.join(SKILLS_DIR);
+    write_if_missing(&form_dir.join(PROMPT_FILE), &default_form_designer_prompt())?;
+    write_if_missing(&form_dir.join(STEERING_FILE), FORM_DESIGNER_STEERING)?;
+    write_if_missing(&form_skills.join(RUSTCOBOL_SKILL_FILE), RUSTCOBOL_SKILL)?;
+    write_if_missing(
+        &form_skills.join(FORM_DESIGNER_SKILL_FILE),
+        FORM_DESIGNER_SKILL,
+    )?;
+
+    let event_dir = project_agent_dir(project_dir, EVENT_HANDLER_AGENT_DIR);
+    let event_skills = event_dir.join(SKILLS_DIR);
+    write_if_missing(
+        &event_dir.join(PROMPT_FILE),
+        &default_event_handler_prompt(),
+    )?;
+    write_if_missing(&event_dir.join(STEERING_FILE), EVENT_HANDLER_STEERING)?;
+    write_if_missing(&event_skills.join(RUSTCOBOL_SKILL_FILE), RUSTCOBOL_SKILL)?;
+    write_if_missing(
+        &event_skills.join(EVENT_HANDLER_SKILL_FILE),
+        EVENT_HANDLER_SKILL,
+    )?;
+    Ok(())
+}
+
+fn read_or_default(path: &Path, default: String) -> String {
+    std::fs::read_to_string(path).unwrap_or(default)
+}
+
+fn load_agent_references(agent_dir: &Path) -> String {
+    let mut out = String::new();
+    if let Ok(text) = std::fs::read_to_string(agent_dir.join(STEERING_FILE)) {
+        out.push_str(&text);
+    }
+
+    let mut files: Vec<PathBuf> = std::fs::read_dir(agent_dir.join(SKILLS_DIR))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|x| x == "md").unwrap_or(false))
+        .collect();
+    files.sort();
+
+    for f in &files {
+        if let Ok(text) = std::fs::read_to_string(f) {
+            if !out.is_empty() {
+                out.push_str("\n\n");
             }
-            text.push_str(&content);
+            out.push_str(&text);
         }
     }
+    out
+}
 
-    text
+pub fn effective_form_designer_prompt(project_dir: &Path) -> String {
+    let _ = ensure_project_agentic_files(project_dir);
+    let path = project_agent_dir(project_dir, FORM_DESIGNER_AGENT_DIR).join(PROMPT_FILE);
+    read_or_default(&path, default_form_designer_prompt())
+}
+
+pub fn load_form_designer_skills(project_dir: &Path) -> String {
+    let _ = ensure_project_agentic_files(project_dir);
+    load_agent_references(&project_agent_dir(project_dir, FORM_DESIGNER_AGENT_DIR))
+}
+
+pub fn effective_event_handler_prompt(project_dir: &Path) -> String {
+    let _ = ensure_project_agentic_files(project_dir);
+    let path = project_agent_dir(project_dir, EVENT_HANDLER_AGENT_DIR).join(PROMPT_FILE);
+    read_or_default(&path, default_event_handler_prompt())
+}
+
+pub fn load_event_handler_skills(project_dir: &Path) -> String {
+    let _ = ensure_project_agentic_files(project_dir);
+    load_agent_references(&project_agent_dir(project_dir, EVENT_HANDLER_AGENT_DIR))
+}
+
+/// The effective system prompt for a project (R14).
+pub fn effective_prompt(project_dir: &Path) -> String {
+    effective_form_designer_prompt(project_dir)
 }
 
 /// The effective **general assistant** prompt (code editor / event editor).
@@ -502,37 +678,7 @@ pub fn effective_assistant_prompt(project_dir: &Path) -> String {
 /// Concatenated text of every `*.md` skill under `agentic_ai/skills/` (R21),
 /// plus any project-specific skills under `agentic_ai/projects/<project>/skills/`.
 pub fn load_skills(project_dir: &Path) -> String {
-    let mut out = String::new();
-
-    let mut append_skills_from_dir = |dir: &Path| {
-        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().map(|x| x == "md").unwrap_or(false))
-            .collect();
-        files.sort();
-
-        for f in &files {
-            if let Ok(text) = std::fs::read_to_string(f) {
-                if !out.is_empty() {
-                    out.push_str("\n\n");
-                }
-                out.push_str(&text);
-            }
-        }
-    };
-
-    // Load global skills
-    append_skills_from_dir(&agentic_dir().join(SKILLS_DIR));
-
-    // Load project-specific skills
-    if let Some(proj_dir) = project_agentic_dir(project_dir) {
-        append_skills_from_dir(&proj_dir.join(SKILLS_DIR));
-    }
-
-    out
+    load_form_designer_skills(project_dir)
 }
 
 // ── Request CONTEXT builder (T3) ─────────────────────────────────────────────

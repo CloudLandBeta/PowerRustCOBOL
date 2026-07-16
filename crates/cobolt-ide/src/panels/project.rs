@@ -29,7 +29,7 @@ use cobolt_indexed::{IndexedDefinition, IndexedField};
 
 use crate::i18n::Tr;
 use crate::panels::toolbox;
-use crate::project_model::{Category, CoboltProject, ElementStatus, FileKind};
+use crate::project_model::{relative_to, Category, CoboltProject, ElementStatus, FileKind};
 
 /// Icon size in the tree — 80 % larger than the default body text (~12 px).
 const ICON_SIZE: f32 = 21.6;
@@ -74,6 +74,8 @@ pub enum ProjectPanelEvent {
     ConfirmRemoveForm(PathBuf),
     /// User requested deleting generated COBOL from the project tree.
     ConfirmRemoveGenerated(PathBuf),
+    /// User requested deleting an asset from the project tree.
+    ConfirmRemoveAsset(PathBuf),
     /// User requested removing an indexed file — prompts confirmation.
     ConfirmRemoveIndexed(String),
     /// User clicked the top/root project node in the tree (📁 ProjectName).
@@ -326,7 +328,9 @@ impl ProjectPanel {
                     );
                 })
                 .body(|ui| {
-                    // L2 — the five fixed, IDE-owned categories.
+                    // L2 — editable, project-local agent prompts/skills first,
+                    // then the fixed IDE-owned project categories.
+                    self.show_agentic_ai_category(ui, &cur, events, tr);
                     for cat in Category::TOP {
                         self.show_category(ui, cat, proj, &cur, events, tr);
                     }
@@ -568,6 +572,183 @@ fn draw_lock_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
 // ── Category tree node (L2) ─────────────────────────────────────────────────────
 
 impl ProjectPanel {
+    fn show_agentic_ai_category(
+        &mut self,
+        ui: &mut Ui,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
+    ) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let ensure_error = crate::agent::ensure_project_agentic_files(&root).err();
+
+        let id = ui.make_persistent_id("project_cat_agentic_ai");
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+            .show_header(ui, |ui| {
+                tree_icon(ui, draw_folder_icon);
+                ui.label(RichText::new(tr.cat_agentic_ai).strong());
+            })
+            .body(|ui| {
+                if let Some(err) = ensure_error {
+                    ui.label(
+                        RichText::new(format!("  {err}"))
+                            .small()
+                            .color(Color32::from_rgb(220, 120, 120)),
+                    );
+                    return;
+                }
+                self.show_agent_node(
+                    ui,
+                    &root,
+                    crate::agent::FORM_DESIGNER_AGENT_DIR,
+                    tr.agent_form_designer,
+                    cur,
+                    events,
+                    tr,
+                );
+                self.show_agent_node(
+                    ui,
+                    &root,
+                    crate::agent::EVENT_HANDLER_AGENT_DIR,
+                    tr.agent_event_handler,
+                    cur,
+                    events,
+                    tr,
+                );
+            });
+        ui.add_space(2.0);
+    }
+
+    fn show_agent_node(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        agent_dir: &str,
+        label: &str,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
+    ) {
+        let id = ui.make_persistent_id(("project_agent", agent_dir));
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+            .show_header(ui, |ui| {
+                ui.add_space(8.0);
+                tree_icon(ui, draw_folder_icon);
+                ui.label(RichText::new(label).strong());
+            })
+            .body(|ui| {
+                self.agent_file_row(
+                    ui,
+                    root,
+                    &format!("agentic_ai/{agent_dir}/system-prompt.md"),
+                    "system-prompt.md",
+                    cur,
+                    events,
+                );
+                self.agent_file_row(
+                    ui,
+                    root,
+                    &format!("agentic_ai/{agent_dir}/steering.md"),
+                    tr.agent_steering,
+                    cur,
+                    events,
+                );
+
+                let skills_id = ui.make_persistent_id(("project_agent_skills", agent_dir));
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    skills_id,
+                    false,
+                )
+                .show_header(ui, |ui| {
+                    ui.add_space(18.0);
+                    tree_icon(ui, draw_folder_icon);
+                    ui.label(RichText::new(tr.agent_skills).strong());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button("+")
+                            .on_hover_text(format!("{}: {}", tr.tree_create_hover, tr.agent_skills))
+                            .clicked()
+                        {
+                            if let Some((rel, path)) = self.create_agent_skill_file(root, agent_dir)
+                            {
+                                events.push(ProjectPanelEvent::Select(sel_file(&rel)));
+                                events.push(ProjectPanelEvent::Open(path));
+                            }
+                        }
+                    });
+                })
+                .body(|ui| {
+                    for skill in self.agent_skill_files(root, agent_dir) {
+                        let rel = format!("agentic_ai/{agent_dir}/skills/{skill}");
+                        self.agent_file_row(ui, root, &rel, &skill, cur, events);
+                    }
+                });
+            });
+    }
+
+    fn agent_skill_files(&self, root: &Path, agent_dir: &str) -> Vec<String> {
+        let dir = root.join("agentic_ai").join(agent_dir).join("skills");
+        let mut files: Vec<String> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                (path.extension().and_then(|e| e.to_str()) == Some("md"))
+                    .then(|| path.file_name()?.to_str().map(|s| s.to_string()))
+                    .flatten()
+            })
+            .collect();
+        files.sort();
+        files
+    }
+
+    fn create_agent_skill_file(&self, root: &Path, agent_dir: &str) -> Option<(String, PathBuf)> {
+        let skill_dir = root.join("agentic_ai").join(agent_dir).join("skills");
+        std::fs::create_dir_all(&skill_dir).ok()?;
+        for idx in 1..1000 {
+            let name = format!("custom-skill-{idx}.md");
+            let path = skill_dir.join(&name);
+            if !path.exists() {
+                let title = name.trim_end_matches(".md");
+                let text = format!(
+                    "# {title}\n\nDescribe the project-specific guidance this agent should follow.\n"
+                );
+                std::fs::write(&path, text).ok()?;
+                let rel = format!("agentic_ai/{agent_dir}/skills/{name}");
+                return Some((rel, path));
+            }
+        }
+        None
+    }
+
+    fn agent_file_row(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        rel: &str,
+        label: &str,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+    ) {
+        let key = sel_file(rel);
+        let is_sel = cur.as_deref() == Some(key.as_str());
+        let resp = ui
+            .horizontal(|ui| {
+                ui.add_space(28.0);
+                tree_icon(ui, draw_document_icon);
+                full_width_select(ui, is_sel, RichText::new(label)).on_hover_text(rel)
+            })
+            .inner;
+        if resp.clicked() || resp.double_clicked() {
+            events.push(ProjectPanelEvent::Select(key));
+            events.push(ProjectPanelEvent::Open(root.join(rel)));
+        }
+    }
+
     /// mtime-cached load of a `.cidx` for the field sub-tree.
     fn indexed_for(&mut self, abs: &Path) -> Option<IndexedDefinition> {
         let mtime = std::fs::metadata(abs).and_then(|m| m.modified()).ok()?;
@@ -615,6 +796,7 @@ impl ProjectPanel {
         let is_generated = cat == Category::Generated;
         let is_forms = cat == Category::Forms;
         let is_indexed = cat == Category::IndexedFiles;
+        let is_assets = cat == Category::Assets;
         let root = self.root.clone();
 
         let id = ui.make_persistent_id(("project_cat", label));
@@ -645,6 +827,12 @@ impl ProjectPanel {
                 }
             })
             .body(|ui| {
+                if is_assets {
+                    if let Some(root) = &root {
+                        self.show_assets_folder(ui, root, cur, events);
+                    }
+                    return;
+                }
                 let files: Vec<String> = proj.files_in(cat).to_vec();
                 if files.is_empty() {
                     let hint = if is_generated {
@@ -686,6 +874,147 @@ impl ProjectPanel {
                 }
             });
         ui.add_space(2.0);
+    }
+
+    fn assets_dir(root: &Path) -> PathBuf {
+        let preferred = root.join("Assets");
+        if preferred.exists() {
+            preferred
+        } else {
+            let legacy = root.join("assets");
+            if legacy.exists() {
+                legacy
+            } else {
+                preferred
+            }
+        }
+    }
+
+    fn show_assets_folder(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+    ) {
+        let dir = Self::assets_dir(root);
+        let _ = std::fs::create_dir_all(&dir);
+        if !dir.exists() {
+            ui.label(
+                RichText::new("  Could not create Assets folder.")
+                    .color(Color32::from_rgb(220, 120, 120))
+                    .small(),
+            );
+            return;
+        }
+
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        entries.sort_by(|a, b| {
+            let ad = a.is_dir();
+            let bd = b.is_dir();
+            bd.cmp(&ad).then_with(|| {
+                a.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+                    .cmp(
+                        &b.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_ascii_lowercase(),
+                    )
+            })
+        });
+
+        if entries.is_empty() {
+            ui.label(
+                RichText::new("  Drop/import files into Assets.")
+                    .color(crate::theme::active().text_dim)
+                    .small(),
+            );
+            return;
+        }
+
+        for path in entries {
+            self.show_asset_path(ui, root, &path, 0, cur, events);
+        }
+    }
+
+    fn show_asset_path(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        path: &Path,
+        depth: usize,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+    ) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        if path.is_dir() {
+            let id = ui.make_persistent_id(("asset_dir", path));
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                .show_header(ui, |ui| {
+                    ui.add_space(8.0 + depth as f32 * 14.0);
+                    tree_icon(ui, draw_folder_icon);
+                    ui.label(RichText::new(name).strong());
+                })
+                .body(|ui| {
+                    let mut children: Vec<PathBuf> = std::fs::read_dir(path)
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|e| e.path())
+                        .collect();
+                    children.sort_by(|a, b| {
+                        let ad = a.is_dir();
+                        let bd = b.is_dir();
+                        bd.cmp(&ad).then_with(|| {
+                            a.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("")
+                                .to_ascii_lowercase()
+                                .cmp(
+                                    &b.file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("")
+                                        .to_ascii_lowercase(),
+                                )
+                        })
+                    });
+                    for child in children {
+                        self.show_asset_path(ui, root, &child, depth + 1, cur, events);
+                    }
+                });
+            return;
+        }
+
+        let rel = relative_to(path, root).unwrap_or_else(|| path.display().to_string());
+        let key = sel_file(&rel);
+        let is_sel = cur.as_deref() == Some(key.as_str());
+        let resp = ui
+            .horizontal(|ui| {
+                ui.add_space(8.0 + depth as f32 * 14.0);
+                status_dot(ui, self.status_for(&rel));
+                tree_icon(ui, draw_document_icon);
+                if ui
+                    .small_button("🗑")
+                    .on_hover_text(format!("Delete asset {rel}"))
+                    .clicked()
+                {
+                    events.push(ProjectPanelEvent::ConfirmRemoveAsset(path.to_path_buf()));
+                }
+                full_width_select(ui, is_sel, RichText::new(name)).on_hover_text(&rel)
+            })
+            .inner;
+        if resp.clicked() || resp.double_clicked() {
+            events.push(ProjectPanelEvent::Select(key));
+            events.push(ProjectPanelEvent::Open(path.to_path_buf()));
+        }
     }
 
     /// A form item (L3) that expands to its controls grouped by toolbox category;

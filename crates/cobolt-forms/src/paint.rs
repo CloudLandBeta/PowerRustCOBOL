@@ -3665,6 +3665,16 @@ fn picturebox_svg_texture(
     Some(handle)
 }
 
+/// Load an SVG texture at the requested logical size, rasterizing from vector
+/// data for that size instead of magnifying a previously rasterized texture.
+pub fn load_svg_texture_at_size(
+    ctx: &egui::Context,
+    path: &str,
+    logical_size: Vec2,
+) -> Option<egui::TextureHandle> {
+    picturebox_svg_texture(ctx, path, logical_size)
+}
+
 fn picturebox_rounded_image_rect_uv(
     control_rect: egui::Rect,
     image_dest: egui::Rect,

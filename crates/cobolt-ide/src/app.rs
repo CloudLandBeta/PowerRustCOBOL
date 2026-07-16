@@ -263,6 +263,9 @@ pub struct CoboltApp {
     // Inline indexed-file inspector in the Main Pane
     indexed_inspect: Option<IndexedInspectState>,
 
+    // Inline asset preview in the Main Pane
+    asset_preview: Option<AssetPreviewState>,
+
     /// Indexed files that were created or last edited via the raw COBOL text
     /// editor. For these files we keep the editor visible / preferred and
     /// do not offer (or lock down) the properties pane for structural changes.
@@ -323,6 +326,7 @@ pub struct CoboltApp {
     project_path: Option<PathBuf>,
     pending_form_delete: Option<PathBuf>,
     pending_generated_delete: Option<PathBuf>,
+    pending_asset_delete: Option<PathBuf>,
     pending_user_control_delete: Option<String>,
     pending_indexed_delete: Option<String>,
     delete_cidx_file: bool,
@@ -487,6 +491,7 @@ const PROJECT_FOLDERS: &[&str] = &[
     "forms",
     "indexed",
     "generated",
+    "Assets",
     "assets",
     "docs",
     "bin",
@@ -507,6 +512,40 @@ struct IndexedInspectState {
     /// raw COBOL-85 text editor. Structural edits via the properties/tree pane
     /// are discouraged/locked; the editor remains the primary/visible surface.
     prefer_raw_editor: bool,
+}
+
+#[derive(Clone)]
+struct AssetPreviewState {
+    path: PathBuf,
+    rel: String,
+    content: AssetPreviewContent,
+    zoom_percent: f32,
+    search_open: bool,
+    search_query: String,
+    animation_playing: bool,
+    animation_frame: usize,
+    animation_last_tick: Option<std::time::Instant>,
+}
+
+#[derive(Clone)]
+enum AssetPreviewContent {
+    Image {
+        texture: egui::TextureHandle,
+        size: egui::Vec2,
+        svg_path: Option<PathBuf>,
+    },
+    Animation {
+        frames: Vec<AssetAnimationFrame>,
+        size: egui::Vec2,
+    },
+    Text(String),
+    Binary(Vec<u8>),
+}
+
+#[derive(Clone)]
+struct AssetAnimationFrame {
+    texture: egui::TextureHandle,
+    delay: std::time::Duration,
 }
 
 /// Grid browser state for one `.cidx`.
@@ -734,6 +773,7 @@ impl CoboltApp {
             indexed_grids: Vec::new(),
             inspect: None,
             indexed_inspect: None,
+            asset_preview: None,
             raw_preferred_indexed: std::collections::HashSet::new(),
             checked: std::collections::HashMap::new(),
             form_runtimes: Vec::new(),
@@ -762,6 +802,7 @@ impl CoboltApp {
             project_path: None,
             pending_form_delete: None,
             pending_generated_delete: None,
+            pending_asset_delete: None,
             pending_user_control_delete: None,
             pending_indexed_delete: None,
             delete_cidx_file: false,
@@ -2514,7 +2555,7 @@ impl CoboltApp {
                     FileKind::Source => "src",
                     FileKind::Form => "forms",
                     FileKind::Indexed => "data",
-                    FileKind::Asset => "assets",
+                    FileKind::Asset => "Assets",
                     FileKind::Documentation => "docs",
                 };
                 let Some(fname) = path.file_name() else {
@@ -2555,6 +2596,12 @@ impl CoboltApp {
             proj.add_file_to(&rel, category);
         }
         self.do_save_project();
+        if kind == FileKind::Asset {
+            self.show_project_settings = false;
+            self.inspect = None;
+            self.indexed_inspect = None;
+            self.open_asset_preview(proj_dir.join(&rel));
+        }
     }
 
     fn new_indexed_file_dialog(&mut self) {
@@ -4614,6 +4661,7 @@ impl CoboltApp {
 
         out.push_str(&Self::benchmark_metadata_markdown(cfg, metrics, report));
         out.push_str("## Benchmark dashboard\n\n");
+        out.push_str(&Self::benchmark_pdf_dashboard_mermaid(metrics));
         if let Some(overall) = Self::metric_score(metrics, "overall_score") {
             out.push_str(&format!("**Overall competency:** {:.0}%\n\n", overall));
         }
@@ -4642,6 +4690,63 @@ impl CoboltApp {
         out.push_str(report.trim());
         out.push_str("\n\n");
         out
+    }
+
+    fn benchmark_pdf_dashboard_mermaid(metrics: &serde_json::Value) -> String {
+        let overall = Self::metric_score(metrics, "overall_score").unwrap_or(0.0);
+        let decision = if overall >= 90.0
+            && Self::metric_score(metrics, "unsupported_feature_avoidance").unwrap_or(0.0) >= 90.0
+            && Self::metric_score(metrics, "hallucination_resistance").unwrap_or(0.0) >= 90.0
+        {
+            "Recommended"
+        } else if overall >= 75.0 {
+            "Use with review"
+        } else {
+            "Not recommended"
+        };
+
+        let mut out = String::new();
+        out.push_str("```mermaid\n");
+        out.push_str("flowchart LR\n");
+        out.push_str(&format!(
+            "  Overall[{}]\n",
+            Self::mermaid_label(&format!("Overall {:.0} percent {}", overall, decision))
+        ));
+        out.push_str("  Overall-->Scores[Supported scope scores]\n");
+        for (idx, (label, key, fallback_key)) in Self::benchmark_scope_scores().iter().enumerate() {
+            if let Some(score) = Self::benchmark_metric_score(metrics, key, fallback_key) {
+                let node = format!("M{idx}");
+                out.push_str(&format!(
+                    "  Scores-->{node}[{}]\n",
+                    Self::mermaid_label(&format!("{label} {:.0}", score)),
+                ));
+            }
+        }
+        out.push_str("```\n\n");
+        out
+    }
+
+    fn mermaid_label(text: &str) -> String {
+        let mut label = String::new();
+        let mut last_was_space = false;
+        for c in text.chars() {
+            let next = if c.is_ascii_alphanumeric() { c } else { ' ' };
+            if next == ' ' {
+                if !last_was_space && !label.is_empty() {
+                    label.push(next);
+                }
+                last_was_space = true;
+            } else {
+                label.push(next);
+                last_was_space = false;
+            }
+        }
+        let label = label.trim();
+        if label.is_empty() {
+            "Score".to_string()
+        } else {
+            label.to_string()
+        }
     }
 
     fn render_llm_benchmark_dashboard(ui: &mut egui::Ui, metrics: &serde_json::Value) {
@@ -5314,21 +5419,6 @@ impl CoboltApp {
             }
         }
         if action.fetch_models {
-            // When the system prompt is empty, (re)load it from the project's
-            // agentic_ai/assistant-prompt.md template — but never overwrite a prompt
-            // the developer has written. (This is the general code/event assistant
-            // prompt, distinct from the dev agent's system-prompt.md.)
-            let proj_dir = self
-                .project_path
-                .as_ref()
-                .and_then(|p| p.parent())
-                .map(|p| p.to_path_buf());
-            if let (Some(form), Some(dir)) = (&mut self.settings_form, &proj_dir) {
-                if form.draft.llm_system_prompt.trim().is_empty() {
-                    form.draft.llm_system_prompt = crate::agent::effective_assistant_prompt(dir);
-                    form.sync_prompt_editor_from_draft();
-                }
-            }
             if let Some(form) = &self.settings_form {
                 if let Some(provider) = crate::llm::Provider::from_id(&form.draft.llm_provider) {
                     self.llm_test_status = Some(tr.ai_detecting.to_string());
@@ -5574,8 +5664,177 @@ impl CoboltApp {
 
     /// Open a file in the editor, marking RAD-generated COBOL read-only (blue).
     fn open_in_editor(&mut self, path: PathBuf) {
+        if self.path_is_asset(&path) {
+            self.open_asset_preview(path);
+            return;
+        }
+        self.asset_preview = None;
         let read_only = self.path_is_generated(&path);
         self.editor.open_file_ro(path, read_only);
+    }
+
+    fn path_is_asset(&self, path: &std::path::Path) -> bool {
+        self.project_dir()
+            .and_then(|dir| relative_to(path, &dir))
+            .map(|rel| {
+                let rel = rel.replace('\\', "/").to_ascii_lowercase();
+                rel.starts_with("assets/")
+            })
+            .unwrap_or(false)
+    }
+
+    fn open_asset_preview(&mut self, path: PathBuf) {
+        let rel = self
+            .project_dir()
+            .and_then(|dir| relative_to(&path, &dir))
+            .unwrap_or_else(|| path.display().to_string());
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let content = if Self::asset_text_ext(&ext) {
+            std::fs::read_to_string(&path)
+                .map(AssetPreviewContent::Text)
+                .unwrap_or_else(|_| {
+                    AssetPreviewContent::Binary(std::fs::read(&path).unwrap_or_default())
+                })
+        } else if Self::asset_animation_ext(&ext) {
+            self.load_asset_animation(&path)
+                .or_else(|| self.load_asset_image(&path, &ext))
+                .unwrap_or_else(|| {
+                    AssetPreviewContent::Binary(std::fs::read(&path).unwrap_or_default())
+                })
+        } else if Self::asset_image_ext(&ext) {
+            self.load_asset_image(&path, &ext).unwrap_or_else(|| {
+                AssetPreviewContent::Binary(std::fs::read(&path).unwrap_or_default())
+            })
+        } else {
+            AssetPreviewContent::Binary(std::fs::read(&path).unwrap_or_default())
+        };
+        self.asset_preview = Some(AssetPreviewState {
+            path,
+            rel,
+            content,
+            zoom_percent: 100.0,
+            search_open: false,
+            search_query: String::new(),
+            animation_playing: false,
+            animation_frame: 0,
+            animation_last_tick: None,
+        });
+    }
+
+    fn load_asset_image(&self, path: &Path, ext: &str) -> Option<AssetPreviewContent> {
+        if ext.eq_ignore_ascii_case("svg") {
+            let tex =
+                cobolt_forms::paint::load_image_texture(&self.egui_ctx, &path.to_string_lossy())?;
+            return Some(AssetPreviewContent::Image {
+                size: tex.size_vec2(),
+                svg_path: Some(path.to_path_buf()),
+                texture: tex,
+            });
+        }
+        let bytes = std::fs::read(path).ok()?;
+        let img = image::load_from_memory(&bytes).ok()?;
+        let rgba = img.to_rgba8();
+        let size = [rgba.width() as usize, rgba.height() as usize];
+        let color = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+        let tex = self.egui_ctx.load_texture(
+            format!("asset-preview:{}", path.display()),
+            color,
+            egui::TextureOptions::LINEAR,
+        );
+        Some(AssetPreviewContent::Image {
+            size: tex.size_vec2(),
+            svg_path: None,
+            texture: tex,
+        })
+    }
+
+    fn load_asset_animation(&self, path: &Path) -> Option<AssetPreviewContent> {
+        use image::AnimationDecoder;
+
+        let file = std::fs::File::open(path).ok()?;
+        let reader = std::io::BufReader::new(file);
+        let decoder = image::codecs::gif::GifDecoder::new(reader).ok()?;
+        let frames = decoder.into_frames().collect_frames().ok()?;
+        let mut preview_frames = Vec::new();
+        let mut logical_size = egui::Vec2::ZERO;
+        for (idx, frame) in frames.into_iter().enumerate() {
+            let (num, den) = frame.delay().numer_denom_ms();
+            let delay_ms = if den == 0 {
+                100
+            } else {
+                ((num as f32 / den as f32).round() as u64).max(20)
+            };
+            let rgba = frame.into_buffer();
+            let size = [rgba.width() as usize, rgba.height() as usize];
+            if logical_size == egui::Vec2::ZERO {
+                logical_size = egui::vec2(size[0] as f32, size[1] as f32);
+            }
+            let color = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_raw());
+            let texture = self.egui_ctx.load_texture(
+                format!("asset-animation:{}:{idx}", path.display()),
+                color,
+                egui::TextureOptions::LINEAR,
+            );
+            preview_frames.push(AssetAnimationFrame {
+                texture,
+                delay: std::time::Duration::from_millis(delay_ms),
+            });
+        }
+        (!preview_frames.is_empty()).then_some(AssetPreviewContent::Animation {
+            frames: preview_frames,
+            size: logical_size,
+        })
+    }
+
+    fn asset_text_ext(ext: &str) -> bool {
+        matches!(
+            ext,
+            "txt"
+                | "md"
+                | "markdown"
+                | "ini"
+                | "json"
+                | "toml"
+                | "yaml"
+                | "yml"
+                | "csv"
+                | "tsv"
+                | "xml"
+                | "html"
+                | "htm"
+                | "css"
+                | "js"
+                | "rs"
+                | "cbl"
+                | "cob"
+                | "cpy"
+                | "log"
+        )
+    }
+
+    fn asset_image_ext(ext: &str) -> bool {
+        matches!(
+            ext,
+            "png"
+                | "jpg"
+                | "jpeg"
+                | "bmp"
+                | "gif"
+                | "webp"
+                | "apng"
+                | "tif"
+                | "tiff"
+                | "avif"
+                | "svg"
+        )
+    }
+
+    fn asset_animation_ext(ext: &str) -> bool {
+        matches!(ext, "gif")
     }
 
     /// True when `path` is RAD-generated code in the open project (read-only).
@@ -5588,6 +5847,421 @@ impl CoboltApp {
             }
         }
         false
+    }
+
+    fn show_asset_preview(&mut self, ctx: &Context, _tr: &Tr) {
+        let Some(preview) = self.asset_preview.clone() else {
+            return;
+        };
+        let search_shortcut =
+            ctx.input(|i| i.key_pressed(egui::Key::F) && (i.modifiers.command || i.modifiers.ctrl));
+        if search_shortcut {
+            if let Some(p) = self.asset_preview.as_mut() {
+                p.search_open = true;
+            }
+        }
+        self.advance_asset_animation(ctx);
+
+        let theme = crate::theme::active();
+        let frame = crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, &theme);
+        let mut close = false;
+        let mut zoom_delta = 0.0;
+        let mut zoom_exact: Option<f32> = None;
+        let mut toggle_play = false;
+        egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Asset preview");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+            ui.label(
+                egui::RichText::new(preview.rel.as_str())
+                    .small()
+                    .color(theme.text_dim),
+            );
+            ui.separator();
+
+            let is_image = matches!(
+                &preview.content,
+                AssetPreviewContent::Image { .. } | AssetPreviewContent::Animation { .. }
+            );
+            let is_animation = matches!(&preview.content, AssetPreviewContent::Animation { .. });
+            if is_image {
+                ui.horizontal(|ui| {
+                    if ui.button("-").on_hover_text("Zoom out").clicked() {
+                        zoom_delta = -10.0;
+                    }
+                    let mut z = format!("{:.0}%", preview.zoom_percent);
+                    let resp = ui.add_sized(
+                        egui::vec2(70.0, 28.0),
+                        egui::TextEdit::singleline(&mut z).horizontal_align(egui::Align::Center),
+                    );
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        let cleaned = z.trim().trim_end_matches('%');
+                        if let Ok(value) = cleaned.parse::<f32>() {
+                            zoom_exact = Some(value);
+                        }
+                    }
+                    if ui.button("+").on_hover_text("Zoom in").clicked() {
+                        zoom_delta = 10.0;
+                    }
+                    let mut slider_zoom = if preview.zoom_percent <= 0.0 {
+                        100.0
+                    } else {
+                        preview.zoom_percent
+                    };
+                    let slider = egui::Slider::new(&mut slider_zoom, 10.0..=999.0)
+                        .show_value(false)
+                        .text("Zoom");
+                    if ui.add_sized(egui::vec2(220.0, 24.0), slider).changed() {
+                        zoom_exact = Some(slider_zoom);
+                    }
+                    if ui.button("Fit").clicked() {
+                        zoom_exact = Some(0.0);
+                    }
+                    if is_animation {
+                        let label = if preview.animation_playing {
+                            "Pause"
+                        } else {
+                            "Play"
+                        };
+                        if ui.button(label).clicked() {
+                            toggle_play = true;
+                        }
+                        if let AssetPreviewContent::Animation { frames, .. } = &preview.content {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Frame {}/{}",
+                                    preview.animation_frame.min(frames.len().saturating_sub(1)) + 1,
+                                    frames.len()
+                                ))
+                                .small()
+                                .color(theme.text_dim),
+                            );
+                        }
+                    }
+                });
+                ui.separator();
+            } else if let AssetPreviewContent::Text(text) = &preview.content {
+                if preview.search_open {
+                    ui.horizontal(|ui| {
+                        ui.label("Search");
+                        let mut query = preview.search_query.clone();
+                        let resp = ui.add_sized(
+                            egui::vec2(260.0, 28.0),
+                            egui::TextEdit::singleline(&mut query).hint_text("Command+F"),
+                        );
+                        if resp.changed() {
+                            if let Some(p) = self.asset_preview.as_mut() {
+                                p.search_query = query.clone();
+                            }
+                        }
+                        let count = if query.is_empty() {
+                            0
+                        } else {
+                            text.to_ascii_lowercase()
+                                .matches(&query.to_ascii_lowercase())
+                                .count()
+                        };
+                        ui.label(
+                            egui::RichText::new(format!("{count} match(es)"))
+                                .small()
+                                .color(theme.text_dim),
+                        );
+                    });
+                    ui.separator();
+                }
+            }
+
+            let metadata_h = 154.0;
+            let content_h = (ui.available_height() - metadata_h).max(120.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), content_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| match &preview.content {
+                    AssetPreviewContent::Image {
+                        texture,
+                        size,
+                        svg_path,
+                    } => {
+                        let avail = ui.available_size();
+                        let fit = (avail.x / size.x).min(avail.y / size.y).min(1.0).max(0.05);
+                        let scale = if preview.zoom_percent <= 0.0 {
+                            fit
+                        } else {
+                            preview.zoom_percent / 100.0
+                        };
+                        let display = *size * scale;
+                        egui::ScrollArea::both()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.vertical_centered(|ui| {
+                                    let svg_texture = svg_path.as_ref().and_then(|path| {
+                                        cobolt_forms::paint::load_svg_texture_at_size(
+                                            ui.ctx(),
+                                            &path.to_string_lossy(),
+                                            display,
+                                        )
+                                    });
+                                    let texture = svg_texture.as_ref().unwrap_or(texture);
+                                    Self::draw_asset_image_preview(ui, texture, display);
+                                    ui.add_space(6.0);
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{:.0} × {:.0}px",
+                                            size.x, size.y
+                                        ))
+                                        .small()
+                                        .color(theme.text_dim),
+                                    );
+                                });
+                            });
+                    }
+                    AssetPreviewContent::Animation { frames, size } => {
+                        if let Some(frame) =
+                            frames.get(preview.animation_frame.min(frames.len() - 1))
+                        {
+                            let avail = ui.available_size();
+                            let fit = (avail.x / size.x).min(avail.y / size.y).min(1.0).max(0.05);
+                            let scale = if preview.zoom_percent <= 0.0 {
+                                fit
+                            } else {
+                                preview.zoom_percent / 100.0
+                            };
+                            let display = *size * scale;
+                            egui::ScrollArea::both()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    ui.vertical_centered(|ui| {
+                                        Self::draw_asset_image_preview(ui, &frame.texture, display);
+                                    });
+                                });
+                        }
+                    }
+                    AssetPreviewContent::Text(text) => {
+                        egui::ScrollArea::both()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                let mut display = text.as_str();
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut display)
+                                        .font(egui::TextStyle::Monospace)
+                                        .desired_width(f32::INFINITY)
+                                        .lock_focus(true)
+                                        .interactive(false),
+                                );
+                            });
+                    }
+                    AssetPreviewContent::Binary(bytes) => {
+                        let mut dump = Self::binary_hex_ascii(bytes);
+                        egui::ScrollArea::both()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut dump)
+                                        .font(egui::TextStyle::Monospace)
+                                        .desired_width(f32::INFINITY)
+                                        .interactive(false),
+                                );
+                            });
+                    }
+                },
+            );
+            ui.separator();
+            self.asset_metadata_table(ui, &preview);
+            ui.add_space(18.0);
+        });
+        if close {
+            self.asset_preview = None;
+        }
+        if let Some(p) = self.asset_preview.as_mut() {
+            if let Some(z) = zoom_exact {
+                p.zoom_percent = z.clamp(0.0, 999.0);
+            }
+            if zoom_delta != 0.0 {
+                let base = if p.zoom_percent <= 0.0 {
+                    100.0
+                } else {
+                    p.zoom_percent
+                };
+                p.zoom_percent = (base + zoom_delta).clamp(10.0, 999.0);
+            }
+            if toggle_play {
+                p.animation_playing = !p.animation_playing;
+                p.animation_last_tick = Some(std::time::Instant::now());
+            }
+        }
+    }
+
+    fn advance_asset_animation(&mut self, ctx: &Context) {
+        let Some(preview) = self.asset_preview.as_mut() else {
+            return;
+        };
+        if !preview.animation_playing {
+            return;
+        }
+        let AssetPreviewContent::Animation { frames, .. } = &preview.content else {
+            return;
+        };
+        if frames.is_empty() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        let idx = preview.animation_frame.min(frames.len() - 1);
+        let due = preview.animation_last_tick.unwrap_or(now) + frames[idx].delay;
+        if now >= due {
+            preview.animation_frame = (idx + 1) % frames.len();
+            preview.animation_last_tick = Some(now);
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
+    fn binary_hex_ascii(bytes: &[u8]) -> String {
+        let mut out = String::new();
+        for (offset, chunk) in bytes.chunks(16).enumerate() {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{:08X}  ", offset * 16);
+            for i in 0..16 {
+                if let Some(b) = chunk.get(i) {
+                    let _ = write!(out, "{b:02X} ");
+                } else {
+                    out.push_str("   ");
+                }
+                if i == 7 {
+                    out.push(' ');
+                }
+            }
+            out.push(' ');
+            for b in chunk {
+                let ch = if b.is_ascii_graphic() || *b == b' ' {
+                    *b as char
+                } else {
+                    '.'
+                };
+                out.push(ch);
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn asset_metadata_table(&self, ui: &mut egui::Ui, preview: &AssetPreviewState) {
+        let meta = std::fs::metadata(&preview.path).ok();
+        let size = meta
+            .as_ref()
+            .map(|m| format!("{} bytes", m.len()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let modified = meta
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| format!("{} seconds since Unix epoch", d.as_secs()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let ext = preview
+            .path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let kind = match &preview.content {
+            AssetPreviewContent::Image { .. } => "Image",
+            AssetPreviewContent::Animation { .. } => "Animation",
+            AssetPreviewContent::Text(_) => "Text",
+            AssetPreviewContent::Binary(_) => "Binary",
+        };
+        let dimensions = match &preview.content {
+            AssetPreviewContent::Image { size, .. }
+            | AssetPreviewContent::Animation { size, .. } => {
+                format!("{:.0} x {:.0}px", size.x, size.y)
+            }
+            _ => "-".to_string(),
+        };
+        let frame_count = match &preview.content {
+            AssetPreviewContent::Animation { frames, .. } => frames.len().to_string(),
+            _ => "-".to_string(),
+        };
+
+        ui.label(egui::RichText::new("Metadata").strong());
+        egui::Grid::new("asset_metadata_table")
+            .num_columns(4)
+            .striped(true)
+            .min_col_width(120.0)
+            .show(ui, |ui| {
+                ui.label("File");
+                ui.label(
+                    preview
+                        .path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(""),
+                );
+                ui.label("Type");
+                ui.label(kind);
+                ui.end_row();
+
+                ui.label("Path");
+                ui.label(preview.path.display().to_string());
+                ui.label("Extension");
+                ui.label(if ext.is_empty() { "-" } else { ext.as_str() });
+                ui.end_row();
+
+                ui.label("Size");
+                ui.label(size);
+                ui.label("Dimensions");
+                ui.label(dimensions);
+                ui.end_row();
+
+                ui.label("Modified");
+                ui.label(modified);
+                ui.label("Frames");
+                ui.label(frame_count);
+                ui.end_row();
+            });
+    }
+
+    fn draw_asset_image_preview(
+        ui: &mut egui::Ui,
+        texture: &egui::TextureHandle,
+        display: egui::Vec2,
+    ) {
+        let padding = egui::vec2(24.0, 24.0);
+        let outer_size = display + padding * 2.0;
+        let (outer, _) = ui.allocate_exact_size(outer_size, egui::Sense::hover());
+        let painter = ui.painter_at(outer);
+        let bg = egui::Color32::from_rgb(226, 232, 240);
+        let alt = egui::Color32::from_rgb(176, 186, 200);
+        painter.rect_filled(outer, 6.0, bg);
+
+        let tile = 12.0;
+        let cols = (outer.width() / tile).ceil() as i32;
+        let rows = (outer.height() / tile).ceil() as i32;
+        for y in 0..rows {
+            for x in 0..cols {
+                if (x + y) % 2 == 0 {
+                    let min = outer.min + egui::vec2(x as f32 * tile, y as f32 * tile);
+                    let max = egui::pos2(
+                        (min.x + tile).min(outer.max.x),
+                        (min.y + tile).min(outer.max.y),
+                    );
+                    painter.rect_filled(egui::Rect::from_min_max(min, max), 0.0, alt);
+                }
+            }
+        }
+
+        painter.rect_stroke(
+            outer,
+            6.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(92, 111, 128)),
+        );
+        let image_rect = egui::Rect::from_center_size(outer.center(), display);
+        painter.image(
+            texture.id(),
+            image_rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
     }
 
     fn do_generate_cobol(&mut self, idx: usize) {
@@ -6878,34 +7552,41 @@ impl eframe::App for CoboltApp {
                     }
                     ProjectPanelEvent::OpenDesigner(path) => {
                         self.show_project_settings = false;
+                        self.asset_preview = None;
                         self.load_form_from_path(path);
                     }
                     ProjectPanelEvent::OpenIndexedEditor(path) => {
                         self.show_project_settings = false;
+                        self.asset_preview = None;
                         self.open_indexed_inspect(path, None);
                     }
                     ProjectPanelEvent::InspectIndexedFile(path) => {
                         self.show_project_settings = false;
                         self.inspect = None;
+                        self.asset_preview = None;
                         self.open_indexed_inspect(path, None);
                     }
                     ProjectPanelEvent::InspectIndexedField { cidx, field_id } => {
                         self.show_project_settings = false;
                         self.inspect = None;
+                        self.asset_preview = None;
                         self.open_indexed_inspect(cidx, Some(field_id));
                     }
                     ProjectPanelEvent::InspectForm(path) => {
                         self.show_project_settings = false;
                         self.indexed_inspect = None;
+                        self.asset_preview = None;
                         self.open_inspect(path, None);
                     }
                     ProjectPanelEvent::InspectControl { form, ctrl_id } => {
                         self.show_project_settings = false;
+                        self.asset_preview = None;
                         self.open_inspect(form, Some(ctrl_id));
                     }
                     ProjectPanelEvent::OpenEventCode { form, paragraph } => {
                         self.show_project_settings = false;
                         self.inspect = None;
+                        self.asset_preview = None;
                         // Open the form's read-only generated COBOL at the event's
                         // paragraph. The generated file lives in `generated/`, not
                         // next to the `.cfrm` in `forms/` — using the form path with
@@ -6935,6 +7616,9 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::ConfirmRemoveGenerated(path) => {
                         self.pending_generated_delete = Some(path);
                     }
+                    ProjectPanelEvent::ConfirmRemoveAsset(path) => {
+                        self.pending_asset_delete = Some(path);
+                    }
                     ProjectPanelEvent::ConfirmRemoveIndexed(rel) => {
                         self.pending_indexed_delete = Some(rel);
                     }
@@ -6942,6 +7626,7 @@ impl eframe::App for CoboltApp {
                         self.show_project_settings = true;
                         self.inspect = None;
                         self.indexed_inspect = None;
+                        self.asset_preview = None;
                         // Any pending editor open should yield to the settings form.
                         self.pending_open_in_editor = None;
                     }
@@ -6957,6 +7642,8 @@ impl eframe::App for CoboltApp {
             self.show_settings_pane(ctx, &tr);
         } else if self.indexed_inspect.is_some() {
             self.show_indexed_inspector(ctx, &tr);
+        } else if self.asset_preview.is_some() {
+            self.show_asset_preview(ctx, &tr);
         } else if self.inspect.is_some() {
             self.show_inspector(ctx, &tr);
         } else {
@@ -7004,6 +7691,7 @@ impl eframe::App for CoboltApp {
 
         self.show_form_delete_confirm(ctx, &tr);
         self.show_generated_delete_confirm(ctx, &tr);
+        self.show_asset_delete_confirm(ctx, &tr);
         self.show_indexed_delete_confirm(ctx, &tr);
 
         // Tree semaphore: the active file, if edited since its last check, goes
@@ -8629,6 +9317,71 @@ impl CoboltApp {
                     path.display()
                 ));
             }
+        }
+    }
+
+    fn show_asset_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(path) = self.pending_asset_delete.clone() else {
+            return;
+        };
+        let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("asset");
+        let mut cancel = false;
+        let mut confirm = false;
+
+        egui::Window::new("Delete asset")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Delete asset '{}' from the project and remove it from disk?",
+                    name
+                ));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(path.display().to_string()).small());
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_asset_delete = None;
+        }
+        if confirm {
+            self.pending_asset_delete = None;
+            self.delete_asset_path(path);
+        }
+    }
+
+    fn delete_asset_path(&mut self, path: PathBuf) {
+        let rel = self.project_dir().and_then(|dir| relative_to(&path, &dir));
+        if let Some(rel) = rel {
+            self.do_remove_file_from_project(rel);
+        }
+        if self.asset_preview.as_ref().map(|p| p.path.as_path()) == Some(path.as_path()) {
+            self.asset_preview = None;
+        }
+        self.editor.tabs.retain(|tab| tab.path != path);
+        if self.editor.active >= self.editor.tabs.len() && !self.editor.tabs.is_empty() {
+            self.editor.active = self.editor.tabs.len() - 1;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => self
+                .output
+                .push_status(format!("Deleted asset {}", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => self.output.push_status(format!(
+                "Asset file was already missing: {}",
+                path.display()
+            )),
+            Err(e) => self
+                .output
+                .push_status(format!("Could not delete asset {}: {e}", path.display())),
         }
     }
 

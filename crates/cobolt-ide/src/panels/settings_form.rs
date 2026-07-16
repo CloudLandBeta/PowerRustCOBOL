@@ -59,7 +59,7 @@ pub struct SettingsDraft {
     pub llm_endpoint: String,
     pub llm_api_key: String,
     pub llm_model: String,
-    pub llm_system_prompt: String,
+    pub llm_cobol_proficiency_prompt: String,
     /// Request timeout in seconds (spec 025).
     pub llm_timeout: u32,
     /// Max tokens for AI generation (spec 025).
@@ -94,7 +94,11 @@ impl SettingsDraft {
             llm_endpoint: llm.endpoint.clone(),
             llm_api_key: llm.api_key.clone(),
             llm_model: llm.model.clone(),
-            llm_system_prompt: llm.system_prompt.clone(),
+            llm_cobol_proficiency_prompt: if llm.cobol_proficiency_prompt.trim().is_empty() {
+                crate::llm::default_cobol_proficiency_prompt()
+            } else {
+                llm.cobol_proficiency_prompt.clone()
+            },
             llm_timeout: llm.timeout_secs,
             llm_max_tokens: llm.max_tokens,
             llm_verbose: llm.verbose_log,
@@ -124,7 +128,7 @@ impl SettingsDraft {
         llm.endpoint = self.llm_endpoint.clone();
         llm.api_key = self.llm_api_key.clone();
         llm.model = self.llm_model.clone();
-        llm.system_prompt = self.llm_system_prompt.clone();
+        llm.cobol_proficiency_prompt = self.llm_cobol_proficiency_prompt.clone();
         llm.timeout_secs = self.llm_timeout.max(1);
         llm.max_tokens = self.llm_max_tokens.max(1);
         llm.verbose_log = self.llm_verbose;
@@ -165,37 +169,33 @@ const LICENSES: &[&str] = &[
 pub struct SettingsForm {
     pub draft: SettingsDraft,
     baseline: SettingsDraft,
-    /// COBOL-aware editor for the assistant system prompt. The prompt is still
-    /// stored as plain text, but this gives RustCOBOL examples the same
-    /// IntelliSense surface used by the event handler editor.
-    system_prompt_editor: EditorPanel,
+    /// COBOL-aware editor for the COBOL proficiency benchmark prompt. The prompt
+    /// is stored as plain text, but this gives embedded RustCOBOL examples the
+    /// same IntelliSense surface used by the event handler editor.
+    cobol_proficiency_prompt_editor: EditorPanel,
     /// Width of the label column; user can drag the resizer to adjust.
     splitter: f32,
     /// Models offered in the Model picker for the selected provider. Transient
     /// (not part of the dirty check); (re)populated whenever a provider is
     /// chosen or the model list is refreshed. Empty until a provider is picked.
     pub available_models: Vec<String>,
-    /// Free-text filter typed inside the Model dropdown to narrow a long list
-    /// (case-insensitive substring). Reset each time the dropdown opens.
-    model_filter: String,
 }
 
 impl SettingsForm {
     pub fn new(p: &CoboltProject, llm: &LlmConfig) -> Self {
         let draft = SettingsDraft::from_project(p, llm);
-        let mut system_prompt_editor = EditorPanel::new();
-        system_prompt_editor.open_buffer(
-            std::path::PathBuf::from("agentic_ai/assistant-prompt.md"),
-            draft.llm_system_prompt.clone(),
+        let mut cobol_proficiency_prompt_editor = EditorPanel::new();
+        cobol_proficiency_prompt_editor.open_buffer(
+            std::path::PathBuf::from("agentic_ai/cobol-proficiency-prompt.md"),
+            draft.llm_cobol_proficiency_prompt.clone(),
         );
-        system_prompt_editor.set_context_only_completions(true);
+        cobol_proficiency_prompt_editor.set_context_only_completions(true);
         Self {
             baseline: draft.clone(),
             draft,
-            system_prompt_editor,
+            cobol_proficiency_prompt_editor,
             splitter: 200.0,
             available_models: Vec::new(),
-            model_filter: String::new(),
         }
     }
 
@@ -203,7 +203,7 @@ impl SettingsForm {
     pub fn reset_to(&mut self, p: &CoboltProject, llm: &LlmConfig) {
         self.draft = SettingsDraft::from_project(p, llm);
         self.baseline = self.draft.clone();
-        self.sync_prompt_editor_from_draft();
+        self.sync_cobol_proficiency_prompt_editor_from_draft();
         self.available_models.clear();
         // keep user's preferred splitter position
     }
@@ -226,7 +226,7 @@ impl SettingsForm {
     /// Discard edits back to the last-saved values.
     pub fn cancel(&mut self) {
         self.draft = self.baseline.clone();
-        self.sync_prompt_editor_from_draft();
+        self.sync_cobol_proficiency_prompt_editor_from_draft();
     }
 
     /// Push the just-picked background-image path into the draft.
@@ -241,14 +241,16 @@ impl SettingsForm {
 
     /// Reload the embedded prompt editor after the draft changes outside it
     /// (Cancel, project switch, or prompt template seeding).
-    pub fn sync_prompt_editor_from_draft(&mut self) {
-        if self.system_prompt_editor.buffer_content() != Some(self.draft.llm_system_prompt.as_str())
+    pub fn sync_cobol_proficiency_prompt_editor_from_draft(&mut self) {
+        if self.cobol_proficiency_prompt_editor.buffer_content()
+            != Some(self.draft.llm_cobol_proficiency_prompt.as_str())
         {
-            self.system_prompt_editor.open_buffer(
-                std::path::PathBuf::from("agentic_ai/assistant-prompt.md"),
-                self.draft.llm_system_prompt.clone(),
+            self.cobol_proficiency_prompt_editor.open_buffer(
+                std::path::PathBuf::from("agentic_ai/cobol-proficiency-prompt.md"),
+                self.draft.llm_cobol_proficiency_prompt.clone(),
             );
-            self.system_prompt_editor.set_context_only_completions(true);
+            self.cobol_proficiency_prompt_editor
+                .set_context_only_completions(true);
         }
     }
 
@@ -264,7 +266,7 @@ impl SettingsForm {
         known_controls: &[KnownControl],
     ) -> SettingsFormAction {
         let mut action = SettingsFormAction::default();
-        self.system_prompt_editor.known_controls = known_controls.to_vec();
+        self.cobol_proficiency_prompt_editor.known_controls = known_controls.to_vec();
         let theme = crate::theme::active();
 
         // With the settings glass card now using the exact same
@@ -937,73 +939,32 @@ impl SettingsForm {
                                     )
                                     .is_some();
                                     let combo_w = (w - 104.0).max(60.0);
-                                    // Snapshot the offered list so the picker
-                                    // closure borrows a local, not `self`.
                                     let models = self.available_models.clone();
                                     let prev_model = self.draft.llm_model.clone();
-                                    let resp = egui::ComboBox::from_id_salt("ai_model")
-                                        .selected_text(self.draft.llm_model.clone())
+                                    egui::ComboBox::from_id_salt("ai_model")
+                                        .selected_text(if self.draft.llm_model.trim().is_empty() {
+                                            tr.settings_ai_model_empty.to_string()
+                                        } else {
+                                            self.draft.llm_model.clone()
+                                        })
                                         .width(combo_w)
-                                        // Keep the model picker tall enough to
-                                        // browse comfortably without dominating
-                                        // the settings pane.
                                         .height(250.0)
                                         .show_ui(ui, |ui| {
-                                            let row_height = 34.0;
-                                            ui.spacing_mut().item_spacing.y = 2.0;
-                                            ui.spacing_mut().interact_size.y = row_height;
                                             ui.set_min_width(combo_w);
+                                            ui.spacing_mut().item_spacing.y = 4.0;
+                                            ui.spacing_mut().interact_size.y = 32.0;
                                             if models.is_empty() {
                                                 ui.weak(tr.settings_ai_model_empty);
-                                                return;
-                                            }
-                                            // Type-to-filter box at the top of the
-                                            // dropdown (case-insensitive substring).
-                                            let popup_width = ui.available_width().max(60.0);
-                                            let filter = ui.add(
-                                                egui::TextEdit::singleline(
-                                                    &mut self.model_filter,
-                                                )
-                                                .hint_text(tr.settings_ai_model_filter)
-                                                .min_size(egui::vec2(popup_width, row_height))
-                                                .desired_width(popup_width),
-                                            );
-                                            // Keep the caret in the filter as it opens
-                                            // so the user can just start typing.
-                                            filter.request_focus();
-                                            let needle =
-                                                self.model_filter.trim().to_ascii_lowercase();
-                                            let mut shown = 0usize;
-                                            for m in &models {
-                                                if !needle.is_empty()
-                                                    && !m.to_ascii_lowercase().contains(&needle)
-                                                {
-                                                    continue;
-                                                }
-                                                shown += 1;
-                                                if ui
-                                                    .selectable_value(
+                                            } else {
+                                                for model in models {
+                                                    ui.selectable_value(
                                                         &mut self.draft.llm_model,
-                                                        m.clone(),
-                                                        m,
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    self.draft.llm_model = m.clone();
+                                                        model.clone(),
+                                                        model,
+                                                    );
                                                 }
-                                            }
-                                            if shown == 0 {
-                                                ui.weak(tr.settings_ai_model_no_match);
                                             }
                                         });
-                                    // `inner` is `None` while the dropdown is closed —
-                                    // reset the filter so it starts fresh next open.
-                                    if resp.inner.is_none() {
-                                        self.model_filter.clear();
-                                    }
-                                    // Picking a different model tests it right away,
-                                    // so the developer gets immediate feedback (any
-                                    // error surfaces in a modal — see app.rs).
                                     if self.draft.llm_model != prev_model {
                                         action.test_connection = true;
                                         action.test_connection_from_model_selection = true;
@@ -1087,7 +1048,7 @@ impl SettingsForm {
                             });
                         });
 
-                        // Standard system prompt (multiline)
+                        // COBOL proficiency prompt (multiline)
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
                                 .allocate_exact_size(
@@ -1104,9 +1065,30 @@ impl SettingsForm {
                             ui.allocate_space(egui::vec2(resizer_width, 0.0));
                             ui.add_space(gap_after_resizer);
                             let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 118.0), |ui| {
+                            ui.allocate_ui(egui::vec2(right_w, 154.0), |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(
+                                            "Tests applied to models to measure COBOL code generation.",
+                                        )
+                                        .small(),
+                                    );
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if ui.button("Restore").clicked() {
+                                                self.draft.llm_cobol_proficiency_prompt =
+                                                    crate::llm::default_cobol_proficiency_prompt();
+                                                self.sync_cobol_proficiency_prompt_editor_from_draft();
+                                            }
+                                            if ui.button(tr.btn_save).clicked() {
+                                                action.save = true;
+                                            }
+                                        },
+                                    );
+                                });
                                 let w = ui.available_width();
-                                let h = 112.0;
+                                let h = 120.0;
                                 let frame = egui::Frame::none()
                                     .fill(theme.bg_extreme)
                                     .stroke(egui::Stroke::new(1.0, theme.panel_border()))
@@ -1116,10 +1098,13 @@ impl SettingsForm {
                                 let ectx = ui.ctx().clone();
                                 frame.show(ui, |ui| {
                                     ui.set_min_size(egui::vec2(w, h));
-                                    self.system_prompt_editor.render_code_area(&ectx, ui);
+                                    self.cobol_proficiency_prompt_editor
+                                        .render_code_area(&ectx, ui);
                                 });
-                                if let Some(text) = self.system_prompt_editor.buffer_for_save() {
-                                    self.draft.llm_system_prompt = text;
+                                if let Some(text) =
+                                    self.cobol_proficiency_prompt_editor.buffer_for_save()
+                                {
+                                    self.draft.llm_cobol_proficiency_prompt = text;
                                 }
                             });
                         });

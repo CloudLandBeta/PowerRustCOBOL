@@ -6035,8 +6035,13 @@ impl DesignerPanel {
                                     .unwrap_or(0);
                                 if attempts < MAX_AI_FIX_ATTEMPTS {
                                     let skills = project_root
-                                        .map(crate::agent::load_skills)
+                                        .map(crate::agent::load_event_handler_skills)
                                         .unwrap_or_default();
+                                    let mut event_llm_cfg = llm_cfg.clone();
+                                    if let Some(root) = project_root {
+                                        event_llm_cfg.system_prompt =
+                                            crate::agent::effective_event_handler_prompt(root);
+                                    }
                                     let fix_prompt = format!(
                                         "The COBOL you just returned is INVALID and was not \
                                          applied. The parser reported:\n{error_list}\n\nReturn a \
@@ -6058,7 +6063,7 @@ impl DesignerPanel {
                                         .map(|m| m.ai_history.clone())
                                         .unwrap_or_default();
                                     let rx = crate::llm::spawn_request(
-                                        llm_cfg,
+                                        &event_llm_cfg,
                                         &prior,
                                         &fix_prompt,
                                         &code,
@@ -6505,8 +6510,12 @@ impl DesignerPanel {
             // Include the project's RustCOBOL skills (agentic_ai/skills) so the
             // handler assistant follows the same conventions as the dev agent.
             let skills = project_root
-                .map(crate::agent::load_skills)
+                .map(crate::agent::load_event_handler_skills)
                 .unwrap_or_default();
+            let mut event_llm_cfg = llm_cfg.clone();
+            if let Some(root) = project_root {
+                event_llm_cfg.system_prompt = crate::agent::effective_event_handler_prompt(root);
+            }
             // Replay this handler's prior conversation so the assistant has the
             // full context (the guided suffix carries the scaffold instructions).
             let prior = self
@@ -6515,7 +6524,7 @@ impl DesignerPanel {
                 .map(|m| m.ai_history.clone())
                 .unwrap_or_default();
             let rx = crate::llm::spawn_request(
-                llm_cfg,
+                &event_llm_cfg,
                 &prior,
                 &guided,
                 &code,

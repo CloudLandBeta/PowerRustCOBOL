@@ -46,7 +46,7 @@ egui_extras = { version = "0.29", features = ["image"] }
 # mask, so translucent surfaces stop bleeding at the corners. Version tracks eframe's.
 egui_glow  = "0.29"
 
-image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }
+image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp", "avif"] }
 
 # System font enumeration (Font property dropdown)
 fontdb = "0.23"

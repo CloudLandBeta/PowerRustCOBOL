@@ -8,6 +8,92 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.9] — 2026-07-16
+
+### Fixed
+
+- **SVG asset preview zoom** — SVG assets now re-rasterize from vector data at
+  the requested zoom size, avoiding enlarged bitmap artifacts, and image
+  previews include a zoom slider for smoother control.
+
+## [PowerRustCOBOL 1.30.8] — 2026-07-16
+
+### Fixed
+
+- **Transparent asset previews** — Image and animated asset previews now render
+  on a light checkerboard contrast mat so transparent SVG/PNG/GIF assets remain
+  visible in the dark IDE theme.
+
+## [PowerRustCOBOL 1.30.7] — 2026-07-16
+
+### Fixed
+
+- **Asset metadata viewer padding** — The Assets preview metadata footer now
+  reserves additional vertical room and bottom padding so the last metadata row
+  remains visible instead of being clipped by the pane boundary.
+
+## [PowerRustCOBOL 1.30.6] — 2026-07-16
+
+### Fixed
+
+- **Asset preview formats and tools** — The internal Assets viewer now supports
+  SVG previews through the shared renderer path, enables AVIF decoding, adds
+  image zoom controls, and can play supported animated image previews.
+- **Asset viewer inspection** — The viewer now includes a bottom metadata table,
+  Command/Ctrl+F search for text assets, and a standard offset/hex/ascii view
+  for binary files.
+
+## [PowerRustCOBOL 1.30.5] — 2026-07-15
+
+### Fixed
+
+- **Folder-backed Assets tree** — The Project Tree Assets node now reflects the
+  project's on-disk `Assets/` folder, including nested subfolders and files,
+  instead of only showing manifest entries.
+- **Asset import, preview, and delete** — Importing an asset copies it into the
+  project Assets folder, opens it in an internal read-only preview, and asset
+  rows now offer deletion with confirmation. Text-like files render as text and
+  image/animation formats supported by the decoder render as image previews.
+
+## [PowerRustCOBOL 1.30.4] — 2026-07-15
+
+### Fixed
+
+- **Project-local agent files** — The Project Tree now exposes an Agentic AI
+  branch with editable project-owned files for the Form Designer Agent and the
+  COBOL Event Handler Script Agent, including each agent's system prompt,
+  steering file, and skills.
+- **Agent prompt routing** — The Form Designer Agent and COBOL Event Handler
+  Script Agent now resolve their prompts/skills from the project-local agent
+  folders so projects can tune those agents independently.
+
+## [PowerRustCOBOL 1.30.3] — 2026-07-15
+
+### Fixed
+
+- **COBOL proficiency prompt settings** — Project Settings now edits the COBOL
+  proficiency benchmark prompt instead of the generic assistant system prompt.
+  The field is populated from the actual benchmark prompt, can be saved to the
+  LLM configuration, and includes a Restore action to recover the built-in
+  working prompt.
+
+## [PowerRustCOBOL 1.30.2] — 2026-07-15
+
+### Fixed
+
+- **AI model selector stability** — The Project Settings model selector is back
+  to a simple native dropdown without the inline search box, avoiding the
+  empty custom picker panel seen with some egui layouts/themes.
+
+## [PowerRustCOBOL 1.30.1] — 2026-07-15
+
+### Fixed
+
+- **AI model picker layout** — The Project Settings model selector now uses an
+  in-form filtered list with a stable 250px scroll area instead of a floating
+  combo popup, preventing the model list from collapsing or overlaying adjacent
+  settings.
+
 ## [PowerRustCOBOL 1.30.0] — 2026-07-15
 
 ### Added

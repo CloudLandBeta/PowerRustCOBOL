@@ -20,6 +20,8 @@ pub struct LlmConfig {
     pub model: String,
     #[serde(default = "default_system_prompt")]
     pub system_prompt: String,
+    #[serde(default = "default_cobol_proficiency_prompt")]
+    pub cobol_proficiency_prompt: String,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
     #[serde(default = "default_max_tokens")]
@@ -49,6 +51,7 @@ impl LlmConfig {
             api_key: String::new(),
             model: String::new(),
             system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
+            cobol_proficiency_prompt: default_cobol_proficiency_prompt(),
             temperature: 0.7,
             max_tokens: 8192,
             timeout_secs: 30,
@@ -87,6 +90,9 @@ fn retired_model_message(model: &str) -> Option<String> {
 
 pub fn default_system_prompt() -> String {
     DEFAULT_SYSTEM_PROMPT.to_string()
+}
+pub fn default_cobol_proficiency_prompt() -> String {
+    COBOL_PROFICIENCY_BENCHMARK_PROMPT.to_string()
 }
 pub fn default_temperature() -> f32 {
     0.7
@@ -556,7 +562,11 @@ pub fn spawn_cobol_proficiency_benchmark(cfg: &LlmConfig) -> Receiver<LlmRespons
     let mut req = mesh_request_base(&bench_cfg);
     req.specialist = Some("CodeGenerator".to_string());
     req.system_prompt = "You are a strict COBOL-85 and PowerRustCOBOL model evaluator.".to_string();
-    req.user_prompt = COBOL_PROFICIENCY_BENCHMARK_PROMPT.to_string();
+    req.user_prompt = if bench_cfg.cobol_proficiency_prompt.trim().is_empty() {
+        COBOL_PROFICIENCY_BENCHMARK_PROMPT.to_string()
+    } else {
+        bench_cfg.cobol_proficiency_prompt.clone()
+    };
     run_mesh_request(req, "COBOL proficiency benchmark")
 }
 
