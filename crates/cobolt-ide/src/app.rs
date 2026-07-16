@@ -754,9 +754,9 @@ fn data_binding_action_label<'a>(tr: &'a Tr, action: BindingActionGate) -> &'a s
 
 impl CoboltApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let mut style = (*cc.egui_ctx.style()).clone();
+        let mut style = (*cc.egui_ctx.global_style()).clone();
         style.visuals = egui::Visuals::dark();
-        cc.egui_ctx.set_style(style);
+        cc.egui_ctx.set_global_style(style);
         cc.egui_ctx.set_fonts(crate::fonts::base_font_definitions());
         // Image loaders (PNG/etc.) — needed by the Documentation viewer's
         // Markdown image rendering.
@@ -2119,7 +2119,7 @@ impl CoboltApp {
         let mut do_details = false;
 
         let frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill,
+            ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
         egui::TopBottomPanel::top("inspector_agent")
@@ -2888,7 +2888,7 @@ impl CoboltApp {
         }
 
         let card =
-            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
+            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             let Some(st) = &mut self.inspect else {
                 return;
@@ -3539,7 +3539,7 @@ impl CoboltApp {
         let mut did_add_remove = false;
 
         let card =
-            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
+            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
 
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             let Some(st) = &mut self.indexed_inspect else { return; };
@@ -5145,7 +5145,7 @@ impl CoboltApp {
                 .show(ctx, |ui| {
                     ui.label("Use this report to decide whether this model is suitable for COBOL-85 and PowerRustCOBOL work. No project action is applied.");
                     ui.add_space(8.0);
-                    let scroll_h = (ctx.available_rect().height() * 0.72).clamp(320.0, 680.0);
+                    let scroll_h = (ctx.content_rect().height() * 0.72).clamp(320.0, 680.0);
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .max_height(scroll_h)
@@ -5358,7 +5358,7 @@ impl CoboltApp {
         // 100% of the available central height above the output (grows/shrinks
         // naturally on window or output splitter resize).
         let mut card =
-            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
+            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
         // Moderate bottom outer margin on the frame raises the stroked glass
         // card (rounded bottom border) clearly above the output.
         // Inside the framed ui we allocate the form (scroll + buttons) in a
@@ -5484,7 +5484,7 @@ impl CoboltApp {
     /// The PowerRustCOBOL mascot shown in the Main Pane when no project is open.
     fn show_mascot_pane(&mut self, ctx: &Context, tr: &Tr) {
         let card =
-            crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, self.current_theme());
+            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
         egui::CentralPanel::default().frame(card).show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(ui.available_height() * 0.18);
@@ -5861,7 +5861,7 @@ impl CoboltApp {
         self.advance_asset_animation(ctx);
 
         let theme = crate::theme::active();
-        let frame = crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, &theme);
+        let frame = crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, &theme);
         let mut close = false;
         let mut zoom_delta = 0.0;
         let mut zoom_exact: Option<f32> = None;
@@ -7129,7 +7129,7 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     // Polished spacing + fonts 50 % larger (absolute → idempotent each frame).
     // Roomier rows/padding for a less cramped, more professional feel.
     use egui::{FontFamily, FontId, TextStyle};
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     style.spacing.item_spacing = egui::Vec2::new(8.0, 8.0);
     style.spacing.button_padding = egui::Vec2::new(12.0, 7.0);
     style.spacing.indent = 20.0;
@@ -7161,7 +7161,7 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
         ),
     ]
     .into();
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 /// Apply the IDE theme to an **opaque** child viewport (designer, indexed editor,
@@ -7171,13 +7171,13 @@ fn apply_opaque_viewport_theme(ctx: &Context, theme: &crate::theme::Theme) {
     apply_glass_visuals(ctx, theme);
 
     let solid_panel = {
-        let pf = ctx.style().visuals.panel_fill;
+        let pf = ctx.global_style().visuals.panel_fill;
         let a = pf.a() as f32 / 255.0;
         let blend = |c: u8| (c as f32 * a + 255.0 * (1.0 - a)).round() as u8;
         egui::Color32::from_rgb(blend(pf.r()), blend(pf.g()), blend(pf.b()))
     };
     {
-        let mut v = ctx.style().visuals.clone();
+        let mut v = ctx.global_style().visuals.clone();
         v.panel_fill = solid_panel;
         v.window_fill = solid_panel;
         ctx.set_visuals(v);
@@ -7195,7 +7195,12 @@ impl eframe::App for CoboltApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // The whole IDE is laid out with Context-level panels (top bar, side
+        // panels, central canvas), so the per-frame entry point only needs the
+        // Context; the root `Ui` itself hosts nothing directly.
+        let ctx = root_ui.ctx().clone();
+        let ctx = &ctx;
         let frame_start = std::time::Instant::now();
 
         // ── Compute the translation table for this frame ───────────────────────
@@ -7272,7 +7277,7 @@ impl eframe::App for CoboltApp {
         // whole window, so the area around/between the panes looks exactly like a
         // pane (not a brighter "transparent" wallpaper showing through the gaps).
         {
-            let p = ctx.style().visuals.panel_fill;
+            let p = ctx.global_style().visuals.panel_fill;
             let floor = egui::Color32::from_rgb(p.r(), p.g(), p.b());
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
                 ctx.content_rect(),
@@ -7282,7 +7287,7 @@ impl eframe::App for CoboltApp {
         }
         self.paint_ide_background(ctx);
         {
-            let p = ctx.style().visuals.panel_fill;
+            let p = ctx.global_style().visuals.panel_fill;
             ctx.layer_painter(egui::LayerId::background())
                 .rect_filled(ctx.content_rect(), 0.0, p);
         }
@@ -8201,7 +8206,7 @@ impl CoboltApp {
         // the IDE glass visuals on every frame to counteract this.
         // Start from the current IDE glass visuals so we inherit the base
         // colour scheme, then layer in the preview-specific transparency.
-        let mut visuals = ctx.style().visuals.clone();
+        let mut visuals = ctx.global_style().visuals.clone();
         // Control backgrounds — translucent frosted glass
         let glass_fill = Color32::from_rgba_premultiplied(50, 55, 90, 55);
         let glass_stroke =
@@ -8772,7 +8777,7 @@ impl CoboltApp {
 
         // Apply glass visuals identical to the preview window (or the light
         // soft-UI visuals when the form's style is Neumorphic).
-        let mut vis = ctx.style().visuals.clone();
+        let mut vis = ctx.global_style().visuals.clone();
         let gf = Color32::from_rgba_premultiplied(50, 55, 90, 55);
         let gs = egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(180, 180, 230, 80));
         vis.widgets.noninteractive.bg_fill = gf;
@@ -9148,7 +9153,7 @@ impl CoboltApp {
         }
         let theme = self.current_theme();
         apply_opaque_viewport_theme(ctx, theme);
-        let panel_frame = crate::theme::glass_panel_frame(ctx.style().visuals.panel_fill, theme);
+        let panel_frame = crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, theme);
         let mut toolbar_action = GridAction::None;
         let mut status_msg: Option<String> = None;
         egui::CentralPanel::default()
@@ -9833,7 +9838,7 @@ impl CoboltApp {
         let half_win = (ctx.content_rect().width() * 0.5).max(320.0);
         // 10px right inner margin so the pane's content keeps a small gap from the
         // window border instead of butting against it.
-        let props_frame = egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin {
+        let props_frame = egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin {
             left: 6,
             right: 10,
             top: 6,

@@ -136,7 +136,7 @@ impl OutputPanel {
     /// Render the output panel at the bottom.
     pub fn show(&mut self, ctx: &Context, tr: &Tr) {
         let frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill,
+            ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
         TopBottomPanel::bottom("output_panel")

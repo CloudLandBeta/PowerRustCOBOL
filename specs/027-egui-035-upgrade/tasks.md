@@ -56,7 +56,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
   - Verify: per-step gate + manual menu walkthrough (File/Edit/every menu
     opens, hover-submenus work, no premature close).
 
-- [ ] **T6 — Step 4: egui 0.33 — screen_rect retirement** (R1, R8, R9)
+- [x] **T6 — Step 4: egui 0.33 — screen_rect retirement** (R1, R8, R9) ✓ bc31a9d — gate: 0 errors, 0 deprecations, 323/324 tests; all 18 sites classified → content_rect (desktop-identical values)
   - Files: ~37 `screen_rect` sites (cluster in `app.rs`, incl.
     `error_modal_default_pos`)
   - Do: migrate to `content_rect`/`viewport_rect` per site semantics

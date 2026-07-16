@@ -695,9 +695,9 @@ tracing         = "0.1"
         s.push_str(&format!(
             r#"cobolt-forms    = {{ path = "{cp}/cobolt-forms", features = ["render"] }}
 cobolt-media    = {{ path = "{cp}/cobolt-media" }}
-eframe          = {{ version = "0.33", features = ["default_fonts"] }}
-egui            = "0.33"
-egui_extras     = {{ version = "0.33", features = ["image"] }}
+eframe          = {{ version = "0.34", features = ["default_fonts"] }}
+egui            = "0.34"
+egui_extras     = {{ version = "0.34", features = ["image"] }}
 "#
         ));
     }
@@ -868,7 +868,9 @@ struct FormApp {
 }
 
 impl eframe::App for FormApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = root_ui.ctx().clone();
+        let ctx = &ctx;
         // Light visuals baseline — egui defaults to dark mode, which leaks dark
         // widget fills into the form and breaks parity with the designer.
         if !self.visuals_set {

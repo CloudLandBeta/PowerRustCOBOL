@@ -284,7 +284,7 @@ impl DocViewer {
         }
         self.ensure_lang(lang);
 
-        let parent_style = parent.style();
+        let parent_style = parent.global_style();
         let vp_id = ViewportId::from_hash_of("powerrustcobol_doc_viewer");
         let title = format!("PowerRustCOBOL — {}  v{VERSION}", tr.doc_win_title);
 
@@ -296,7 +296,7 @@ impl DocViewer {
                 .with_min_inner_size([640.0, 420.0])
                 .with_transparent(true),
             |ctx, _class| {
-                ctx.set_style((*parent_style).clone());
+                ctx.set_global_style((*parent_style).clone());
                 if !self.fonts_ready {
                     Self::install_doc_fonts(ctx);
                     self.fonts_ready = true;
@@ -309,11 +309,11 @@ impl DocViewer {
                 let fog_rgb = parent_style.visuals.panel_fill;
                 self.paint_frost(ctx, fog_rgb);
                 {
-                    let mut s = (*ctx.style()).clone();
+                    let mut s = (*ctx.global_style()).clone();
                     s.visuals.panel_fill = egui::Color32::TRANSPARENT;
                     s.visuals.window_fill = fog_rgb.gamma_multiply(0.92);
                     s.visuals.extreme_bg_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, 70);
-                    ctx.set_style(s);
+                    ctx.set_global_style(s);
                 }
 
                 if ctx.input(|i| i.viewport().close_requested()) {

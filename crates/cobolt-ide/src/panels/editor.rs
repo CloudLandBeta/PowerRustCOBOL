@@ -1725,7 +1725,7 @@ impl EditorPanel {
             Some(ui) => render(ui),
             None => {
                 let frame = crate::theme::glass_panel_frame(
-                    ctx.style().visuals.panel_fill,
+                    ctx.global_style().visuals.panel_fill,
                     &crate::theme::active(),
                 );
                 TopBottomPanel::top(panel)
@@ -1952,7 +1952,7 @@ impl EditorPanel {
     /// trim-on-save toggle, and a Beautify command. Dimmed-green text.
     fn show_status_bar(&mut self, ctx: &Context) {
         let frame = egui::Frame::default()
-            .fill(ctx.style().visuals.panel_fill)
+            .fill(ctx.global_style().visuals.panel_fill)
             .inner_margin(egui::Margin::symmetric(8, 3));
         TopBottomPanel::bottom("editor_status")
             .frame(frame)
@@ -2095,7 +2095,7 @@ impl EditorPanel {
 
         // ─── Editor body ──────────────────────────────────────────────────────
         let body_frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill,
+            ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
         CentralPanel::default().frame(body_frame).show(ctx, |ui| {
@@ -2408,7 +2408,7 @@ impl EditorPanel {
                         .id(editor_id)
                         .font(font.clone())
                         .desired_width(f32::INFINITY)
-                        .frame(false) // no border/inset → gutter aligns
+                        .frame(egui::Frame::NONE) // no border/inset → gutter aligns
                         .margin(egui::Margin::ZERO)
                         .lock_focus(true)
                         .interactive(!tab.read_only)

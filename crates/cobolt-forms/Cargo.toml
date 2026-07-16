@@ -23,7 +23,7 @@ hmac        = { workspace = true }
 sha2        = { workspace = true }
 indexmap    = { workspace = true }
 thiserror   = { workspace = true }
-egui        = { version = "0.33", optional = true }
+egui        = { version = "0.34", optional = true }
 fontdb      = { version = "0.23", optional = true }
 ab_glyph    = { version = "0.2.32", optional = true }
 cobolt-media = { path = "../cobolt-media", optional = true }

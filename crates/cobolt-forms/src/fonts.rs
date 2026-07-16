@@ -307,7 +307,7 @@ mod tests {
 
         let ctx = egui::Context::default();
         // Frame 1: first request triggers on-demand load (still falls back this pass).
-        let _ = ctx.run(Default::default(), |_| {});
+        let _ = ctx.run_ui(Default::default(), |_| {});
         let first = font_id(&ctx, &fam, 16.0);
         assert_eq!(
             first.family,
@@ -315,7 +315,7 @@ mod tests {
             "first request should fall back while the atlas rebuilds"
         );
         // Frame 2: atlas has been rebuilt, the named family is now usable.
-        let _ = ctx.run(Default::default(), |_| {});
+        let _ = ctx.run_ui(Default::default(), |_| {});
         let ready = font_id(&ctx, &fam, 16.0);
         assert_eq!(
             ready.family,

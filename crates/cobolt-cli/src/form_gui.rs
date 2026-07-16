@@ -506,7 +506,11 @@ impl FormApp {
 }
 
 impl eframe::App for FormApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Form windows render through Context-level panels; only the Context
+        // is needed per frame.
+        let ctx = root_ui.ctx().clone();
+        let ctx = &ctx;
         // Light visuals baseline — a fresh egui context defaults to DARK mode,
         // which leaks dark widget fills (labels, text boxes) into the form and
         // breaks parity with the designer canvas. Set once.

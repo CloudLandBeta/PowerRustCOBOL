@@ -249,7 +249,7 @@ impl ProjectPanel {
         let mut events = Vec::new();
 
         let frame = crate::theme::glass_panel_frame(
-            ctx.style().visuals.panel_fill,
+            ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
         SidePanel::left("project_panel")
@@ -1449,7 +1449,9 @@ mod control_node_tests {
             ..Default::default()
         };
         let mut height = 0.0;
-        let _ = ctx.run(input, |ctx| {
+        let _ = ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show(ctx, |ui| {
@@ -1567,7 +1569,9 @@ mod control_node_in_real_wrappers {
             events: events_in,
             ..Default::default()
         };
-        let _ = ctx.run(input, |ctx| {
+        let _ = ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             let tr = crate::i18n::Language::English.tr();
             SidePanel::left("project_panel")
                 .default_width(410.0)

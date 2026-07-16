@@ -1222,7 +1222,6 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                             i.events
                                 .retain(|event| !matches!(event, egui::Event::MouseWheel { .. }));
                             i.smooth_scroll_delta = egui::Vec2::ZERO;
-                            i.raw_scroll_delta = egui::Vec2::ZERO;
                         });
                     }
                 });
@@ -2400,7 +2399,7 @@ fn render_interactive(
                             ui.add(
                                 egui::TextEdit::multiline(&mut buf)
                                     .id(ctrl_id)
-                                    .frame(false)
+                                    .frame(egui::Frame::NONE)
                                     .interactive(enabled)
                                     .desired_rows(1)
                                     .desired_width(edit_rect.width())
@@ -2415,7 +2414,7 @@ fn render_interactive(
                     edit_rect,
                     egui::TextEdit::singleline(&mut buf)
                         .id(ctrl_id)
-                        .frame(false)
+                        .frame(egui::Frame::NONE)
                         .interactive(enabled)
                         .text_color(txt_col),
                 )
@@ -3007,7 +3006,6 @@ fn render_interactive(
                         _ => true,
                     });
                     i.smooth_scroll_delta = egui::Vec2::ZERO;
-                    i.raw_scroll_delta = egui::Vec2::ZERO;
                     (dx, dy)
                 });
                 if wheel_delta_y != 0.0 {
@@ -3395,7 +3393,7 @@ fn render_interactive(
                             .hint_text("Filter...")
                             .font(FontId::proportional((font_size - 1.0).max(8.0)))
                             .desired_width((col.width - 18.0).max(16.0))
-                            .frame(false),
+                            .frame(egui::Frame::NONE),
                     );
                     if !col.frozen {
                         ui.set_clip_rect(prev_clip);
@@ -4389,7 +4387,7 @@ fn render_interactive(
                             .order(egui::Order::Foreground)
                             .fixed_pos(dropdown_pos)
                             .show(ui.ctx(), |ui| {
-                                egui::Frame::popup(&ui.ctx().style())
+                                egui::Frame::popup(&ui.ctx().global_style())
                                     .inner_margin(egui::Margin::same(4))
                                     .show(ui, |ui| {
                                         for item in &entry.items {
@@ -5164,12 +5162,14 @@ mod tests {
         let controls = vec![panel, card, inner];
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
-        let _ = ctx.run(Default::default(), |ctx| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             // Seed scroll offset in temp data
             let sid = egui::Id::new(("autoscr", "Pnl"));
             ctx.data_mut(|d| d.insert_temp(sid, egui::vec2(0.0, 30.0)));
 
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 500.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5213,12 +5213,14 @@ mod tests {
 
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
-        let _ = ctx.run(Default::default(), |ctx| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             // Seed scroll offset in temp data
             let sid = egui::Id::new(("autoscr", "Pnl"));
             ctx.data_mut(|d| d.insert_temp(sid, egui::vec2(0.0, 30.0)));
 
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 500.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5253,8 +5255,10 @@ mod tests {
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
         let mut captured = None;
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 300.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5314,8 +5318,10 @@ mod tests {
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
         let (mut rects_form, mut rects_faces) = (None, None);
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
+            egui::CentralPanel::default().show_inside(root_ui, |ui| {
                 ui.set_min_size(Vec2::new(400.0, 300.0));
                 let input = RenderInput {
                     controls: &controls,
@@ -5465,10 +5471,12 @@ mod tests {
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
-                    .show(ctx, |ui| {
+                    .show_inside(root_ui, |ui| {
                         egui::ScrollArea::both()
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
@@ -5557,6 +5565,7 @@ mod tests {
                     unit: egui::MouseWheelUnit::Point,
                     delta: Vec2::new(0.0, -40.0), // negative y = scroll down
                     modifiers: Modifiers::default(),
+                    phase: egui::TouchPhase::Move,
                 },
             ],
         ];
@@ -5570,10 +5579,12 @@ mod tests {
             input.time = Some(i as f64 * 0.05);
             input.events = evs;
             let st = MapState(&overrides);
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
-                    .show(ctx, |ui| {
+                    .show_inside(root_ui, |ui| {
                         let out =
                             egui::ScrollArea::both()
                                 .auto_shrink([false, false])
@@ -5666,10 +5677,12 @@ mod tests {
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
-                    .show(ctx, |ui| {
+                    .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
                         let inp = RenderInput {
                             controls,
@@ -6212,10 +6225,12 @@ mod tests {
             input.focused = true;
             input.time = Some(i as f64); // 1s/frame → clears any interval
             let events = RefCell::new(Vec::<UiEvent>::new());
-            let _ = ctx.run(input, |ctx| {
+            let _ = ctx.run_ui(input, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
-                    .show(ctx, |ui| {
+                    .show_inside(root_ui, |ui| {
                         ui.set_min_size(Vec2::new(400.0, 300.0));
                         let inp = RenderInput {
                             controls,

@@ -4732,7 +4732,7 @@ impl DesignerPanel {
                 screen.center().x - 400.0,
                 screen.center().y - 250.0,
             ))
-            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(12)))
+            .frame(egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(12)))
             .show(ui.ctx(), |ui| {
                 let modal = self.menu_modal.as_mut().unwrap();
 
@@ -5256,7 +5256,7 @@ impl DesignerPanel {
                     .default_size([600.0, 500.0])
                     .default_pos([screen.center().x - 300.0, screen.center().y - 250.0])
                     .frame(
-                        egui::Frame::window(&ui.ctx().style())
+                        egui::Frame::window(&ui.ctx().global_style())
                             .inner_margin(egui::Margin::same(12)),
                     )
                     .show(ui.ctx(), |ui| {
@@ -6253,7 +6253,7 @@ impl DesignerPanel {
             .min_height(420.0)
             .default_pos(default_pos)
             .constrain(true)
-            .frame(egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16)))
+            .frame(egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(16)))
             .show(ui.ctx(), |ui| {
                 let scaffold_color = Color32::from_rgb(140, 200, 140); // muted green
                 let readonly_color = Color32::from_rgb(160, 170, 190); // subdued blue-gray
@@ -6667,7 +6667,7 @@ impl DesignerPanel {
                 .default_width(560.0)
                 .default_pos(overlay.center() - egui::vec2(280.0, 180.0))
                 .frame(
-                    egui::Frame::window(&ui.ctx().style()).inner_margin(egui::Margin::same(16)),
+                    egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(16)),
                 )
                 .show(ui.ctx(), |ui| {
                     ui.label(
@@ -6829,7 +6829,7 @@ impl DesignerPanel {
             .default_height(default_h)
             .max_height(screen.height() * 0.7)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .frame(egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::same(14)))
+            .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::same(14)))
             .show(ctx, |ui| {
                 // Editable procedure name, or the fixed section keyword.
                 if let cs::CsTarget::Procedure(i) = target {
@@ -9233,7 +9233,9 @@ mod animator_tests {
             time: Some(t),
             ..Default::default()
         };
-        let out = ctx.run(raw, |ctx| {
+        let out = ctx.run_ui(raw, |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             let painter = ctx.layer_painter(egui::LayerId::background());
             let ctrl = Control::new("anim", ControlType::Animator, 0, 0);
             draw_animator(
@@ -9300,7 +9302,9 @@ mod render_behavior_tests {
     fn render_at(ctrl: &Control, origin: Pos2) -> Vec<egui::Shape> {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
+        let out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             // Frame::none → the panel paints no background, so captured shapes are
             // exactly what `draw_control` emitted (no full-panel fill skewing bbox).
             egui::CentralPanel::default()

@@ -7031,7 +7031,9 @@ mod theme_render_tests {
     fn control_border_accepts_button_3d_styles_without_panic() {
         let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(80.0, 28.0));
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
+        let _ = ctx.run_ui(Default::default(), |root_ui| {
+            let ctx = root_ui.ctx().clone();
+            let ctx = &ctx;
             egui::CentralPanel::default().show(ctx, |ui| {
                 let painter = ui.painter();
                 for style in ["Single", "Fixed3D", "3D", "Raised", "Sunken", "None"] {
