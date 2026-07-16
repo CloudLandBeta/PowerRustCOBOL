@@ -98,7 +98,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
   - Verify: `cargo test -p cobolt-ide --test ui_regression` green with
     quantified output.
 
-- [ ] **T10 — Inspection server + settings + i18n** (R3, R11)
+- [x] **T10 — Inspection server + settings + i18n** (R3, R11) ✓ 8bb93b2 — always-on 127.0.0.1:5719 (configurable, AI settings), i18n ×6, startup status line; lsof check pending operator run
   - Files: `crates/cobolt-ide/Cargo.toml` (`egui_inspection`), `app.rs`
     (serve at startup, 127.0.0.1 only), `panels/settings_form.rs` (port
     field, default 5719), `i18n.rs` (port label + status strings ×6:

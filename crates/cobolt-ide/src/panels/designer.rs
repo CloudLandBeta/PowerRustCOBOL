@@ -5838,31 +5838,42 @@ impl DesignerPanel {
     /// Laid out inside the fixed Resize box, so all "available" space here is
     /// user-controlled state, not measured content.
     fn ai_error_modal_body(&mut self, ui: &mut egui::Ui, message: &str, close: &mut bool) {
-        ui.label(
-            egui::RichText::new("The model returned an error or unusable response.")
-                .strong()
-                .color(egui::Color32::from_rgb(240, 160, 130)),
-        );
-        ui.add_space(8.0);
-
-        // Reserve a fixed footer for the button row; the scroll area gets the
-        // rest of the box.
-        let footer_h = 40.0;
-        let scroll_h = (ui.available_height() - footer_h).max(60.0);
-        egui::ScrollArea::both()
-            .id_salt("form_designer_ai_error_scroll")
-            .auto_shrink([false, false])
-            .max_height(scroll_h)
+        // Embedded panels partition the fixed Resize box EXACTLY (no estimated
+        // heights): egui 0.35's Resize ratchets up to the measured content min
+        // every frame, so an overflowing estimate becomes unbounded growth.
+        egui::Panel::bottom(ui.id().with("ai_error_footer"))
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                ui.add_space(6.0);
+                self.ai_error_modal_footer(ui, message, close);
+            });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 ui.label(
-                    egui::RichText::new(message)
-                        .monospace()
-                        .size(self.ai_error_font_size)
-                        .color(egui::Color32::from_gray(220)),
+                    egui::RichText::new("The model returned an error or unusable response.")
+                        .strong()
+                        .color(egui::Color32::from_rgb(240, 160, 130)),
                 );
+                ui.add_space(8.0);
+                egui::ScrollArea::both()
+                    .id_salt("form_designer_ai_error_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(message)
+                                .monospace()
+                                .size(self.ai_error_font_size)
+                                .color(egui::Color32::from_gray(220)),
+                        );
+                    });
             });
+    }
 
-        ui.add_space(8.0);
+    /// Button row of the AI error modal (hosted in its bottom panel).
+    fn ai_error_modal_footer(&mut self, ui: &mut egui::Ui, message: &str, close: &mut bool) {
         ui.horizontal(|ui| {
             if ui.button("OK").clicked() {
                 *close = true;

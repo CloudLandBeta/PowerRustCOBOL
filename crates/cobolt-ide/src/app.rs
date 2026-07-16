@@ -480,6 +480,113 @@ const APP_FILE_KEY: &str = "app-file-dialog";
 /// first frame the size lives in egui's window state and changes exclusively
 /// through the user's resize drag.
 const ERROR_MODAL_SIZE: [f32; 2] = [800.0, 450.0];
+
+/// Actions requested by [`error_modal_body_ui`], applied by the caller.
+#[derive(Default)]
+struct ErrorBodyAction {
+    close: bool,
+    save: bool,
+}
+
+/// The user-resizable box every error modal lives in. The inner `egui::Resize`
+/// is the single size authority: seeded at [`ERROR_MODAL_SIZE`], changed only
+/// by the user's grip drag. The body must keep its measured content within the
+/// box — egui (0.35) ratchets `Resize` up to the content min-size every frame,
+/// so any overflow becomes runaway growth. Pair with [`error_modal_body_ui`],
+/// whose embedded panels partition the box exactly.
+fn error_modal_scaffold(ui: &mut egui::Ui, id_salt: &str, body: impl FnOnce(&mut egui::Ui)) {
+    egui::Resize::default()
+        .id_salt(id_salt)
+        .resizable([true, true])
+        .min_size(egui::vec2(380.0, 220.0))
+        .max_size(egui::vec2(4000.0, 4000.0))
+        .default_size(egui::Vec2::from(ERROR_MODAL_SIZE)) // seed only
+        .show(ui, |ui| {
+            // `sz` is the Resize box: user/default state, bounded — NOT
+            // "remaining space" of an auto-sizing container.
+            let sz = ui.available_size();
+            ui.allocate_ui(sz, |ui| {
+                ui.set_min_size(sz);
+                body(ui);
+            });
+        });
+}
+
+/// Error-modal interior: intro, scrollable message, button row. Laid out with
+/// embedded panels (footer `Panel::bottom`, message `CentralPanel`) so the
+/// content partitions the fixed box EXACTLY — no estimated heights. Estimated
+/// reserves regressed under egui 0.35: skrifa font metrics made the real row
+/// taller than the estimate, and Resize's per-frame `max(content)` ratchet
+/// turned the few overflow pixels into unbounded growth.
+fn error_modal_body_ui(
+    ui: &mut egui::Ui,
+    intro: Option<&str>,
+    msg: &str,
+    font_size: &mut f32,
+) -> ErrorBodyAction {
+    let mut act = ErrorBodyAction::default();
+    egui::Panel::bottom(ui.id().with("error_modal_footer"))
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(egui::Frame::NONE)
+        .show(ui, |ui| {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("OK").clicked() {
+                    act.close = true;
+                }
+                ui.separator();
+                if ui
+                    .button("Copy")
+                    .on_hover_text("Copy the error message to the clipboard")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(msg.to_owned());
+                }
+                if ui
+                    .button("Save…")
+                    .on_hover_text("Save the error message to a text file")
+                    .clicked()
+                {
+                    act.save = true;
+                }
+                ui.separator();
+                if ui
+                    .small_button("A−")
+                    .on_hover_text("Decrease font size")
+                    .clicked()
+                {
+                    *font_size = (*font_size - 1.0).max(MIN_ERROR_FONT_SIZE);
+                }
+                ui.label(egui::RichText::new(format!("{} px", font_size.round() as i32)).small());
+                if ui
+                    .small_button("A+")
+                    .on_hover_text("Increase font size")
+                    .clicked()
+                {
+                    *font_size = (*font_size + 1.0).min(MAX_ERROR_FONT_SIZE);
+                }
+            });
+        });
+    egui::CentralPanel::default()
+        .frame(egui::Frame::NONE)
+        .show(ui, |ui| {
+            ui.add_space(4.0);
+            if let Some(intro) = intro {
+                ui.label(egui::RichText::new(intro).strong());
+                ui.add_space(6.0);
+            }
+            egui::ScrollArea::both()
+                .id_salt("error_modal_scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    // `both()` disables wrapping, so long single-line errors
+                    // scroll horizontally instead of inflating the window.
+                    ui.label(egui::RichText::new(msg).monospace().size(*font_size));
+                });
+        });
+    act
+}
 /// Clamp range for the error-modal message font size.
 const MIN_ERROR_FONT_SIZE: f32 = 8.0;
 const MAX_ERROR_FONT_SIZE: f32 = 28.0;
@@ -6477,99 +6584,26 @@ impl CoboltApp {
         body: impl FnOnce(&mut Self, &mut egui::Ui) -> bool,
     ) -> bool {
         let mut close = false;
-        egui::Resize::default()
-            .id_salt(id_salt)
-            .resizable([true, true])
-            .min_size(egui::vec2(380.0, 220.0))
-            .max_size(egui::vec2(4000.0, 4000.0))
-            .default_size(egui::Vec2::from(ERROR_MODAL_SIZE)) // seed only
-            .show(ui, |ui| {
-                // `sz` is the Resize box: user/default state, bounded —
-                // NOT "remaining space" of an auto-sizing container.
-                let sz = ui.available_size();
-                ui.allocate_ui(sz, |ui| {
-                    ui.set_min_size(sz);
-                    close = body(self, ui);
-                });
-            });
+        error_modal_scaffold(ui, id_salt, |ui| {
+            close = body(self, ui);
+        });
         close
     }
 
     /// Shared body of the two error modals: optional intro line, the message
     /// in a two-axis scroll area, and the Copy / Save / font-size / OK row.
     /// Returns `true` when OK was clicked (the caller clears its message).
-    ///
-    /// Laid out inside the fixed `error_modal_resize_box`, so all "available"
-    /// space here is user-controlled state, not measured content.
     fn error_modal_body(&mut self, ui: &mut egui::Ui, intro: Option<&str>, msg: &str) -> bool {
-        let mut close = false;
-        ui.add_space(4.0);
-        if let Some(intro) = intro {
-            ui.label(egui::RichText::new(intro).strong());
-            ui.add_space(6.0);
-        }
-        // Reserve a fixed footer for the button row; the scroll area gets the
-        // rest of the box.
-        let footer_h = 40.0;
-        let scroll_h = (ui.available_height() - footer_h).max(60.0);
-        egui::ScrollArea::both()
-            .id_salt("error_modal_scroll")
-            .auto_shrink([false, false])
-            .max_height(scroll_h)
-            .show(ui, |ui| {
-                // `both()` disables wrapping, so long single-line errors
-                // scroll horizontally instead of inflating the window.
-                ui.label(
-                    egui::RichText::new(msg)
-                        .monospace()
-                        .size(self.error_font_size),
-                );
-            });
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button("OK").clicked() {
-                close = true;
-            }
-            ui.separator();
-            if ui
-                .button("Copy")
-                .on_hover_text("Copy the error message to the clipboard")
-                .clicked()
-            {
-                ui.ctx().copy_text(msg.to_owned());
-            }
-            if ui
-                .button("Save…")
-                .on_hover_text("Save the error message to a text file")
-                .clicked()
-            {
-                self.begin_file_dialog(
-                    FileRequest::SaveErrorText(msg.to_owned()),
-                    crate::file_dialog::DialogSpec::save()
-                        .filter("Text file", &["txt"])
-                        .file_name("error.txt"),
-                );
-            }
-            ui.separator();
-            if ui
-                .small_button("A−")
-                .on_hover_text("Decrease font size")
-                .clicked()
-            {
-                self.error_font_size = (self.error_font_size - 1.0).max(MIN_ERROR_FONT_SIZE);
-            }
-            ui.label(
-                egui::RichText::new(format!("{} px", self.error_font_size.round() as i32)).small(),
+        let act = error_modal_body_ui(ui, intro, msg, &mut self.error_font_size);
+        if act.save {
+            self.begin_file_dialog(
+                FileRequest::SaveErrorText(msg.to_owned()),
+                crate::file_dialog::DialogSpec::save()
+                    .filter("Text file", &["txt"])
+                    .file_name("error.txt"),
             );
-            if ui
-                .small_button("A+")
-                .on_hover_text("Increase font size")
-                .clicked()
-            {
-                self.error_font_size = (self.error_font_size + 1.0).min(MAX_ERROR_FONT_SIZE);
-            }
-        });
-        close
+        }
+        act.close
     }
 
     fn show_save_alert(&mut self, ctx: &Context) {
@@ -11461,6 +11495,82 @@ mod manifest_name_tests {
         assert!(
             diags.iter().any(|d| d.severity == DiagSeverity::Error),
             "a syntactically broken handler must report an error: {diags:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod error_modal_tests {
+    use super::*;
+
+    /// Render one frame of the production error-modal stack (Window +
+    /// resize scaffold + panel body) and report the window's area rect.
+    fn run_frame(ctx: &egui::Context, font: &mut f32, msg: &str) -> Option<egui::Rect> {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(1600.0, 1000.0),
+        ));
+        let _ = ctx.run_ui(input, |root_ui| {
+            let ctx2 = root_ui.ctx().clone();
+            egui::Window::new("⛔ Error")
+                .id(egui::Id::new("test_error_modal"))
+                .collapsible(false)
+                .resizable(false)
+                .show(&ctx2, |ui| {
+                    error_modal_scaffold(ui, "test_error_modal_resize", |ui| {
+                        let _ = error_modal_body_ui(
+                            ui,
+                            Some("Execution stopped. See the Output panel for details."),
+                            msg,
+                            font,
+                        );
+                    });
+                });
+        });
+        ctx.memory(|m| m.area_rect(egui::Id::new("test_error_modal")))
+    }
+
+    /// R9 / AC7 (spec 027): the error modal opens at its seeded size and holds
+    /// it — egui 0.35's `Resize` ratchets up to the measured content min every
+    /// frame, so ANY body overflow becomes runaway self-inflation. 120 frames
+    /// with a long multi-line message must produce an identical rect.
+    #[test]
+    fn error_modal_holds_seeded_size_across_frames() {
+        let ctx = egui::Context::default();
+        let mut font = 13.0;
+        let long_line = "The model returned 33292 reasoning characters but no assistant \
+                         message content. PowerRustCOBOL cannot apply hidden reasoning as \
+                         form operations. "
+            .repeat(4);
+        let msg = format!("{long_line}\n").repeat(40);
+
+        let mut sizes: Vec<egui::Vec2> = Vec::new();
+        for _ in 0..120 {
+            if let Some(r) = run_frame(&ctx, &mut font, &msg) {
+                sizes.push(r.size());
+            }
+        }
+        assert!(sizes.len() >= 100, "window rect missing most frames");
+        let settled = sizes[4];
+        for (i, s) in sizes.iter().enumerate().skip(4) {
+            assert!(
+                (s.x - settled.x).abs() < 0.5 && (s.y - settled.y).abs() < 0.5,
+                "error modal size drifted at frame {i}: {settled:?} -> {s:?} \
+                 (self-inflation regression)"
+            );
+        }
+        // Seeded 800x450 box + window chrome; anything near screen size means
+        // the ratchet is back.
+        assert!(
+            settled.x < 900.0 && settled.y < 600.0,
+            "error modal settled larger than seed+chrome: {settled:?}"
+        );
+        println!(
+            "error modal stable at {:.0}x{:.0} px across {} frames",
+            settled.x,
+            settled.y,
+            sizes.len()
         );
     }
 }
