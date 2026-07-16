@@ -160,14 +160,15 @@ pub fn base_font_definitions() -> egui::FontDefinitions {
     if let Some(bytes) = pdf_font_bytes() {
         defs.font_data.insert(
             "latin_fallback".to_owned(),
-            egui::FontData::from_owned(bytes),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
         );
         fallbacks.push("latin_fallback".to_owned());
     }
     if let Some((bytes, idx)) = cjk_font() {
         let mut fd = egui::FontData::from_owned(bytes);
         fd.index = idx;
-        defs.font_data.insert("cjk_fallback".to_owned(), fd);
+        defs.font_data
+            .insert("cjk_fallback".to_owned(), std::sync::Arc::new(fd));
         fallbacks.push("cjk_fallback".to_owned());
     }
 
@@ -218,9 +219,10 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
         None => {
             match load_font_bytes(fam) {
                 Some(bytes) => {
-                    g.defs
-                        .font_data
-                        .insert(fam.to_owned(), egui::FontData::from_owned(bytes));
+                    g.defs.font_data.insert(
+                        fam.to_owned(),
+                        std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+                    );
                     // Chain egui's default proportional fonts after this face so any
                     // glyphs it lacks still render (instead of showing tofu).
                     let mut chain = vec![fam.to_owned()];

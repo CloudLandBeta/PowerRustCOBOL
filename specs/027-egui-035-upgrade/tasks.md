@@ -16,7 +16,7 @@ cobolt-cli, cobolt-compiler**, zero egui deprecation warnings, IDE smoke-run
 (launch, open a project, open a form, close — operator or kittest smoke).
 Each step is **one commit** (`egui-035 step N: egui 0.3x`).
 
-- [ ] **T1 — Branch sync + scaffolding** (R6, R7)
+- [x] **T1 — Branch sync + scaffolding** (R6, R7) ✓ 8980b80
   - Files: branch `egui-035`; `specs/027-egui-035-upgrade/sync-log.md` (new)
   - Do: fast-forward `egui-035` to current `main` HEAD (no branch-only commits
     exist yet); create `sync-log.md` with the audit table (main SHA → branch
@@ -24,7 +24,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
     ownership header.
   - Verify: `git log egui-035 -1` == `git log main -1`; sync-log committed.
 
-- [ ] **T2 — Toolchain floor** (R1)
+- [x] **T2 — Toolchain floor** (R1) ✓ dfaf78a
   - Files: `Cargo.toml` (workspace `rust-version` 1.75 → 1.92)
   - Do: bump MSRV ahead of the 0.34 step (toolchain is 1.95 — headroom
     verified 2026-07-15).

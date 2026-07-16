@@ -38,13 +38,13 @@ cobolt-media    = { path = "../cobolt-media" }
 cobolt-compiler = { path = "../cobolt-compiler" }
 
 # UI framework
-egui       = "0.29"
-eframe     = { version = "0.29", features = ["default_fonts"] }
-egui_extras = { version = "0.29", features = ["image"] }
+egui       = "0.30"
+eframe     = { version = "0.30", features = ["default_fonts"] }
+egui_extras = { version = "0.30", features = ["image"] }
 # Low-level GL access for the offscreen rounded-corner clip (spec 017): captures
 # the real backdrop behind a rounded container and re-blits it through a rounded
 # mask, so translucent surfaces stop bleeding at the corners. Version tracks eframe's.
-egui_glow  = "0.29"
+egui_glow  = "0.30"
 
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp", "avif"] }
 
@@ -86,7 +86,7 @@ tracing-subscriber   = { workspace = true }
 
 # For random quote selection on the welcome screen
 rand = "0.8"
-egui_commonmark = "0.18"
+egui_commonmark = "0.19"
 pulldown-cmark = { version = "0.12", default-features = false }
 include_dir = "0.7"
 mermaid-rs-renderer = "0.2"

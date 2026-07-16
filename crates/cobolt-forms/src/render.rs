@@ -1167,9 +1167,9 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                     overscroll = egui::Vec2::ZERO;
                 }
 
-                let _ = ui.allocate_ui_at_rect(screen, |ui| {
+                let _ = ui.allocate_new_ui(egui::UiBuilder::new().max_rect(screen), |ui| {
                     let sa = egui::ScrollArea::new([hscroll, vscroll])
-                        .id_source(sid)
+                        .id_salt(sid)
                         .auto_shrink([false, false]);
 
                     let content_size = panel_content_size(controls, idx, screen.size());
@@ -2538,7 +2538,7 @@ fn render_interactive(
                         display_val = ((raw / step).round() * step).clamp(min_v, max_v);
                     }
                 }
-                if resp.drag_released() {
+                if resp.drag_stopped() {
                     ui.data_mut(|d| {
                         d.remove::<(f32, f32)>(ctrl_id);
                     });
@@ -2559,7 +2559,7 @@ fn render_interactive(
                     .push(UiEvent::change(id, &display_val.to_string()));
                 ui.data_mut(|d| d.insert_temp(slider_dirty_id, true));
             }
-            if resp.drag_released() {
+            if resp.drag_stopped() {
                 let dirty = ui.data(|d| d.get_temp::<bool>(slider_dirty_id).unwrap_or(false));
                 if dirty {
                     out.events.push(UiEvent::ev(id, "onValueChanged"));
@@ -2628,8 +2628,10 @@ fn render_interactive(
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
             let mut picked: Option<String> = None;
-            ui.allocate_ui_at_rect(screen, |ui| {
-                ui.set_enabled(enabled);
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(screen), |ui| {
+                if !enabled {
+                    ui.disable();
+                }
                 egui::ScrollArea::vertical()
                     .id_salt(ctrl_id)
                     .max_height(screen.height())

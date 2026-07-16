@@ -3649,7 +3649,7 @@ impl CoboltApp {
             // height instead of collapsing to the green (content height of the short properties).
             let remaining_rect = ui.available_rect_before_wrap();
 
-            ui.allocate_ui_at_rect(remaining_rect, |ui| {
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(remaining_rect), |ui| {
                 ui.horizontal_top(|ui| {
                     // Left column: either raw text editor or the tree structure
                     ui.vertical(|ui| {
@@ -3743,7 +3743,7 @@ impl CoboltApp {
         // was clicked, or initial request after raw creation).
         // We no longer force the modal just because prefer_raw_editor is true,
         // because when that flag is set the *in-place* raw editor (see the
-        // allocate_ui_at_rect branch above) *is* the visible form that replaced
+        // allocate_new_ui branch above) *is* the visible form that replaced
         // the property pane. The modal is optional (can be opened via the raw
         // icon in the header). This ensures that "Apply" and the window X both
         // actually close the modal and it stays closed.
@@ -5381,7 +5381,7 @@ impl CoboltApp {
                 let content_h = (avail.height() - bottom_res).max(180.0);
                 let content_rect =
                     egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), content_h));
-                ui.allocate_ui_at_rect(content_rect, |ui| {
+                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(content_rect), |ui| {
                     action = form.show(
                         ui,
                         tr,
