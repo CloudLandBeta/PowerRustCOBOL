@@ -42,5 +42,16 @@ blind cherry-pick), same session it is noticed. Rows are appended below.
 
 ## Verification records
 
+### T12 — R4 isolation proof (AC4/AC5, 2026-07-16)
+
+- `cargo tree` MCP/inspection dep count (`inspection|rmcp|egui_mcp`):
+  cobolt-cli **0**, cobolt-compiler **0**, cobolt-forms **0**, cobolt-media
+  **0**; cobolt-ide has `egui_inspection` (by design, R3).
+- Runtime: `rcrun run` on a blocking ACCEPT program, pid alive, `lsof -iTCP`
+  → **0 TCP sockets**. The runtime opens no listener.
+- AC5 dep-diff vs main: additions are egui-family only (egui/eframe/
+  egui_extras/egui_glow/egui_commonmark 0.35 line, egui_inspection 0.35,
+  skrifa promoted from transitive; ab_glyph removed).
+
 (AC5 dependency diffs, AC4 isolation checks, and AC6 final audit are appended
 here by their tasks.)
