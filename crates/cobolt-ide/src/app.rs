@@ -3908,7 +3908,7 @@ impl CoboltApp {
             return;
         };
 
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let tex_size = tex.size_vec2();
         if tex_size.x <= 0.0 || tex_size.y <= 0.0 {
             return;
@@ -5587,7 +5587,7 @@ impl CoboltApp {
             const GAP_AUTHOR: f32 = 10.0; // quote → author
             let avail_w = ui.available_width();
             let line_h = |text: &str, size: f32| {
-                ui.fonts(|f| {
+                ui.fonts_mut(|f| {
                     f.layout_no_wrap(
                         text.to_owned(),
                         egui::FontId::proportional(size),
@@ -5597,7 +5597,7 @@ impl CoboltApp {
                     .y
                 })
             };
-            let quote_h = ui.fonts(|f| {
+            let quote_h = ui.fonts_mut(|f| {
                 f.layout(
                     quote.to_owned(),
                     egui::FontId::proportional(16.0),
@@ -6396,7 +6396,7 @@ impl CoboltApp {
     /// the edge-drag rect during a user resize (the grip drifts away from the
     /// pointer). A one-time centered default keeps resizing well-behaved.
     fn error_modal_default_pos(ctx: &Context) -> egui::Pos2 {
-        ctx.screen_rect().center() - 0.5 * egui::Vec2::from(ERROR_MODAL_SIZE)
+        ctx.content_rect().center() - 0.5 * egui::Vec2::from(ERROR_MODAL_SIZE)
     }
 
     /// Wrap an error-modal body in the sizing pattern shared with the debugger
@@ -6586,7 +6586,7 @@ impl CoboltApp {
             return;
         }
         // Dim the rest of the IDE so the build reads as modal.
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         ctx.layer_painter(egui::LayerId::new(
             egui::Order::Middle,
             egui::Id::new("building_dim"),
@@ -7183,7 +7183,7 @@ fn apply_opaque_viewport_theme(ctx: &Context, theme: &crate::theme::Theme) {
         ctx.set_visuals(v);
     }
     ctx.layer_painter(egui::LayerId::background())
-        .rect_filled(ctx.screen_rect(), 0.0, solid_panel);
+        .rect_filled(ctx.content_rect(), 0.0, solid_panel);
 }
 
 // ── eframe::App ───────────────────────────────────────────────────────────────
@@ -7275,7 +7275,7 @@ impl eframe::App for CoboltApp {
             let p = ctx.style().visuals.panel_fill;
             let floor = egui::Color32::from_rgb(p.r(), p.g(), p.b());
             ctx.layer_painter(egui::LayerId::background()).rect_filled(
-                ctx.screen_rect(),
+                ctx.content_rect(),
                 0.0,
                 floor,
             );
@@ -7284,7 +7284,7 @@ impl eframe::App for CoboltApp {
         {
             let p = ctx.style().visuals.panel_fill;
             ctx.layer_painter(egui::LayerId::background())
-                .rect_filled(ctx.screen_rect(), 0.0, p);
+                .rect_filled(ctx.content_rect(), 0.0, p);
         }
 
         // ── Drain a finished async file dialog (Open/Save/Browse) ──────────────
@@ -8398,7 +8398,7 @@ impl CoboltApp {
             .with_resizable(true)
             .with_always_on_top();
         if !self.inspector_sized {
-            let sh = ctx.screen_rect();
+            let sh = ctx.content_rect();
             builder = builder.with_inner_size([
                 (sh.width() / 3.0).clamp(560.0, 900.0),
                 (sh.height() / 6.0).clamp(200.0, 320.0),
@@ -9830,7 +9830,7 @@ impl CoboltApp {
 
         // Allow the properties panel to be resized up to half the window width so
         // long values (paths, titles) aren't clipped by the window border.
-        let half_win = (ctx.screen_rect().width() * 0.5).max(320.0);
+        let half_win = (ctx.content_rect().width() * 0.5).max(320.0);
         // 10px right inner margin so the pane's content keeps a small gap from the
         // window border instead of butting against it.
         let props_frame = egui::Frame::side_top_panel(&ctx.style()).inner_margin(egui::Margin {

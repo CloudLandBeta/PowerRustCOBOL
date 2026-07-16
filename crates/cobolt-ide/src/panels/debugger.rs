@@ -830,7 +830,7 @@ impl DebuggerPanel {
     fn fit_value_preview(ui: &egui::Ui, value: &str, max_px: f32) -> String {
         let font_id = egui::FontId::monospace(11.0);
         let text_width = |text: &str| {
-            ui.fonts(|fonts| {
+            ui.fonts_mut(|fonts| {
                 fonts
                     .layout_no_wrap(text.to_owned(), font_id.clone(), Color32::WHITE)
                     .size()

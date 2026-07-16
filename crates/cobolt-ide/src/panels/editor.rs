@@ -2277,7 +2277,7 @@ impl EditorPanel {
             } else {
                 cobol_layout_job(text, font_hl.clone(), &kw_set)
             };
-            ui.fonts(|f| f.layout_job(lj))
+            ui.fonts_mut(|f| f.layout_job(lj))
         };
 
         let avail = ui.available_size();
@@ -2308,7 +2308,7 @@ impl EditorPanel {
                     )> = None;
                     if self.show_line_numbers {
                         let n_lines = self.tabs[self.active].content.lines().count().max(1);
-                        let line_h = ui.fonts(|f| f.row_height(&font));
+                        let line_h = ui.fonts_mut(|f| f.row_height(&font));
                         let gutter_w = 54.0_f32;
                         let (gutter_rect, gutter_resp) = ui.allocate_exact_size(
                             egui::vec2(gutter_w, line_h * n_lines as f32),
@@ -2482,7 +2482,7 @@ impl EditorPanel {
                             // Scroll the viewport so the match is visible
                             let content_before = &tab.content[..byte_off.min(tab.content.len())];
                             let line_num = content_before.matches('\n').count();
-                            let line_h = ui.fonts(|f| f.row_height(&font));
+                            let line_h = ui.fonts_mut(|f| f.row_height(&font));
                             let match_y = te_out.galley_pos.y + line_num as f32 * line_h;
                             ui.scroll_to_rect(
                                 egui::Rect::from_min_size(
@@ -2652,7 +2652,7 @@ impl EditorPanel {
                                     let raw_x = te_out.galley_pos.x + cr_rect.min.x;
                                     let raw_y = te_out.galley_pos.y + cr_rect.max.y + 4.0;
                                     let cursor_top_y = te_out.galley_pos.y + cr_rect.min.y;
-                                    let scr = ctx.screen_rect();
+                                    let scr = ctx.content_rect();
                                     let popup_h = 280.0_f32;
                                     let popup_w = 480.0_f32;
                                     // Clamp horizontally so popup stays on screen

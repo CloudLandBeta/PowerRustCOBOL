@@ -211,7 +211,7 @@ impl DocViewer {
         let tex = self
             .fog_tex
             .get_or_insert_with(|| build_fog_texture(ctx, rgb));
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let painter = ctx.layer_painter(egui::LayerId::background());
         painter.image(
             tex.id(),

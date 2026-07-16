@@ -4149,7 +4149,7 @@ impl PropertiesPanel {
         }
 
         let ctx = ui.ctx().clone();
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let modal_size = egui::vec2(
             (screen.width() * 0.80).clamp(720.0, 1180.0),
             (screen.height() * 0.84).max(560.0),

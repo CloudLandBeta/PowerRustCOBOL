@@ -4711,14 +4711,14 @@ impl DesignerPanel {
             return;
         }
 
-        let overlay = ui.ctx().screen_rect();
+        let overlay = ui.ctx().content_rect();
         ui.painter()
             .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
 
         let mut save_clicked = false;
         let mut cancel_clicked = false;
 
-        let screen = ui.ctx().screen_rect();
+        let screen = ui.ctx().content_rect();
         let tr = crate::i18n::current_tr(ui.ctx());
 
         let modal_id = egui::Id::new("menu_editor_modal");
@@ -5247,7 +5247,7 @@ impl DesignerPanel {
             if modal.icon_picker_open {
                 let mut icon_picked: Option<Option<String>> = None;
 
-                let screen = ui.ctx().screen_rect();
+                let screen = ui.ctx().content_rect();
                 let picker_id = egui::Id::new(("icon_picker", modal.icon_picker_gen));
                 egui::Window::new("Select Icon")
                     .id(picker_id)
@@ -6224,7 +6224,7 @@ impl DesignerPanel {
         let mut do_clear = false;
 
         // Dim overlay covering the canvas (behind the window).
-        let overlay = ui.ctx().screen_rect();
+        let overlay = ui.ctx().content_rect();
         ui.painter()
             .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 140));
 
@@ -6233,7 +6233,7 @@ impl DesignerPanel {
 
         // Open at 70 % of the window size; `default_*` only seed the initial
         // size, so the modal does not track the window — the user can resize.
-        let screen = ui.ctx().screen_rect();
+        let screen = ui.ctx().content_rect();
         let default_w = (screen.width() * 0.70).max(360.0);
         let default_h = (screen.height() * 0.70).max(420.0);
         // Seed the initial position centred. We use `default_pos` (a seed) rather
@@ -6656,7 +6656,7 @@ impl DesignerPanel {
             let mut save_anyway = false;
             let mut keep_editing = false;
 
-            let overlay = ui.ctx().screen_rect();
+            let overlay = ui.ctx().content_rect();
             ui.painter()
                 .rect_filled(overlay, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 160));
             egui::Window::new(format!("⚠  {}", tr.syntax_modal_title))
@@ -6816,7 +6816,7 @@ impl DesignerPanel {
             other => other.section_keyword().unwrap_or("").to_owned(),
         };
 
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         let default_w = (screen.width() * 0.6).max(420.0);
         let default_h = (screen.height() * 0.7).max(360.0);
         let mut close = false;

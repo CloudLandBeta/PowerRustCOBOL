@@ -46,7 +46,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
   - Verify: per-step gate + operator eyeball of one glass theme form
     (corner clipping intact — AC2 partial).
 
-- [ ] **T5 — Step 3: egui 0.32 — panels, menus, id_salt** (R1, R2, R8)
+- [x] **T5 — Step 3: egui 0.32 — panels, menus, id_salt** (R1, R2, R8) ✓ ca29685 — gate: 0 errors, 0 deprecations, 323/324 tests; SidePanel/CentralPanel APIs still valid in 0.32 (unified Panel lands as deprecation later); menu walkthrough folded into T14
   - Files: 10 SidePanel + 17 TopBottomPanel + 31 CentralPanel sites; 39
     `menu::` sites; 36 `selectable_label`; 1 `id_source`; ImageButton audit
   - Do: unified-`Panel` migration; **menu parity pass** — restore stay-open
