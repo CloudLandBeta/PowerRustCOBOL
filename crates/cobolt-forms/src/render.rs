@@ -1167,7 +1167,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
                     overscroll = egui::Vec2::ZERO;
                 }
 
-                let _ = ui.allocate_new_ui(egui::UiBuilder::new().max_rect(screen), |ui| {
+                let _ = ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
                     let sa = egui::ScrollArea::new([hscroll, vscroll])
                         .id_salt(sid)
                         .auto_shrink([false, false]);
@@ -2391,7 +2391,7 @@ fn render_interactive(
                 // spill past the TextBox's fixed height (and its rounded bottom).
                 // Host it in a scroll area clipped to the field so extra rows scroll
                 // instead of overflowing — the box keeps its designed height.
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     ui.set_clip_rect(edit_rect);
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
@@ -2628,7 +2628,7 @@ fn render_interactive(
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
             let mut picked: Option<String> = None;
-            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(screen), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
                 if !enabled {
                     ui.disable();
                 }

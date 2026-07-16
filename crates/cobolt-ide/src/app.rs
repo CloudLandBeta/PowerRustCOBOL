@@ -3649,7 +3649,7 @@ impl CoboltApp {
             // height instead of collapsing to the green (content height of the short properties).
             let remaining_rect = ui.available_rect_before_wrap();
 
-            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(remaining_rect), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(remaining_rect), |ui| {
                 ui.horizontal_top(|ui| {
                     // Left column: either raw text editor or the tree structure
                     ui.vertical(|ui| {
@@ -5379,7 +5379,7 @@ impl CoboltApp {
                 let content_h = (avail.height() - bottom_res).max(180.0);
                 let content_rect =
                     egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), content_h));
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(content_rect), |ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
                     action = form.show(
                         ui,
                         tr,
@@ -7410,15 +7410,15 @@ impl eframe::App for CoboltApp {
         // Run / View menus (and the Save/Check toolbar buttons below).
         let menu_has_active = has_project || self.editor.active_source().is_some();
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr.menu_file, |ui| {
-                    if ui.button(tr.menu_new_project).clicked()     { self.do_new_project();  ui.close_menu(); }
-                    if ui.button(tr.menu_open_project).clicked()    { self.do_open_project(); ui.close_menu(); }
+                    if ui.button(tr.menu_new_project).clicked()     { self.do_new_project();  ui.close(); }
+                    if ui.button(tr.menu_open_project).clicked()    { self.do_open_project(); ui.close(); }
                     if ui.add_enabled(has_project, egui::Button::new(tr.menu_save_project)).clicked() {
-                        self.do_save_project(); ui.close_menu();
+                        self.do_save_project(); ui.close();
                     }
                     if ui.add_enabled(has_project, egui::Button::new(tr.menu_package_project)).clicked() {
-                        self.do_package_project(); ui.close_menu();
+                        self.do_package_project(); ui.close();
                     }
                     let building = self.pending_build_rx.is_some();
                     let build_label = if building { "⏳ Building…" } else { "🔨 Build Binary  (bin/)" };
@@ -7426,14 +7426,14 @@ impl eframe::App for CoboltApp {
                         .on_hover_text("Compile project → single native executable in bin/")
                         .clicked()
                     {
-                        self.do_build_binary(); ui.close_menu();
+                        self.do_build_binary(); ui.close();
                     }
                     ui.separator();
-                    if ui.button(tr.menu_open_cobol).clicked()  { self.do_open();             ui.close_menu(); }
-                    if ui.button(tr.menu_open_form).clicked()   { self.do_open_form();         ui.close_menu(); }
-                    if ui.button(tr.menu_import_form).clicked() { self.do_add_file_to_project(FileKind::Form); ui.close_menu(); }
+                    if ui.button(tr.menu_open_cobol).clicked()  { self.do_open();             ui.close(); }
+                    if ui.button(tr.menu_open_form).clicked()   { self.do_open_form();         ui.close(); }
+                    if ui.button(tr.menu_import_form).clicked() { self.do_add_file_to_project(FileKind::Form); ui.close(); }
                     ui.separator();
-                    if ui.button(tr.menu_save).clicked() { self.do_save(); ui.close_menu(); }
+                    if ui.button(tr.menu_save).clicked() { self.do_save(); ui.close(); }
                     ui.separator();
                     if ui.button(tr.menu_quit).clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -7444,14 +7444,14 @@ impl eframe::App for CoboltApp {
                     ui.menu_button(tr.menu_run, |ui| {
                         if ui.add_enabled(!self.runner.is_running(),
                                          egui::Button::new(tr.menu_run_btn)).clicked() {
-                            self.do_run(); ui.close_menu();
+                            self.do_run(); ui.close();
                         }
                         if ui.add_enabled(self.runner.is_running(),
                                          egui::Button::new(tr.menu_stop)).clicked() {
-                            self.do_stop(); ui.close_menu();
+                            self.do_stop(); ui.close();
                         }
                         ui.separator();
-                        if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close_menu(); }
+                        if ui.button(tr.menu_check_only).clicked() { self.do_check(); ui.close(); }
                     });
 
                     ui.menu_button(tr.menu_view, |ui| {
@@ -7463,7 +7463,7 @@ impl eframe::App for CoboltApp {
                 ui.menu_button("Help", |ui| {
                     if ui.button(tr.doc_menu_label).clicked() {
                         self.doc_viewer.open(self.lang);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("🐛 Report a Problem…")
@@ -7471,12 +7471,12 @@ impl eframe::App for CoboltApp {
                         .clicked()
                     {
                         self.report_bug.open_for("IDE Editor");
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("ℹ About PowerRustCOBOL").clicked() {
                         self.about_open = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
             });
@@ -9707,7 +9707,7 @@ impl CoboltApp {
                             d.preview_last_frame = None;
                             d.preview_state.clear();
                             d.preview_combo_open.clear();
-                            ctx.memory_mut(|mem| mem.close_popup());
+                            egui::Popup::close_all(ctx);
                         }
                     }
                     DesignerToolbarAction::ToggleGrid => {

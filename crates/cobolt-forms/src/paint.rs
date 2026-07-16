@@ -3487,8 +3487,9 @@ fn decode_image_bytes(path: &str, bytes: &[u8]) -> Option<egui::ColorImage> {
         .collect();
     Some(egui::ColorImage {
         size: [w, h],
+        source_size: egui::vec2(w as f32, h as f32),
         pixels,
-    })
+        })
 }
 
 fn is_svg_path(path: &str) -> bool {
@@ -3558,8 +3559,9 @@ fn decode_svg_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
         .collect();
     Some(egui::ColorImage {
         size: [width as usize, height as usize],
+        source_size: egui::vec2(width as f32, height as f32),
         pixels,
-    })
+        })
 }
 
 fn svg_native_size_from_bytes(bytes: &[u8]) -> Option<Vec2> {
@@ -3600,8 +3602,9 @@ fn decode_svg_bytes_at_size(bytes: &[u8], width: u32, height: u32) -> Option<egu
         .collect();
     Some(egui::ColorImage {
         size: [width as usize, height as usize],
+        source_size: egui::vec2(width as f32, height as f32),
         pixels,
-    })
+        })
 }
 
 /// Load (and cache in egui memory) a PictureBox image texture, so it isn't

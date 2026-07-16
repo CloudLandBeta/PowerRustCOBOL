@@ -57,14 +57,14 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
     let popup_id = resp.id.with("__closing_color_popup");
     let anchor_id = resp.id.with("__closing_color_anchor");
     if resp.clicked() {
-        ui.memory_mut(|m| m.toggle_popup(popup_id));
+        egui::Popup::toggle_id(ui.ctx(), popup_id);
         // Pin the popup to where the swatch is *at open time*. Using the live
         // swatch rect each frame makes the popup drift when the panel reflows or
         // scrolls during a drag (e.g. dragging the 2-D picker to its border).
         ui.memory_mut(|m| m.data.insert_temp(anchor_id, resp.rect.left_bottom()));
     }
 
-    if ui.memory(|m| m.is_popup_open(popup_id)) {
+    if egui::Popup::is_id_open(ui.ctx(), popup_id) {
         let anchor: Pos2 = ui
             .memory(|m| m.data.get_temp(anchor_id))
             .unwrap_or_else(|| resp.rect.left_bottom());
@@ -155,7 +155,7 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
         if !resp.clicked()
             && (ui.input(|i| i.key_pressed(Key::Escape)) || area.response.clicked_elsewhere())
         {
-            ui.memory_mut(|m| m.close_popup());
+            egui::Popup::close_all(ui.ctx());
         }
     }
 
@@ -7103,7 +7103,7 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
     let left_rect = Rect::from_min_max(rect.min, egui::pos2(sep_x, rect.bottom()));
     let right_rect = Rect::from_min_max(egui::pos2(sep_x, rect.top()), rect.max);
     let cell_pad = egui::vec2(3.0, 0.0);
-    ui.allocate_new_ui(
+    ui.scope_builder(
         egui::UiBuilder::new().max_rect(left_rect.shrink2(cell_pad)),
         |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -7111,7 +7111,7 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
             });
         },
     );
-    ui.allocate_new_ui(
+    ui.scope_builder(
         egui::UiBuilder::new().max_rect(right_rect.shrink2(cell_pad)),
         |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {

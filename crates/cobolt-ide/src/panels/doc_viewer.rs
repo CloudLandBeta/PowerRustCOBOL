@@ -388,26 +388,26 @@ impl DocViewer {
 
     fn menu_bar(&mut self, ctx: &Context, tr: &Tr) {
         egui::TopBottomPanel::top("doc_menubar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr.doc_menu_file, |ui| {
                     if ui.button(tr.doc_print).clicked() {
                         self.print();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button(tr.doc_close).clicked() {
                         self.open = false;
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
                 ui.menu_button(tr.doc_menu_view, |ui| {
                     if ui.button(tr.doc_zoom_in).clicked() {
                         self.zoom = (self.zoom * 1.1).min(3.0);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button(tr.doc_zoom_out).clicked() {
                         self.zoom = (self.zoom / 1.1).max(0.5);
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui
@@ -421,7 +421,7 @@ impl DocViewer {
                 ui.menu_button(tr.doc_menu_help, |ui| {
                     if ui.button(tr.doc_shortcuts).clicked() {
                         self.show_shortcuts = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
             });
@@ -845,8 +845,9 @@ fn render_mermaid_image(code: &str) -> Result<(egui::ColorImage, egui::Vec2), St
         .collect();
     let image = egui::ColorImage {
         size: [w as usize, h as usize],
+        source_size: egui::vec2(w as f32, h as f32),
         pixels,
-    };
+        };
     let logical = egui::vec2(w as f32 / 2.0, h as f32 / 2.0);
     Ok((image, logical))
 }
@@ -1067,8 +1068,9 @@ fn build_fog_texture(ctx: &Context, rgb: egui::Color32) -> egui::TextureHandle {
     }
     let img = egui::ColorImage {
         size: [W, H],
+        source_size: egui::vec2(W as f32, H as f32),
         pixels,
-    };
+        };
     ctx.load_texture("doc_frost", img, egui::TextureOptions::LINEAR)
 }
 

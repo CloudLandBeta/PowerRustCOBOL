@@ -4286,7 +4286,7 @@ impl DesignerPanel {
                                 name: String::new(),
                                 error: None,
                             });
-                            ui.close_menu();
+                            ui.close();
                         }
                         ui.separator();
                     }
@@ -4295,7 +4295,7 @@ impl DesignerPanel {
                             for def in user_controls {
                                 if ui.button(&def.name).clicked() {
                                     result.user_control_delete_requested = Some(def.name.clone());
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         });
@@ -4315,7 +4315,7 @@ impl DesignerPanel {
                     {
                         self.cut_selected(clipboard);
                         selection_changed = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui
                         .add_enabled(
@@ -4325,7 +4325,7 @@ impl DesignerPanel {
                         .clicked()
                     {
                         self.copy_selected(clipboard);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui
                         .add_enabled(
@@ -4336,7 +4336,7 @@ impl DesignerPanel {
                     {
                         self.paste_from_clipboard(clipboard);
                         selection_changed = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui
                         .add_enabled(
@@ -4347,29 +4347,29 @@ impl DesignerPanel {
                     {
                         self.duplicate_selected(clipboard);
                         selection_changed = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("🗑 Delete").clicked() {
                         self.delete_selected();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     if ui.button("⬆ Bring to Front").clicked() {
                         self.bring_to_front();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("⬇ Send to Back").clicked() {
                         self.send_to_back();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("+1 Forward").clicked() {
                         self.bring_forward();
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("-1 Backward").clicked() {
                         self.send_backward();
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
                     // Play animations
@@ -4391,7 +4391,7 @@ impl DesignerPanel {
                             for aname in &anim_names {
                                 if ui.button(aname).clicked() {
                                     self.play_animation_preview(&sid, aname);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             }
                         });
@@ -4428,7 +4428,7 @@ impl DesignerPanel {
                                     old,
                                     new: PropValue::Bool(false),
                                 });
-                                ui.close_menu();
+                                ui.close();
                             }
                         } else if ui.button("▦ Set as Repeating Group").clicked() {
                             // Seed ArrayName with the control id when still empty.
@@ -4461,13 +4461,13 @@ impl DesignerPanel {
                                 old,
                                 new: PropValue::Bool(true),
                             });
-                            ui.close_menu();
+                            ui.close();
                         }
                     }
                     ui.separator();
                     if ui.button("🏷 Auto-arrange Labels").clicked() {
                         self.auto_arrange_labels();
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
 

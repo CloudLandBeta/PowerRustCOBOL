@@ -820,7 +820,7 @@ impl ProjectPanel {
                         plus.context_menu(|ui| {
                             if ui.button(tr.tree_import_existing).clicked() {
                                 events.push(ProjectPanelEvent::Add(kind));
-                                ui.close_menu();
+                                ui.close();
                             }
                         });
                     });
@@ -1174,7 +1174,7 @@ impl ProjectPanel {
         resp.context_menu(|ui| {
             if ui.button("Remove from project").clicked() {
                 remove_clicked = true;
-                ui.close_menu();
+                ui.close();
             }
         });
         if remove_clicked {
@@ -1418,7 +1418,7 @@ fn file_row(
         resp.context_menu(|ui| {
             if ui.button("Remove from project").clicked() {
                 events.push(ProjectPanelEvent::Remove(rel.to_string()));
-                ui.close_menu();
+                ui.close();
             }
         });
     }

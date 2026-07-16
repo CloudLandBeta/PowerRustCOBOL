@@ -324,7 +324,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_project, &theme);
@@ -343,7 +343,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -369,7 +369,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -406,7 +406,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -432,7 +432,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -459,7 +459,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -485,7 +485,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -509,7 +509,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_license, &theme);
@@ -528,7 +528,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -566,7 +566,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -596,7 +596,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_appearance, &theme);
@@ -615,7 +615,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -660,7 +660,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -697,7 +697,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -725,7 +725,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -764,7 +764,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.settings_ai_title, &theme);
@@ -783,7 +783,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 // empty left side for the hint row
@@ -808,7 +808,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -868,7 +868,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -895,7 +895,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -922,7 +922,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -993,7 +993,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                             });
@@ -1056,7 +1056,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1117,7 +1117,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1142,7 +1142,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 section(ui, tr.set_sec_runtime, &theme);
@@ -1161,7 +1161,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1183,7 +1183,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.set_min_width(splitter);
                                 section(ui, "Run-Form inspector", &theme);
                             });
@@ -1200,7 +1200,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);
@@ -1226,7 +1226,7 @@ impl SettingsForm {
                                     egui::Sense::hover(),
                                 )
                                 .0;
-                            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.set_min_width(splitter);
                                 ui.add_space(property_indent);

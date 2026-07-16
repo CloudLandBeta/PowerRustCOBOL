@@ -41,7 +41,7 @@ cobolt-compiler = { path = "../cobolt-compiler" }
 # compiled binaries use, so Run Form in the IDE is a faithful external process.
 cobolt-forms = { path = "../cobolt-forms", features = ["render"] }
 cobolt-media = { path = "../cobolt-media" }
-egui         = "0.31"
-eframe       = { version = "0.31", features = ["default_fonts"] }
-egui_extras  = { version = "0.31", features = ["image"] }
+egui         = "0.32"
+eframe       = { version = "0.32", features = ["default_fonts"] }
+egui_extras  = { version = "0.32", features = ["image"] }
 image        = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp"] }

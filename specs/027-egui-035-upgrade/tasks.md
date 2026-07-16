@@ -37,7 +37,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
     `Memory::focus`→`focused`, `clicked_by` semantics.
   - Verify: per-step gate.
 
-- [ ] **T4 — Step 2: egui 0.31 — CornerRadius** (R1, R8)
+- [x] **T4 — Step 2: egui 0.31 — CornerRadius** (R1, R8) ✓ 3a423af — gate: 0 errors, 0 deprecations, 323/324 tests (glass-theme eyeball pending with operator at T14)
   - Files: ~85 `Rounding` sites across cobolt-ide/cobolt-forms/cobolt-media;
     all 57 `Frame::` sites (stroke-in-padding review); `rounded_clip.rs`
   - Do: `Rounding`→`CornerRadius`; f32→u8 radii at the paint edge only

@@ -2267,7 +2267,11 @@ impl EditorPanel {
             .get(self.active)
             .map(|t| t.read_only)
             .unwrap_or(false);
-        let mut layouter = move |ui: &egui::Ui, text: &str, _wrap: f32| -> Arc<egui::Galley> {
+        let mut layouter = move |ui: &egui::Ui,
+                                 buf: &dyn egui::TextBuffer,
+                                 _wrap: f32|
+              -> Arc<egui::Galley> {
+            let text = buf.as_str();
             let lj = if read_only {
                 mono_layout_job(text, font_hl.clone(), crate::theme::active().ed_generated)
             } else {
@@ -2418,8 +2422,8 @@ impl EditorPanel {
                         let num_font = FontId::monospace(self.font_size - 1.0);
                         for (i, row) in te_out.galley.rows.iter().enumerate() {
                             let line_num = (i + 1) as u32;
-                            let yc = te_out.galley_pos.y + row.rect.center().y;
-                            let row_h = row.rect.height();
+                            let yc = te_out.galley_pos.y + row.rect().center().y;
+                            let row_h = row.rect().height();
                             if *debug_line == Some(line_num) {
                                 painter.rect_filled(
                                     egui::Rect::from_min_size(
@@ -2510,7 +2514,7 @@ impl EditorPanel {
 
                     // ── IntelliSense update ───────────────────────────────
                     if let Some(cr) = te_out.cursor_range {
-                        let char_idx = cr.primary.ccursor.index;
+                        let char_idx = cr.primary.index;
                         let (l, c) = char_index_to_line_col(&tab.content, char_idx);
                         self.cur_line = l;
                         self.cur_col = c;
@@ -2644,7 +2648,7 @@ impl EditorPanel {
                             if !items.is_empty() {
                                 let ppos = {
                                     // Use galley-based exact cursor position when available
-                                    let cr_rect = te_out.galley.pos_from_cursor(&cr.primary);
+                                    let cr_rect = te_out.galley.pos_from_cursor(cr.primary);
                                     let raw_x = te_out.galley_pos.x + cr_rect.min.x;
                                     let raw_y = te_out.galley_pos.y + cr_rect.max.y + 4.0;
                                     let cursor_top_y = te_out.galley_pos.y + cr_rect.min.y;
