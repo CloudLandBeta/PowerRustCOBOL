@@ -195,7 +195,7 @@ Get from a clean machine to the running IDE in four steps.
 
 | Requirement | Why | Install |
 |-------------|-----|---------|
-| **Rust toolchain** (stable) | builds the whole workspace | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| **Rust toolchain** (stable, **1.92 or newer**) | builds the whole workspace | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | **Git** | clone the repository | [git-scm.com](https://git-scm.com/downloads) |
 | **A C toolchain + native GUI libraries** | the desktop IDE (egui/eframe) and native file dialogs | see the per-OS notes below |
 

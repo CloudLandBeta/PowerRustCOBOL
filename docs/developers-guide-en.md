@@ -1872,6 +1872,11 @@ the toolbar **Debug** button (to the right of **Run**).
   **English, Português, Español, Français, Japanese (日本語), and Chinese (中文)**
   — chosen from the toolbar language selector. CJK glyphs render via bundled font
   fallbacks, so 日本語 / 中文 display correctly on any system.
+- **Text rendering.** The IDE renders text with the UI framework's modern font
+  engine (hinting enabled), so glyphs are noticeably crisper at small sizes than
+  in earlier releases. Form **Font** properties keep working exactly as before:
+  a face the engine cannot rasterise (for example a bitmap-only system font)
+  is skipped and the control falls back to Arial instead of failing.
 - **Branding.** The IDE uses the PowerRustCOBOL icon for its window/taskbar
   (override it with an `app-icon.png` in the config directory). **Help → About**
   shows the mascot, the version, and the Apache-2.0 licence.
