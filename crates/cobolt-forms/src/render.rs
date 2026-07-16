@@ -6562,6 +6562,76 @@ mod shape_dump {
         println!("scene B dumped {} shapes", out.len());
     }
 
+
+    /// Scene C — captioned GroupBox + nested Panel + corner children, Classic
+    /// glass, image backdrop (COBOLT_SHAPE_DUMP_C=<file>).
+    #[test]
+    fn dump_groupbox_nested_shapes() {
+        let Some(path) = std::env::var_os("COBOLT_SHAPE_DUMP_C") else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+
+        let mut gb = Control::new("GB", ControlType::GroupBox, 40, 40);
+        gb.rect = crate::model::Rect::new(40, 40, 400, 200);
+        gb.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+        gb.set_prop("Caption", crate::model::PropValue::String("Group".into()));
+        let mut inner = Control::new("PNL2", ControlType::Panel, 60, 80);
+        inner.rect = crate::model::Rect::new(60, 80, 150, 100);
+        inner.set_prop("CornerRadius", crate::model::PropValue::Int(16));
+        inner.parent = Some("GB".into());
+        let mut child = Control::new("LBL", ControlType::Label, 42, 42);
+        child.rect = crate::model::Rect::new(42, 42, 120, 30);
+        child.parent = Some("GB".into());
+        let controls = vec![gb, inner, child];
+
+        let tex = ctx.load_texture(
+            "dump_bg_c",
+            egui::ColorImage {
+                size: [4, 4],
+                source_size: egui::vec2(4.0, 4.0),
+                pixels: vec![egui::Color32::from_rgb(160, 120, 60); 16],
+            },
+            egui::TextureOptions::LINEAR,
+        );
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(
+            pos2(0.0, 0.0),
+            Vec2::new(600.0, 300.0),
+        ));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let st = MapState_dump(&overrides);
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            color_hex: "8a6a3c".into(),
+                            transparency: 0,
+                            image: Some((tex.id(), egui::vec2(4.0, 4.0))),
+                            image_mode: Default::default(),
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            dump_shape(&mut out, cs.clip_rect, &cs.shape);
+        }
+        std::fs::write(&path, out.join("\n")).unwrap();
+        println!("scene C dumped {} shapes", out.len());
+    }
+
     /// Corner-bleed guard (egui 0.35 regression): every stroked rect that is
     /// concentric with the panel face must keep its corner radius STRICTLY
     /// inside the face radius. u8 radii can't express `face - 0.5`, and
