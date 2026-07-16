@@ -29,6 +29,19 @@ blind cherry-pick), same session it is noticed. Rows are appended below.
   operator; fix belongs on main, then ports here per R6. Branch test gate =
   160/161 until then.
 
+## Migration step commits (T1–T8)
+
+| Step | Commit | Gate |
+|------|--------|------|
+| T1 sync baseline | 8980b80 | branch == main @ d99dd7b |
+| T2 MSRV 1.92 | dfaf78a | workspace builds |
+| 0.30 | 4889991 | 0 err / 0 depr / 327-1 tests |
+| 0.31 | 3a423af | 0 err / 0 depr / 323-1 tests |
+| 0.32 | ca29685 | 0 err / 0 depr / 323-1 tests |
+| 0.33 | bc31a9d | 0 err / 0 depr / 323-1 tests |
+| 0.34 | f11108f | 0 err / 323-1 tests (panel deprecations deferred one step by design) |
+| 0.35 | 0a37b5a | 0 err / 0 depr / 0 stubs / 323-1 tests / egui-family pinned 0.35.0 |
+
 ## Verification records
 
 (AC5 dependency diffs, AC4 isolation checks, and AC6 final audit are appended

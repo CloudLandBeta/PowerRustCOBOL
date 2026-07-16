@@ -65,7 +65,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
   - Verify: per-step gate + error modals/debugger still open centered at
     seeded size (AC7 spot-check).
 
-- [ ] **T7 — Step 5: egui 0.34 — the big one** (R1, R2, R8, R9, R10)
+- [x] **T7 — Step 5: egui 0.34 — the big one** (R1, R2, R8, R9, R10) ✓ f11108f — App::ui ×3, Ui viewports, global_style, fonts_mut; panel deprecations deferred one step (0.35 renames show_inside→show; single migration)
   - Files: `app.rs:6585`, `cobolt-cli/src/form_gui.rs:509`,
     `cobolt-compiler/src/lib.rs:870` (3× `App::update`→`App::ui`); 26
     viewport sites (designer windows, debugger viewport, Run Form →
@@ -81,7 +81,7 @@ Each step is **one commit** (`egui-035 step N: egui 0.3x`).
     Run Form works + fonts render in all six languages (AC8 spot-check) +
     glass corner clip visually intact.
 
-- [ ] **T8 — Step 6: egui 0.35 final bump** (R1, R8)
+- [x] **T8 — Step 6: egui 0.35 final bump** (R1, R8) ✓ 0a37b5a — gate: 0 errors, 0 deprecations, 0 stubs (AC9 grep), 323/324 tests; egui-family pinned 0.35.0; skrifa guard catches real epaint panic (units_per_em=0)
   - Files: 5× `Cargo.toml` (0.35 + `egui_commonmark` 0.24); `impl Into<f32>`
     call-site fixes; deprecations from 0.35
   - Do: final lockstep bump; clean sweep: `grep` proves no
