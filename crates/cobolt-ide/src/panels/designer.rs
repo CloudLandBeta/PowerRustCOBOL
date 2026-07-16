@@ -9976,7 +9976,9 @@ mod sticky_font_tests {
         let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
         d.add_control(ControlType::Label, 10, 10);
         let first = d.form.controls[0].id.clone();
-        assert_eq!(font_of(&d, &first), ("Arial".to_string(), 10));
+        // Default control font is 14pt since the 1.30.x control-defaults
+        // update (operator decision 2026-07-16: keep 14).
+        assert_eq!(font_of(&d, &first), ("Arial".to_string(), 14));
     }
 }
 
