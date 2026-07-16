@@ -762,7 +762,23 @@ impl CoboltApp {
         // Markdown image rendering.
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
-        Self {
+        // ── Agent access (spec 027 R3): egui inspection / MCP endpoint ─────────
+        // Always on, loopback only. External agents connect through the official
+        // `egui-mcp` bridge; the in-IDE agents drive the same plugin in-process
+        // via `ctx.with_plugin`. Never compiled into rcrun / packaged apps (R4).
+        let inspection_port = crate::llm::LlmConfig::load().inspection_port;
+        let inspection_addr = format!("127.0.0.1:{inspection_port}");
+        cc.egui_ctx
+            .add_plugin(egui_inspection::InspectionPlugin::new(Some(format!(
+                "PowerRustCOBOL {}",
+                crate::version::VERSION
+            ))));
+        let inspection_status = match egui_inspection::serve(&cc.egui_ctx, &inspection_addr) {
+            Ok(()) => Ok(inspection_addr),
+            Err(e) => Err(format!("{inspection_addr}: {e}")),
+        };
+
+        let mut app = Self {
             project: ProjectPanel::new(),
             editor: EditorPanel::new(),
             output: OutputPanel::new(),
@@ -857,7 +873,22 @@ impl CoboltApp {
             build_phase: (0.0, String::new()),
             pending_file: None,
             egui_ctx: cc.egui_ctx.clone(),
+        };
+        // Surface the agent endpoint in the Output console (translated when the
+        // language loads; English at first frame matches the console's startup
+        // lines).
+        match inspection_status {
+            Ok(addr) => {
+                let tr = app.lang.tr();
+                app.output
+                    .push_status(tr.ai_inspection_listening.replacen("{}", &addr, 1));
+            }
+            Err(e) => {
+                app.output
+                    .push_status(format!("Agent access endpoint failed to start: {e}"));
+            }
         }
+        app
     }
 
     // ── 007 Form themes ───────────────────────────────────────────────────────

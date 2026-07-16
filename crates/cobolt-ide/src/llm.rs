@@ -32,6 +32,15 @@ pub struct LlmConfig {
     pub provider: String,
     #[serde(default)]
     pub verbose_log: bool,
+    /// TCP port for the egui inspection endpoint (agent access, spec 027 R3).
+    /// Always bound on 127.0.0.1 only; a change takes effect on restart.
+    #[serde(default = "default_inspection_port")]
+    pub inspection_port: u16,
+}
+
+/// Default localhost port for the egui inspection / MCP agent endpoint.
+pub fn default_inspection_port() -> u16 {
+    5719
 }
 
 impl LlmConfig {
@@ -57,6 +66,7 @@ impl LlmConfig {
             timeout_secs: 30,
             provider: String::new(),
             verbose_log: false,
+            inspection_port: default_inspection_port(),
         }
     }
 

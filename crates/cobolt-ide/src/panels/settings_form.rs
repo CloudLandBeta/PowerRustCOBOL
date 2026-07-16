@@ -66,6 +66,7 @@ pub struct SettingsDraft {
     pub llm_max_tokens: u32,
     /// Verbose AI activity logging (model info + full context + timings).
     pub llm_verbose: bool,
+    pub llm_inspection_port: u16,
 }
 
 impl SettingsDraft {
@@ -102,6 +103,7 @@ impl SettingsDraft {
             llm_timeout: llm.timeout_secs,
             llm_max_tokens: llm.max_tokens,
             llm_verbose: llm.verbose_log,
+            llm_inspection_port: llm.inspection_port,
         }
     }
 
@@ -132,6 +134,11 @@ impl SettingsDraft {
         llm.timeout_secs = self.llm_timeout.max(1);
         llm.max_tokens = self.llm_max_tokens.max(1);
         llm.verbose_log = self.llm_verbose;
+        llm.inspection_port = if self.llm_inspection_port >= 1024 {
+            self.llm_inspection_port
+        } else {
+            crate::llm::default_inspection_port()
+        };
     }
 }
 
@@ -1129,6 +1136,32 @@ impl SettingsForm {
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 ui.checkbox(&mut self.draft.llm_verbose, "")
                                     .on_hover_text(tr.settings_ai_verbose_hint);
+                            });
+                        });
+
+                        // --- Agent access (egui inspection / MCP) port
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.ai_inspection_port).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.add(
+                                    egui::DragValue::new(&mut self.draft.llm_inspection_port)
+                                        .range(1024..=65535),
+                                )
+                                .on_hover_text(tr.ai_inspection_hint);
                             });
                         });
 
