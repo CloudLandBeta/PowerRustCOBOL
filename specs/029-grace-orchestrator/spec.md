@@ -110,6 +110,16 @@ Key mechanics the runtime must implement:
   through Grace; egui-MCP tool execution for agents; delegation to the
   COBOL Event Handler Script Agent per the pedantic-UI contract.
 
+## Known pre-existing issue (not Grace-related)
+
+`cobolt-agents` test `ollama_cloud_wrong_host_is_healed_and_openai_wire_chosen`
+fails identically with and without the Phase B changes (verified via stash,
+2026-07-16): after healing a wrong host to ollama.com the mesh picks the
+ollama-native wire format where the test expects the OpenAI wire. Latent from
+the 1.30.x ollama-cloud endpoint-healing work on main — the crate was not in
+the spec-027 per-step gate matrix. Reported to the operator; fix belongs on
+main, then ports to the branch per R6.
+
 ## Acceptance criteria
 
 - AC1 (A): `ensure_grace` creates `agentic_ai/Grace/` with the verbatim

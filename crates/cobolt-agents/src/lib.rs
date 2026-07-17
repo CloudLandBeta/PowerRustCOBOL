@@ -2,6 +2,7 @@
 
 pub mod orchestrator;
 pub mod sandbox;
+pub mod grace;
 pub mod specialist;
 
 #[cfg(feature = "local-retrieval")]

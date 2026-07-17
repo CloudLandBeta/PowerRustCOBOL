@@ -1285,6 +1285,24 @@ Return the report in clear language, followed by one fenced JSON block named `me
 
 Be honest about uncertainty: this is a lightweight interactive benchmark, not a full compiler-run benchmark. The overall score must use these weights: 15% compilation, 30% functional correctness, 15% instruction following, 10% semantic correctness, 10% code preservation, 5% runtime correctness, 5% formatting preservation, 10% unsupported-feature avoidance. The dashboard-specific scores must reflect only the supported benchmark scope listed above."#;
 
+/// Spec 029: one synchronous-style request to a named database agent (used
+/// by Grace's workflow host). The label in the AI activity log is generic;
+/// the agent name is carried in the request itself.
+pub fn spawn_named_agent_request(
+    cfg: &LlmConfig,
+    system_prompt: &str,
+    user_prompt: &str,
+    _agent: &str,
+) -> Receiver<LlmResponse> {
+    let mut c = cfg.clone();
+    c.endpoint = heal_endpoint(&c.endpoint);
+    let mut req = mesh_request_base(&c);
+    req.specialist = Some("CodeGenerator".to_string());
+    req.system_prompt = system_prompt.to_string();
+    req.user_prompt = user_prompt.to_string();
+    run_mesh_request(req, "Grace workflow task")
+}
+
 pub fn spawn_cobol_proficiency_benchmark(cfg: &LlmConfig) -> Receiver<LlmResponse> {
     if cfg.reviewer_configured() {
         return spawn_cobol_proficiency_tandem(cfg);
