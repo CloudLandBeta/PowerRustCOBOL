@@ -136,8 +136,8 @@ impl AgentsModal {
             .id(egui::Id::new("agents_manager_modal"))
             .collapsible(false)
             .resizable(true)
-            .default_size([980.0, 620.0])
-            .min_size([720.0, 420.0])
+            .default_size([1120.0, 720.0])
+            .min_size([820.0, 500.0])
             .open(&mut open)
             .show(ctx, |ui| {
                 // Footer first, rail second, detail last: embedded panels
@@ -149,57 +149,85 @@ impl AgentsModal {
                     .frame(egui::Frame::NONE)
                     .show(ui, |ui| {
                         ui.add_space(6.0);
+                        // Compute the status message + colour once, so the
+                        // footer layout is independent of which state fires.
+                        let violation = self.db.pair_rule_violation();
+                        let missing = self.db.missing_key(llm);
+                        let (msg, msg_color) = if let Some(e) = &self.error {
+                            (format!("⚠ {e}"), egui::Color32::from_rgb(224, 120, 120))
+                        } else if let Some((p, c)) = &violation {
+                            (
+                                tr.agents_pair_rule.replacen("{}", p, 1).replacen("{}", c, 1),
+                                egui::Color32::from_rgb(230, 192, 106),
+                            )
+                        } else if let Some(name) = &missing {
+                            (
+                                tr.agents_missing_key.replacen("{}", name, 1),
+                                egui::Color32::from_rgb(230, 192, 106),
+                            )
+                        } else if let Some(name) =
+                            crate::agents_db::unreviewed_primaries(&self.db).first()
+                        {
+                            (
+                                tr.agents_unreviewed_warning.replacen("{}", name, 1),
+                                egui::Color32::from_rgb(230, 192, 106),
+                            )
+                        } else {
+                            let active = self.db.agents.iter().filter(|a| a.enabled).count();
+                            (
+                                tr.agents_valid
+                                    .replacen("{}", &active.to_string(), 1)
+                                    .replacen("{}", &self.db.agents.len().to_string(), 1),
+                                egui::Color32::from_rgb(125, 214, 160),
+                            )
+                        };
+                        let can_commit = violation.is_none();
                         ui.horizontal(|ui| {
-                            let violation = self.db.pair_rule_violation();
-                            let missing = self.db.missing_key(llm);
-                            if let Some(e) = &self.error {
-                                ui.colored_label(egui::Color32::from_rgb(224, 120, 120), format!("⚠ {e}"));
-                            } else if let Some((p, c)) = &violation {
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(230, 192, 106),
-                                    tr.agents_pair_rule.replacen("{}", p, 1).replacen("{}", c, 1),
-                                );
-                            } else if let Some(name) = &missing {
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(230, 192, 106),
-                                    tr.agents_missing_key.replacen("{}", name, 1),
-                                );
-                            } else if let Some(name) =
-                                crate::agents_db::unreviewed_primaries(&self.db).first()
-                            {
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(230, 192, 106),
-                                    tr.agents_unreviewed_warning.replacen("{}", name, 1),
-                                );
-                            } else {
-                                let active = self.db.agents.iter().filter(|a| a.enabled).count();
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(125, 214, 160),
-                                    tr.agents_valid
-                                        .replacen("{}", &active.to_string(), 1)
-                                        .replacen("{}", &self.db.agents.len().to_string(), 1),
-                                );
-                            }
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let can_commit = violation.is_none();
-                                if ui.add_enabled(can_commit, egui::Button::new("OK")).clicked() {
-                                    if self.apply(llm) {
+                            // Message in a bounded LEFT region that WRAPS (never
+                            // clipped by the buttons); buttons pinned bottom-right.
+                            // Bottom-panel width is the window width, so reserving
+                            // from available_width here does not self-inflate.
+                            const BUTTON_AREA: f32 = 280.0;
+                            let msg_w = (ui.available_width() - BUTTON_AREA).max(160.0);
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(msg_w, 0.0),
+                                egui::Layout::top_down(egui::Align::LEFT),
+                                |ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&msg).color(msg_color),
+                                        )
+                                        .wrap(),
+                                    );
+                                },
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.add_enabled(can_commit, egui::Button::new("OK")).clicked()
+                                    {
+                                        if self.apply(llm) {
+                                            action.applied = true;
+                                            close = true;
+                                        }
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            can_commit && self.dirty,
+                                            egui::Button::new(tr.btn_apply_raw),
+                                        )
+                                        .clicked()
+                                        && self.apply(llm)
+                                    {
                                         action.applied = true;
+                                    }
+                                    if ui.button(tr.btn_cancel).clicked() {
                                         close = true;
                                     }
-                                }
-                                if ui
-                                    .add_enabled(can_commit && self.dirty, egui::Button::new(tr.btn_apply_raw))
-                                    .clicked()
-                                    && self.apply(llm)
-                                {
-                                    action.applied = true;
-                                }
-                                if ui.button(tr.btn_cancel).clicked() {
-                                    close = true;
-                                }
-                            });
+                                },
+                            );
                         });
+                        ui.add_space(4.0);
                     });
 
                 egui::Panel::left(egui::Id::new("agents_rail_panel"))
@@ -319,61 +347,98 @@ impl AgentsModal {
                                 egui::RichText::new("└").size(22.0),
                             );
                         }
-                        // Dim everything but the selection (operator request).
-                        let alpha = if selected { 1.0 } else { 0.5 };
-                        ui.scope(|ui| {
-                            ui.set_opacity(alpha);
-                            let dot = if enabled { "●" } else { "○" };
-                            let badge = match kind {
-                                crate::agents_db::AgentKind::Orchestrator => "👑 ",
-                                crate::agents_db::AgentKind::Pedantic => "🔍 ",
-                                crate::agents_db::AgentKind::Specialist => "",
-                            };
-                            // Truncate so a long model id can't widen the rail
-                            // (bounds the label's min-width; the panel stays at
-                            // its default width instead of stretching to fit).
-                            let ell = |s: &str, n: usize| -> String {
-                                if s.chars().count() > n {
-                                    format!("{}…", s.chars().take(n - 1).collect::<String>())
-                                } else {
-                                    s.to_string()
-                                }
-                            };
-                            // Two type sizes in one clickable button: the agent
-                            // name is the readable headline (+200% over the old
-                            // 12.5px), the model·provider subtext +100%. Built as
-                            // a LayoutJob so it stays a single selectable_label.
-                            const NAME_PT: f32 = 37.5;
-                            const SUB_PT: f32 = 25.0;
-                            let name_line = format!("{dot} {badge}{}", ell(&name, 16));
-                            let sub_line = format!(
-                                "    {} · {}",
-                                if model.is_empty() { "—".into() } else { ell(&model, 15) },
-                                if provider.is_empty() { "—".into() } else { ell(&provider, 12) },
-                            );
-                            let mut job = egui::text::LayoutJob::default();
-                            job.append(
-                                &name_line,
-                                0.0,
-                                egui::TextFormat {
-                                    font_id: egui::FontId::proportional(NAME_PT),
-                                    color: ui.visuals().text_color(),
-                                    ..Default::default()
-                                },
-                            );
-                            job.append(
-                                &format!("\n{sub_line}"),
-                                0.0,
-                                egui::TextFormat {
-                                    font_id: egui::FontId::proportional(SUB_PT),
-                                    color: ui.visuals().weak_text_color(),
-                                    ..Default::default()
-                                },
-                            );
-                            if ui.selectable_label(selected, job).clicked() {
-                                self.select(i, llm);
+                        // Each agent is an explicit button box (operator spec):
+                        // the SELECTED one is a bright filled button at full
+                        // opacity; every other is a permanently DIMMED outlined
+                        // button (never brightens on hover). Clicking a dimmed
+                        // one selects it — all boxes stay visible.
+                        let dot = if enabled { "●" } else { "○" };
+                        let badge = match kind {
+                            crate::agents_db::AgentKind::Orchestrator => "👑 ",
+                            crate::agents_db::AgentKind::Pedantic => "🔍 ",
+                            crate::agents_db::AgentKind::Specialist => "",
+                        };
+                        // Truncate so a long model id can't widen the rail.
+                        let ell = |s: &str, n: usize| -> String {
+                            if s.chars().count() > n {
+                                format!("{}…", s.chars().take(n - 1).collect::<String>())
+                            } else {
+                                s.to_string()
                             }
-                        });
+                        };
+                        const NAME_PT: f32 = 37.5; // +200% over the old 12.5px
+                        const SUB_PT: f32 = 25.0; // +100%
+                        let name_line = format!("{dot} {badge}{}", ell(&name, 16));
+                        let sub_line = format!(
+                            "    {} · {}",
+                            if model.is_empty() { "—".into() } else { ell(&model, 15) },
+                            if provider.is_empty() { "—".into() } else { ell(&provider, 12) },
+                        );
+                        // Text colour: on the bright selected fill, pick dark or
+                        // light for contrast; otherwise the normal theme colours.
+                        let sel_fill = ui.visuals().selection.bg_fill;
+                        let (name_color, sub_color) = if selected {
+                            let lum = 0.299 * sel_fill.r() as f32
+                                + 0.587 * sel_fill.g() as f32
+                                + 0.114 * sel_fill.b() as f32;
+                            if lum > 140.0 {
+                                (egui::Color32::from_gray(20), egui::Color32::from_gray(70))
+                            } else {
+                                (egui::Color32::WHITE, egui::Color32::from_gray(210))
+                            }
+                        } else {
+                            (ui.visuals().text_color(), ui.visuals().weak_text_color())
+                        };
+                        let mut job = egui::text::LayoutJob::default();
+                        job.append(
+                            &name_line,
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(NAME_PT),
+                                color: name_color,
+                                ..Default::default()
+                            },
+                        );
+                        job.append(
+                            &format!("\n{sub_line}"),
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::proportional(SUB_PT),
+                                color: sub_color,
+                                ..Default::default()
+                            },
+                        );
+                        let clicked = ui
+                            .scope(|ui| {
+                                // Dim the whole inactive button (fill/stroke/text)
+                                // to a constant level — no hover response.
+                                ui.set_opacity(if selected { 1.0 } else { 0.5 });
+                                let frame = if selected {
+                                    egui::Frame::NONE
+                                        .fill(sel_fill)
+                                        .corner_radius(8)
+                                        .inner_margin(egui::Margin::symmetric(10, 6))
+                                } else {
+                                    egui::Frame::NONE
+                                        .stroke(egui::Stroke::new(
+                                            1.0,
+                                            ui.visuals().weak_text_color(),
+                                        ))
+                                        .corner_radius(8)
+                                        .inner_margin(egui::Margin::symmetric(10, 6))
+                                };
+                                frame
+                                    .show(ui, |ui| {
+                                        ui.add(egui::Label::new(job).selectable(false));
+                                    })
+                                    .response
+                                    .interact(egui::Sense::click())
+                                    .clicked()
+                            })
+                            .inner;
+                        if clicked {
+                            self.select(i, llm);
+                        }
                     });
                 }
             });
