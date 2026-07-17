@@ -63,6 +63,13 @@ Translate it; "Grace" is a NAME — never translate or rename it.
 (route a request through Grace; live progress; workflow record path).
 Translate it; keep "Grace" and the path untranslated.
 
+## Delta 8 — section `#5` Agent Manager paragraph
+
+**Change:** extended the seeding sentence to list the fixed specialists
+(Form Designer Agent, COBOL Event Handler Script Agent, Version Control
+Agent) with a short gloss of the Git agent. Translate the addition; keep
+the agent names and "Git" as-is.
+
 ## Glossary — do NOT translate
 
 `PowerRustCOBOL`, product and menu names (e.g. **Font** as the property name,

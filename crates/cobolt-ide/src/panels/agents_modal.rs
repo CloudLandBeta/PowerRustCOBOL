@@ -71,6 +71,9 @@ impl AgentsModal {
             if db.ensure_event_handler(llm) {
                 seeded += 1;
             }
+            if db.ensure_version_control(llm) {
+                seeded += 1;
+            }
         }
         let mut m = Self {
             open: true,

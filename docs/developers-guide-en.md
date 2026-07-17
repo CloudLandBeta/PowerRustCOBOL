@@ -296,7 +296,7 @@ creation, because they name the folder. Every primary agent may name a
 **pedantic companion** that reviews its responses — a primary and its own
 companion must use different models, while unrelated agents may share models
 freely. On first open the manager seeds itself from your existing AI settings,
-and the Form Designer assistant uses its database entry from then on. Every
+and the Form Designer assistant uses its database entry from then on. Seeding also creates the fixed specialists — the **Form Designer Agent**, the **COBOL Event Handler Script Agent**, and the **Version Control Agent** (Git for the project: branches, commits, push, revert, rebase — it asks before anything destructive and suggests a commit message when you don't give one). Every
 project also gets **Grace**, the orchestrator — the single coordination
 authority (👑, always named Grace, never deletable) that plans multi-agent
 work, delegates to specialists by kind and specialization, enforces every

@@ -53,6 +53,9 @@ pub const GRACE: &str = "Grace";
 /// and the pedantic prompts delegate to it by this exact name.
 pub const EVENT_HANDLER: &str = "COBOL Event Handler Script Agent";
 
+/// Canonical name of the Git/version-control specialist for the project repo.
+pub const VERSION_CONTROL: &str = "Version Control Agent";
+
 /// One agent's identity + runtime configuration (`agent.json`). The prompt
 /// text deliberately lives outside this struct, in `<name>_prompt.md`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -521,10 +524,87 @@ impl AgentsDb {
                     }
                 }
             }
+            // Version Control Agent — a fixed Git specialist for the project
+            // repo, seeded with its prompt and the same connection. No pedantic
+            // companion by default (git ops are executed, not code-reviewed).
+            if let Ok(vc_id) = self.create_kinded(
+                VERSION_CONTROL,
+                &crate::llm::default_version_control_prompt(),
+                AgentKind::Specialist,
+                "version-control",
+            ) {
+                created += 1;
+                if let Some(v) = self.agents.iter_mut().find(|a| a.id == vc_id) {
+                    v.purpose =
+                        "Manages Git for the project: branches, commits, push, revert, rebase."
+                            .to_string();
+                    v.provider = llm.provider.clone();
+                    v.endpoint = llm.endpoint.clone();
+                    v.model = llm.model.clone();
+                    v.temperature = llm.temperature;
+                    v.max_tokens = llm.max_tokens;
+                    v.timeout_secs = llm.timeout_secs;
+                    v.tools = vec!["git (project repository)".to_string()];
+                    v.routing = "Receives: version-control requests for the project".to_string();
+                }
+            }
             let _ = self.save_all();
             self.sort_rail();
         }
         created
+    }
+
+    /// Ensure the Version Control Agent exists (repairs databases seeded before
+    /// it was added). Templates the connection off the Form Designer Agent.
+    pub fn ensure_version_control(&mut self, llm: &crate::llm::LlmConfig) -> bool {
+        if self.by_name(VERSION_CONTROL).is_some() {
+            return false;
+        }
+        let tmpl = self.by_name("Form Designer Agent").cloned();
+        let (provider, endpoint, model, temperature, max_tokens, timeout_secs) = match tmpl {
+            Some(d) => (
+                d.provider,
+                d.endpoint,
+                d.model,
+                d.temperature,
+                d.max_tokens,
+                d.timeout_secs,
+            ),
+            None => (
+                llm.provider.clone(),
+                llm.endpoint.clone(),
+                llm.model.clone(),
+                llm.temperature,
+                llm.max_tokens,
+                llm.timeout_secs,
+            ),
+        };
+        match self.create_kinded(
+            VERSION_CONTROL,
+            &crate::llm::default_version_control_prompt(),
+            AgentKind::Specialist,
+            "version-control",
+        ) {
+            Ok(id) => {
+                if let Some(v) = self.agents.iter_mut().find(|a| a.id == id) {
+                    v.purpose =
+                        "Manages Git for the project: branches, commits, push, revert, rebase."
+                            .to_string();
+                    v.provider = provider;
+                    v.endpoint = endpoint;
+                    v.model = model;
+                    v.temperature = temperature;
+                    v.max_tokens = max_tokens;
+                    v.timeout_secs = timeout_secs;
+                    v.tools = vec!["git (project repository)".to_string()];
+                    v.routing = "Receives: version-control requests for the project".to_string();
+                }
+                let _ = self.save_all();
+                self.sort_rail();
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// Ensure the COBOL Event Handler Script Agent exists (repairs databases
@@ -745,8 +825,9 @@ mod tests {
         llm.reviewer_model = "claude-opus-4-8".into();
         llm.reviewer_endpoint = llm.endpoint.clone();
         let mut db = AgentsDb::load(&proj);
-        // Grace + designer + pedantic-ui + event-handler + pedantic-cobol
-        assert_eq!(db.seed_from_legacy(&llm), 5);
+        // Grace + designer + pedantic-ui + event-handler + pedantic-cobol +
+        // version-control
+        assert_eq!(db.seed_from_legacy(&llm), 6);
         let grace = db.by_name(GRACE).unwrap();
         assert_eq!(grace.kind, AgentKind::Orchestrator);
         assert!(db.orchestrator_violation().is_none());
@@ -766,6 +847,16 @@ mod tests {
         assert_eq!(ev.companion.as_deref(), Some(pc.id.as_str()));
         assert!(db.pair_rule_violation().is_none());
         assert!(db.ensure_event_handler(&llm) == false, "idempotent");
+        // The Version Control (Git) specialist is seeded with its prompt.
+        let vc = db.by_name(VERSION_CONTROL).unwrap();
+        assert_eq!(vc.kind, AgentKind::Specialist);
+        assert_eq!(vc.specialization, "version-control");
+        assert!(vc.companion.is_none(), "git agent has no auto companion");
+        assert!(
+            db.load_prompt(VERSION_CONTROL).contains("Version Control"),
+            "version-control prompt loaded"
+        );
+        assert!(db.ensure_version_control(&llm) == false, "idempotent");
         let designer = db.by_name("Form Designer Agent").unwrap().clone();
         let ped = db.by_name("Pedantic UI Agent").unwrap();
         assert_eq!(designer.model, "claude-sonnet-5");
@@ -780,7 +871,9 @@ mod tests {
         assert_eq!(cfg.model, "claude-sonnet-5");
         assert_eq!(cfg.reviewer_model, "claude-opus-4-8");
         assert!(cfg.reviewer_configured());
-        assert!(unreviewed_primaries(&db).is_empty());
+        // Designer + event-handler are reviewed; only the companion-less Git
+        // specialist is flagged unreviewed.
+        assert_eq!(unreviewed_primaries(&db), vec![VERSION_CONTROL.to_string()]);
         // Remove the companion link: the primary is now unreviewed and the
         // resolved config carries NO reviewer (caller must warn the user).
         db.agents
@@ -791,9 +884,12 @@ mod tests {
         let cfg = designer_agent_config(&db, &llm);
         assert!(!cfg.reviewer_configured());
         // Kinds are STORED (spec 029): the unlinked pedantic reviewer and
-        // Grace are NOT unreviewed primaries — only the specialist is.
+        // Grace are NOT unreviewed primaries — only companion-less specialists
+        // are (now the designer AND the Git agent).
         let unreviewed = unreviewed_primaries(&db);
-        assert_eq!(unreviewed, vec!["Form Designer Agent".to_string()]);
+        assert!(unreviewed.contains(&"Form Designer Agent".to_string()));
+        assert!(unreviewed.contains(&VERSION_CONTROL.to_string()));
+        assert_eq!(unreviewed.len(), 2);
         // Grace is singleton + reserved.
         assert!(!db.ensure_grace(), "second ensure_grace is a no-op");
         assert!(db.create("grace", "p").is_err(), "name reserved");
