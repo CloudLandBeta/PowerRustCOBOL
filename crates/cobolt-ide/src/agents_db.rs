@@ -1,0 +1,503 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Project agent database (spec 028).
+//!
+//! A project can define any number of AI agents under `agentic_ai/<name>/`,
+//! each with its own model, prompt, capabilities, and knowledge, following
+//! the operator's structure:
+//!
+//! ```text
+//! agentic_ai/<agent_name>/
+//! ├── <agent_name>_prompt.md   ← Core Instructions · agent prompt
+//! ├── steering/                ← Core Instructions · steering files
+//! ├── policies.md              ← Core Instructions · policies & constraints
+//! ├── skills/                  ← Capabilities · skills
+//! ├── mcp.json                 ← Capabilities · tools / MCP server definitions
+//! ├── knowledge/               ← Knowledge · references, examples, domain docs
+//! └── agent.json               ← Identity + Runtime config — NEVER the API key
+//! ```
+//!
+//! Rules (all operator-decided): agent names are unique in the project and
+//! IMMUTABLE (they name the folder and prompt file); API keys are asked per
+//! model and stored machine-global in [`crate::llm::LlmConfig::api_keys`],
+//! never in the project; a primary agent may name one pedantic companion,
+//! and that pair must use different models (unrelated agents may share
+//! models freely).
+
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// One agent's identity + runtime configuration (`agent.json`). The prompt
+/// text deliberately lives outside this struct, in `<name>_prompt.md`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentDef {
+    /// UUID v4, generated at creation. The stable internal key.
+    pub id: String,
+    /// Unique, immutable; names the folder and prompt file.
+    pub name: String,
+    #[serde(default)]
+    pub purpose: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    // ── Runtime configuration ────────────────────────────────────────────
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
+    /// Official model id passed in each request.
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default = "default_timeout")]
+    pub timeout_secs: u32,
+    /// Free-text routing description (who calls it / whom it calls).
+    #[serde(default)]
+    pub routing: String,
+    /// Agent id of the pedantic companion gating this agent's responses.
+    #[serde(default)]
+    pub companion: Option<String>,
+    // ── Core instructions (file lists relative to the agent folder) ─────
+    #[serde(default)]
+    pub steering: Vec<String>,
+    #[serde(default)]
+    pub policies: Vec<String>,
+    // ── Capabilities ─────────────────────────────────────────────────────
+    #[serde(default)]
+    pub skills: Vec<String>,
+    #[serde(default)]
+    pub tools: Vec<String>,
+    // ── Knowledge ────────────────────────────────────────────────────────
+    #[serde(default)]
+    pub knowledge: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_temperature() -> f32 {
+    0.4
+}
+fn default_max_tokens() -> u32 {
+    8192
+}
+fn default_timeout() -> u32 {
+    120
+}
+
+/// UUID v4 from the existing `rand` dependency (no extra crate).
+pub fn new_uuid() -> String {
+    use rand::RngCore;
+    let mut b = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut b);
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13],
+        b[14], b[15]
+    )
+}
+
+/// A valid agent name: non-empty, no path separators, no leading dot — it
+/// becomes a directory name verbatim.
+pub fn valid_name(name: &str) -> bool {
+    let n = name.trim();
+    !n.is_empty()
+        && !n.starts_with('.')
+        && !n.contains('/')
+        && !n.contains('\\')
+        && !n.contains(':')
+}
+
+/// The project's agent database: every `agentic_ai/*/agent.json`.
+#[derive(Debug, Default, Clone)]
+pub struct AgentsDb {
+    pub agents: Vec<AgentDef>,
+    root: PathBuf,
+}
+
+impl AgentsDb {
+    /// Load every agent under `<project>/agentic_ai/*/agent.json`. Agents
+    /// are sorted primaries-first, each followed by its companion (the
+    /// order the manager's rail shows).
+    pub fn load(project_dir: &Path) -> Self {
+        let root = crate::agent::project_agentic_root(project_dir);
+        let mut agents = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&root) {
+            for e in rd.flatten() {
+                let manifest = e.path().join("agent.json");
+                if let Ok(text) = std::fs::read_to_string(&manifest) {
+                    if let Ok(a) = serde_json::from_str::<AgentDef>(&text) {
+                        agents.push(a);
+                    }
+                }
+            }
+        }
+        let mut db = Self { agents, root };
+        db.sort_rail();
+        db
+    }
+
+    /// Rail order: primaries alphabetically, each companion directly after
+    /// its primary; orphan companions trail at the end.
+    pub fn sort_rail(&mut self) {
+        let companions: Vec<String> = self
+            .agents
+            .iter()
+            .filter_map(|a| a.companion.clone())
+            .collect();
+        let mut primaries: Vec<AgentDef> = self
+            .agents
+            .iter()
+            .filter(|a| !companions.contains(&a.id))
+            .cloned()
+            .collect();
+        primaries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        let mut out = Vec::new();
+        for p in primaries {
+            let comp = p
+                .companion
+                .as_ref()
+                .and_then(|cid| self.agents.iter().find(|x| &x.id == cid).cloned());
+            out.push(p);
+            if let Some(c) = comp {
+                out.push(c);
+            }
+        }
+        for a in &self.agents {
+            if !out.iter().any(|x| x.id == a.id) {
+                out.push(a.clone());
+            }
+        }
+        self.agents = out;
+    }
+
+    /// `true` when `id` is some other agent's companion.
+    pub fn is_companion(&self, id: &str) -> bool {
+        self.agents
+            .iter()
+            .any(|a| a.companion.as_deref() == Some(id))
+    }
+
+    pub fn by_id(&self, id: &str) -> Option<&AgentDef> {
+        self.agents.iter().find(|a| a.id == id)
+    }
+
+    pub fn by_name(&self, name: &str) -> Option<&AgentDef> {
+        self.agents
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name.trim()))
+    }
+
+    fn dir(&self, name: &str) -> PathBuf {
+        self.root.join(name)
+    }
+
+    pub fn prompt_path(&self, name: &str) -> PathBuf {
+        self.dir(name).join(format!("{name}_prompt.md"))
+    }
+
+    pub fn load_prompt(&self, name: &str) -> String {
+        std::fs::read_to_string(self.prompt_path(name)).unwrap_or_default()
+    }
+
+    pub fn save_prompt(&self, name: &str, text: &str) -> Result<(), String> {
+        std::fs::create_dir_all(self.dir(name)).map_err(|e| e.to_string())?;
+        std::fs::write(self.prompt_path(name), text).map_err(|e| e.to_string())
+    }
+
+    /// Create a new agent: unique valid name, folder scaffold per spec 028
+    /// R2, manifest + prompt written. Returns the new agent's id.
+    pub fn create(&mut self, name: &str, prompt: &str) -> Result<String, String> {
+        let name = name.trim();
+        if !valid_name(name) {
+            return Err("The agent needs a valid name (no / \\ : or leading dot) — it names the folder agentic_ai/<name>/.".into());
+        }
+        if self.by_name(name).is_some() {
+            return Err(format!(
+                "An agent named \u{201c}{name}\u{201d} already exists — agent names must be unique in the project."
+            ));
+        }
+        let def = AgentDef {
+            id: new_uuid(),
+            name: name.to_string(),
+            purpose: String::new(),
+            enabled: true,
+            provider: String::new(),
+            endpoint: String::new(),
+            model: String::new(),
+            temperature: default_temperature(),
+            max_tokens: default_max_tokens(),
+            timeout_secs: default_timeout(),
+            routing: String::new(),
+            companion: None,
+            steering: Vec::new(),
+            policies: Vec::new(),
+            skills: Vec::new(),
+            tools: Vec::new(),
+            knowledge: Vec::new(),
+        };
+        let dir = self.dir(name);
+        for sub in ["steering", "skills", "knowledge"] {
+            std::fs::create_dir_all(dir.join(sub)).map_err(|e| e.to_string())?;
+        }
+        for (file, contents) in [("policies.md", "# Policies and constraints\n"), ("mcp.json", "{}\n")] {
+            let p = dir.join(file);
+            if !p.exists() {
+                std::fs::write(&p, contents).map_err(|e| e.to_string())?;
+            }
+        }
+        self.save_prompt(name, prompt)?;
+        let id = def.id.clone();
+        self.save_agent(&def)?;
+        self.agents.push(def);
+        self.sort_rail();
+        Ok(id)
+    }
+
+    /// Write one agent's `agent.json` (identity + runtime — never a key).
+    pub fn save_agent(&self, def: &AgentDef) -> Result<(), String> {
+        let dir = self.dir(&def.name);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let json = serde_json::to_string_pretty(def).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join("agent.json"), json).map_err(|e| e.to_string())
+    }
+
+    /// Persist every agent manifest.
+    pub fn save_all(&self) -> Result<(), String> {
+        for a in &self.agents {
+            self.save_agent(a)?;
+        }
+        Ok(())
+    }
+
+    /// Delete an agent: folder removed, links to it cleared.
+    pub fn delete(&mut self, id: &str) -> Result<(), String> {
+        let Some(a) = self.by_id(id).cloned() else {
+            return Ok(());
+        };
+        let _ = std::fs::remove_dir_all(self.dir(&a.name));
+        self.agents.retain(|x| x.id != id);
+        for x in &mut self.agents {
+            if x.companion.as_deref() == Some(id) {
+                x.companion = None;
+            }
+        }
+        self.save_all()
+    }
+
+    /// Spec 028 R5: a primary and ITS pedantic companion must use different
+    /// models. Returns the first violation as (primary, companion) names.
+    pub fn pair_rule_violation(&self) -> Option<(String, String)> {
+        for a in &self.agents {
+            if let Some(c) = a.companion.as_ref().and_then(|cid| self.by_id(cid)) {
+                if !a.model.trim().is_empty()
+                    && a.provider.trim() == c.provider.trim()
+                    && a.model.trim() == c.model.trim()
+                {
+                    return Some((a.name.clone(), c.name.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    /// First enabled agent that needs a key but has none stored (for the
+    /// settings summary row).
+    pub fn missing_key(&self, llm: &crate::llm::LlmConfig) -> Option<String> {
+        self.agents
+            .iter()
+            .find(|a| {
+                a.enabled
+                    && !a.model.trim().is_empty()
+                    && !a.provider.trim().is_empty()
+                    && !a.provider.to_lowercase().contains("ollama")
+                    && !llm
+                        .api_keys
+                        .contains_key(&crate::llm::api_key_slot(&a.provider, &a.model))
+            })
+            .map(|a| a.name.clone())
+    }
+
+    /// Spec 028 R7: seed the database from the legacy fixed-pair settings
+    /// the first time a project opens with no agents. Returns how many
+    /// agents were created.
+    pub fn seed_from_legacy(&mut self, llm: &crate::llm::LlmConfig) -> usize {
+        if !self.agents.is_empty() || !llm.is_configured() {
+            return 0;
+        }
+        let mut created = 0;
+        if let Ok(designer_id) = self.create("Form Designer Agent", &llm.system_prompt) {
+            created += 1;
+            if let Some(d) = self.agents.iter_mut().find(|a| a.id == designer_id) {
+                d.purpose =
+                    "Designs and edits forms; delegates event handlers (Phase 2).".to_string();
+                d.provider = llm.provider.clone();
+                d.endpoint = llm.endpoint.clone();
+                d.model = llm.model.clone();
+                d.temperature = llm.temperature;
+                d.max_tokens = llm.max_tokens;
+                d.timeout_secs = llm.timeout_secs;
+                d.routing = "Receives: user form requests".to_string();
+            }
+            if llm.reviewer_configured() {
+                if let Ok(ped_id) = self.create("Pedantic UI Agent", &llm.pedantic_ui_prompt) {
+                    created += 1;
+                    if let Some(p) = self.agents.iter_mut().find(|a| a.id == ped_id) {
+                        p.purpose =
+                            "Uncompromising reviewer of every Form Designer result.".to_string();
+                        p.provider = llm.reviewer_provider.clone();
+                        p.endpoint = llm.reviewer_endpoint.clone();
+                        p.model = llm.reviewer_model.clone();
+                        p.temperature = 0.0;
+                        p.routing = "Reviews: Form Designer Agent".to_string();
+                    }
+                    if let Some(d) = self.agents.iter_mut().find(|a| a.id == designer_id) {
+                        d.companion = Some(ped_id);
+                    }
+                }
+            }
+            let _ = self.save_all();
+            self.sort_rail();
+        }
+        created
+    }
+}
+
+/// Spec 028 R8 (Phase 1): resolve the designer agent's effective connection.
+/// When a "Form Designer Agent" DB entry exists, is enabled, and names a
+/// model, it overrides the legacy config (key restored from the machine-
+/// global per-model store); otherwise the legacy config passes through.
+pub fn designer_agent_config(db: &AgentsDb, llm: &crate::llm::LlmConfig) -> crate::llm::LlmConfig {
+    let Some(a) = db.by_name("Form Designer Agent").filter(|a| {
+        a.enabled && !a.model.trim().is_empty() && !a.provider.trim().is_empty()
+    }) else {
+        return llm.clone();
+    };
+    let mut cfg = llm.clone();
+    cfg.provider = a.provider.clone();
+    cfg.endpoint = a.endpoint.clone();
+    cfg.model = a.model.clone();
+    cfg.temperature = a.temperature;
+    cfg.max_tokens = a.max_tokens;
+    cfg.timeout_secs = a.timeout_secs;
+    cfg.api_key = llm
+        .api_keys
+        .get(&crate::llm::api_key_slot(&a.provider, &a.model))
+        .cloned()
+        .unwrap_or_else(|| llm.api_key.clone());
+    let prompt = db.load_prompt(&a.name);
+    if !prompt.trim().is_empty() {
+        cfg.system_prompt = prompt;
+    }
+    cfg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_project() -> PathBuf {
+        let d = std::env::temp_dir().join(format!("prc_agents_{}", new_uuid()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn create_scaffolds_the_operator_structure_and_round_trips() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        let id = db.create("Form Designer Agent", "line one\nline two\n").unwrap();
+        let dir = proj.join("agentic_ai/Form Designer Agent");
+        for p in [
+            "agent.json",
+            "Form Designer Agent_prompt.md",
+            "policies.md",
+            "mcp.json",
+            "steering",
+            "skills",
+            "knowledge",
+        ] {
+            assert!(dir.join(p).exists(), "missing {p}");
+        }
+        // multi-line prompt survives verbatim
+        assert_eq!(db.load_prompt("Form Designer Agent"), "line one\nline two\n");
+        // manifest never contains a key field
+        let json = std::fs::read_to_string(dir.join("agent.json")).unwrap();
+        assert!(!json.to_lowercase().contains("api_key"), "key leaked: {json}");
+        // reload sees the same agent
+        let db2 = AgentsDb::load(&proj);
+        assert_eq!(db2.agents.len(), 1);
+        assert_eq!(db2.agents[0].id, id);
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn names_are_unique_and_validated() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        db.create("Agent A", "p").unwrap();
+        assert!(db.create("agent a", "p").is_err(), "case-insensitive dup");
+        assert!(db.create("", "p").is_err());
+        assert!(db.create("a/b", "p").is_err());
+        assert!(db.create(".hidden", "p").is_err());
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn pair_rule_only_binds_a_primary_to_its_own_companion() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        let a = db.create("Primary", "p").unwrap();
+        let b = db.create("Companion", "p").unwrap();
+        let c = db.create("Unrelated", "p").unwrap();
+        for (id, model) in [(&a, "m1"), (&b, "m1"), (&c, "m1")] {
+            let ag = db.agents.iter_mut().find(|x| &x.id == id).unwrap();
+            ag.provider = "prov".into();
+            ag.model = model.to_string();
+        }
+        // Same model everywhere but NO companion link: no violation.
+        assert!(db.pair_rule_violation().is_none());
+        // Link primary->companion with the same model: violation.
+        db.agents.iter_mut().find(|x| x.id == a).unwrap().companion = Some(b.clone());
+        assert!(db.pair_rule_violation().is_some());
+        // Different model on the companion: fine again (Unrelated still shares m1).
+        db.agents.iter_mut().find(|x| x.id == b).unwrap().model = "m2".into();
+        assert!(db.pair_rule_violation().is_none());
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn seeding_migrates_the_legacy_pair() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider = "anthropic".into();
+        llm.model = "claude-sonnet-5".into();
+        llm.endpoint = "https://api.anthropic.com/v1/messages".into();
+        llm.reviewer_provider = "anthropic".into();
+        llm.reviewer_model = "claude-opus-4-8".into();
+        llm.reviewer_endpoint = llm.endpoint.clone();
+        let mut db = AgentsDb::load(&proj);
+        assert_eq!(db.seed_from_legacy(&llm), 2);
+        let designer = db.by_name("Form Designer Agent").unwrap().clone();
+        let ped = db.by_name("Pedantic UI Agent").unwrap();
+        assert_eq!(designer.model, "claude-sonnet-5");
+        assert_eq!(designer.companion.as_deref(), Some(ped.id.as_str()));
+        assert_eq!(ped.model, "claude-opus-4-8");
+        assert!(db.pair_rule_violation().is_none());
+        // Second call is a no-op (agents exist).
+        assert_eq!(db.seed_from_legacy(&llm), 0);
+        // R8: the designer flow resolves to the DB entry.
+        let cfg = designer_agent_config(&db, &llm);
+        assert_eq!(cfg.model, "claude-sonnet-5");
+        let _ = std::fs::remove_dir_all(proj);
+    }
+}

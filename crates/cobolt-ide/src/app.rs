@@ -365,6 +365,8 @@ pub struct CoboltApp {
     /// In-flight provider model-list fetch from the settings dialog.
     llm_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
     llm_reviewer_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
+    /// Agent Manager modal (spec 028), present while open.
+    agents_modal: Option<crate::panels::agents_modal::AgentsModal>,
     llm_benchmark_offer: Option<crate::llm::LlmConfig>,
     llm_benchmark_config: Option<crate::llm::LlmConfig>,
     llm_benchmark_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
@@ -946,6 +948,7 @@ impl CoboltApp {
             llm_detect_rx: None,
             llm_models_rx: None,
             llm_reviewer_models_rx: None,
+            agents_modal: None,
             llm_benchmark_offer: None,
             llm_benchmark_config: None,
             llm_benchmark_rx: None,
@@ -2386,8 +2389,11 @@ impl CoboltApp {
                 None => (crate::agent::effective_prompt(Path::new("")), String::new()),
             };
             let sent = std::mem::take(&mut self.agent_prompt);
+            // Spec 028 R8: the Form Designer Agent DB entry (when present)
+            // overrides the legacy connection for the designer flow.
+            let eff_llm = self.designer_effective_llm();
             let rx = crate::llm::spawn_agent_request(
-                &self.llm,
+                &eff_llm,
                 &sys,
                 &skills,
                 &self.agent_history,
@@ -5433,6 +5439,18 @@ impl CoboltApp {
         }
     }
 
+    /// Spec 028 R8: resolve the designer agent's effective connection from
+    /// the project agent database ("Form Designer Agent" entry), falling
+    /// back to the legacy config. Loaded fresh per send — sends are rare and
+    /// this can never go stale.
+    fn designer_effective_llm(&self) -> crate::llm::LlmConfig {
+        let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) else {
+            return self.llm.clone();
+        };
+        let db = crate::agents_db::AgentsDb::load(dir);
+        crate::agents_db::designer_agent_config(&db, &self.llm)
+    }
+
     /// Poll the reviewer-model list fetch (Pedantic Agent model picker).
     fn poll_llm_reviewer_models(&mut self) {
         let result = match &self.llm_reviewer_models_rx {
@@ -5532,6 +5550,13 @@ impl CoboltApp {
         self.poll_llm_test(tr);
         self.poll_llm_models();
         self.poll_llm_reviewer_models();
+        // Agent Manager modal (spec 028) — taken out of self to split borrows.
+        if let Some(mut m) = self.agents_modal.take() {
+            let _act = m.show(ctx, &mut self.llm, &self.lang.tr());
+            if m.open {
+                self.agents_modal = Some(m);
+            }
+        }
         if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {
             ctx.request_repaint();
         }
@@ -5622,6 +5647,13 @@ impl CoboltApp {
                         &form.draft.llm_api_key,
                     ));
                 }
+            }
+        }
+        if action.manage_agents {
+            if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
+                self.agents_modal = Some(crate::panels::agents_modal::AgentsModal::open_for(
+                    dir, &self.llm,
+                ));
             }
         }
         if action.fetch_reviewer_models {

@@ -285,6 +285,19 @@ project, so the API key never travels in a repository:
 | **Temperature** | Sampling randomness (0 = deterministic). |
 | **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
 
+**Agent Manager.** The *AI agents* row opens the project's agent database: any
+number of agents, each with its own model, prompt, capabilities, and knowledge.
+An agent lives in your project at `agentic_ai/<agent name>/` — the multi-line
+agent prompt in `<agent name>_prompt.md`, plus `steering/`, `policies.md`,
+`skills/`, `mcp.json`, `knowledge/`, and `agent.json` (identity and runtime
+configuration — the API key is **never** stored in the project; keys stay on
+your machine, asked once per model). Agent names are unique and fixed at
+creation, because they name the folder. Every primary agent may name a
+**pedantic companion** that reviews its responses — a primary and its own
+companion must use different models, while unrelated agents may share models
+freely. On first open the manager seeds itself from your existing AI settings,
+and the Form Designer assistant uses its database entry from then on.
+
 A **Test connection** button sends a tiny request to your endpoint and reports
 whether the model is reachable and the key/model are accepted — use it to
 confirm the setup before relying on it. The assistant becomes available as soon

@@ -208,6 +208,7 @@ pub struct SettingsFormAction {
     /// user clicked the refresh button).
     pub fetch_models: bool,
     pub fetch_reviewer_models: bool,
+    pub manage_agents: bool,
 }
 
 /// Common license identifiers offered in the dropdown.
@@ -867,6 +868,32 @@ impl SettingsForm {
                         });
 
                         // Provider (drives the default endpoint + the model list)
+                        // ── Agent Manager (spec 028): the agent database UI ────
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.agents_row_label).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                if ui.button(tr.agents_manage).clicked() {
+                                    action.manage_agents = true;
+                                }
+                            });
+                        });
+
+                        ui.add_space(8.0);
+
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
                                 .allocate_exact_size(

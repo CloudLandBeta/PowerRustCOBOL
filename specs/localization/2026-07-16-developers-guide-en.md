@@ -44,6 +44,14 @@ the row; keep "Pedantic Agent", "COBOL Proficiency" (feature names) as-is per
 product-name policy if your language keeps feature names in English; otherwise
 translate consistently with the UI strings.
 
+## Delta 5 — section `#5` AI settings
+
+**Change:** new **Agent Manager** paragraph before the "Test connection"
+paragraph (project agent database, `agentic_ai/<agent name>/` layout, unique
+immutable names, per-model machine-local keys, pedantic companion rule,
+seeding). Translate the paragraph; keep paths, file names, and "Agent
+Manager" / "Pedantic" feature terms consistent with the UI strings.
+
 ## Glossary — do NOT translate
 
 `PowerRustCOBOL`, product and menu names (e.g. **Font** as the property name,
