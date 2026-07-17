@@ -398,7 +398,46 @@ pub fn designer_agent_config(db: &AgentsDb, llm: &crate::llm::LlmConfig) -> crat
     if !prompt.trim().is_empty() {
         cfg.system_prompt = prompt;
     }
+    // The agent's pedantic companion (when set) IS the reviewer: the COBOL
+    // proficiency check and every tandem loop resolve it from here, not from
+    // the legacy fixed-pair fields.
+    match a.companion.as_ref().and_then(|cid| db.by_id(cid)) {
+        Some(c) if c.enabled && !c.model.trim().is_empty() => {
+            cfg.reviewer_provider = c.provider.clone();
+            cfg.reviewer_endpoint = c.endpoint.clone();
+            cfg.reviewer_model = c.model.clone();
+            let ped_prompt = db.load_prompt(&c.name);
+            if !ped_prompt.trim().is_empty() {
+                cfg.pedantic_prompt = ped_prompt;
+            }
+        }
+        _ => {
+            // No usable companion: the run is explicitly unreviewed (the
+            // caller warns the user — unreviewed responses can be useless).
+            cfg.reviewer_provider.clear();
+            cfg.reviewer_endpoint.clear();
+            cfg.reviewer_model.clear();
+        }
+    }
     cfg
+}
+
+/// Enabled primary agents (not companions of anyone) that have NO pedantic
+/// companion — their responses ship unreviewed.
+pub fn unreviewed_primaries(db: &AgentsDb) -> Vec<String> {
+    db.agents
+        .iter()
+        .filter(|a| {
+            a.enabled
+                && !db.is_companion(&a.id)
+                && a.companion
+                    .as_ref()
+                    .and_then(|cid| db.by_id(cid))
+                    .map(|c| !c.enabled || c.model.trim().is_empty())
+                    .unwrap_or(true)
+        })
+        .map(|a| a.name.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -495,9 +534,27 @@ mod tests {
         assert!(db.pair_rule_violation().is_none());
         // Second call is a no-op (agents exist).
         assert_eq!(db.seed_from_legacy(&llm), 0);
-        // R8: the designer flow resolves to the DB entry.
+        // R8: the designer flow resolves to the DB entry, and the DB
+        // companion becomes the reviewer (pedantic handles the check).
         let cfg = designer_agent_config(&db, &llm);
         assert_eq!(cfg.model, "claude-sonnet-5");
+        assert_eq!(cfg.reviewer_model, "claude-opus-4-8");
+        assert!(cfg.reviewer_configured());
+        assert!(unreviewed_primaries(&db).is_empty());
+        // Remove the companion link: the primary is now unreviewed and the
+        // resolved config carries NO reviewer (caller must warn the user).
+        db.agents
+            .iter_mut()
+            .find(|a| a.name == "Form Designer Agent")
+            .unwrap()
+            .companion = None;
+        let cfg = designer_agent_config(&db, &llm);
+        assert!(!cfg.reviewer_configured());
+        // Both are now companion-less primaries (the orphaned reviewer too —
+        // role is derived from links, not a stored kind).
+        let unreviewed = unreviewed_primaries(&db);
+        assert!(unreviewed.contains(&"Form Designer Agent".to_string()));
+        assert_eq!(unreviewed.len(), 2);
         let _ = std::fs::remove_dir_all(proj);
     }
 }

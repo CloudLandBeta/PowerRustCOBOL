@@ -5270,9 +5270,23 @@ impl CoboltApp {
                     });
                 });
             if run {
+                // Spec 028: the pedantic COMPANION from the agent database
+                // handles the review side of the check. Resolve it (falls
+                // back to the offered legacy config when no DB entry).
+                let mut eff = self.designer_effective_llm();
+                if !cfg.model.trim().is_empty() && eff.model.trim().is_empty() {
+                    eff = cfg.clone();
+                }
+                if !eff.reviewer_configured() {
+                    let tr = self.lang.tr();
+                    self.output.push_status(
+                        tr.agents_unreviewed_warning.replacen("{}", &eff.model, 1),
+                    );
+                }
                 self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
-                self.llm_benchmark_config = Some(cfg.clone());
-                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
+                self.llm_benchmark_config = Some(eff.clone());
+                self.llm_benchmark_rx =
+                    Some(crate::llm::spawn_cobol_proficiency_benchmark(&eff));
                 self.llm_benchmark_offer = None;
             }
             if skip {

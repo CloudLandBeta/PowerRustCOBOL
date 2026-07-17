@@ -159,6 +159,13 @@ impl AgentsModal {
                                     egui::Color32::from_rgb(230, 192, 106),
                                     tr.agents_missing_key.replacen("{}", name, 1),
                                 );
+                            } else if let Some(name) =
+                                crate::agents_db::unreviewed_primaries(&self.db).first()
+                            {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(230, 192, 106),
+                                    tr.agents_unreviewed_warning.replacen("{}", name, 1),
+                                );
                             } else {
                                 let active = self.db.agents.iter().filter(|a| a.enabled).count();
                                 ui.colored_label(
