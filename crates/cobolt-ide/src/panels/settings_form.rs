@@ -894,6 +894,16 @@ impl SettingsForm {
 
                         ui.add_space(8.0);
 
+                        // Legacy per-agent connection fields (provider, endpoint,
+                        // model, API key, reviewer, proficiency prompt, verbose).
+                        // Spec 028/029: this configuration now lives PER AGENT in
+                        // the Agent Manager (seeded from any prior config on first
+                        // open), so the AI section is just the "Manage agents…"
+                        // button above plus the non-agent inspection port below.
+                        // The draft fields are still loaded/saved so nothing is
+                        // orphaned; only the UI is retired.
+                        const SHOW_LEGACY_AI_FIELDS: bool = false;
+                        if SHOW_LEGACY_AI_FIELDS {
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
                                 .allocate_exact_size(
@@ -1461,6 +1471,7 @@ impl SettingsForm {
                                     .on_hover_text(tr.settings_ai_verbose_hint);
                             });
                         });
+                        } // end SHOW_LEGACY_AI_FIELDS
 
                         // --- Agent access (egui inspection / MCP) port
                         ui.horizontal_top(|ui| {
