@@ -110,15 +110,17 @@ Key mechanics the runtime must implement:
   through Grace; egui-MCP tool execution for agents; delegation to the
   COBOL Event Handler Script Agent per the pedantic-UI contract.
 
-## Known pre-existing issue (not Grace-related)
+## Resolved: generic endpoint wire resolution (2026-07-17)
 
 `cobolt-agents` test `ollama_cloud_wrong_host_is_healed_and_openai_wire_chosen`
-fails identically with and without the Phase B changes (verified via stash,
-2026-07-16): after healing a wrong host to ollama.com the mesh picks the
-ollama-native wire format where the test expects the OpenAI wire. Latent from
-the 1.30.x ollama-cloud endpoint-healing work on main — the crate was not in
-the spec-027 per-step gate matrix. Reported to the operator; fix belongs on
-main, then ports to the branch per R6.
+was failing (latent from the 1.30.x ollama-cloud healing on main; the crate
+was absent from the spec-027 gate matrix): an Ollama-family provider forced
+the native `/api/chat` wire even when the user's endpoint explicitly ended in
+`/v1/chat/completions`. Fixed generically per operator direction — host
+healing is now a provider-keyed table (`heal_endpoint_host`), and wire format
+follows the most specific signal (`resolve_wire`): an explicit endpoint suffix
+wins over the provider default, so any provider/model combination resolves
+correctly. Two unit tests lock the provider-agnostic contract.
 
 ## Acceptance criteria
 

@@ -124,32 +124,16 @@ impl Orchestrator {
         loop {
             loop_count += 1;
             // ── Resolve URL + wire shape ─────────────────────────────────────────
-            // Heal the previously shipped wrong Ollama Cloud host: the service
-            // lives at ollama.com (native `/api`, OpenAI-compatible `/v1`), NOT
-            // api.ollama.com. Saved configs may still carry the old value.
-            let base = req
-                .endpoint
-                .trim()
-                .trim_end_matches('/')
-                .replace("api.ollama.com", "ollama.com");
+            // Generic across providers: heal known-bad hosts (provider-keyed),
+            // then let an EXPLICIT endpoint suffix decide the wire format so a
+            // configured `/v1/chat/completions` gets the OpenAI wire even on an
+            // Ollama-family provider (and vice-versa). `base` is kept for the
+            // reasoning-hint check below.
+            let base = heal_endpoint_host(&req.provider, req.endpoint.trim().trim_end_matches('/'));
             // `native` = Ollama-native chat API (`…/api/chat`, response shape
             // `{"message":{"content":…}}`); otherwise OpenAI-compatible
             // (`…/chat/completions`, response shape `choices[0].message.content`).
-            let (url, native) = if provider_is_ollama(&req.provider) {
-                (ollama_native_chat_url(&base), true)
-            } else if base.ends_with("/api/chat") {
-                (base.clone(), true)
-            } else if base.ends_with("/chat/completions") {
-                (base.clone(), false)
-            } else if base.ends_with("/api") {
-                (format!("{base}/chat"), true)
-            } else if base.ends_with("/v1") {
-                (format!("{base}/chat/completions"), false)
-            } else if req.provider == "ollama" {
-                (format!("{base}/api/chat"), true)
-            } else {
-                (format!("{base}/v1/chat/completions"), false)
-            };
+            let (url, native) = resolve_wire(&req.provider, &base);
 
             let mut body = if native {
                 serde_json::json!({
@@ -586,6 +570,59 @@ fn provider_is_ollama(provider: &str) -> bool {
     provider.to_ascii_lowercase().contains("ollama")
 }
 
+/// Correct known-bad hosts for a provider before a request is attempted.
+///
+/// Generic and data-driven: each row maps a `(provider-name fragment,
+/// wrong host, canonical host)`. The provider NAME is part of the key so a
+/// correction never fires for an unrelated provider that merely shares a
+/// hostname fragment — adding a provider is one row. `base` should already be
+/// trimmed and have no trailing slash.
+fn heal_endpoint_host(provider: &str, base: &str) -> String {
+    // (provider-name fragment, wrong host, canonical host)
+    const HEALS: &[(&str, &str, &str)] = &[
+        // Ollama Cloud shipped an early default pointing at the wrong host.
+        ("ollama", "api.ollama.com", "ollama.com"),
+    ];
+    let p = provider.to_ascii_lowercase();
+    let mut out = base.to_string();
+    for (prov, wrong, right) in HEALS {
+        if p.contains(prov) && out.contains(wrong) {
+            out = out.replace(wrong, right);
+        }
+    }
+    out
+}
+
+/// Resolve the chat URL and wire format from a (healed) endpoint, generically
+/// across providers and models.
+///
+/// Priority — most specific wins, so a user's explicit choice is honoured:
+///   1. an explicit wire suffix (`/api/chat` → native, `/chat/completions` →
+///      OpenAI) is used verbatim, regardless of the provider name;
+///   2. a version-only suffix (`/api` → native, `/v1` → OpenAI) implies its
+///      conventional wire;
+///   3. otherwise the provider default (Ollama-family → native `/api/chat`,
+///      everything else → OpenAI-compatible `/v1/chat/completions`).
+fn resolve_wire(provider: &str, base: &str) -> (String, bool) {
+    if base.ends_with("/api/chat") {
+        return (base.to_string(), true);
+    }
+    if base.ends_with("/chat/completions") {
+        return (base.to_string(), false);
+    }
+    if base.ends_with("/api") {
+        return (format!("{base}/chat"), true);
+    }
+    if base.ends_with("/v1") {
+        return (format!("{base}/chat/completions"), false);
+    }
+    if provider_is_ollama(provider) {
+        (ollama_native_chat_url(base), true)
+    } else {
+        (format!("{base}/v1/chat/completions"), false)
+    }
+}
+
 fn ollama_native_chat_url(base: &str) -> String {
     for suffix in ["/v1/chat/completions", "/api/chat", "/chat/completions"] {
         if let Some(root) = base.strip_suffix(suffix) {
@@ -649,6 +686,61 @@ mod tests {
         assert_eq!(
             ollama_native_chat_url("http://localhost:11434/api"),
             "http://localhost:11434/api/chat"
+        );
+    }
+
+    #[test]
+    fn host_healing_is_provider_scoped() {
+        use super::heal_endpoint_host;
+        // Ollama-family: the early wrong host is corrected.
+        assert_eq!(
+            heal_endpoint_host("ollama_cloud", "https://api.ollama.com/v1/chat/completions"),
+            "https://ollama.com/v1/chat/completions"
+        );
+        // A provider whose canonical host legitimately begins with `api.` is
+        // left untouched — the correction is keyed by provider name.
+        assert_eq!(
+            heal_endpoint_host("openai", "https://api.openai.com/v1"),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            heal_endpoint_host("anthropic", "https://api.anthropic.com/v1"),
+            "https://api.anthropic.com/v1"
+        );
+    }
+
+    #[test]
+    fn wire_format_follows_the_explicit_endpoint_across_providers() {
+        use super::resolve_wire;
+        // Explicit OpenAI suffix wins even on an Ollama-family provider.
+        assert_eq!(
+            resolve_wire("ollama_cloud", "https://ollama.com/v1/chat/completions"),
+            ("https://ollama.com/v1/chat/completions".into(), false)
+        );
+        // Explicit native suffix wins even on a non-Ollama provider.
+        assert_eq!(
+            resolve_wire("openai", "http://host/api/chat"),
+            ("http://host/api/chat".into(), true)
+        );
+        // Version-only suffixes imply their conventional wire.
+        assert_eq!(
+            resolve_wire("ollama", "http://host/api"),
+            ("http://host/api/chat".into(), true)
+        );
+        assert_eq!(
+            resolve_wire("openai", "https://api.openai.com/v1"),
+            ("https://api.openai.com/v1/chat/completions".into(), false)
+        );
+        // Bare host: provider default. Any non-Ollama provider (Anthropic,
+        // xAI, Mistral, a generic OpenAI-compatible gateway…) gets the
+        // OpenAI-compatible wire.
+        assert_eq!(
+            resolve_wire("mistral", "https://api.mistral.ai"),
+            ("https://api.mistral.ai/v1/chat/completions".into(), false)
+        );
+        assert_eq!(
+            resolve_wire("ollama", "http://localhost:11434"),
+            ("http://localhost:11434/api/chat".into(), true)
         );
     }
 }
