@@ -202,10 +202,13 @@ impl AgentsModal {
                         });
                     });
 
-                egui::Panel::left(ui.id().with("agents_rail"))
+                egui::Panel::left(egui::Id::new("agents_rail_panel"))
                     .resizable(true)
                     .default_size(280.0)
                     .min_size(200.0)
+                    // Hard upper bound so the rail can never swallow the detail
+                    // pane even if some content is unexpectedly wide.
+                    .max_size(360.0)
                     .show(ui, |ui| self.rail_ui(ui, llm, tr));
 
                 egui::CentralPanel::default()
@@ -229,10 +232,14 @@ impl AgentsModal {
     fn rail_ui(&mut self, ui: &mut egui::Ui, llm: &mut LlmConfig, tr: &Tr) {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
+            // FIXED widths only — never size a child from `available_width` in
+            // a resizable side panel, or the row's min-width chases the panel
+            // width and ratchets it wider every frame (egui self-inflation;
+            // see the egui-resize-autogrow memory / egui-paint-regressions).
             ui.add(
                 egui::TextEdit::singleline(&mut self.filter)
                     .hint_text(tr.agents_filter)
-                    .desired_width(ui.available_width() - 64.0),
+                    .desired_width(190.0),
             );
             if ui.button(format!("＋ {}", tr.agents_new)).clicked() {
                 self.new_name = Some(String::new());
@@ -248,7 +255,7 @@ impl AgentsModal {
                 let resp = ui.add(
                     egui::TextEdit::singleline(name)
                         .hint_text(tr.agents_new_name_hint)
-                        .desired_width(ui.available_width() - 96.0),
+                        .desired_width(160.0), // fixed — no available_width feedback
                 );
                 create = (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                     || ui.button("✔").clicked();
@@ -318,10 +325,21 @@ impl AgentsModal {
                                 crate::agents_db::AgentKind::Pedantic => "🔍 ",
                                 crate::agents_db::AgentKind::Specialist => "",
                             };
+                            // Truncate so a long model id can't widen the rail
+                            // (bounds the label's min-width; the panel stays at
+                            // its default width instead of stretching to fit).
+                            let ell = |s: &str, n: usize| -> String {
+                                if s.chars().count() > n {
+                                    format!("{}…", s.chars().take(n - 1).collect::<String>())
+                                } else {
+                                    s.to_string()
+                                }
+                            };
                             let label = format!(
-                                "{dot} {badge}{name}\n    {} · {}",
-                                if model.is_empty() { "—" } else { &model },
-                                if provider.is_empty() { "—" } else { &provider },
+                                "{dot} {badge}{}\n    {} · {}",
+                                ell(&name, 26),
+                                if model.is_empty() { "—".into() } else { ell(&model, 20) },
+                                if provider.is_empty() { "—".into() } else { ell(&provider, 14) },
                             );
                             if ui
                                 .selectable_label(selected, egui::RichText::new(label).size(12.5))
@@ -667,4 +685,71 @@ fn string_list_ui(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, chang
         }
         ui.data_mut(|d| d.insert_temp(id, buf));
     });
+}
+
+#[cfg(test)]
+mod resize_tests {
+    use super::*;
+    use crate::agents_db::{AgentKind, AgentsDb};
+
+    /// Regression guard (egui self-inflation): the agent-list rail must hold a
+    /// stable width across many frames. It used to size its filter/name fields
+    /// from `available_width`, so the row's min-width chased the panel width
+    /// and ratcheted it wider every frame until the detail pane vanished.
+    #[test]
+    fn agent_rail_width_is_stable_across_frames() {
+        let proj = std::env::temp_dir().join(format!("prc_railtest_{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&proj).unwrap();
+        // A few agents with long-ish model ids (worst case for width).
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_grace();
+        let a = db
+            .create_kinded(
+                "Form Designer Agent",
+                "p",
+                AgentKind::Specialist,
+                "form-design",
+            )
+            .unwrap();
+        if let Some(x) = db.agents.iter_mut().find(|x| x.id == a) {
+            x.model = "some-vendor/a-fairly-long-model-identifier:latest".into();
+            x.provider = "ollama_cloud".into();
+        }
+        db.save_all().unwrap();
+
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut modal = AgentsModal::open_for(&proj, &llm);
+        let tr = crate::i18n::Language::English.tr();
+
+        let ctx = egui::Context::default();
+        let rail_id = egui::Id::new("agents_rail_panel");
+        let mut widths: Vec<f32> = Vec::new();
+        for _ in 0..120 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1400.0, 800.0),
+            ));
+            ctx.run_ui(input, |root_ui| {
+                let c = root_ui.ctx().clone();
+                modal.show(&c, &mut llm, &tr);
+            });
+            if let Some(state) = egui::containers::panel::PanelState::load(&ctx, rail_id) {
+                widths.push(state.outer_rect.width());
+            }
+        }
+        assert!(widths.len() >= 100, "rail panel never materialised");
+        let settled = widths[5];
+        for (i, w) in widths.iter().enumerate().skip(5) {
+            assert!(
+                (w - settled).abs() < 0.5,
+                "rail width drifted at frame {i}: {settled} -> {w} (self-inflation)"
+            );
+            // Truncated labels keep the rail at its default width, well under
+            // the 360 cap — proves both no-ratchet AND label bounding.
+            assert!(*w <= 300.0, "rail wider than expected (label not bounded?): {w}");
+        }
+        let _ = std::fs::remove_dir_all(proj);
+        println!("agent rail stable at {settled:.0}px across {} frames", widths.len());
+    }
 }
