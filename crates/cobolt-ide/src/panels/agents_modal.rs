@@ -34,6 +34,12 @@ pub struct AgentsModal {
     /// `true` once anything changed (enables Apply).
     dirty: bool,
     seeded: usize,
+    /// In-flight "fetch available models" request for the selected agent.
+    models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
+    /// Models fetched for the currently selected agent (empty until fetched).
+    available_models: Vec<String>,
+    /// Status/result line for the model fetch.
+    models_msg: Option<String>,
 }
 
 /// What the caller (app.rs) must do after a frame of the modal.
@@ -72,6 +78,9 @@ impl AgentsModal {
             error: None,
             dirty: seeded > 0,
             seeded,
+            models_rx: None,
+            available_models: Vec::new(),
+            models_msg: None,
         };
         m.load_selected(llm);
         m
@@ -79,6 +88,9 @@ impl AgentsModal {
 
     fn load_selected(&mut self, llm: &LlmConfig) {
         self.confirm_delete = false;
+        // Fetched models belong to the previously selected agent's provider.
+        self.available_models.clear();
+        self.models_msg = None;
         let Some(a) = self.db.agents.get(self.sel) else {
             self.prompt_buf.clear();
             self.key_buf.clear();
@@ -136,6 +148,25 @@ impl AgentsModal {
         let mut action = AgentsModalAction::default();
         if !self.open {
             return action;
+        }
+        // Drain an in-flight model-list fetch for the selected agent.
+        if let Some(rx) = &self.models_rx {
+            match rx.try_recv() {
+                Ok(Ok(models)) => {
+                    self.models_msg = Some(format!("{} model(s) available", models.len()));
+                    self.available_models = models;
+                    self.models_rx = None;
+                }
+                Ok(Err(e)) => {
+                    self.models_msg = Some(e);
+                    self.models_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.models_msg = Some("The model-list worker stopped.".into());
+                    self.models_rx = None;
+                }
+            }
         }
         let mut open = self.open;
         egui::Window::new(format!("🤖 {}", tr.agents_title))
@@ -467,6 +498,7 @@ impl AgentsModal {
         };
         let sel = self.sel;
         let mut changed = false;
+        let mut do_fetch_models = false;
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_min_width(ui.available_width() - 12.0);
@@ -579,17 +611,55 @@ impl AgentsModal {
                         {
                             let a = &mut self.db.agents[sel];
                             let prev_model = a.model.clone();
-                            let r = ui.add(
-                                egui::TextEdit::singleline(&mut a.model)
-                                    .font(egui::TextStyle::Monospace)
-                                    .desired_width(f32::INFINITY),
-                            );
-                            if r.changed() {
-                                changed = true;
-                            }
+                            ui.horizontal(|ui| {
+                                // Editable model id (custom ids allowed).
+                                let r = ui.add(
+                                    egui::TextEdit::singleline(&mut a.model)
+                                        .font(egui::TextStyle::Monospace)
+                                        .desired_width(180.0),
+                                );
+                                changed |= r.changed();
+                                // Pick from the fetched list (when available).
+                                if !self.available_models.is_empty() {
+                                    egui::ComboBox::from_id_salt("ag_model_pick")
+                                        .selected_text("▾")
+                                        .width(28.0)
+                                        .show_ui(ui, |ui| {
+                                            for m in &self.available_models {
+                                                if ui
+                                                    .selectable_label(&a.model == m, m)
+                                                    .clicked()
+                                                {
+                                                    a.model = m.clone();
+                                                    changed = true;
+                                                }
+                                            }
+                                        });
+                                }
+                                // Force-load the provider's models.
+                                if ui
+                                    .add_enabled(
+                                        self.models_rx.is_none(),
+                                        egui::Button::new(format!(
+                                            "⟳ {}",
+                                            tr.settings_ai_refresh
+                                        )),
+                                    )
+                                    .on_hover_text(tr.settings_ai_refresh_models)
+                                    .clicked()
+                                {
+                                    do_fetch_models = true;
+                                }
+                                if self.models_rx.is_some() {
+                                    ui.add(egui::Spinner::new());
+                                }
+                                if let Some(m) = &self.models_msg {
+                                    ui.label(egui::RichText::new(m).small().weak());
+                                }
+                            });
                             // Model switch = per-model key contract: restore
                             // the stored key or clear the field (spec 028 R4).
-                            if r.lost_focus() && a.model != prev_model {
+                            if a.model != prev_model {
                                 let slot = api_key_slot(&a.provider, &a.model);
                                 self.key_buf =
                                     llm.api_keys.get(&slot).cloned().unwrap_or_default();
@@ -758,6 +828,26 @@ impl AgentsModal {
         if changed {
             self.dirty = true;
             self.seeded = 0;
+        }
+
+        // Spawn the model-list fetch after the grid (avoids borrowing `self`
+        // twice inside the row). Uses the selected agent's provider/endpoint
+        // and the currently-edited key.
+        if do_fetch_models {
+            let a = &self.db.agents[sel];
+            match crate::llm::Provider::from_id(&a.provider) {
+                Some(provider) => {
+                    let endpoint = a.endpoint.clone();
+                    let key = self.key_buf.clone();
+                    self.available_models.clear();
+                    self.models_msg = Some(tr.ai_detecting.to_string());
+                    self.models_rx =
+                        Some(crate::llm::spawn_list_models(provider, &endpoint, &key));
+                }
+                None => {
+                    self.models_msg = Some(tr.settings_ai_provider_select.to_string());
+                }
+            }
         }
     }
 }
