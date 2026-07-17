@@ -337,109 +337,111 @@ impl AgentsModal {
                         )
                     })
                     .collect();
-                for (i, name, model, provider, enabled, is_comp, kind) in entries {
+                for (i, name, model, provider, enabled, _is_comp, kind) in entries {
                     let selected = i == self.sel;
-                    ui.horizontal(|ui| {
-                        if is_comp {
-                            ui.add_space(22.0);
-                            ui.colored_label(
-                                egui::Color32::from_rgb(201, 162, 232),
-                                egui::RichText::new("└").size(22.0),
+                    let dot = if enabled { "●" } else { "○" };
+                    let badge = match kind {
+                        crate::agents_db::AgentKind::Orchestrator => "👑 ",
+                        crate::agents_db::AgentKind::Pedantic => "🔍 ",
+                        crate::agents_db::AgentKind::Specialist => "",
+                    };
+                    // Truncate so a long model id can't widen the rail.
+                    let ell = |s: &str, n: usize| -> String {
+                        if s.chars().count() > n {
+                            format!("{}…", s.chars().take(n - 1).collect::<String>())
+                        } else {
+                            s.to_string()
+                        }
+                    };
+                    // 50% of the previous 37.5/25 sizes.
+                    const NAME_PT: f32 = 18.75;
+                    const SUB_PT: f32 = 12.5;
+                    let name_line = format!("{dot} {badge}{}", ell(&name, 24));
+                    let sub_line = format!(
+                        "    {} · {}",
+                        if model.is_empty() { "—".into() } else { ell(&model, 22) },
+                        if provider.is_empty() { "—".into() } else { ell(&provider, 16) },
+                    );
+                    // Text colour: on the bright selected fill, pick dark or light
+                    // for contrast; otherwise the theme colours. Inactive buttons
+                    // are dimmed to a constant level (baked into the colours) — no
+                    // hover response.
+                    let sel_fill = ui.visuals().selection.bg_fill;
+                    let (name_color, sub_color) = if selected {
+                        let lum = 0.299 * sel_fill.r() as f32
+                            + 0.587 * sel_fill.g() as f32
+                            + 0.114 * sel_fill.b() as f32;
+                        if lum > 140.0 {
+                            (egui::Color32::from_gray(20), egui::Color32::from_gray(70))
+                        } else {
+                            (egui::Color32::WHITE, egui::Color32::from_gray(210))
+                        }
+                    } else {
+                        (
+                            ui.visuals().text_color().gamma_multiply(0.55),
+                            ui.visuals().weak_text_color().gamma_multiply(0.55),
+                        )
+                    };
+                    let mut job = egui::text::LayoutJob::default();
+                    // Never wrap → the row height is a constant two lines, so it
+                    // does NOT change as the pane gets narrower/wider. Overflow is
+                    // clipped to the button rect below.
+                    job.wrap.max_width = f32::INFINITY;
+                    job.append(
+                        &name_line,
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(NAME_PT),
+                            color: name_color,
+                            ..Default::default()
+                        },
+                    );
+                    job.append(
+                        &format!("\n{sub_line}"),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(SUB_PT),
+                            color: sub_color,
+                            ..Default::default()
+                        },
+                    );
+                    let galley = ui.painter().layout_job(job);
+                    // FULL width via allocate_exact_size: it takes exactly the
+                    // available width, so it fills the rail yet can never demand
+                    // MORE than is available — the pane is never pushed wider.
+                    const HPAD: f32 = 10.0;
+                    const VPAD: f32 = 6.0;
+                    let full_w = ui.available_width();
+                    let row_h = galley.size().y + 2.0 * VPAD;
+                    let (rect, resp) =
+                        ui.allocate_exact_size(egui::vec2(full_w, row_h), egui::Sense::click());
+                    if ui.is_rect_visible(rect) {
+                        let p = ui.painter();
+                        if selected {
+                            p.rect_filled(rect, egui::CornerRadius::same(8), sel_fill);
+                        } else {
+                            p.rect_stroke(
+                                rect,
+                                egui::CornerRadius::same(8),
+                                egui::Stroke::new(
+                                    1.0,
+                                    ui.visuals().weak_text_color().gamma_multiply(0.5),
+                                ),
+                                egui::StrokeKind::Inside,
                             );
                         }
-                        // Each agent is an explicit button box (operator spec):
-                        // the SELECTED one is a bright filled button at full
-                        // opacity; every other is a permanently DIMMED outlined
-                        // button (never brightens on hover). Clicking a dimmed
-                        // one selects it — all boxes stay visible.
-                        let dot = if enabled { "●" } else { "○" };
-                        let badge = match kind {
-                            crate::agents_db::AgentKind::Orchestrator => "👑 ",
-                            crate::agents_db::AgentKind::Pedantic => "🔍 ",
-                            crate::agents_db::AgentKind::Specialist => "",
-                        };
-                        // Truncate so a long model id can't widen the rail.
-                        let ell = |s: &str, n: usize| -> String {
-                            if s.chars().count() > n {
-                                format!("{}…", s.chars().take(n - 1).collect::<String>())
-                            } else {
-                                s.to_string()
-                            }
-                        };
-                        const NAME_PT: f32 = 37.5; // +200% over the old 12.5px
-                        const SUB_PT: f32 = 25.0; // +100%
-                        let name_line = format!("{dot} {badge}{}", ell(&name, 16));
-                        let sub_line = format!(
-                            "    {} · {}",
-                            if model.is_empty() { "—".into() } else { ell(&model, 15) },
-                            if provider.is_empty() { "—".into() } else { ell(&provider, 12) },
+                        // Clip the text to the button so a long line never spills
+                        // past the rail edge.
+                        ui.painter().with_clip_rect(rect).galley(
+                            rect.min + egui::vec2(HPAD, VPAD),
+                            galley,
+                            egui::Color32::WHITE,
                         );
-                        // Text colour: on the bright selected fill, pick dark or
-                        // light for contrast; otherwise the normal theme colours.
-                        let sel_fill = ui.visuals().selection.bg_fill;
-                        let (name_color, sub_color) = if selected {
-                            let lum = 0.299 * sel_fill.r() as f32
-                                + 0.587 * sel_fill.g() as f32
-                                + 0.114 * sel_fill.b() as f32;
-                            if lum > 140.0 {
-                                (egui::Color32::from_gray(20), egui::Color32::from_gray(70))
-                            } else {
-                                (egui::Color32::WHITE, egui::Color32::from_gray(210))
-                            }
-                        } else {
-                            (ui.visuals().text_color(), ui.visuals().weak_text_color())
-                        };
-                        let mut job = egui::text::LayoutJob::default();
-                        job.append(
-                            &name_line,
-                            0.0,
-                            egui::TextFormat {
-                                font_id: egui::FontId::proportional(NAME_PT),
-                                color: name_color,
-                                ..Default::default()
-                            },
-                        );
-                        job.append(
-                            &format!("\n{sub_line}"),
-                            0.0,
-                            egui::TextFormat {
-                                font_id: egui::FontId::proportional(SUB_PT),
-                                color: sub_color,
-                                ..Default::default()
-                            },
-                        );
-                        let clicked = ui
-                            .scope(|ui| {
-                                // Dim the whole inactive button (fill/stroke/text)
-                                // to a constant level — no hover response.
-                                ui.set_opacity(if selected { 1.0 } else { 0.5 });
-                                let frame = if selected {
-                                    egui::Frame::NONE
-                                        .fill(sel_fill)
-                                        .corner_radius(8)
-                                        .inner_margin(egui::Margin::symmetric(10, 6))
-                                } else {
-                                    egui::Frame::NONE
-                                        .stroke(egui::Stroke::new(
-                                            1.0,
-                                            ui.visuals().weak_text_color(),
-                                        ))
-                                        .corner_radius(8)
-                                        .inner_margin(egui::Margin::symmetric(10, 6))
-                                };
-                                frame
-                                    .show(ui, |ui| {
-                                        ui.add(egui::Label::new(job).selectable(false));
-                                    })
-                                    .response
-                                    .interact(egui::Sense::click())
-                                    .clicked()
-                            })
-                            .inner;
-                        if clicked {
-                            self.select(i, llm);
-                        }
-                    });
+                    }
+                    if resp.clicked() {
+                        self.select(i, llm);
+                    }
+                    ui.add_space(4.0);
                 }
             });
     }
