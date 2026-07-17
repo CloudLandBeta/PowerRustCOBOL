@@ -585,11 +585,22 @@ impl AgentsDb {
 /// model, it overrides the legacy config (key restored from the machine-
 /// global per-model store); otherwise the legacy config passes through.
 pub fn designer_agent_config(db: &AgentsDb, llm: &crate::llm::LlmConfig) -> crate::llm::LlmConfig {
-    let Some(a) = db.by_name("Form Designer Agent").filter(|a| {
+    agent_effective_config(db, llm, "Form Designer Agent").unwrap_or_else(|| llm.clone())
+}
+
+/// Resolve any enabled, model-configured agent by name into an `LlmConfig`:
+/// its provider/endpoint/model/key/sampling, its prompt as the system prompt,
+/// and its pedantic companion mapped into the reviewer fields (so a tandem
+/// run — e.g. the COBOL proficiency check — reviews through it). Returns
+/// `None` when the agent is absent, disabled, or has no model.
+pub fn agent_effective_config(
+    db: &AgentsDb,
+    llm: &crate::llm::LlmConfig,
+    agent_name: &str,
+) -> Option<crate::llm::LlmConfig> {
+    let a = db.by_name(agent_name).filter(|a| {
         a.enabled && !a.model.trim().is_empty() && !a.provider.trim().is_empty()
-    }) else {
-        return llm.clone();
-    };
+    })?;
     let mut cfg = llm.clone();
     cfg.provider = a.provider.clone();
     cfg.endpoint = a.endpoint.clone();
@@ -627,7 +638,7 @@ pub fn designer_agent_config(db: &AgentsDb, llm: &crate::llm::LlmConfig) -> crat
             cfg.reviewer_model.clear();
         }
     }
-    cfg
+    Some(cfg)
 }
 
 /// Enabled primary agents (not companions of anyone) that have NO pedantic

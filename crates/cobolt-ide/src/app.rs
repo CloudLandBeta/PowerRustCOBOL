@@ -5655,9 +5655,22 @@ impl CoboltApp {
         }
         // Agent Manager modal (spec 028) — taken out of self to split borrows.
         if let Some(mut m) = self.agents_modal.take() {
-            let _act = m.show(ctx, &mut self.llm, &self.lang.tr());
+            let act = m.show(ctx, &mut self.llm, &self.lang.tr());
             if m.open {
                 self.agents_modal = Some(m);
+            }
+            // "Check proficiency" on a specialist: run the tandem benchmark for
+            // its resolved config (its model, reviewed by its pedantic companion
+            // when set) — the report window opens on top (spec 029).
+            if let Some(cfg) = act.run_proficiency {
+                if !cfg.reviewer_configured() {
+                    let tr = self.lang.tr();
+                    self.output
+                        .push_status(tr.agents_unreviewed_warning.replacen("{}", &cfg.model, 1));
+                }
+                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+                self.llm_benchmark_config = Some(cfg.clone());
+                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
             }
         }
         if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {

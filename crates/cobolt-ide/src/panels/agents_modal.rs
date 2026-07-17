@@ -40,6 +40,9 @@ pub struct AgentsModal {
     available_models: Vec<String>,
     /// Status/result line for the model fetch.
     models_msg: Option<String>,
+    /// Set by the detail pane's "Check proficiency" button; drained into the
+    /// returned action after the frame.
+    pending_proficiency: Option<LlmConfig>,
 }
 
 /// What the caller (app.rs) must do after a frame of the modal.
@@ -48,6 +51,9 @@ pub struct AgentsModalAction {
     /// Settings were applied — persist `LlmConfig` and refresh the designer
     /// agent resolution (spec 028 R8).
     pub applied: bool,
+    /// Run the COBOL proficiency check for this resolved agent config
+    /// (specialist's model, reviewed by its pedantic companion when set).
+    pub run_proficiency: Option<LlmConfig>,
 }
 
 impl AgentsModal {
@@ -81,6 +87,7 @@ impl AgentsModal {
             models_rx: None,
             available_models: Vec::new(),
             models_msg: None,
+            pending_proficiency: None,
         };
         m.load_selected(llm);
         m
@@ -291,6 +298,7 @@ impl AgentsModal {
                 }
             });
         self.open &= open;
+        action.run_proficiency = self.pending_proficiency.take();
         action
     }
 
@@ -499,6 +507,7 @@ impl AgentsModal {
         let sel = self.sel;
         let mut changed = false;
         let mut do_fetch_models = false;
+        let mut do_proficiency = false;
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_min_width(ui.available_width() - 12.0);
@@ -706,6 +715,31 @@ impl AgentsModal {
                         }
                         ui.end_row();
                     });
+                    // Proficiency check — test THIS specialist's model (reviewed
+                    // by its pedantic companion when one is set). Not offered for
+                    // Grace (orchestrator) or pedantic reviewers.
+                    if agent.kind == crate::agents_db::AgentKind::Specialist
+                        && !agent.model.trim().is_empty()
+                    {
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(format!("🎓 {}", tr.agents_check_proficiency))
+                                .clicked()
+                            {
+                                do_proficiency = true;
+                            }
+                            ui.label(
+                                egui::RichText::new(if agent.companion.is_some() {
+                                    tr.agents_proficiency_reviewed
+                                } else {
+                                    tr.agents_proficiency_unreviewed
+                                })
+                                .small()
+                                .weak(),
+                            );
+                        });
+                    }
                 });
             ui.separator();
 
@@ -848,6 +882,15 @@ impl AgentsModal {
                     self.models_msg = Some(tr.settings_ai_provider_select.to_string());
                 }
             }
+        }
+
+        // "Check proficiency": persist the edited key, then resolve this
+        // agent's effective config (its model + companion-as-reviewer) for the
+        // caller to run the benchmark.
+        if do_proficiency {
+            self.stash_selected(llm);
+            self.pending_proficiency =
+                crate::agents_db::agent_effective_config(&self.db, llm, &agent.name);
         }
     }
 }
