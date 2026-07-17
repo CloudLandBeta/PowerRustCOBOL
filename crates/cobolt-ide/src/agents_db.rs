@@ -545,7 +545,7 @@ impl AgentsDb {
                     v.max_tokens = llm.max_tokens;
                     v.timeout_secs = llm.timeout_secs;
                     v.tools = vec!["git (project repository)".to_string()];
-                    v.routing = "Receives: version-control requests for the project".to_string();
+                    v.routing = "Delegated by Grace · version-control for the project repo".to_string();
                 }
             }
             let _ = self.save_all();
@@ -597,7 +597,7 @@ impl AgentsDb {
                     v.max_tokens = max_tokens;
                     v.timeout_secs = timeout_secs;
                     v.tools = vec!["git (project repository)".to_string()];
-                    v.routing = "Receives: version-control requests for the project".to_string();
+                    v.routing = "Delegated by Grace · version-control for the project repo".to_string();
                 }
                 let _ = self.save_all();
                 self.sort_rail();

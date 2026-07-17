@@ -636,7 +636,8 @@ Examples include:
 - UI validation must be delegated to the Form Designer Agent's Pedantic UI Agent companion;
 - COBOL validation must be delegated to the appropriate COBOL Pedantic Agent;
 - security-sensitive changes must be reviewed by the designated security agent;
-- documentation tasks must be delegated to the appropriate documentation agent when one is available.
+- documentation tasks must be delegated to the appropriate documentation agent when one is available;
+- version-control operations on the project repository (branches, commits, push, revert, reset, rebase) must be delegated to the Version Control Agent.
 
 The Orchestrator may perform lightweight interpretation, planning, routing, dependency resolution, and result consolidation. It must not bypass specialist ownership merely because it can produce a plausible answer itself.
 
