@@ -636,10 +636,14 @@ impl AgentsModal {
                 .default_open(true)
                 .show(ui, |ui| {
                     ui.label(tr.agents_prompt);
+                    // ~20 lines tall by default; grows with the prompt and
+                    // fills the panel width (so it tracks modal resizing). A
+                    // fixed row count — NOT sized from available height — so it
+                    // can't self-inflate inside the detail scroll area.
                     let r = ui.add(
                         egui::TextEdit::multiline(&mut self.prompt_buf)
                             .font(egui::TextStyle::Monospace)
-                            .desired_rows(10)
+                            .desired_rows(20)
                             .desired_width(f32::INFINITY),
                     );
                     changed |= r.changed();
