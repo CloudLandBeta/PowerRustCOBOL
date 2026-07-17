@@ -52,6 +52,11 @@ immutable names, per-model machine-local keys, pedantic companion rule,
 seeding). Translate the paragraph; keep paths, file names, and "Agent
 Manager" / "Pedantic" feature terms consistent with the UI strings.
 
+## Delta 6 — section `#5` Agent Manager paragraph
+
+**Change:** appended a sentence introducing **Grace**, the orchestrator.
+Translate it; "Grace" is a NAME — never translate or rename it.
+
 ## Glossary — do NOT translate
 
 `PowerRustCOBOL`, product and menu names (e.g. **Font** as the property name,

@@ -48,7 +48,12 @@ impl AgentsModal {
     /// Load (and first-time seed, R7) the project's agents and open.
     pub fn open_for(project_dir: &Path, llm: &LlmConfig) -> Self {
         let mut db = AgentsDb::load(project_dir);
-        let seeded = db.seed_from_legacy(llm);
+        let mut seeded = db.seed_from_legacy(llm);
+        // Spec 029: the Grace orchestrator singleton exists in every project
+        // database (also repairs pre-029 databases).
+        if !db.agents.is_empty() && db.ensure_grace() {
+            seeded += 1;
+        }
         let mut m = Self {
             open: true,
             db,
@@ -278,7 +283,7 @@ impl AgentsModal {
             .id_salt("agents_rail_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let entries: Vec<(usize, String, String, String, bool, bool)> = self
+                let entries: Vec<(usize, String, String, String, bool, bool, crate::agents_db::AgentKind)> = self
                     .db
                     .agents
                     .iter()
@@ -291,11 +296,12 @@ impl AgentsModal {
                             a.model.clone(),
                             a.provider.clone(),
                             a.enabled,
-                            self.db.is_companion(&a.id),
+                            self.db.is_companion(&a.id) || a.kind == crate::agents_db::AgentKind::Pedantic,
+                            a.kind,
                         )
                     })
                     .collect();
-                for (i, name, model, provider, enabled, is_comp) in entries {
+                for (i, name, model, provider, enabled, is_comp, kind) in entries {
                     let selected = i == self.sel;
                     ui.horizontal(|ui| {
                         if is_comp {
@@ -307,8 +313,13 @@ impl AgentsModal {
                         ui.scope(|ui| {
                             ui.set_opacity(alpha);
                             let dot = if enabled { "●" } else { "○" };
+                            let badge = match kind {
+                                crate::agents_db::AgentKind::Orchestrator => "👑 ",
+                                crate::agents_db::AgentKind::Pedantic => "🔍 ",
+                                crate::agents_db::AgentKind::Specialist => "",
+                            };
                             let label = format!(
-                                "{dot} {name}\n    {} · {}",
+                                "{dot} {badge}{name}\n    {} · {}",
                                 if model.is_empty() { "—" } else { &model },
                                 if provider.is_empty() { "—" } else { &provider },
                             );
@@ -357,6 +368,25 @@ impl AgentsModal {
                             ui.weak(tr.agents_name_hint);
                         });
                         ui.end_row();
+                        ui.label(tr.agents_kind);
+                        {
+                            let a = &self.db.agents[sel];
+                            let kind_label = match a.kind {
+                                crate::agents_db::AgentKind::Orchestrator => tr.agents_kind_orchestrator,
+                                crate::agents_db::AgentKind::Specialist => tr.agents_kind_specialist,
+                                crate::agents_db::AgentKind::Pedantic => tr.agents_kind_pedantic,
+                            };
+                            ui.label(kind_label);
+                        }
+                        ui.end_row();
+                        ui.label(tr.agents_specialization);
+                        {
+                            let a = &mut self.db.agents[sel];
+                            changed |= ui
+                                .add(egui::TextEdit::singleline(&mut a.specialization).desired_width(f32::INFINITY))
+                                .changed();
+                        }
+                        ui.end_row();
                         ui.label(tr.agents_purpose);
                         {
                             let a = &mut self.db.agents[sel];
@@ -373,7 +403,9 @@ impl AgentsModal {
                         ui.end_row();
                     });
                     ui.add_space(2.0);
-                    if !self.confirm_delete {
+                    if agent.kind == crate::agents_db::AgentKind::Orchestrator {
+                        ui.weak(tr.agents_grace_protected);
+                    } else if !self.confirm_delete {
                         if ui.button(format!("🗑 {}", tr.agents_delete)).clicked() {
                             self.confirm_delete = true;
                         }
@@ -578,7 +610,10 @@ impl AgentsModal {
                                     .db
                                     .agents
                                     .iter()
-                                    .filter(|x| x.id != agent.id)
+                                    .filter(|x| {
+                                        x.id != agent.id
+                                            && x.kind == crate::agents_db::AgentKind::Pedantic
+                                    })
                                     .map(|x| (x.id.clone(), format!("{} ({})", x.name, x.model)))
                                     .collect();
                                 for (id, label) in others {

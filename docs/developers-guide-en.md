@@ -296,7 +296,11 @@ creation, because they name the folder. Every primary agent may name a
 **pedantic companion** that reviews its responses — a primary and its own
 companion must use different models, while unrelated agents may share models
 freely. On first open the manager seeds itself from your existing AI settings,
-and the Form Designer assistant uses its database entry from then on.
+and the Form Designer assistant uses its database entry from then on. Every
+project also gets **Grace**, the orchestrator — the single coordination
+authority (👑, always named Grace, never deletable) that plans multi-agent
+work, delegates to specialists by kind and specialization, enforces every
+pedantic review gate, and assembles the final validated result.
 
 A **Test connection** button sends a tiny request to your endpoint and reports
 whether the model is reachable and the key/model are accepted — use it to

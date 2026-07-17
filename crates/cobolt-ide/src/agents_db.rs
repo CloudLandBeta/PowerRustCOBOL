@@ -32,6 +32,23 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+/// What an agent IS in the mesh (spec 029 R3). Stored — roles no longer
+/// derive from companion links alone.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentKind {
+    /// Grace — the single coordination authority. Exactly one per project.
+    Orchestrator,
+    /// A worker agent owning a technical responsibility.
+    #[default]
+    Specialist,
+    /// A reviewer companion; the only valid kind for `companion` links.
+    Pedantic,
+}
+
+/// The orchestrator's one and only name (spec 029 R1).
+pub const GRACE: &str = "Grace";
+
 /// One agent's identity + runtime configuration (`agent.json`). The prompt
 /// text deliberately lives outside this struct, in `<name>_prompt.md`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -40,6 +57,14 @@ pub struct AgentDef {
     pub id: String,
     /// Unique, immutable; names the folder and prompt file.
     pub name: String,
+    /// Orchestrator / specialist / pedantic (spec 029). Old manifests
+    /// default to specialist.
+    #[serde(default)]
+    pub kind: AgentKind,
+    /// Capability tag Grace selects by (e.g. "form-design", "cobol-events",
+    /// "cobol-dev", "security", "documentation"). Free-form.
+    #[serde(default)]
+    pub specialization: String,
     #[serde(default)]
     pub purpose: String,
     #[serde(default = "default_true")]
@@ -160,7 +185,13 @@ impl AgentsDb {
             .filter(|a| !companions.contains(&a.id))
             .cloned()
             .collect();
-        primaries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        primaries.sort_by(|a, b| {
+            // Grace (the orchestrator) is always pinned first.
+            let oa = a.kind != AgentKind::Orchestrator;
+            let ob = b.kind != AgentKind::Orchestrator;
+            oa.cmp(&ob)
+                .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
         let mut out = Vec::new();
         for p in primaries {
             let comp = p
@@ -217,6 +248,16 @@ impl AgentsDb {
     /// Create a new agent: unique valid name, folder scaffold per spec 028
     /// R2, manifest + prompt written. Returns the new agent's id.
     pub fn create(&mut self, name: &str, prompt: &str) -> Result<String, String> {
+        self.create_kinded(name, prompt, AgentKind::Specialist, "")
+    }
+
+    pub fn create_kinded(
+        &mut self,
+        name: &str,
+        prompt: &str,
+        kind: AgentKind,
+        specialization: &str,
+    ) -> Result<String, String> {
         let name = name.trim();
         if !valid_name(name) {
             return Err("The agent needs a valid name (no / \\ : or leading dot) — it names the folder agentic_ai/<name>/.".into());
@@ -226,9 +267,14 @@ impl AgentsDb {
                 "An agent named \u{201c}{name}\u{201d} already exists — agent names must be unique in the project."
             ));
         }
+        if kind != AgentKind::Orchestrator && name.eq_ignore_ascii_case(GRACE) {
+            return Err("The name Grace is reserved for the orchestrator.".into());
+        }
         let def = AgentDef {
             id: new_uuid(),
             name: name.to_string(),
+            kind,
+            specialization: specialization.to_string(),
             purpose: String::new(),
             enabled: true,
             provider: String::new(),
@@ -327,6 +373,53 @@ impl AgentsDb {
             .map(|a| a.name.clone())
     }
 
+    /// Spec 029 R1: create (or repair) the Grace orchestrator singleton.
+    /// Idempotent; returns true when Grace was created this call.
+    pub fn ensure_grace(&mut self) -> bool {
+        if self
+            .agents
+            .iter()
+            .any(|a| a.kind == AgentKind::Orchestrator)
+        {
+            return false;
+        }
+        match self.create_kinded(
+            GRACE,
+            &crate::llm::default_grace_prompt(),
+            AgentKind::Orchestrator,
+            "orchestration",
+        ) {
+            Ok(id) => {
+                if let Some(g) = self.agents.iter_mut().find(|a| a.id == id) {
+                    g.purpose =
+                        "Central coordination authority: plans, delegates, enforces reviews, integrates."
+                            .to_string();
+                    g.routing = "Receives: every multi-agent request · Delegates to: all specialists".to_string();
+                    g.temperature = 0.2;
+                }
+                let _ = self.save_all();
+                self.sort_rail();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Spec 029: exactly one orchestrator, and it must be named Grace.
+    pub fn orchestrator_violation(&self) -> Option<String> {
+        let orchs: Vec<&AgentDef> = self
+            .agents
+            .iter()
+            .filter(|a| a.kind == AgentKind::Orchestrator)
+            .collect();
+        match orchs.as_slice() {
+            [] => Some("missing".into()),
+            [one] if one.name == GRACE => None,
+            [one] => Some(one.name.clone()),
+            _ => Some("multiple".into()),
+        }
+    }
+
     /// Spec 028 R7: seed the database from the legacy fixed-pair settings
     /// the first time a project opens with no agents. Returns how many
     /// agents were created.
@@ -335,7 +428,15 @@ impl AgentsDb {
             return 0;
         }
         let mut created = 0;
-        if let Ok(designer_id) = self.create("Form Designer Agent", &llm.system_prompt) {
+        if self.ensure_grace() {
+            created += 1;
+        }
+        if let Ok(designer_id) = self.create_kinded(
+            "Form Designer Agent",
+            &llm.system_prompt,
+            AgentKind::Specialist,
+            "form-design",
+        ) {
             created += 1;
             if let Some(d) = self.agents.iter_mut().find(|a| a.id == designer_id) {
                 d.purpose =
@@ -349,7 +450,12 @@ impl AgentsDb {
                 d.routing = "Receives: user form requests".to_string();
             }
             if llm.reviewer_configured() {
-                if let Ok(ped_id) = self.create("Pedantic UI Agent", &llm.pedantic_ui_prompt) {
+                if let Ok(ped_id) = self.create_kinded(
+                    "Pedantic UI Agent",
+                    &llm.pedantic_ui_prompt,
+                    AgentKind::Pedantic,
+                    "ui-review",
+                ) {
                     created += 1;
                     if let Some(p) = self.agents.iter_mut().find(|a| a.id == ped_id) {
                         p.purpose =
@@ -428,7 +534,8 @@ pub fn unreviewed_primaries(db: &AgentsDb) -> Vec<String> {
     db.agents
         .iter()
         .filter(|a| {
-            a.enabled
+            a.kind == AgentKind::Specialist
+                && a.enabled
                 && !db.is_companion(&a.id)
                 && a.companion
                     .as_ref()
@@ -525,7 +632,12 @@ mod tests {
         llm.reviewer_model = "claude-opus-4-8".into();
         llm.reviewer_endpoint = llm.endpoint.clone();
         let mut db = AgentsDb::load(&proj);
-        assert_eq!(db.seed_from_legacy(&llm), 2);
+        // Grace + designer + pedantic companion
+        assert_eq!(db.seed_from_legacy(&llm), 3);
+        let grace = db.by_name(GRACE).unwrap();
+        assert_eq!(grace.kind, AgentKind::Orchestrator);
+        assert!(db.orchestrator_violation().is_none());
+        assert!(!db.load_prompt(GRACE).is_empty(), "Grace prompt seeded");
         let designer = db.by_name("Form Designer Agent").unwrap().clone();
         let ped = db.by_name("Pedantic UI Agent").unwrap();
         assert_eq!(designer.model, "claude-sonnet-5");
@@ -550,11 +662,13 @@ mod tests {
             .companion = None;
         let cfg = designer_agent_config(&db, &llm);
         assert!(!cfg.reviewer_configured());
-        // Both are now companion-less primaries (the orphaned reviewer too —
-        // role is derived from links, not a stored kind).
+        // Kinds are STORED (spec 029): the unlinked pedantic reviewer and
+        // Grace are NOT unreviewed primaries — only the specialist is.
         let unreviewed = unreviewed_primaries(&db);
-        assert!(unreviewed.contains(&"Form Designer Agent".to_string()));
-        assert_eq!(unreviewed.len(), 2);
+        assert_eq!(unreviewed, vec!["Form Designer Agent".to_string()]);
+        // Grace is singleton + reserved.
+        assert!(!db.ensure_grace(), "second ensure_grace is a no-op");
+        assert!(db.create("grace", "p").is_err(), "name reserved");
         let _ = std::fs::remove_dir_all(proj);
     }
 }
