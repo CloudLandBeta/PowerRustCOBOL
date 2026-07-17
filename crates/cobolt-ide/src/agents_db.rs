@@ -49,6 +49,10 @@ pub enum AgentKind {
 /// The orchestrator's one and only name (spec 029 R1).
 pub const GRACE: &str = "Grace";
 
+/// Canonical name of the COBOL event-handler specialist. Fixed because Grace
+/// and the pedantic prompts delegate to it by this exact name.
+pub const EVENT_HANDLER: &str = "COBOL Event Handler Script Agent";
+
 /// One agent's identity + runtime configuration (`agent.json`). The prompt
 /// text deliberately lives outside this struct, in `<name>_prompt.md`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -471,10 +475,108 @@ impl AgentsDb {
                     }
                 }
             }
+            // COBOL Event Handler Script Agent — a fixed specialist seeded with
+            // its own prompt and the same connection as the designer (one legacy
+            // connection; specialists may share a model). Gets its Pedantic COBOL
+            // companion when a reviewer model is configured.
+            if let Ok(ev_id) = self.create_kinded(
+                EVENT_HANDLER,
+                &crate::llm::default_event_handler_prompt(),
+                AgentKind::Specialist,
+                "cobol-events",
+            ) {
+                created += 1;
+                if let Some(e) = self.agents.iter_mut().find(|a| a.id == ev_id) {
+                    e.purpose =
+                        "Implements delegated COBOL-85 / RustCOBOL event handlers.".to_string();
+                    e.provider = llm.provider.clone();
+                    e.endpoint = llm.endpoint.clone();
+                    e.model = llm.model.clone();
+                    e.temperature = llm.temperature;
+                    e.max_tokens = llm.max_tokens;
+                    e.timeout_secs = llm.timeout_secs;
+                    e.routing = "Receives: delegations from Form Designer Agent".to_string();
+                }
+                if llm.reviewer_configured() {
+                    if let Ok(pc_id) = self.create_kinded(
+                        "Pedantic COBOL Companion",
+                        &llm.pedantic_event_prompt,
+                        AgentKind::Pedantic,
+                        "cobol-review",
+                    ) {
+                        created += 1;
+                        if let Some(p) = self.agents.iter_mut().find(|a| a.id == pc_id) {
+                            p.purpose =
+                                "Reviews every event-handler implementation before completion."
+                                    .to_string();
+                            p.provider = llm.reviewer_provider.clone();
+                            p.endpoint = llm.reviewer_endpoint.clone();
+                            p.model = llm.reviewer_model.clone();
+                            p.temperature = 0.0;
+                            p.routing = "Reviews: COBOL Event Handler Script Agent".to_string();
+                        }
+                        if let Some(e) = self.agents.iter_mut().find(|a| a.id == ev_id) {
+                            e.companion = Some(pc_id);
+                        }
+                    }
+                }
+            }
             let _ = self.save_all();
             self.sort_rail();
         }
         created
+    }
+
+    /// Ensure the COBOL Event Handler Script Agent exists (repairs databases
+    /// seeded before it was added). Uses the Form Designer Agent's connection
+    /// as a template, else the legacy config. Returns true when created.
+    pub fn ensure_event_handler(&mut self, llm: &crate::llm::LlmConfig) -> bool {
+        if self.by_name(EVENT_HANDLER).is_some() {
+            return false;
+        }
+        let tmpl = self.by_name("Form Designer Agent").cloned();
+        let (provider, endpoint, model, temperature, max_tokens, timeout_secs) = match tmpl {
+            Some(d) => (
+                d.provider,
+                d.endpoint,
+                d.model,
+                d.temperature,
+                d.max_tokens,
+                d.timeout_secs,
+            ),
+            None => (
+                llm.provider.clone(),
+                llm.endpoint.clone(),
+                llm.model.clone(),
+                llm.temperature,
+                llm.max_tokens,
+                llm.timeout_secs,
+            ),
+        };
+        match self.create_kinded(
+            EVENT_HANDLER,
+            &crate::llm::default_event_handler_prompt(),
+            AgentKind::Specialist,
+            "cobol-events",
+        ) {
+            Ok(id) => {
+                if let Some(e) = self.agents.iter_mut().find(|a| a.id == id) {
+                    e.purpose =
+                        "Implements delegated COBOL-85 / RustCOBOL event handlers.".to_string();
+                    e.provider = provider;
+                    e.endpoint = endpoint;
+                    e.model = model;
+                    e.temperature = temperature;
+                    e.max_tokens = max_tokens;
+                    e.timeout_secs = timeout_secs;
+                    e.routing = "Receives: delegations from Form Designer Agent".to_string();
+                }
+                let _ = self.save_all();
+                self.sort_rail();
+                true
+            }
+            Err(_) => false,
+        }
     }
 }
 
@@ -632,12 +734,27 @@ mod tests {
         llm.reviewer_model = "claude-opus-4-8".into();
         llm.reviewer_endpoint = llm.endpoint.clone();
         let mut db = AgentsDb::load(&proj);
-        // Grace + designer + pedantic companion
-        assert_eq!(db.seed_from_legacy(&llm), 3);
+        // Grace + designer + pedantic-ui + event-handler + pedantic-cobol
+        assert_eq!(db.seed_from_legacy(&llm), 5);
         let grace = db.by_name(GRACE).unwrap();
         assert_eq!(grace.kind, AgentKind::Orchestrator);
         assert!(db.orchestrator_violation().is_none());
         assert!(!db.load_prompt(GRACE).is_empty(), "Grace prompt seeded");
+        // The COBOL Event Handler is a fixed specialist with its prompt loaded.
+        let ev = db.by_name(EVENT_HANDLER).unwrap().clone();
+        assert_eq!(ev.kind, AgentKind::Specialist);
+        assert_eq!(ev.specialization, "cobol-events");
+        assert!(!ev.model.trim().is_empty(), "event handler has a model");
+        assert!(
+            db.load_prompt(EVENT_HANDLER).contains("Event Handler"),
+            "event-handler prompt loaded"
+        );
+        // Its pedantic companion was created and linked (reviewer configured).
+        let pc = db.by_name("Pedantic COBOL Companion").unwrap();
+        assert_eq!(pc.kind, AgentKind::Pedantic);
+        assert_eq!(ev.companion.as_deref(), Some(pc.id.as_str()));
+        assert!(db.pair_rule_violation().is_none());
+        assert!(db.ensure_event_handler(&llm) == false, "idempotent");
         let designer = db.by_name("Form Designer Agent").unwrap().clone();
         let ped = db.by_name("Pedantic UI Agent").unwrap();
         assert_eq!(designer.model, "claude-sonnet-5");

@@ -49,10 +49,16 @@ impl AgentsModal {
     pub fn open_for(project_dir: &Path, llm: &LlmConfig) -> Self {
         let mut db = AgentsDb::load(project_dir);
         let mut seeded = db.seed_from_legacy(llm);
-        // Spec 029: the Grace orchestrator singleton exists in every project
-        // database (also repairs pre-029 databases).
-        if !db.agents.is_empty() && db.ensure_grace() {
-            seeded += 1;
+        // Spec 029: the Grace orchestrator singleton + the COBOL Event Handler
+        // specialist exist in every project database (also repairs databases
+        // seeded before they were added).
+        if !db.agents.is_empty() {
+            if db.ensure_grace() {
+                seeded += 1;
+            }
+            if db.ensure_event_handler(llm) {
+                seeded += 1;
+            }
         }
         let mut m = Self {
             open: true,
