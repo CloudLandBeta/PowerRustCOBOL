@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cobolt_agents::grace::{AgentInvoker, GraceEngine, WorkflowRecord};
+use cobolt_agents::grace::{AgentInvoker, GraceEngine, GraceEvent, WorkflowRecord};
 
 use crate::agents_db::{AgentsDb, GRACE};
 use crate::llm::{api_key_slot, LlmConfig, LlmResponse};
@@ -97,14 +97,39 @@ pub fn save_workflow_record(
     Ok(path)
 }
 
+/// A one-line, human-readable rendering of a workflow transition, for the
+/// activity log / progress pane.
+pub fn describe_event(e: &GraceEvent) -> String {
+    match e {
+        GraceEvent::TaskStarted { id, agent, objective } => {
+            format!("▸ {id}: delegating to {agent} — {objective}")
+        }
+        GraceEvent::Submitted { id, agent } => format!("  {id}: {agent} submitted a result"),
+        GraceEvent::ReviewStarted { id, reviewer, round } => {
+            format!("  {id}: {reviewer} reviewing (round {})", round + 1)
+        }
+        GraceEvent::Verdict { id, reviewer, approved } => format!(
+            "  {id}: {reviewer} verdict — {}",
+            if *approved { "approved" } else { "defects found" }
+        ),
+        GraceEvent::CorrectionRequested { id, round } => {
+            format!("  {id}: correction requested (revision {round})")
+        }
+        GraceEvent::Approved { id } => format!("✓ {id}: approved"),
+        GraceEvent::Failed { id, reason } => format!("✗ {id}: failed — {reason}"),
+        GraceEvent::Blocked { id } => format!("⊘ {id}: blocked (dependency not approved)"),
+    }
+}
+
 /// Run one complete Grace workflow for `request`: Grace plans (structured
 /// output), the engine executes with review gates + bounded corrections, the
-/// record is persisted. Returns (record, record_path). Blocking — call from
-/// a worker thread.
+/// record is persisted. `on_progress` receives one line per transition.
+/// Returns (record, record_path). Blocking — call from a worker thread.
 pub fn run_grace_workflow(
     project_dir: &Path,
     llm: &LlmConfig,
     request: &str,
+    on_progress: &mut dyn FnMut(String),
 ) -> Result<(WorkflowRecord, PathBuf), String> {
     let db = AgentsDb::load(project_dir);
     if db.by_name(GRACE).is_none() {
@@ -140,12 +165,25 @@ pub fn run_grace_workflow(
     let plan_user = format!(
         "USER REQUEST:\n{request}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nPlan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
     );
+    on_progress("Grace is planning the workflow…".into());
     let plan_reply = invoker.invoke(GRACE, "", &plan_user)?;
     let (workflow_id, plan) = cobolt_agents::grace::parse_plan(&plan_reply)?;
+    on_progress(format!(
+        "Grace planned {} task(s) [{}].",
+        plan.len(),
+        workflow_id
+    ));
 
     let db2 = AgentsDb::load(project_dir);
     let system_for = move |name: &str| db2.load_prompt(name);
-    let record = GraceEngine::default().run(&workflow_id, &plan, &mut invoker, &system_for);
+    let record = GraceEngine::default().run_with_progress(
+        &workflow_id,
+        &plan,
+        &mut invoker,
+        &system_for,
+        &mut |e| on_progress(describe_event(&e)),
+    );
     let path = save_workflow_record(project_dir, &record)?;
+    on_progress(format!("Workflow {}: {}.", record.workflow_id, record.status));
     Ok((record, path))
 }

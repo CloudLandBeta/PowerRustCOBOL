@@ -424,6 +424,11 @@ pub struct CoboltApp {
     /// `(prompt-that-was-sent, reply channel)` — the prompt is recorded to memory
     /// only after a successful reply (spec 025 R16).
     agent_pending: Option<(String, std::sync::mpsc::Receiver<crate::llm::LlmResponse>)>,
+    /// Route the next request through Grace's multi-agent workflow (spec 029
+    /// Phase C) instead of the single-agent path.
+    use_grace: bool,
+    /// The running (or just-finished) Grace workflow, when routed.
+    grace_session: Option<crate::grace_session::GraceSession>,
     agent_history: Vec<crate::llm::ChatTurn>,
     /// Which form the in-memory `agent_history` belongs to (reload on change).
     agent_history_form: Option<PathBuf>,
@@ -976,6 +981,8 @@ impl CoboltApp {
             agent_preview: None,
             agent_prompt: String::new(),
             agent_pending: None,
+            use_grace: false,
+            grace_session: None,
             agent_history: Vec::new(),
             agent_history_form: None,
             agent_status: None,
@@ -2256,8 +2263,27 @@ impl CoboltApp {
             }
         }
 
-        let busy = self.agent_pending.is_some();
+        let grace_running = self
+            .grace_session
+            .as_ref()
+            .is_some_and(|s| s.is_running());
+        let busy = self.agent_pending.is_some() || grace_running;
         let mut prompt = std::mem::take(&mut self.agent_prompt);
+        let mut use_grace = self.use_grace;
+        // Live progress lines from a running/finished Grace workflow.
+        let grace_log: Vec<String> = self
+            .grace_session
+            .as_ref()
+            .map(|s| s.log.clone())
+            .unwrap_or_default();
+        let grace_done = self.grace_session.as_ref().and_then(|s| {
+            s.finished().map(|r| match r {
+                Ok((rec, path)) => {
+                    format!("Workflow {}: {} · saved to {}", rec.workflow_id, rec.status, path.display())
+                }
+                Err(e) => format!("Grace workflow failed: {e}"),
+            })
+        });
         let status = self.agent_status.clone();
         let preview = self.agent_preview.clone();
         let has_debug = crate::llm::has_connection_log();
@@ -2265,6 +2291,7 @@ impl CoboltApp {
         let mut do_approve = false;
         let mut do_reject = false;
         let mut do_details = false;
+        let mut do_grace_dismiss = false;
 
         let frame = crate::theme::glass_panel_frame(
             ctx.global_style().visuals.panel_fill,
@@ -2283,6 +2310,10 @@ impl CoboltApp {
                     {
                         do_send = true;
                     }
+                    // 👑 Grace: route this request through the multi-agent
+                    // workflow (plan → delegate → pedantic review → integrate).
+                    ui.add_enabled(!busy, egui::Checkbox::new(&mut use_grace, "👑"))
+                        .on_hover_text(tr.agent_use_grace_hint);
                     if busy {
                         ui.add(egui::Spinner::new());
                         ui.label(
@@ -2320,6 +2351,32 @@ impl CoboltApp {
                             do_details = true;
                         }
                     });
+                }
+
+                // 👑 Grace workflow progress (spec 029 Phase C).
+                if !grace_log.is_empty() {
+                    ui.separator();
+                    ui.label(egui::RichText::new(tr.agent_grace_progress).strong());
+                    egui::ScrollArea::vertical()
+                        .max_height(160.0)
+                        .auto_shrink([false, true])
+                        .id_salt("grace_progress_log")
+                        .stick_to_bottom(true)
+                        .show(ui, |ui| {
+                            for line in &grace_log {
+                                ui.label(egui::RichText::new(line).small().monospace());
+                            }
+                        });
+                    if let Some(summary) = &grace_done {
+                        ui.label(
+                            egui::RichText::new(summary)
+                                .small()
+                                .color(Color32::from_rgb(125, 214, 160)),
+                        );
+                        if ui.small_button(tr.agent_grace_dismiss).clicked() {
+                            do_grace_dismiss = true;
+                        }
+                    }
                 }
 
                 // Preview of the proposed change-set (nothing applied yet).
@@ -2372,6 +2429,31 @@ impl CoboltApp {
             });
 
         self.agent_prompt = prompt;
+        self.use_grace = use_grace;
+
+        if do_grace_dismiss {
+            self.grace_session = None;
+        }
+
+        // 👑 Grace routing: hand the request to the multi-agent workflow.
+        if do_send && !busy && self.use_grace {
+            let sent = std::mem::take(&mut self.agent_prompt);
+            match self.project_dir() {
+                Some(dir) => {
+                    self.agent_status = None;
+                    self.agent_preview = None;
+                    self.grace_session = Some(crate::grace_session::GraceSession::spawn(
+                        &dir, &self.llm, &sent,
+                    ));
+                    ctx.request_repaint();
+                }
+                None => {
+                    self.agent_status = Some(tr.agent_grace_no_project.to_string());
+                    self.agent_prompt = sent;
+                }
+            }
+            do_send = false;
+        }
 
         if do_send && !busy {
             let form = self.inspect.as_ref().unwrap().designer.form.clone();
@@ -5564,6 +5646,13 @@ impl CoboltApp {
         self.poll_llm_test(tr);
         self.poll_llm_models();
         self.poll_llm_reviewer_models();
+        // 👑 Grace workflow (spec 029 Phase C): drain progress every frame so
+        // it advances even when the agent bar is not the visible pane.
+        if let Some(sess) = self.grace_session.as_mut() {
+            if sess.poll() {
+                ctx.request_repaint();
+            }
+        }
         // Agent Manager modal (spec 028) — taken out of self to split borrows.
         if let Some(mut m) = self.agents_modal.take() {
             let _act = m.show(ctx, &mut self.llm, &self.lang.tr());

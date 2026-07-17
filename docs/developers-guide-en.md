@@ -300,7 +300,11 @@ and the Form Designer assistant uses its database entry from then on. Every
 project also gets **Grace**, the orchestrator — the single coordination
 authority (👑, always named Grace, never deletable) that plans multi-agent
 work, delegates to specialists by kind and specialization, enforces every
-pedantic review gate, and assembles the final validated result.
+pedantic review gate, and assembles the final validated result. Enable the
+**👑** toggle in the form assistant to route a request through Grace: she
+plans the workflow, delegates to the specialist agents, runs their pedantic
+reviews, and streams her progress live while an auditable workflow record is
+saved under `agentic_ai/Grace/runs/`.
 
 A **Test connection** button sends a tiny request to your endpoint and reports
 whether the model is reachable and the key/model are accepted — use it to

@@ -1,0 +1,336 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1180" viewBox="0 0 1900 1180" role="img" aria-labelledby="title desc">
+  <title id="title">PowerRustCOBOL Agentic AI Architecture</title>
+  <desc id="desc">Dark neon architecture diagram describing the implemented PowerRustCOBOL agentic AI support on branch egui-035.</desc>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="20%" r="80%">
+      <stop offset="0%" stop-color="#101827"/>
+      <stop offset="45%" stop-color="#060910"/>
+      <stop offset="100%" stop-color="#010309"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" x2="1">
+      <stop offset="0%" stop-color="#f8efc0"/>
+      <stop offset="55%" stop-color="#d4b96c"/>
+      <stop offset="100%" stop-color="#8f6d2d"/>
+    </linearGradient>
+    <filter id="softGlow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="strongGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#7bc8ff"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#ff6c6c"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#9be36f"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#ffae61"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 8 4 L 0 8 z" fill="#c78cff"/>
+    </marker>
+    <style>
+      .bg-text { font-family: "Avenir Next", "Segoe UI", Arial, sans-serif; fill: #203040; opacity: .28; font-size: 42px; font-weight: 700; }
+      .title { font-family: "Avenir Next", "Segoe UI", Arial, sans-serif; font-size: 54px; font-weight: 800; fill: #fff6d5; letter-spacing: .3px; filter: url(#softGlow); }
+      .zone-title { font-family: "Avenir Next", "Segoe UI", Arial, sans-serif; font-size: 27px; font-weight: 800; fill: #fff6d5; }
+      .zone-path { font-family: "SFMono-Regular", "Consolas", monospace; font-size: 15px; font-weight: 700; fill: #efe5b6; opacity: .9; }
+      .card-title { font-family: "Avenir Next", "Segoe UI", Arial, sans-serif; font-size: 25px; font-weight: 800; fill: #fff6d5; }
+      .card-sub { font-family: "Avenir Next", "Segoe UI", Arial, sans-serif; font-size: 17px; font-weight: 700; fill: #efe8c9; }
+      .mono { font-family: "SFMono-Regular", "Consolas", monospace; font-size: 15px; fill: #e8dcc0; font-weight: 700; }
+      .tiny { font-family: "Avenir Next", "Segoe UI", Arial, sans-serif; font-size: 14px; fill: #d8d0b5; font-weight: 700; }
+      .label { font-family: "Avenir Next", "Segoe UI", Arial, sans-serif; font-size: 16px; fill: #f4e9bd; font-weight: 800; }
+      .badge { fill: rgba(112, 92, 39, .75); stroke: rgba(250, 225, 135, .45); stroke-width: 1; }
+      .blue-box { fill: rgba(10, 26, 42, .78); stroke: #6da8d9; stroke-width: 3; filter: url(#softGlow); }
+      .red-box { fill: rgba(42, 9, 10, .78); stroke: #e95757; stroke-width: 3; filter: url(#softGlow); }
+      .cyan-box { fill: rgba(4, 30, 52, .82); stroke: #27a7ff; stroke-width: 3; filter: url(#strongGlow); }
+      .green-box { fill: rgba(10, 38, 19, .78); stroke: #88cc67; stroke-width: 3; filter: url(#softGlow); }
+      .orange-box { fill: rgba(51, 23, 5, .82); stroke: #ff9d4c; stroke-width: 3; filter: url(#strongGlow); }
+      .purple-box { fill: rgba(32, 13, 50, .8); stroke: #bb78ef; stroke-width: 3; filter: url(#softGlow); }
+      .gray-box { fill: rgba(15, 19, 28, .82); stroke: #7f93a7; stroke-width: 3; filter: url(#softGlow); }
+      .inner { fill: rgba(0, 0, 0, .25); stroke-width: 2; }
+      .blue-inner { stroke: #6da8d9; }
+      .red-inner { stroke: #e95757; }
+      .green-inner { stroke: #88cc67; }
+      .purple-inner { stroke: #bb78ef; }
+      .gold-label { fill: rgba(112, 92, 39, .72); stroke: rgba(255, 237, 160, .35); stroke-width: 1; }
+      .line-blue { stroke: #7bc8ff; stroke-width: 2; fill: none; marker-end: url(#arrowBlue); }
+      .line-red { stroke: #ff6c6c; stroke-width: 2; fill: none; marker-end: url(#arrowRed); }
+      .line-green { stroke: #9be36f; stroke-width: 2; fill: none; marker-end: url(#arrowGreen); }
+      .line-orange { stroke: #ffae61; stroke-width: 2; fill: none; marker-end: url(#arrowOrange); }
+      .line-purple { stroke: #c78cff; stroke-width: 2; fill: none; marker-end: url(#arrowPurple); }
+      .dash-orange { stroke: #ffae61; stroke-width: 2; stroke-dasharray: 7 8; fill: none; marker-end: url(#arrowOrange); }
+      .dash-purple { stroke: #c78cff; stroke-width: 2; stroke-dasharray: 7 8; fill: none; marker-end: url(#arrowPurple); }
+    </style>
+  </defs>
+
+  <rect width="1900" height="1180" fill="url(#bg)"/>
+  <g opacity=".2">
+    <text x="92" y="92" class="bg-text">agentic_ai</text>
+    <text x="1450" y="150" class="bg-text">Grace</text>
+    <text x="840" y="1090" class="bg-text">validate before apply</text>
+    <text x="40" y="1130" class="bg-text">PowerRustCOBOL</text>
+  </g>
+
+  <rect x="450" y="18" width="1000" height="70" rx="0" class="gold-label"/>
+  <text x="950" y="68" class="title" text-anchor="middle">PowerRustCOBOL Agentic AI Architecture</text>
+  <text x="950" y="105" class="tiny" text-anchor="middle">Implemented support observed on branch egui-035: direct assistants, project agent DB, Grace workflow, inspection, validation, and benchmark reporting</text>
+
+  <!-- Developer -->
+  <rect x="18" y="250" width="110" height="220" rx="14" class="gray-box"/>
+  <circle cx="73" cy="310" r="30" fill="#8ed0ff" filter="url(#softGlow)"/>
+  <path d="M 35 405 Q 73 345 111 405 L 111 435 L 35 435 Z" fill="#8ed0ff" filter="url(#softGlow)"/>
+  <rect x="28" y="440" width="90" height="24" rx="3" class="gold-label"/>
+  <text x="73" y="459" class="label" text-anchor="middle">Developer</text>
+
+  <!-- IDE Frontend -->
+  <rect x="240" y="135" width="360" height="660" rx="14" class="blue-box"/>
+  <text x="410" y="174" class="zone-title" text-anchor="middle">IDE Frontend</text>
+  <text x="410" y="198" class="zone-path" text-anchor="middle">crates/cobolt-ide/src/panels/*</text>
+
+  <rect x="265" y="235" width="310" height="145" rx="12" class="inner blue-inner"/>
+  <rect x="310" y="255" width="190" height="30" rx="3" class="badge"/>
+  <text x="405" y="278" class="card-title" text-anchor="middle">Form Designer</text>
+  <text x="405" y="315" class="card-sub" text-anchor="middle">AI pane + inspector agent bar</text>
+  <text x="405" y="343" class="mono" text-anchor="middle">designer.rs / app.rs</text>
+
+  <rect x="265" y="415" width="310" height="145" rx="12" class="inner blue-inner"/>
+  <rect x="310" y="435" width="190" height="30" rx="3" class="badge"/>
+  <text x="405" y="458" class="card-title" text-anchor="middle">Event Editor</text>
+  <text x="405" y="495" class="card-sub" text-anchor="middle">COBOL handler assistant</text>
+  <text x="405" y="523" class="mono" text-anchor="middle">designer.rs</text>
+
+  <rect x="265" y="595" width="310" height="145" rx="12" class="inner blue-inner"/>
+  <rect x="310" y="615" width="190" height="30" rx="3" class="badge"/>
+  <text x="405" y="638" class="card-title" text-anchor="middle">Code Editor</text>
+  <text x="405" y="675" class="card-sub" text-anchor="middle">COBOL chat + history</text>
+  <text x="405" y="703" class="mono" text-anchor="middle">editor.rs</text>
+
+  <!-- Context Injection -->
+  <rect x="625" y="135" width="380" height="660" rx="14" class="red-box"/>
+  <text x="815" y="174" class="zone-title" text-anchor="middle">Context Injection</text>
+  <text x="815" y="198" class="zone-path" text-anchor="middle">agent.rs + project agentic_ai/</text>
+
+  <rect x="650" y="232" width="330" height="112" rx="10" class="inner red-inner"/>
+  <rect x="715" y="250" width="200" height="28" rx="3" class="badge"/>
+  <text x="815" y="272" class="card-title" text-anchor="middle">Form Snapshot</text>
+  <text x="815" y="306" class="card-sub" text-anchor="middle">controls, properties, events</text>
+  <text x="815" y="330" class="mono" text-anchor="middle">build_context_with_project()</text>
+
+  <rect x="650" y="370" width="330" height="112" rx="10" class="inner red-inner"/>
+  <rect x="700" y="388" width="230" height="28" rx="3" class="badge"/>
+  <text x="815" y="410" class="card-title" text-anchor="middle">Project Inventory</text>
+  <text x="815" y="444" class="card-sub" text-anchor="middle">forms, assets, CBL, .cidx</text>
+  <text x="815" y="468" class="mono" text-anchor="middle">indexed file metadata</text>
+
+  <rect x="650" y="508" width="330" height="112" rx="10" class="inner red-inner"/>
+  <rect x="690" y="526" width="250" height="28" rx="3" class="badge"/>
+  <text x="815" y="548" class="card-title" text-anchor="middle">Prompts + Skills</text>
+  <text x="815" y="582" class="card-sub" text-anchor="middle">system, steering, skills</text>
+  <text x="815" y="606" class="mono" text-anchor="middle">agentic_ai/**/*.md</text>
+
+  <rect x="650" y="646" width="330" height="112" rx="10" class="inner red-inner"/>
+  <rect x="710" y="664" width="210" height="28" rx="3" class="badge"/>
+  <text x="815" y="686" class="card-title" text-anchor="middle">Live UI Tree</text>
+  <text x="815" y="720" class="card-sub" text-anchor="middle">egui inspection snapshot</text>
+  <text x="815" y="744" class="mono" text-anchor="middle">agent_inspection.rs</text>
+
+  <!-- Grace orchestrator / routing entry -->
+  <rect x="1060" y="338" width="190" height="340" rx="14" class="cyan-box"/>
+  <text x="1155" y="400" class="zone-title" text-anchor="middle">Grace</text>
+  <text x="1155" y="430" class="zone-title" text-anchor="middle">Orchestrator</text>
+  <text x="1155" y="458" class="card-sub" text-anchor="middle">router entry</text>
+  <text x="1155" y="474" class="zone-path" text-anchor="middle">cobolt-agents</text>
+  <text x="1155" y="496" class="zone-path" text-anchor="middle">orchestrator.rs</text>
+  <line x1="1084" y1="520" x2="1226" y2="520" stroke="#7bc8ff" stroke-width="2" opacity=".7"/>
+  <text x="1155" y="550" class="tiny" text-anchor="middle">routes by explicit</text>
+  <text x="1155" y="570" class="tiny" text-anchor="middle">specialist or keywords</text>
+  <text x="1155" y="596" class="tiny" text-anchor="middle">English, Spanish,</text>
+  <text x="1155" y="616" class="tiny" text-anchor="middle">Portuguese, French,</text>
+  <text x="1155" y="636" class="tiny" text-anchor="middle">Japanese, Chinese</text>
+
+  <!-- Specialists -->
+  <rect x="1330" y="135" width="340" height="660" rx="14" class="green-box"/>
+  <text x="1500" y="174" class="zone-title" text-anchor="middle">Specialists</text>
+  <text x="1500" y="198" class="zone-path" text-anchor="middle">cobolt-agents/src/specialist.rs</text>
+
+  <rect x="1355" y="235" width="290" height="135" rx="12" class="inner green-inner"/>
+  <rect x="1410" y="255" width="180" height="30" rx="3" class="badge"/>
+  <text x="1500" y="278" class="card-title" text-anchor="middle">FormsDesigner</text>
+  <text x="1500" y="315" class="card-sub" text-anchor="middle">JSON operations</text>
+  <text x="1500" y="343" class="mono" text-anchor="middle">deploy/set/event/procedure</text>
+
+  <rect x="1355" y="415" width="290" height="135" rx="12" class="inner green-inner"/>
+  <rect x="1420" y="435" width="160" height="30" rx="3" class="badge"/>
+  <text x="1500" y="458" class="card-title" text-anchor="middle">EventBinder</text>
+  <text x="1500" y="495" class="card-sub" text-anchor="middle">handler event focus</text>
+  <text x="1500" y="523" class="mono" text-anchor="middle">complete body only</text>
+
+  <rect x="1355" y="595" width="290" height="135" rx="12" class="inner green-inner"/>
+  <rect x="1410" y="615" width="180" height="30" rx="3" class="badge"/>
+  <text x="1500" y="638" class="card-title" text-anchor="middle">CodeGenerator</text>
+  <text x="1500" y="675" class="card-sub" text-anchor="middle">COBOL / markdown text</text>
+  <text x="1500" y="703" class="mono" text-anchor="middle">fallback + benchmark</text>
+
+  <!-- LLM -->
+  <rect x="1740" y="310" width="140" height="240" rx="16" class="orange-box"/>
+  <text x="1810" y="385" class="zone-title" text-anchor="middle">LLM</text>
+  <text x="1810" y="420" class="zone-title" text-anchor="middle">Network</text>
+  <text x="1810" y="462" class="card-sub" text-anchor="middle">Ollama native</text>
+  <text x="1810" y="488" class="card-sub" text-anchor="middle">OpenAI wire</text>
+  <text x="1810" y="518" class="mono" text-anchor="middle">streaming</text>
+
+  <!-- Agent database / Grace -->
+  <rect x="625" y="825" width="485" height="250" rx="14" class="blue-box"/>
+  <text x="867" y="870" class="zone-title" text-anchor="middle">Project Agent Database</text>
+  <text x="867" y="897" class="zone-path" text-anchor="middle">agents_db.rs + agents_modal.rs</text>
+  <rect x="655" y="925" width="135" height="95" rx="10" class="inner blue-inner"/>
+  <text x="722" y="958" class="card-title" text-anchor="middle">Grace</text>
+  <text x="722" y="986" class="tiny" text-anchor="middle">orchestrator</text>
+  <text x="722" y="1007" class="mono" text-anchor="middle">singleton</text>
+  <rect x="815" y="925" width="135" height="95" rx="10" class="inner blue-inner"/>
+  <text x="882" y="958" class="card-title" text-anchor="middle">Agents</text>
+  <text x="882" y="986" class="tiny" text-anchor="middle">specialists</text>
+  <text x="882" y="1007" class="mono" text-anchor="middle">per model</text>
+  <rect x="975" y="925" width="105" height="95" rx="10" class="inner blue-inner"/>
+  <text x="1028" y="958" class="card-title" text-anchor="middle">Keys</text>
+  <text x="1028" y="986" class="tiny" text-anchor="middle">machine</text>
+  <text x="1028" y="1007" class="mono" text-anchor="middle">provider::model</text>
+
+  <rect x="1135" y="825" width="470" height="250" rx="14" class="purple-box"/>
+  <text x="1370" y="870" class="zone-title" text-anchor="middle">Grace Workflow Runtime</text>
+  <text x="1370" y="897" class="zone-path" text-anchor="middle">grace.rs + grace_host.rs + grace_session.rs</text>
+  <rect x="1165" y="925" width="120" height="95" rx="10" class="inner purple-inner"/>
+  <text x="1225" y="958" class="card-title" text-anchor="middle">Plan</text>
+  <text x="1225" y="986" class="tiny" text-anchor="middle">TaskSpec</text>
+  <rect x="1305" y="925" width="120" height="95" rx="10" class="inner purple-inner"/>
+  <text x="1365" y="958" class="card-title" text-anchor="middle">Review</text>
+  <text x="1365" y="986" class="tiny" text-anchor="middle">pedantic gate</text>
+  <rect x="1445" y="925" width="130" height="95" rx="10" class="inner purple-inner"/>
+  <text x="1510" y="958" class="card-title" text-anchor="middle">Record</text>
+  <text x="1510" y="986" class="tiny" text-anchor="middle">Grace/runs/*.json</text>
+
+  <!-- Parsers & appliers -->
+  <rect x="720" y="930" width="0" height="0" opacity="0"/>
+  <rect x="720" y="835" width="0" height="0" opacity="0"/>
+  <rect x="760" y="895" width="0" height="0" opacity="0"/>
+
+  <rect x="520" y="880" width="0" height="0" opacity="0"/>
+  <rect x="540" y="895" width="0" height="0" opacity="0"/>
+
+  <rect x="650" y="0" width="0" height="0" opacity="0"/>
+
+  <rect x="710" y="880" width="0" height="0" opacity="0"/>
+
+  <rect x="280" y="850" width="305" height="225" rx="14" class="purple-box"/>
+  <text x="432" y="895" class="zone-title" text-anchor="middle">Validation + Apply</text>
+  <text x="432" y="922" class="zone-path" text-anchor="middle">agent.rs / designer.rs</text>
+  <rect x="305" y="948" width="250" height="42" rx="7" class="inner purple-inner"/>
+  <text x="430" y="975" class="mono" text-anchor="middle">parse_change_set()</text>
+  <rect x="305" y="1002" width="250" height="42" rx="7" class="inner purple-inner"/>
+  <text x="430" y="1029" class="mono" text-anchor="middle">validate() members/properties</text>
+  <rect x="305" y="1056" width="250" height="42" rx="7" class="inner purple-inner"/>
+  <text x="430" y="1083" class="mono" text-anchor="middle">Cmd::AgentBatch undo</text>
+
+  <rect x="1635" y="780" width="245" height="295" rx="14" class="orange-box"/>
+  <text x="1758" y="825" class="zone-title" text-anchor="middle">Benchmark</text>
+  <text x="1758" y="852" class="zone-path" text-anchor="middle">llm.rs / app.rs</text>
+  <text x="1758" y="895" class="card-sub" text-anchor="middle">COBOL proficiency</text>
+  <text x="1758" y="923" class="card-sub" text-anchor="middle">optional pedantic tandem</text>
+  <text x="1758" y="958" class="mono" text-anchor="middle">model-benchmarks.jsonl</text>
+  <text x="1758" y="985" class="mono" text-anchor="middle">report modal + PDF</text>
+
+  <!-- arrows from user -->
+  <path d="M 128 310 H 230" class="line-blue"/>
+  <rect x="135" y="270" width="88" height="52" rx="3" class="badge"/>
+  <text x="179" y="291" class="tiny" text-anchor="middle">Natural</text>
+  <text x="179" y="310" class="tiny" text-anchor="middle">language</text>
+  <path d="M 128 450 H 180 V 660 H 230" class="line-blue"/>
+
+  <!-- injection arrows -->
+  <path d="M 600 307 H 625" class="line-red"/>
+  <path d="M 600 485 H 625" class="line-red"/>
+  <path d="M 600 670 H 625" class="line-red"/>
+  <text x="612" y="290" class="label" text-anchor="middle">injects</text>
+  <text x="612" y="472" class="label" text-anchor="middle">injects</text>
+
+  <!-- context to orchestrator -->
+  <path d="M 1005 295 H 1030 V 430 H 1060" class="line-red"/>
+  <path d="M 1005 565 H 1030 V 535 H 1060" class="line-red"/>
+  <path d="M 1005 705 H 1030 V 610 H 1060" class="line-red"/>
+
+  <!-- code editor direct mesh request -->
+  <path d="M 575 670 H 1018 V 620 H 1060" class="line-blue"/>
+  <rect x="760" y="690" width="150" height="28" rx="3" class="badge"/>
+  <text x="835" y="711" class="label" text-anchor="middle">builds MeshRequest</text>
+
+  <!-- router to specialists -->
+  <path d="M 1250 430 H 1290 V 302 H 1330" class="line-green"/>
+  <path d="M 1250 505 H 1290 V 482 H 1330" class="line-green"/>
+  <path d="M 1250 600 H 1290 V 662 H 1330" class="line-green"/>
+  <rect x="1260" y="365" width="74" height="58" rx="3" class="badge"/>
+  <text x="1297" y="386" class="tiny" text-anchor="middle">form/ui</text>
+  <text x="1297" y="405" class="tiny" text-anchor="middle">keywords</text>
+  <rect x="1260" y="475" width="74" height="58" rx="3" class="badge"/>
+  <text x="1297" y="496" class="tiny" text-anchor="middle">event/bind</text>
+  <text x="1297" y="515" class="tiny" text-anchor="middle">keywords</text>
+  <rect x="1260" y="600" width="74" height="58" rx="3" class="badge"/>
+  <text x="1297" y="622" class="tiny" text-anchor="middle">fallback</text>
+  <text x="1297" y="641" class="tiny" text-anchor="middle">routing</text>
+
+  <!-- specialists to LLM -->
+  <path d="M 1645 302 H 1695 V 388 H 1740" class="line-green"/>
+  <path d="M 1645 482 H 1695 V 438 H 1740" class="line-green"/>
+  <path d="M 1645 662 H 1695 V 505 H 1740" class="line-green"/>
+  <rect x="1660" y="274" width="82" height="42" rx="3" class="badge"/>
+  <text x="1701" y="291" class="tiny" text-anchor="middle">JSON schema</text>
+  <text x="1701" y="309" class="tiny" text-anchor="middle">instructions</text>
+  <rect x="1660" y="642" width="82" height="42" rx="3" class="badge"/>
+  <text x="1701" y="659" class="tiny" text-anchor="middle">Markdown</text>
+  <text x="1701" y="677" class="tiny" text-anchor="middle">COBOL/text</text>
+
+  <!-- returns -->
+  <path d="M 1740 550 H 1710 V 748 H 610 V 930 H 560" class="line-orange"/>
+  <rect x="1490" y="755" width="105" height="48" rx="3" class="badge"/>
+  <text x="1542" y="775" class="tiny" text-anchor="middle">structured JSON</text>
+  <text x="1542" y="794" class="tiny" text-anchor="middle">or text</text>
+  <path d="M 555 1077 H 220 V 755 H 240" class="line-purple"/>
+  <rect x="565" y="1045" width="118" height="28" rx="3" class="badge"/>
+  <text x="624" y="1066" class="tiny" text-anchor="middle">mutates form state</text>
+
+  <!-- agent db / grace arrows -->
+  <path d="M 600 755 H 790 V 825" class="dash-purple"/>
+  <text x="665" y="795" class="label">project agents</text>
+  <path d="M 1110 950 H 1135" class="line-purple"/>
+  <path d="M 1370 825 V 760 H 1270 V 620 H 1245" class="dash-purple"/>
+  <rect x="1170" y="760" width="126" height="48" rx="3" class="badge"/>
+  <text x="1233" y="779" class="tiny" text-anchor="middle">Grace toggle</text>
+  <text x="1233" y="798" class="tiny" text-anchor="middle">routes workflow</text>
+
+  <!-- benchmark arrow -->
+  <path d="M 1810 550 V 745 H 1780 V 780" class="dash-orange"/>
+  <text x="1840" y="690" class="label" transform="rotate(90 1840 690)">metrics + report</text>
+
+  <!-- operations list -->
+  <rect x="52" y="875" width="188" height="154" rx="10" class="purple-box"/>
+  <text x="146" y="912" class="card-title" text-anchor="middle">AgentOps</text>
+  <text x="146" y="945" class="mono" text-anchor="middle">DeployControl</text>
+  <text x="146" y="974" class="mono" text-anchor="middle">SetProperty</text>
+  <text x="146" y="1003" class="mono" text-anchor="middle">GenerateEventHandler</text>
+  <text x="146" y="1032" class="mono" text-anchor="middle">CreateProcedure</text>
+  <path d="M 240 958 H 280" class="line-purple"/>
+
+  <!-- status footnote -->
+  <text x="950" y="1150" class="tiny" text-anchor="middle">Notes: spec 026 rig-core/per-verb deterministic tool mesh is documented but not fully implemented in the code read; direct keyword routing remains unless Grace is explicitly used.</text>
+</svg>

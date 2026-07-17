@@ -101,14 +101,25 @@ Key mechanics the runtime must implement:
 
 ## Phases
 
-- **Phase A (now):** DB typing + Grace singleton + prompt + seeding +
-  Agent Manager/mockup accommodation + validations + tests.
-- **Phase B:** rig runtime — TaskSpec/TaskResult types in cobolt-agents,
-  Grace planner loop (structured outputs), review gates, bounded correction
-  loops, workflow records; driven behind the existing mesh entry points.
-- **Phase C:** interactive flows (designer pane, event modal) routed
-  through Grace; egui-MCP tool execution for agents; delegation to the
-  COBOL Event Handler Script Agent per the pedantic-UI contract.
+- **Phase A (done, e39602f):** DB typing + Grace singleton + prompt +
+  seeding + Agent Manager/mockup accommodation + validations + tests.
+- **Phase B (done, 03e0ecd):** rig runtime — TaskSpec/TaskResult types in
+  cobolt-agents, engine with the 11 task states, review gates, bounded
+  correction loops, workflow records; IDE host glue (DbAgentInvoker,
+  run_grace_workflow).
+- **Phase C (this increment):** the streaming orchestration bridge —
+  `GraceEvent` emitted at every transition, `run_with_progress`,
+  `run_grace_workflow` threads progress; IDE `GraceSession` runs a
+  workflow on a worker thread and streams live progress to the designer
+  agent bar behind a 👑 toggle (plan → delegate → pedantic review →
+  integrate), record saved to `agentic_ai/Grace/runs/`. The user's request
+  is routed through Grace end-to-end with the mandated review gates.
+- **Phase C-next (remaining):** specialist agents executing egui-MCP tool
+  calls to physically manipulate the form (needs the running app to
+  verify), and applying Grace's *approved* form-design task output back to
+  the form as a reviewed change-set (reusing the existing preview/apply
+  path). These are the deeper form-mutation integrations; the coordination
+  spine, gates, and observability they build on are complete.
 
 ## Resolved: generic endpoint wire resolution (2026-07-17)
 

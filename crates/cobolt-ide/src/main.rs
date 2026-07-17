@@ -18,6 +18,7 @@ pub mod agent;
 pub mod agent_inspection;
 pub mod agents_db;
 pub mod grace_host;
+pub mod grace_session;
 mod app;
 pub mod data_binding_guardian;
 pub mod docs_embed;

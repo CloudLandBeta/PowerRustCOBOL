@@ -98,6 +98,30 @@ pub trait AgentInvoker {
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String>;
 }
 
+/// A live workflow transition (spec 029 Phase C). Emitted by the engine so an
+/// interactive host can show Grace's coordination as it happens without
+/// blocking on the whole run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GraceEvent {
+    /// Grace dispatched a task to a specialist.
+    TaskStarted { id: String, agent: String, objective: String },
+    /// The specialist returned a submission (with evidence).
+    Submitted { id: String, agent: String },
+    /// A pedantic review round began.
+    ReviewStarted { id: String, reviewer: String, round: usize },
+    /// A review round's verdict landed.
+    Verdict { id: String, reviewer: String, approved: bool },
+    /// The reviewer found defects; a correction was requested.
+    CorrectionRequested { id: String, round: usize },
+    /// A task reached a terminal state.
+    Approved { id: String },
+    Failed { id: String, reason: String },
+    Blocked { id: String },
+}
+
+/// Convenience: a no-op observer for the non-streaming [`GraceEngine::run`].
+fn no_progress(_: GraceEvent) {}
+
 /// Extract the LAST fenced JSON block of a reply (the tooling contract).
 pub fn last_json_block(reply: &str) -> Option<serde_json::Value> {
     let mut last = None;
@@ -157,6 +181,19 @@ impl GraceEngine {
         invoker: &mut dyn AgentInvoker,
         system_for: &dyn Fn(&str) -> String,
     ) -> WorkflowRecord {
+        self.run_with_progress(workflow_id, plan, invoker, system_for, &mut no_progress)
+    }
+
+    /// Like [`Self::run`], but streams a [`GraceEvent`] at every transition so
+    /// an interactive host can render Grace's progress live (spec 029 Phase C).
+    pub fn run_with_progress(
+        &self,
+        workflow_id: &str,
+        plan: &[TaskSpec],
+        invoker: &mut dyn AgentInvoker,
+        system_for: &dyn Fn(&str) -> String,
+        on_event: &mut dyn FnMut(GraceEvent),
+    ) -> WorkflowRecord {
         let mut records: Vec<TaskRecord> = plan
             .iter()
             .map(|t| TaskRecord {
@@ -191,11 +228,12 @@ impl GraceEngine {
                         r.states.push(TaskState::Blocked);
                         r.final_state = TaskState::Blocked;
                         r.failure_reason = "dependency not approved".into();
+                        on_event(GraceEvent::Blocked { id: r.spec.id.clone() });
                     }
                 }
                 break;
             };
-            self.run_task(&mut records[idx], invoker, system_for);
+            self.run_task(&mut records[idx], invoker, system_for, on_event);
         }
 
         let all_ok = records.iter().all(|r| r.final_state == TaskState::Approved);
@@ -218,10 +256,16 @@ impl GraceEngine {
         rec: &mut TaskRecord,
         invoker: &mut dyn AgentInvoker,
         system_for: &dyn Fn(&str) -> String,
+        on_event: &mut dyn FnMut(GraceEvent),
     ) {
         rec.states.push(TaskState::Ready);
         rec.states.push(TaskState::Running);
         let spec = rec.spec.clone();
+        on_event(GraceEvent::TaskStarted {
+            id: spec.id.clone(),
+            agent: spec.agent.clone(),
+            objective: spec.objective.clone(),
+        });
         let user = format!(
             "TASK {id}: {obj}\n\nCONTEXT (identifiers are exact — do not paraphrase):\n{ctx}\n\nACCEPTANCE CRITERIA:\n{acc}\n\nReturn the complete result. A bare claim of completion without the actual artifact is a failure.",
             id = spec.id,
@@ -235,27 +279,42 @@ impl GraceEngine {
                 rec.states.push(TaskState::Failed);
                 rec.final_state = TaskState::Failed;
                 rec.failure_reason = "empty result — completion without evidence".into();
+                on_event(GraceEvent::Failed {
+                    id: spec.id.clone(),
+                    reason: rec.failure_reason.clone(),
+                });
                 return;
             }
             Err(e) => {
                 rec.states.push(TaskState::Failed);
                 rec.final_state = TaskState::Failed;
-                rec.failure_reason = e;
+                rec.failure_reason = e.clone();
+                on_event(GraceEvent::Failed { id: spec.id.clone(), reason: e });
                 return;
             }
         };
         rec.submissions.push(submission.clone());
+        on_event(GraceEvent::Submitted {
+            id: spec.id.clone(),
+            agent: spec.agent.clone(),
+        });
 
         let Some(reviewer) = spec.reviewer.clone() else {
             // No mandated review gate for this task.
             rec.states.push(TaskState::Approved);
             rec.final_state = TaskState::Approved;
+            on_event(GraceEvent::Approved { id: spec.id.clone() });
             return;
         };
 
         // Review gate + bounded correction loop.
         for round in 0..=self.max_revisions {
             rec.states.push(TaskState::AwaitingReview);
+            on_event(GraceEvent::ReviewStarted {
+                id: spec.id.clone(),
+                reviewer: reviewer.clone(),
+                round,
+            });
             let review_user = format!(
                 "This is a review round: review the response and END with the round-verdict JSON per your tooling contract.\n\n=== AUTHORITATIVE TASK ===\n{obj}\n\nCONTEXT:\n{ctx}\n\nACCEPTANCE CRITERIA:\n{acc}\n\n=== SUBMISSION UNDER REVIEW ===\n{submission}",
                 obj = spec.objective,
@@ -268,6 +327,10 @@ impl GraceEngine {
                     rec.states.push(TaskState::Failed);
                     rec.final_state = TaskState::Failed;
                     rec.failure_reason = format!("reviewer unavailable: {e}");
+                    on_event(GraceEvent::Failed {
+                        id: spec.id.clone(),
+                        reason: rec.failure_reason.clone(),
+                    });
                     return;
                 }
             };
@@ -291,9 +354,15 @@ impl GraceEngine {
                 correction_request: correction.clone(),
                 raw: review.clone(),
             });
+            on_event(GraceEvent::Verdict {
+                id: spec.id.clone(),
+                reviewer: reviewer.clone(),
+                approved: !defects,
+            });
             if !defects {
                 rec.states.push(TaskState::Approved);
                 rec.final_state = TaskState::Approved;
+                on_event(GraceEvent::Approved { id: spec.id.clone() });
                 return;
             }
             if round == self.max_revisions {
@@ -301,6 +370,10 @@ impl GraceEngine {
             }
             // Correction round: the specialist resubmits the COMPLETE result.
             rec.states.push(TaskState::CorrectionRequired);
+            on_event(GraceEvent::CorrectionRequested {
+                id: spec.id.clone(),
+                round: round + 1,
+            });
             let fix_user = format!(
                 "TASK {id}: {obj}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== PEDANTIC CORRECTION REQUEST ===\n{req}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
                 id = spec.id,
@@ -313,11 +386,19 @@ impl GraceEngine {
                     rec.states.push(TaskState::Failed);
                     rec.final_state = TaskState::Failed;
                     rec.failure_reason = "correction round returned no result".into();
+                    on_event(GraceEvent::Failed {
+                        id: spec.id.clone(),
+                        reason: rec.failure_reason.clone(),
+                    });
                     return;
                 }
             };
             rec.submissions.push(submission.clone());
             rec.states.push(TaskState::Revalidating);
+            on_event(GraceEvent::Submitted {
+                id: spec.id.clone(),
+                agent: spec.agent.clone(),
+            });
         }
         rec.states.push(TaskState::Failed);
         rec.final_state = TaskState::Failed;
@@ -325,6 +406,10 @@ impl GraceEngine {
             "not approved after {} revision(s) — bounded correction loop exhausted",
             self.max_revisions
         );
+        on_event(GraceEvent::Failed {
+            id: spec.id.clone(),
+            reason: rec.failure_reason.clone(),
+        });
     }
 }
 
@@ -407,6 +492,59 @@ mod tests {
         assert!(mock.calls[2].1.contains("align BTN-OK to the button row"));
         let t2 = &rec.tasks[1];
         assert_eq!(t2.final_state, TaskState::Approved);
+    }
+
+    /// Phase C: the live event stream mirrors the workflow — task start,
+    /// review, a correction, the second verdict approving, then the
+    /// dependent task, ending with both Approved.
+    #[test]
+    fn progress_events_stream_the_workflow() {
+        let mut mock = Mock {
+            calls: Vec::new(),
+            script: vec![
+                ("Form Designer Agent", "v1"),
+                (
+                    "Pedantic UI Agent",
+                    "```json\n{\"pedantic_verdict\": \"defects\", \"correction_request\": \"1. fix\"}\n```",
+                ),
+                ("Form Designer Agent", "v2"),
+                (
+                    "Pedantic UI Agent",
+                    "```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
+                ),
+                ("COBOL Event Handler Script Agent", "MOVE 1 TO WS-OK."),
+                (
+                    "Pedantic COBOL Companion",
+                    "```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
+                ),
+            ],
+        };
+        let mut events: Vec<GraceEvent> = Vec::new();
+        let rec = GraceEngine::default().run_with_progress(
+            "wf",
+            &plan2(),
+            &mut mock,
+            &|_| "s".into(),
+            &mut |e| events.push(e),
+        );
+        assert_eq!(rec.status, "completed");
+        let started: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                GraceEvent::TaskStarted { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(started, vec!["T1", "T2"], "tasks started in dependency order");
+        assert!(events.iter().any(|e| matches!(e, GraceEvent::CorrectionRequested { id, round } if id == "T1" && *round == 1)));
+        let approvals: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                GraceEvent::Approved { id } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(approvals, vec!["T1", "T2"]);
     }
 
     /// Bounded loop: persistent defects exhaust max_revisions → Failed, and

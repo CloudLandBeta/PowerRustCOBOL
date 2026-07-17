@@ -57,6 +57,12 @@ Manager" / "Pedantic" feature terms consistent with the UI strings.
 **Change:** appended a sentence introducing **Grace**, the orchestrator.
 Translate it; "Grace" is a NAME — never translate or rename it.
 
+## Delta 7 — section `#5` Grace paragraph
+
+**Change:** appended a sentence about the **👑** toggle in the form assistant
+(route a request through Grace; live progress; workflow record path).
+Translate it; keep "Grace" and the path untranslated.
+
 ## Glossary — do NOT translate
 
 `PowerRustCOBOL`, product and menu names (e.g. **Font** as the property name,
