@@ -204,11 +204,12 @@ impl AgentsModal {
 
                 egui::Panel::left(egui::Id::new("agents_rail_panel"))
                     .resizable(true)
-                    .default_size(280.0)
-                    .min_size(200.0)
+                    // Wider default now the agent name is a large headline.
+                    .default_size(360.0)
+                    .min_size(260.0)
                     // Hard upper bound so the rail can never swallow the detail
                     // pane even if some content is unexpectedly wide.
-                    .max_size(360.0)
+                    .max_size(520.0)
                     .show(ui, |ui| self.rail_ui(ui, llm, tr));
 
                 egui::CentralPanel::default()
@@ -312,8 +313,11 @@ impl AgentsModal {
                     let selected = i == self.sel;
                     ui.horizontal(|ui| {
                         if is_comp {
-                            ui.add_space(18.0);
-                            ui.colored_label(egui::Color32::from_rgb(201, 162, 232), "└");
+                            ui.add_space(22.0);
+                            ui.colored_label(
+                                egui::Color32::from_rgb(201, 162, 232),
+                                egui::RichText::new("└").size(22.0),
+                            );
                         }
                         // Dim everything but the selection (operator request).
                         let alpha = if selected { 1.0 } else { 0.5 };
@@ -335,16 +339,38 @@ impl AgentsModal {
                                     s.to_string()
                                 }
                             };
-                            let label = format!(
-                                "{dot} {badge}{}\n    {} · {}",
-                                ell(&name, 26),
-                                if model.is_empty() { "—".into() } else { ell(&model, 20) },
-                                if provider.is_empty() { "—".into() } else { ell(&provider, 14) },
+                            // Two type sizes in one clickable button: the agent
+                            // name is the readable headline (+200% over the old
+                            // 12.5px), the model·provider subtext +100%. Built as
+                            // a LayoutJob so it stays a single selectable_label.
+                            const NAME_PT: f32 = 37.5;
+                            const SUB_PT: f32 = 25.0;
+                            let name_line = format!("{dot} {badge}{}", ell(&name, 16));
+                            let sub_line = format!(
+                                "    {} · {}",
+                                if model.is_empty() { "—".into() } else { ell(&model, 15) },
+                                if provider.is_empty() { "—".into() } else { ell(&provider, 12) },
                             );
-                            if ui
-                                .selectable_label(selected, egui::RichText::new(label).size(12.5))
-                                .clicked()
-                            {
+                            let mut job = egui::text::LayoutJob::default();
+                            job.append(
+                                &name_line,
+                                0.0,
+                                egui::TextFormat {
+                                    font_id: egui::FontId::proportional(NAME_PT),
+                                    color: ui.visuals().text_color(),
+                                    ..Default::default()
+                                },
+                            );
+                            job.append(
+                                &format!("\n{sub_line}"),
+                                0.0,
+                                egui::TextFormat {
+                                    font_id: egui::FontId::proportional(SUB_PT),
+                                    color: ui.visuals().weak_text_color(),
+                                    ..Default::default()
+                                },
+                            );
+                            if ui.selectable_label(selected, job).clicked() {
                                 self.select(i, llm);
                             }
                         });
@@ -745,9 +771,9 @@ mod resize_tests {
                 (w - settled).abs() < 0.5,
                 "rail width drifted at frame {i}: {settled} -> {w} (self-inflation)"
             );
-            // Truncated labels keep the rail at its default width, well under
-            // the 360 cap — proves both no-ratchet AND label bounding.
-            assert!(*w <= 300.0, "rail wider than expected (label not bounded?): {w}");
+            // Bounded by the max_size cap — the ratchet cannot run away even
+            // with the large headline font and a long model id.
+            assert!(*w <= 520.5, "rail exceeded its max_size cap: {w}");
         }
         let _ = std::fs::remove_dir_all(proj);
         println!("agent rail stable at {settled:.0}px across {} frames", widths.len());
