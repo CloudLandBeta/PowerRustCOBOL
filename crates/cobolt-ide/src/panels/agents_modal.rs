@@ -34,12 +34,6 @@ pub struct AgentsModal {
     /// `true` once anything changed (enables Apply).
     dirty: bool,
     seeded: usize,
-    /// In-flight "fetch available models" request for the selected agent.
-    models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
-    /// Models fetched for the currently selected agent (empty until fetched).
-    available_models: Vec<String>,
-    /// Status/result line for the model fetch.
-    models_msg: Option<String>,
     /// Set by the detail pane's "Check proficiency" button; drained into the
     /// returned action after the frame.
     pending_proficiency: Option<LlmConfig>,
@@ -58,7 +52,7 @@ pub struct AgentsModalAction {
 
 impl AgentsModal {
     /// Load (and first-time seed, R7) the project's agents and open.
-    pub fn open_for(project_dir: &Path, llm: &LlmConfig) -> Self {
+    pub fn open_for(project_dir: &Path, llm: &mut LlmConfig) -> Self {
         let mut db = AgentsDb::load(project_dir);
         let mut seeded = db.seed_from_legacy(llm);
         // Spec 029: the Grace orchestrator singleton + the COBOL Event Handler
@@ -75,6 +69,14 @@ impl AgentsModal {
                 seeded += 1;
             }
         }
+        // Spec 031: convert any agents still carrying embedded model config onto
+        // reusable global model profiles (idempotent). Persist both stores.
+        let migrated = crate::agents_db::migrate_to_profiles(&mut db, llm);
+        if migrated > 0 {
+            let _ = db.save_all();
+            let _ = llm.save();
+            seeded += migrated;
+        }
         let mut m = Self {
             open: true,
             db,
@@ -87,9 +89,6 @@ impl AgentsModal {
             error: None,
             dirty: seeded > 0,
             seeded,
-            models_rx: None,
-            available_models: Vec::new(),
-            models_msg: None,
             pending_proficiency: None,
         };
         m.load_selected(llm);
@@ -98,9 +97,6 @@ impl AgentsModal {
 
     fn load_selected(&mut self, llm: &LlmConfig) {
         self.confirm_delete = false;
-        // Fetched models belong to the previously selected agent's provider.
-        self.available_models.clear();
-        self.models_msg = None;
         let Some(a) = self.db.agents.get(self.sel) else {
             self.prompt_buf.clear();
             self.key_buf.clear();
@@ -158,38 +154,6 @@ impl AgentsModal {
         let mut action = AgentsModalAction::default();
         if !self.open {
             return action;
-        }
-        // Drain an in-flight model-list fetch for the selected agent.
-        if let Some(rx) = &self.models_rx {
-            match rx.try_recv() {
-                Ok(Ok(models)) => {
-                    self.models_msg = Some(format!("{} model(s) available", models.len()));
-                    // If the agent has no model yet, select the first fetched
-                    // one (and restore that model's key).
-                    if let Some(first) = models.first() {
-                        if let Some(a) = self.db.agents.get_mut(self.sel) {
-                            if a.model.trim().is_empty() {
-                                a.model = first.clone();
-                                let slot = api_key_slot(&a.provider, &a.model);
-                                self.key_buf =
-                                    llm.api_keys.get(&slot).cloned().unwrap_or_default();
-                                self.dirty = true;
-                            }
-                        }
-                    }
-                    self.available_models = models;
-                    self.models_rx = None;
-                }
-                Ok(Err(e)) => {
-                    self.models_msg = Some(e);
-                    self.models_rx = None;
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint(),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.models_msg = Some("The model-list worker stopped.".into());
-                    self.models_rx = None;
-                }
-            }
         }
         let mut open = self.open;
         egui::Window::new(format!("🤖 {}", tr.agents_title))
@@ -387,11 +351,19 @@ impl AgentsModal {
                     .enumerate()
                     .filter(|(_, a)| filter.is_empty() || a.name.to_lowercase().contains(&filter))
                     .map(|(i, a)| {
+                        // Show the resolved model profile (spec 031), falling back
+                        // to the dormant embedded fields for un-migrated agents.
+                        let (model, provider) = a
+                            .model_profile
+                            .as_ref()
+                            .and_then(|id| llm.profile(id))
+                            .map(|p| (p.model.clone(), p.provider.clone()))
+                            .unwrap_or_else(|| (a.model.clone(), a.provider.clone()));
                         (
                             i,
                             a.name.clone(),
-                            a.model.clone(),
-                            a.provider.clone(),
+                            model,
+                            provider,
                             a.enabled,
                             // Linked companion = some primary points at it.
                             self.db.is_companion(&a.id),
@@ -540,7 +512,6 @@ impl AgentsModal {
         };
         let sel = self.sel;
         let mut changed = false;
-        let mut do_fetch_models = false;
         let mut do_proficiency = false;
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -652,122 +623,51 @@ impl AgentsModal {
                 .default_open(true)
                 .show(ui, |ui| {
                     egui::Grid::new("ag_runtime").num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| {
-                        ui.label(tr.settings_ai_provider);
+                        // Model profile (spec 031): pick a reusable profile defined
+                        // in the Models Manager, instead of re-entering a connection.
+                        ui.label(tr.agents_model_profile);
                         {
                             let a = &mut self.db.agents[sel];
-                            let prev = a.provider.clone();
-                            egui::ComboBox::from_id_salt("ag_provider")
-                                .selected_text(if a.provider.is_empty() { "—" } else { &a.provider })
-                                .show_ui(ui, |ui| {
-                                    for p in crate::llm::PROVIDERS.iter() {
-                                        ui.selectable_value(&mut a.provider, p.id().to_owned(), p.label());
-                                    }
-                                });
-                            if a.provider != prev {
-                                if let Some(p) = crate::llm::Provider::from_id(&a.provider) {
-                                    a.endpoint = p.default_endpoint().to_owned();
-                                }
+                            let current_name = a
+                                .model_profile
+                                .as_ref()
+                                .and_then(|id| llm.profile(id))
+                                .map(|p| p.name.clone());
+                            let mut pick: Option<Option<String>> = None;
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_salt("ag_model_profile")
+                                    .selected_text(
+                                        current_name
+                                            .clone()
+                                            .unwrap_or_else(|| tr.agents_model_profile_none.to_string()),
+                                    )
+                                    .width(240.0)
+                                    .show_ui(ui, |ui| {
+                                        if ui
+                                            .selectable_label(a.model_profile.is_none(), tr.agents_model_profile_none)
+                                            .clicked()
+                                        {
+                                            pick = Some(None);
+                                        }
+                                        for p in &llm.model_profiles {
+                                            let label =
+                                                if p.name.is_empty() { p.model.clone() } else { p.name.clone() };
+                                            if ui
+                                                .selectable_label(
+                                                    a.model_profile.as_deref() == Some(p.id.as_str()),
+                                                    label,
+                                                )
+                                                .clicked()
+                                            {
+                                                pick = Some(Some(p.id.clone()));
+                                            }
+                                        }
+                                    });
+                            });
+                            if let Some(p) = pick {
+                                a.model_profile = p;
                                 changed = true;
                             }
-                        }
-                        ui.end_row();
-                        ui.label(tr.settings_ai_endpoint);
-                        {
-                            let a = &mut self.db.agents[sel];
-                            changed |= ui
-                                .add(egui::TextEdit::singleline(&mut a.endpoint).desired_width(f32::INFINITY))
-                                .changed();
-                        }
-                        ui.end_row();
-                        // API key comes BEFORE the model: fetching the model
-                        // list needs the key. Hint on its own row so the label
-                        // stays aligned with the input.
-                        ui.label(tr.settings_ai_api_key);
-                        changed |= ui
-                            .add(
-                                egui::TextEdit::singleline(&mut self.key_buf)
-                                    .password(true)
-                                    .desired_width(f32::INFINITY),
-                            )
-                            .changed();
-                        ui.end_row();
-                        ui.label("");
-                        ui.weak(tr.agents_key_hint);
-                        ui.end_row();
-                        ui.label(tr.settings_ai_model);
-                        {
-                            let a = &mut self.db.agents[sel];
-                            let prev_model = a.model.clone();
-                            ui.horizontal(|ui| {
-                                // Editable model id (custom ids allowed).
-                                let r = ui.add(
-                                    egui::TextEdit::singleline(&mut a.model)
-                                        .font(egui::TextStyle::Monospace)
-                                        .desired_width(180.0),
-                                );
-                                changed |= r.changed();
-                                // Pick from the fetched list (when available).
-                                if !self.available_models.is_empty() {
-                                    egui::ComboBox::from_id_salt("ag_model_pick")
-                                        .selected_text("▾")
-                                        .width(28.0)
-                                        .show_ui(ui, |ui| {
-                                            for m in &self.available_models {
-                                                if ui
-                                                    .selectable_label(&a.model == m, m)
-                                                    .clicked()
-                                                {
-                                                    a.model = m.clone();
-                                                    changed = true;
-                                                }
-                                            }
-                                        });
-                                }
-                                // Force-load the provider's models. The label
-                                // already carries the ⟳ glyph.
-                                if ui
-                                    .add_enabled(
-                                        self.models_rx.is_none(),
-                                        egui::Button::new(tr.settings_ai_refresh),
-                                    )
-                                    .on_hover_text(tr.settings_ai_refresh_models)
-                                    .clicked()
-                                {
-                                    do_fetch_models = true;
-                                }
-                                if self.models_rx.is_some() {
-                                    ui.add(egui::Spinner::new());
-                                }
-                                if let Some(m) = &self.models_msg {
-                                    ui.label(egui::RichText::new(m).small().weak());
-                                }
-                            });
-                            // Model switch = per-model key contract: restore
-                            // the stored key or clear the field (spec 028 R4).
-                            if a.model != prev_model {
-                                let slot = api_key_slot(&a.provider, &a.model);
-                                self.key_buf =
-                                    llm.api_keys.get(&slot).cloned().unwrap_or_default();
-                            }
-                        }
-                        ui.end_row();
-                        ui.label(tr.agents_sampling);
-                        {
-                            let a = &mut self.db.agents[sel];
-                            ui.horizontal(|ui| {
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut a.temperature).range(0.0..=2.0).speed(0.05))
-                                    .changed();
-                                ui.label("·");
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut a.max_tokens).range(256..=128000).speed(100))
-                                    .changed();
-                                ui.label("·");
-                                changed |= ui
-                                    .add(egui::DragValue::new(&mut a.timeout_secs).range(1..=1200))
-                                    .changed();
-                                ui.label("s");
-                            });
                         }
                         ui.end_row();
                         ui.label(tr.agents_routing);
@@ -779,31 +679,6 @@ impl AgentsModal {
                         }
                         ui.end_row();
                     });
-                    // Proficiency check — test THIS specialist's model (reviewed
-                    // by its pedantic companion when one is set). Not offered for
-                    // Grace (orchestrator) or pedantic reviewers.
-                    if agent.kind == crate::agents_db::AgentKind::Specialist
-                        && !agent.model.trim().is_empty()
-                    {
-                        ui.add_space(6.0);
-                        ui.horizontal(|ui| {
-                            if ui
-                                .button(format!("🎓 {}", tr.agents_check_proficiency))
-                                .clicked()
-                            {
-                                do_proficiency = true;
-                            }
-                            ui.label(
-                                egui::RichText::new(if agent.companion.is_some() {
-                                    tr.agents_proficiency_reviewed
-                                } else {
-                                    tr.agents_proficiency_unreviewed
-                                })
-                                .small()
-                                .weak(),
-                            );
-                        });
-                    }
                 });
             ui.separator();
 
@@ -885,35 +760,69 @@ impl AgentsModal {
                             .and_then(|id| self.db.by_id(id))
                             .map(|a| a.name.clone());
                         let mut pick: Option<Option<String>> = None;
-                        egui::ComboBox::from_id_salt("ag_companion")
-                            .selected_text(current_name.unwrap_or_else(|| tr.agents_companion_none.to_string()))
-                            .width(320.0)
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_label(current.is_none(), tr.agents_companion_none)
-                                    .clicked()
-                                {
-                                    pick = Some(None);
-                                }
-                                let others: Vec<(String, String)> = self
-                                    .db
-                                    .agents
-                                    .iter()
-                                    .filter(|x| {
-                                        x.id != agent.id
-                                            && x.kind == crate::agents_db::AgentKind::Pedantic
-                                    })
-                                    .map(|x| (x.id.clone(), format!("{} ({})", x.name, x.model)))
-                                    .collect();
-                                for (id, label) in others {
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("ag_companion")
+                                .selected_text(current_name.unwrap_or_else(|| tr.agents_companion_none.to_string()))
+                                .width(320.0)
+                                .show_ui(ui, |ui| {
                                     if ui
-                                        .selectable_label(current.as_deref() == Some(id.as_str()), label)
+                                        .selectable_label(current.is_none(), tr.agents_companion_none)
                                         .clicked()
                                     {
-                                        pick = Some(Some(id));
+                                        pick = Some(None);
                                     }
+                                    let others: Vec<(String, String)> = self
+                                        .db
+                                        .agents
+                                        .iter()
+                                        .filter(|x| {
+                                            x.id != agent.id
+                                                && x.kind == crate::agents_db::AgentKind::Pedantic
+                                        })
+                                        .map(|x| {
+                                            // Show the companion's resolved model (spec 031),
+                                            // falling back to its dormant embedded model.
+                                            let model = x
+                                                .model_profile
+                                                .as_ref()
+                                                .and_then(|id| llm.profile(id))
+                                                .map(|p| p.model.clone())
+                                                .unwrap_or_else(|| x.model.clone());
+                                            (x.id.clone(), format!("{} ({})", x.name, model))
+                                        })
+                                        .collect();
+                                    for (id, label) in others {
+                                        if ui
+                                            .selectable_label(current.as_deref() == Some(id.as_str()), label)
+                                            .clicked()
+                                        {
+                                            pick = Some(Some(id));
+                                        }
+                                    }
+                                });
+                            // Proficiency check beside the companion dropdown: shown
+                            // ONLY when a pedantic companion is chosen (the check is a
+                            // primary+reviewer tandem). Hidden when set to none.
+                            if agent.kind == crate::agents_db::AgentKind::Specialist
+                                && agent.companion.is_some()
+                            {
+                                let resolvable = agent
+                                    .model_profile
+                                    .as_ref()
+                                    .and_then(|id| llm.profile(id))
+                                    .is_some();
+                                if ui
+                                    .add_enabled(
+                                        resolvable,
+                                        egui::Button::new(format!("🎓 {}", tr.agents_check_proficiency)),
+                                    )
+                                    .on_hover_text(tr.agents_proficiency_reviewed)
+                                    .clicked()
+                                {
+                                    do_proficiency = true;
                                 }
-                            });
+                            }
+                        });
                         if let Some(p) = pick {
                             self.db.agents[sel].companion = p;
                             changed = true;
@@ -928,29 +837,9 @@ impl AgentsModal {
             self.seeded = 0;
         }
 
-        // Spawn the model-list fetch after the grid (avoids borrowing `self`
-        // twice inside the row). Uses the selected agent's provider/endpoint
-        // and the currently-edited key.
-        if do_fetch_models {
-            let a = &self.db.agents[sel];
-            match crate::llm::Provider::from_id(&a.provider) {
-                Some(provider) => {
-                    let endpoint = a.endpoint.clone();
-                    let key = self.key_buf.clone();
-                    self.available_models.clear();
-                    self.models_msg = Some(tr.ai_detecting.to_string());
-                    self.models_rx =
-                        Some(crate::llm::spawn_list_models(provider, &endpoint, &key));
-                }
-                None => {
-                    self.models_msg = Some(tr.settings_ai_provider_select.to_string());
-                }
-            }
-        }
-
-        // "Check proficiency": persist the edited key, then resolve this
-        // agent's effective config (its model + companion-as-reviewer) for the
-        // caller to run the benchmark.
+        // "Check proficiency": persist the edited prompt/key, then resolve this
+        // agent's effective config (its profile + companion-as-reviewer) for the
+        // caller to run the benchmark (spec 031 R9).
         if do_proficiency {
             self.stash_selected(llm);
             self.pending_proficiency =
@@ -1018,7 +907,7 @@ mod resize_tests {
         db.save_all().unwrap();
 
         let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
-        let mut modal = AgentsModal::open_for(&proj, &llm);
+        let mut modal = AgentsModal::open_for(&proj, &mut llm);
         let tr = crate::i18n::Language::English.tr();
 
         let ctx = egui::Context::default();

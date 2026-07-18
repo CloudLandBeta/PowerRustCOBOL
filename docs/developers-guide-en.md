@@ -285,8 +285,23 @@ project, so the API key never travels in a repository:
 | **Temperature** | Sampling randomness (0 = deterministic). |
 | **Standard system prompt** | The instructions sent on every request. A sensible default is provided; edit it to suit your model. |
 
+**Models Manager.** Next to *Manage agents…* in Project settings is **Models
+Manager…**. A *model profile* is a connection defined once — provider, endpoint,
+model id, sampling (temperature / max tokens / timeout) and, on your machine
+only, its API key — and given a name (e.g. "Anthropic · claude-sonnet-5"). Create,
+duplicate, test, and delete profiles here, and check a model's COBOL proficiency
+straight from the profile. Profiles are **global**: define a model once and reuse
+it for every agent in every project, instead of re-typing the same endpoint, key,
+and model each time. The API key lives only in your machine-local settings, keyed
+to the profile — it is **never** written into a project file, the generated COBOL,
+or a compiled/packaged application. When you upgrade, your existing agents'
+connections are converted into profiles automatically, so nothing needs
+re-entering.
+
 **Agent Manager.** The *AI agents* row opens the project's agent database: any
-number of agents, each with its own model, prompt, capabilities, and knowledge.
+number of agents, each with a **model profile** (picked from a dropdown — the
+proficiency-check button sits right beside it), prompt, capabilities, and
+knowledge.
 An agent lives in your project at `agentic_ai/<agent name>/` — the multi-line
 agent prompt in `<agent name>_prompt.md`, plus `steering/`, `policies.md`,
 `skills/`, `mcp.json`, `knowledge/`, and `agent.json` (identity and runtime
@@ -305,6 +320,24 @@ pedantic review gate, and assembles the final validated result. Enable the
 plans the workflow, delegates to the specialist agents, runs their pedantic
 reviews, and streams her progress live while an auditable workflow record is
 saved under `agentic_ai/Grace/runs/`.
+
+**Specialists execute their tools.** Under Grace, agents don't just describe
+work — they carry it out, but only through governed, evidenced channels. An
+agent may call only the tools it has been granted (its `mcp.json` / capabilities);
+an undeclared or invented tool is treated as a critical defect that fails the
+task. When the **Form Designer Agent's** work is *approved* by its pedantic
+companion, its result is applied to the open form as **one undoable change**
+through the same reviewed preview/apply path you use by hand — never by silently
+rewriting the form. The Form Designer can also *look* at the live form (a
+read-only view of the rendered widgets) to check its work; it never edits by
+driving the UI. The **Version Control Agent** runs real Git **inside your open
+project's repository only** (never PowerRustCOBOL's own): everyday, local
+operations (status, diff, log, add, commit, branch, checkout, stash) run on their
+own, while anything that reaches the network or rewrites history — push, fetch,
+pull, rebase, `reset --hard` — **pauses for your explicit approval**, showing you
+the exact command before it runs. Every tool call, with its real output and exit
+status, is recorded in the workflow record; a command that fails is reported as a
+failure, never glossed as success.
 
 A **Test connection** button sends a tiny request to your endpoint and reports
 whether the model is reachable and the key/model are accepted — use it to

@@ -367,6 +367,8 @@ pub struct CoboltApp {
     llm_reviewer_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
     /// Agent Manager modal (spec 028), present while open.
     agents_modal: Option<crate::panels::agents_modal::AgentsModal>,
+    /// Models Manager modal (spec 031), present while open.
+    models_modal: Option<crate::panels::models_modal::ModelsModal>,
     llm_benchmark_offer: Option<crate::llm::LlmConfig>,
     llm_benchmark_config: Option<crate::llm::LlmConfig>,
     llm_benchmark_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
@@ -429,6 +431,9 @@ pub struct CoboltApp {
     use_grace: bool,
     /// The running (or just-finished) Grace workflow, when routed.
     grace_session: Option<crate::grace_session::GraceSession>,
+    /// One-shot guard: whether the current finished session's approved
+    /// form-design output has been applied to the form yet (spec 030 R7).
+    grace_applied: bool,
     agent_history: Vec<crate::llm::ChatTurn>,
     /// Which form the in-memory `agent_history` belongs to (reload on change).
     agent_history_form: Option<PathBuf>,
@@ -954,6 +959,7 @@ impl CoboltApp {
             llm_models_rx: None,
             llm_reviewer_models_rx: None,
             agents_modal: None,
+            models_modal: None,
             llm_benchmark_offer: None,
             llm_benchmark_config: None,
             llm_benchmark_rx: None,
@@ -983,6 +989,7 @@ impl CoboltApp {
             agent_pending: None,
             use_grace: false,
             grace_session: None,
+            grace_applied: false,
             agent_history: Vec::new(),
             agent_history_form: None,
             agent_status: None,
@@ -2284,6 +2291,13 @@ impl CoboltApp {
                 Err(e) => format!("Grace workflow failed: {e}"),
             })
         });
+        // A gated git op (push, rebase…) awaiting the operator's decision (R12).
+        let grace_confirm: Option<String> = self
+            .grace_session
+            .as_ref()
+            .and_then(|s| s.pending_confirm())
+            .map(|r| r.command.clone());
+        let mut do_grace_confirm: Option<bool> = None;
         let status = self.agent_status.clone();
         let preview = self.agent_preview.clone();
         let has_debug = crate::llm::has_connection_log();
@@ -2377,6 +2391,21 @@ impl CoboltApp {
                             do_grace_dismiss = true;
                         }
                     }
+
+                    // Gated git op awaiting Approve/Deny (spec 030 R12).
+                    if let Some(cmd) = &grace_confirm {
+                        ui.separator();
+                        ui.label(egui::RichText::new(tr.agent_git_confirm).strong());
+                        ui.label(egui::RichText::new(cmd).monospace().small());
+                        ui.horizontal(|ui| {
+                            if ui.button(tr.agent_approve).clicked() {
+                                do_grace_confirm = Some(true);
+                            }
+                            if ui.button(tr.agent_reject).clicked() {
+                                do_grace_confirm = Some(false);
+                            }
+                        });
+                    }
                 }
 
                 // Preview of the proposed change-set (nothing applied yet).
@@ -2435,6 +2464,14 @@ impl CoboltApp {
             self.grace_session = None;
         }
 
+        // Answer a pending gated git op (spec 030 R12).
+        if let Some(approved) = do_grace_confirm {
+            if let Some(sess) = self.grace_session.as_mut() {
+                sess.respond_confirm(approved);
+            }
+            ctx.request_repaint();
+        }
+
         // 👑 Grace routing: hand the request to the multi-agent workflow.
         if do_send && !busy && self.use_grace {
             let sent = std::mem::take(&mut self.agent_prompt);
@@ -2442,6 +2479,7 @@ impl CoboltApp {
                 Some(dir) => {
                     self.agent_status = None;
                     self.agent_preview = None;
+                    self.grace_applied = false;
                     self.grace_session = Some(crate::grace_session::GraceSession::spawn(
                         &dir, &self.llm, &sent,
                     ));
@@ -2582,6 +2620,66 @@ impl CoboltApp {
     #[allow(dead_code)]
     fn reject_agent_preview(&mut self) {
         self.agent_preview = None;
+    }
+
+    /// Apply a finished Grace workflow's approved Form-Designer output to the
+    /// originating form (spec 030 R6/R7). Runs once per finished session; each
+    /// approved change-set goes through the existing validated, undoable
+    /// `apply_agent_change_set` path — an all-invalid change-set applies nothing
+    /// and leaves the form unchanged (R8). Appends a status line to the session
+    /// log so the developer sees the outcome.
+    fn apply_grace_form_output(&mut self) {
+        if self.grace_applied {
+            return;
+        }
+        let record = match self.grace_session.as_ref().and_then(|s| s.finished()) {
+            Some(Ok((rec, _))) => rec.clone(),
+            Some(Err(_)) => {
+                self.grace_applied = true; // failed run: nothing to apply
+                return;
+            }
+            None => return, // still running
+        };
+        self.grace_applied = true;
+
+        let sets = crate::grace_host::approved_form_change_sets(
+            &record,
+            crate::agents_db::FORM_DESIGNER,
+        );
+        if sets.is_empty() {
+            return;
+        }
+        let mut notes: Vec<String> = Vec::new();
+        let mut saved_path: Option<PathBuf> = None;
+        if let Some(st) = self.inspect.as_mut() {
+            for set in sets {
+                match set {
+                    Ok(cs) => {
+                        let n = st.designer.apply_agent_change_set(&cs);
+                        if n > 0 {
+                            let _ = save_form(&st.designer.form, &st.path);
+                            st.designer.dirty = false;
+                            st.mtime = file_mtime(&st.path);
+                            saved_path = Some(st.path.clone());
+                            notes.push(format!("✎ applied {n} form change(s) from Grace."));
+                        } else {
+                            notes.push(
+                                "⚠ Grace's approved form change-set had no applicable operations; the form is unchanged.".into(),
+                            );
+                        }
+                    }
+                    Err(e) => notes.push(format!("⚠ Grace's form output was not applicable: {e}")),
+                }
+            }
+        } else {
+            notes.push("⚠ Grace produced form changes but no form is open to apply them to.".into());
+        }
+        if let Some(p) = saved_path {
+            self.project.refresh_form(&p);
+        }
+        if let Some(sess) = self.grace_session.as_mut() {
+            sess.log.extend(notes);
+        }
     }
 
     /// The project's root directory (where `cobolt.toml` lives), if a project is open.
@@ -5652,7 +5750,15 @@ impl CoboltApp {
             if sess.poll() {
                 ctx.request_repaint();
             }
+            // Keep the live-UI snapshot fresh so specialists' egui observe tools
+            // read the current frame (spec 030 R4).
+            if sess.is_running() {
+                crate::agent_inspection::request_snapshot(ctx);
+            }
         }
+        // Once a workflow finishes, apply its approved Form-Designer output to the
+        // originating form as one undoable, reviewable change (spec 030 R6/R7).
+        self.apply_grace_form_output();
         // Agent Manager modal (spec 028) — taken out of self to split borrows.
         if let Some(mut m) = self.agents_modal.take() {
             let act = m.show(ctx, &mut self.llm, &self.lang.tr());
@@ -5672,6 +5778,27 @@ impl CoboltApp {
                 self.llm_benchmark_config = Some(cfg.clone());
                 self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
             }
+        }
+        // Models Manager modal (spec 031) — taken out of self to split borrows.
+        if let Some(mut m) = self.models_modal.take() {
+            let act = m.show(ctx, &mut self.llm, &self.lang.tr());
+            if m.open {
+                self.models_modal = Some(m);
+            }
+            if act.applied {
+                let _ = self.llm.save();
+            }
+            if let Some(cfg) = act.run_proficiency {
+                if !cfg.reviewer_configured() {
+                    let tr = self.lang.tr();
+                    self.output
+                        .push_status(tr.agents_unreviewed_warning.replacen("{}", &cfg.model, 1));
+                }
+                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+                self.llm_benchmark_config = Some(cfg.clone());
+                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
+            }
+            ctx.request_repaint();
         }
         if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {
             ctx.request_repaint();
@@ -5766,11 +5893,20 @@ impl CoboltApp {
             }
         }
         if action.manage_agents {
-            if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
+            if let Some(dir) = self
+                .project_path
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf())
+            {
                 self.agents_modal = Some(crate::panels::agents_modal::AgentsModal::open_for(
-                    dir, &self.llm,
+                    &dir,
+                    &mut self.llm,
                 ));
             }
+        }
+        if action.manage_models {
+            self.models_modal = Some(crate::panels::models_modal::ModelsModal::new());
         }
         if action.fetch_reviewer_models {
             if let Some(form) = &self.settings_form {

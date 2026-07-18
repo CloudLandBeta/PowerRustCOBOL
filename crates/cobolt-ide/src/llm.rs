@@ -59,6 +59,56 @@ pub struct LlmConfig {
     /// Pedantic prompt for the COBOL Event Handler Script Agent's companion.
     #[serde(default = "default_pedantic_event_prompt")]
     pub pedantic_event_prompt: String,
+    /// Reusable model profiles (spec 031): a connection defined once and
+    /// referenced by agents, so model settings are not re-entered per agent.
+    /// Global, like [`Self::api_keys`]; a profile's key stays in `api_keys`.
+    #[serde(default)]
+    pub model_profiles: Vec<ModelProfile>,
+}
+
+/// A named, reusable model connection (spec 031). Stored globally in
+/// [`LlmConfig::model_profiles`]. Carries **no secret**: the API key resolves
+/// from [`LlmConfig::api_keys`] by `(provider, model)`, so a key is never
+/// duplicated into a profile, a project file, or a built binary (spec 031 R7).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelProfile {
+    /// UUID v4, generated at creation — the stable reference agents store.
+    pub id: String,
+    /// Unique, human-facing display name (e.g. "Anthropic · claude-sonnet-5").
+    pub name: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default = "default_timeout_secs")]
+    pub timeout_secs: u32,
+}
+
+impl ModelProfile {
+    /// Resolve this profile into a runnable [`LlmConfig`], starting from `base`
+    /// (which carries prompts, reviewer config, etc.) and swapping in this
+    /// profile's connection + its key from `base.api_keys` (spec 031 R5/R7).
+    pub fn resolve(&self, base: &LlmConfig) -> LlmConfig {
+        let mut cfg = base.clone();
+        cfg.provider = self.provider.clone();
+        cfg.endpoint = self.endpoint.clone();
+        cfg.model = self.model.clone();
+        cfg.temperature = self.temperature;
+        cfg.max_tokens = self.max_tokens;
+        cfg.timeout_secs = self.timeout_secs;
+        cfg.api_key = base
+            .api_keys
+            .get(&api_key_slot(&self.provider, &self.model))
+            .cloned()
+            .unwrap_or_default();
+        cfg
+    }
 }
 
 /// Map key for [`LlmConfig::api_keys`]: keys are provider-scoped so the same
@@ -103,6 +153,7 @@ impl LlmConfig {
             pedantic_prompt: default_pedantic_prompt(),
             pedantic_ui_prompt: default_pedantic_ui_prompt(),
             pedantic_event_prompt: default_pedantic_event_prompt(),
+            model_profiles: Vec::new(),
         }
     }
 
@@ -144,11 +195,61 @@ impl LlmConfig {
         c.reviewer_model.clear();
         c.reviewer_endpoint.clear();
         c.api_keys.clear();
+        c.model_profiles.clear();
         c
     }
 
     pub fn is_configured(&self) -> bool {
         !self.provider.is_empty() && !self.model.is_empty()
+    }
+
+    /// Look up a model profile by id (spec 031).
+    pub fn profile(&self, id: &str) -> Option<&ModelProfile> {
+        self.model_profiles.iter().find(|p| p.id == id)
+    }
+
+    /// Return the id of an existing profile whose connection matches the given
+    /// tuple exactly, or create one and return its new id (spec 031 migration).
+    /// Idempotent: identical connections collapse onto one profile. The display
+    /// name is `"<provider> · <model>"`, de-duplicated with a numeric suffix.
+    pub fn find_or_create_profile(
+        &mut self,
+        provider: &str,
+        endpoint: &str,
+        model: &str,
+        temperature: f32,
+        max_tokens: u32,
+        timeout_secs: u32,
+    ) -> String {
+        if let Some(p) = self.model_profiles.iter().find(|p| {
+            p.provider == provider
+                && p.endpoint == endpoint
+                && p.model == model
+                && p.temperature == temperature
+                && p.max_tokens == max_tokens
+                && p.timeout_secs == timeout_secs
+        }) {
+            return p.id.clone();
+        }
+        let base = format!("{provider} · {model}");
+        let mut name = base.clone();
+        let mut n = 2;
+        while self.model_profiles.iter().any(|p| p.name == name) {
+            name = format!("{base} ({n})");
+            n += 1;
+        }
+        let id = crate::agents_db::new_uuid();
+        self.model_profiles.push(ModelProfile {
+            id: id.clone(),
+            name,
+            provider: provider.to_string(),
+            endpoint: endpoint.to_string(),
+            model: model.to_string(),
+            temperature,
+            max_tokens,
+            timeout_secs,
+        });
+        id
     }
     pub fn save(&self) -> Result<(), String> {
         let path = base_dir().join("llm_config.json");
@@ -1682,7 +1783,7 @@ pub fn spawn_list_models(
     rx
 }
 
-fn filter_retired_models(models: Vec<String>) -> Vec<String> {
+pub fn filter_retired_models(models: Vec<String>) -> Vec<String> {
     models
         .into_iter()
         .filter(|m| retired_model_message(m).is_none())
@@ -1759,6 +1860,44 @@ impl MeshSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_profile_roundtrips_and_resolves_key() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.api_keys
+            .insert(api_key_slot("anthropic", "claude-sonnet-5"), "sk-secret".into());
+        let id = cfg.find_or_create_profile(
+            "anthropic",
+            "https://api.anthropic.com/v1/messages",
+            "claude-sonnet-5",
+            0.7,
+            8192,
+            30,
+        );
+        // Serialises inside LlmConfig and comes back intact.
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: LlmConfig = serde_json::from_str(&json).unwrap();
+        let p = back.profile(&id).expect("profile persisted");
+        assert_eq!(p.model, "claude-sonnet-5");
+        // resolve() fills the connection and pulls the key from api_keys.
+        let resolved = p.resolve(&back);
+        assert_eq!(resolved.provider, "anthropic");
+        assert_eq!(resolved.model, "claude-sonnet-5");
+        assert_eq!(resolved.api_key, "sk-secret");
+    }
+
+    #[test]
+    fn find_or_create_profile_dedups_identical_configs() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        let a = cfg.find_or_create_profile("openai", "https://api.openai.com/v1", "gpt-x", 0.7, 8192, 30);
+        let b = cfg.find_or_create_profile("openai", "https://api.openai.com/v1", "gpt-x", 0.7, 8192, 30);
+        assert_eq!(a, b, "identical connection reuses the same profile");
+        assert_eq!(cfg.model_profiles.len(), 1);
+        // A different model id is a new profile.
+        let c = cfg.find_or_create_profile("openai", "https://api.openai.com/v1", "gpt-y", 0.7, 8192, 30);
+        assert_ne!(a, c);
+        assert_eq!(cfg.model_profiles.len(), 2);
+    }
 
     #[test]
     fn retired_qwen_coder_next_is_blocked_and_filtered() {

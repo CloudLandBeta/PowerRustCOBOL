@@ -56,6 +56,10 @@ pub const EVENT_HANDLER: &str = "COBOL Event Handler Script Agent";
 /// Canonical name of the Git/version-control specialist for the project repo.
 pub const VERSION_CONTROL: &str = "Version Control Agent";
 
+/// Canonical name of the form-design specialist. Fixed because Grace delegates
+/// form work to it by this exact name (spec 030 applies its approved output).
+pub const FORM_DESIGNER: &str = "Form Designer Agent";
+
 /// One agent's identity + runtime configuration (`agent.json`). The prompt
 /// text deliberately lives outside this struct, in `<name>_prompt.md`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -90,6 +94,12 @@ pub struct AgentDef {
     pub max_tokens: u32,
     #[serde(default = "default_timeout")]
     pub timeout_secs: u32,
+    /// Reference to a global [`ModelProfile`](crate::llm::ModelProfile) id
+    /// (spec 031). When set, the agent's runtime config resolves from that
+    /// profile; the embedded `provider`/`endpoint`/`model`/params above are then
+    /// dormant (kept only for migration + rollback). `None` on old manifests.
+    #[serde(default)]
+    pub model_profile: Option<String>,
     /// Free-text routing description (who calls it / whom it calls).
     #[serde(default)]
     pub routing: String,
@@ -290,6 +300,7 @@ impl AgentsDb {
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),
             timeout_secs: default_timeout(),
+            model_profile: None,
             routing: String::new(),
             companion: None,
             steering: Vec::new(),
@@ -455,6 +466,9 @@ impl AgentsDb {
                 d.max_tokens = llm.max_tokens;
                 d.timeout_secs = llm.timeout_secs;
                 d.routing = "Receives: user form requests".to_string();
+                // Observe-only live-UI tools (spec 030 R4/R5). Design edits still
+                // go through the reviewable change-set path, not the live UI.
+                d.tools = vec!["egui.tree".to_string(), "egui.rects".to_string()];
             }
             if llm.reviewer_configured() {
                 if let Ok(ped_id) = self.create_kinded(
@@ -544,7 +558,7 @@ impl AgentsDb {
                     v.temperature = llm.temperature;
                     v.max_tokens = llm.max_tokens;
                     v.timeout_secs = llm.timeout_secs;
-                    v.tools = vec!["git (project repository)".to_string()];
+                    v.tools = vec!["git (project repository)".to_string(), "git.run".to_string()];
                     v.routing = "Delegated by Grace · version-control for the project repo".to_string();
                 }
             }
@@ -596,7 +610,7 @@ impl AgentsDb {
                     v.temperature = temperature;
                     v.max_tokens = max_tokens;
                     v.timeout_secs = timeout_secs;
-                    v.tools = vec!["git (project repository)".to_string()];
+                    v.tools = vec!["git (project repository)".to_string(), "git.run".to_string()];
                     v.routing = "Delegated by Grace · version-control for the project repo".to_string();
                 }
                 let _ = self.save_all();
@@ -678,39 +692,32 @@ pub fn agent_effective_config(
     llm: &crate::llm::LlmConfig,
     agent_name: &str,
 ) -> Option<crate::llm::LlmConfig> {
-    let a = db.by_name(agent_name).filter(|a| {
-        a.enabled && !a.model.trim().is_empty() && !a.provider.trim().is_empty()
-    })?;
-    let mut cfg = llm.clone();
-    cfg.provider = a.provider.clone();
-    cfg.endpoint = a.endpoint.clone();
-    cfg.model = a.model.clone();
-    cfg.temperature = a.temperature;
-    cfg.max_tokens = a.max_tokens;
-    cfg.timeout_secs = a.timeout_secs;
-    cfg.api_key = llm
-        .api_keys
-        .get(&crate::llm::api_key_slot(&a.provider, &a.model))
-        .cloned()
-        .unwrap_or_else(|| llm.api_key.clone());
+    let a = db.by_name(agent_name).filter(|a| a.enabled)?;
+    let mut cfg = resolve_agent_connection(a, llm)?;
     let prompt = db.load_prompt(&a.name);
     if !prompt.trim().is_empty() {
         cfg.system_prompt = prompt;
     }
     // The agent's pedantic companion (when set) IS the reviewer: the COBOL
-    // proficiency check and every tandem loop resolve it from here, not from
-    // the legacy fixed-pair fields.
-    match a.companion.as_ref().and_then(|cid| db.by_id(cid)) {
-        Some(c) if c.enabled && !c.model.trim().is_empty() => {
-            cfg.reviewer_provider = c.provider.clone();
-            cfg.reviewer_endpoint = c.endpoint.clone();
-            cfg.reviewer_model = c.model.clone();
+    // proficiency check and every tandem loop resolve it from here. The
+    // companion's connection resolves from ITS OWN profile (spec 031 R12).
+    let companion = a
+        .companion
+        .as_ref()
+        .and_then(|cid| db.by_id(cid))
+        .filter(|c| c.enabled)
+        .and_then(|c| resolve_agent_connection(c, llm).map(|cc| (c, cc)));
+    match companion {
+        Some((c, cc)) => {
+            cfg.reviewer_provider = cc.provider.clone();
+            cfg.reviewer_endpoint = cc.endpoint.clone();
+            cfg.reviewer_model = cc.model.clone();
             let ped_prompt = db.load_prompt(&c.name);
             if !ped_prompt.trim().is_empty() {
                 cfg.pedantic_prompt = ped_prompt;
             }
         }
-        _ => {
+        None => {
             // No usable companion: the run is explicitly unreviewed (the
             // caller warns the user — unreviewed responses can be useless).
             cfg.reviewer_provider.clear();
@@ -719,6 +726,76 @@ pub fn agent_effective_config(
         }
     }
     Some(cfg)
+}
+
+/// Resolve an agent's connection (provider/endpoint/model/params + key) into an
+/// [`LlmConfig`] view (spec 031). Prefers the referenced **model profile**;
+/// falls back to the agent's dormant embedded fields for agents not yet
+/// migrated, so resolution never hard-breaks on upgrade. `None` when neither is
+/// configured (a clear "no model" state — spec 031 R8).
+pub fn resolve_agent_connection(
+    a: &AgentDef,
+    llm: &crate::llm::LlmConfig,
+) -> Option<crate::llm::LlmConfig> {
+    // A set profile reference is authoritative: if it dangles (the profile was
+    // deleted), the agent is "no model configured" (R8) — we do NOT silently
+    // fall back to stale embedded config in that case.
+    if let Some(id) = a.model_profile.as_ref() {
+        return llm.profile(id).map(|p| p.resolve(llm));
+    }
+    // No reference at all ⇒ un-migrated agent: fall back to its dormant embedded
+    // fields so resolution never hard-breaks on upgrade.
+    if !a.provider.trim().is_empty() && !a.model.trim().is_empty() {
+        let mut cfg = llm.clone();
+        cfg.provider = a.provider.clone();
+        cfg.endpoint = a.endpoint.clone();
+        cfg.model = a.model.clone();
+        cfg.temperature = a.temperature;
+        cfg.max_tokens = a.max_tokens;
+        cfg.timeout_secs = a.timeout_secs;
+        cfg.api_key = llm
+            .api_keys
+            .get(&crate::llm::api_key_slot(&a.provider, &a.model))
+            .cloned()
+            .unwrap_or_default();
+        return Some(cfg);
+    }
+    None
+}
+
+/// Whether an agent has a usable model configured (a profile reference or
+/// dormant embedded fields) — used for the "unreviewed" heuristic (spec 031).
+fn agent_has_model(a: &AgentDef) -> bool {
+    a.model_profile.is_some() || !a.model.trim().is_empty()
+}
+
+/// Migrate agents with embedded model config but no profile reference onto
+/// synthesised global [`ModelProfile`](crate::llm::ModelProfile)s (spec 031 R6):
+/// each distinct embedded connection becomes one profile (identical configs
+/// collapse), and the agent is pointed at it. Idempotent — agents that already
+/// reference a profile are left alone. Returns the number of agents migrated.
+/// The caller persists `llm` and the agents afterwards.
+pub fn migrate_to_profiles(db: &mut AgentsDb, llm: &mut crate::llm::LlmConfig) -> usize {
+    let mut migrated = 0;
+    for a in &mut db.agents {
+        if a.model_profile.is_some() {
+            continue;
+        }
+        if a.provider.trim().is_empty() || a.model.trim().is_empty() {
+            continue; // nothing to synthesise from
+        }
+        let id = llm.find_or_create_profile(
+            &a.provider,
+            &a.endpoint,
+            &a.model,
+            a.temperature,
+            a.max_tokens,
+            a.timeout_secs,
+        );
+        a.model_profile = Some(id);
+        migrated += 1;
+    }
+    migrated
 }
 
 /// Enabled primary agents (not companions of anyone) that have NO pedantic
@@ -733,7 +810,7 @@ pub fn unreviewed_primaries(db: &AgentsDb) -> Vec<String> {
                 && a.companion
                     .as_ref()
                     .and_then(|cid| db.by_id(cid))
-                    .map(|c| !c.enabled || c.model.trim().is_empty())
+                    .map(|c| !c.enabled || !agent_has_model(c))
                     .unwrap_or(true)
         })
         .map(|a| a.name.clone())
@@ -748,6 +825,89 @@ mod tests {
         let d = std::env::temp_dir().join(format!("prc_agents_{}", new_uuid()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    fn set_embedded(db: &mut AgentsDb, id: &str, provider: &str, endpoint: &str, model: &str) {
+        let a = db.agents.iter_mut().find(|x| x.id == id).unwrap();
+        a.provider = provider.into();
+        a.endpoint = endpoint.into();
+        a.model = model.into();
+    }
+
+    #[test]
+    fn migration_synthesises_minimal_profiles_and_preserves_config() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        // A and B share an identical embedded connection; C differs.
+        let a = db.create("A", "p").unwrap();
+        let b = db.create("B", "p").unwrap();
+        let c = db.create("C", "p").unwrap();
+        set_embedded(&mut db, &a, "prov", "https://e", "m1");
+        set_embedded(&mut db, &b, "prov", "https://e", "m1");
+        set_embedded(&mut db, &c, "prov", "https://e", "m2");
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+
+        // Effective model BEFORE migration (via embedded fallback).
+        let before: Vec<String> = ["A", "B", "C"]
+            .iter()
+            .map(|n| agent_effective_config(&db, &llm, n).unwrap().model)
+            .collect();
+
+        let migrated = migrate_to_profiles(&mut db, &mut llm);
+        assert_eq!(migrated, 3, "all three agents migrated");
+        assert_eq!(llm.model_profiles.len(), 2, "identical configs collapse to 2 profiles");
+        for n in ["A", "B", "C"] {
+            assert!(db.by_name(n).unwrap().model_profile.is_some(), "{n} references a profile");
+        }
+        // Effective config is unchanged post-migration (AC5 invariant).
+        let after: Vec<String> = ["A", "B", "C"]
+            .iter()
+            .map(|n| agent_effective_config(&db, &llm, n).unwrap().model)
+            .collect();
+        assert_eq!(before, after);
+        // Idempotent.
+        assert_eq!(migrate_to_profiles(&mut db, &mut llm), 0);
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn seeded_agents_migrate_onto_profiles_without_config_change() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider = "anthropic".into();
+        llm.model = "claude-sonnet-5".into();
+        llm.endpoint = "https://api.anthropic.com/v1/messages".into();
+        llm.reviewer_provider = "anthropic".into();
+        llm.reviewer_model = "claude-opus-4-8".into();
+        llm.reviewer_endpoint = llm.endpoint.clone();
+        let mut db = AgentsDb::load(&proj);
+        db.seed_from_legacy(&llm);
+
+        let before = designer_agent_config(&db, &llm).model;
+        let n = migrate_to_profiles(&mut db, &mut llm);
+        assert!(n >= 4, "seeded specialists + companions migrated onto profiles");
+        let d = db.by_name("Form Designer Agent").unwrap();
+        assert!(d.model_profile.is_some(), "seeded Form Designer references a profile (AC7)");
+        // Resolved config is unchanged, now via the profile.
+        assert_eq!(designer_agent_config(&db, &llm).model, before);
+        // No API key is ever stored in agent.json (AC4).
+        assert!(!serde_json::to_string(d).unwrap().contains("api_key"));
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn deleted_profile_leaves_agent_without_model() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        let a = db.create("A", "p").unwrap();
+        set_embedded(&mut db, &a, "prov", "https://e", "m1");
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        migrate_to_profiles(&mut db, &mut llm);
+        assert!(agent_effective_config(&db, &llm, "A").is_some(), "resolves via its profile");
+        // Delete the referenced profile → clear "no model" state, not a crash (R8).
+        llm.model_profiles.clear();
+        assert!(agent_effective_config(&db, &llm, "A").is_none());
+        let _ = std::fs::remove_dir_all(proj);
     }
 
     #[test]
@@ -863,6 +1023,17 @@ mod tests {
         assert_eq!(designer.companion.as_deref(), Some(ped.id.as_str()));
         assert_eq!(ped.model, "claude-opus-4-8");
         assert!(db.pair_rule_violation().is_none());
+        // spec 030 R2: seeded agents declare the concrete tool names governance
+        // recognises — VC gets git.run, the Form Designer gets the egui observers.
+        assert!(
+            db.by_name(VERSION_CONTROL).unwrap().tools.iter().any(|t| t == "git.run"),
+            "VC declares git.run"
+        );
+        assert!(
+            designer.tools.iter().any(|t| t == "egui.tree")
+                && designer.tools.iter().any(|t| t == "egui.rects"),
+            "Form Designer declares the egui observe tools"
+        );
         // Second call is a no-op (agents exist).
         assert_eq!(db.seed_from_legacy(&llm), 0);
         // R8: the designer flow resolves to the DB entry, and the DB

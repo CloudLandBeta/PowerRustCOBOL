@@ -52,6 +52,36 @@ pub fn latest_summary() -> Option<String> {
     cache().lock().unwrap().clone()
 }
 
+/// Execute an `egui.*` **observe-only** tool call for a specialist agent
+/// (spec 030 R4/R5). Reads the cached snapshot the main thread keeps fresh —
+/// worker-thread safe, and there is deliberately **no** mutation path here
+/// (design changes go through the reviewable change-set path, not the live UI).
+pub fn observe(tool: &str) -> crate::tool_exec::ToolResult {
+    use crate::tool_exec::ToolResult;
+    match tool {
+        // Both expose the cached widget census (role · label · rounded bounds);
+        // `rects` is an alias emphasising the geometry already carried per node.
+        "egui.tree" | "egui.rects" => match latest_summary() {
+            Some(s) => ToolResult::ok("read the live UI snapshot", s),
+            None => ToolResult::err(
+                "no live UI snapshot is available yet",
+                "The inspection snapshot has not been captured this session.".to_string(),
+            ),
+        },
+        other => ToolResult::err(
+            format!("unknown egui observe tool \u{201c}{other}\u{201d}"),
+            "Supported observe tools: egui.tree, egui.rects.".to_string(),
+        ),
+    }
+}
+
+/// Seed the snapshot cache directly. Test-only — production snapshots arrive
+/// through [`request_snapshot`] on the main thread.
+#[cfg(test)]
+pub fn set_cache_for_test(summary: Option<String>) {
+    *cache().lock().unwrap() = summary;
+}
+
 /// Condense a `Response::Tree` into an agent-friendly text block: one line
 /// per *named* node — role, label, rounded bounds — bounded by [`MAX_NODES`].
 fn summarize(resp: &Response) -> String {
@@ -87,4 +117,32 @@ fn summarize(resp: &Response) -> String {
         lines.len(),
         lines.join("\n"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn observe_returns_cached_census_and_is_read_only() {
+        // With a snapshot, egui.tree / egui.rects surface it as evidence.
+        set_cache_for_test(Some(
+            "LIVE UI TREE (frame 7, 1 named nodes shown):\nButton \"OK\" @[10,10 60x24]".into(),
+        ));
+        let tree = observe("egui.tree");
+        assert!(tree.ok);
+        assert!(tree.detail.contains("Button"), "census surfaced: {tree:?}");
+        let rects = observe("egui.rects");
+        assert!(rects.ok && rects.detail.contains("60x24"));
+
+        // With no snapshot, a clear (recoverable) message — never fabricated data.
+        set_cache_for_test(None);
+        let none = observe("egui.tree");
+        assert!(!none.ok && !none.critical);
+
+        // An unknown observe tool is rejected, not fabricated.
+        set_cache_for_test(Some("x".into()));
+        assert!(!observe("egui.click").ok, "there is no mutation/observe tool by that name");
+        set_cache_for_test(None);
+    }
 }

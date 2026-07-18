@@ -209,6 +209,8 @@ pub struct SettingsFormAction {
     pub fetch_models: bool,
     pub fetch_reviewer_models: bool,
     pub manage_agents: bool,
+    /// Open the Models Manager (spec 031).
+    pub manage_models: bool,
 }
 
 /// Common license identifiers offered in the dropdown.
@@ -886,9 +888,14 @@ impl SettingsForm {
                             ui.add_space(gap_after_resizer);
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                if ui.button(tr.agents_manage).clicked() {
-                                    action.manage_agents = true;
-                                }
+                                ui.horizontal(|ui| {
+                                    if ui.button(tr.agents_manage).clicked() {
+                                        action.manage_agents = true;
+                                    }
+                                    if ui.button(tr.models_manage).clicked() {
+                                        action.manage_models = true;
+                                    }
+                                });
                             });
                         });
 

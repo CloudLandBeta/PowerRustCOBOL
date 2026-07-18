@@ -26,6 +26,7 @@ pub mod project;
 pub mod properties;
 pub mod rounded_clip;
 pub mod agents_modal;
+pub mod models_modal;
 pub mod settings_form;
 pub mod toolbar;
 pub mod toolbox;

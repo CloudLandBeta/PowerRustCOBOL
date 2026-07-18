@@ -25,6 +25,7 @@ pub mod docs_embed;
 pub mod file_dialog;
 pub mod fonts;
 pub mod form_runtime;
+pub mod git_exec;
 pub mod i18n;
 pub mod inspector;
 pub mod llm;
@@ -34,6 +35,7 @@ mod project_model;
 mod runner;
 pub mod theme;
 pub mod theme_ui;
+pub mod tool_exec;
 pub mod version;
 pub mod welcome;
 
