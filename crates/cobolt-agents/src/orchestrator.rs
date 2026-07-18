@@ -578,11 +578,11 @@ fn provider_is_ollama(provider: &str) -> bool {
 /// hostname fragment — adding a provider is one row. `base` should already be
 /// trimmed and have no trailing slash.
 fn heal_endpoint_host(provider: &str, base: &str) -> String {
-    // (provider-name fragment, wrong host, canonical host)
-    const HEALS: &[(&str, &str, &str)] = &[
-        // Ollama Cloud shipped an early default pointing at the wrong host.
-        ("ollama", "api.ollama.com", "ollama.com"),
-    ];
+    // (provider-name fragment, wrong host, canonical host). Empty for now —
+    // Ollama Cloud's real host IS api.ollama.com (operator-confirmed), so it
+    // must NOT be rewritten. Kept as a generic, data-driven mechanism for any
+    // future provider that ships a wrong default.
+    const HEALS: &[(&str, &str, &str)] = &[];
     let p = provider.to_ascii_lowercase();
     let mut out = base.to_string();
     for (prov, wrong, right) in HEALS {
@@ -692,13 +692,13 @@ mod tests {
     #[test]
     fn host_healing_is_provider_scoped() {
         use super::heal_endpoint_host;
-        // Ollama-family: the early wrong host is corrected.
+        // Ollama Cloud's real host IS api.ollama.com — it must be left as-is.
         assert_eq!(
             heal_endpoint_host("ollama_cloud", "https://api.ollama.com/v1/chat/completions"),
-            "https://ollama.com/v1/chat/completions"
+            "https://api.ollama.com/v1/chat/completions"
         );
-        // A provider whose canonical host legitimately begins with `api.` is
-        // left untouched — the correction is keyed by provider name.
+        // Every provider's configured host is passed through unchanged; the
+        // heal table is a generic hook, currently empty.
         assert_eq!(
             heal_endpoint_host("openai", "https://api.openai.com/v1"),
             "https://api.openai.com/v1"

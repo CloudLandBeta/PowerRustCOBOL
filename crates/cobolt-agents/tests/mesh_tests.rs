@@ -94,14 +94,14 @@ fn router_recognizes_power_rust_cobol_languages() {
 }
 
 #[tokio::test]
-async fn ollama_cloud_wrong_host_is_healed_and_openai_wire_chosen() {
+async fn ollama_cloud_endpoint_used_as_is_with_openai_wire() {
     let orch = Orchestrator::new();
     let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let on_log = |line: String| lines.lock().unwrap().push(line);
     let mut req = probe_request("hello");
     req.provider = "ollama_cloud".into();
-    // The wrong host previously shipped as the provider default — it must be
-    // healed to ollama.com before the request is attempted.
+    // api.ollama.com is Ollama Cloud's real host — it must be used verbatim,
+    // and the explicit /v1/chat/completions suffix picks the OpenAI wire.
     req.endpoint = "https://api.ollama.com/v1/chat/completions".into();
     req.api_key = "test-key".into();
     let _ = orch.handle_request(&req, &on_log, &|_: &str| {}).await;
@@ -111,8 +111,8 @@ async fn ollama_cloud_wrong_host_is_healed_and_openai_wire_chosen() {
         .find(|l| l.starts_with("POST"))
         .expect("URL resolution must be logged");
     assert!(
-        post.contains("https://ollama.com/v1/chat/completions"),
-        "wrong host must heal to ollama.com: {post}"
+        post.contains("https://api.ollama.com/v1/chat/completions"),
+        "endpoint must be used as-is: {post}"
     );
     assert!(post.contains("openai wire format"), "{post}");
 }

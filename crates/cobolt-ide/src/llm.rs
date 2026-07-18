@@ -322,9 +322,8 @@ pub const PROVIDERS: &[Provider] = &[
     Provider {
         id: "ollama_cloud",
         label: "Ollama (Cloud)",
-        // ollama.com serves both the native API (/api) and an OpenAI-
-        // compatible one (/v1). NOT api.ollama.com — that host is wrong.
-        default_endpoint: "https://ollama.com/v1",
+        // Ollama Cloud's OpenAI-compatible chat endpoint (operator-confirmed).
+        default_endpoint: "https://api.ollama.com/v1/chat/completions",
     },
     Provider {
         id: "llamafile",

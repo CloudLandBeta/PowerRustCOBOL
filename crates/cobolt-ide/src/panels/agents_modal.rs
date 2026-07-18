@@ -164,6 +164,19 @@ impl AgentsModal {
             match rx.try_recv() {
                 Ok(Ok(models)) => {
                     self.models_msg = Some(format!("{} model(s) available", models.len()));
+                    // If the agent has no model yet, select the first fetched
+                    // one (and restore that model's key).
+                    if let Some(first) = models.first() {
+                        if let Some(a) = self.db.agents.get_mut(self.sel) {
+                            if a.model.trim().is_empty() {
+                                a.model = first.clone();
+                                let slot = api_key_slot(&a.provider, &a.model);
+                                self.key_buf =
+                                    llm.api_keys.get(&slot).cloned().unwrap_or_default();
+                                self.dirty = true;
+                            }
+                        }
+                    }
                     self.available_models = models;
                     self.models_rx = None;
                 }
@@ -531,13 +544,39 @@ impl AgentsModal {
                         ui.end_row();
                         ui.label(tr.agents_kind);
                         {
-                            let a = &self.db.agents[sel];
-                            let kind_label = match a.kind {
-                                crate::agents_db::AgentKind::Orchestrator => tr.agents_kind_orchestrator,
-                                crate::agents_db::AgentKind::Specialist => tr.agents_kind_specialist,
-                                crate::agents_db::AgentKind::Pedantic => tr.agents_kind_pedantic,
-                            };
-                            ui.label(kind_label);
+                            use crate::agents_db::AgentKind;
+                            let a = &mut self.db.agents[sel];
+                            if a.kind == AgentKind::Orchestrator {
+                                // Grace's kind is fixed.
+                                ui.label(tr.agents_kind_orchestrator);
+                            } else {
+                                // Specialist ↔ Pedantic is editable, so a user
+                                // can designate a pedantic reviewer that then
+                                // appears in the companion picker.
+                                let cur = if a.kind == AgentKind::Pedantic {
+                                    tr.agents_kind_pedantic
+                                } else {
+                                    tr.agents_kind_specialist
+                                };
+                                egui::ComboBox::from_id_salt("ag_kind")
+                                    .selected_text(cur)
+                                    .show_ui(ui, |ui| {
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut a.kind,
+                                                AgentKind::Specialist,
+                                                tr.agents_kind_specialist,
+                                            )
+                                            .changed();
+                                        changed |= ui
+                                            .selectable_value(
+                                                &mut a.kind,
+                                                AgentKind::Pedantic,
+                                                tr.agents_kind_pedantic,
+                                            )
+                                            .changed();
+                                    });
+                            }
                         }
                         ui.end_row();
                         ui.label(tr.agents_specialization);
@@ -619,6 +658,21 @@ impl AgentsModal {
                                 .changed();
                         }
                         ui.end_row();
+                        // API key comes BEFORE the model: fetching the model
+                        // list needs the key. Hint on its own row so the label
+                        // stays aligned with the input.
+                        ui.label(tr.settings_ai_api_key);
+                        changed |= ui
+                            .add(
+                                egui::TextEdit::singleline(&mut self.key_buf)
+                                    .password(true)
+                                    .desired_width(f32::INFINITY),
+                            )
+                            .changed();
+                        ui.end_row();
+                        ui.label("");
+                        ui.weak(tr.agents_key_hint);
+                        ui.end_row();
                         ui.label(tr.settings_ai_model);
                         {
                             let a = &mut self.db.agents[sel];
@@ -648,14 +702,12 @@ impl AgentsModal {
                                             }
                                         });
                                 }
-                                // Force-load the provider's models.
+                                // Force-load the provider's models. The label
+                                // already carries the ⟳ glyph.
                                 if ui
                                     .add_enabled(
                                         self.models_rx.is_none(),
-                                        egui::Button::new(format!(
-                                            "⟳ {}",
-                                            tr.settings_ai_refresh
-                                        )),
+                                        egui::Button::new(tr.settings_ai_refresh),
                                     )
                                     .on_hover_text(tr.settings_ai_refresh_models)
                                     .clicked()
@@ -677,18 +729,6 @@ impl AgentsModal {
                                     llm.api_keys.get(&slot).cloned().unwrap_or_default();
                             }
                         }
-                        ui.end_row();
-                        ui.label(tr.settings_ai_api_key);
-                        ui.vertical(|ui| {
-                            changed |= ui
-                                .add(
-                                    egui::TextEdit::singleline(&mut self.key_buf)
-                                        .password(true)
-                                        .desired_width(f32::INFINITY),
-                                )
-                                .changed();
-                            ui.weak(tr.agents_key_hint);
-                        });
                         ui.end_row();
                         ui.label(tr.agents_sampling);
                         {
