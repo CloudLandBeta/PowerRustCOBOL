@@ -536,11 +536,14 @@ impl AgentsModal {
                         ui.label(tr.agents_id);
                         ui.monospace(&agent.id);
                         ui.end_row();
+                        // Name + its hint on separate rows so the label stays
+                        // aligned with the value (egui Grid centers a cell whose
+                        // content is taller — a value+subtext stack).
                         ui.label(tr.agents_name);
-                        ui.vertical(|ui| {
-                            ui.monospace(&agent.name);
-                            ui.weak(tr.agents_name_hint);
-                        });
+                        ui.monospace(&agent.name);
+                        ui.end_row();
+                        ui.label("");
+                        ui.weak(tr.agents_name_hint);
                         ui.end_row();
                         ui.label(tr.agents_kind);
                         {
