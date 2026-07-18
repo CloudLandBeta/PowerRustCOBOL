@@ -393,13 +393,17 @@ impl AgentsModal {
                             a.model.clone(),
                             a.provider.clone(),
                             a.enabled,
-                            self.db.is_companion(&a.id) || a.kind == crate::agents_db::AgentKind::Pedantic,
+                            // Linked companion = some primary points at it.
+                            self.db.is_companion(&a.id),
                             a.kind,
                         )
                     })
                     .collect();
-                for (i, name, model, provider, enabled, _is_comp, kind) in entries {
+                for (i, name, model, provider, enabled, is_linked_companion, kind) in entries {
                     let selected = i == self.sel;
+                    // A pedantic reviewer not attached to any primary — flagged.
+                    let orphan_pedantic =
+                        kind == crate::agents_db::AgentKind::Pedantic && !is_linked_companion;
                     let dot = if enabled { "●" } else { "○" };
                     let badge = match kind {
                         crate::agents_db::AgentKind::Orchestrator => "👑 ",
@@ -437,6 +441,12 @@ impl AgentsModal {
                         } else {
                             (egui::Color32::WHITE, egui::Color32::from_gray(210))
                         }
+                    } else if orphan_pedantic {
+                        // Unassociated pedantic reviewer — red foreground.
+                        (
+                            egui::Color32::from_rgb(224, 120, 120),
+                            egui::Color32::from_rgb(176, 96, 96),
+                        )
                     } else {
                         (
                             ui.visuals().text_color().gamma_multiply(0.55),
@@ -472,22 +482,30 @@ impl AgentsModal {
                     // MORE than is available — the pane is never pushed wider.
                     const HPAD: f32 = 10.0;
                     const VPAD: f32 = 6.0;
+                    // Linked companions are indented under their primary.
+                    let indent = if is_linked_companion { 22.0 } else { 0.0 };
                     let full_w = ui.available_width();
                     let row_h = galley.size().y + 2.0 * VPAD;
-                    let (rect, resp) =
+                    let (outer, resp) =
                         ui.allocate_exact_size(egui::vec2(full_w, row_h), egui::Sense::click());
+                    // The button box is inset by the indent; the row still spans
+                    // the full width so vertical layout advances correctly.
+                    let rect =
+                        egui::Rect::from_min_max(outer.min + egui::vec2(indent, 0.0), outer.max);
                     if ui.is_rect_visible(rect) {
                         let p = ui.painter();
                         if selected {
                             p.rect_filled(rect, egui::CornerRadius::same(8), sel_fill);
                         } else {
+                            let stroke_color = if orphan_pedantic {
+                                egui::Color32::from_rgb(200, 96, 96)
+                            } else {
+                                ui.visuals().weak_text_color().gamma_multiply(0.5)
+                            };
                             p.rect_stroke(
                                 rect,
                                 egui::CornerRadius::same(8),
-                                egui::Stroke::new(
-                                    1.0,
-                                    ui.visuals().weak_text_color().gamma_multiply(0.5),
-                                ),
+                                egui::Stroke::new(1.0, stroke_color),
                                 egui::StrokeKind::Inside,
                             );
                         }
