@@ -29,6 +29,9 @@ pub struct AgentsModal {
     filter: String,
     /// `Some(name-in-progress)` while the ＋ New inline row is active.
     new_name: Option<String>,
+    /// Kind chosen for the agent being created in the ＋ New row (so a pedantic
+    /// reviewer can be created directly, not created-then-converted).
+    new_kind: crate::agents_db::AgentKind,
     confirm_delete: bool,
     error: Option<String>,
     /// `true` once anything changed (enables Apply).
@@ -85,6 +88,7 @@ impl AgentsModal {
             key_buf: String::new(),
             filter: String::new(),
             new_name: None,
+            new_kind: crate::agents_db::AgentKind::Specialist,
             confirm_delete: false,
             error: None,
             dirty: seeded > 0,
@@ -297,15 +301,18 @@ impl AgentsModal {
             );
             if ui.button(format!("＋ {}", tr.agents_new)).clicked() {
                 self.new_name = Some(String::new());
+                self.new_kind = crate::agents_db::AgentKind::Specialist;
                 self.error = None;
             }
         });
         // Inline "new agent" row: the name is asked once and is immutable.
-        if let Some(name) = &mut self.new_name {
+        if self.new_name.is_some() {
+            use crate::agents_db::AgentKind;
             ui.add_space(4.0);
             let mut create = false;
             let mut cancel = false;
             ui.horizontal(|ui| {
+                let name = self.new_name.as_mut().unwrap();
                 let resp = ui.add(
                     egui::TextEdit::singleline(name)
                         .hint_text(tr.agents_new_name_hint)
@@ -315,10 +322,26 @@ impl AgentsModal {
                     || ui.button("✔").clicked();
                 cancel = ui.button("✖").clicked();
             });
+            // Kind: create the agent directly as a Specialist or a Pedantic
+            // reviewer (a Pedantic then appears in specialists' companion picker).
+            ui.horizontal(|ui| {
+                ui.label(tr.agents_kind);
+                egui::ComboBox::from_id_salt("new_agent_kind")
+                    .selected_text(if self.new_kind == AgentKind::Pedantic {
+                        tr.agents_kind_pedantic
+                    } else {
+                        tr.agents_kind_specialist
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.new_kind, AgentKind::Specialist, tr.agents_kind_specialist);
+                        ui.selectable_value(&mut self.new_kind, AgentKind::Pedantic, tr.agents_kind_pedantic);
+                    });
+            });
             if create {
                 let name = self.new_name.take().unwrap_or_default();
+                let kind = self.new_kind;
                 self.stash_selected(llm);
-                match self.db.create(&name, "") {
+                match self.db.create_kinded(&name, "", kind, "") {
                     Ok(id) => {
                         self.dirty = true;
                         self.error = None;

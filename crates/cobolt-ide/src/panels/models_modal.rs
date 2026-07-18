@@ -36,16 +36,12 @@ pub struct ModelsModal {
     /// In-flight test-connection request.
     test_rx: Option<Receiver<LlmResponse>>,
     test_msg: Option<String>,
-    /// Drained into the returned action (run the proficiency benchmark).
-    pending_proficiency: Option<LlmConfig>,
 }
 
 #[derive(Default)]
 pub struct ModelsModalAction {
     /// A profile connection changed — persist `LlmConfig`.
     pub applied: bool,
-    /// Run the COBOL proficiency check for this profile's resolved config.
-    pub run_proficiency: Option<LlmConfig>,
 }
 
 impl ModelsModal {
@@ -61,7 +57,6 @@ impl ModelsModal {
             models_msg: None,
             test_rx: None,
             test_msg: None,
-            pending_proficiency: None,
         }
     }
 
@@ -111,13 +106,14 @@ impl ModelsModal {
         let mut do_new = false;
         let mut do_duplicate = false;
         let mut do_delete = false;
-        let mut do_proficiency = false;
 
+        // Fixed size: the modal must not self-inflate. It opens at a set size and
+        // its inner lists scroll rather than pushing the window taller.
         egui::Window::new(format!("🧠 {}", tr.models_title))
             .open(&mut open)
             .collapsible(false)
-            .resizable(true)
-            .default_size([720.0, 520.0])
+            .resizable(false)
+            .fixed_size([780.0, 560.0])
             .show(ctx, |ui| {
                 if self.sel >= llm.model_profiles.len() {
                     self.sel = llm.model_profiles.len().saturating_sub(1);
@@ -297,9 +293,6 @@ impl ModelsModal {
                             if ui.button(format!("🔌 {}", tr.settings_ai_test)).clicked() {
                                 do_test = true;
                             }
-                            if ui.button(format!("🎓 {}", tr.agents_check_proficiency)).clicked() {
-                                do_proficiency = true;
-                            }
                             if ui.button(format!("⧉ {}", tr.models_duplicate)).clicked() {
                                 do_duplicate = true;
                             }
@@ -405,16 +398,10 @@ impl ModelsModal {
                 self.test_rx = Some(crate::llm::spawn_test(&p.resolve(llm)));
             }
         }
-        if do_proficiency {
-            if let Some(p) = llm.model_profiles.get(self.sel) {
-                self.pending_proficiency = Some(p.resolve(llm));
-            }
-        }
 
         if !open {
             self.open = false;
         }
-        action.run_proficiency = self.pending_proficiency.take();
         action
     }
 }

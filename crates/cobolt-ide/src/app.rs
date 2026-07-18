@@ -5788,16 +5788,6 @@ impl CoboltApp {
             if act.applied {
                 let _ = self.llm.save();
             }
-            if let Some(cfg) = act.run_proficiency {
-                if !cfg.reviewer_configured() {
-                    let tr = self.lang.tr();
-                    self.output
-                        .push_status(tr.agents_unreviewed_warning.replacen("{}", &cfg.model, 1));
-                }
-                self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
-                self.llm_benchmark_config = Some(cfg.clone());
-                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
-            }
             ctx.request_repaint();
         }
         if self.llm_test_rx.is_some() || self.llm_models_rx.is_some() {
