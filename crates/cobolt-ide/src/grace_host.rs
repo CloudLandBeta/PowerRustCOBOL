@@ -410,7 +410,37 @@ fn validate_indexed_file_coordination(request: &str, plan: &[TaskSpec]) -> Resul
     Ok(())
 }
 
-fn validate_workflow_coordination(request: &str, plan: &[TaskSpec]) -> Result<(), String> {
+/// A Pedantic agent is a companion reviewer, never a task agent. Grace
+/// sometimes plans a redundant "review the completed work" task assigning the
+/// reviewer as the responsible agent; every task already carries its reviewer,
+/// so that task is duplicate work. It also fails: reviewers are provisioned
+/// with no model of their own (they inherit the reviewer config), so running
+/// one through the specialist path resolves an empty provider/model/key and the
+/// request is rejected by the provider.
+fn validate_no_pedantic_task_agent(db: &AgentsDb, plan: &[TaskSpec]) -> Result<(), String> {
+    for task in plan {
+        let is_pedantic = db
+            .by_name(&task.agent)
+            .map(|agent| agent.kind == AgentKind::Pedantic)
+            .unwrap_or(false);
+        if is_pedantic {
+            return Err(format!(
+                "task {} assigns Pedantic reviewer \"{}\" as its responsible agent; a Pedantic agent \
+                 only reviews as a companion. Assign the task to the specialist that owns the work \
+                 and name the reviewer in that task's `reviewer` field instead.",
+                task.id, task.agent
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_workflow_coordination(
+    db: &AgentsDb,
+    request: &str,
+    plan: &[TaskSpec],
+) -> Result<(), String> {
+    validate_no_pedantic_task_agent(db, plan)?;
     validate_documentation_coordination(request, plan)?;
     validate_indexed_file_coordination(request, plan)
 }
@@ -505,6 +535,11 @@ impl DbAgentInvoker {
 impl AgentInvoker for DbAgentInvoker {
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
         let (cfg, core_instructions, skills) = self.config_for(agent)?;
+        // Report a blank credential as itself rather than letting the provider
+        // answer 401, which reads like an account problem.
+        if let Some(gap) = crate::llm::credential_gap(&cfg) {
+            return Err(format!("{agent}: {gap}"));
+        }
         let final_system = if system.trim().is_empty() {
             &core_instructions
         } else {
@@ -819,7 +854,8 @@ pub fn run_grace_workflow_with_context(
             })?
         }
     };
-    if let Err(defect) = validate_workflow_coordination(request, &plan) {
+    let plan_db = AgentsDb::load(project_dir);
+    if let Err(defect) = validate_workflow_coordination(&plan_db, request, &plan) {
         on_progress(format!(
             "Grace's plan violated a coordination contract: {defect}. Requesting a corrected plan."
         ));
@@ -828,7 +864,7 @@ pub fn run_grace_workflow_with_context(
         );
         let corrected_reply = invoker.invoke(GRACE, "", &correction)?;
         (workflow_id, plan) = cobolt_agents::grace::parse_plan(&corrected_reply)?;
-        validate_workflow_coordination(request, &plan).map_err(|error| {
+        validate_workflow_coordination(&plan_db, request, &plan).map_err(|error| {
             format!("Grace's corrected plan still violates a coordination contract: {error}")
         })?;
     }
@@ -1263,7 +1299,12 @@ mod tests {
             &[documentation.clone(), data.clone()]
         )
         .is_ok());
+        let empty_db = AgentsDb::load(&std::env::temp_dir().join(format!(
+            "prc-coord-{}",
+            crate::agents_db::new_uuid()
+        )));
         let coordinated = validate_workflow_coordination(
+            &empty_db,
             "Create an indexed file containing detailed company and Spanish fiscal information",
             &[documentation, data],
         );
@@ -1296,6 +1337,47 @@ mod tests {
             &inspection
         )
         .is_ok());
+    }
+
+    /// Grace planned a second "review the completed change" task with the
+    /// Pedantic reviewer as its responsible agent. Reviewers have no model of
+    /// their own, so the specialist path resolves empty credentials and the
+    /// provider rejects the call — the workflow dies after the real work passed.
+    #[test]
+    fn a_pedantic_reviewer_may_not_be_a_task_agent() {
+        let project = std::env::temp_dir()
+            .join(format!("prc-pedantic-task-{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&project).unwrap();
+        let mut db = AgentsDb::load(&project);
+        db.ensure_fixed_agents(&LlmConfig::load_defaults_for_test());
+
+        let review_task = TaskSpec {
+            id: "T2".into(),
+            agent: crate::agents_db::PEDANTIC_FORM_DESIGNER_REVIEWER.into(),
+            objective: "Review the completed ACTORS-FORM style change".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec!["T1".into()],
+            acceptance: "Explicit approval of the final form state".into(),
+        };
+        let rejected = validate_no_pedantic_task_agent(&db, &[review_task]);
+        assert!(
+            rejected.is_err(),
+            "a Pedantic reviewer assigned as a task agent must be rejected"
+        );
+
+        // The legitimate shape — specialist owns the task, reviewer reviews it.
+        let proper = TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::FORM_DESIGNER.into(),
+            objective: "Set Form.GlassStyle to \"Neumorphic Dark\"".into(),
+            context: String::new(),
+            reviewer: Some(crate::agents_db::PEDANTIC_FORM_DESIGNER_REVIEWER.into()),
+            depends_on: vec![],
+            acceptance: "GlassStyle is exactly \"Neumorphic Dark\"".into(),
+        };
+        assert!(validate_no_pedantic_task_agent(&db, &[proper]).is_ok());
+        let _ = std::fs::remove_dir_all(&project);
     }
 
     #[test]

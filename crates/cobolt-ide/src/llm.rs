@@ -462,12 +462,20 @@ fn config_backup_path(path: &Path) -> PathBuf {
     path.with_file_name(format!("{name}.bak"))
 }
 
+/// Staging path for one atomic config write. The suffix is unique per call:
+/// `File::create` truncates, so a shared temp name lets two concurrent writers
+/// interleave into the same staging file and publish a corrupt primary on
+/// rename. A corrupt primary falls back to the backup — and if that is also
+/// unusable, to `defaults()`, whose `api_keys` are empty. Requests then go out
+/// with a blank credential and the provider answers 401.
 fn config_temp_path(path: &Path) -> PathBuf {
+    static WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("llm_config.json");
-    path.with_file_name(format!("{name}.tmp"))
+    let seq = WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    path.with_file_name(format!("{name}.{}.{seq}.tmp", std::process::id()))
 }
 
 fn read_config_file(path: &Path) -> Option<LlmConfig> {
@@ -518,7 +526,11 @@ fn write_config_file(path: &Path, data: &[u8]) -> Result<(), String> {
             }
             Ok(())
         }
-        Err(e) => Err(e.to_string()),
+        Err(e) => {
+            // A unique staging file is ours alone; do not leave it behind.
+            let _ = std::fs::remove_file(&temp);
+            Err(e.to_string())
+        }
     }
 }
 
@@ -838,6 +850,28 @@ fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
         max_tokens: cfg.max_tokens,
         verbose: cfg.verbose_log,
     }
+}
+
+/// Describe a missing credential BEFORE the request goes out, so a blank key
+/// surfaces as a configuration problem instead of an opaque provider 401
+/// ("insufficient permissions"), which reads like an account issue and sends
+/// the developer looking in the wrong place. Local providers legitimately need
+/// no key, so only remote endpoints are checked.
+pub fn credential_gap(cfg: &LlmConfig) -> Option<String> {
+    if !cfg.api_key.trim().is_empty() {
+        return None;
+    }
+    let endpoint = cfg.endpoint.trim().to_ascii_lowercase();
+    let local = endpoint.contains("localhost") || endpoint.contains("127.0.0.1");
+    if local || endpoint.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "no API key is configured for provider \"{}\" model \"{}\" ({}). \
+         The request was not sent. Add the key in the Models manager — a blank \
+         credential is rejected by the provider as an authorization failure.",
+        cfg.provider, cfg.model, cfg.endpoint
+    ))
 }
 
 pub fn spawn_agent_request(
@@ -2714,6 +2748,44 @@ mod tests {
         assert_eq!(resolved.provider, "anthropic");
         assert_eq!(resolved.model, "claude-sonnet-5");
         assert_eq!(resolved.api_key, "sk-secret");
+    }
+
+    /// A blank credential must be named as such. Sent as-is it returns a
+    /// provider 401 ("insufficient permissions"), which reads as an account
+    /// problem and hides the real cause.
+    #[test]
+    fn a_blank_remote_credential_is_reported_before_the_request() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.provider = "openai".into();
+        cfg.model = "gpt-5".into();
+        cfg.endpoint = "https://api.openai.com/v1/chat/completions".into();
+
+        cfg.api_key = String::new();
+        let gap = credential_gap(&cfg).expect("a blank remote key must be reported");
+        assert!(gap.contains("no API key"), "{gap}");
+        assert!(gap.contains("gpt-5"), "names the model: {gap}");
+
+        cfg.api_key = "sk-present".into();
+        assert!(credential_gap(&cfg).is_none(), "a configured key passes");
+
+        // Local providers legitimately run without a credential.
+        cfg.api_key = String::new();
+        cfg.endpoint = "http://localhost:11434/api/chat".into();
+        assert!(credential_gap(&cfg).is_none(), "local needs no key");
+    }
+
+    /// Concurrent writers must not share one staging file: `File::create`
+    /// truncates, so a fixed name lets two writes interleave and publish a
+    /// corrupt config, which degrades to defaults with no api_keys.
+    #[test]
+    fn each_config_write_stages_through_its_own_temp_file() {
+        let path = std::env::temp_dir().join("llm_config.json");
+        let a = config_temp_path(&path);
+        let b = config_temp_path(&path);
+        assert_ne!(a, b, "staging paths must be unique per write");
+        for staged in [&a, &b] {
+            assert!(staged.to_string_lossy().ends_with(".tmp"));
+        }
     }
 
     #[test]

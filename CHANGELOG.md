@@ -8,6 +8,29 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.57] — 2026-07-19
+
+### Fixed
+
+- **Intermittent 401 from the model provider** — Every config write staged
+  through one shared `llm_config.json.tmp`. `File::create` truncates, so two
+  concurrent writes could interleave into that staging file and publish a
+  corrupt primary config on rename. A corrupt primary falls back to the backup,
+  and if that is also unusable, to defaults — whose `api_keys` are empty.
+  Requests then went out with a blank credential and the provider answered
+  `401 insufficient permissions`, which reads like an account problem. Each
+  write now stages through its own file.
+- **Blank credentials are reported as themselves** — A request with no API key
+  for a remote endpoint is refused before it is sent, naming the provider,
+  model, and endpoint, instead of surfacing the provider's opaque 401. Local
+  providers, which need no key, are unaffected.
+- **Pedantic reviewers may not be task agents** — Grace sometimes planned a
+  redundant "review the completed work" task with the Pedantic reviewer as its
+  responsible agent. Every task already carries its reviewer, and reviewers are
+  provisioned with no model of their own, so that task also resolved empty
+  credentials and failed. Such a plan is now rejected and Grace is asked to
+  reassign the work to the owning specialist.
+
 ## [PowerRustCOBOL 1.30.56] — 2026-07-19
 
 ### Fixed
