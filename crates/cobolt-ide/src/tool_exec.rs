@@ -160,6 +160,20 @@ Create or replace one complete definition with `indexed_file.write`:
 ```
 `alternate_keys` entries use `{"field":"FIELD-NAME","duplicates":false}`. Set `finalized` explicitly when needed; new definitions default to finalized after validation. Every ID field requires an `id_definitions` entry whose value is either `UUID` or the exact `PIC ...` chosen by the developer. The `normalization` object must contain non-empty `1nf`, `2nf`, and `3nf` decisions from the approved Documentation Agent handoff. The write validates the COBOL record and key fields, saves the `.cidx`, and regenerates Indexed File UI COBOL/copybook artifacts. Finalized definitions preserve the Indexed File UI lock and reject structural changes. A helper normalized relation is a separate `indexed_file.write` call. Use TOOL RESULTS as evidence and never claim a file changed without a successful result."#;
 
+/// How a Form Designer submission must encode its edits. Only this JSON shape
+/// is parsed and applied (`crate::agent::parse_change_set`); prose, tables, or
+/// invented operation names apply nothing. Appended to the Form Designer's
+/// system prompt at delegation time so the schema it is told to emit is the
+/// schema the applier actually accepts.
+pub const CHANGE_SET_CONTRACT: &str = "\n\n--- Change-set contract (how your edits are applied) ---\nYour edits take effect ONLY when your final reply ends with exactly one fenced JSON block of this shape:\n```json\n{\"operations\": [ /* zero or more operations, applied in order */ ]}\n```\nEach operation is exactly one of:\n- `{\"op\":\"deploy_control\",\"control_type\":\"Button\",\"id\":\"SAVE-BUTTON\",\"properties\":{\"Caption\":\"Save\",\"X\":300,\"Y\":240}}`\n- `{\"op\":\"set_property\",\"control_id\":\"TOTAL-LABEL\",\"key\":\"ForegroundColor\",\"value\":\"#008000\"}`\n- `{\"op\":\"generate_event_handler\",\"control_id\":\"SAVE-BUTTON\",\"event\":\"onClick\",\"code\":\"…\"}`\n- `{\"op\":\"create_procedure\",\"name\":\"VALIDATE-INPUT\",\"code\":\"…\"}`\n\nUse `\"control_id\":\"Form\"` to set a form-level property such as GlassStyle.\n\nThere are no other operation names. `UPDATE_FORM_PROPERTY`, `UPDATE_CONTROL_PROPERTIES`, and `UPDATE_FORM_STYLE` do not exist and are silently discarded. A description of a change — a table, a bullet list, prose — is NOT a change. Keep the change-set minimal: emit only the operations the developer asked for.";
+
+/// The hard boundary between the developer's project (which agents build) and
+/// the PowerRustCOBOL IDE itself (which they never touch). Appended to EVERY
+/// delegated agent's system prompt, regardless of which tools it declares,
+/// because the read-only `egui.*` inspection tools observe the live IDE window
+/// and could otherwise be mistaken for a licence to restyle or reconfigure it.
+pub const PROJECT_SCOPE_BOUNDARY: &str = "\n\n--- Project scope boundary (absolute) ---\nEverything you create or modify belongs to the DEVELOPER'S OPEN PROJECT. The PowerRustCOBOL IDE / RAD Form Designer is the tool you are running inside; it is NOT part of the application being built and is permanently off limits.\n\nYou MAY, within the open project: create and modify forms and their controls; set form and control properties; wire events for controls deployed on a project form; create and modify indexed-file definitions; write project documentation and Knowledge Base files; generate and edit project COBOL sources; run version-control operations on the project repository.\n\nYou MUST NOT, under any circumstances: change the IDE's own appearance, theme, layout, panels, fonts, or window chrome; change IDE settings, preferences, or configuration; add, remove, rename, retune, or reconfigure agents, their prompts, their tools, or their model profiles; modify the PowerRustCOBOL source repository, its build files, or its own documentation.\n\nWhen a form-level property such as GlassStyle or Theme is requested, it applies to the PROJECT FORM named in your task context — never to the IDE. The `egui.*` tools render the live IDE window for observation only; IDE widgets that appear in their output (toolbox buttons, project rails, chat controls, settings panels) are never valid targets and must never appear in a change-set.\n\nIf a request would require any prohibited change, do not attempt it and do not approximate it. Report to Grace that the request falls outside the project scope, and state plainly what was asked for.";
+
 /// A machine-readable appendix describing HOW to call the tools an agent has
 /// been granted (spec 030 R2 tooling contract). Appended to the agent's system
 /// prompt at delegation time so the contract always matches the agent's actual
@@ -1364,6 +1378,38 @@ mod tests {
             res.critical,
             "an unknown tool namespace is a critical defect"
         );
+    }
+
+    /// The boundary is what keeps agents inside the developer's project, so it
+    /// must state both halves: what they own, and that the IDE is off limits.
+    #[test]
+    fn scope_boundary_forbids_touching_the_ide() {
+        let b = PROJECT_SCOPE_BOUNDARY;
+        assert!(b.contains("DEVELOPER'S OPEN PROJECT"));
+        for allowed in ["forms", "indexed-file", "Knowledge Base", "events"] {
+            assert!(b.contains(allowed), "boundary must permit {allowed} work");
+        }
+        for forbidden in ["off limits", "IDE settings", "model profiles"] {
+            assert!(b.contains(forbidden), "boundary must forbid {forbidden}");
+        }
+        // The boundary is unconditional — it is not part of any tool contract,
+        // so an agent with no declared tools still receives it.
+        assert!(!tool_contract_appendix(&declared(&[])).contains("off limits"));
+    }
+
+    #[test]
+    fn change_set_contract_teaches_only_real_operations() {
+        let c = CHANGE_SET_CONTRACT;
+        for op in [
+            "deploy_control",
+            "set_property",
+            "generate_event_handler",
+            "create_procedure",
+        ] {
+            assert!(c.contains(op), "contract must document {op}");
+        }
+        assert!(c.contains("\\\"control_id\\\":\\\"Form\\\"") || c.contains("control_id"));
+        assert!(c.contains("UPDATE_FORM_PROPERTY"), "names the trap it closes");
     }
 
     #[test]

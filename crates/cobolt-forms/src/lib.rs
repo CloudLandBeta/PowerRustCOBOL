@@ -35,7 +35,7 @@ pub use model::{
     BindingSourceDescriptor, BindingSourceKind, BindingSourceMetadata, BindingTargetDescriptor,
     BindingTargetPath, BindingUpdateMetadata, BindingValidationSnapshot, Control, ControlType,
     DataBindingDef, DataGridAdvanced, DataGridColumn, DataGridFilter, EventBinding, FieldMapping,
-    Form, GuardianFinding, GuardianSeverity, MappingCompatibility, PropValue, Rect,
+    Form, GlassStyle, GuardianFinding, GuardianSeverity, MappingCompatibility, PropValue, Rect,
     DATAGRID_ADVANCED_PROP, DATA_BINDING_SCHEMA_VERSION,
 };
 pub use xml::{load_form, load_form_from_str, save_form, FormError};

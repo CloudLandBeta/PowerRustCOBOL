@@ -3856,6 +3856,17 @@ pub enum GlassStyle {
 }
 
 impl GlassStyle {
+    /// Every selectable style, in the exact spelling `from_str` accepts and
+    /// `as_str` returns. Agents are shown this list so they never invent an
+    /// identifier — `from_str` silently falls back to `Classic`, so a wrong
+    /// spelling is not an error the caller can observe.
+    pub const ALL: &'static [&'static str] = &[
+        "Classic",
+        "Enhanced",
+        "Neumorphic Light",
+        "Neumorphic Dark",
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             GlassStyle::Classic => "Classic",

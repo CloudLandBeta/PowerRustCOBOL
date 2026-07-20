@@ -8,6 +8,39 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.55] — 2026-07-19
+
+### Fixed
+
+- **Agent form-style requests** — Asking Grace to restyle a form (for example
+  "change the form theme to neumorphic dark") now applies. The agent prompts
+  named the wrong property and an operation the applier never accepted, so the
+  work was discarded even when the reasoning was right. Restyling is now the
+  form-level `GlassStyle` property, set with a single `set_property` operation
+  targeting `Form`, and the accepted values are stated exactly as the parser
+  spells them — an unrecognised value silently fell back to `Classic`.
+- **Form Designer change-set schema** — The Form Designer Agent is now told the
+  change-set schema its submissions are parsed with. It previously described
+  edits in prose or tables, which applied nothing.
+- **Reviewer approval deadlock** — The Form Designer Pedantic Reviewer no
+  longer demands proof that a change was already applied. Change-sets are
+  applied only after approval, so that evidence could never exist and every
+  correction loop ran to exhaustion. The reviewer now judges the proposed
+  change-set on what is checkable before approval.
+- **Form properties in agent CONTEXT** — Requests now carry the form's current
+  `GlassStyle`, `Theme`, and `UseThemeBackground` values plus the supported
+  style names, so agents can read the current style instead of guessing it.
+
+### Changed
+
+- **Agent project-scope boundary** — Every delegated agent now receives an
+  explicit boundary: it may create and modify forms, controls, events, indexed
+  files, Knowledge Base documents, and project sources in the developer's open
+  project, but may never change the IDE's appearance, settings, or
+  configuration, nor add or reconfigure agents and model profiles. The
+  read-only `egui.*` tools observe the live IDE window, and IDE widgets in
+  their output are never valid change-set targets.
+
 ## [PowerRustCOBOL 1.30.54] — 2026-07-19
 
 ### Fixed

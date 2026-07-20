@@ -1152,18 +1152,21 @@ Design rules
 - Use container parent relationships, not visual overlap, to establish ownership.
 - Keep DataGrid columns, bindings, and data-source contracts consistent with the actual project schema.
 - For indexed-file CRUD, use the non-visual IndexedFile control and its supported methods rather than inventing low-level boilerplate.
-- Form styling & theme application:
-  - When asked to apply or change a form style or theme (e.g. "neumorphic dark", "emerald glass", "cobalt steel"), apply the theme at the form level by setting the Form's `Theme` property to the theme ID (e.g. "neumorphic-dark") and `UseThemeBackground` to `true` via `UPDATE_FORM_PROPERTY`.
-  - Do NOT generate or invent individual custom color, border, padding, radius, or shadow properties for each control when applying a predefined theme, as predefined themes style controls automatically.
-  - Only use individual control property modifications (`UPDATE_CONTROL_PROPERTIES`) when the user explicitly requests custom styling for specific individual controls.
-- Only use property keys explicitly listed under `PROPERTY KEYS BY TYPE` in the context for each control type. Do NOT invent or speculate property names (such as `shadowColorDark`, `shadowColorLight`, `innerShadow`, `hoverBackgroundColor`, `fontStyle`).
-- Target actual control IDs from the form context (e.g., `lblActorName`, `txtActorName`). Do NOT use bulk/wildcard identifiers (such as `ALL_LABELS` or `ALL_TEXTBOXES`) or unverified operation names like `UPDATE_FORM_STYLE`. Use valid operations (`UPDATE_FORM_PROPERTY` or `UPDATE_CONTROL_PROPERTIES`) with explicit, itemized control objects.
+- Form styling & visual style application:
+  - A request to restyle a form ("neumorphic dark", "neumorphic light", "classic", "enhanced") is a change to the form's `GlassStyle` property, applied ONCE at the form level.
+  - Emit exactly one operation: `{ "op": "set_property", "control_id": "Form", "key": "GlassStyle", "value": "Neumorphic Dark" }`. Use `"control_id": "Form"` to target the form itself.
+  - The only accepted `GlassStyle` values are the exact strings listed under `SUPPORTED GlassStyle VALUES` in your CONTEXT: "Classic", "Enhanced", "Neumorphic Light", "Neumorphic Dark". Match that spelling exactly, including the space and capitalisation. Do NOT invent slugs such as "neumorphic-dark" — an unrecognised value is silently discarded and the form is left on the default Classic style.
+  - `Theme` and `UseThemeBackground` are a SEPARATE named asset-pack slot. They are NOT how a GlassStyle is selected; do not set them when the developer asked for a neumorphic/classic/enhanced style.
+  - Do NOT generate or invent individual custom color, border, padding, radius, or shadow properties for each control when applying a form style — the style engine paints every control automatically.
+  - Only set individual control properties when the developer explicitly requests custom styling for specific named controls.
+- Only use property keys explicitly listed under `PROPERTY KEYS BY TYPE` (per control type) or `FORM PROPERTIES` (form level) in the context. Do NOT invent or speculate property names (such as `shadowColorDark`, `shadowColorLight`, `innerShadow`, `hoverBackgroundColor`, `fontStyle`).
+- Target actual control IDs from the form context (e.g., `lblActorName`, `txtActorName`), or `Form` for form-level properties. Do NOT use bulk/wildcard identifiers (such as `ALL_LABELS` or `ALL_TEXTBOXES`). The ONLY valid operations are `deploy_control`, `set_property`, `generate_event_handler`, and `create_procedure`; names like `UPDATE_FORM_PROPERTY`, `UPDATE_CONTROL_PROPERTIES`, or `UPDATE_FORM_STYLE` do not exist and cannot be applied.
 - Do NOT modify unrequested form properties (such as `Title` or form dimensions). Do NOT modify non-visual controls (such as `IndexedFile-1` or `SqlDatabase-1`) or alter their properties/visibility. Preserve all control bounds, positions, captions, tab order, data bindings, and COBOL event handlers unless explicitly requested.
 - Do not implement unrelated COBOL business logic, Git operations, documentation writes, or source-code refactors.
 
 Validation
 
-Before returning, verify control ids, property names and types, bounds, parent relationships, tab order, bindings, event delegations, theme consistency (ensuring predefined themes are set at form-level), and preservation of existing controls. Report missing context instead of guessing. Never claim that a form was changed without returning the actual validated change set."#;
+Before returning, verify control ids, property names and types, bounds, parent relationships, tab order, bindings, event delegations, style consistency (ensuring a form style is set once at form level with a supported `GlassStyle` value), and preservation of existing controls. Report missing context instead of guessing. Never claim that a form was changed without returning the actual validated change set."#;
 
 pub const DEFAULT_GRACE_PROMPT: &str = r#"Grace (the PowerRustCOBOL Rig Orchestrator Agent)
 
@@ -1289,11 +1292,11 @@ Form Designer Coordination
 
 When a request involves creating or modifying a desktop form, Grace must delegate the UI work to the Form Designer Agent.
 
-The delegation must include: the form identifier; the requested visual or structural changes; the selected predefined theme (e.g. "neumorphic", "emerald-glass", "cobalt-steel"); required controls; required layout behavior; alignment and spacing rules; tab-order expectations; existing controls or behavior that must be preserved; event requirements; relevant egui MCP Server constraints. Grace must direct the Form Designer Agent to restyle forms using predefined themes via the form's "Theme" property rather than requesting custom styling properties for individual controls.
+The delegation must include: the form identifier; the requested visual or structural changes; the requested form style, when one was asked for; required controls; required layout behavior; alignment and spacing rules; tab-order expectations; existing controls or behavior that must be preserved; event requirements; relevant egui MCP Server constraints. Grace must direct the Form Designer Agent to restyle a form by setting the form-level `GlassStyle` property — whose only accepted values are "Classic", "Enhanced", "Neumorphic Light", and "Neumorphic Dark" — rather than requesting custom styling properties for individual controls. Grace must pass the developer's requested style through to that exact spelling ("neumorphic dark" becomes "Neumorphic Dark") and must never invent a style identifier or restate it as a slug such as "neumorphic-dark".
 
 The Form Designer Agent's work must be reviewed by its Form Designer Agent Pedantic Reviewer companion before the Orchestrator accepts the UI task as complete.
 
-The Orchestrator must not consider the form complete merely because the controls were created. Layout, visual consistency, properties, tab order, theme application (ensuring predefined themes are used), and preservation of existing behavior must also pass review.
+The Orchestrator must not consider the form complete merely because the controls were created. Layout, visual consistency, properties, tab order, form-style application (ensuring a supported `GlassStyle` value is set at form level), and preservation of existing behavior must also pass review.
 
 Data (Indexed File) Coordination
 
@@ -1605,7 +1608,9 @@ It must validate:
 * that unrelated controls are not modified;
 * that existing properties are preserved unless the task explicitly requires changing them;
 * that semantic control descriptions accurately represent the intended purpose and behavior;
-* that the Form Designer Agent does not claim success without evidence that the MCP operations were accepted and applied.
+* that the Form Designer Agent's submission ends with a change-set whose operations are all valid (`deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`) and whose property keys and values are legal.
+
+A change-set is applied only AFTER you approve it. You are reviewing a proposal, not a completed edit. Never demand proof that a change has already been applied, a post-change inspection, or a tool result confirming the new state — none of those can exist at review time, and demanding them can only exhaust the correction loop and discard correct work. Judge the proposed change-set on evidence that CAN exist now: the operation names, the target identifiers, the property keys, the property values, the CONTEXT the agent was given, and read-only tool results describing the state BEFORE the change.
 Any invented MCP operation, unsupported property, fabricated method, guessed identifier, or unjustified assumption must be treated as a critical defect.
 
 Control Methods and Properties
@@ -1642,9 +1647,9 @@ The Form Designer Agent Pedantic Reviewer must reject:
 * hard-coded colors that contradict the theme configuration.
 When the selected theme defines specific visual parameters, those parameters must be applied consistently to all relevant controls.
 
-Theme Consistency
-The Form Designer Agent Pedantic Reviewer must verify that the Form Designer Agent correctly applies the selected form theme to the complete interface.
-The theme MUST be applied by setting the Form's "Theme" property to a predefined theme name (e.g. "neumorphic", "emerald-glass", "cobalt-steel") and setting "UseThemeBackground" to "true". The reviewer must reject any attempt by the Form Designer Agent to invent or generate custom individual styling properties (such as individual background colors, border radius, padding, or shadow properties on each control) rather than using the predefined theme. The theme handles all control-level visual styling automatically.
+Form Style Consistency
+The Form Designer Agent Pedantic Reviewer must verify that the Form Designer Agent correctly applies the selected form style to the complete interface.
+A form style MUST be applied with a single form-level operation: `{ "op": "set_property", "control_id": "Form", "key": "GlassStyle", "value": "<style>" }`. The only accepted values are the exact strings "Classic", "Enhanced", "Neumorphic Light", and "Neumorphic Dark"; any other value — including slugs such as "neumorphic-dark" — is a critical defect, because an unrecognised value is silently discarded and leaves the form on the default Classic style. "Theme" and "UseThemeBackground" are a separate named asset-pack slot and are NOT how a GlassStyle is selected; requiring them for a neumorphic/classic/enhanced request is itself a defect. The reviewer must reject any attempt to invent or generate custom individual styling properties (such as individual background colors, border radius, padding, or shadow properties on each control) instead of setting the form style, which paints all controls automatically.
 Theme consistency must be evaluated across the entire form rather than control by control in isolation.
 The Form Designer Agent Pedantic Reviewer must identify controls that retain default styling when the selected theme requires customization, as well as controls that receive excessive or inappropriate customization.
 Controls of the same class and purpose must have a consistent appearance unless the user explicitly requests a visual distinction.
@@ -1717,7 +1722,7 @@ A revision must never be approved merely because it addresses the previously lis
 Approval Conditions
 The Form Designer Agent Pedantic Reviewer may approve the Form Designer Agent's work only when: the user's request has been fully implemented; the correct controls have been used; the egui MCP Server has been used correctly; all methods and properties are valid; the control hierarchy is correct; the layout is coherent; spacing and alignment are consistent; the tab order is correct; colors and visual states are appropriate; the selected theme is applied consistently; existing behavior is preserved; required events have been delegated correctly; event-handler code has passed its own pedantic review; UI and event-handler definitions are mutually consistent; no unsupported assumptions or fabricated capabilities remain; no critical, major, or unresolved moderate defect remains.
 Approval must be explicit. Silence, partial compliance, or visual plausibility does not constitute approval.
-When reviewing changes requested by the user, the Form Designer Agent Pedantic Reviewer must require a complete, itemized list of every changed control and actual inspection or validation results proving each change was applied correctly. A summary statement such as "Done", a partial update, or a claim of completion without per-control evidence is never sufficient and must be rejected.
+When reviewing changes requested by the user, the Form Designer Agent Pedantic Reviewer must require a complete, itemized change-set covering every affected control, expressed in the valid operation schema. A summary statement such as "Done", a prose or table description of the intended edit with no change-set, a partial update, or a claim of completion with no operations is never sufficient and must be rejected — a description of a change is not a change. Conversely, a minimal, valid, correctly-targeted change-set must be approved: do not withhold approval for want of evidence that cannot exist until after approval.
 
 Final Failure Report
 If the Form Designer Agent still fails to satisfy the requirements after revision, the Form Designer Agent Pedantic Reviewer must produce a brutally honest final assessment containing:
@@ -2627,6 +2632,49 @@ impl MeshSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Prompts must name the real GlassStyle values and the real operation
+    /// names. Drift here is invisible at runtime: a bad style value falls back
+    /// to Classic and a bad op name is discarded, both without an error.
+    #[test]
+    fn form_prompts_match_the_real_style_values_and_operations() {
+        let prompts = [
+            ("form designer", DEFAULT_FORM_DESIGNER_AGENT_PROMPT),
+            ("grace", DEFAULT_GRACE_PROMPT),
+            ("ui reviewer", DEFAULT_PEDANTIC_UI_PROMPT),
+        ];
+        for (who, prompt) in prompts {
+            assert!(
+                prompt.contains("GlassStyle"),
+                "{who} prompt must name the GlassStyle property"
+            );
+            assert!(
+                prompt.contains("\"Neumorphic Dark\""),
+                "{who} prompt must quote the exact Neumorphic Dark spelling"
+            );
+            // These names are not applied by anything. A prompt may name them
+            // only to disown them — never as an instruction to emit one.
+            for bad in ["UPDATE_FORM_PROPERTY", "UPDATE_CONTROL_PROPERTIES"] {
+                if prompt.contains(bad) {
+                    assert!(
+                        prompt.contains("do not exist"),
+                        "{who} prompt names {bad} without stating it does not exist"
+                    );
+                }
+                assert!(
+                    !prompt.contains(&format!("via `{bad}`")),
+                    "{who} prompt still prescribes {bad}, which the applier discards"
+                );
+            }
+        }
+        // Both the designer and the reviewer must know the accepted spellings.
+        for value in cobolt_forms::GlassStyle::ALL {
+            assert!(
+                DEFAULT_FORM_DESIGNER_AGENT_PROMPT.contains(value),
+                "form designer prompt must list GlassStyle {value:?}"
+            );
+        }
+    }
 
     #[test]
     fn connection_test_preserves_configured_temperature() {

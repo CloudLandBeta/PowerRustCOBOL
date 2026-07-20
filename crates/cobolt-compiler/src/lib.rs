@@ -1195,10 +1195,11 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 - Tab-order management for keyboard navigation.
 - Container hierarchies (e.g. Panels, TabControls) establishing parent-child ownership.
 
-## Predefined Form Themes
-- Visual themes are predefined in asset-packs (e.g., `"neumorphic"`, `"emerald-glass"`, `"cobalt-steel"`, or the default `"Liquid Glass"`).
-- Applied by setting the Form's `Theme` property to a theme catalog name and setting `UseThemeBackground` to `true`.
-- Individual controls automatically inherit theme parameters (colors, padding, borders, shadows) based on the Form theme.
+## Predefined Form Styles
+- The form's visual style is the form-level `GlassStyle` property. Its only accepted values are the exact strings `"Classic"`, `"Enhanced"`, `"Neumorphic Light"`, and `"Neumorphic Dark"`.
+- Applied with one operation: `{ "op": "set_property", "control_id": "Form", "key": "GlassStyle", "value": "Neumorphic Dark" }`. An unrecognised value is silently discarded and the form stays on `Classic`.
+- Individual controls automatically inherit the style's parameters (colors, padding, borders, shadows). Do not restyle controls one by one to emulate a style.
+- `Theme` and `UseThemeBackground` are a SEPARATE named asset-pack slot, not the mechanism for selecting a `GlassStyle`.
 
 ## Code generation & Compilation
 - Multi-agent coordination: Grace (Orchestrator) plans and delegates UI design to Form Designer Agent, event implementations to COBOL Event Handler Script Agent, and schema setups to Data Agent.

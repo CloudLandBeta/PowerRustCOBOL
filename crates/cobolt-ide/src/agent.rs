@@ -735,6 +735,28 @@ pub fn build_context(form: &Form) -> String {
         form.name, form.width, form.height
     ));
 
+    // Form-level properties. Without these the agent cannot see the current
+    // style or know which values are legal, and any reviewer demand for
+    // evidence of a form-level change is unanswerable.
+    out.push_str("FORM PROPERTIES (target these with 'set_property' using \"control_id\": \"Form\"):\n");
+    out.push_str(&format!(
+        "  GlassStyle={:?}  Theme={:?}  UseThemeBackground={}\n",
+        form.glass_style.as_str(),
+        form.theme.clone().unwrap_or_default(),
+        form.use_theme_background
+    ));
+    out.push_str(&format!(
+        "  SUPPORTED GlassStyle VALUES (exact spelling, no other value is accepted): {}\n",
+        cobolt_forms::GlassStyle::ALL
+            .iter()
+            .map(|s| format!("{s:?}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    out.push_str(
+        "  GlassStyle is the visual style of the form and its controls (this is what \"neumorphic dark\", \"neumorphic light\", \"classic\", \"enhanced\" refer to).\n  Theme is a SEPARATE named asset-pack slot and is NOT how a GlassStyle is selected.\n\n",
+    );
+
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
     out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
 
@@ -1039,6 +1061,26 @@ fn prop_display(v: &PropValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The agent cannot pick a style it cannot see. CONTEXT must carry the
+    /// current form-level values and the exact legal GlassStyle spellings.
+    #[test]
+    fn context_exposes_form_properties_and_supported_styles() {
+        let mut form = Form::new("ACTORS-FORM", "Actors", 1016, 808);
+        form.glass_style = cobolt_forms::GlassStyle::NeumorphicDark;
+        let ctx = build_context(&form);
+
+        assert!(ctx.contains("FORM PROPERTIES"));
+        assert!(ctx.contains("GlassStyle=\"Neumorphic Dark\""));
+        for value in cobolt_forms::GlassStyle::ALL {
+            assert!(
+                ctx.contains(value),
+                "CONTEXT must advertise GlassStyle {value:?}"
+            );
+        }
+        // Every advertised value must also be one the applier accepts.
+        assert!(form_property_valid("GlassStyle"));
+    }
 
     #[test]
     fn parse_well_formed_change_set_all_four_ops() {

@@ -850,11 +850,19 @@ pub fn run_grace_workflow_with_context(
             .map(|a| a.tools.iter().cloned().collect())
             .unwrap_or_default();
         let appendix = crate::tool_exec::tool_contract_appendix(&declared);
-        if appendix.is_empty() {
-            base
+        // Only the Form Designer's submission is parsed as a change-set
+        // (`approved_form_change_sets`), so only it is told that schema.
+        let change_set = if name == crate::agents_db::FORM_DESIGNER {
+            crate::tool_exec::CHANGE_SET_CONTRACT
         } else {
-            format!("{base}{appendix}")
-        }
+            ""
+        };
+        // The scope boundary is unconditional: it constrains what an agent may
+        // change, so it must hold even for an agent that declares no tools.
+        format!(
+            "{base}{appendix}{change_set}{}",
+            crate::tool_exec::PROJECT_SCOPE_BOUNDARY
+        )
     };
     let ev_for_progress = evidence.clone();
     let mut emitted = 0usize;

@@ -10565,4 +10565,55 @@ mod text_align_tests {
         assert_eq!(button.rect.x, 120);
         assert_eq!(button.rect.y, 150);
     }
+
+    /// "change the form theme to neumorphic dark" end to end: the change-set an
+    /// agent emits must actually land on the form's GlassStyle.
+    #[test]
+    fn agent_set_property_applies_form_glass_style() {
+        use crate::agent::{parse_change_set, AgentChangeSet, AgentOp};
+        use cobolt_forms::GlassStyle;
+
+        let mut d = DesignerPanel::new(Form::new("ACTORS-FORM", "Actors", 640, 480));
+        assert_eq!(d.form.glass_style, GlassStyle::Classic, "default style");
+
+        // The exact reply shape the Form Designer Agent is instructed to emit.
+        let reply = r#"```json
+{"operations":[{"op":"set_property","control_id":"Form","key":"GlassStyle","value":"Neumorphic Dark"}]}
+```"#;
+        let cs = parse_change_set(reply).expect("agent reply parses as a change-set");
+
+        assert_eq!(d.apply_agent_change_set(&cs), 1);
+        assert_eq!(d.form.glass_style, GlassStyle::NeumorphicDark);
+
+        // Every advertised value must round-trip, so the prompt list and the
+        // parser cannot drift apart.
+        for value in GlassStyle::ALL {
+            let cs = AgentChangeSet {
+                operations: vec![AgentOp::SetProperty {
+                    control_id: "Form".into(),
+                    key: "GlassStyle".into(),
+                    value: serde_json::json!(value),
+                }],
+                note: None,
+            };
+            d.apply_agent_change_set(&cs);
+            assert_eq!(
+                d.form.glass_style.as_str(),
+                *value,
+                "advertised GlassStyle {value:?} must survive a change-set"
+            );
+        }
+    }
+
+    /// The slug the old prompts told agents to use resolves to Classic without
+    /// erroring — which is exactly why it has to stay out of the prompts.
+    #[test]
+    fn invented_glass_style_slug_silently_falls_back() {
+        use cobolt_forms::GlassStyle;
+
+        let mut d = DesignerPanel::new(Form::new("F", "T", 320, 240));
+        d.set_form_prop("GlassStyle", "neumorphic-dark".into());
+        assert_eq!(d.form.glass_style, GlassStyle::Classic);
+        assert!(!GlassStyle::ALL.contains(&"neumorphic-dark"));
+    }
 }
