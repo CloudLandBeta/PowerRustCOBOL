@@ -51,6 +51,7 @@ use crate::panels::{
     designer::DesignerPanel,
     editor::EditorPanel,
     forms_list::{FormsListAction, FormsListPanel},
+    grace_chat::GraceChatPanel,
     indexed_editor::{IndexedEditorPanel, IndexedSelection, RawDialogResult, StructureAction},
     indexed_grid::{GridAction, IndexedGridPanel},
     indexed_new_dialog::{NewIndexedAction, NewIndexedDialog},
@@ -241,6 +242,21 @@ impl NewProjectDialog {
 
 // ── CoboltApp ─────────────────────────────────────────────────────────────────
 
+#[derive(Default)]
+struct DesignerActivationRequests {
+    paths: std::collections::HashSet<PathBuf>,
+}
+
+impl DesignerActivationRequests {
+    fn request(&mut self, path: PathBuf) {
+        self.paths.insert(path);
+    }
+
+    fn take(&mut self, path: &Path) -> bool {
+        self.paths.remove(path)
+    }
+}
+
 pub struct CoboltApp {
     // Code workspace
     project: ProjectPanel,
@@ -251,6 +267,7 @@ pub struct CoboltApp {
 
     // Open form designers (each lives in its own viewport window)
     designers: Vec<(PathBuf, DesignerPanel)>,
+    designer_activation_requests: DesignerActivationRequests,
     #[allow(dead_code)]
     pub(crate) clipboard: Option<DesignerClipboard>,
 
@@ -327,6 +344,9 @@ pub struct CoboltApp {
     pending_form_delete: Option<PathBuf>,
     pending_generated_delete: Option<PathBuf>,
     pending_asset_delete: Option<PathBuf>,
+    knowledge_folder_parent: Option<PathBuf>,
+    knowledge_folder_name: String,
+    pending_knowledge_folder_delete: Option<PathBuf>,
     pending_user_control_delete: Option<String>,
     pending_indexed_delete: Option<String>,
     delete_cidx_file: bool,
@@ -343,6 +363,10 @@ pub struct CoboltApp {
     settings_form: Option<crate::panels::settings_form::SettingsForm>,
     /// Whether the Main Pane is currently showing the Settings form.
     show_project_settings: bool,
+    /// Whether the Main Pane is showing the project-wide Grace chatbot.
+    show_grace_chat: bool,
+    /// Project-scoped Grace conversation state.
+    grace_chat: GraceChatPanel,
     /// Set while a "save unsaved settings before closing?" dialog is shown.
     settings_close_confirm: bool,
     /// Cached background-image texture, keyed by the resolved absolute path.
@@ -365,7 +389,7 @@ pub struct CoboltApp {
     /// In-flight provider model-list fetch from the settings dialog.
     llm_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
     llm_reviewer_models_rx: Option<std::sync::mpsc::Receiver<Result<Vec<String>, String>>>,
-    /// Agent Manager modal (spec 028), present while open.
+    /// Agents Manager modal (spec 028), present while open.
     agents_modal: Option<crate::panels::agents_modal::AgentsModal>,
     /// Models Manager modal (spec 031), present while open.
     models_modal: Option<crate::panels::models_modal::ModelsModal>,
@@ -613,7 +637,7 @@ const PROJECT_FOLDERS: &[&str] = &[
     "generated",
     "Assets",
     "assets",
-    "docs",
+    "Knowledge Base",
     "bin",
     "debug",
     "temp",
@@ -905,6 +929,7 @@ impl CoboltApp {
             runner: Runner::new(),
             forms_list: FormsListPanel::new(),
             designers: Vec::new(),
+            designer_activation_requests: DesignerActivationRequests::default(),
             clipboard: None,
             indexed_grids: Vec::new(),
             inspect: None,
@@ -939,6 +964,9 @@ impl CoboltApp {
             pending_form_delete: None,
             pending_generated_delete: None,
             pending_asset_delete: None,
+            knowledge_folder_parent: None,
+            knowledge_folder_name: String::new(),
+            pending_knowledge_folder_delete: None,
             pending_user_control_delete: None,
             pending_indexed_delete: None,
             delete_cidx_file: false,
@@ -948,6 +976,8 @@ impl CoboltApp {
 
             settings_form: None,
             show_project_settings: false,
+            show_grace_chat: false,
+            grace_chat: GraceChatPanel::new(),
             settings_close_confirm: false,
             bg_texture: None,
             llm: crate::llm::LlmConfig::load(),
@@ -987,7 +1017,7 @@ impl CoboltApp {
             agent_preview: None,
             agent_prompt: String::new(),
             agent_pending: None,
-            use_grace: false,
+            use_grace: true,
             grace_session: None,
             grace_applied: false,
             agent_history: Vec::new(),
@@ -1856,6 +1886,8 @@ impl CoboltApp {
         let mut proj =
             CoboltProject::new(self.new_project.name.clone(), self.new_project.main.clone());
         proj.project.version = self.new_project.version.clone();
+        self.llm = crate::llm::LlmConfig::load();
+        proj.ai.apply_to_llm(&mut self.llm);
 
         match save_project(&proj, &path) {
             Ok(()) => {
@@ -1916,6 +1948,8 @@ impl CoboltApp {
                     }
                     self.project.set_root(&dir);
                     self.forms_list.set_root(&dir);
+                    self.ensure_project_agent_system(&dir);
+                    self.sync_project_documentation_membership(&dir);
                     self.do_save_project(); // persist the tracked main
 
                     // Initialize the project Settings form and show it immediately
@@ -1925,6 +1959,7 @@ impl CoboltApp {
                             p, &self.llm,
                         ));
                         self.show_project_settings = true;
+                        self.show_grace_chat = false;
                         self.inspect = None;
                     }
                 }
@@ -1948,17 +1983,28 @@ impl CoboltApp {
 
     fn open_project_at(&mut self, path: PathBuf) {
         match load_project(&path) {
-            Ok(proj) => {
+            Ok(mut proj) => {
                 let dir = path.parent().map(|p| p.to_owned());
+                let migrated_ai = self.activate_project_ai(&mut proj);
                 self.output
                     .push_status(format!("Opened project '{}'", proj.project.name));
                 self.cobolt_project = Some(proj);
                 self.project_path = Some(path);
+                self.agents_modal = None;
+                self.models_modal = None;
+                if migrated_ai {
+                    self.do_save_project();
+                    self.output.push_status(
+                        "Imported legacy AI models into this project's settings.".to_string(),
+                    );
+                }
 
                 // Load persisted "raw editor preferred" for indexed files from the
                 // IDE-managed indexed state file in the project's data/ (dog-fooding
                 // the same mechanism used for agent conversation history).
                 if let Some(root) = dir.as_ref() {
+                    self.ensure_project_agent_system(root);
+                    self.sync_project_documentation_membership(root);
                     let data_dir = root.join("data");
                     let rels = crate::llm::load_raw_preferred_indexed(&data_dir);
                     self.raw_preferred_indexed =
@@ -1987,6 +2033,7 @@ impl CoboltApp {
                         p, &self.llm,
                     ));
                     self.show_project_settings = true;
+                    self.show_grace_chat = false;
                     self.inspect = None;
                 }
                 // Light each form's tree semaphore on open (green = clean, red =
@@ -2006,6 +2053,37 @@ impl CoboltApp {
                 ));
             }
         }
+    }
+
+    /// Activate one project's AI settings over the machine-local credential
+    /// store. Projects predating the `[ai]` table receive a one-time copy of
+    /// legacy global model metadata; the legacy source remains untouched.
+    fn activate_project_ai(&mut self, project: &mut CoboltProject) -> bool {
+        let mut llm = crate::llm::LlmConfig::load();
+        let migrated = project.ai.schema_version == 0;
+        if migrated {
+            project.ai = crate::project_model::ProjectAiSettings::from_llm(&llm);
+        }
+        project.ai.apply_to_llm(&mut llm);
+        llm.repair_project_profiles();
+        self.llm = llm;
+        migrated
+    }
+
+    /// Persist the active project's non-secret AI configuration alongside the
+    /// project and merge its credentials into the machine-local secret store.
+    fn persist_active_project_ai(&mut self) {
+        if let Some(project) = &mut self.cobolt_project {
+            project.ai = crate::project_model::ProjectAiSettings::from_llm(&self.llm);
+        } else {
+            return;
+        }
+        if let Err(e) = self.llm.save() {
+            tracing::warn!("could not save machine-local AI credentials: {e}");
+            self.output
+                .push_status(format!("Could not save AI credentials: {e}"));
+        }
+        self.do_save_project();
     }
 
     fn do_save_project(&mut self) {
@@ -2270,10 +2348,7 @@ impl CoboltApp {
             }
         }
 
-        let grace_running = self
-            .grace_session
-            .as_ref()
-            .is_some_and(|s| s.is_running());
+        let grace_running = self.grace_session.as_ref().is_some_and(|s| s.is_running());
         let busy = self.agent_pending.is_some() || grace_running;
         let mut prompt = std::mem::take(&mut self.agent_prompt);
         let mut use_grace = self.use_grace;
@@ -2286,7 +2361,12 @@ impl CoboltApp {
         let grace_done = self.grace_session.as_ref().and_then(|s| {
             s.finished().map(|r| match r {
                 Ok((rec, path)) => {
-                    format!("Workflow {}: {} · saved to {}", rec.workflow_id, rec.status, path.display())
+                    format!(
+                        "Workflow {}: {} · saved to {}",
+                        rec.workflow_id,
+                        rec.status,
+                        path.display()
+                    )
                 }
                 Err(e) => format!("Grace workflow failed: {e}"),
             })
@@ -2314,19 +2394,13 @@ impl CoboltApp {
         egui::Panel::top("inspector_agent")
             .frame(frame)
             .show(panel_ui, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("🤖").size(15.0));
                     ui.label(egui::RichText::new(tr.agent_mode).small().strong());
-                    let can_send = !busy && !prompt.trim().is_empty();
-                    if ui
-                        .add_enabled(can_send, egui::Button::new(tr.ai_send))
-                        .clicked()
-                    {
-                        do_send = true;
-                    }
                     // 👑 Grace: route this request through the multi-agent
                     // workflow (plan → delegate → pedantic review → integrate).
-                    ui.add_enabled(!busy, egui::Checkbox::new(&mut use_grace, "👑"))
+                    use_grace = true;
+                    ui.add_enabled(false, egui::Checkbox::new(&mut use_grace, "👑"))
                         .on_hover_text(tr.agent_use_grace_hint);
                     if busy {
                         ui.add(egui::Spinner::new());
@@ -2336,16 +2410,35 @@ impl CoboltApp {
                                 .color(Color32::from_gray(170)),
                         );
                     }
-                    let resp = ui.add(
+                });
+                ui.horizontal(|ui| {
+                    let prompt_width = crate::panels::chat_prompt_width(
+                        ui.available_width(),
+                        ui.spacing().item_spacing.x,
+                    );
+                    let resp = ui.add_sized(
+                        [prompt_width, ui.spacing().interact_size.y],
                         egui::TextEdit::singleline(&mut prompt)
                             .hint_text(tr.agent_hint)
-                            .desired_width(ui.available_width())
                             .interactive(!busy),
                     );
                     if resp.lost_focus()
                         && ui.input(|i| i.key_pressed(egui::Key::Enter))
                         && !prompt.trim().is_empty()
                         && !busy
+                    {
+                        do_send = true;
+                    }
+                    let can_send = !busy && !prompt.trim().is_empty();
+                    if ui
+                        .add_enabled(
+                            can_send,
+                            egui::Button::new(tr.ai_send).min_size(egui::vec2(
+                                crate::panels::CHAT_SEND_BUTTON_WIDTH,
+                                ui.spacing().interact_size.y,
+                            )),
+                        )
+                        .clicked()
                     {
                         do_send = true;
                     }
@@ -2480,9 +2573,31 @@ impl CoboltApp {
                     self.agent_status = None;
                     self.agent_preview = None;
                     self.grace_applied = false;
-                    self.grace_session = Some(crate::grace_session::GraceSession::spawn(
-                        &dir, &self.llm, &sent,
-                    ));
+                    let form = self
+                        .inspect
+                        .as_ref()
+                        .map(|state| state.designer.form.clone());
+                    let context = form
+                        .as_ref()
+                        .map(|form| {
+                            crate::agent::build_context_with_project(
+                                form,
+                                self.cobolt_project.as_ref(),
+                                Some(dir.as_path()),
+                            )
+                        })
+                        .unwrap_or_default();
+                    self.grace_session =
+                        Some(crate::grace_session::GraceSession::spawn_with_context(
+                            &dir,
+                            &self.llm,
+                            &sent,
+                            crate::grace_host::GraceRoutingContext::new(
+                                "Form inspector chatbot",
+                                Some(crate::agents_db::FORM_DESIGNER),
+                                context,
+                            ),
+                        ));
                     ctx.request_repaint();
                 }
                 None => {
@@ -2642,10 +2757,8 @@ impl CoboltApp {
         };
         self.grace_applied = true;
 
-        let sets = crate::grace_host::approved_form_change_sets(
-            &record,
-            crate::agents_db::FORM_DESIGNER,
-        );
+        let sets =
+            crate::grace_host::approved_form_change_sets(&record, crate::agents_db::FORM_DESIGNER);
         if sets.is_empty() {
             return;
         }
@@ -2672,7 +2785,8 @@ impl CoboltApp {
                 }
             }
         } else {
-            notes.push("⚠ Grace produced form changes but no form is open to apply them to.".into());
+            notes
+                .push("⚠ Grace produced form changes but no form is open to apply them to.".into());
         }
         if let Some(p) = saved_path {
             self.project.refresh_form(&p);
@@ -2688,6 +2802,129 @@ impl CoboltApp {
             .as_ref()
             .and_then(|p| p.parent())
             .map(|p| p.to_owned())
+    }
+
+    fn ensure_project_agent_system(&mut self, project_root: &Path) {
+        let mut db = crate::agents_db::AgentsDb::load(project_root);
+        let changed = db.ensure_fixed_agents(&self.llm);
+        if changed > 0 {
+            self.output.push_status(format!(
+                "Prepared {changed} fixed-agent or project-knowledge capability update(s)."
+            ));
+        }
+    }
+
+    fn sync_project_documentation_membership(&mut self, project_root: &Path) {
+        match cobolt_agents::project_knowledge::ensure_knowledge_base(project_root) {
+            Ok(moved) if moved > 0 => self.output.push_status(format!(
+                "Migrated {moved} legacy documentation file(s) into the project Knowledge Base."
+            )),
+            Ok(_) => {}
+            Err(error) => {
+                self.output
+                    .push_status(format!("Could not prepare project Knowledge Base: {error}"));
+                return;
+            }
+        }
+        let paths = match cobolt_agents::project_knowledge::documentation_paths(project_root) {
+            Ok(paths) => paths,
+            Err(error) => {
+                self.output
+                    .push_status(format!("Could not scan project Knowledge Base: {error}"));
+                return;
+            }
+        };
+        let Some(project) = self.cobolt_project.as_mut() else {
+            return;
+        };
+        let before = project.files.documentation.clone();
+        project.files.documentation.retain(|relative| {
+            let first =
+                Path::new(relative)
+                    .components()
+                    .next()
+                    .and_then(|component| match component {
+                        std::path::Component::Normal(part) => part.to_str(),
+                        _ => None,
+                    });
+            let managed = first.is_some_and(|part| {
+                part.eq_ignore_ascii_case("Knowledge Base")
+                    || part.eq_ignore_ascii_case("Documentation")
+                    || part.eq_ignore_ascii_case("docs")
+            });
+            !managed || project_root.join(relative).exists()
+        });
+        for relative in paths {
+            project.add_file_to(&relative, crate::project_model::Category::Documentation);
+        }
+        if project.files.documentation != before {
+            let count = project.files.documentation.len();
+            self.do_save_project();
+            self.output.push_status(format!(
+                "Project Knowledge Base refreshed: {count} tracked file(s)."
+            ));
+        }
+    }
+
+    fn sync_project_indexed_membership(&mut self, project_root: &Path) {
+        let indexed_dir = project_root.join("indexed");
+        let mut definitions = Vec::new();
+        if indexed_dir.exists() {
+            match std::fs::read_dir(&indexed_dir) {
+                Ok(entries) => {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file()
+                            && path
+                                .extension()
+                                .and_then(|extension| extension.to_str())
+                                .is_some_and(|extension| extension.eq_ignore_ascii_case("cidx"))
+                        {
+                            if let Some(relative) = relative_to(&path, project_root) {
+                                definitions.push(relative);
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    self.output
+                        .push_status(format!("Could not scan project indexed files: {error}"));
+                    return;
+                }
+            }
+        }
+        definitions.sort();
+        let Some(project) = self.cobolt_project.as_mut() else {
+            return;
+        };
+        let before_indexed = project.files.indexed.clone();
+        let before_generated = project.files.generated.clone();
+        project.files.indexed.retain(|relative| {
+            !relative.starts_with("indexed/") || project_root.join(relative).exists()
+        });
+        for relative in &definitions {
+            project.add_file_to(relative, crate::project_model::Category::IndexedFiles);
+            let stem = Path::new(relative)
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .unwrap_or("indexed");
+            let generated = format!("generated/{stem}-indexed.cbl");
+            if project_root.join(&generated).exists() {
+                project.add_generated(&generated);
+            }
+        }
+        if project.files.indexed != before_indexed || project.files.generated != before_generated {
+            let count = project.files.indexed.len();
+            self.do_save_project();
+            self.output.push_status(format!(
+                "Project indexed files refreshed: {count} tracked file(s)."
+            ));
+        }
+        if let Some(inspector) = self.indexed_inspect.as_mut() {
+            if let Ok(definition) = load_indexed(&inspector.path) {
+                inspector.def = definition;
+            }
+        }
     }
 
     fn form_cobol_id_conflict(
@@ -2787,7 +3024,12 @@ impl CoboltApp {
         };
         let (sub, base, ext, category) = match kind {
             FileKind::Source => ("src", "new-program", "cbl", Category::CommonCode),
-            _ => ("docs", "new-document", "md", Category::Documentation),
+            _ => (
+                cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT,
+                "new-document",
+                "md",
+                Category::Documentation,
+            ),
         };
         let sub_dir = dir.join(sub);
         if let Err(e) = std::fs::create_dir_all(&sub_dir) {
@@ -2840,7 +3082,7 @@ impl CoboltApp {
             FileKind::Form => spec.filter("RustCOBOL Form", &["cfrm"]),
             FileKind::Indexed => spec.filter("Indexed data file", &["idx", "dat"]),
             FileKind::Documentation => spec.filter(
-                "Documentation",
+                "Knowledge Base documents",
                 &["md", "markdown", "txt", "rst", "adoc", "pdf", "html", "htm"],
             ),
             FileKind::Asset => spec, // no filter → every file selectable
@@ -2851,7 +3093,7 @@ impl CoboltApp {
 
     /// Add the chosen file to the open project under `kind`'s category. A file
     /// **outside** the project directory is **copied into** a category subfolder
-    /// (`src/`, `forms/`, `assets/`, `docs/`) so it becomes part of the project
+    /// (`src/`, `forms/`, `assets/`, `Knowledge Base/`) so it becomes part of the project
     /// (and ships with the build); a file already inside is tracked in place.
     fn add_file_to_project_path(&mut self, kind: FileKind, path: PathBuf) {
         if kind == FileKind::Indexed {
@@ -2887,7 +3129,9 @@ impl CoboltApp {
                     FileKind::Form => "forms",
                     FileKind::Indexed => "data",
                     FileKind::Asset => "Assets",
-                    FileKind::Documentation => "docs",
+                    FileKind::Documentation => {
+                        cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT
+                    }
                 };
                 let Some(fname) = path.file_name() else {
                     self.output.push_status("Invalid file name.");
@@ -3008,7 +3252,9 @@ impl CoboltApp {
 
     fn load_form_from_path(&mut self, path: PathBuf) {
         if self.designers.iter().any(|(p, _)| p == &path) {
-            return; // already open — the viewport is already being shown
+            self.designer_activation_requests.request(path);
+            self.egui_ctx.request_repaint();
+            return;
         }
         match load_form(&path) {
             Ok(form) => {
@@ -3020,7 +3266,9 @@ impl CoboltApp {
                 }
                 let mut dp = DesignerPanel::new(form);
                 dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+                self.designer_activation_requests.request(path.clone());
                 self.designers.push((path, dp));
+                self.egui_ctx.request_repaint();
             }
             Err(e) => {
                 self.output.push_status(format!("Failed to open form: {e}"));
@@ -3223,82 +3471,86 @@ impl CoboltApp {
             self.agent_bar(panel_ui, tr);
         }
 
-        let card =
-            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
-        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
-            let Some(st) = &mut self.inspect else {
-                return;
-            };
-            ui.horizontal(|ui| {
-                ui.heading(format!("⚙ {}", st.designer.form.name));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(tr.inspect_close).clicked() {
-                        close = true;
-                    }
-                    if ui.button(tr.inspect_open_designer).clicked() {
-                        open_designer = true;
-                    }
+        let card = crate::theme::glass_panel_frame(
+            ctx.global_style().visuals.panel_fill,
+            self.current_theme(),
+        );
+        egui::CentralPanel::default()
+            .frame(card)
+            .show(panel_ui, |ui| {
+                let Some(st) = &mut self.inspect else {
+                    return;
+                };
+                ui.horizontal(|ui| {
+                    ui.heading(format!("⚙ {}", st.designer.form.name));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(tr.inspect_close).clicked() {
+                            close = true;
+                        }
+                        if ui.button(tr.inspect_open_designer).clicked() {
+                            open_designer = true;
+                        }
+                    });
                 });
-            });
-            match &st.ctrl_id {
-                Some(id) => {
-                    ui.label(egui::RichText::new(id).strong().monospace());
+                match &st.ctrl_id {
+                    Some(id) => {
+                        ui.label(egui::RichText::new(id).strong().monospace());
+                    }
+                    None => {
+                        ui.label(egui::RichText::new(tr.inspect_form_props).italics());
+                    }
                 }
-                None => {
-                    ui.label(egui::RichText::new(tr.inspect_form_props).italics());
-                }
-            }
-            ui.separator();
+                ui.separator();
 
-            // Split-borrow form (read) + properties (mutable), like the designer.
-            let ctrl_id = st.ctrl_id.clone();
-            let indexed_files: Vec<String> = self
-                .cobolt_project
-                .as_ref()
-                .map(|project| project.files.indexed.clone())
-                .unwrap_or_default();
-            let action = {
-                let d = &mut st.designer;
-                let sel = ctrl_id.as_deref().and_then(|id| d.form.find_control(id));
-                let form = &d.form as *const cobolt_forms::Form;
-                let props = &mut d.properties;
-                props.show(ui, unsafe { &*form }, sel, &indexed_files, tr)
-            };
-            for (cid, key, value) in action.set_props {
-                st.designer.set_property(&cid, &key, value);
-                changed = true;
-            }
-            if let Some(binding) = action.create_data_binding {
-                let b = binding.clone();
-                apply_data_binding_to_form(&mut st.designer.form, binding);
-                seed_control_array_binding_preview_values(&mut st.designer, &b);
-                st.designer.dirty = true;
-                changed = true;
-            }
-            if let Some((old, new)) = action.rename_control {
-                if st.designer.rename_control(&old, &new) {
+                // Split-borrow form (read) + properties (mutable), like the designer.
+                let ctrl_id = st.ctrl_id.clone();
+                let indexed_files: Vec<String> = self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|project| project.files.indexed.clone())
+                    .unwrap_or_default();
+                let action = {
+                    let d = &mut st.designer;
+                    let sel = ctrl_id.as_deref().and_then(|id| d.form.find_control(id));
+                    let form = &d.form as *const cobolt_forms::Form;
+                    let props = &mut d.properties;
+                    props.show(ui, unsafe { &*form }, sel, &indexed_files, tr)
+                };
+                for (cid, key, value) in action.set_props {
+                    st.designer.set_property(&cid, &key, value);
                     changed = true;
                 }
-            }
-            for (key, value) in action.form_props {
-                st.designer.set_form_prop(&key, value);
-                changed = true;
-            }
-            if let Some(i) = action.cs_del_proc {
-                if i < st.designer.form.user_procedures.len() {
-                    st.designer.form.user_procedures.remove(i);
+                if let Some(binding) = action.create_data_binding {
+                    let b = binding.clone();
+                    apply_data_binding_to_form(&mut st.designer.form, binding);
+                    seed_control_array_binding_preview_values(&mut st.designer, &b);
+                    st.designer.dirty = true;
                     changed = true;
                 }
-            }
-            // Event editing and the COBOL Structure editor need the full designer.
-            if action.open_event_editor.is_some()
-                || action.open_event_in_code.is_some()
-                || action.cs_open.is_some()
-                || action.cs_add_proc
-            {
-                open_designer = true;
-            }
-        });
+                if let Some((old, new)) = action.rename_control {
+                    if st.designer.rename_control(&old, &new) {
+                        changed = true;
+                    }
+                }
+                for (key, value) in action.form_props {
+                    st.designer.set_form_prop(&key, value);
+                    changed = true;
+                }
+                if let Some(i) = action.cs_del_proc {
+                    if i < st.designer.form.user_procedures.len() {
+                        st.designer.form.user_procedures.remove(i);
+                        changed = true;
+                    }
+                }
+                // Event editing and the COBOL Structure editor need the full designer.
+                if action.open_event_editor.is_some()
+                    || action.open_event_in_code.is_some()
+                    || action.cs_open.is_some()
+                    || action.cs_add_proc
+                {
+                    open_designer = true;
+                }
+            });
 
         if changed {
             let gate_input = self.inspect.as_ref().map(|st| {
@@ -3879,8 +4131,10 @@ impl CoboltApp {
         let mut structure_action = StructureAction::None;
         let mut did_add_remove = false;
 
-        let card =
-            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
+        let card = crate::theme::glass_panel_frame(
+            ctx.global_style().visuals.panel_fill,
+            self.current_theme(),
+        );
 
         egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
             let Some(st) = &mut self.indexed_inspect else { return; };
@@ -5132,7 +5386,9 @@ impl CoboltApp {
             painter.rect_stroke(
                 rect,
                 8.0,
-                egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)), egui::StrokeKind::Middle);
+                egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)),
+                egui::StrokeKind::Middle,
+            );
             let accent = if overall >= 85.0 {
                 Color32::from_rgb(61, 205, 139)
             } else if overall >= 70.0 {
@@ -5341,7 +5597,9 @@ impl CoboltApp {
         painter.rect_stroke(
             rect,
             8.0,
-            egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)), egui::StrokeKind::Middle);
+            egui::Stroke::new(1.0, Color32::from_rgb(62, 139, 205)),
+            egui::StrokeKind::Middle,
+        );
         painter.text(
             rect.center_top() + egui::vec2(0.0, 10.0),
             egui::Align2::CENTER_TOP,
@@ -5459,14 +5717,12 @@ impl CoboltApp {
                 }
                 if !eff.reviewer_configured() {
                     let tr = self.lang.tr();
-                    self.output.push_status(
-                        tr.agents_unreviewed_warning.replacen("{}", &eff.model, 1),
-                    );
+                    self.output
+                        .push_status(tr.agents_unreviewed_warning.replacen("{}", &eff.model, 1));
                 }
                 self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
                 self.llm_benchmark_config = Some(eff.clone());
-                self.llm_benchmark_rx =
-                    Some(crate::llm::spawn_cobol_proficiency_benchmark(&eff));
+                self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&eff));
                 self.llm_benchmark_offer = None;
             }
             if skip {
@@ -5703,8 +5959,8 @@ impl CoboltApp {
         }
     }
 
-    /// Persist the Settings form: write the draft into the project + global AI
-    /// config, save both to disk, and apply the (possibly new) theme/background.
+    /// Persist the Settings form: write the draft and project-owned AI metadata
+    /// into the project, while credentials stay in the machine-local store.
     fn save_settings_form(&mut self) {
         let Some(form) = &mut self.settings_form else {
             return;
@@ -5714,10 +5970,7 @@ impl CoboltApp {
         };
         form.draft.apply(proj, &mut self.llm);
         form.mark_saved();
-        if let Err(e) = self.llm.save() {
-            tracing::warn!("could not save AI settings: {e}");
-        }
-        self.do_save_project();
+        self.persist_active_project_ai();
         self.bg_texture = None; // force the background image to reload
     }
 
@@ -5759,7 +6012,7 @@ impl CoboltApp {
         // Once a workflow finishes, apply its approved Form-Designer output to the
         // originating form as one undoable, reviewable change (spec 030 R6/R7).
         self.apply_grace_form_output();
-        // Agent Manager modal (spec 028) — taken out of self to split borrows.
+        // Agents Manager modal (spec 028) — taken out of self to split borrows.
         if let Some(mut m) = self.agents_modal.take() {
             let act = m.show(ctx, &mut self.llm, &self.lang.tr());
             if m.open {
@@ -5778,6 +6031,9 @@ impl CoboltApp {
                 self.llm_benchmark_config = Some(cfg.clone());
                 self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
             }
+            if act.applied {
+                self.persist_active_project_ai();
+            }
         }
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
@@ -5785,8 +6041,30 @@ impl CoboltApp {
             if m.open {
                 self.models_modal = Some(m);
             }
+            for line in act.log_lines {
+                self.output.push_status(line);
+            }
+            if let Some(err) = act.alert_error {
+                crate::llm::push_connection_log(&format!("=== MODELS MANAGER ERROR ===\n{err}\n"));
+                self.alert_error = Some(crate::llm::connection_log_text());
+            }
             if act.applied {
-                let _ = self.llm.save();
+                self.persist_active_project_ai();
+                if let Some(root) = self.project_dir() {
+                    self.ensure_project_agent_system(&root);
+                }
+                if act.save_requested {
+                    self.output
+                        .push_status("Models Manager: project settings saved to disk.");
+                }
+                if !self.llm.agentic_ai_enabled {
+                    self.use_grace = true;
+                    self.agent_pending = None;
+                    self.grace_session = None;
+                    self.agent_prompt.clear();
+                    self.agent_status = None;
+                    self.agent_preview = None;
+                }
             }
             ctx.request_repaint();
         }
@@ -5811,8 +6089,10 @@ impl CoboltApp {
         // glass strokes (right border fixed) and that the pane area conforms to
         // 100% of the available central height above the output (grows/shrinks
         // naturally on window or output splitter resize).
-        let mut card =
-            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
+        let mut card = crate::theme::glass_panel_frame(
+            ctx.global_style().visuals.panel_fill,
+            self.current_theme(),
+        );
         // Moderate bottom outer margin on the frame raises the stroked glass
         // card (rounded bottom border) clearly above the output.
         // Inside the framed ui we allocate the form (scroll + buttons) in a
@@ -5826,27 +6106,29 @@ impl CoboltApp {
             top: 6,
             bottom: 50,
         });
-        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
-            if let Some(form) = &mut self.settings_form {
-                let avail = ui.available_rect_before_wrap();
-                let bottom_res = 80.0; // dedicated inner lift for full button visibility
-                let content_h = (avail.height() - bottom_res).max(180.0);
-                let content_rect =
-                    egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), content_h));
-                ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
-                    action = form.show(
-                        ui,
-                        tr,
-                        &themes,
-                        test_busy,
-                        test_status.as_deref(),
-                        has_debug,
-                        &prompt_known_controls,
-                    );
-                });
-                ui.add_space(bottom_res);
-            }
-        });
+        egui::CentralPanel::default()
+            .frame(card)
+            .show(panel_ui, |ui| {
+                if let Some(form) = &mut self.settings_form {
+                    let avail = ui.available_rect_before_wrap();
+                    let bottom_res = 80.0; // dedicated inner lift for full button visibility
+                    let content_h = (avail.height() - bottom_res).max(180.0);
+                    let content_rect =
+                        egui::Rect::from_min_size(avail.min, egui::vec2(avail.width(), content_h));
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
+                        action = form.show(
+                            ui,
+                            tr,
+                            &themes,
+                            test_busy,
+                            test_status.as_deref(),
+                            has_debug,
+                            &prompt_known_controls,
+                        );
+                    });
+                    ui.add_space(bottom_res);
+                }
+            });
 
         if action.save {
             self.save_settings_form();
@@ -5893,6 +6175,9 @@ impl CoboltApp {
                     &dir,
                     &mut self.llm,
                 ));
+                // Opening can migrate legacy embedded agent model settings onto
+                // project model profiles. Persist that migration immediately.
+                self.persist_active_project_ai();
             }
         }
         if action.manage_models {
@@ -5971,26 +6256,30 @@ impl CoboltApp {
         let ctx = panel_ui.ctx().clone();
         let ctx = &ctx;
 
-        let card =
-            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, self.current_theme());
-        egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(ui.available_height() * 0.18);
-                let tex = self.mascot_texture(ctx);
-                if let Some(tex) = tex {
-                    let max = (ui.available_width() * 0.6).min(420.0);
-                    let size = tex.size_vec2();
-                    let scale = (max / size.x).min(1.0);
-                    ui.image((tex.id(), size * scale));
-                }
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new(tr.no_project_open)
-                        .size(15.0)
-                        .color(self.current_theme().text_dim),
-                );
+        let card = crate::theme::glass_panel_frame(
+            ctx.global_style().visuals.panel_fill,
+            self.current_theme(),
+        );
+        egui::CentralPanel::default()
+            .frame(card)
+            .show(panel_ui, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(ui.available_height() * 0.18);
+                    let tex = self.mascot_texture(ctx);
+                    if let Some(tex) = tex {
+                        let max = (ui.available_width() * 0.6).min(420.0);
+                        let size = tex.size_vec2();
+                        let scale = (max / size.x).min(1.0);
+                        ui.image((tex.id(), size * scale));
+                    }
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(tr.no_project_open)
+                            .size(15.0)
+                            .color(self.current_theme().text_dim),
+                    );
+                });
             });
-        });
     }
 
     /// Lazily decode + upload the embedded mascot PNG as a texture.
@@ -6364,162 +6653,131 @@ impl CoboltApp {
         let mut zoom_delta = 0.0;
         let mut zoom_exact: Option<f32> = None;
         let mut toggle_play = false;
-        egui::CentralPanel::default().frame(frame).show(panel_ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Asset preview");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
-                        close = true;
-                    }
-                });
-            });
-            ui.label(
-                egui::RichText::new(preview.rel.as_str())
-                    .small()
-                    .color(theme.text_dim),
-            );
-            ui.separator();
-
-            let is_image = matches!(
-                &preview.content,
-                AssetPreviewContent::Image { .. } | AssetPreviewContent::Animation { .. }
-            );
-            let is_animation = matches!(&preview.content, AssetPreviewContent::Animation { .. });
-            if is_image {
+        egui::CentralPanel::default()
+            .frame(frame)
+            .show(panel_ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("-").on_hover_text("Zoom out").clicked() {
-                        zoom_delta = -10.0;
-                    }
-                    let mut z = format!("{:.0}%", preview.zoom_percent);
-                    let resp = ui.add_sized(
-                        egui::vec2(70.0, 28.0),
-                        egui::TextEdit::singleline(&mut z).horizontal_align(egui::Align::Center),
-                    );
-                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        let cleaned = z.trim().trim_end_matches('%');
-                        if let Ok(value) = cleaned.parse::<f32>() {
-                            zoom_exact = Some(value);
+                    ui.heading("Asset preview");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            close = true;
                         }
-                    }
-                    if ui.button("+").on_hover_text("Zoom in").clicked() {
-                        zoom_delta = 10.0;
-                    }
-                    let mut slider_zoom = if preview.zoom_percent <= 0.0 {
-                        100.0
-                    } else {
-                        preview.zoom_percent
-                    };
-                    let slider = egui::Slider::new(&mut slider_zoom, 10.0..=999.0)
-                        .show_value(false)
-                        .text("Zoom");
-                    if ui.add_sized(egui::vec2(220.0, 24.0), slider).changed() {
-                        zoom_exact = Some(slider_zoom);
-                    }
-                    if ui.button("Fit").clicked() {
-                        zoom_exact = Some(0.0);
-                    }
-                    if is_animation {
-                        let label = if preview.animation_playing {
-                            "Pause"
-                        } else {
-                            "Play"
-                        };
-                        if ui.button(label).clicked() {
-                            toggle_play = true;
-                        }
-                        if let AssetPreviewContent::Animation { frames, .. } = &preview.content {
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "Frame {}/{}",
-                                    preview.animation_frame.min(frames.len().saturating_sub(1)) + 1,
-                                    frames.len()
-                                ))
-                                .small()
-                                .color(theme.text_dim),
-                            );
-                        }
-                    }
+                    });
                 });
+                ui.label(
+                    egui::RichText::new(preview.rel.as_str())
+                        .small()
+                        .color(theme.text_dim),
+                );
                 ui.separator();
-            } else if let AssetPreviewContent::Text(text) = &preview.content {
-                if preview.search_open {
+
+                let is_image = matches!(
+                    &preview.content,
+                    AssetPreviewContent::Image { .. } | AssetPreviewContent::Animation { .. }
+                );
+                let is_animation =
+                    matches!(&preview.content, AssetPreviewContent::Animation { .. });
+                if is_image {
                     ui.horizontal(|ui| {
-                        ui.label("Search");
-                        let mut query = preview.search_query.clone();
+                        if ui.button("-").on_hover_text("Zoom out").clicked() {
+                            zoom_delta = -10.0;
+                        }
+                        let mut z = format!("{:.0}%", preview.zoom_percent);
                         let resp = ui.add_sized(
-                            egui::vec2(260.0, 28.0),
-                            egui::TextEdit::singleline(&mut query).hint_text("Command+F"),
+                            egui::vec2(70.0, 28.0),
+                            egui::TextEdit::singleline(&mut z)
+                                .horizontal_align(egui::Align::Center),
                         );
-                        if resp.changed() {
-                            if let Some(p) = self.asset_preview.as_mut() {
-                                p.search_query = query.clone();
+                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            let cleaned = z.trim().trim_end_matches('%');
+                            if let Ok(value) = cleaned.parse::<f32>() {
+                                zoom_exact = Some(value);
                             }
                         }
-                        let count = if query.is_empty() {
-                            0
+                        if ui.button("+").on_hover_text("Zoom in").clicked() {
+                            zoom_delta = 10.0;
+                        }
+                        let mut slider_zoom = if preview.zoom_percent <= 0.0 {
+                            100.0
                         } else {
-                            text.to_ascii_lowercase()
-                                .matches(&query.to_ascii_lowercase())
-                                .count()
+                            preview.zoom_percent
                         };
-                        ui.label(
-                            egui::RichText::new(format!("{count} match(es)"))
-                                .small()
-                                .color(theme.text_dim),
-                        );
+                        let slider = egui::Slider::new(&mut slider_zoom, 10.0..=999.0)
+                            .show_value(false)
+                            .text("Zoom");
+                        if ui.add_sized(egui::vec2(220.0, 24.0), slider).changed() {
+                            zoom_exact = Some(slider_zoom);
+                        }
+                        if ui.button("Fit").clicked() {
+                            zoom_exact = Some(0.0);
+                        }
+                        if is_animation {
+                            let label = if preview.animation_playing {
+                                "Pause"
+                            } else {
+                                "Play"
+                            };
+                            if ui.button(label).clicked() {
+                                toggle_play = true;
+                            }
+                            if let AssetPreviewContent::Animation { frames, .. } = &preview.content
+                            {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Frame {}/{}",
+                                        preview.animation_frame.min(frames.len().saturating_sub(1))
+                                            + 1,
+                                        frames.len()
+                                    ))
+                                    .small()
+                                    .color(theme.text_dim),
+                                );
+                            }
+                        }
                     });
                     ui.separator();
-                }
-            }
-
-            let metadata_h = 154.0;
-            let content_h = (ui.available_height() - metadata_h).max(120.0);
-            ui.allocate_ui_with_layout(
-                egui::vec2(ui.available_width(), content_h),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| match &preview.content {
-                    AssetPreviewContent::Image {
-                        texture,
-                        size,
-                        svg_path,
-                    } => {
-                        let avail = ui.available_size();
-                        let fit = (avail.x / size.x).min(avail.y / size.y).min(1.0).max(0.05);
-                        let scale = if preview.zoom_percent <= 0.0 {
-                            fit
-                        } else {
-                            preview.zoom_percent / 100.0
-                        };
-                        let display = *size * scale;
-                        egui::ScrollArea::both()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                ui.vertical_centered(|ui| {
-                                    let svg_texture = svg_path.as_ref().and_then(|path| {
-                                        cobolt_forms::paint::load_svg_texture_at_size(
-                                            ui.ctx(),
-                                            &path.to_string_lossy(),
-                                            display,
-                                        )
-                                    });
-                                    let texture = svg_texture.as_ref().unwrap_or(texture);
-                                    Self::draw_asset_image_preview(ui, texture, display);
-                                    ui.add_space(6.0);
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{:.0} × {:.0}px",
-                                            size.x, size.y
-                                        ))
-                                        .small()
-                                        .color(theme.text_dim),
-                                    );
-                                });
-                            });
+                } else if let AssetPreviewContent::Text(text) = &preview.content {
+                    if preview.search_open {
+                        ui.horizontal(|ui| {
+                            ui.label("Search");
+                            let mut query = preview.search_query.clone();
+                            let resp = ui.add_sized(
+                                egui::vec2(260.0, 28.0),
+                                egui::TextEdit::singleline(&mut query).hint_text("Command+F"),
+                            );
+                            if resp.changed() {
+                                if let Some(p) = self.asset_preview.as_mut() {
+                                    p.search_query = query.clone();
+                                }
+                            }
+                            let count = if query.is_empty() {
+                                0
+                            } else {
+                                text.to_ascii_lowercase()
+                                    .matches(&query.to_ascii_lowercase())
+                                    .count()
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("{count} match(es)"))
+                                    .small()
+                                    .color(theme.text_dim),
+                            );
+                        });
+                        ui.separator();
                     }
-                    AssetPreviewContent::Animation { frames, size } => {
-                        if let Some(frame) =
-                            frames.get(preview.animation_frame.min(frames.len() - 1))
-                        {
+                }
+
+                let metadata_h = 154.0;
+                let content_h = (ui.available_height() - metadata_h).max(120.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), content_h),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| match &preview.content {
+                        AssetPreviewContent::Image {
+                            texture,
+                            size,
+                            svg_path,
+                        } => {
                             let avail = ui.available_size();
                             let fit = (avail.x / size.x).min(avail.y / size.y).min(1.0).max(0.05);
                             let scale = if preview.zoom_percent <= 0.0 {
@@ -6532,44 +6790,87 @@ impl CoboltApp {
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
                                     ui.vertical_centered(|ui| {
-                                        Self::draw_asset_image_preview(ui, &frame.texture, display);
+                                        let svg_texture = svg_path.as_ref().and_then(|path| {
+                                            cobolt_forms::paint::load_svg_texture_at_size(
+                                                ui.ctx(),
+                                                &path.to_string_lossy(),
+                                                display,
+                                            )
+                                        });
+                                        let texture = svg_texture.as_ref().unwrap_or(texture);
+                                        Self::draw_asset_image_preview(ui, texture, display);
+                                        ui.add_space(6.0);
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{:.0} × {:.0}px",
+                                                size.x, size.y
+                                            ))
+                                            .small()
+                                            .color(theme.text_dim),
+                                        );
                                     });
                                 });
                         }
-                    }
-                    AssetPreviewContent::Text(text) => {
-                        egui::ScrollArea::both()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                let mut display = text.as_str();
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut display)
-                                        .font(egui::TextStyle::Monospace)
-                                        .desired_width(f32::INFINITY)
-                                        .lock_focus(true)
-                                        .interactive(false),
+                        AssetPreviewContent::Animation { frames, size } => {
+                            if let Some(frame) =
+                                frames.get(preview.animation_frame.min(frames.len() - 1))
+                            {
+                                let avail = ui.available_size();
+                                let fit =
+                                    (avail.x / size.x).min(avail.y / size.y).min(1.0).max(0.05);
+                                let scale = if preview.zoom_percent <= 0.0 {
+                                    fit
+                                } else {
+                                    preview.zoom_percent / 100.0
+                                };
+                                let display = *size * scale;
+                                egui::ScrollArea::both().auto_shrink([false, false]).show(
+                                    ui,
+                                    |ui| {
+                                        ui.vertical_centered(|ui| {
+                                            Self::draw_asset_image_preview(
+                                                ui,
+                                                &frame.texture,
+                                                display,
+                                            );
+                                        });
+                                    },
                                 );
-                            });
-                    }
-                    AssetPreviewContent::Binary(bytes) => {
-                        let mut dump = Self::binary_hex_ascii(bytes);
-                        egui::ScrollArea::both()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut dump)
-                                        .font(egui::TextStyle::Monospace)
-                                        .desired_width(f32::INFINITY)
-                                        .interactive(false),
-                                );
-                            });
-                    }
-                },
-            );
-            ui.separator();
-            self.asset_metadata_table(ui, &preview);
-            ui.add_space(18.0);
-        });
+                            }
+                        }
+                        AssetPreviewContent::Text(text) => {
+                            egui::ScrollArea::both()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    let mut display = text.as_str();
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut display)
+                                            .font(egui::TextStyle::Monospace)
+                                            .desired_width(f32::INFINITY)
+                                            .lock_focus(true)
+                                            .interactive(false),
+                                    );
+                                });
+                        }
+                        AssetPreviewContent::Binary(bytes) => {
+                            let mut dump = Self::binary_hex_ascii(bytes);
+                            egui::ScrollArea::both()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut dump)
+                                            .font(egui::TextStyle::Monospace)
+                                            .desired_width(f32::INFINITY)
+                                            .interactive(false),
+                                    );
+                                });
+                        }
+                    },
+                );
+                ui.separator();
+                self.asset_metadata_table(ui, &preview);
+                ui.add_space(18.0);
+            });
         if close {
             self.asset_preview = None;
         }
@@ -6749,7 +7050,9 @@ impl CoboltApp {
         painter.rect_stroke(
             outer,
             6.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(92, 111, 128)), egui::StrokeKind::Middle);
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(92, 111, 128)),
+            egui::StrokeKind::Middle,
+        );
         let image_rect = egui::Rect::from_center_size(outer.center(), display);
         painter.image(
             texture.id(),
@@ -7232,7 +7535,9 @@ impl CoboltApp {
                             .selected_text(self.new_form.theme.as_str())
                             .width(160.0)
                             .show_ui(ui, |ui| {
-                                for opt in ["Classic", "Enhanced", "Neumorphic"] {
+                                for opt in
+                                    ["Classic", "Enhanced", "Neumorphic Light", "Neumorphic Dark"]
+                                {
                                     ui.selectable_value(
                                         &mut self.new_form.theme,
                                         opt.to_owned(),
@@ -7289,13 +7594,11 @@ impl CoboltApp {
             return;
         }
         let mut form = Form::new(form_name.clone(), self.new_form.title.clone(), w, h);
-        form.glass_style = cobolt_forms::model::GlassStyle::from_str(&self.new_form.theme);
-        if matches!(
-            form.glass_style,
-            cobolt_forms::model::GlassStyle::Neumorphic
-        ) {
-            form.apply_neumorphic_defaults();
+        let style = cobolt_forms::model::GlassStyle::from_str(&self.new_form.theme);
+        if style.is_neumorphic() {
+            form.apply_glass_style_defaults(style);
         } else {
+            form.glass_style = style;
             form.background_color = "00000000".into(); // transparent — matches IDE glass
         }
 
@@ -7607,8 +7910,11 @@ fn apply_opaque_viewport_theme(ctx: &Context, theme: &crate::theme::Theme) {
         v.window_fill = solid_panel;
         ctx.set_visuals(v);
     }
-    ctx.layer_painter(egui::LayerId::background())
-        .rect_filled(ctx.content_rect(), 0.0, solid_panel);
+    ctx.layer_painter(egui::LayerId::background()).rect_filled(
+        ctx.content_rect(),
+        0.0,
+        solid_panel,
+    );
 }
 
 // ── eframe::App ───────────────────────────────────────────────────────────────
@@ -7721,6 +8027,14 @@ impl eframe::App for CoboltApp {
         // Repaint while one is open so its result is collected promptly.
         if self.poll_file_dialog() {
             ctx.request_repaint();
+        }
+        if let Some(project_root) = self.project_dir() {
+            if crate::panels::editor::take_chat_documentation_changed(&project_root) {
+                self.sync_project_documentation_membership(&project_root);
+            }
+            if crate::tool_exec::take_indexed_files_changed(&project_root) {
+                self.sync_project_indexed_membership(&project_root);
+            }
         }
 
         // ── Drain runner output ───────────────────────────────────────────────
@@ -7969,9 +8283,22 @@ impl eframe::App for CoboltApp {
         if has_project {
             self.output.show(root_ui, &tr);
 
-            let proj_events = self.project.show(root_ui, self.cobolt_project.as_ref(), &tr);
+            let proj_events = self
+                .project
+                .show(root_ui, self.cobolt_project.as_ref(), &tr);
             for ev in proj_events {
+                if !matches!(&ev, ProjectPanelEvent::OpenGraceChat) {
+                    self.show_grace_chat = false;
+                }
                 match ev {
+                    ProjectPanelEvent::OpenGraceChat => {
+                        self.show_grace_chat = true;
+                        self.show_project_settings = false;
+                        self.inspect = None;
+                        self.indexed_inspect = None;
+                        self.asset_preview = None;
+                        self.pending_open_in_editor = None;
+                    }
                     ProjectPanelEvent::Open(path) => {
                         self.show_project_settings = false;
                         self.inspect = None;
@@ -8038,6 +8365,13 @@ impl eframe::App for CoboltApp {
                     ProjectPanelEvent::Create(kind) => self.do_create_in_category(kind),
                     ProjectPanelEvent::Add(kind) => self.do_add_file_to_project(kind),
                     ProjectPanelEvent::Remove(rel) => self.do_remove_file_from_project(rel),
+                    ProjectPanelEvent::CreateKnowledgeFolder(parent) => {
+                        self.knowledge_folder_parent = Some(parent);
+                        self.knowledge_folder_name.clear();
+                    }
+                    ProjectPanelEvent::ConfirmDeleteKnowledgeFolder(folder) => {
+                        self.pending_knowledge_folder_delete = Some(folder);
+                    }
                     ProjectPanelEvent::ConfirmRemoveForm(path) => {
                         self.pending_form_delete = Some(path);
                     }
@@ -8066,6 +8400,16 @@ impl eframe::App for CoboltApp {
         // (developer's guide); otherwise the previous logic (settings / inspector / editor).
         if !has_project {
             self.show_welcome_pane(root_ui, &tr);
+        } else if self.show_grace_chat {
+            if let Some(root) = self.project_dir() {
+                let action = self.grace_chat.show(root_ui, &root, &self.llm);
+                if action.rescan_documentation {
+                    self.sync_project_documentation_membership(&root);
+                }
+                if action.close {
+                    self.show_grace_chat = false;
+                }
+            }
         } else if self.show_project_settings && self.settings_form.is_some() {
             self.show_settings_pane(root_ui, &tr);
         } else if self.indexed_inspect.is_some() {
@@ -8080,7 +8424,8 @@ impl eframe::App for CoboltApp {
                 .as_ref()
                 .and_then(|p| p.parent())
                 .map(|p| p.to_path_buf());
-            self.editor.show(root_ui, ctx, Some(&self.llm), &tr, root.as_deref());
+            self.editor
+                .show(root_ui, ctx, Some(&self.llm), &tr, root.as_deref());
         }
 
         // ── Unsaved project settings close-confirmation dialog (main window) ────
@@ -8120,6 +8465,8 @@ impl eframe::App for CoboltApp {
         self.show_form_delete_confirm(ctx, &tr);
         self.show_generated_delete_confirm(ctx, &tr);
         self.show_asset_delete_confirm(ctx, &tr);
+        self.show_knowledge_folder_dialog(ctx, &tr);
+        self.show_knowledge_folder_delete_confirm(ctx, &tr);
         self.show_indexed_delete_confirm(ctx, &tr);
 
         // Tree semaphore: the active file, if edited since its last check, goes
@@ -8140,6 +8487,9 @@ impl eframe::App for CoboltApp {
         for idx in 0..n {
             // Compute stable viewport ID and title before entering the closure.
             let vp_id = ViewportId::from_hash_of(&self.designers[idx].0);
+            let activate = self
+                .designer_activation_requests
+                .take(&self.designers[idx].0);
             let title = {
                 let (path, d) = &self.designers[idx];
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
@@ -8153,6 +8503,11 @@ impl eframe::App for CoboltApp {
                     .with_title(&title)
                     .with_inner_size([1200.0, 800.0]),
                 |vp_ctx, _class| {
+                    if activate {
+                        vp_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                        vp_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        vp_ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
                     if vp_ctx.input(|i| i.viewport().close_requested()) {
                         let d = &mut self.designers[idx].1;
                         if d.dirty {
@@ -8731,6 +9086,10 @@ impl CoboltApp {
             cobolt_forms::render::Backdrop {
                 color_hex: d.form.background_color.clone(),
                 transparency: d.form.transparency.min(100) as u8,
+                gradient_enabled: d.form.background_gradient_enabled,
+                gradient_start_hex: d.form.background_gradient_start_color.clone(),
+                gradient_end_hex: d.form.background_gradient_end_color.clone(),
+                gradient_direction: d.form.background_gradient_direction.clone(),
                 image,
                 image_mode: d.form.bg_image_mode,
             }
@@ -9310,6 +9669,16 @@ impl CoboltApp {
             }
         }
         let bg_hex = self.form_runtimes[idx].background_color.clone();
+        let bg_gradient_enabled = self.form_runtimes[idx].background_gradient_enabled;
+        let bg_gradient_start = self.form_runtimes[idx]
+            .background_gradient_start_color
+            .clone();
+        let bg_gradient_end = self.form_runtimes[idx]
+            .background_gradient_end_color
+            .clone();
+        let bg_gradient_direction = self.form_runtimes[idx]
+            .background_gradient_direction
+            .clone();
         // Live tab selection per TabControl (so a runtime SET-PROPERTY SelectedTab
         // or a tab click hides/shows the right page).
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls
@@ -9364,6 +9733,10 @@ impl CoboltApp {
                             backdrop: cobolt_forms::render::Backdrop {
                                 color_hex: bg_hex.clone(),
                                 transparency: bg_transp,
+                                gradient_enabled: bg_gradient_enabled,
+                                gradient_start_hex: bg_gradient_start.clone(),
+                                gradient_end_hex: bg_gradient_end.clone(),
+                                gradient_direction: bg_gradient_direction.clone(),
                                 image,
                                 image_mode: bg_mode,
                             },
@@ -9594,7 +9967,8 @@ impl CoboltApp {
         }
         let theme = self.current_theme();
         apply_opaque_viewport_theme(ctx, theme);
-        let panel_frame = crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, theme);
+        let panel_frame =
+            crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, theme);
         let mut toolbar_action = GridAction::None;
         let mut status_msg: Option<String> = None;
         egui::CentralPanel::default()
@@ -9626,6 +10000,135 @@ impl CoboltApp {
 // ── Designer window contents ──────────────────────────────────────────────────
 
 impl CoboltApp {
+    fn show_knowledge_folder_dialog(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(parent) = self.knowledge_folder_parent.clone() else {
+            return;
+        };
+        let mut cancel = false;
+        let mut create = false;
+        egui::Window::new("New Knowledge Base subfolder")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!("Create inside {}", parent.display()));
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.knowledge_folder_name)
+                        .hint_text("Folder name")
+                        .desired_width(320.0),
+                );
+                if response.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter)) {
+                    create = true;
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.knowledge_folder_name.trim().is_empty(),
+                            egui::Button::new("Create"),
+                        )
+                        .clicked()
+                    {
+                        create = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.knowledge_folder_parent = None;
+            self.knowledge_folder_name.clear();
+        } else if create {
+            let Some(root) = self.project_dir() else {
+                self.knowledge_folder_parent = None;
+                return;
+            };
+            match cobolt_agents::project_knowledge::create_knowledge_subfolder(
+                &root,
+                &parent,
+                &self.knowledge_folder_name,
+            ) {
+                Ok(path) => {
+                    self.output
+                        .push_status(format!("Created Knowledge Base folder {}", path.display()));
+                    self.knowledge_folder_parent = None;
+                    self.knowledge_folder_name.clear();
+                }
+                Err(error) => {
+                    self.alert_error = Some(format!(
+                        "Could not create Knowledge Base folder.\n\n{error}"
+                    ))
+                }
+            }
+        }
+    }
+
+    fn show_knowledge_folder_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(folder) = self.pending_knowledge_folder_delete.clone() else {
+            return;
+        };
+        let mut cancel = false;
+        let mut confirm = false;
+        egui::Window::new("Delete Knowledge Base folder")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Delete '{}' and every document and subfolder inside it?",
+                    folder.display()
+                ));
+                ui.label(
+                    egui::RichText::new(
+                        "This action removes the files from disk and cannot be undone.",
+                    )
+                    .color(Color32::from_rgb(230, 150, 120)),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.pending_knowledge_folder_delete = None;
+        } else if confirm {
+            self.pending_knowledge_folder_delete = None;
+            let Some(root) = self.project_dir() else {
+                return;
+            };
+            let absolute = root.join(&folder);
+            match cobolt_agents::project_knowledge::delete_knowledge_subfolder(&root, &folder) {
+                Ok(deleted) => {
+                    self.editor
+                        .tabs
+                        .retain(|tab| !tab.path.starts_with(&absolute));
+                    if self.editor.active >= self.editor.tabs.len() && !self.editor.tabs.is_empty()
+                    {
+                        self.editor.active = self.editor.tabs.len() - 1;
+                    }
+                    self.sync_project_documentation_membership(&root);
+                    self.output.push_status(format!(
+                        "Deleted Knowledge Base folder {}",
+                        deleted.display()
+                    ));
+                }
+                Err(error) => {
+                    self.alert_error = Some(format!(
+                        "Could not delete Knowledge Base folder.\n\n{error}"
+                    ))
+                }
+            }
+        }
+    }
+
     fn show_form_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
         let Some(path) = self.pending_form_delete.clone() else {
             return;
@@ -10284,12 +10787,13 @@ impl CoboltApp {
         let half_win = (ctx.content_rect().width() * 0.5).max(320.0);
         // 10px right inner margin so the pane's content keeps a small gap from the
         // window border instead of butting against it.
-        let props_frame = egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin {
-            left: 6,
-            right: 10,
-            top: 6,
-            bottom: 6,
-        });
+        let props_frame =
+            egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin {
+                left: 6,
+                right: 10,
+                top: 6,
+                bottom: 6,
+            });
         let inspector_action = egui::Panel::right(format!("props_{idx}"))
             .resizable(true)
             .default_size(300.0)
@@ -11387,6 +11891,20 @@ mod manifest_name_tests {
         BindingDataType, BindingField, BindingSourceDescriptor, BindingTargetDescriptor, Control,
         ControlType, EventBinding, FieldMapping,
     };
+
+    #[test]
+    fn designer_activation_request_waits_for_its_target_and_is_one_shot() {
+        let form_a = PathBuf::from("forms/a.cfrm");
+        let form_b = PathBuf::from("forms/b.cfrm");
+        let mut requests = DesignerActivationRequests::default();
+
+        requests.request(form_a.clone());
+        requests.request(form_a.clone());
+
+        assert!(!requests.take(&form_b));
+        assert!(requests.take(&form_a));
+        assert!(!requests.take(&form_a));
+    }
 
     #[test]
     fn project_name_becomes_manifest_stem() {

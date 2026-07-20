@@ -4,5 +4,5 @@
 # Licensed under the Apache License, Version 2.0.
 # See the LICENSE file in the project root for full license information.
 
-cargo build
-cargo run -p cobolt-ide
+RUSTFLAGS="-Awarnings" cargo build -q --release -p cobolt-ide -p cobolt-cli
+RUSTFLAGS="-Awarnings" cargo run -q -p cobolt-ide --release

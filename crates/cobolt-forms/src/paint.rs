@@ -634,8 +634,16 @@ pub fn draw_glass(
             }
 
             // Use the y closest to each corner edge for tightest inset
-            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(y_bot, f32::from(rnd.sw), y1));
-            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(y_bot, f32::from(rnd.se), y1));
+            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(
+                y_bot,
+                f32::from(rnd.sw),
+                y1,
+            ));
+            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(
+                y_bot,
+                f32::from(rnd.se),
+                y1,
+            ));
             let bx0 = x0 + left_inset;
             let bx1 = x1 - right_inset;
             if bx1 <= bx0 {
@@ -786,8 +794,16 @@ pub fn draw_glass_enhanced(
             if y_bot <= y_top {
                 continue;
             }
-            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(y_bot, f32::from(rnd.sw), y1));
-            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(y_bot, f32::from(rnd.se), y1));
+            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(
+                y_bot,
+                f32::from(rnd.sw),
+                y1,
+            ));
+            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(
+                y_bot,
+                f32::from(rnd.se),
+                y1,
+            ));
             let bx0 = x0 + left_inset;
             let bx1 = x1 - right_inset;
             if bx1 <= bx0 {
@@ -870,7 +886,12 @@ pub fn draw_glass_enhanced(
             (c - inner_inset).max(1.0)
         }
     });
-    painter.rect_stroke(inner_rect, inner_round, Stroke::new(0.6, white(55)), egui::StrokeKind::Middle);
+    painter.rect_stroke(
+        inner_rect,
+        inner_round,
+        Stroke::new(0.6, white(55)),
+        egui::StrokeKind::Middle,
+    );
 
     // ── 6. Outer border edge ─────────────────────────────────────────────────
     let (border_w, border_c) = if selected {
@@ -897,7 +918,9 @@ pub fn draw_glass_enhanced(
     // A very subtle denser patch in the center area. This ensures text/icons
     // remain readable over hotspots and busy backgrounds. It is intentionally
     // barely visible on calm backgrounds — that subtlety is correct.
-    let plate_inset = (4.0 + f32::from(max_radius) * 0.3).min(w * 0.15).min(h * 0.15);
+    let plate_inset = (4.0 + f32::from(max_radius) * 0.3)
+        .min(w * 0.15)
+        .min(h * 0.15);
     let plate_rect = rect.shrink(plate_inset);
     if plate_rect.width() > 4.0 && plate_rect.height() > 4.0 {
         let plate_round = round_map(rnd, |c| (c - plate_inset).max(2.0));
@@ -959,7 +982,7 @@ pub fn draw_glass_neumorphic(
         let uy = params.shadow_dir[1];
         let distance = params.distance;
 
-        // Light shadow (white) — opposite the user direction for raised relief.
+        // Light shadow — opposite the user direction for raised relief.
         let light_offset = Vec2::new(-ux * distance, -uy * distance);
         let light_opac = (params.shadow_opac * 3.25).clamp(0.0, 1.0);
         for i in 0..=layers {
@@ -972,10 +995,16 @@ pub fn draw_glass_neumorphic(
             }
             let layer_rect = rect.translate(light_offset).expand(expand);
             let layer_round = round_map(rnd, |c| c + expand);
+            let lc = params.light_color;
             painter.rect_filled(
                 layer_rect,
                 layer_round,
-                Color32::from_rgba_premultiplied(a_val, a_val, a_val, a_val),
+                Color32::from_rgba_premultiplied(
+                    (lc.r() as f32 * (a_val as f32 / 255.0)) as u8,
+                    (lc.g() as f32 * (a_val as f32 / 255.0)) as u8,
+                    (lc.b() as f32 * (a_val as f32 / 255.0)) as u8,
+                    a_val,
+                ),
             );
         }
 
@@ -1034,7 +1063,12 @@ pub fn draw_glass_neumorphic(
             (240.0 * am) as u8,
             (200.0 * am) as u8,
         );
-        painter.rect_stroke(rect, rnd, Stroke::new(2.0, sel_color), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            rect,
+            rnd,
+            Stroke::new(2.0, sel_color),
+            egui::StrokeKind::Inside,
+        );
     }
 }
 
@@ -1087,7 +1121,7 @@ pub fn draw_neumorphic_shadow_only(
         painter
     };
 
-    // Light (white): NW-outside when raised; SE-inside when sunken.
+    // Light side: NW-outside when raised; SE-inside when sunken.
     let light_sign = if sunken { 1.0_f32 } else { -1.0_f32 };
     let light_offset = Vec2::new(light_sign * ux * distance, light_sign * uy * distance);
     let light_opac = (params.shadow_opac * 3.25).clamp(0.0, 1.0);
@@ -1101,10 +1135,16 @@ pub fn draw_neumorphic_shadow_only(
         }
         let layer_rect = rect.translate(light_offset).expand(expand);
         let layer_round = round_map(rnd, |c| c + expand);
+        let lc = params.light_color;
         sp.rect_filled(
             layer_rect,
             layer_round,
-            Color32::from_rgba_premultiplied(a_val, a_val, a_val, a_val),
+            Color32::from_rgba_premultiplied(
+                (lc.r() as f32 * (a_val as f32 / 255.0)) as u8,
+                (lc.g() as f32 * (a_val as f32 / 255.0)) as u8,
+                (lc.b() as f32 * (a_val as f32 / 255.0)) as u8,
+                a_val,
+            ),
         );
     }
 
@@ -1282,8 +1322,16 @@ fn draw_neumorphic_overlay_shadow(
         params.shadow_color,
         user_opacity,
     );
-    draw_vertical(params.shadow_dir[0] < 0.0, Color32::WHITE, white_opacity);
-    draw_horizontal(params.shadow_dir[1] < 0.0, Color32::WHITE, white_opacity);
+    draw_vertical(
+        params.shadow_dir[0] < 0.0,
+        params.light_color,
+        white_opacity,
+    );
+    draw_horizontal(
+        params.shadow_dir[1] < 0.0,
+        params.light_color,
+        white_opacity,
+    );
 }
 
 /// Draw the optional asymmetric neumorphic border when the user explicitly sets
@@ -1393,7 +1441,9 @@ pub fn nv_card(
         painter.rect_stroke(
             rect,
             12.0,
-            Stroke::new(if selected { 2.0 } else { 1.0 }, border), egui::StrokeKind::Middle);
+            Stroke::new(if selected { 2.0 } else { 1.0 }, border),
+            egui::StrokeKind::Middle,
+        );
     }
 }
 
@@ -1566,10 +1616,7 @@ pub fn draw_control(
     // in place with its real rounding. Toggled at runtime via COBOLT_FRAME_DIAGNOSTICS.
     let container_diag = frame_diagnostics_enabled();
 
-    let is_neumorphic = matches!(
-        active_glass_style(painter.ctx()),
-        crate::model::GlassStyle::Neumorphic
-    );
+    let is_neumorphic = active_glass_style(painter.ctx()).is_neumorphic();
 
     if is_neumorphic {
         let shadow_on = ctrl
@@ -1580,6 +1627,10 @@ pub fn draw_control(
             .get_prop("ShadowColor")
             .map(|v| parse_color(v.as_str()))
             .unwrap_or(Color32::BLACK);
+        let light_color = ctrl
+            .get_prop("ShadowLightColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::WHITE);
         let shadow_opac = ctrl
             .get_prop("ShadowOpacity")
             .map(|v| v.as_i64())
@@ -1624,6 +1675,7 @@ pub fn draw_control(
         let params = NeumorphicShadowParams {
             shadow_on,
             shadow_color,
+            light_color,
             shadow_opac,
             shadow_dir: [ux, uy],
             distance,
@@ -1812,7 +1864,12 @@ pub fn draw_control(
             // Rectangle / RoundRect — draw frosted glass using the user's FillColor as tint.
             draw_glass_auto(painter, rect, fill_color, rr, selected, alpha_mul);
             if thickness > 0.0 {
-                painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c), egui::StrokeKind::Middle);
+                painter.rect_stroke(
+                    rect,
+                    rr,
+                    Stroke::new(thickness, border_c),
+                    egui::StrokeKind::Middle,
+                );
             }
         } else {
             let fill = if fill_style == "None" {
@@ -1821,7 +1878,12 @@ pub fn draw_control(
                 alpha_color(fill_color)
             };
             painter.rect_filled(rect, rr, fill);
-            painter.rect_stroke(rect, rr, Stroke::new(thickness, border_c), egui::StrokeKind::Middle);
+            painter.rect_stroke(
+                rect,
+                rr,
+                Stroke::new(thickness, border_c),
+                egui::StrokeKind::Middle,
+            );
         }
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
             draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -2252,7 +2314,9 @@ pub fn draw_control(
             painter.rect_stroke(
                 rect,
                 3.0,
-                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                egui::StrokeKind::Middle,
+            );
         }
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
             draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -2306,7 +2370,9 @@ pub fn draw_control(
         painter.rect_stroke(
             rect,
             2.0,
-            Stroke::new(if selected { 2.0 } else { 1.0 }, border_c), egui::StrokeKind::Middle);
+            Stroke::new(if selected { 2.0 } else { 1.0 }, border_c),
+            egui::StrokeKind::Middle,
+        );
         if ctrl
             .get_prop("ShowValue")
             .map(|v| v.as_bool())
@@ -2411,8 +2477,7 @@ pub fn draw_control(
             .get_prop("HideBackground")
             .map(|v| v.as_bool())
             .unwrap_or(false);
-    let container_gradient = is_container
-        && !container_frameless
+    let background_gradient = !container_frameless
         && ctrl
             .get_prop("BackgroundGradientEnabled")
             .map(|v| v.as_bool())
@@ -2429,7 +2494,8 @@ pub fn draw_control(
         pack.control(key).map(|skin| (pack.clone(), skin.clone()))
     });
 
-    if is_label || pic_frameless || chart_frameless || container_frameless {
+    if (is_label && !background_gradient) || pic_frameless || chart_frameless || container_frameless
+    {
         // No visible frame. When selected, show a lightweight selection outline.
         if is_container {
             debug_frame(
@@ -2445,13 +2511,13 @@ pub fn draw_control(
             let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
             painter.rect_stroke(rect, 0.0, Stroke::new(1.0, sel_c), egui::StrokeKind::Middle);
         }
-    } else if container_gradient {
-        // Directional gradient background (spec 015). Fill via a per-vertex mesh,
-        // then stroke the (rounded) border on top.
+    } else if background_gradient {
+        // Shared eight-direction gradient background. The mesh follows the same
+        // per-corner rounding as the border, so the fill never bleeds past it.
         let dir = ctrl
             .get_prop("BackgroundGradientDirection")
             .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| "Vertical".into());
+            .unwrap_or_else(|| "South".into());
         let start = alpha_color(
             ctrl.get_prop("BackgroundGradientStartColor")
                 .map(|v| parse_color(v.as_str()))
@@ -2462,37 +2528,48 @@ pub fn draw_control(
                 .map(|v| parse_color(v.as_str()))
                 .unwrap_or(fill),
         );
-        // The gradient fill mesh is drawn SQUARE (grad_dir_mesh ignores rounding),
-        // so the overlay shows it un-rounded — a genuine corner-bleed candidate.
-        // `container_gradient` is container-only, so always explode (slot 1).
+        if is_neumorphic {
+            draw_neumorphic_shadow_only(painter, frame_rect, frame_round, alpha_mul);
+        }
         let face_rect = debug_frame(
             painter,
             frame_rect,
-            egui::CornerRadius::ZERO,
+            frame_round,
             1,
-            "CONTAINER_GRADIENT",
+            "CONTROL_GRADIENT",
             container_diag,
         );
-        painter.add(egui::Shape::mesh(grad_dir_mesh(
-            face_rect, start, end, &dir,
+        painter.add(egui::Shape::mesh(background_gradient_mesh(
+            face_rect,
+            start,
+            end,
+            &dir,
+            frame_round,
         )));
+        if is_neumorphic {
+            draw_neumorphic_overlay_shadow_only(painter, frame_rect, frame_round, alpha_mul);
+        }
         let bc = if selected {
             Color32::from_rgba_premultiplied(60, 120, 230, a)
         } else {
             alpha_color(stroke_color)
         };
-        let border_rect = debug_frame(
-            painter,
-            frame_rect,
-            egui::CornerRadius::same(crate::paint::cr8(corner)),
-            2,
-            "CONTAINER_BORDER",
-            container_diag,
-        );
-        painter.rect_stroke(
-            border_rect,
-            corner,
-            Stroke::new(if selected { 2.0 } else { 1.0 }, bc), egui::StrokeKind::Middle);
+        if selected || (border_style != "None" && user_border_width >= 0.5) {
+            let border_rect = debug_frame(
+                painter,
+                frame_rect,
+                frame_round,
+                2,
+                "CONTROL_GRADIENT_BORDER",
+                container_diag,
+            );
+            painter.rect_stroke(
+                border_rect,
+                frame_round,
+                Stroke::new(if selected { 2.0 } else { user_border_width }, bc),
+                egui::StrokeKind::Middle,
+            );
+        }
     } else if let Some((pack, skin)) = &theme_skin {
         let state = if selected {
             ControlState::Focused
@@ -2533,7 +2610,9 @@ pub fn draw_control(
                 painter.rect_stroke(
                     sel_rect,
                     corner,
-                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
+                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                    egui::StrokeKind::Middle,
+                );
             }
         } else {
             // Image missing / undecodable → never fail; fall back to glass (R11).
@@ -2690,7 +2769,9 @@ pub fn draw_control(
             painter.rect_stroke(
                 sel_rect,
                 frame_round,
-                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                egui::StrokeKind::Middle,
+            );
         }
     }
 
@@ -2788,7 +2869,9 @@ pub fn draw_control(
                     painter.rect_stroke(
                         rect,
                         corner,
-                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
+                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                        egui::StrokeKind::Middle,
+                    );
                 }
                 if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
                     draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -2826,7 +2909,9 @@ pub fn draw_control(
                     painter.rect_stroke(
                         rect,
                         corner,
-                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
+                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                        egui::StrokeKind::Middle,
+                    );
                 }
                 if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
                     draw_regular_drop_shadow(painter, shadow, alpha_mul);
@@ -3168,7 +3253,9 @@ pub fn draw_control(
             painter.rect_stroke(
                 rect,
                 frame_round,
-                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
+                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                egui::StrokeKind::Middle,
+            );
         }
     }
 
@@ -3479,7 +3566,7 @@ fn decode_image_bytes(path: &str, bytes: &[u8]) -> Option<egui::ColorImage> {
         size: [w, h],
         source_size: egui::vec2(w as f32, h as f32),
         pixels,
-        })
+    })
 }
 
 fn is_svg_path(path: &str) -> bool {
@@ -3551,7 +3638,7 @@ fn decode_svg_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
         size: [width as usize, height as usize],
         source_size: egui::vec2(width as f32, height as f32),
         pixels,
-        })
+    })
 }
 
 fn svg_native_size_from_bytes(bytes: &[u8]) -> Option<Vec2> {
@@ -3594,7 +3681,7 @@ fn decode_svg_bytes_at_size(bytes: &[u8], width: u32, height: u32) -> Option<egu
         size: [width as usize, height as usize],
         source_size: egui::vec2(width as f32, height as f32),
         pixels,
-        })
+    })
 }
 
 /// Load (and cache in egui memory) a PictureBox image texture, so it isn't
@@ -4197,7 +4284,9 @@ pub fn glass_combo_header(
     painter.rect_stroke(
         rect,
         6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)), egui::StrokeKind::Middle);
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 140, 230, 150)),
+        egui::StrokeKind::Middle,
+    );
     painter.text(
         Pos2::new(rect.min.x + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -4259,7 +4348,9 @@ pub fn glass_combo_popup(
     pp.rect_stroke(
         popup_rect,
         6.0,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)), egui::StrokeKind::Middle);
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(90, 130, 220, 180)),
+        egui::StrokeKind::Middle,
+    );
 
     let mut action = None;
     for (i, item) in items.iter().enumerate() {
@@ -4348,7 +4439,9 @@ pub fn draw_animator(
             painter.rect_stroke(
                 rect,
                 round,
-                Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 150, 230, a)), egui::StrokeKind::Middle);
+                Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 150, 230, a)),
+                egui::StrokeKind::Middle,
+            );
             let label = if source.is_empty() {
                 "▶ Animator"
             } else {
@@ -4368,7 +4461,9 @@ pub fn draw_animator(
         painter.rect_stroke(
             rect,
             round,
-            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)), egui::StrokeKind::Middle);
+            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+            egui::StrokeKind::Middle,
+        );
     }
 }
 
@@ -4651,7 +4746,131 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
 /// use a 4-vertex quad with GPU-interpolated corner colours; Radial uses a
 /// centre→edge fan. Corners are square — the rounded border is stroked
 /// separately (same trade-off as the other mesh fills here).
+fn gradient_direction(dir: &str) -> egui::Vec2 {
+    match dir {
+        "North" => egui::vec2(0.0, -1.0),
+        "NorthEast" | "DiagonalUp" => egui::vec2(1.0, -1.0).normalized(),
+        "East" | "Horizontal" => egui::vec2(1.0, 0.0),
+        "SouthEast" | "DiagonalDown" => egui::vec2(1.0, 1.0).normalized(),
+        "South" | "Vertical" => egui::vec2(0.0, 1.0),
+        "SouthWest" => egui::vec2(-1.0, 1.0).normalized(),
+        "West" => egui::vec2(-1.0, 0.0),
+        "NorthWest" => egui::vec2(-1.0, -1.0).normalized(),
+        _ => egui::vec2(0.0, 1.0),
+    }
+}
+
+pub(crate) fn gradient_color_at(
+    rect: egui::Rect,
+    start: Color32,
+    end: Color32,
+    dir: &str,
+    pos: egui::Pos2,
+) -> Color32 {
+    if dir == "Radial" {
+        let half = egui::vec2(rect.width() * 0.5, rect.height() * 0.5);
+        let delta = pos - rect.center();
+        let t = ((delta.x / half.x.max(1.0)).powi(2) + (delta.y / half.y.max(1.0)).powi(2)).sqrt();
+        return lerp_color(start, end, t);
+    }
+    let vector = gradient_direction(dir);
+    let half_extent = (vector.x.abs() * rect.width() + vector.y.abs() * rect.height()) * 0.5;
+    let projected = (pos - rect.center()).dot(vector);
+    lerp_color(start, end, 0.5 + projected / (2.0 * half_extent.max(1.0)))
+}
+
+/// Rounded background-gradient mesh. Its perimeter follows each corner radius,
+/// while vertex colors remain an affine eight-direction gradient.
+pub fn background_gradient_mesh(
+    rect: egui::Rect,
+    start: Color32,
+    end: Color32,
+    dir: &str,
+    rounding: egui::CornerRadius,
+) -> egui::epaint::Mesh {
+    use std::f32::consts::PI;
+
+    let cap = rect.width().min(rect.height()).max(0.0) * 0.5;
+    let radii = [
+        f32::from(rounding.nw).min(cap),
+        f32::from(rounding.ne).min(cap),
+        f32::from(rounding.se).min(cap),
+        f32::from(rounding.sw).min(cap),
+    ];
+    let corners = [
+        (
+            egui::pos2(rect.left() + radii[0], rect.top() + radii[0]),
+            PI,
+            1.5 * PI,
+        ),
+        (
+            egui::pos2(rect.right() - radii[1], rect.top() + radii[1]),
+            1.5 * PI,
+            2.0 * PI,
+        ),
+        (
+            egui::pos2(rect.right() - radii[2], rect.bottom() - radii[2]),
+            0.0,
+            0.5 * PI,
+        ),
+        (
+            egui::pos2(rect.left() + radii[3], rect.bottom() - radii[3]),
+            0.5 * PI,
+            PI,
+        ),
+    ];
+    let square_points = [
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+    ];
+    let mut perimeter = Vec::new();
+    for (index, (center, begin, finish)) in corners.iter().enumerate() {
+        let radius = radii[index];
+        if radius < 0.5 {
+            perimeter.push(square_points[index]);
+            continue;
+        }
+        let segments = ((radius / 2.0).ceil() as usize).clamp(4, 20);
+        for step in 0..=segments {
+            let angle = begin + (finish - begin) * step as f32 / segments as f32;
+            perimeter.push(egui::pos2(
+                center.x + radius * angle.cos(),
+                center.y + radius * angle.sin(),
+            ));
+        }
+    }
+
+    let mut mesh = egui::epaint::Mesh::default();
+    let center = rect.center();
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: center,
+        uv: egui::epaint::WHITE_UV,
+        color: gradient_color_at(rect, start, end, dir, center),
+    });
+    for point in &perimeter {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: *point,
+            uv: egui::epaint::WHITE_UV,
+            color: gradient_color_at(rect, start, end, dir, *point),
+        });
+    }
+    for index in 0..perimeter.len() as u32 {
+        let next = if index + 1 == perimeter.len() as u32 {
+            1
+        } else {
+            index + 2
+        };
+        mesh.indices.extend([0, index + 1, next]);
+    }
+    mesh
+}
+
 fn grad_dir_mesh(rect: egui::Rect, start: Color32, end: Color32, dir: &str) -> egui::epaint::Mesh {
+    if dir != "Radial" {
+        return background_gradient_mesh(rect, start, end, dir, egui::CornerRadius::ZERO);
+    }
     let uv = egui::epaint::WHITE_UV;
     let mut m = egui::epaint::Mesh::default();
     if dir == "Radial" {
@@ -4858,10 +5077,7 @@ pub fn draw_chart_preview(
     // Neumorphic charts sit on the light soft-UI surface: the face is the light
     // panel tone (draw_neumorphic uses it as its surface colour) — never the dark
     // navy glass face, which would punch a dark hole in the soft light card.
-    let is_neumorphic = matches!(
-        active_glass_style(painter.ctx()),
-        crate::model::GlassStyle::Neumorphic
-    );
+    let is_neumorphic = active_glass_style(painter.ctx()).is_neumorphic();
     let default_face = if is_neumorphic {
         Color32::from_rgb(232, 237, 254) // soft lavender-blue (#E8EDFE)
     } else {
@@ -4908,7 +5124,12 @@ pub fn draw_chart_preview(
             "CHART_BORDER",
             chart_diag,
         );
-        painter.rect_stroke(border_rect, rounding, Stroke::new(1.0, border), egui::StrokeKind::Middle);
+        painter.rect_stroke(
+            border_rect,
+            rounding,
+            Stroke::new(1.0, border),
+            egui::StrokeKind::Middle,
+        );
     }
 
     let frame_painter = painter;
@@ -5442,7 +5663,12 @@ pub fn draw_chart_preview(
             "CHART_OUTLINE",
             chart_diag,
         );
-        frame_painter.rect_stroke(outline_rect, rounding, Stroke::new(1.0, outline), egui::StrokeKind::Middle);
+        frame_painter.rect_stroke(
+            outline_rect,
+            rounding,
+            Stroke::new(1.0, outline),
+            egui::StrokeKind::Middle,
+        );
     }
 }
 
@@ -5735,10 +5961,26 @@ fn container_image_rounding(
     };
 
     egui::CornerRadius {
-        nw: if flags[0] { crate::paint::cr8(nw()) } else { crate::paint::cr8(own) },
-        ne: if flags[1] { crate::paint::cr8(ne()) } else { crate::paint::cr8(own) },
-        sw: if flags[2] { crate::paint::cr8(sw()) } else { crate::paint::cr8(own) },
-        se: if flags[3] { crate::paint::cr8(se()) } else { crate::paint::cr8(own) },
+        nw: if flags[0] {
+            crate::paint::cr8(nw())
+        } else {
+            crate::paint::cr8(own)
+        },
+        ne: if flags[1] {
+            crate::paint::cr8(ne())
+        } else {
+            crate::paint::cr8(own)
+        },
+        sw: if flags[2] {
+            crate::paint::cr8(sw())
+        } else {
+            crate::paint::cr8(own)
+        },
+        se: if flags[3] {
+            crate::paint::cr8(se())
+        } else {
+            crate::paint::cr8(own)
+        },
     }
 }
 
@@ -5839,7 +6081,12 @@ fn debug_frame(
     );
     // The layer's true silhouette (its real rounding) at its exploded position, so a
     // square corner reads plainly against the rounded ones fanned alongside it.
-    overlay.rect_stroke(rect, rounding, Stroke::new(1.25, color), egui::StrokeKind::Middle);
+    overlay.rect_stroke(
+        rect,
+        rounding,
+        Stroke::new(1.25, color),
+        egui::StrokeKind::Middle,
+    );
     // Crosshairs on the four square (un-rounded) box corners — the exact leak points.
     let t = 4.0;
     for c in [
@@ -5887,7 +6134,7 @@ fn push_notch_fan(
     t0: f32,
     t1: f32,
     uv_fn: &dyn Fn(egui::Pos2) -> egui::Pos2,
-    color: Color32,
+    color_fn: &dyn Fn(egui::Pos2) -> Color32,
 ) {
     if r < 0.5 {
         return;
@@ -5897,7 +6144,7 @@ fn push_notch_fan(
     m.vertices.push(egui::epaint::Vertex {
         pos: apex,
         uv: uv_fn(apex),
-        color,
+        color: color_fn(apex),
     });
     for i in 0..=segs {
         let t = t0 + (t1 - t0) * (i as f32 / segs as f32);
@@ -5905,7 +6152,7 @@ fn push_notch_fan(
         m.vertices.push(egui::epaint::Vertex {
             pos: p,
             uv: uv_fn(p),
-            color,
+            color: color_fn(p),
         });
     }
     for i in 0..segs as u32 {
@@ -5919,7 +6166,7 @@ fn notch_mesh(
     rect: egui::Rect,
     rounding: egui::CornerRadius,
     uv_fn: &dyn Fn(egui::Pos2) -> egui::Pos2,
-    color: Color32,
+    color_fn: &dyn Fn(egui::Pos2) -> Color32,
 ) -> egui::epaint::Mesh {
     use std::f32::consts::PI;
     let mut m = egui::epaint::Mesh::default();
@@ -5938,7 +6185,7 @@ fn notch_mesh(
         PI,
         1.5 * PI,
         uv_fn,
-        color,
+        color_fn,
     );
     push_notch_fan(
         &mut m,
@@ -5948,7 +6195,7 @@ fn notch_mesh(
         1.5 * PI,
         2.0 * PI,
         uv_fn,
-        color,
+        color_fn,
     );
     push_notch_fan(
         &mut m,
@@ -5958,7 +6205,7 @@ fn notch_mesh(
         0.0,
         0.5 * PI,
         uv_fn,
-        color,
+        color_fn,
     );
     push_notch_fan(
         &mut m,
@@ -5968,7 +6215,7 @@ fn notch_mesh(
         0.5 * PI,
         PI,
         uv_fn,
-        color,
+        color_fn,
     );
     m
 }
@@ -5988,10 +6235,15 @@ pub fn draw_container_notch_mask(
     rect: egui::Rect,
     rounding: egui::CornerRadius,
     fill: Color32,
+    gradient: Option<(egui::Rect, Color32, Color32, &str)>,
     image: Option<(egui::TextureId, egui::Rect)>,
     img_alpha: u8,
 ) {
-    if rounding.nw < crate::paint::cr8(0.5) && rounding.ne < crate::paint::cr8(0.5) && rounding.sw < crate::paint::cr8(0.5) && rounding.se < crate::paint::cr8(0.5) {
+    if rounding.nw < crate::paint::cr8(0.5)
+        && rounding.ne < crate::paint::cr8(0.5)
+        && rounding.sw < crate::paint::cr8(0.5)
+        && rounding.se < crate::paint::cr8(0.5)
+    {
         return;
     }
     debug_frame(
@@ -6003,8 +6255,14 @@ pub fn draw_container_notch_mask(
         frame_diagnostics_enabled(),
     );
     let painter = painter.with_clip_rect(rect);
-    if fill.a() > 0 {
-        let m = notch_mesh(rect, rounding, &|_p| egui::epaint::WHITE_UV, fill);
+    if let Some((gradient_rect, start, end, direction)) = gradient {
+        let color = |position| gradient_color_at(gradient_rect, start, end, direction, position);
+        let m = notch_mesh(rect, rounding, &|_p| egui::epaint::WHITE_UV, &color);
+        if !m.indices.is_empty() {
+            painter.add(egui::Shape::mesh(m));
+        }
+    } else if fill.a() > 0 {
+        let m = notch_mesh(rect, rounding, &|_p| egui::epaint::WHITE_UV, &|_p| fill);
         if !m.indices.is_empty() {
             painter.add(egui::Shape::mesh(m));
         }
@@ -6014,7 +6272,7 @@ pub fn draw_container_notch_mask(
             let tint = Color32::from_white_alpha(img_alpha);
             let (dw, dh) = (dest.width(), dest.height());
             let uv = |p: egui::Pos2| egui::pos2((p.x - dest.min.x) / dw, (p.y - dest.min.y) / dh);
-            let mut m = notch_mesh(rect, rounding, &uv, tint);
+            let mut m = notch_mesh(rect, rounding, &uv, &|_p| tint);
             m.texture_id = tex;
             if !m.indices.is_empty() {
                 painter.add(egui::Shape::mesh(m));
@@ -6166,8 +6424,14 @@ pub fn draw_media_image(
     );
     let tint = Color32::from_rgba_premultiplied(255, 255, 255, a);
     painter.with_clip_rect(rect).add(egui::Shape::Rect(
-        egui::epaint::RectShape::new(visible, rounding, tint, Stroke::NONE, egui::StrokeKind::Middle)
-            .with_texture(tex_id, uv),
+        egui::epaint::RectShape::new(
+            visible,
+            rounding,
+            tint,
+            Stroke::NONE,
+            egui::StrokeKind::Middle,
+        )
+        .with_texture(tex_id, uv),
     ));
 }
 
@@ -6261,6 +6525,7 @@ struct ActiveTheme(Option<Arc<ThemePack>>);
 pub struct NeumorphicShadowParams {
     pub shadow_on: bool,
     pub shadow_color: Color32,
+    pub light_color: Color32,
     pub shadow_opac: f32,
     pub shadow_dir: [f32; 2],
     pub distance: f32,
@@ -6272,8 +6537,9 @@ impl Default for NeumorphicShadowParams {
         Self {
             shadow_on: true,
             shadow_color: Color32::from_rgb(0, 0, 255), // blue
-            shadow_opac: 0.07,                          // 7%
-            shadow_dir: [0.707, 0.707],                 // SouthEast
+            light_color: Color32::WHITE,
+            shadow_opac: 0.07,          // 7%
+            shadow_dir: [0.707, 0.707], // SouthEast
             distance: 6.0,
             blur_strength: 20.0,
         }
@@ -6300,6 +6566,7 @@ fn active_glass_style(ctx: &egui::Context) -> crate::model::GlassStyle {
         .map(|v| match v {
             1 => crate::model::GlassStyle::Enhanced,
             2 => crate::model::GlassStyle::Neumorphic,
+            3 => crate::model::GlassStyle::NeumorphicDark,
             _ => crate::model::GlassStyle::Classic,
         })
         .unwrap_or(crate::model::GlassStyle::Classic)
@@ -6343,7 +6610,7 @@ pub fn draw_glass_auto_bg(
                 alpha_mul,
             );
         }
-        crate::model::GlassStyle::Neumorphic => {
+        crate::model::GlassStyle::Neumorphic | crate::model::GlassStyle::NeumorphicDark => {
             draw_glass_neumorphic(
                 painter,
                 rect,
@@ -6812,10 +7079,22 @@ mod theme_render_tests {
         let rect = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 50.0));
         let a = Color32::from_rgb(240, 240, 240);
         let b = Color32::from_rgb(40, 60, 90);
-        // Linear directions: a 4-vertex quad with start/end on opposite edges.
-        for dir in ["Vertical", "Horizontal", "DiagonalDown", "DiagonalUp"] {
+        // Linear aliases and compass directions carry start/end on opposite edges.
+        for dir in [
+            "North",
+            "NorthEast",
+            "East",
+            "SouthEast",
+            "South",
+            "SouthWest",
+            "West",
+            "NorthWest",
+            "Vertical",
+            "Horizontal",
+            "DiagonalDown",
+            "DiagonalUp",
+        ] {
             let m = grad_dir_mesh(rect, a, b, dir);
-            assert_eq!(m.vertices.len(), 4, "{dir} should be a quad");
             let has_start = m.vertices.iter().any(|v| v.color == a);
             let has_end = m.vertices.iter().any(|v| v.color == b);
             assert!(
@@ -6823,13 +7102,21 @@ mod theme_render_tests {
                 "{dir} must carry both endpoint colours"
             );
         }
-        // Vertical: top edge = start, bottom edge = end.
-        let v = grad_dir_mesh(rect, a, b, "Vertical");
-        assert_eq!(v.vertices[0].color, a); // top-left
-        assert_eq!(v.vertices[2].color, b); // bottom-right
-                                            // Radial: centre = start, all perimeter = end (fan = 1 + 8 verts).
+        // South: top edge = start, bottom edge = end.
+        assert_eq!(gradient_color_at(rect, a, b, "South", rect.center_top()), a);
+        assert_eq!(
+            gradient_color_at(rect, a, b, "South", rect.center_bottom()),
+            b
+        );
+        // East: left edge = start, right edge = end.
+        assert_eq!(gradient_color_at(rect, a, b, "East", rect.left_center()), a);
+        assert_eq!(
+            gradient_color_at(rect, a, b, "East", rect.right_center()),
+            b
+        );
+        // Radial: centre = start, all perimeter = end (fan = 1 + 8 verts).
         let r = grad_dir_mesh(rect, a, b, "Radial");
-        assert_eq!(r.vertices.len(), 9);
+        assert!(r.vertices.len() >= 9);
         assert_eq!(r.vertices[0].color, a, "radial centre is the start colour");
         assert!(
             r.vertices[1..].iter().all(|v| v.color == b),

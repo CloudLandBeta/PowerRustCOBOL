@@ -1288,11 +1288,8 @@ impl DesignerPanel {
                     let gy = json_prop_i32(properties, "Y")
                         .unwrap_or(20 + 28 * (self.form.controls.len() + added) as i32);
                     let mut c = Control::new(cid.clone(), ct.clone(), gx, gy);
-                    if matches!(
-                        self.form.glass_style,
-                        cobolt_forms::model::GlassStyle::Neumorphic
-                    ) {
-                        c.apply_neumorphic_defaults();
+                    if self.form.glass_style.is_neumorphic() {
+                        c.apply_glass_style_defaults(self.form.glass_style);
                     }
                     if let Some(w) = json_prop_i32(properties, "Width") {
                         c.rect.w = w;
@@ -1330,10 +1327,13 @@ impl DesignerPanel {
                     let Some(pv) = json_to_prop(value) else {
                         continue;
                     };
-                    let old = self
-                        .form
-                        .find_control(control_id)
-                        .and_then(|c| c.properties.get(key).cloned());
+                    let old = if self.is_form_id(control_id) {
+                        self.get_form_prop(key).map(PropValue::String)
+                    } else {
+                        self.form
+                            .find_control(control_id)
+                            .and_then(|c| c.properties.get(key).cloned())
+                    };
                     cmds.push(Cmd::SetProperty {
                         id: control_id.clone(),
                         key: key.clone(),
@@ -1438,7 +1438,14 @@ impl DesignerPanel {
                 }
             }
             Cmd::SetProperty { id, key, new, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) {
+                if self.is_form_id(id) {
+                    let val_str = match new {
+                        PropValue::String(s) => s.clone(),
+                        PropValue::Int(n) => n.to_string(),
+                        PropValue::Bool(b) => b.to_string(),
+                    };
+                    self.set_form_prop(key, val_str);
+                } else if let Some(c) = self.form.find_control_mut(id) {
                     apply_structural_prop(c, key, new);
                 }
             }
@@ -1538,7 +1545,16 @@ impl DesignerPanel {
                 }
             }
             Cmd::SetProperty { id, key, old, .. } => {
-                if let Some(c) = self.form.find_control_mut(id) {
+                if self.is_form_id(id) {
+                    if let Some(v) = old {
+                        let val_str = match v {
+                            PropValue::String(s) => s.clone(),
+                            PropValue::Int(n) => n.to_string(),
+                            PropValue::Bool(b) => b.to_string(),
+                        };
+                        self.set_form_prop(key, val_str);
+                    }
+                } else if let Some(c) = self.form.find_control_mut(id) {
                     if let Some(v) = old {
                         apply_structural_prop(c, key, v);
                     } else {
@@ -1743,11 +1759,8 @@ impl DesignerPanel {
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
-        if matches!(
-            self.form.glass_style,
-            cobolt_forms::model::GlassStyle::Neumorphic
-        ) {
-            ctrl.apply_neumorphic_defaults();
+        if self.form.glass_style.is_neumorphic() {
+            ctrl.apply_glass_style_defaults(self.form.glass_style);
         }
         // Assign z_order = highest existing + 1
         let max_z = self
@@ -2938,13 +2951,24 @@ impl DesignerPanel {
                 self.dirty = true;
             }
             "GlassStyle" => {
-                self.form.glass_style = cobolt_forms::model::GlassStyle::from_str(&value);
-                if matches!(
-                    self.form.glass_style,
-                    cobolt_forms::model::GlassStyle::Neumorphic
-                ) {
-                    self.form.apply_neumorphic_defaults();
-                }
+                let style = cobolt_forms::model::GlassStyle::from_str(&value);
+                self.form.apply_glass_style_defaults(style);
+                self.dirty = true;
+            }
+            "BackgroundGradientEnabled" => {
+                self.form.background_gradient_enabled = value == "true" || value == "1";
+                self.dirty = true;
+            }
+            "BackgroundGradientStartColor" => {
+                self.form.background_gradient_start_color = value;
+                self.dirty = true;
+            }
+            "BackgroundGradientEndColor" => {
+                self.form.background_gradient_end_color = value;
+                self.dirty = true;
+            }
+            "BackgroundGradientDirection" => {
+                self.form.background_gradient_direction = value;
                 self.dirty = true;
             }
             "Target" => {
@@ -2983,6 +3007,33 @@ impl DesignerPanel {
             }
 
             _ => {}
+        }
+    }
+
+    pub fn is_form_id(&self, id: &str) -> bool {
+        id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(&self.form.name)
+    }
+
+    pub fn get_form_prop(&self, key: &str) -> Option<String> {
+        match key {
+            "Title" => Some(self.form.title.clone()),
+            "BackgroundColor" => Some(self.form.background_color.clone()),
+            "Width" => Some(self.form.width.to_string()),
+            "Height" => Some(self.form.height.to_string()),
+            "Transparency" => Some(self.form.transparency.to_string()),
+            "GridSize" => Some(self.form.grid_size.to_string()),
+            "SnapToGrid" => Some(if self.form.snap_to_grid { "true".to_string() } else { "false".to_string() }),
+            "GlassStyle" => Some(self.form.glass_style.as_str().to_string()),
+            "BackgroundGradientEnabled" => Some(if self.form.background_gradient_enabled { "true".to_string() } else { "false".to_string() }),
+            "BackgroundGradientStartColor" => Some(self.form.background_gradient_start_color.clone()),
+            "BackgroundGradientEndColor" => Some(self.form.background_gradient_end_color.clone()),
+            "BackgroundGradientDirection" => Some(self.form.background_gradient_direction.clone()),
+            "Target" => Some(self.form.target.clone()),
+            "BackgroundImage" => Some(self.form.background_image.clone()),
+            "BgImageMode" => Some(self.form.bg_image_mode.as_str().to_string()),
+            "Theme" => Some(self.form.theme.clone().unwrap_or_default()),
+            "UseThemeBackground" => Some(if self.form.use_theme_background { "true".to_string() } else { "false".to_string() }),
+            _ => None,
         }
     }
 
@@ -3236,12 +3287,18 @@ impl DesignerPanel {
                             .show(ui, |ui| {
                                 ui.set_min_height(history_rect.height());
                                 ui.vertical(|ui| {
-                                    for turn in &self.ai_history {
-                                        crate::panels::editor::chat_bubble_with_font_size(
+                                    for (index, turn) in self.ai_history.iter().enumerate() {
+                                        crate::panels::editor::chat_bubble_with_response_actions(
                                             ui,
                                             &turn.role,
                                             &turn.content,
                                             history_font_size,
+                                            project_root,
+                                            egui::Id::new((
+                                                "designer_agent_response",
+                                                self.cfrm_dir.as_deref(),
+                                                index,
+                                            )),
                                         );
                                     }
 
@@ -3431,15 +3488,26 @@ impl DesignerPanel {
                                 context.push_str(&tree);
                             }
                             crate::agent_inspection::request_snapshot(ui.ctx());
-                            self.ai_rx = Some(crate::llm::spawn_agent_request(
-                                llm_cfg,
-                                &sys_prompt,
-                                &skills,
-                                &self.ai_history,
-                                &prompt,
-                                &context,
-                                None // Let Orchestrator route to FormsDesigner or EventBinder
-                            ));
+                            self.ai_rx = Some(match project_root {
+                                Some(root) => crate::grace_session::spawn_contextual_request(
+                                    root,
+                                    llm_cfg,
+                                    &self.ai_history,
+                                    &prompt,
+                                    "RAD Form Designer chatbot",
+                                    Some(crate::agents_db::FORM_DESIGNER),
+                                    &context,
+                                ),
+                                None => crate::llm::spawn_agent_request(
+                                    llm_cfg,
+                                    &sys_prompt,
+                                    &skills,
+                                    &self.ai_history,
+                                    &prompt,
+                                    &context,
+                                    None,
+                                ),
+                            });
                         }
                     }
                     if do_clear {
@@ -3627,16 +3695,52 @@ impl DesignerPanel {
                     canvas_bg,
                     ui.visuals().panel_fill,
                 );
+                let canvas_gradient = if self.form.background_gradient_enabled {
+                    let gradient_color = |hex: &str| {
+                        let color = parse_color(hex);
+                        let alpha = color.a() as f32 * form_alpha_mul;
+                        let scale = alpha / 255.0;
+                        Color32::from_rgba_premultiplied(
+                            (color.r() as f32 * scale) as u8,
+                            (color.g() as f32 * scale) as u8,
+                            (color.b() as f32 * scale) as u8,
+                            alpha as u8,
+                        )
+                    };
+                    Some((
+                        gradient_color(&self.form.background_gradient_start_color),
+                        gradient_color(&self.form.background_gradient_end_color),
+                    ))
+                } else {
+                    None
+                };
+                let canvas_rounding = if self.glass_mode {
+                    egui::CornerRadius::same(6)
+                } else {
+                    egui::CornerRadius::ZERO
+                };
                 if self.glass_mode {
-                    let corner = egui::CornerRadius::same(6);
-                    painter.rect_filled(resp.rect, corner, canvas_bg);
+                    painter.rect_filled(resp.rect, canvas_rounding, canvas_bg);
                     // Thin border so the form boundary is always visible
                     painter.rect_stroke(
                         resp.rect,
-                        corner,
-                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 60)), egui::StrokeKind::Middle);
+                        canvas_rounding,
+                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 60)),
+                        egui::StrokeKind::Middle,
+                    );
                 } else {
                     painter.rect_filled(resp.rect, 0.0, canvas_bg);
+                }
+                if let Some((start, end)) = canvas_gradient {
+                    painter.add(egui::Shape::mesh(
+                        cobolt_forms::paint::background_gradient_mesh(
+                            resp.rect,
+                            start,
+                            end,
+                            &self.form.background_gradient_direction,
+                            canvas_rounding,
+                        ),
+                    ));
                 }
 
                 // ── Themed background (007 R8) ─────────────────────────────────
@@ -3948,7 +4052,26 @@ impl DesignerPanel {
                                 &control_rects,
                             );
                             cobolt_forms::paint::draw_container_notch_mask(
-                                &painter, *crect, rounding, notch_fill, notch_img, img_alpha,
+                                &painter,
+                                *crect,
+                                rounding,
+                                notch_fill,
+                                canvas_gradient.map(|(start, end)| {
+                                    (
+                                        resp.rect,
+                                        cobolt_forms::paint::composite_premultiplied_over(
+                                            start,
+                                            ui.visuals().panel_fill,
+                                        ),
+                                        cobolt_forms::paint::composite_premultiplied_over(
+                                            end,
+                                            ui.visuals().panel_fill,
+                                        ),
+                                        self.form.background_gradient_direction.as_str(),
+                                    )
+                                }),
+                                notch_img,
+                                img_alpha,
                             );
                             if self.show_grid {
                                 draw_grid_in_rounded_notches(
@@ -4042,7 +4165,9 @@ impl DesignerPanel {
                         painter.rect_stroke(
                             *crect,
                             corner,
-                            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)), egui::StrokeKind::Middle);
+                            Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, 255)),
+                            egui::StrokeKind::Middle,
+                        );
                     }
                 }
 
@@ -4261,7 +4386,9 @@ impl DesignerPanel {
                         painter.rect_stroke(
                             rect,
                             2.0,
-                            Stroke::new(1.5, Color32::from_rgba_premultiplied(100, 200, 255, 200)), egui::StrokeKind::Middle);
+                            Stroke::new(1.5, Color32::from_rgba_premultiplied(100, 200, 255, 200)),
+                            egui::StrokeKind::Middle,
+                        );
                     }
                 }
 
@@ -4286,7 +4413,9 @@ impl DesignerPanel {
                     painter.rect_stroke(
                         band_rect,
                         0.0,
-                        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 170, 255, 220)), egui::StrokeKind::Middle);
+                        Stroke::new(1.0, Color32::from_rgba_premultiplied(100, 170, 255, 220)),
+                        egui::StrokeKind::Middle,
+                    );
                 }
 
                 // Right-click context menu
@@ -4745,7 +4874,9 @@ impl DesignerPanel {
                 screen.center().x - 400.0,
                 screen.center().y - 250.0,
             ))
-            .frame(egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(12)))
+            .frame(
+                egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(12)),
+            )
             .show(ui.ctx(), |ui| {
                 let modal = self.menu_modal.as_mut().unwrap();
 
@@ -6082,15 +6213,30 @@ impl DesignerPanel {
                                         .as_ref()
                                         .map(|m| m.ai_history.clone())
                                         .unwrap_or_default();
-                                    let rx = crate::llm::spawn_request(
-                                        &event_llm_cfg,
-                                        &prior,
-                                        &fix_prompt,
-                                        &code,
-                                        &format!("{program_id}.cob"),
-                                        &skills,
-                                        Some("CodeGenerator".to_string()),
-                                    );
+                                    let rx = match project_root {
+                                        Some(root) => {
+                                            crate::grace_session::spawn_contextual_request(
+                                                root,
+                                                &event_llm_cfg,
+                                                &prior,
+                                                &fix_prompt,
+                                                "RAD event-handler chatbot validation",
+                                                Some(crate::agents_db::EVENT_HANDLER),
+                                                &format!(
+                                                    "Handler `{program_id}` for `{ctrl_id}.{event_name}` failed validation.\n\nCURRENT INVALID HANDLER:\n```cobol\n{code}\n```\n\nVALIDATION ERRORS:\n{error_list}"
+                                                ),
+                                            )
+                                        }
+                                        None => crate::llm::spawn_request(
+                                            &event_llm_cfg,
+                                            &prior,
+                                            &fix_prompt,
+                                            &code,
+                                            &format!("{program_id}.cob"),
+                                            &skills,
+                                            Some("CodeGenerator".to_string()),
+                                        ),
+                                    };
                                     if let Some(m) = self.event_modal.as_mut() {
                                         m.ai_history.push(crate::llm::ChatTurn::user(&fix_prompt));
                                         m.ai_fix_attempts = attempts + 1;
@@ -6277,7 +6423,9 @@ impl DesignerPanel {
             .min_height(420.0)
             .default_pos(default_pos)
             .constrain(true)
-            .frame(egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(16)))
+            .frame(
+                egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(16)),
+            )
             .show(ui.ctx(), |ui| {
                 let scaffold_color = Color32::from_rgb(140, 200, 140); // muted green
                 let readonly_color = Color32::from_rgb(160, 170, 190); // subdued blue-gray
@@ -6367,8 +6515,15 @@ impl DesignerPanel {
                             .auto_shrink([false, true])
                             .id_salt("event_ai_transcript")
                             .show(ui, |ui| {
-                                for turn in &history_snapshot {
-                                    super::editor::chat_bubble(ui, &turn.role, &turn.content);
+                                for (index, turn) in history_snapshot.iter().enumerate() {
+                                    super::editor::chat_bubble_with_response_actions(
+                                        ui,
+                                        &turn.role,
+                                        &turn.content,
+                                        14.0,
+                                        project_root,
+                                        egui::Id::new(("event_agent_response", &program_id, index)),
+                                    );
                                 }
                                 // Auto-scroll to the newest turn on growth only.
                                 if scroll_transcript {
@@ -6543,15 +6698,28 @@ impl DesignerPanel {
                 .as_ref()
                 .map(|m| m.ai_history.clone())
                 .unwrap_or_default();
-            let rx = crate::llm::spawn_request(
-                &event_llm_cfg,
-                &prior,
-                &guided,
-                &code,
-                &format!("{program_id}.cob"),
-                &skills,
-                Some("CodeGenerator".to_string()),
-            );
+            let rx = match project_root {
+                Some(root) => crate::grace_session::spawn_contextual_request(
+                    root,
+                    &event_llm_cfg,
+                    &prior,
+                    &guided,
+                    "RAD event-handler chatbot",
+                    Some(crate::agents_db::EVENT_HANDLER),
+                    &format!(
+                        "Editing handler `{program_id}` for `{ctrl_id}.{event_name}`.\n\nCURRENT HANDLER:\n```cobol\n{code}\n```"
+                    ),
+                ),
+                None => crate::llm::spawn_request(
+                    &event_llm_cfg,
+                    &prior,
+                    &guided,
+                    &code,
+                    &format!("{program_id}.cob"),
+                    &skills,
+                    Some("CodeGenerator".to_string()),
+                ),
+            };
             if let Some(m) = self.event_modal.as_mut() {
                 // Record the developer's turn (the clean prompt, not the guided
                 // wrapper) so the transcript stays readable.
@@ -6691,7 +6859,8 @@ impl DesignerPanel {
                 .default_width(560.0)
                 .default_pos(overlay.center() - egui::vec2(280.0, 180.0))
                 .frame(
-                    egui::Frame::window(&ui.ctx().global_style()).inner_margin(egui::Margin::same(16)),
+                    egui::Frame::window(&ui.ctx().global_style())
+                        .inner_margin(egui::Margin::same(16)),
                 )
                 .show(ui.ctx(), |ui| {
                     ui.label(
@@ -7222,7 +7391,9 @@ impl DesignerPanel {
                         painter.rect_stroke(
                             ghost,
                             2.0,
-                            Stroke::new(1.5, Color32::from_rgb(80, 140, 255)), egui::StrokeKind::Middle);
+                            Stroke::new(1.5, Color32::from_rgb(80, 140, 255)),
+                            egui::StrokeKind::Middle,
+                        );
                     }
                 }
                 DragState::RubberBand {
@@ -7525,7 +7696,9 @@ impl DesignerPanel {
         painter.rect_stroke(
             ghost,
             2.0,
-            Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 160, 255, 220)), egui::StrokeKind::Middle);
+            Stroke::new(1.0, Color32::from_rgba_premultiplied(120, 160, 255, 220)),
+            egui::StrokeKind::Middle,
+        );
         painter.text(
             ghost.center(),
             egui::Align2::CENTER_CENTER,
@@ -7829,7 +8002,9 @@ fn draw_form_resize_grips(
     painter.rect_stroke(
         crect,
         1.5,
-        Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 180)), egui::StrokeKind::Middle);
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 180)),
+        egui::StrokeKind::Middle,
+    );
 }
 
 /// Set (`Some`) or remove (`None`) the COBOL code of a control's event handler
@@ -8461,7 +8636,12 @@ fn icon_redo(out: &mut Vec<Shape>, r: Rect, c: Color32) {
 
 fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     let s = Stroke::new(1.6, c);
-    out.push(Shape::rect_stroke(r.shrink(2.0), 1.5, s, egui::StrokeKind::Middle));
+    out.push(Shape::rect_stroke(
+        r.shrink(2.0),
+        1.5,
+        s,
+        egui::StrokeKind::Middle,
+    ));
     let bot = Rect::from_min_max(
         Pos2::new(r.min.x + 4.0, r.max.y - r.height() * 0.32),
         r.max - egui::vec2(4.0, 2.0),
@@ -8471,7 +8651,12 @@ fn icon_save(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Pos2::new(r.max.x - r.width() * 0.38, r.min.y + 2.0),
         Vec2::new(r.width() * 0.25, r.height() * 0.30),
     );
-    out.push(Shape::rect_stroke(notch, 0.0, Stroke::new(1.4, c), egui::StrokeKind::Middle));
+    out.push(Shape::rect_stroke(
+        notch,
+        0.0,
+        Stroke::new(1.4, c),
+        egui::StrokeKind::Middle,
+    ));
     let mid_x = r.center().x - 1.0;
     out.push(Shape::line_segment(
         [
@@ -8687,7 +8872,9 @@ fn icon_copy(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_stroke(
         back,
         1.5,
-        Stroke::new(1.2, c.linear_multiply(0.75)), egui::StrokeKind::Middle));
+        Stroke::new(1.2, c.linear_multiply(0.75)),
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::rect_stroke(front, 1.5, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [
@@ -8718,12 +8905,22 @@ fn icon_paste(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         2.0,
         Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 35),
     ));
-    out.push(Shape::rect_stroke(clip, 2.0, Stroke::new(1.4, c), egui::StrokeKind::Middle));
+    out.push(Shape::rect_stroke(
+        clip,
+        2.0,
+        Stroke::new(1.4, c),
+        egui::StrokeKind::Middle,
+    ));
     let page = Rect::from_min_max(
         board.min + egui::vec2(5.0, 7.0),
         board.max - egui::vec2(5.0, 4.0),
     );
-    out.push(Shape::rect_stroke(page, 1.0, Stroke::new(1.2, c), egui::StrokeKind::Middle));
+    out.push(Shape::rect_stroke(
+        page,
+        1.0,
+        Stroke::new(1.2, c),
+        egui::StrokeKind::Middle,
+    ));
 }
 
 fn icon_duplicate(out: &mut Vec<Shape>, r: Rect, c: Color32) {
@@ -8794,7 +8991,9 @@ fn icon_bring_front(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ), egui::StrokeKind::Middle));
+        ),
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::rect_filled(
         r1,
         1.0,
@@ -8839,7 +9038,9 @@ fn icon_send_back(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ), egui::StrokeKind::Middle));
+        ),
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::rect_stroke(r2, 1.0, s, egui::StrokeKind::Middle));
     out.push(Shape::line_segment(
         [Pos2::new(cx, bot + 4.0), Pos2::new(cx, bot - 3.0)],
@@ -8865,11 +9066,15 @@ fn icon_fwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ), egui::StrokeKind::Middle));
+        ),
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::rect_stroke(
         Rect::from_center_size(Pos2::new(cx + 1.0, cy - 1.0), Vec2::new(10.0, 8.0)),
         1.0,
-        s, egui::StrokeKind::Middle));
+        s,
+        egui::StrokeKind::Middle,
+    ));
     // "+" marker (Bring Forward = +1 z-order)
     let mx = cx + 1.0;
     let my = cy - 1.0;
@@ -8893,11 +9098,15 @@ fn icon_bwd(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.2,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 120),
-        ), egui::StrokeKind::Middle));
+        ),
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::rect_stroke(
         Rect::from_center_size(Pos2::new(cx - 1.0, cy + 1.0), Vec2::new(10.0, 8.0)),
         1.0,
-        s, egui::StrokeKind::Middle));
+        s,
+        egui::StrokeKind::Middle,
+    ));
     // "−" marker (Send Backward = -1 z-order)
     let mx = cx - 1.0;
     let my = cy + 1.0;
@@ -8922,7 +9131,9 @@ fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: 
             out.push(Shape::rect_stroke(
                 Rect::from_min_size(Pos2::new(x_rect, y), Vec2::new(w, h)),
                 1.0,
-                s, egui::StrokeKind::Middle));
+                s,
+                egui::StrokeKind::Middle,
+            ));
         }
     } else {
         let y = if lo_side { sr.min.y } else { sr.max.y };
@@ -8936,7 +9147,9 @@ fn _icon_align(out: &mut Vec<Shape>, r: Rect, c: Color32, horiz: bool, lo_side: 
             out.push(Shape::rect_stroke(
                 Rect::from_min_size(Pos2::new(x, y_rect), Vec2::new(w, h)),
                 1.0,
-                s, egui::StrokeKind::Middle));
+                s,
+                egui::StrokeKind::Middle,
+            ));
         }
     }
 }
@@ -8966,7 +9179,9 @@ fn icon_center_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         out.push(Shape::rect_stroke(
             Rect::from_center_size(Pos2::new(cx, y + 2.0), Vec2::new(w, 4.0)),
             1.0,
-            s, egui::StrokeKind::Middle));
+            s,
+            egui::StrokeKind::Middle,
+        ));
     }
 }
 
@@ -8983,7 +9198,9 @@ fn icon_center_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         out.push(Shape::rect_stroke(
             Rect::from_center_size(Pos2::new(x + 2.0, cy), Vec2::new(4.0, h)),
             1.0,
-            s, egui::StrokeKind::Middle));
+            s,
+            egui::StrokeKind::Middle,
+        ));
     }
 }
 
@@ -8998,7 +9215,9 @@ fn icon_space_h(out: &mut Vec<Shape>, r: Rect, c: Color32) {
                 Vec2::new(3.5, sr.height() - 6.0),
             ),
             1.0,
-            s, egui::StrokeKind::Middle));
+            s,
+            egui::StrokeKind::Middle,
+        ));
     }
     let y = sr.max.y - 2.0;
     out.push(Shape::line_segment(
@@ -9026,7 +9245,9 @@ fn icon_space_v(out: &mut Vec<Shape>, r: Rect, c: Color32) {
                 Vec2::new(sr.width() - 6.0, 3.5),
             ),
             1.0,
-            s, egui::StrokeKind::Middle));
+            s,
+            egui::StrokeKind::Middle,
+        ));
     }
     let x = sr.max.x - 2.0;
     out.push(Shape::line_segment(
@@ -9058,7 +9279,9 @@ fn icon_format_painter(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_stroke(
         Rect::from_min_size(Pos2::new(cx - 6.0, cy - 5.0), Vec2::new(10.0, 5.0)),
         1.0,
-        s, egui::StrokeKind::Middle));
+        s,
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::line_segment(
         [Pos2::new(cx + 2.0, cy + 4.0), Pos2::new(cx + 2.0, cy + 7.0)],
         Stroke::new(1.2, c),
@@ -9072,7 +9295,9 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
     out.push(Shape::rect_stroke(
         Rect::from_min_size(sr.min, Vec2::new(sr.width() * 0.38, 4.5)),
         1.0,
-        s, egui::StrokeKind::Middle));
+        s,
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::rect_stroke(
         Rect::from_min_size(
             Pos2::new(sr.min.x + sr.width() * 0.45, sr.min.y),
@@ -9082,12 +9307,16 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.4,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
-        ), egui::StrokeKind::Middle));
+        ),
+        egui::StrokeKind::Middle,
+    ));
     let y2 = sr.min.y + 7.0;
     out.push(Shape::rect_stroke(
         Rect::from_min_size(Pos2::new(sr.min.x, y2), Vec2::new(sr.width() * 0.30, 4.5)),
         1.0,
-        s, egui::StrokeKind::Middle));
+        s,
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::rect_stroke(
         Rect::from_min_size(
             Pos2::new(sr.min.x + sr.width() * 0.45, y2),
@@ -9097,7 +9326,9 @@ fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(
             1.4,
             Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 180),
-        ), egui::StrokeKind::Middle));
+        ),
+        egui::StrokeKind::Middle,
+    ));
     out.push(Shape::line_segment(
         [
             Pos2::new(sr.center().x - 1.0, sr.max.y - 5.0),

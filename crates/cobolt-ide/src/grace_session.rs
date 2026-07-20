@@ -19,6 +19,7 @@ use cobolt_agents::grace::WorkflowRecord;
 
 use crate::git_exec::GitConfirmRequest;
 use crate::llm::LlmConfig;
+use crate::llm::{ChatTurn, LlmResponse};
 
 enum GraceMsg {
     Progress(String),
@@ -41,6 +42,22 @@ pub struct GraceSession {
 impl GraceSession {
     /// Spawn a workflow for `request` on a worker thread.
     pub fn spawn(project_dir: &Path, llm: &LlmConfig, request: &str) -> Self {
+        Self::spawn_with_context(
+            project_dir,
+            llm,
+            request,
+            crate::grace_host::GraceRoutingContext::default(),
+        )
+    }
+
+    /// Spawn a workflow carrying an advisory preference from its chatbot
+    /// surface. Grace can still route to every enabled project specialist.
+    pub fn spawn_with_context(
+        project_dir: &Path,
+        llm: &LlmConfig,
+        request: &str,
+        routing: crate::grace_host::GraceRoutingContext,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let dir = project_dir.to_path_buf();
         let llm = llm.clone();
@@ -62,10 +79,11 @@ impl GraceSession {
                     }
                     rrx.recv().unwrap_or(false)
                 };
-                let result = crate::grace_host::run_grace_workflow(
+                let result = crate::grace_host::run_grace_workflow_with_context(
                     &dir,
                     &llm,
                     &req,
+                    &routing,
                     &mut on_progress,
                     &mut confirm,
                 );
@@ -95,7 +113,8 @@ impl GraceSession {
                     changed = true;
                 }
                 Ok(GraceMsg::Confirm(req, reply)) => {
-                    self.log.push(format!("⏸ awaiting approval: {}", req.command));
+                    self.log
+                        .push(format!("⏸ awaiting approval: {}", req.command));
                     self.pending_confirm = Some((req, reply));
                     changed = true;
                 }
@@ -140,4 +159,70 @@ impl GraceSession {
     pub fn finished(&self) -> Option<&Result<(WorkflowRecord, PathBuf), String>> {
         self.finished.as_ref()
     }
+}
+
+/// Run Grace behind an existing chatbot's `LlmResponse` channel. This lets the
+/// editor and Form Designer retain their transcript/change-set UI while Grace
+/// performs the contextual multi-agent routing. Potentially destructive git
+/// operations are denied because these compact chat surfaces have no approval
+/// prompt; the full project Grace chat provides that prompt.
+pub fn spawn_contextual_request(
+    project_dir: &Path,
+    llm: &LlmConfig,
+    history: &[ChatTurn],
+    request: &str,
+    surface: &str,
+    preferred_specialist: Option<&str>,
+    context: &str,
+) -> Receiver<LlmResponse> {
+    let (tx, rx) = mpsc::channel();
+    let dir = project_dir.to_path_buf();
+    let llm = llm.clone();
+    let request = request.to_string();
+    let preferred = preferred_specialist.map(str::to_owned);
+    let transcript_len = history
+        .last()
+        .filter(|turn| turn.role == "user" && turn.content == request)
+        .map(|_| history.len().saturating_sub(1))
+        .unwrap_or(history.len());
+    let transcript = history[..transcript_len]
+        .iter()
+        .map(|turn| format!("{}: {}", turn.role, turn.content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let context = if transcript.is_empty() {
+        context.to_string()
+    } else {
+        format!("{context}\n\nCONVERSATION SO FAR:\n{transcript}")
+    };
+    let routing =
+        crate::grace_host::GraceRoutingContext::new(surface, preferred.as_deref(), context);
+    std::thread::Builder::new()
+        .name("grace-chat-request".into())
+        .spawn(move || {
+            let progress_tx = tx.clone();
+            let mut on_progress = move |line: String| {
+                let _ = progress_tx.send(LlmResponse::Chunk(format!("{line}\n")));
+            };
+            let mut deny_unattended_git = |_req: GitConfirmRequest| false;
+            match crate::grace_host::run_grace_workflow_with_context(
+                &dir,
+                &llm,
+                &request,
+                &routing,
+                &mut on_progress,
+                &mut deny_unattended_git,
+            ) {
+                Ok((record, _)) => {
+                    let reply =
+                        crate::grace_host::workflow_chat_reply(&record, preferred.as_deref());
+                    let _ = tx.send(LlmResponse::Ok(reply));
+                }
+                Err(error) => {
+                    let _ = tx.send(LlmResponse::Err(error));
+                }
+            }
+        })
+        .expect("failed to spawn grace-chat-request thread");
+    rx
 }

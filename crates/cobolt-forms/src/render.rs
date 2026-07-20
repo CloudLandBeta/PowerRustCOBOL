@@ -111,6 +111,10 @@ pub struct Backdrop {
     pub color_hex: String,
     /// Form transparency 0–100 (0 = opaque).
     pub transparency: u8,
+    pub gradient_enabled: bool,
+    pub gradient_start_hex: String,
+    pub gradient_end_hex: String,
+    pub gradient_direction: String,
     /// Optional background image, already resolved to a texture by the caller
     /// (the engine has no texture cache), plus its pixel size.
     pub image: Option<(egui::TextureId, Vec2)>,
@@ -122,6 +126,10 @@ impl Default for Backdrop {
         Backdrop {
             color_hex: String::new(),
             transparency: 0,
+            gradient_enabled: false,
+            gradient_start_hex: String::new(),
+            gradient_end_hex: String::new(),
+            gradient_direction: "South".into(),
             image: None,
             image_mode: BgImageMode::Fit,
         }
@@ -207,6 +215,18 @@ pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
     } else {
         Color32::from_rgba_premultiplied(20, 22, 45, bg_alpha.max(200))
     }
+}
+
+fn backdrop_gradient_color(color_hex: &str, transparency: u8) -> Color32 {
+    let color = crate::paint::parse_hex(color_hex).unwrap_or(Color32::TRANSPARENT);
+    let alpha = color.a() as f32 * (1.0 - transparency.min(100) as f32 / 100.0);
+    let scale = alpha / 255.0;
+    Color32::from_rgba_premultiplied(
+        (color.r() as f32 * scale) as u8,
+        (color.g() as f32 * scale) as u8,
+        (color.b() as f32 * scale) as u8,
+        alpha as u8,
+    )
 }
 
 /// Whether a control's drawn content (image, film, glass card, chart, …) should be
@@ -359,6 +379,7 @@ fn mask_container_notches(
     image: Option<(egui::TextureId, Rect)>,
     img_alpha: u8,
     bg: Color32,
+    gradient: Option<(Rect, Color32, Color32, &str)>,
 ) {
     let controls = input.controls;
     for (idx, base) in controls.iter().enumerate() {
@@ -393,7 +414,9 @@ fn mask_container_notches(
         };
         // Only mask corners a child actually reaches; clean corners stay untouched.
         let rounding = corner_notch_rounding(screen, rad, controls, idx, &out.control_rects);
-        crate::paint::draw_container_notch_mask(painter, screen, rounding, bg, image, img_alpha);
+        crate::paint::draw_container_notch_mask(
+            painter, screen, rounding, bg, gradient, image, img_alpha,
+        );
         // The notch mask repaints the backdrop over the corner arcs, erasing the
         // container's own border/rim there. Restore it so all four rounded corners
         // keep their outline (otherwise a Panel shows a border on its straight
@@ -1040,6 +1063,26 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     let bg = backdrop_color(&input.backdrop.color_hex, input.backdrop.transparency);
 
     painter.rect_filled(form_rect, 0.0, bg);
+    let backdrop_gradient = if input.backdrop.gradient_enabled {
+        let start = backdrop_gradient_color(
+            &input.backdrop.gradient_start_hex,
+            input.backdrop.transparency,
+        );
+        let end = backdrop_gradient_color(
+            &input.backdrop.gradient_end_hex,
+            input.backdrop.transparency,
+        );
+        painter.add(egui::Shape::mesh(crate::paint::background_gradient_mesh(
+            form_rect,
+            start,
+            end,
+            &input.backdrop.gradient_direction,
+            egui::CornerRadius::ZERO,
+        )));
+        Some((start, end))
+    } else {
+        None
+    };
     // The notch mask is drawn *after* children. If the form background is
     // translucent, repainting `bg` would darken the corner wedges; skipping it
     // would leave rectangular child bleed visible. Use the effective one-pass
@@ -1317,6 +1360,15 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         backdrop_img,
         backdrop_img_alpha,
         notch_bg,
+        backdrop_gradient.map(|(start, end)| {
+            let panel = ui.visuals().panel_fill;
+            (
+                form_rect,
+                crate::paint::composite_premultiplied_over(start, panel),
+                crate::paint::composite_premultiplied_over(end, panel),
+                input.backdrop.gradient_direction.as_str(),
+            )
+        }),
     );
     draw_deferred_groupbox_captions(&painter, input, &out);
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
@@ -2684,7 +2736,9 @@ fn render_interactive(
                         p.rect_stroke(
                             area_rect,
                             6.0,
-                            Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)), egui::StrokeKind::Middle);
+                            Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)),
+                            egui::StrokeKind::Middle,
+                        );
                         let prev = ui.put(
                             Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
                             egui::Button::new("◀").frame(false),
@@ -3863,7 +3917,9 @@ fn render_interactive(
                         body_painter.rect_stroke(
                             button_rect,
                             4.0,
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(130, 175, 255, 210)), egui::StrokeKind::Middle);
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(130, 175, 255, 210)),
+                            egui::StrokeKind::Middle,
+                        );
                         body_painter.with_clip_rect(button_rect.shrink(3.0)).text(
                             button_rect.center(),
                             Align2::CENTER_CENTER,
@@ -3898,7 +3954,9 @@ fn render_interactive(
                         body_painter.rect_stroke(
                             check_rect,
                             3.0,
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 180)), egui::StrokeKind::Middle);
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 180)),
+                            egui::StrokeKind::Middle,
+                        );
                         let truthy = matches!(
                             raw.trim().to_ascii_lowercase().as_str(),
                             "y" | "yes" | "true" | "1" | "x" | "checked"
@@ -3938,7 +3996,9 @@ fn render_interactive(
                         body_painter.rect_stroke(
                             dropdown_rect,
                             4.0,
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 120)), egui::StrokeKind::Middle);
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 230, 255, 120)),
+                            egui::StrokeKind::Middle,
+                        );
                         let text_clip = Rect::from_min_max(
                             dropdown_rect.min + vec2(6.0, 0.0),
                             pos2(dropdown_rect.max.x - 18.0, dropdown_rect.max.y),
@@ -4003,7 +4063,9 @@ fn render_interactive(
                                 body_painter.rect_stroke(
                                     cell,
                                     2.0,
-                                    Stroke::new(1.0, Color32::from_rgb(110, 120, 160)), egui::StrokeKind::Middle);
+                                    Stroke::new(1.0, Color32::from_rgb(110, 120, 160)),
+                                    egui::StrokeKind::Middle,
+                                );
                             }
                         }
                         if cell_selected {
@@ -5473,8 +5535,8 @@ mod tests {
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
             let _ = ctx.run_ui(input, |root_ui| {
-            let ctx = root_ui.ctx().clone();
-            let ctx = &ctx;
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
@@ -5581,8 +5643,8 @@ mod tests {
             input.events = evs;
             let st = MapState(&overrides);
             let _ = ctx.run_ui(input, |root_ui| {
-            let ctx = root_ui.ctx().clone();
-            let ctx = &ctx;
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
@@ -5679,8 +5741,8 @@ mod tests {
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
             let _ = ctx.run_ui(input, |root_ui| {
-            let ctx = root_ui.ctx().clone();
-            let ctx = &ctx;
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
@@ -6227,8 +6289,8 @@ mod tests {
             input.time = Some(i as f64); // 1s/frame → clears any interval
             let events = RefCell::new(Vec::<UiEvent>::new());
             let _ = ctx.run_ui(input, |root_ui| {
-            let ctx = root_ui.ctx().clone();
-            let ctx = &ctx;
+                let ctx = root_ui.ctx().clone();
+                let ctx = &ctx;
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show_inside(root_ui, |ui| {
@@ -6462,10 +6524,7 @@ mod shape_dump {
         let active_tabs: crate::containers::ActiveTabs = Default::default();
 
         let mut input = egui::RawInput::default();
-        input.screen_rect = Some(Rect::from_min_size(
-            pos2(0.0, 0.0),
-            Vec2::new(600.0, 300.0),
-        ));
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
         input.focused = true;
         let full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
@@ -6482,6 +6541,10 @@ mod shape_dump {
                         backdrop: Backdrop {
                             color_hex: String::new(),
                             transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
                             image: None,
                             image_mode: Default::default(),
                         },
@@ -6511,7 +6574,7 @@ mod shape_dump {
         let mut container = Control::new("PNL", ControlType::Panel, 40, 40);
         container.rect = crate::model::Rect::new(40, 40, 400, 200);
         container.set_prop("CornerRadius", crate::model::PropValue::Int(24));
-        let mut child = Control::new("LBL", ControlType::Label, 42, 42, );
+        let mut child = Control::new("LBL", ControlType::Label, 42, 42);
         child.rect = crate::model::Rect::new(42, 42, 120, 30);
         child.parent = Some("PNL".into());
         let controls = vec![container, child];
@@ -6528,10 +6591,7 @@ mod shape_dump {
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
-        input.screen_rect = Some(Rect::from_min_size(
-            pos2(0.0, 0.0),
-            Vec2::new(600.0, 300.0),
-        ));
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
         let full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
@@ -6547,6 +6607,10 @@ mod shape_dump {
                         backdrop: Backdrop {
                             color_hex: "8a6a3c".into(),
                             transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
                         },
@@ -6561,7 +6625,6 @@ mod shape_dump {
         std::fs::write(&path, out.join("\n")).unwrap();
         println!("scene B dumped {} shapes", out.len());
     }
-
 
     /// Scene C — captioned GroupBox + nested Panel + corner children, Classic
     /// glass, image backdrop (COBOLT_SHAPE_DUMP_C=<file>).
@@ -6598,10 +6661,7 @@ mod shape_dump {
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
-        input.screen_rect = Some(Rect::from_min_size(
-            pos2(0.0, 0.0),
-            Vec2::new(600.0, 300.0),
-        ));
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
         let full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
@@ -6617,6 +6677,10 @@ mod shape_dump {
                         backdrop: Backdrop {
                             color_hex: "8a6a3c".into(),
                             transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
                         },
@@ -6631,7 +6695,6 @@ mod shape_dump {
         std::fs::write(&path, out.join("\n")).unwrap();
         println!("scene C dumped {} shapes", out.len());
     }
-
 
     /// Scene D — TRANSPARENT Panel + DataGrid child on image backdrop, Classic
     /// glass (COBOLT_SHAPE_DUMP_D=<file>). Mirrors the operator's failing form.
@@ -6668,10 +6731,7 @@ mod shape_dump {
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
-        input.screen_rect = Some(Rect::from_min_size(
-            pos2(0.0, 0.0),
-            Vec2::new(600.0, 300.0),
-        ));
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
         let full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
@@ -6687,6 +6747,10 @@ mod shape_dump {
                         backdrop: Backdrop {
                             color_hex: "8a6a3c".into(),
                             transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
                             image: Some((tex.id(), egui::vec2(4.0, 4.0))),
                             image_mode: Default::default(),
                         },
@@ -6721,10 +6785,7 @@ mod shape_dump {
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();
-        input.screen_rect = Some(Rect::from_min_size(
-            pos2(0.0, 0.0),
-            Vec2::new(600.0, 300.0),
-        ));
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
         let full = ctx.run_ui(input, |root_ui| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
@@ -6740,6 +6801,10 @@ mod shape_dump {
                         backdrop: Backdrop {
                             color_hex: String::new(),
                             transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
                             image: None,
                             image_mode: Default::default(),
                         },
@@ -6790,7 +6855,10 @@ mod shape_dump {
         for cs in &full.shapes {
             walk(&cs.shape, &mut face_r, &mut checked);
         }
-        assert!(checked >= 2, "expected border strokes to check, saw {checked}");
+        assert!(
+            checked >= 2,
+            "expected border strokes to check, saw {checked}"
+        );
         println!("verified {checked} concentric border arcs inside face r={face_r:?}");
     }
 

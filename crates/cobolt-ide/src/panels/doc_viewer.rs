@@ -864,7 +864,7 @@ fn render_mermaid_image(code: &str) -> Result<(egui::ColorImage, egui::Vec2), St
         size: [w as usize, h as usize],
         source_size: egui::vec2(w as f32, h as f32),
         pixels,
-        };
+    };
     let logical = egui::vec2(w as f32 / 2.0, h as f32 / 2.0);
     Ok((image, logical))
 }
@@ -1037,7 +1037,9 @@ fn paint_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32, i
             painter.rect_stroke(
                 egui::Rect::from_min_max(pos2(l, t + h * 0.30), pos2(l + w, t + h * 0.74)),
                 egui::CornerRadius::same(2),
-                s, egui::StrokeKind::Middle);
+                s,
+                egui::StrokeKind::Middle,
+            );
             painter.add(Shape::closed_line(
                 vec![
                     pos2(l + w * 0.22, t + h * 0.60),
@@ -1087,7 +1089,7 @@ fn build_fog_texture(ctx: &Context, rgb: egui::Color32) -> egui::TextureHandle {
         size: [W, H],
         source_size: egui::vec2(W as f32, H as f32),
         pixels,
-        };
+    };
     ctx.load_texture("doc_frost", img, egui::TextureOptions::LINEAR)
 }
 

@@ -86,7 +86,7 @@ impl Theme {
 /// over the background. `fill` should be the live `visuals.panel_fill` so it
 /// respects the active theme / transparent-background mode.
 pub fn glass_panel_frame(fill: Color32, theme: &Theme) -> egui::Frame {
-    use egui::{Margin, CornerRadius, Shadow, Stroke, Vec2};
+    use egui::{CornerRadius, Margin, Shadow, Stroke, Vec2};
     egui::Frame::NONE
         .fill(fill)
         .stroke(Stroke::new(1.0, theme.panel_border()))

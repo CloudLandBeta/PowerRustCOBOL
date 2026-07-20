@@ -142,7 +142,10 @@ mod tests {
 
         // An unknown observe tool is rejected, not fabricated.
         set_cache_for_test(Some("x".into()));
-        assert!(!observe("egui.click").ok, "there is no mutation/observe tool by that name");
+        assert!(
+            !observe("egui.click").ok,
+            "there is no mutation/observe tool by that name"
+        );
         set_cache_for_test(None);
     }
 }

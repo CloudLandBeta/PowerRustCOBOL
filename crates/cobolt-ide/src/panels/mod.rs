@@ -6,6 +6,7 @@
 
 //! IDE panel modules.
 
+pub mod agents_modal;
 pub mod cobol_structure;
 pub mod containers;
 pub mod data_binding;
@@ -15,18 +16,39 @@ pub mod designer;
 pub mod doc_viewer;
 pub mod editor;
 pub mod forms_list;
+pub mod grace_chat;
 pub mod indexed_editor;
 pub mod indexed_field_control;
 pub mod indexed_grid;
 pub mod indexed_new_dialog;
 pub mod indexed_properties;
 pub mod md_render;
+pub mod models_modal;
 pub mod output;
 pub mod project;
 pub mod properties;
 pub mod rounded_clip;
-pub mod agents_modal;
-pub mod models_modal;
 pub mod settings_form;
 pub mod toolbar;
 pub mod toolbox;
+
+pub(crate) const CHAT_SEND_BUTTON_WIDTH: f32 = 96.0;
+
+pub(crate) fn chat_prompt_width(available_width: f32, item_spacing: f32) -> f32 {
+    (available_width - CHAT_SEND_BUTTON_WIDTH - item_spacing).max(48.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_composer_reserves_the_send_button_on_the_right() {
+        let available = 640.0;
+        let item_spacing = 8.0;
+        let prompt = chat_prompt_width(available, item_spacing);
+
+        assert_eq!(prompt, 536.0);
+        assert_eq!(prompt + item_spacing + CHAT_SEND_BUTTON_WIDTH, available);
+    }
+}

@@ -4,7 +4,7 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! Agent Manager modal (spec 028 R6) — the operator-approved mockup, in egui.
+//! Agents Manager modal (spec 028 R6) — the operator-approved mockup, in egui.
 //!
 //! Master–detail over the project agent database: the left rail lists agents
 //! (companions nested under their primary, selection emphasized, the rest
@@ -16,9 +16,70 @@ use std::path::Path;
 
 use eframe::egui;
 
-use crate::agents_db::AgentsDb;
+use crate::agents_db::{AgentKind, AgentsDb};
 use crate::i18n::Tr;
 use crate::llm::{api_key_slot, LlmConfig};
+
+/// Agent lifecycle controls remain implemented for future maintenance, but the
+/// IDE currently provisions and repairs the complete built-in agent mesh.
+const SHOW_NEW_AGENT_CONTROL: bool = false;
+const SHOW_DELETE_AGENT_CONTROL: bool = false;
+
+const PROMPT_EDITOR_MIN_ROWS: usize = 4;
+const PROMPT_EDITOR_MAX_ROWS: usize = 20;
+const PROMPT_EDITOR_VERTICAL_MARGIN: f32 = 4.0;
+
+fn prompt_editor_height(ui: &egui::Ui, rows: usize) -> f32 {
+    ui.text_style_height(&egui::TextStyle::Monospace) * rows as f32 + PROMPT_EDITOR_VERTICAL_MARGIN
+}
+
+struct PromptEditorOutput {
+    response: egui::Response,
+    #[cfg(test)]
+    viewport_rect: egui::Rect,
+    #[cfg(test)]
+    content_height: f32,
+}
+
+fn prompt_editor(ui: &mut egui::Ui, id: egui::Id, prompt: &mut String) -> PromptEditorOutput {
+    let width = ui.available_width();
+    let min_height = prompt_editor_height(ui, PROMPT_EDITOR_MIN_ROWS);
+    let max_height = prompt_editor_height(ui, PROMPT_EDITOR_MAX_ROWS);
+
+    egui::Resize::default()
+        .id(id.with("resize"))
+        .resizable([false, true])
+        .min_size(egui::vec2(width, min_height))
+        .max_size(egui::vec2(width, max_height))
+        .default_size(egui::vec2(width, max_height))
+        .show(ui, |ui| {
+            let size = ui.available_size().min(egui::vec2(width, max_height));
+            ui.set_min_size(size);
+            ui.set_max_size(size);
+            let scroll = egui::ScrollArea::vertical()
+                .id_salt(id.with("scroll"))
+                .auto_shrink([false, false])
+                .min_scrolled_height(size.y)
+                .max_height(size.y)
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(prompt)
+                            .id(id.with("text"))
+                            .font(egui::TextStyle::Monospace)
+                            .desired_rows(PROMPT_EDITOR_MIN_ROWS)
+                            .desired_width(f32::INFINITY)
+                            .margin(egui::Margin::symmetric(4, 2)),
+                    )
+                });
+            PromptEditorOutput {
+                response: scroll.inner,
+                #[cfg(test)]
+                viewport_rect: scroll.inner_rect,
+                #[cfg(test)]
+                content_height: scroll.content_size.y,
+            }
+        })
+}
 
 pub struct AgentsModal {
     pub open: bool,
@@ -57,21 +118,7 @@ impl AgentsModal {
     /// Load (and first-time seed, R7) the project's agents and open.
     pub fn open_for(project_dir: &Path, llm: &mut LlmConfig) -> Self {
         let mut db = AgentsDb::load(project_dir);
-        let mut seeded = db.seed_from_legacy(llm);
-        // Spec 029: the Grace orchestrator singleton + the COBOL Event Handler
-        // specialist exist in every project database (also repairs databases
-        // seeded before they were added).
-        if !db.agents.is_empty() {
-            if db.ensure_grace() {
-                seeded += 1;
-            }
-            if db.ensure_event_handler(llm) {
-                seeded += 1;
-            }
-            if db.ensure_version_control(llm) {
-                seeded += 1;
-            }
-        }
+        let mut seeded = db.ensure_fixed_agents(llm);
         // Spec 031: convert any agents still carrying embedded model config onto
         // reusable global model profiles (idempotent). Persist both stores.
         let migrated = crate::agents_db::migrate_to_profiles(&mut db, llm);
@@ -107,11 +154,17 @@ impl AgentsModal {
             return;
         };
         self.prompt_buf = self.db.load_prompt(&a.name);
-        self.key_buf = llm
-            .api_keys
-            .get(&api_key_slot(&a.provider, &a.model))
-            .cloned()
-            .unwrap_or_default();
+        self.key_buf = a
+            .model_profile
+            .as_deref()
+            .and_then(|id| llm.profile(id))
+            .map(|profile| profile.resolve(llm).api_key)
+            .unwrap_or_else(|| {
+                llm.api_keys
+                    .get(&api_key_slot(&a.provider, &a.model))
+                    .cloned()
+                    .unwrap_or_default()
+            });
     }
 
     /// Stash the selected agent's prompt + key before leaving it.
@@ -120,13 +173,18 @@ impl AgentsModal {
             return;
         };
         let _ = self.db.save_prompt(&a.name, &self.prompt_buf);
-        if !a.model.trim().is_empty() {
-            let slot = api_key_slot(&a.provider, &a.model);
-            if self.key_buf.trim().is_empty() {
-                llm.api_keys.remove(&slot);
-            } else {
-                llm.api_keys.insert(slot, self.key_buf.clone());
-            }
+        if self.key_buf.trim().is_empty() {
+            return;
+        }
+        if let Some(profile) = a
+            .model_profile
+            .as_deref()
+            .and_then(|id| llm.profile(id))
+            .cloned()
+        {
+            llm.store_api_key(crate::llm::profile_api_key_slot(&profile.id), &self.key_buf);
+        } else if !a.model.trim().is_empty() {
+            llm.store_api_key(api_key_slot(&a.provider, &a.model), &self.key_buf);
         }
     }
 
@@ -185,7 +243,9 @@ impl AgentsModal {
                             (format!("⚠ {e}"), egui::Color32::from_rgb(224, 120, 120))
                         } else if let Some((p, c)) = &violation {
                             (
-                                tr.agents_pair_rule.replacen("{}", p, 1).replacen("{}", c, 1),
+                                tr.agents_pair_rule
+                                    .replacen("{}", p, 1)
+                                    .replacen("{}", c, 1),
                                 egui::Color32::from_rgb(230, 192, 106),
                             )
                         } else if let Some(name) = &missing {
@@ -232,7 +292,9 @@ impl AgentsModal {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.add_enabled(can_commit, egui::Button::new("OK")).clicked()
+                                    if ui
+                                        .add_enabled(can_commit, egui::Button::new("OK"))
+                                        .clicked()
                                     {
                                         if self.apply(llm) {
                                             action.applied = true;
@@ -299,14 +361,14 @@ impl AgentsModal {
                     .hint_text(tr.agents_filter)
                     .desired_width(190.0),
             );
-            if ui.button(format!("＋ {}", tr.agents_new)).clicked() {
+            if SHOW_NEW_AGENT_CONTROL && ui.button(format!("＋ {}", tr.agents_new)).clicked() {
                 self.new_name = Some(String::new());
                 self.new_kind = crate::agents_db::AgentKind::Specialist;
                 self.error = None;
             }
         });
         // Inline "new agent" row: the name is asked once and is immutable.
-        if self.new_name.is_some() {
+        if SHOW_NEW_AGENT_CONTROL && self.new_name.is_some() {
             use crate::agents_db::AgentKind;
             ui.add_space(4.0);
             let mut create = false;
@@ -333,8 +395,16 @@ impl AgentsModal {
                         tr.agents_kind_specialist
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.new_kind, AgentKind::Specialist, tr.agents_kind_specialist);
-                        ui.selectable_value(&mut self.new_kind, AgentKind::Pedantic, tr.agents_kind_pedantic);
+                        ui.selectable_value(
+                            &mut self.new_kind,
+                            AgentKind::Specialist,
+                            tr.agents_kind_specialist,
+                        );
+                        ui.selectable_value(
+                            &mut self.new_kind,
+                            AgentKind::Pedantic,
+                            tr.agents_kind_pedantic,
+                        );
                     });
             });
             if create {
@@ -367,7 +437,15 @@ impl AgentsModal {
             .id_salt("agents_rail_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let entries: Vec<(usize, String, String, String, bool, bool, crate::agents_db::AgentKind)> = self
+                let entries: Vec<(
+                    usize,
+                    String,
+                    String,
+                    String,
+                    bool,
+                    bool,
+                    crate::agents_db::AgentKind,
+                )> = self
                     .db
                     .agents
                     .iter()
@@ -419,8 +497,16 @@ impl AgentsModal {
                     let name_line = format!("{dot} {badge}{}", ell(&name, 24));
                     let sub_line = format!(
                         "    {} · {}",
-                        if model.is_empty() { "—".into() } else { ell(&model, 22) },
-                        if provider.is_empty() { "—".into() } else { ell(&provider, 16) },
+                        if model.is_empty() {
+                            "—".into()
+                        } else {
+                            ell(&model, 22)
+                        },
+                        if provider.is_empty() {
+                            "—".into()
+                        } else {
+                            ell(&provider, 16)
+                        },
                     );
                     // Text colour: on the bright selected fill, pick dark or light
                     // for contrast; otherwise the theme colours. Inactive buttons
@@ -536,6 +622,7 @@ impl AgentsModal {
         let sel = self.sel;
         let mut changed = false;
         let mut do_proficiency = false;
+        let mut relationship_changed = false;
 
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.set_min_width(ui.available_width() - 12.0);
@@ -620,23 +707,34 @@ impl AgentsModal {
                     ui.add_space(2.0);
                     if agent.kind == crate::agents_db::AgentKind::Orchestrator {
                         ui.weak(tr.agents_grace_protected);
-                    } else if !self.confirm_delete {
-                        if ui.button(format!("🗑 {}", tr.agents_delete)).clicked() {
-                            self.confirm_delete = true;
-                        }
-                    } else if ui
-                        .button(
-                            egui::RichText::new(format!("🗑 {}", tr.agents_delete_confirm))
+                    }
+                    if SHOW_DELETE_AGENT_CONTROL {
+                        if crate::agents_db::is_fixed_agent_name(&agent.name) {
+                            ui.add_enabled(
+                                false,
+                                egui::Button::new(format!("🗑 {}", tr.agents_delete)),
+                            );
+                        } else if !self.confirm_delete {
+                            if ui.button(format!("🗑 {}", tr.agents_delete)).clicked() {
+                                self.confirm_delete = true;
+                            }
+                        } else if ui
+                            .button(
+                                egui::RichText::new(format!(
+                                    "🗑 {}",
+                                    tr.agents_delete_confirm
+                                ))
                                 .color(egui::Color32::from_rgb(224, 120, 120)),
-                        )
-                        .clicked()
-                    {
-                        let id = agent.id.clone();
-                        let _ = self.db.delete(&id);
-                        self.sel = 0;
-                        self.load_selected(llm);
-                        self.dirty = true;
-                        return;
+                            )
+                            .clicked()
+                        {
+                            let id = agent.id.clone();
+                            let _ = self.db.delete(&id);
+                            self.sel = 0;
+                            self.load_selected(llm);
+                            self.dirty = true;
+                            return;
+                        }
                     }
                 });
             ui.separator();
@@ -710,17 +808,15 @@ impl AgentsModal {
                 .default_open(true)
                 .show(ui, |ui| {
                     ui.label(tr.agents_prompt);
-                    // ~20 lines tall by default; grows with the prompt and
-                    // fills the panel width (so it tracks modal resizing). A
-                    // fixed row count — NOT sized from available height — so it
-                    // can't self-inflate inside the detail scroll area.
-                    let r = ui.add(
-                        egui::TextEdit::multiline(&mut self.prompt_buf)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_rows(20)
-                            .desired_width(f32::INFINITY),
+                    // The user can resize the editor vertically from four to
+                    // twenty text rows. Long prompts scroll inside the editor
+                    // and cannot inflate the surrounding detail pane.
+                    let r = prompt_editor(
+                        ui,
+                        ui.make_persistent_id(("agents_prompt_editor", agent.id.as_str())),
+                        &mut self.prompt_buf,
                     );
-                    changed |= r.changed();
+                    changed |= r.response.changed();
                     ui.weak(format!(
                         "{} agentic_ai/{}/{}_prompt.md",
                         tr.agents_prompt_hint, agent.name, agent.name
@@ -761,18 +857,82 @@ impl AgentsModal {
             ui.separator();
 
             // Companion -------------------------------------------------------
-            if self.db.is_companion(&agent.id) {
-                let owner = self
-                    .db
-                    .agents
-                    .iter()
-                    .find(|a| a.companion.as_deref() == Some(agent.id.as_str()))
-                    .map(|a| a.name.clone())
-                    .unwrap_or_default();
-                ui.colored_label(
-                    egui::Color32::from_rgb(201, 162, 232),
-                    format!("🔍 {}", tr.agents_companion_of.replacen("{}", &owner, 1)),
-                );
+            if agent.kind == AgentKind::Pedantic {
+                egui::CollapsingHeader::new(
+                    egui::RichText::new(tr.agents_sec_companion_for).strong(),
+                )
+                .default_open(true)
+                .show(ui, |ui| {
+                    let current_owner = self
+                        .db
+                        .companion_owner(&agent.id)
+                        .map(|owner| (owner.id.clone(), owner.name.clone()));
+                    let mut pick: Option<Option<String>> = None;
+                    egui::ComboBox::from_id_salt("ag_companion_for")
+                        .selected_text(
+                            current_owner
+                                .as_ref()
+                                .map(|(_, name)| name.clone())
+                                .unwrap_or_else(|| tr.agents_companion_for_none.to_string()),
+                        )
+                        .width(320.0)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(
+                                    current_owner.is_none(),
+                                    tr.agents_companion_for_none,
+                                )
+                                .clicked()
+                            {
+                                pick = Some(None);
+                            }
+                            let owners: Vec<(String, String)> = self
+                                .db
+                                .agents
+                                .iter()
+                                .filter(|candidate| {
+                                    matches!(
+                                        candidate.kind,
+                                        AgentKind::Orchestrator | AgentKind::Specialist
+                                    )
+                                })
+                                .map(|candidate| {
+                                    (candidate.id.clone(), candidate.name.clone())
+                                })
+                                .collect();
+                            for (id, name) in owners {
+                                if ui
+                                    .selectable_label(
+                                        current_owner.as_ref().map(|(owner_id, _)| owner_id)
+                                            == Some(&id),
+                                        name,
+                                    )
+                                    .clicked()
+                                {
+                                    pick = Some(Some(id));
+                                }
+                            }
+                        });
+                    if let Some(selection) = pick {
+                        let result = match selection {
+                            Some(owner_id) => {
+                                self.db.set_companion(&owner_id, Some(agent.id.as_str()))
+                            }
+                            None => current_owner
+                                .as_ref()
+                                .map(|(owner_id, _)| self.db.set_companion(owner_id, None))
+                                .unwrap_or(Ok(false)),
+                        };
+                        match result {
+                            Ok(did_change) => {
+                                changed |= did_change;
+                                relationship_changed |= did_change;
+                            }
+                            Err(error) => self.error = Some(error),
+                        }
+                    }
+                    ui.weak(tr.agents_companion_for_hint);
+                });
             } else {
                 egui::CollapsingHeader::new(egui::RichText::new(tr.agents_sec_companion).strong())
                     .default_open(true)
@@ -800,7 +960,7 @@ impl AgentsModal {
                                         .iter()
                                         .filter(|x| {
                                             x.id != agent.id
-                                                && x.kind == crate::agents_db::AgentKind::Pedantic
+                                                && x.kind == AgentKind::Pedantic
                                         })
                                         .map(|x| {
                                             // Show the companion's resolved model (spec 031),
@@ -826,7 +986,7 @@ impl AgentsModal {
                             // Proficiency check beside the companion dropdown: shown
                             // ONLY when a pedantic companion is chosen (the check is a
                             // primary+reviewer tandem). Hidden when set to none.
-                            if agent.kind == crate::agents_db::AgentKind::Specialist
+                            if agent.kind == AgentKind::Specialist
                                 && agent.companion.is_some()
                             {
                                 let resolvable = agent
@@ -847,13 +1007,30 @@ impl AgentsModal {
                             }
                         });
                         if let Some(p) = pick {
-                            self.db.agents[sel].companion = p;
-                            changed = true;
+                            match self.db.set_companion(&agent.id, p.as_deref()) {
+                                Ok(did_change) => {
+                                    changed |= did_change;
+                                    relationship_changed |= did_change;
+                                }
+                                Err(error) => self.error = Some(error),
+                            }
                         }
                         ui.weak(tr.agents_companion_hint);
                     });
             }
         });
+
+        if relationship_changed {
+            self.db.sort_rail();
+            if let Some(index) = self
+                .db
+                .agents
+                .iter()
+                .position(|candidate| candidate.id == agent.id)
+            {
+                self.sel = index;
+            }
+        }
 
         if changed {
             self.dirty = true;
@@ -888,7 +1065,11 @@ fn string_list_ui(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, chang
         }
         let id = ui.id().with(label).with("add");
         let mut buf: String = ui.data_mut(|d| d.get_temp(id).unwrap_or_default());
-        let r = ui.add(egui::TextEdit::singleline(&mut buf).hint_text("＋").desired_width(110.0));
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut buf)
+                .hint_text("＋")
+                .desired_width(110.0),
+        );
         if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !buf.trim().is_empty()
         {
             items.push(buf.trim().to_string());
@@ -904,13 +1085,59 @@ mod resize_tests {
     use super::*;
     use crate::agents_db::{AgentKind, AgentsDb};
 
+    #[test]
+    fn agent_lifecycle_controls_are_hidden() {
+        assert!(!SHOW_NEW_AGENT_CONTROL);
+        assert!(!SHOW_DELETE_AGENT_CONTROL);
+    }
+
+    #[test]
+    fn long_prompt_editor_never_exceeds_twenty_rows() {
+        let ctx = egui::Context::default();
+        let mut prompt = (1..=80)
+            .map(|line| format!("instruction line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut measured_height = 0.0;
+        let mut max_height = 0.0;
+        let mut content_height = 0.0;
+
+        for frame in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 700.0),
+                )),
+                time: Some(frame as f64 / 60.0),
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(input, |ui| {
+                max_height = prompt_editor_height(ui, PROMPT_EDITOR_MAX_ROWS);
+                let id = ui.make_persistent_id("prompt_height_test");
+                let output = prompt_editor(ui, id, &mut prompt);
+                measured_height = output.viewport_rect.height();
+                content_height = output.content_height;
+            });
+        }
+
+        assert!(
+            measured_height <= max_height + 0.5,
+            "long content expanded prompt editor to {measured_height}px; 20 rows is {max_height}px"
+        );
+        assert!(
+            content_height > measured_height,
+            "the long prompt should scroll inside the bounded editor"
+        );
+    }
+
     /// Regression guard (egui self-inflation): the agent-list rail must hold a
     /// stable width across many frames. It used to size its filter/name fields
     /// from `available_width`, so the row's min-width chased the panel width
     /// and ratcheted it wider every frame until the detail pane vanished.
     #[test]
     fn agent_rail_width_is_stable_across_frames() {
-        let proj = std::env::temp_dir().join(format!("prc_railtest_{}", crate::agents_db::new_uuid()));
+        let proj =
+            std::env::temp_dir().join(format!("prc_railtest_{}", crate::agents_db::new_uuid()));
         std::fs::create_dir_all(&proj).unwrap();
         // A few agents with long-ish model ids (worst case for width).
         let mut db = AgentsDb::load(&proj);
@@ -962,6 +1189,9 @@ mod resize_tests {
             assert!(*w <= 520.5, "rail exceeded its max_size cap: {w}");
         }
         let _ = std::fs::remove_dir_all(proj);
-        println!("agent rail stable at {settled:.0}px across {} frames", widths.len());
+        println!(
+            "agent rail stable at {settled:.0}px across {} frames",
+            widths.len()
+        );
     }
 }

@@ -74,3 +74,4 @@ pretty_assertions = "1"
 # Mesh architecture dependencies
 rig-core = "0.40.0"
 tokio    = { version = "1", features = ["full"] }
+rusqlite = { version = "0.32", features = ["bundled"] }

@@ -50,8 +50,12 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     if ui.is_rect_visible(rect) {
         show_color_at(ui.painter(), *color, rect);
-        ui.painter()
-            .rect_stroke(rect, 2.0, Stroke::new(1.0, Color32::from_gray(120)), egui::StrokeKind::Middle);
+        ui.painter().rect_stroke(
+            rect,
+            2.0,
+            Stroke::new(1.0, Color32::from_gray(120)),
+            egui::StrokeKind::Middle,
+        );
     }
 
     let popup_id = resp.id.with("__closing_color_popup");
@@ -106,7 +110,9 @@ fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response
                         ui.painter().rect_stroke(
                             sw_rect,
                             2.0,
-                            Stroke::new(1.0, Color32::from_gray(120)), egui::StrokeKind::Middle);
+                            Stroke::new(1.0, Color32::from_gray(120)),
+                            egui::StrokeKind::Middle,
+                        );
 
                         ui.label("#");
 
@@ -3416,6 +3422,57 @@ impl PropertiesPanel {
             action,
             "#F0F0F0",
         );
+        bool_prop_row(
+            ui,
+            id,
+            "BackgroundGradientEnabled",
+            "Background gradient",
+            ctrl,
+            action,
+        );
+        if ctrl
+            .get_prop("BackgroundGradientEnabled")
+            .map(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            color_prop_row(
+                ui,
+                id,
+                "BackgroundGradientStartColor",
+                "Gradient start",
+                ctrl,
+                action,
+                "#F0F0F0FF",
+            );
+            color_prop_row(
+                ui,
+                id,
+                "BackgroundGradientEndColor",
+                "Gradient end",
+                ctrl,
+                action,
+                "#C8D0DCFF",
+            );
+            combo_prop_row(
+                ui,
+                id,
+                "BackgroundGradientDirection",
+                "Gradient direction",
+                ctrl,
+                action,
+                &[
+                    "North",
+                    "NorthEast",
+                    "East",
+                    "SouthEast",
+                    "South",
+                    "SouthWest",
+                    "West",
+                    "NorthWest",
+                ],
+                "South",
+            );
+        }
         color_prop_row(
             ui,
             id,
@@ -3590,6 +3647,15 @@ impl PropertiesPanel {
             ctrl,
             action,
             "#000000",
+        );
+        color_prop_row(
+            ui,
+            id,
+            "ShadowLightColor",
+            "Light shadow color",
+            ctrl,
+            action,
+            "#FFFFFFFF",
         );
         combo_prop_row(
             ui,
@@ -5126,36 +5192,6 @@ impl PropertiesPanel {
                     bool_row_inline(ui, id, "CaptionEnabled", "Caption enabled", ctrl, action);
                 }
                 bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
-                bool_row_inline(
-                    ui,
-                    id,
-                    "BackgroundGradientEnabled",
-                    "Background gradient",
-                    ctrl,
-                    action,
-                );
-                if ctrl
-                    .get_prop("BackgroundGradientEnabled")
-                    .map(|v| v.as_bool())
-                    .unwrap_or(false)
-                {
-                    color_row(ui, id, "BackgroundGradientStartColor", ctrl, action);
-                    color_row(ui, id, "BackgroundGradientEndColor", ctrl, action);
-                    combo_row_inline(
-                        ui,
-                        id,
-                        "BackgroundGradientDirection",
-                        ctrl,
-                        action,
-                        &[
-                            "Vertical",
-                            "Horizontal",
-                            "DiagonalDown",
-                            "DiagonalUp",
-                            "Radial",
-                        ],
-                    );
-                }
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
 
@@ -6275,7 +6311,9 @@ impl PropertiesPanel {
                             p.rect_stroke(
                                 cell_rect.shrink(1.5),
                                 0.0,
-                                egui::Stroke::new(2.0, Color32::BLACK), egui::StrokeKind::Middle);
+                                egui::Stroke::new(2.0, Color32::BLACK),
+                                egui::StrokeKind::Middle,
+                            );
                         }
                     }
                     // Internal 1px pure-white grid lines only (no outer border).
@@ -6748,6 +6786,73 @@ impl PropertiesPanel {
                             .color(Color32::GRAY),
                     );
                 });
+                property_row(ui, "Background gradient", |ui| {
+                    let mut enabled = form.background_gradient_enabled;
+                    if ui.checkbox(&mut enabled, "").changed() {
+                        action
+                            .form_props
+                            .push(("BackgroundGradientEnabled".into(), enabled.to_string()));
+                    }
+                });
+                if form.background_gradient_enabled {
+                    property_row(ui, "Gradient start", |ui| {
+                        let mut color = hex_to_color32(&form.background_gradient_start_color);
+                        if color_edit_button_closing(ui, &mut color).changed() {
+                            action.form_props.push((
+                                "BackgroundGradientStartColor".into(),
+                                color32_to_hex(color),
+                            ));
+                        }
+                        ui.label(
+                            RichText::new(color32_to_hex(color))
+                                .monospace()
+                                .small()
+                                .color(Color32::GRAY),
+                        );
+                    });
+                    property_row(ui, "Gradient end", |ui| {
+                        let mut color = hex_to_color32(&form.background_gradient_end_color);
+                        if color_edit_button_closing(ui, &mut color).changed() {
+                            action
+                                .form_props
+                                .push(("BackgroundGradientEndColor".into(), color32_to_hex(color)));
+                        }
+                        ui.label(
+                            RichText::new(color32_to_hex(color))
+                                .monospace()
+                                .small()
+                                .color(Color32::GRAY),
+                        );
+                    });
+                    property_row(ui, "Gradient direction", |ui| {
+                        let current = form.background_gradient_direction.as_str();
+                        egui::ComboBox::from_id_salt("form_background_gradient_direction")
+                            .selected_text(current)
+                            .width(ui.available_width())
+                            .show_ui(ui, |ui| {
+                                for direction in [
+                                    "North",
+                                    "NorthEast",
+                                    "East",
+                                    "SouthEast",
+                                    "South",
+                                    "SouthWest",
+                                    "West",
+                                    "NorthWest",
+                                ] {
+                                    if ui
+                                        .selectable_label(current == direction, direction)
+                                        .clicked()
+                                    {
+                                        action.form_props.push((
+                                            "BackgroundGradientDirection".into(),
+                                            direction.into(),
+                                        ));
+                                    }
+                                }
+                            });
+                    });
+                }
                 property_row(ui, tr.lbl_transparency, |ui| {
                     let mut trans = form.transparency as i64;
                     if ui
@@ -6788,7 +6893,9 @@ impl PropertiesPanel {
                         .selected_text(cur)
                         .width(ui.available_width())
                         .show_ui(ui, |ui| {
-                            for opt in &["Classic", "Enhanced", "Neumorphic"] {
+                            for opt in
+                                &["Classic", "Enhanced", "Neumorphic Light", "Neumorphic Dark"]
+                            {
                                 if ui.selectable_label(cur == *opt, *opt).clicked() {
                                     // Drop any image theme-pack override, then set the
                                     // procedural glass style.
@@ -7275,7 +7382,8 @@ fn section_header(ui: &mut Ui, title: &str) {
     } else {
         Color32::from_rgb(56, 64, 76)
     };
-    ui.painter().rect_filled(rect, egui::CornerRadius::ZERO, fill);
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::ZERO, fill);
     ui.painter().text(
         rect.left_center() + egui::vec2(3.0, 0.0),
         egui::Align2::LEFT_CENTER,

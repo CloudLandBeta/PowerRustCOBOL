@@ -167,11 +167,38 @@ pub fn validate(cs: &AgentChangeSet, form: &Form) -> Vec<Option<String>> {
 
     cs.operations
         .iter()
-        .map(|op| validate_op(op, &mut known))
+        .map(|op| validate_op(op, &mut known, &form.name))
         .collect()
 }
 
-fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option<String> {
+fn is_form_id(form_name: &str, id: &str) -> bool {
+    id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(form_name)
+}
+
+fn form_property_valid(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "title"
+            | "backgroundcolor"
+            | "width"
+            | "height"
+            | "transparency"
+            | "gridsize"
+            | "snaptogrid"
+            | "glassstyle"
+            | "backgroundgradientenabled"
+            | "backgroundgradientstartcolor"
+            | "backgroundgradientendcolor"
+            | "backgroundgradientdirection"
+            | "target"
+            | "backgroundimage"
+            | "bgimagemode"
+            | "theme"
+            | "usethemebackground"
+    )
+}
+
+fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name: &str) -> Option<String> {
     match op {
         AgentOp::DeployControl {
             control_type,
@@ -196,13 +223,23 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>) -> Option
         }
         AgentOp::SetProperty {
             control_id, key, ..
-        } => match known.get(&control_id.to_ascii_uppercase()) {
-            None => Some(format!("No control named '{control_id}'.")),
-            Some(ct) if !property_valid(ct, key) => {
-                Some(format!("Control '{control_id}' has no property '{key}'."))
+        } => {
+            if is_form_id(form_name, control_id) {
+                if !form_property_valid(key) {
+                    Some(format!("Form has no property '{key}'."))
+                } else {
+                    None
+                }
+            } else {
+                match known.get(&control_id.to_ascii_uppercase()) {
+                    None => Some(format!("No control named '{control_id}'.")),
+                    Some(ct) if !property_valid(ct, key) => {
+                        Some(format!("Control '{control_id}' has no property '{key}'."))
+                    }
+                    _ => None,
+                }
             }
-            _ => None,
-        },
+        }
         AgentOp::GenerateEventHandler {
             control_id,
             event,

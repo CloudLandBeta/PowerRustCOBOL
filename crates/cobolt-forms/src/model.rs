@@ -2914,6 +2914,11 @@ pub const DEFAULT_FOREGROUND_COLOR: &str = "#FFFFFF";
 
 pub const NEUMORPHIC_SURFACE_COLOR: &str = "#E1E6F8FF";
 pub const NEUMORPHIC_FORM_BACKGROUND: &str = "E1E6F8FF";
+pub const NEUMORPHIC_DARK_SURFACE_COLOR: &str = "#36383EFF";
+pub const NEUMORPHIC_DARK_FORM_BACKGROUND: &str = "36383EFF";
+pub const NEUMORPHIC_DARK_LIGHT_SHADOW: &str = "#4E4E4EFF";
+pub const NEUMORPHIC_DARK_GRADIENT_START: &str = "#4E4E4EFF";
+pub const NEUMORPHIC_DARK_GRADIENT_END: &str = "#000000FF";
 
 const TAB_CONTROL_MCP_TOOL: &str = r#"{"name":"manage_tab_control_tabs","description":"Creates, updates, reorders, selects, or removes tabs that belong to a TabControl in the form designer. A tab is a child container owned by exactly one TabControl and represents one selectable page within that control. Tabs must not be created as independent top-level form controls. Controls placed on a tab belong to that tab page and are visible only when the tab is active, unless the designer is explicitly displaying inactive pages for editing.","inputSchema":{"type":"object","required":["operation","tab_control_id"],"properties":{"operation":{"type":"string","enum":["create","update","remove","reorder","select"],"description":"The operation to perform on a tab belonging to the specified TabControl."},"tab_control_id":{"type":"string","description":"The unique identifier of the parent TabControl that owns the tab. The referenced control must exist and must be a TabControl."},"tab_id":{"type":"string","description":"The stable unique identifier of the tab page. Required for update, remove, reorder, and select operations. The tab must belong to the specified TabControl."},"caption":{"type":"string","description":"The text displayed in the tab header. Changing the caption does not change the tab identifier or the ownership of controls placed inside the tab."},"index":{"type":"integer","minimum":0,"description":"The zero-based position of the tab within the parent TabControl. Tabs are displayed according to this order. Reordering a tab must preserve its identifier and child controls."},"selected":{"type":"boolean","description":"Determines whether this tab becomes the active page of the TabControl. Only one tab within the same TabControl may be selected at a time."},"enabled":{"type":"boolean","description":"Determines whether the user can activate the tab at runtime. A disabled tab remains part of the TabControl and retains its child controls."},"visible":{"type":"boolean","description":"Determines whether the tab header and its page are available at runtime. Hiding a tab must not delete the tab or its child controls."},"tooltip":{"type":"string","description":"Optional explanatory text displayed when the user points to the tab header."},"icon":{"type":["string","null"],"description":"Optional icon resource associated with the tab header. The value must reference a valid project resource or be null to remove the icon."},"confirm_remove_with_children":{"type":"boolean","default":false,"description":"Confirms removal of a tab that contains child controls. Removing a tab may also remove or orphan its contained controls, depending on the designer policy. The tool must reject destructive removal unless this value is true."}},"allOf":[{"if":{"properties":{"operation":{"const":"create"}}},"then":{"required":["caption"]}},{"if":{"properties":{"operation":{"enum":["update","remove","reorder","select"]}}},"then":{"required":["tab_id"]}},{"if":{"properties":{"operation":{"const":"reorder"}}},"then":{"required":["index"]}}]}}"#;
 
@@ -2940,6 +2945,19 @@ impl Control {
             "BackgroundColor".into(),
             PropValue::String(DEFAULT_BACKGROUND_COLOR.into()),
         );
+        props.insert("BackgroundGradientEnabled".into(), PropValue::Bool(false));
+        props.insert(
+            "BackgroundGradientStartColor".into(),
+            PropValue::String(DEFAULT_BACKGROUND_COLOR.into()),
+        );
+        props.insert(
+            "BackgroundGradientEndColor".into(),
+            PropValue::String("#C8D0DC".into()),
+        );
+        props.insert(
+            "BackgroundGradientDirection".into(),
+            PropValue::String("South".into()),
+        );
         props.insert(
             "ForegroundColor".into(),
             PropValue::String(DEFAULT_FOREGROUND_COLOR.into()),
@@ -2965,6 +2983,10 @@ impl Control {
         props.insert("ShadowEnabled".into(), PropValue::Bool(false));
         props.insert("ShadowOpacity".into(), PropValue::Int(6)); // 0-100 %
         props.insert("ShadowColor".into(), PropValue::String("#000000".into()));
+        props.insert(
+            "ShadowLightColor".into(),
+            PropValue::String("#FFFFFFFF".into()),
+        );
         props.insert(
             "ShadowDirection".into(),
             PropValue::String("SouthEast".into()),
@@ -3082,19 +3104,6 @@ impl Control {
                 props.insert("VScroll".into(), PropValue::Bool(false));
                 // Panel shares the same visual model as GroupBox (minus caption).
                 props.insert("HideBackground".into(), PropValue::Bool(false));
-                props.insert("BackgroundGradientEnabled".into(), PropValue::Bool(false));
-                props.insert(
-                    "BackgroundGradientStartColor".into(),
-                    PropValue::String("#F0F0F0".into()),
-                );
-                props.insert(
-                    "BackgroundGradientEndColor".into(),
-                    PropValue::String("#C8D0DC".into()),
-                );
-                props.insert(
-                    "BackgroundGradientDirection".into(),
-                    PropValue::String("Vertical".into()),
-                );
                 props.insert("mcp_tool".into(), PropValue::String("".into()));
             }
             ControlType::GroupBox => {
@@ -3118,21 +3127,6 @@ impl Control {
                 props.insert("HideCaption".into(), PropValue::Bool(false));
                 props.insert("CaptionEnabled".into(), PropValue::Bool(true));
                 props.insert("HideBackground".into(), PropValue::Bool(false));
-                props.insert("BackgroundGradientEnabled".into(), PropValue::Bool(false));
-                props.insert(
-                    "BackgroundGradientStartColor".into(),
-                    PropValue::String("#F0F0F0".into()),
-                );
-                props.insert(
-                    "BackgroundGradientEndColor".into(),
-                    PropValue::String("#C8D0DC".into()),
-                );
-                // Vertical | Horizontal | DiagonalDown | DiagonalUp | Radial
-                props.insert(
-                    "BackgroundGradientDirection".into(),
-                    PropValue::String("Vertical".into()),
-                );
-
                 // ── Repeating group / array template (spec 015, Phase 2) ───────
                 // Inert until IsRepeatingGroup is turned on (existing forms stay
                 // unchanged). ArrayName empty ⇒ use the control id.
@@ -3786,11 +3780,54 @@ impl Control {
         }
         self.set_prop("CornerRadius", PropValue::Int(15));
         self.set_prop("ShadowEnabled", PropValue::Bool(true));
+        self.set_prop("ShadowLightColor", PropValue::String("#FFFFFFFF".into()));
         self.set_prop("ShadowOpacity", PropValue::Int(6));
         self.set_prop("ShadowDirection", PropValue::String("SouthEast".into()));
         self.set_prop("ShadowDistance", PropValue::Int(7));
         self.set_prop("ShadowBlur", PropValue::Bool(true));
         self.set_prop("ShadowBlurStrength", PropValue::Int(8));
+        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(false));
+    }
+
+    pub fn apply_neumorphic_dark_defaults(&mut self) {
+        self.set_prop(
+            "BackgroundColor",
+            PropValue::String(NEUMORPHIC_DARK_SURFACE_COLOR.into()),
+        );
+        self.set_prop("ForegroundColor", PropValue::String("#FFFFFFFF".into()));
+        self.set_prop("CornerRadius", PropValue::Int(15));
+        self.set_prop("ShadowEnabled", PropValue::Bool(true));
+        self.set_prop("ShadowOpacity", PropValue::Int(6));
+        self.set_prop("ShadowColor", PropValue::String("#000000FF".into()));
+        self.set_prop(
+            "ShadowLightColor",
+            PropValue::String(NEUMORPHIC_DARK_LIGHT_SHADOW.into()),
+        );
+        self.set_prop("ShadowDirection", PropValue::String("SouthEast".into()));
+        self.set_prop("ShadowDistance", PropValue::Int(7));
+        self.set_prop("ShadowBlur", PropValue::Bool(true));
+        self.set_prop("ShadowBlurStrength", PropValue::Int(8));
+        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(true));
+        self.set_prop(
+            "BackgroundGradientStartColor",
+            PropValue::String(NEUMORPHIC_DARK_GRADIENT_START.into()),
+        );
+        self.set_prop(
+            "BackgroundGradientEndColor",
+            PropValue::String(NEUMORPHIC_DARK_GRADIENT_END.into()),
+        );
+        self.set_prop(
+            "BackgroundGradientDirection",
+            PropValue::String("South".into()),
+        );
+    }
+
+    pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        match style {
+            GlassStyle::Neumorphic => self.apply_neumorphic_defaults(),
+            GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
+            GlassStyle::Classic | GlassStyle::Enhanced => {}
+        }
     }
 
     /// Remove an animation by name.
@@ -3814,6 +3851,8 @@ pub enum GlassStyle {
     /// dark bottom-right) on a flat matte surface. Depth from illumination,
     /// not transparency.
     Neumorphic,
+    /// Dark soft-UI variant with charcoal surfaces and non-white highlights.
+    NeumorphicDark,
 }
 
 impl GlassStyle {
@@ -3821,15 +3860,21 @@ impl GlassStyle {
         match self {
             GlassStyle::Classic => "Classic",
             GlassStyle::Enhanced => "Enhanced",
-            GlassStyle::Neumorphic => "Neumorphic",
+            GlassStyle::Neumorphic => "Neumorphic Light",
+            GlassStyle::NeumorphicDark => "Neumorphic Dark",
         }
     }
     pub fn from_str(s: &str) -> Self {
         match s {
             "Enhanced" => GlassStyle::Enhanced,
-            "Neumorphic" => GlassStyle::Neumorphic,
+            "Neumorphic" | "Neumorphic Light" => GlassStyle::Neumorphic,
+            "Neumorphic Dark" => GlassStyle::NeumorphicDark,
             _ => GlassStyle::Classic,
         }
+    }
+
+    pub fn is_neumorphic(self) -> bool {
+        matches!(self, GlassStyle::Neumorphic | GlassStyle::NeumorphicDark)
     }
 }
 
@@ -4006,6 +4051,11 @@ pub struct Form {
     pub width: u32,
     pub height: u32,
     pub background_color: String,
+    /// Optional eight-direction linear background gradient.
+    pub background_gradient_enabled: bool,
+    pub background_gradient_start_color: String,
+    pub background_gradient_end_color: String,
+    pub background_gradient_direction: String,
     /// Window-level transparency: 0 = fully opaque, 100 = fully transparent.
     pub transparency: u8,
     /// Optional background image path (empty = none).
@@ -4081,6 +4131,10 @@ impl Form {
             width,
             height,
             background_color: "00000000".to_owned(),
+            background_gradient_enabled: false,
+            background_gradient_start_color: "#F0F0F0FF".to_owned(),
+            background_gradient_end_color: "#C8D0DCFF".to_owned(),
+            background_gradient_direction: "South".to_owned(),
             transparency: 0,
             background_image: String::new(),
             bg_image_mode: BgImageMode::Stretch,
@@ -4106,8 +4160,29 @@ impl Form {
     pub fn apply_neumorphic_defaults(&mut self) {
         self.glass_style = GlassStyle::Neumorphic;
         self.background_color = NEUMORPHIC_FORM_BACKGROUND.into();
+        self.background_gradient_enabled = false;
         for ctrl in &mut self.controls {
             ctrl.apply_neumorphic_defaults();
+        }
+    }
+
+    pub fn apply_neumorphic_dark_defaults(&mut self) {
+        self.glass_style = GlassStyle::NeumorphicDark;
+        self.background_color = NEUMORPHIC_DARK_FORM_BACKGROUND.into();
+        self.background_gradient_enabled = true;
+        self.background_gradient_start_color = NEUMORPHIC_DARK_GRADIENT_START.into();
+        self.background_gradient_end_color = NEUMORPHIC_DARK_GRADIENT_END.into();
+        self.background_gradient_direction = "South".into();
+        for ctrl in &mut self.controls {
+            ctrl.apply_neumorphic_dark_defaults();
+        }
+    }
+
+    pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        match style {
+            GlassStyle::Neumorphic => self.apply_neumorphic_defaults(),
+            GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
+            GlassStyle::Classic | GlassStyle::Enhanced => self.glass_style = style,
         }
     }
 
@@ -5549,7 +5624,7 @@ mod tests {
         assert!(g.get_prop("BackgroundGradientEndColor").is_some());
         assert_eq!(
             g.get_prop("BackgroundGradientDirection").unwrap().as_str(),
-            "Vertical"
+            "South"
         );
         // Repeating (Phase 2)
         assert_eq!(g.get_prop("UserControl").unwrap().as_str(), "");

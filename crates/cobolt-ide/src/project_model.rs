@@ -48,9 +48,154 @@ pub struct CoboltProject {
     /// Per-project form appearance — the default **form** theme (spec 007).
     #[serde(default)]
     pub forms: FormsConfig,
+    /// Project-scoped AI models and behavior. Credentials are deliberately not
+    /// part of this structure; they remain in the machine-local secret store.
+    #[serde(default)]
+    pub ai: ProjectAiSettings,
     /// Project-scoped reusable composite controls (spec 020).
     #[serde(default, rename = "user-controls")]
     pub user_controls: Vec<UserControlDef>,
+}
+
+/// AI configuration that belongs to one project and is persisted in
+/// `cobolt.toml`. API keys are intentionally excluded and resolve from the
+/// machine-local store by the stable model-profile id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectAiSettings {
+    /// Zero means the project predates project-scoped AI settings and should
+    /// receive a conservative one-time import from the legacy global config.
+    #[serde(default)]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
+    #[serde(default)]
+    pub endpoint_user_edited: bool,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "crate::llm::default_system_prompt")]
+    pub system_prompt: String,
+    #[serde(default = "crate::llm::default_cobol_proficiency_prompt")]
+    pub cobol_proficiency_prompt: String,
+    #[serde(default = "crate::llm::default_temperature")]
+    pub temperature: f32,
+    #[serde(default = "crate::llm::default_max_tokens")]
+    pub max_tokens: u32,
+    #[serde(default = "crate::llm::default_timeout_secs")]
+    pub timeout_secs: u32,
+    #[serde(default)]
+    pub verbose_log: bool,
+    #[serde(default = "crate::llm::default_agentic_ai_enabled")]
+    pub agentic_ai_enabled: bool,
+    #[serde(default)]
+    pub reviewer_provider: String,
+    #[serde(default)]
+    pub reviewer_endpoint: String,
+    #[serde(default)]
+    pub reviewer_model: String,
+    #[serde(default = "crate::llm::default_pedantic_prompt")]
+    pub pedantic_prompt: String,
+    #[serde(default = "crate::llm::default_pedantic_ui_prompt")]
+    pub pedantic_ui_prompt: String,
+    #[serde(default = "crate::llm::default_pedantic_event_prompt")]
+    pub pedantic_event_prompt: String,
+    #[serde(default)]
+    pub model_profiles: Vec<crate::llm::ModelProfile>,
+}
+
+impl Default for ProjectAiSettings {
+    fn default() -> Self {
+        Self {
+            schema_version: 0,
+            provider: String::new(),
+            endpoint: String::new(),
+            endpoint_user_edited: false,
+            model: String::new(),
+            system_prompt: crate::llm::default_system_prompt(),
+            cobol_proficiency_prompt: crate::llm::default_cobol_proficiency_prompt(),
+            temperature: crate::llm::default_temperature(),
+            max_tokens: crate::llm::default_max_tokens(),
+            timeout_secs: crate::llm::default_timeout_secs(),
+            verbose_log: false,
+            agentic_ai_enabled: true,
+            reviewer_provider: String::new(),
+            reviewer_endpoint: String::new(),
+            reviewer_model: String::new(),
+            pedantic_prompt: crate::llm::default_pedantic_prompt(),
+            pedantic_ui_prompt: crate::llm::default_pedantic_ui_prompt(),
+            pedantic_event_prompt: crate::llm::default_pedantic_event_prompt(),
+            model_profiles: Vec::new(),
+        }
+    }
+}
+
+impl ProjectAiSettings {
+    pub fn new() -> Self {
+        Self {
+            schema_version: 1,
+            ..Self::default()
+        }
+    }
+
+    pub fn from_llm(llm: &crate::llm::LlmConfig) -> Self {
+        Self {
+            schema_version: 1,
+            provider: llm.provider.clone(),
+            endpoint: llm.endpoint.clone(),
+            endpoint_user_edited: llm.endpoint_user_edited,
+            model: llm.model.clone(),
+            system_prompt: llm.system_prompt.clone(),
+            cobol_proficiency_prompt: llm.cobol_proficiency_prompt.clone(),
+            temperature: llm.temperature,
+            max_tokens: llm.max_tokens,
+            timeout_secs: llm.timeout_secs,
+            verbose_log: llm.verbose_log,
+            agentic_ai_enabled: llm.agentic_ai_enabled,
+            reviewer_provider: llm.reviewer_provider.clone(),
+            reviewer_endpoint: llm.reviewer_endpoint.clone(),
+            reviewer_model: llm.reviewer_model.clone(),
+            pedantic_prompt: llm.pedantic_prompt.clone(),
+            pedantic_ui_prompt: llm.pedantic_ui_prompt.clone(),
+            pedantic_event_prompt: llm.pedantic_event_prompt.clone(),
+            model_profiles: llm.model_profiles.clone(),
+        }
+    }
+
+    pub fn apply_to_llm(&self, llm: &mut crate::llm::LlmConfig) {
+        llm.provider = self.provider.clone();
+        llm.endpoint = self.endpoint.clone();
+        llm.endpoint_user_edited = self.endpoint_user_edited
+            || (!self.endpoint.trim().is_empty()
+                && !crate::llm::endpoint_is_provider_default(&self.provider, &self.endpoint));
+        llm.model = self.model.clone();
+        llm.system_prompt = self.system_prompt.clone();
+        llm.cobol_proficiency_prompt = self.cobol_proficiency_prompt.clone();
+        llm.temperature = self.temperature;
+        llm.max_tokens = self.max_tokens;
+        llm.timeout_secs = self.timeout_secs;
+        llm.verbose_log = self.verbose_log;
+        llm.agentic_ai_enabled = self.agentic_ai_enabled;
+        llm.reviewer_provider = self.reviewer_provider.clone();
+        llm.reviewer_endpoint = self.reviewer_endpoint.clone();
+        llm.reviewer_model = self.reviewer_model.clone();
+        llm.pedantic_prompt = self.pedantic_prompt.clone();
+        llm.pedantic_ui_prompt = self.pedantic_ui_prompt.clone();
+        llm.pedantic_event_prompt = self.pedantic_event_prompt.clone();
+        llm.model_profiles = self.model_profiles.clone();
+        llm.api_key = llm
+            .model_profiles
+            .iter()
+            .find(|profile| profile.provider == llm.provider && profile.model == llm.model)
+            .map(|profile| profile.resolve(llm).api_key)
+            .filter(|key| !key.is_empty())
+            .or_else(|| {
+                llm.api_keys
+                    .get(&crate::llm::api_key_slot(&llm.provider, &llm.model))
+                    .cloned()
+            })
+            .unwrap_or_default();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,6 +403,7 @@ impl CoboltProject {
             runtime: RuntimeConfig::default(),
             ide: IdeSettings::default(),
             forms: FormsConfig::default(),
+            ai: ProjectAiSettings::new(),
             user_controls: Vec::new(),
         }
     }
@@ -507,7 +653,7 @@ impl FileKind {
             FileKind::Form => "Forms",
             FileKind::Indexed => "Indexed Files",
             FileKind::Asset => "Assets",
-            FileKind::Documentation => "Documentation",
+            FileKind::Documentation => "Knowledge Base",
         }
     }
 
@@ -733,6 +879,95 @@ mod tests {
 
     fn proj() -> CoboltProject {
         CoboltProject::new("T", "src/main.cbl")
+    }
+
+    #[test]
+    fn project_ai_round_trip_contains_models_but_never_credentials() {
+        let mut p = proj();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.model_profiles.push(crate::llm::ModelProfile {
+            id: "project-profile".into(),
+            name: "Project model".into(),
+            provider: "openai".into(),
+            endpoint: "https://api.openai.com/v1".into(),
+            endpoint_user_edited: false,
+            model: "gpt-5".into(),
+            temperature: 0.4,
+            max_tokens: 8192,
+            timeout_secs: 120,
+        });
+        llm.store_api_key(
+            crate::llm::profile_api_key_slot("project-profile"),
+            "never-write-this-secret",
+        );
+        p.ai = ProjectAiSettings::from_llm(&llm);
+
+        let text = toml::to_string_pretty(&p).unwrap();
+        assert!(text.contains("project-profile"));
+        assert!(!text.contains("never-write-this-secret"));
+        assert!(!text.contains("api_key"));
+
+        let loaded: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(loaded.ai.schema_version, 1);
+        assert_eq!(loaded.ai.model_profiles[0].model, "gpt-5");
+    }
+
+    #[test]
+    fn applying_project_ai_switches_profiles_without_touching_machine_keys() {
+        let mut runtime = crate::llm::LlmConfig::load_defaults_for_test();
+        runtime.store_api_key(crate::llm::profile_api_key_slot("a"), "key-a");
+        runtime.store_api_key(crate::llm::profile_api_key_slot("b"), "key-b");
+
+        let mut a = ProjectAiSettings::new();
+        a.model_profiles.push(crate::llm::ModelProfile {
+            id: "a".into(),
+            name: "A".into(),
+            provider: "openai".into(),
+            endpoint: "https://api.openai.com/v1".into(),
+            endpoint_user_edited: false,
+            model: "model-a".into(),
+            temperature: 0.4,
+            max_tokens: 1000,
+            timeout_secs: 30,
+        });
+        let mut b = ProjectAiSettings::new();
+        b.model_profiles.push(crate::llm::ModelProfile {
+            id: "b".into(),
+            name: "B".into(),
+            provider: "ollama_cloud".into(),
+            endpoint: "https://ollama.com/api/chat".into(),
+            endpoint_user_edited: false,
+            model: "model-b".into(),
+            temperature: 0.7,
+            max_tokens: 2000,
+            timeout_secs: 60,
+        });
+
+        a.apply_to_llm(&mut runtime);
+        assert_eq!(runtime.model_profiles[0].id, "a");
+        assert_eq!(
+            runtime.profile("a").unwrap().resolve(&runtime).api_key,
+            "key-a"
+        );
+        b.apply_to_llm(&mut runtime);
+        assert_eq!(runtime.model_profiles[0].id, "b");
+        assert_eq!(
+            runtime.profile("b").unwrap().resolve(&runtime).api_key,
+            "key-b"
+        );
+        assert_eq!(runtime.api_keys.len(), 2);
+    }
+
+    #[test]
+    fn legacy_project_without_ai_table_is_marked_for_migration() {
+        let text = r#"
+[project]
+name = "Legacy"
+version = "1.0.0"
+main = "src/main.cbl"
+"#;
+        let loaded: CoboltProject = toml::from_str(text).unwrap();
+        assert_eq!(loaded.ai.schema_version, 0);
     }
 
     #[test]

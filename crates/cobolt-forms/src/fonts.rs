@@ -79,9 +79,7 @@ fn egui_can_rasterize(bytes: &[u8], index: u32) -> bool {
     let Ok(font) = skrifa::FontRef::from_index(bytes, index) else {
         return false;
     };
-    font.head()
-        .map(|h| h.units_per_em() > 0)
-        .unwrap_or(false)
+    font.head().map(|h| h.units_per_em() > 0).unwrap_or(false)
 }
 
 fn load_font_bytes(family: &str) -> Option<Vec<u8>> {

@@ -27,6 +27,7 @@ fn main() {
         model,
         api_key,
         endpoint,
+        endpoint_user_edited: false,
         specialist: None,
         system_prompt: "You are a terse assistant. Answer in one short sentence.".into(),
         skills: String::new(),

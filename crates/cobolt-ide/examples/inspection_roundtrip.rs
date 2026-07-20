@@ -120,7 +120,10 @@ fn main() {
     write_message(&mut stream, &Request::GetTree).unwrap();
     let tree2 = read_message::<_, Response>(&mut stream).unwrap();
     let (total2, named2) = tree_census(&tree2);
-    println!("[4] tree after click: {total2} nodes, {} named", named2.len());
+    println!(
+        "[4] tree after click: {total2} nodes, {} named",
+        named2.len()
+    );
 
     write_message(
         &mut stream,
@@ -134,7 +137,10 @@ fn main() {
             let out = std::env::var("SCREENSHOT_OUT")
                 .unwrap_or_else(|_| "inspection_roundtrip.png".into());
             std::fs::write(&out, &png.bytes).unwrap();
-            println!("[5] screenshot {}x{} saved to {out}", png.size[0], png.size[1]);
+            println!(
+                "[5] screenshot {}x{} saved to {out}",
+                png.size[0], png.size[1]
+            );
         }
         other => panic!("unexpected screenshot reply: {other:?}"),
     }

@@ -13,6 +13,7 @@ fn probe_request(prompt: &str) -> MeshRequest {
         // Unreachable on purpose: the request must fail fast AFTER routing
         // and URL resolution have been logged, so tests stay offline.
         endpoint: "http://127.0.0.1:1/v1".into(),
+        endpoint_user_edited: false,
         specialist: None,
         system_prompt: String::new(),
         skills: String::new(),
@@ -94,14 +95,14 @@ fn router_recognizes_power_rust_cobol_languages() {
 }
 
 #[tokio::test]
-async fn ollama_cloud_endpoint_used_as_is_with_openai_wire() {
+async fn ollama_cloud_endpoint_uses_native_chat_wire() {
     let orch = Orchestrator::new();
     let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let on_log = |line: String| lines.lock().unwrap().push(line);
     let mut req = probe_request("hello");
     req.provider = "ollama_cloud".into();
-    // api.ollama.com is Ollama Cloud's real host — it must be used verbatim,
-    // and the explicit /v1/chat/completions suffix picks the OpenAI wire.
+    // Older saved OpenAI-compatible Ollama Cloud endpoints are healed to the
+    // native Ollama Cloud streaming chat endpoint.
     req.endpoint = "https://api.ollama.com/v1/chat/completions".into();
     req.api_key = "test-key".into();
     let _ = orch.handle_request(&req, &on_log, &|_: &str| {}).await;
@@ -111,10 +112,10 @@ async fn ollama_cloud_endpoint_used_as_is_with_openai_wire() {
         .find(|l| l.starts_with("POST"))
         .expect("URL resolution must be logged");
     assert!(
-        post.contains("https://api.ollama.com/v1/chat/completions"),
-        "endpoint must be used as-is: {post}"
+        post.contains("https://ollama.com/api/chat"),
+        "endpoint must heal to native Ollama Cloud chat: {post}"
     );
-    assert!(post.contains("openai wire format"), "{post}");
+    assert!(post.contains("ollama-native wire format"), "{post}");
 }
 
 #[tokio::test]

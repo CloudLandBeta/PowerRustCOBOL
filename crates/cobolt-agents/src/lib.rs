@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-pub mod orchestrator;
-pub mod sandbox;
 pub mod grace;
+pub mod orchestrator;
+pub mod project_knowledge;
+pub mod sandbox;
 pub mod specialist;
 
 #[cfg(feature = "local-retrieval")]

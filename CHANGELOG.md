@@ -8,6 +8,494 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.54] — 2026-07-19
+
+### Fixed
+
+- **Neumorphic Dark gradients** — Form and control backgrounds now carry the
+  optional eight-direction gradient data through the shared renderer. The
+  Neumorphic Dark style applies the requested charcoal surface, non-white
+  highlight shadow, and southward `#4E4E4EFF` to `#000000FF` gradients.
+
+## [PowerRustCOBOL 1.30.53] — 2026-07-19
+
+### Fixed
+
+- **Project Knowledge Base precedence** — Grace now synchronizes and searches
+  the project-local Knowledge Base before every request, treats relevant
+  project evidence as authoritative over model training, cites matching paths,
+  and avoids inventing missing project facts.
+- **Knowledge Base project tree** — New projects use `Knowledge Base/`; legacy
+  `Documentation/` and `docs/` trees migrate without overwriting conflicts.
+  The project explorer now renders nested Knowledge Base folders and supports
+  explicit subfolder creation and confirmed recursive deletion with manifest
+  and SQLite-index cleanup.
+
+## [PowerRustCOBOL 1.30.52] — 2026-07-19
+
+### Fixed
+
+- **Indexed schema handoff routing** — Documentation Agent may prepare,
+  normalize, and describe an indexed-file schema without being misclassified
+  as the agent that writes the `.cidx`. Only an explicit Indexed File write is
+  treated as mutation reserved for Data (Indexed File) Agent.
+- **Grace direct Markdown responses** — Read-only questions and requests to
+  describe, explain, summarize, compare, suggest, or recommend now return
+  readable Markdown directly in the chatbot. Structured workflow JSON remains
+  mandatory when the request also changes project resources.
+
+## [PowerRustCOBOL 1.30.51] — 2026-07-19
+
+### Fixed
+
+- **Indexed-file specialist tandem** — New and existing projects now receive a
+  fixed Data (Indexed File) Agent and its purpose-specific Pedantic reviewer.
+  Grace enforces a Documentation Agent schema handoff covering the file name,
+  purpose, project knowledge, 1NF/2NF/3NF, helper files, and the developer's
+  explicit UUID-or-PIC choice before any mutation.
+- **Governed Indexed File UI tools** — Only the Data agent can list, inspect,
+  or write `.cidx` definitions. Writes validate records and keys, regenerate
+  Indexed File UI COBOL/copybook artifacts, preserve existing indexed data, and
+  refresh the open project's Indexed Files tree.
+
+## [PowerRustCOBOL 1.30.50] — 2026-07-19
+
+### Fixed
+
+- **Chatbot response actions** — Completed agent balloons now show icon-only
+  Copy and Save as Markdown commands with tooltips. Markdown saves are confined
+  to the open project's `Documentation/` folder, indexed in the project's
+  SQLite knowledge database, and added to the project tree without reopening
+  the project.
+
+## [PowerRustCOBOL 1.30.49] — 2026-07-19
+
+### Fixed
+
+- **Agents Manager lifecycle controls** — Delete Agent is hidden again after
+  the legacy dangling-reviewer cleanup. Its implementation remains available
+  behind the independent visibility flag.
+
+## [PowerRustCOBOL 1.30.48] — 2026-07-19
+
+### Fixed
+
+- **Agents Manager Delete command** — Delete Agent is visible again and uses
+  its existing confirmation and fixed-agent protection rules. New Agent remains
+  hidden independently.
+
+## [PowerRustCOBOL 1.30.47] — 2026-07-19
+
+### Fixed
+
+- **Markdown editor status bar** — Markdown tabs no longer show the
+  COBOL-specific Beautify command. The underlying beautifier also ignores
+  `.md` and `.markdown` documents if invoked programmatically.
+
+## [PowerRustCOBOL 1.30.46] — 2026-07-19
+
+### Fixed
+
+- **Complete built-in agent tandems** — Every new project now receives Grace
+  and all four fixed specialists together with a purpose-specific Pedantic
+  reviewer. Reviewer names follow `<agent name> Pedantic Reviewer`; prompts,
+  descriptions, routing, and one-to-one links are preconfigured, while model
+  selection remains the developer's responsibility.
+- **Project-open reviewer repair** — Opening an older project recreates and
+  relinks any missing built-in reviewer without replacing project-edited
+  prompts, skills, knowledge, tools, or selected model profiles. Legacy Grace,
+  UI, and COBOL reviewer names migrate in place with stable IDs.
+- **Agents Manager lifecycle policy** — New Agent and Delete Agent controls are
+  hidden because the complete agent mesh is project-provisioned. Their code is
+  retained behind a visibility flag for possible future use.
+
+## [PowerRustCOBOL 1.30.45] — 2026-07-18
+
+### Fixed
+
+- **Chatbot composer layout** — The project-wide Grace chatbot now keeps its
+  Send button immediately to the right of the multiline prompt instead of
+  placing it below. Code-editor and Form Inspector chatbars use the same
+  right-side command layout and reserve the button width while their panes
+  resize.
+
+## [PowerRustCOBOL 1.30.44] — 2026-07-18
+
+### Fixed
+
+- **Grace prompt isolation** — Named project agents now bypass unrelated
+  built-in mesh-specialist preambles. Grace is routed as `Grace project agent`
+  and no longer receives the contradictory CodeGenerator instruction to avoid
+  JSON while producing a workflow plan.
+- **Grace conversation handling** — Capability/help questions such as
+  `What can you do?` return Grace's direct prose response without requiring a
+  synthetic workflow. Actionable requests still require workflow JSON and get
+  one automatic correction attempt when the first plan is malformed.
+- **Complete planning diagnostics** — If both planning attempts are malformed,
+  the error includes both parser failures and the complete corrected response
+  payload for the IDE error modal and log pane.
+
+## [PowerRustCOBOL 1.30.43] — 2026-07-18
+
+### Changed
+
+- **Canonical built-in agent definitions** — COBOL Event Handler Script Agent,
+  Documentation Agent, Form Designer Agent, Grace Pedantic Reviewer Agent, and
+  Version Control Agent now receive explicit role-specific routing and default
+  prompts. Empty and known legacy defaults are repaired without replacing
+  project-edited non-empty prompts.
+- **Agent naming** — `DocumentationAgent` is now `Documentation Agent`, and
+  Grace's built-in reviewer is now `Grace Pedantic Reviewer Agent` throughout
+  planning, tool governance, prompts, and Agents Manager.
+
+### Fixed
+
+- **Non-destructive built-in migration** — Existing agent folders and prompt
+  files migrate to the canonical names while preserving stable IDs, model
+  profiles, companion links, tools, and custom prompts. The redundant
+  `Orchestrator Pedantic Reviewer Agent` is merged and removed.
+
+## [PowerRustCOBOL 1.30.42] — 2026-07-18
+
+### Changed
+
+- **Pedantic companion editor** — A Pedantic agent's companion section is now
+  an editable `Pedantic Companion for` selector listing eligible Grace or
+  specialist agents. The existing primary-side selector follows the same
+  project-local one-to-one relationship.
+
+### Fixed
+
+- **One-to-one reviewer ownership** — Assigning a Pedantic reviewer now
+  detaches any prior owner, replaces the selected agent's previous companion,
+  and repairs legacy duplicate links deterministically.
+- **Runtime reviewer awareness** — Grace planning and each agent's runtime
+  instructions now identify the exact one-to-one reviewer relationship and
+  prohibit substituting or sharing another agent's Pedantic companion.
+
+## [PowerRustCOBOL 1.30.41] — 2026-07-18
+
+### Added
+
+- **Pedantic Grace Reviewer default** — New projects now receive a protected
+  `Pedantic Grace Reviewer` linked as Grace's companion, with the complete
+  orchestration-review prompt stored in the project's agent database. A
+  configured legacy reviewer connection is adopted when available; otherwise
+  the reviewer remains ready for a project model profile to be selected.
+
+### Fixed
+
+- **Reviewer prompt preservation** — Fixed-agent repair restores a missing
+  Grace reviewer and its empty prompt, but never overwrites prompt content the
+  developer edited in Agents Manager or replaces an explicitly selected custom
+  Pedantic companion.
+
+## [PowerRustCOBOL 1.30.40] — 2026-07-18
+
+### Fixed
+
+- **Grace property-pane title** — The project-wide chatbot header now reads
+  `👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator` and wraps cleanly
+  when the main property pane is narrow.
+
+## [PowerRustCOBOL 1.30.39] — 2026-07-18
+
+### Fixed
+
+- **Agents Manager prompt editor height** — Agent prompts now use a vertically
+  resizable editor with a hard maximum height of 20 text rows. Longer prompts
+  remain editable through internal scrolling and can no longer expand the
+  surrounding detail pane.
+
+## [PowerRustCOBOL 1.30.38] — 2026-07-18
+
+### Fixed
+
+- **Internal agent folder visibility** — The project tree now hides the
+  internal `agentic_ai/` directory in both normal project mode and raw-tree
+  fallback mode. Agent configuration and workflow records remain on disk and
+  continue to be managed through Agents Manager and Grace.
+
+## [PowerRustCOBOL 1.30.37] — 2026-07-18
+
+### Fixed
+
+- **Documentation workflow ownership** — Grace now requires domain specialists
+  to prepare authoritative source material and delegates all document formatting
+  and project-document writes exclusively to `DocumentationAgent`. Interface
+  documentation, for example, must collect its source from the Form Designer
+  Agent before the document task can run.
+- **Agent dependency handoff** — Approved specialist output is now included in
+  every dependent agent task, allowing `DocumentationAgent` to format verified
+  project facts instead of reconstructing or inventing them.
+- **Documentation plan validation** — Invalid documentation plans are rejected
+  structurally and returned to Grace for one correction attempt before any task
+  executes.
+
+## [PowerRustCOBOL 1.30.36] — 2026-07-18
+
+### Added
+
+- **Grace Chat welcome** — An empty project-wide Grace conversation now shows
+  the requested getting-started, CRUD, data-binding, ERP planning, tasking, and
+  implementation suggestions.
+- **Fixed DocumentationAgent** — Every project now receives a protected
+  `DocumentationAgent`. Grace must delegate project-document creation and
+  updates to it, and the tool backend rejects documentation writes from every
+  other agent.
+- **Project knowledge vectors** — Text documents under `Documentation/` and
+  `docs/` are synchronized into `data/project-knowledge.sqlite`. Documentation
+  writes are indexed atomically, specialists receive governed
+  `knowledge.search` retrieval, and relevant project knowledge is supplied to
+  Grace while planning.
+
+### Fixed
+
+- **Grace-generated document tracking** — Documents created by Grace are added
+  to the project's Documentation list and appear in the IDE project tree
+  without reopening the project.
+
+## [PowerRustCOBOL 1.30.35] — 2026-07-18
+
+### Fixed
+
+- **Form Designer window activation** — Double-clicking a form in either the
+  IDE project tree or a RAD Forms list now restores, raises, and focuses its
+  existing designer window. Newly opened designer windows receive the same
+  activation request.
+
+## [PowerRustCOBOL 1.30.34] — 2026-07-18
+
+### Fixed
+
+- **Chatbot user-message colour** — User chat balloons now use the requested
+  opaque green `#61C654FF` consistently across every IDE chatbot surface.
+
+## [PowerRustCOBOL 1.30.33] — 2026-07-18
+
+### Fixed
+
+- **Connection-test sampling** — Model connection tests now preserve the
+  profile's configured temperature instead of silently forcing `0.0`, allowing
+  models that accept only their default `1.0` temperature to be tested.
+
+## [PowerRustCOBOL 1.30.32] — 2026-07-18
+
+### Fixed
+
+- **Project-wide Grace chatbot** — A width-responsive `👑 Grace` command now
+  sits above the project tree and opens a project-scoped chatbot in the main
+  pane with persistent history, progress, approvals, and conversation controls.
+- **Contextual Grace routing** — IDE chat surfaces now enter through Grace with
+  an advisory surface specialist preference. Grace remains free to delegate
+  mixed requests across every enabled project specialist, including form and
+  event-handler work in the same workflow.
+
+## [PowerRustCOBOL 1.30.31] — 2026-07-18
+
+### Fixed
+
+- **Models Manager endpoint authority** — Conventional Chat Completions paths
+  are appended only to untouched provider defaults. After the developer edits
+  an endpoint, requests use that exact URL; saved non-default URLs migrate to
+  the same behavior automatically.
+- **Responses API wire format** — Explicit `/responses` endpoints now send a
+  Responses payload and consume streamed Responses events instead of sending a
+  Chat Completions payload to the corrected URL.
+
+## [PowerRustCOBOL 1.30.30] — 2026-07-18
+
+### Fixed
+
+- **Models Manager Save behavior** — Save now commits the edited model profile
+  and then closes Models Manager; unsuccessful commits leave the modal open.
+
+## [PowerRustCOBOL 1.30.29] — 2026-07-18
+
+### Fixed
+
+- **Project-owned AI configuration** — Model profiles, provider/model choices,
+  sampling, Agentic AI, verbose logging, and AI prompts now persist in the
+  active project's `cobolt.toml`, alongside its project-owned agents.
+- **Project-scoped credentials** — API keys remain machine-local but are keyed
+  by stable project model-profile ids, so switching or saving another project
+  cannot replace a project's models or credentials.
+- **Credential deletion safety** — Machine configuration saves merge non-empty
+  credentials and remove keys only after confirmed Models Manager deletion;
+  deletion markers also prevent backup recovery from resurrecting deleted keys.
+- **Legacy AI migration** — Projects without an `[ai]` configuration receive a
+  one-time non-destructive import of legacy global model metadata, while
+  missing keyed profiles and credentials can be recovered from the valid backup
+  store unless they carry an explicit deletion marker.
+
+## [PowerRustCOBOL 1.30.28] — 2026-07-18
+
+### Fixed
+
+- **OpenAI completion limits** — OpenAI Chat Completions requests now send the
+  supported `max_completion_tokens` field, while other compatible providers
+  retain `max_tokens` and Ollama-native requests retain `num_predict`.
+
+## [PowerRustCOBOL 1.30.27] — 2026-07-18
+
+### Fixed
+
+- **Models Manager credential safety** — Empty API-key fields and stale Project
+  Settings drafts can no longer remove saved credentials; only a confirmed
+  profile Delete removes its profile key.
+- **Models Manager draft isolation** — New and duplicated profiles remain local
+  drafts until Save, so unrelated settings writes cannot persist incomplete
+  records.
+- **Models Manager model selection** — The model id is selected through one
+  dropdown, defaults to the first fetched model when empty, preserves a saved
+  selection, and is the authoritative model id used by Agents Manager calls.
+- **Models Manager action layout** — Clear log now sits beside Test Connection,
+  leaving the footer for Save and Close.
+- **AI configuration recovery** — Global AI configuration writes now use a
+  synced temporary file and last-known-good backup, with automatic backup
+  recovery when the primary JSON is missing or malformed.
+
+## [PowerRustCOBOL 1.30.26] — 2026-07-18
+
+### Fixed
+
+- **Models Manager profile preservation** — Saved model profiles now repair
+  blank endpoints from their provider defaults and store API keys under stable
+  profile ids, with the legacy provider/model key kept as a fallback.
+- **Models Manager draft persistence** — New and duplicated profiles no longer
+  write incomplete draft records to disk before Save is clicked.
+
+## [PowerRustCOBOL 1.30.25] — 2026-07-18
+
+### Fixed
+
+- **OpenAI model picker noise** — Models Manager now filters OpenAI refresh
+  results to likely chat/text models, hiding embeddings, image, audio,
+  transcription, moderation, realtime, search, and Sora entries that cannot be
+  used by the connection test.
+
+## [PowerRustCOBOL 1.30.24] — 2026-07-18
+
+### Fixed
+
+- **Models Manager draft test keys** — Test Connection now uses the API key
+  currently visible in the Models Manager draft instead of resolving a key only
+  from the saved provider/model slot.
+
+## [PowerRustCOBOL 1.30.23] — 2026-07-18
+
+### Fixed
+
+- **Models Manager draft editing** — Editing or testing a different provider in
+  Models Manager no longer mutates the selected saved profile until Save is
+  clicked, preventing a failed provider test from overwriting a working model.
+
+## [PowerRustCOBOL 1.30.22] — 2026-07-18
+
+### Fixed
+
+- **Models Manager feedback clearing** — Added a Clear button to reset the
+  latest test-connection and refresh-model feedback, fetched model list, modal
+  error state, and detailed AI connection payload.
+
+## [PowerRustCOBOL 1.30.21] — 2026-07-18
+
+### Fixed
+
+- **OpenAI model refresh** — Refreshing models for the OpenAI provider now calls
+  the documented `/v1/models` endpoint when the form contains the API root or a
+  chat endpoint.
+
+## [PowerRustCOBOL 1.30.20] — 2026-07-18
+
+### Fixed
+
+- **Ollama Cloud chat endpoint normalization** — Saved list endpoints such as
+  `https://ollama.com/api/tags` now start conversations through
+  `https://ollama.com/api/chat` instead of appending `/api/chat` to the list URL.
+
+## [PowerRustCOBOL 1.30.19] — 2026-07-18
+
+### Fixed
+
+- **Models Manager API key display** — Opening Models Manager now hydrates the
+  selected profile's saved API key immediately, instead of only after switching
+  profile rows.
+
+## [PowerRustCOBOL 1.30.18] — 2026-07-18
+
+### Fixed
+
+- **Ollama Cloud endpoints** — Ollama Cloud now defaults conversations to
+  `https://ollama.com/api/chat`, refreshes models through
+  `https://ollama.com/api/tags`, and heals older `api.ollama.com` endpoints to
+  `ollama.com` before chat requests.
+
+## [PowerRustCOBOL 1.30.17] — 2026-07-18
+
+### Fixed
+
+- **Models Manager refresh URL** — Model refresh now calls exactly the endpoint
+  URL typed in the Models Manager form for non-Ollama providers, without
+  appending or rewriting path segments.
+
+## [PowerRustCOBOL 1.30.16] — 2026-07-18
+
+### Fixed
+
+- **xAI model refresh URL** — Models Manager now derives xAI model-list URLs
+  from the API root even when the saved endpoint points at `/v1/responses`, and
+  no longer renders provider errors in the modal footer.
+
+## [PowerRustCOBOL 1.30.15] — 2026-07-18
+
+### Fixed
+
+- **Models Manager refresh errors** — Model refresh failures no longer render
+  inline beside the Refresh button; errors go to the alert dialog and IDE
+  output pane instead.
+
+## [PowerRustCOBOL 1.30.14] — 2026-07-18
+
+### Fixed
+
+- **Models Manager persistence and alerts** — Selecting a model no longer clears
+  a freshly typed API key, Models Manager save/test/refresh events now write to
+  the IDE output pane, and provider errors open the alert dialog with the full
+  request/response payload.
+
+## [PowerRustCOBOL 1.30.13] — 2026-07-18
+
+### Fixed
+
+- **Models Manager controls** — Added explicit Save, global Agentic AI enable,
+  and Verbose AI log controls to the Models Manager.
+- **xAI model discovery** — xAI model refresh now uses the documented
+  language-model discovery endpoint and reports API status/body details when a
+  provider rejects model-list requests.
+
+## [PowerRustCOBOL 1.30.12] — 2026-07-18
+
+### Fixed
+
+- **Models Manager providers** — Removed the incorrect Groq provider entry from
+  the shared AI provider list used by Models Manager and related settings UI.
+
+## [PowerRustCOBOL 1.30.11] — 2026-07-18
+
+### Fixed
+
+- **Models Manager window chrome** — The Models Manager modal is now user
+  resizable and its title no longer uses an emoji glyph that could render as a
+  stray square in the window title bar.
+
+## [PowerRustCOBOL 1.30.10] — 2026-07-18
+
+### Fixed
+
+- **Agents Manager wording** — Project Settings and related AI messages now use
+  the grammatically correct "Agents Manager" label.
+
 ## [PowerRustCOBOL 1.30.9] — 2026-07-16
 
 ### Fixed

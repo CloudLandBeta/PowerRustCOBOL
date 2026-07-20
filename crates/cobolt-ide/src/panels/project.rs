@@ -39,11 +39,19 @@ const ICON_SIZE: f32 = 21.6;
 /// and label always align in a single column regardless of the arrow.
 const ARROW_GUTTER: f32 = 14.0;
 
+const INTERNAL_AGENT_DIR: &str = "agentic_ai";
+
+fn is_hidden_tree_entry(depth: usize, name: &str) -> bool {
+    depth == 0 && name.eq_ignore_ascii_case(INTERNAL_AGENT_DIR)
+}
+
 // ── Events ────────────────────────────────────────────────────────────────────
 
 /// Actions emitted by the project panel for `CoboltApp` to handle.
 #[derive(Clone)]
 pub enum ProjectPanelEvent {
+    /// Open the project-wide Grace chatbot in the IDE main pane.
+    OpenGraceChat,
     /// Open a code/doc/asset file in the Main Pane editor (single click).
     Open(PathBuf),
     /// Open a form in the RAD designer (double-click a form node).
@@ -70,6 +78,10 @@ pub enum ProjectPanelEvent {
     Add(FileKind),
     /// User chose "Remove from project" — contains the relative path string.
     Remove(String),
+    /// Open the create-folder dialog for this project-relative Knowledge Base folder.
+    CreateKnowledgeFolder(PathBuf),
+    /// Confirm recursive deletion of this project-relative Knowledge Base folder.
+    ConfirmDeleteKnowledgeFolder(PathBuf),
     /// User requested deleting a form file from the project tree.
     ConfirmRemoveForm(PathBuf),
     /// User requested deleting generated COBOL from the project tree.
@@ -197,7 +209,7 @@ impl ProjectPanel {
                 let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                     continue;
                 };
-                if path.is_dir() && !name.starts_with('.') {
+                if path.is_dir() && !name.starts_with('.') && !is_hidden_tree_entry(0, name) {
                     self.expanded.insert(path);
                 }
             }
@@ -258,10 +270,23 @@ impl ProjectPanel {
         Panel::left("project_panel")
             .resizable(true)
             .default_size(410.0)
-            .min_size(140.0)
+            // Keeps the project-wide Grace command at its requested 150 px
+            // minimum after the panel's inner margins are accounted for.
+            .min_size(170.0)
             .frame(frame)
             .show(panel_ui, |ui| match project {
-                Some(proj) => self.show_project_mode(ui, proj, &mut events, tr),
+                Some(proj) => {
+                    let button_width = ui.available_width().max(150.0);
+                    if ui
+                        .add_sized([button_width, 34.0], egui::Button::new("👑 Grace"))
+                        .on_hover_text("Open the project-wide Grace chatbot")
+                        .clicked()
+                    {
+                        events.push(ProjectPanelEvent::OpenGraceChat);
+                    }
+                    ui.separator();
+                    self.show_project_mode(ui, proj, &mut events, tr);
+                }
                 None => self.show_tree_mode(ui, &mut events, tr),
             });
 
@@ -331,9 +356,8 @@ impl ProjectPanel {
                     );
                 })
                 .body(|ui| {
-                    // L2 — editable, project-local agent prompts/skills first,
-                    // then the fixed IDE-owned project categories.
-                    self.show_agentic_ai_category(ui, &cur, events, tr);
+                    // L2 — fixed IDE-owned project categories. Internal agent
+                    // configuration remains managed through Agents Manager.
                     for cat in Category::TOP {
                         self.show_category(ui, cat, proj, &cur, events, tr);
                     }
@@ -382,7 +406,7 @@ impl ProjectPanel {
         for path in &paths {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
 
-            if name.starts_with('.') {
+            if name.starts_with('.') || is_hidden_tree_entry(depth, name) {
                 continue;
             }
 
@@ -575,183 +599,6 @@ fn draw_lock_icon(p: &egui::Painter, r: egui::Rect, c: Color32) {
 // ── Category tree node (L2) ─────────────────────────────────────────────────────
 
 impl ProjectPanel {
-    fn show_agentic_ai_category(
-        &mut self,
-        ui: &mut Ui,
-        cur: &Option<String>,
-        events: &mut Vec<ProjectPanelEvent>,
-        tr: &Tr,
-    ) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        let ensure_error = crate::agent::ensure_project_agentic_files(&root).err();
-
-        let id = ui.make_persistent_id("project_cat_agentic_ai");
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-            .show_header(ui, |ui| {
-                tree_icon(ui, draw_folder_icon);
-                ui.label(RichText::new(tr.cat_agentic_ai).strong());
-            })
-            .body(|ui| {
-                if let Some(err) = ensure_error {
-                    ui.label(
-                        RichText::new(format!("  {err}"))
-                            .small()
-                            .color(Color32::from_rgb(220, 120, 120)),
-                    );
-                    return;
-                }
-                self.show_agent_node(
-                    ui,
-                    &root,
-                    crate::agent::FORM_DESIGNER_AGENT_DIR,
-                    tr.agent_form_designer,
-                    cur,
-                    events,
-                    tr,
-                );
-                self.show_agent_node(
-                    ui,
-                    &root,
-                    crate::agent::EVENT_HANDLER_AGENT_DIR,
-                    tr.agent_event_handler,
-                    cur,
-                    events,
-                    tr,
-                );
-            });
-        ui.add_space(2.0);
-    }
-
-    fn show_agent_node(
-        &mut self,
-        ui: &mut Ui,
-        root: &Path,
-        agent_dir: &str,
-        label: &str,
-        cur: &Option<String>,
-        events: &mut Vec<ProjectPanelEvent>,
-        tr: &Tr,
-    ) {
-        let id = ui.make_persistent_id(("project_agent", agent_dir));
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-            .show_header(ui, |ui| {
-                ui.add_space(8.0);
-                tree_icon(ui, draw_folder_icon);
-                ui.label(RichText::new(label).strong());
-            })
-            .body(|ui| {
-                self.agent_file_row(
-                    ui,
-                    root,
-                    &format!("agentic_ai/{agent_dir}/system-prompt.md"),
-                    "system-prompt.md",
-                    cur,
-                    events,
-                );
-                self.agent_file_row(
-                    ui,
-                    root,
-                    &format!("agentic_ai/{agent_dir}/steering.md"),
-                    tr.agent_steering,
-                    cur,
-                    events,
-                );
-
-                let skills_id = ui.make_persistent_id(("project_agent_skills", agent_dir));
-                egui::collapsing_header::CollapsingState::load_with_default_open(
-                    ui.ctx(),
-                    skills_id,
-                    false,
-                )
-                .show_header(ui, |ui| {
-                    ui.add_space(18.0);
-                    tree_icon(ui, draw_folder_icon);
-                    ui.label(RichText::new(tr.agent_skills).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .small_button("+")
-                            .on_hover_text(format!("{}: {}", tr.tree_create_hover, tr.agent_skills))
-                            .clicked()
-                        {
-                            if let Some((rel, path)) = self.create_agent_skill_file(root, agent_dir)
-                            {
-                                events.push(ProjectPanelEvent::Select(sel_file(&rel)));
-                                events.push(ProjectPanelEvent::Open(path));
-                            }
-                        }
-                    });
-                })
-                .body(|ui| {
-                    for skill in self.agent_skill_files(root, agent_dir) {
-                        let rel = format!("agentic_ai/{agent_dir}/skills/{skill}");
-                        self.agent_file_row(ui, root, &rel, &skill, cur, events);
-                    }
-                });
-            });
-    }
-
-    fn agent_skill_files(&self, root: &Path, agent_dir: &str) -> Vec<String> {
-        let dir = root.join("agentic_ai").join(agent_dir).join("skills");
-        let mut files: Vec<String> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|entry| {
-                let path = entry.path();
-                (path.extension().and_then(|e| e.to_str()) == Some("md"))
-                    .then(|| path.file_name()?.to_str().map(|s| s.to_string()))
-                    .flatten()
-            })
-            .collect();
-        files.sort();
-        files
-    }
-
-    fn create_agent_skill_file(&self, root: &Path, agent_dir: &str) -> Option<(String, PathBuf)> {
-        let skill_dir = root.join("agentic_ai").join(agent_dir).join("skills");
-        std::fs::create_dir_all(&skill_dir).ok()?;
-        for idx in 1..1000 {
-            let name = format!("custom-skill-{idx}.md");
-            let path = skill_dir.join(&name);
-            if !path.exists() {
-                let title = name.trim_end_matches(".md");
-                let text = format!(
-                    "# {title}\n\nDescribe the project-specific guidance this agent should follow.\n"
-                );
-                std::fs::write(&path, text).ok()?;
-                let rel = format!("agentic_ai/{agent_dir}/skills/{name}");
-                return Some((rel, path));
-            }
-        }
-        None
-    }
-
-    fn agent_file_row(
-        &mut self,
-        ui: &mut Ui,
-        root: &Path,
-        rel: &str,
-        label: &str,
-        cur: &Option<String>,
-        events: &mut Vec<ProjectPanelEvent>,
-    ) {
-        let key = sel_file(rel);
-        let is_sel = cur.as_deref() == Some(key.as_str());
-        let resp = ui
-            .horizontal(|ui| {
-                ui.add_space(28.0);
-                tree_icon(ui, draw_document_icon);
-                full_width_select(ui, is_sel, RichText::new(label)).on_hover_text(rel)
-            })
-            .inner;
-        if resp.clicked() || resp.double_clicked() {
-            events.push(ProjectPanelEvent::Select(key));
-            events.push(ProjectPanelEvent::Open(root.join(rel)));
-        }
-    }
-
     /// mtime-cached load of a `.cidx` for the field sub-tree.
     fn indexed_for(&mut self, abs: &Path) -> Option<IndexedDefinition> {
         let mtime = std::fs::metadata(abs).and_then(|m| m.modified()).ok()?;
@@ -800,6 +647,7 @@ impl ProjectPanel {
         let is_forms = cat == Category::Forms;
         let is_indexed = cat == Category::IndexedFiles;
         let is_assets = cat == Category::Assets;
+        let is_knowledge_base = cat == Category::Documentation;
         let root = self.root.clone();
 
         let id = ui.make_persistent_id(("project_cat", label));
@@ -826,10 +674,26 @@ impl ProjectPanel {
                                 ui.close();
                             }
                         });
+                        if is_knowledge_base
+                            && ui
+                                .small_button("📁+")
+                                .on_hover_text("Create Knowledge Base subfolder")
+                                .clicked()
+                        {
+                            events.push(ProjectPanelEvent::CreateKnowledgeFolder(PathBuf::from(
+                                cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT,
+                            )));
+                        }
                     });
                 }
             })
             .body(|ui| {
+                if is_knowledge_base {
+                    if let Some(root) = &root {
+                        self.show_knowledge_base(ui, root, cur, events);
+                    }
+                    return;
+                }
                 if is_assets {
                     if let Some(root) = &root {
                         self.show_assets_folder(ui, root, cur, events);
@@ -877,6 +741,93 @@ impl ProjectPanel {
                 }
             });
         ui.add_space(2.0);
+    }
+
+    fn show_knowledge_base(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+    ) {
+        let directory = root.join(cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT);
+        let _ = std::fs::create_dir_all(&directory);
+        let entries = sorted_directory_entries(&directory);
+        if entries.is_empty() {
+            ui.label(
+                RichText::new("  No Knowledge Base documents or subfolders.")
+                    .color(crate::theme::active().text_dim)
+                    .small(),
+            );
+            return;
+        }
+        for path in entries {
+            self.show_knowledge_path(ui, root, &path, 0, cur, events);
+        }
+    }
+
+    fn show_knowledge_path(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        path: &Path,
+        depth: usize,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+    ) {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("?");
+        let relative =
+            PathBuf::from(relative_to(path, root).unwrap_or_else(|| path.display().to_string()));
+        if path.is_dir() {
+            let id = ui.make_persistent_id(("knowledge_dir", path));
+            let (_toggle, header_inner, _body) =
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    id,
+                    false,
+                )
+                .show_header(ui, |ui| {
+                    ui.add_space(8.0 + depth as f32 * 14.0);
+                    tree_icon(ui, draw_folder_icon);
+                    ui.label(RichText::new(name).strong())
+                })
+                .body(|ui| {
+                    for child in sorted_directory_entries(path) {
+                        self.show_knowledge_path(ui, root, &child, depth + 1, cur, events);
+                    }
+                });
+            let response = header_inner.inner;
+            response.context_menu(|ui| {
+                if ui.button("New subfolder...").clicked() {
+                    events.push(ProjectPanelEvent::CreateKnowledgeFolder(relative.clone()));
+                    ui.close();
+                }
+                if ui.button("Delete folder...").clicked() {
+                    events.push(ProjectPanelEvent::ConfirmDeleteKnowledgeFolder(
+                        relative.clone(),
+                    ));
+                    ui.close();
+                }
+            });
+            return;
+        }
+
+        let relative_string = relative.to_string_lossy().replace('\\', "/");
+        file_row(
+            ui,
+            &relative_string,
+            "doc",
+            None,
+            true,
+            false,
+            self.status_for(&relative_string),
+            cur,
+            &Some(root.to_path_buf()),
+            events,
+        );
     }
 
     fn assets_dir(root: &Path) -> PathBuf {
@@ -1194,6 +1145,31 @@ impl ProjectPanel {
     }
 }
 
+fn sorted_directory_entries(directory: &Path) -> Vec<PathBuf> {
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    entries.sort_by(|left, right| {
+        right.is_dir().cmp(&left.is_dir()).then_with(|| {
+            left.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .cmp(
+                    &right
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase(),
+                )
+        })
+    });
+    entries
+}
+
 fn indexed_field_node(
     ui: &mut Ui,
     rel: &str,
@@ -1424,6 +1400,19 @@ fn file_row(
                 ui.close();
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod project_tree_visibility_tests {
+    use super::*;
+
+    #[test]
+    fn hides_only_the_root_agentic_ai_directory() {
+        assert!(is_hidden_tree_entry(0, "agentic_ai"));
+        assert!(is_hidden_tree_entry(0, "Agentic_AI"));
+        assert!(!is_hidden_tree_entry(0, "Documentation"));
+        assert!(!is_hidden_tree_entry(1, "agentic_ai"));
     }
 }
 

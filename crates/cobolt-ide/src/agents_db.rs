@@ -49,6 +49,24 @@ pub enum AgentKind {
 /// The orchestrator's one and only name (spec 029 R1).
 pub const GRACE: &str = "Grace";
 
+/// Canonical built-in reviewer companion for Grace's orchestration work.
+pub const PEDANTIC_GRACE_REVIEWER: &str = "Grace Pedantic Reviewer";
+
+/// Built-in tandem reviewer for the Form Designer specialist.
+pub const PEDANTIC_FORM_DESIGNER_REVIEWER: &str = "Form Designer Agent Pedantic Reviewer";
+
+/// Built-in tandem reviewer for the event-handler specialist.
+pub const PEDANTIC_EVENT_HANDLER_REVIEWER: &str =
+    "COBOL Event Handler Script Agent Pedantic Reviewer";
+
+/// Built-in tandem reviewer for project documentation work.
+pub const PEDANTIC_DOCUMENTATION_REVIEWER: &str = "Documentation Agent Pedantic Reviewer";
+
+/// Built-in tandem reviewer for repository operations.
+pub const PEDANTIC_VERSION_CONTROL_REVIEWER: &str = "Version Control Agent Pedantic Reviewer";
+pub const DATA_INDEXED_FILE_AGENT: &str = "Data (Indexed File) Agent";
+pub const PEDANTIC_DATA_INDEXED_FILE_REVIEWER: &str = "Data (Indexed File) Agent Pedantic Reviewer";
+
 /// Canonical name of the COBOL event-handler specialist. Fixed because Grace
 /// and the pedantic prompts delegate to it by this exact name.
 pub const EVENT_HANDLER: &str = "COBOL Event Handler Script Agent";
@@ -59,6 +77,50 @@ pub const VERSION_CONTROL: &str = "Version Control Agent";
 /// Canonical name of the form-design specialist. Fixed because Grace delegates
 /// form work to it by this exact name (spec 030 applies its approved output).
 pub const FORM_DESIGNER: &str = "Form Designer Agent";
+
+/// Fixed documentation specialist. Grace must delegate every project-document
+/// creation or update to this exact agent.
+pub const DOCUMENTATION_AGENT: &str = "Documentation Agent";
+
+const LEGACY_PEDANTIC_GRACE_REVIEWER: &str = "Pedantic Grace Reviewer";
+const LEGACY_ORCHESTRATOR_REVIEWER: &str = "Orchestrator Pedantic Reviewer Agent";
+const LEGACY_GRACE_REVIEWER_AGENT: &str = "Grace Pedantic Reviewer Agent";
+const LEGACY_FORM_DESIGNER_REVIEWER: &str = "Pedantic UI Agent";
+const LEGACY_EVENT_HANDLER_REVIEWER: &str = "Pedantic COBOL Companion";
+const LEGACY_DOCUMENTATION_AGENT: &str = "DocumentationAgent";
+
+const FORM_DESIGNER_ROUTING: &str = "Preferred for RAD Form Designer requests; receives form design and change tasks from Grace; delegates event implementation to COBOL Event Handler Script Agent; supplies form facts to Documentation Agent; returns validated form change sets to Grace.";
+const EVENT_HANDLER_ROUTING: &str = "Receives event implementation tasks from Grace or Form Designer Agent; returns complete COBOL-85/RustCOBOL handlers and validation evidence to Grace; performs no form design or documentation writes.";
+const DOCUMENTATION_ROUTING: &str = "Receives Knowledge Base authoring tasks from Grace after authoritative domain-specialist handoff; writes only under Knowledge Base/ through documentation tools; retrieves project Knowledge Base evidence before model training, and for indexed-file work establishes file name and purpose, applies 1NF/2NF/3NF, requires the developer's UUID-or-PIC ID choice, and returns schema/helper-file requests to Grace without mutating .cidx files.";
+const DATA_INDEXED_FILE_ROUTING: &str = "Receives indexed-file create/modify tasks only from Grace after an approved Documentation Agent schema handoff; uses indexed_file tools backed by the PowerRustCOBOL Indexed File UI model; returns validated .cidx and generated-artifact evidence to Grace; performs no documentation, form, event, or Git work.";
+const GRACE_REVIEWER_ROUTING: &str = "Reviews only Grace's orchestration plans, delegation, evidence, integration, and final completion claims; returns an approval verdict or complete correction request to Grace.";
+const VERSION_CONTROL_ROUTING: &str = "Receives project Git tasks from Grace or an explicit developer request; requires confirmation for destructive or history-changing operations; returns command evidence and repository state to Grace.";
+const FORM_DESIGNER_REVIEWER_ROUTING: &str = "Reviews only Form Designer Agent output: controls, hierarchy, layout, styling, bindings, accessibility, event delegation, tool evidence, and regressions; returns an approval verdict or complete correction request to Grace.";
+const EVENT_HANDLER_REVIEWER_ROUTING: &str = "Reviews only COBOL Event Handler Script Agent output for COBOL-85/RustCOBOL correctness, exact event integration, validation, state changes, error handling, and regression risk; returns an approval verdict or complete correction request to Grace.";
+const DOCUMENTATION_REVIEWER_ROUTING: &str = "Reviews only Documentation Agent output for fidelity to approved specialist source material, required structure, allowed project path, technical accuracy, readability, indexability, and unsupported invention; returns an approval verdict or complete correction request to Grace.";
+const VERSION_CONTROL_REVIEWER_ROUTING: &str = "Reviews only Version Control Agent output for requested scope, repository state, command safety, confirmation gates, evidence, reversibility, and unintended changes; returns an approval verdict or complete correction request to Grace.";
+const DATA_INDEXED_FILE_REVIEWER_ROUTING: &str = "Reviews only Data (Indexed File) Agent output for approved schema handoff, explicit UUID-or-PIC choice, 1NF/2NF/3NF implementation, keys, PIC clauses, offsets, helper files, Indexed File UI tool evidence, generated artifacts, and regressions; returns an approval verdict or complete correction request to Grace.";
+
+pub fn is_fixed_agent_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(GRACE)
+        || name.eq_ignore_ascii_case(PEDANTIC_GRACE_REVIEWER)
+        || name.eq_ignore_ascii_case(PEDANTIC_FORM_DESIGNER_REVIEWER)
+        || name.eq_ignore_ascii_case(PEDANTIC_EVENT_HANDLER_REVIEWER)
+        || name.eq_ignore_ascii_case(PEDANTIC_DOCUMENTATION_REVIEWER)
+        || name.eq_ignore_ascii_case(PEDANTIC_VERSION_CONTROL_REVIEWER)
+        || name.eq_ignore_ascii_case(PEDANTIC_DATA_INDEXED_FILE_REVIEWER)
+        || name.eq_ignore_ascii_case(FORM_DESIGNER)
+        || name.eq_ignore_ascii_case(EVENT_HANDLER)
+        || name.eq_ignore_ascii_case(VERSION_CONTROL)
+        || name.eq_ignore_ascii_case(DOCUMENTATION_AGENT)
+        || name.eq_ignore_ascii_case(DATA_INDEXED_FILE_AGENT)
+        || name.eq_ignore_ascii_case(LEGACY_PEDANTIC_GRACE_REVIEWER)
+        || name.eq_ignore_ascii_case(LEGACY_ORCHESTRATOR_REVIEWER)
+        || name.eq_ignore_ascii_case(LEGACY_GRACE_REVIEWER_AGENT)
+        || name.eq_ignore_ascii_case(LEGACY_FORM_DESIGNER_REVIEWER)
+        || name.eq_ignore_ascii_case(LEGACY_EVENT_HANDLER_REVIEWER)
+        || name.eq_ignore_ascii_case(LEGACY_DOCUMENTATION_AGENT)
+}
 
 /// One agent's identity + runtime configuration (`agent.json`). The prompt
 /// text deliberately lives outside this struct, in `<name>_prompt.md`.
@@ -134,6 +196,31 @@ fn default_timeout() -> u32 {
     120
 }
 
+fn extend_unique(target: &mut Vec<String>, source: &[String]) {
+    for value in source {
+        if !target.contains(value) {
+            target.push(value.clone());
+        }
+    }
+}
+
+fn canonicalize_builtin_names(text: &str) -> String {
+    text.replace(LEGACY_ORCHESTRATOR_REVIEWER, PEDANTIC_GRACE_REVIEWER)
+        .replace(LEGACY_PEDANTIC_GRACE_REVIEWER, PEDANTIC_GRACE_REVIEWER)
+        .replace(LEGACY_GRACE_REVIEWER_AGENT, PEDANTIC_GRACE_REVIEWER)
+        .replace(
+            LEGACY_FORM_DESIGNER_REVIEWER,
+            PEDANTIC_FORM_DESIGNER_REVIEWER,
+        )
+        .replace(
+            LEGACY_EVENT_HANDLER_REVIEWER,
+            PEDANTIC_EVENT_HANDLER_REVIEWER,
+        )
+        .replace(LEGACY_DOCUMENTATION_AGENT, DOCUMENTATION_AGENT)
+        .replace("/Documentation/", "/Knowledge Base/")
+        .replace("/docs/", "/Knowledge Base/")
+}
+
 /// UUID v4 from the existing `rand` dependency (no extra crate).
 pub fn new_uuid() -> String {
     use rand::RngCore;
@@ -184,8 +271,171 @@ impl AgentsDb {
             }
         }
         let mut db = Self { agents, root };
+        db.normalize_companion_relationships();
         db.sort_rail();
         db
+    }
+
+    fn migrate_builtin_aliases(&mut self) -> usize {
+        let mut changed = 0;
+        for (legacy, canonical) in [
+            (LEGACY_PEDANTIC_GRACE_REVIEWER, PEDANTIC_GRACE_REVIEWER),
+            (LEGACY_ORCHESTRATOR_REVIEWER, PEDANTIC_GRACE_REVIEWER),
+            (LEGACY_GRACE_REVIEWER_AGENT, PEDANTIC_GRACE_REVIEWER),
+            (
+                LEGACY_FORM_DESIGNER_REVIEWER,
+                PEDANTIC_FORM_DESIGNER_REVIEWER,
+            ),
+            (
+                LEGACY_EVENT_HANDLER_REVIEWER,
+                PEDANTIC_EVENT_HANDLER_REVIEWER,
+            ),
+            (LEGACY_DOCUMENTATION_AGENT, DOCUMENTATION_AGENT),
+        ] {
+            if self.migrate_agent_alias(legacy, canonical) {
+                changed += 1;
+            }
+        }
+        changed
+    }
+
+    /// Rename a built-in agent without replacing its stable id or connection.
+    /// When both names exist, merge useful configuration into the canonical
+    /// record, relink owners, and remove the obsolete duplicate.
+    fn migrate_agent_alias(&mut self, legacy: &str, canonical: &str) -> bool {
+        let Some(source_index) = self
+            .agents
+            .iter()
+            .position(|agent| agent.name.eq_ignore_ascii_case(legacy))
+        else {
+            return false;
+        };
+        let source = self.agents[source_index].clone();
+        let source_prompt =
+            canonicalize_builtin_names(&self.load_prompt(&source.name)).replace(legacy, canonical);
+
+        if let Some(target_index) = self
+            .agents
+            .iter()
+            .position(|agent| agent.name.eq_ignore_ascii_case(canonical))
+        {
+            let target_id = self.agents[target_index].id.clone();
+            let target_prompt = canonicalize_builtin_names(&self.load_prompt(canonical));
+            {
+                let target = &mut self.agents[target_index];
+                let target_unconfigured = target.model_profile.is_none()
+                    && target.provider.trim().is_empty()
+                    && target.model.trim().is_empty();
+                if target_unconfigured {
+                    target.provider = source.provider.clone();
+                    target.endpoint = source.endpoint.clone();
+                    target.model = source.model.clone();
+                    target.temperature = source.temperature;
+                    target.max_tokens = source.max_tokens;
+                    target.timeout_secs = source.timeout_secs;
+                    target.model_profile = source.model_profile.clone();
+                }
+                if target.companion.is_none() {
+                    target.companion = source.companion.clone();
+                }
+                if target.purpose.trim().is_empty() {
+                    target.purpose = source.purpose.clone();
+                }
+                if target.routing.trim().is_empty() {
+                    target.routing = source.routing.clone();
+                }
+                extend_unique(&mut target.steering, &source.steering);
+                extend_unique(&mut target.policies, &source.policies);
+                extend_unique(&mut target.skills, &source.skills);
+                extend_unique(&mut target.tools, &source.tools);
+                extend_unique(&mut target.knowledge, &source.knowledge);
+            }
+            for agent in &mut self.agents {
+                if agent.companion.as_deref() == Some(source.id.as_str()) {
+                    agent.companion = Some(target_id.clone());
+                }
+            }
+            if target_prompt.trim().is_empty() && !source_prompt.trim().is_empty() {
+                let _ = self.save_prompt(canonical, &source_prompt);
+            } else if !target_prompt.trim().is_empty()
+                && target_prompt != self.load_prompt(canonical)
+            {
+                let _ = self.save_prompt(canonical, &target_prompt);
+            }
+            self.agents.retain(|agent| agent.id != source.id);
+            let _ = std::fs::remove_dir_all(self.dir(&source.name));
+            let _ = self.save_all();
+            return true;
+        }
+
+        let old_dir = self.dir(&source.name);
+        let new_dir = self.dir(canonical);
+        if new_dir.exists() || std::fs::rename(&old_dir, &new_dir).is_err() {
+            return false;
+        }
+        self.agents[source_index].name = canonical.to_string();
+        let moved_prompt = new_dir.join(format!("{}_prompt.md", source.name));
+        let canonical_prompt = new_dir.join(format!("{canonical}_prompt.md"));
+        if moved_prompt.exists() && !canonical_prompt.exists() {
+            let _ = std::fs::rename(&moved_prompt, &canonical_prompt);
+        }
+        if !source_prompt.trim().is_empty() {
+            let _ = self.save_prompt(canonical, &source_prompt);
+        }
+        let _ = self.save_agent(&self.agents[source_index]);
+        true
+    }
+
+    /// Repair legacy many-to-one or invalid companion links in memory. The
+    /// deterministic winner is the orchestrator first, then specialists by
+    /// name. The next Agents Manager save persists the repaired manifests.
+    fn normalize_companion_relationships(&mut self) -> bool {
+        let pedantic_ids: Vec<String> = self
+            .agents
+            .iter()
+            .filter(|agent| agent.kind == AgentKind::Pedantic)
+            .map(|agent| agent.id.clone())
+            .collect();
+        let mut owner_indices: Vec<usize> = (0..self.agents.len()).collect();
+        owner_indices.sort_by(|left, right| {
+            let left_agent = &self.agents[*left];
+            let right_agent = &self.agents[*right];
+            let left_priority = left_agent.kind != AgentKind::Orchestrator;
+            let right_priority = right_agent.kind != AgentKind::Orchestrator;
+            left_priority
+                .cmp(&right_priority)
+                .then(
+                    left_agent
+                        .name
+                        .to_lowercase()
+                        .cmp(&right_agent.name.to_lowercase()),
+                )
+                .then(left_agent.id.cmp(&right_agent.id))
+        });
+
+        let mut changed = false;
+        let mut claimed = Vec::<String>::new();
+        for index in owner_indices {
+            let companion = self.agents[index].companion.clone();
+            let valid_owner = self.agents[index].kind != AgentKind::Pedantic;
+            let valid_reviewer = companion
+                .as_ref()
+                .map(|id| pedantic_ids.contains(id))
+                .unwrap_or(true);
+            let duplicate = companion
+                .as_ref()
+                .map(|id| claimed.contains(id))
+                .unwrap_or(false);
+            if !valid_owner || !valid_reviewer || duplicate {
+                if companion.is_some() {
+                    self.agents[index].companion = None;
+                    changed = true;
+                }
+            } else if let Some(id) = companion {
+                claimed.push(id);
+            }
+        }
+        changed
     }
 
     /// Rail order: primaries alphabetically, each companion directly after
@@ -235,6 +485,57 @@ impl AgentsDb {
             .any(|a| a.companion.as_deref() == Some(id))
     }
 
+    /// The orchestrator or specialist currently reviewed by this Pedantic
+    /// agent. The relationship is one-to-one.
+    pub fn companion_owner(&self, reviewer_id: &str) -> Option<&AgentDef> {
+        self.agents
+            .iter()
+            .find(|agent| agent.companion.as_deref() == Some(reviewer_id))
+    }
+
+    /// Set one orchestrator/specialist's Pedantic companion. A reviewer can
+    /// belong to only one owner, so assigning it here detaches any prior owner.
+    /// Persistence remains controlled by the caller's Apply/OK transaction.
+    pub fn set_companion(
+        &mut self,
+        owner_id: &str,
+        reviewer_id: Option<&str>,
+    ) -> Result<bool, String> {
+        let owner_index = self
+            .agents
+            .iter()
+            .position(|agent| agent.id == owner_id)
+            .ok_or_else(|| "The reviewed agent no longer exists.".to_string())?;
+        if self.agents[owner_index].kind == AgentKind::Pedantic {
+            return Err("A Pedantic agent cannot own a Pedantic companion.".into());
+        }
+        if let Some(reviewer_id) = reviewer_id {
+            let reviewer = self
+                .by_id(reviewer_id)
+                .ok_or_else(|| "The Pedantic reviewer no longer exists.".to_string())?;
+            if reviewer.kind != AgentKind::Pedantic {
+                return Err(
+                    "Only a Pedantic agent can be assigned as a companion reviewer.".into(),
+                );
+            }
+        }
+
+        let mut changed = false;
+        if let Some(reviewer_id) = reviewer_id {
+            for (index, agent) in self.agents.iter_mut().enumerate() {
+                if index != owner_index && agent.companion.as_deref() == Some(reviewer_id) {
+                    agent.companion = None;
+                    changed = true;
+                }
+            }
+        }
+        if self.agents[owner_index].companion.as_deref() != reviewer_id {
+            self.agents[owner_index].companion = reviewer_id.map(str::to_owned);
+            changed = true;
+        }
+        Ok(changed)
+    }
+
     pub fn by_id(&self, id: &str) -> Option<&AgentDef> {
         self.agents.iter().find(|a| a.id == id)
     }
@@ -255,6 +556,76 @@ impl AgentsDb {
 
     pub fn load_prompt(&self, name: &str) -> String {
         std::fs::read_to_string(self.prompt_path(name)).unwrap_or_default()
+    }
+
+    /// Load an agent's complete core instructions: prompt file + listed steering files + listed policy files.
+    pub fn load_agent_core_instructions(&self, name: &str) -> String {
+        let mut result = self.load_prompt(name);
+        if let Some(agent) = self.by_name(name) {
+            let dir = self.dir(&agent.name);
+            for steering_file in &agent.steering {
+                let p = dir.join(steering_file);
+                let p_sub = dir.join("steering").join(steering_file);
+                let content = std::fs::read_to_string(&p)
+                    .or_else(|_| std::fs::read_to_string(&p_sub))
+                    .unwrap_or_default();
+                if !content.trim().is_empty() {
+                    if !result.is_empty() {
+                        result.push_str("\n\n");
+                    }
+                    result.push_str(&format!("--- STEERING ({}) ---\n{}", steering_file, content.trim()));
+                }
+            }
+            for policy_file in &agent.policies {
+                let p = dir.join(policy_file);
+                let content = std::fs::read_to_string(&p).unwrap_or_default();
+                if !content.trim().is_empty() {
+                    if !result.is_empty() {
+                        result.push_str("\n\n");
+                    }
+                    result.push_str(&format!("--- POLICIES ({}) ---\n{}", policy_file, content.trim()));
+                }
+            }
+        }
+        result
+    }
+
+    /// Load an agent's configured skills reference material.
+    pub fn load_agent_capabilities(&self, name: &str) -> String {
+        let mut parts = Vec::new();
+        if let Some(agent) = self.by_name(name) {
+            let dir = self.dir(&agent.name);
+            for skill_file in &agent.skills {
+                let p = dir.join(skill_file);
+                let p_sub = dir.join("skills").join(skill_file);
+                let content = std::fs::read_to_string(&p)
+                    .or_else(|_| std::fs::read_to_string(&p_sub))
+                    .unwrap_or_default();
+                if !content.trim().is_empty() {
+                    parts.push(format!("--- SKILL ({}) ---\n{}", skill_file, content.trim()));
+                }
+            }
+        }
+        parts.join("\n\n")
+    }
+
+    /// Load an agent's configured knowledge reference files.
+    pub fn load_agent_knowledge(&self, name: &str) -> String {
+        let mut parts = Vec::new();
+        if let Some(agent) = self.by_name(name) {
+            let dir = self.dir(&agent.name);
+            for knowledge_file in &agent.knowledge {
+                let p = dir.join(knowledge_file);
+                let p_sub = dir.join("knowledge").join(knowledge_file);
+                let content = std::fs::read_to_string(&p)
+                    .or_else(|_| std::fs::read_to_string(&p_sub))
+                    .unwrap_or_default();
+                if !content.trim().is_empty() {
+                    parts.push(format!("--- KNOWLEDGE ({}) ---\n{}", knowledge_file, content.trim()));
+                }
+            }
+        }
+        parts.join("\n\n")
     }
 
     pub fn save_prompt(&self, name: &str, text: &str) -> Result<(), String> {
@@ -313,7 +684,10 @@ impl AgentsDb {
         for sub in ["steering", "skills", "knowledge"] {
             std::fs::create_dir_all(dir.join(sub)).map_err(|e| e.to_string())?;
         }
-        for (file, contents) in [("policies.md", "# Policies and constraints\n"), ("mcp.json", "{}\n")] {
+        for (file, contents) in [
+            ("policies.md", "# Policies and constraints\n"),
+            ("mcp.json", "{}\n"),
+        ] {
             let p = dir.join(file);
             if !p.exists() {
                 std::fs::write(&p, contents).map_err(|e| e.to_string())?;
@@ -348,6 +722,12 @@ impl AgentsDb {
         let Some(a) = self.by_id(id).cloned() else {
             return Ok(());
         };
+        if is_fixed_agent_name(&a.name) {
+            return Err(format!(
+                "{} is a fixed project agent and cannot be deleted.",
+                a.name
+            ));
+        }
         let _ = std::fs::remove_dir_all(self.dir(&a.name));
         self.agents.retain(|x| x.id != id);
         for x in &mut self.agents {
@@ -380,13 +760,16 @@ impl AgentsDb {
         self.agents
             .iter()
             .find(|a| {
-                a.enabled
-                    && !a.model.trim().is_empty()
-                    && !a.provider.trim().is_empty()
-                    && !a.provider.to_lowercase().contains("ollama")
-                    && !llm
-                        .api_keys
-                        .contains_key(&crate::llm::api_key_slot(&a.provider, &a.model))
+                if !a.enabled {
+                    return false;
+                }
+                let Some(cfg) = resolve_agent_connection(a, llm) else {
+                    return false;
+                };
+                !cfg.model.trim().is_empty()
+                    && !cfg.provider.trim().is_empty()
+                    && !cfg.provider.to_lowercase().contains("ollama")
+                    && cfg.api_key.trim().is_empty()
             })
             .map(|a| a.name.clone())
     }
@@ -412,8 +795,11 @@ impl AgentsDb {
                     g.purpose =
                         "Central coordination authority: plans, delegates, enforces reviews, integrates."
                             .to_string();
-                    g.routing = "Receives: every multi-agent request · Delegates to: all specialists".to_string();
-                    g.temperature = 0.2;
+                    g.routing =
+                        "Receives: every multi-agent request · Delegates to: all specialists"
+                            .to_string();
+                    // temperature is always resolved from the model profile at call time;
+                    // do not hardcode a default here.
                 }
                 let _ = self.save_all();
                 self.sort_rail();
@@ -421,6 +807,161 @@ impl AgentsDb {
             }
             Err(_) => false,
         }
+    }
+
+    /// Create, configure, and link one built-in tandem reviewer. Reviewer
+    /// models are deliberately left unset for the developer to choose. Existing
+    /// non-empty prompts, skills, tools, knowledge, and model choices survive
+    /// repair. A previously linked reviewer is renamed to the tandem's canonical
+    /// `<owner name> Pedantic Reviewer` name without rebuilding its configuration.
+    fn ensure_tandem_reviewer(
+        &mut self,
+        owner_name: &str,
+        reviewer_name: &str,
+        specialization: &str,
+        purpose: &str,
+        routing: &str,
+        default_prompt: &str,
+    ) -> bool {
+        let Some(mut owner) = self.by_name(owner_name).cloned() else {
+            return false;
+        };
+        let mut changed = false;
+        let noncanonical_companion = owner
+            .companion
+            .as_deref()
+            .and_then(|id| self.by_id(id))
+            .filter(|companion| {
+                companion.kind == AgentKind::Pedantic
+                    && !companion.name.eq_ignore_ascii_case(reviewer_name)
+            })
+            .map(|companion| companion.name.clone());
+        if let Some(legacy_name) = noncanonical_companion {
+            changed |= self.migrate_agent_alias(&legacy_name, reviewer_name);
+            if let Some(refreshed) = self.by_name(owner_name).cloned() {
+                owner = refreshed;
+            }
+        }
+
+        let reviewer_id = if let Some(index) = self
+            .agents
+            .iter()
+            .position(|agent| agent.name.eq_ignore_ascii_case(reviewer_name))
+        {
+            let id = self.agents[index].id.clone();
+            let current_prompt = self.load_prompt(reviewer_name);
+            if current_prompt.trim().is_empty()
+                && self.save_prompt(reviewer_name, default_prompt).is_ok()
+            {
+                changed = true;
+            }
+            let reviewer = &mut self.agents[index];
+            if reviewer.kind != AgentKind::Pedantic {
+                reviewer.kind = AgentKind::Pedantic;
+                changed = true;
+            }
+            if reviewer.specialization != specialization {
+                reviewer.specialization = specialization.into();
+                changed = true;
+            }
+            if reviewer.purpose.trim().is_empty() {
+                reviewer.purpose = purpose.into();
+                changed = true;
+            }
+            if reviewer.routing.trim().is_empty() {
+                reviewer.routing = routing.into();
+                changed = true;
+            }
+            id
+        } else {
+            let Ok(id) = self.create_kinded(
+                reviewer_name,
+                default_prompt,
+                AgentKind::Pedantic,
+                specialization,
+            ) else {
+                return false;
+            };
+            if let Some(reviewer) = self.agents.iter_mut().find(|agent| agent.id == id) {
+                reviewer.purpose = purpose.into();
+                reviewer.routing = routing.into();
+                // temperature is always resolved from the model profile at call time;
+                // we do not hardcode a default here.
+            }
+            changed = true;
+            id
+        };
+
+        if self
+            .by_name(owner_name)
+            .and_then(|agent| agent.companion.as_deref())
+            != Some(reviewer_id.as_str())
+        {
+            changed |= self
+                .set_companion(&owner.id, Some(&reviewer_id))
+                .unwrap_or(false);
+        }
+        if changed {
+            let _ = self.save_all();
+            self.sort_rail();
+        }
+        changed
+    }
+
+    pub fn ensure_grace_reviewer(&mut self, _llm: &crate::llm::LlmConfig) -> bool {
+        self.ensure_tandem_reviewer(
+            GRACE,
+            PEDANTIC_GRACE_REVIEWER,
+            "orchestration-review",
+            "Independently reviews Grace's plans, delegation, evidence, and completion claims.",
+            GRACE_REVIEWER_ROUTING,
+            &crate::llm::default_pedantic_grace_prompt(),
+        )
+    }
+
+    fn ensure_required_reviewers(&mut self, llm: &crate::llm::LlmConfig) -> usize {
+        let mut changed = self.ensure_grace_reviewer(llm) as usize;
+        changed += self.ensure_tandem_reviewer(
+            FORM_DESIGNER,
+            PEDANTIC_FORM_DESIGNER_REVIEWER,
+            "form-design-review",
+            "Independently reviews form structure, controls, layout, styling, bindings, event delegation, accessibility, and regressions.",
+            FORM_DESIGNER_REVIEWER_ROUTING,
+            &crate::llm::default_pedantic_ui_prompt(),
+        ) as usize;
+        changed += self.ensure_tandem_reviewer(
+            EVENT_HANDLER,
+            PEDANTIC_EVENT_HANDLER_REVIEWER,
+            "cobol-event-review",
+            "Independently reviews COBOL event handlers for language correctness, exact form integration, behavior, safety, and regressions.",
+            EVENT_HANDLER_REVIEWER_ROUTING,
+            &crate::llm::default_pedantic_event_prompt(),
+        ) as usize;
+        changed += self.ensure_tandem_reviewer(
+            DOCUMENTATION_AGENT,
+            PEDANTIC_DOCUMENTATION_REVIEWER,
+            "documentation-review",
+            "Independently reviews project documentation for source fidelity, technical accuracy, structure, allowed paths, and indexability.",
+            DOCUMENTATION_REVIEWER_ROUTING,
+            &crate::llm::default_pedantic_documentation_prompt(),
+        ) as usize;
+        changed += self.ensure_tandem_reviewer(
+            VERSION_CONTROL,
+            PEDANTIC_VERSION_CONTROL_REVIEWER,
+            "version-control-review",
+            "Independently reviews Git operations for scope, repository safety, confirmation, evidence, reversibility, and unintended changes.",
+            VERSION_CONTROL_REVIEWER_ROUTING,
+            &crate::llm::default_pedantic_version_control_prompt(),
+        ) as usize;
+        changed += self.ensure_tandem_reviewer(
+            DATA_INDEXED_FILE_AGENT,
+            PEDANTIC_DATA_INDEXED_FILE_REVIEWER,
+            "indexed-file-review",
+            "Independently reviews indexed-file schemas, normalization, keys, PIC clauses, helper files, generated artifacts, tool evidence, and regressions.",
+            DATA_INDEXED_FILE_REVIEWER_ROUTING,
+            &crate::llm::default_pedantic_data_indexed_file_prompt(),
+        ) as usize;
+        changed
     }
 
     /// Spec 029: exactly one orchestrator, and it must be named Grace.
@@ -445,127 +986,52 @@ impl AgentsDb {
         if !self.agents.is_empty() || !llm.is_configured() {
             return 0;
         }
-        let mut created = 0;
-        if self.ensure_grace() {
-            created += 1;
+        let before = self.agents.len();
+        self.ensure_grace();
+        self.ensure_form_designer(llm);
+        self.ensure_event_handler(llm);
+        self.ensure_version_control(llm);
+        self.ensure_documentation_agent(llm);
+        self.ensure_data_indexed_file_agent(llm);
+        self.ensure_required_reviewers(llm);
+        self.ensure_builtin_connections(llm);
+        self.ensure_specialist_knowledge_tools();
+        self.sort_rail();
+        self.agents.len().saturating_sub(before)
+    }
+
+    /// Ensure the Form Designer specialist exists. Older projects could have
+    /// an agent database without this fixed workflow participant.
+    pub fn ensure_form_designer(&mut self, llm: &crate::llm::LlmConfig) -> bool {
+        if self.by_name(FORM_DESIGNER).is_some() {
+            return false;
         }
-        if let Ok(designer_id) = self.create_kinded(
-            "Form Designer Agent",
-            &llm.system_prompt,
+        match self.create_kinded(
+            FORM_DESIGNER,
+            &crate::llm::default_form_designer_agent_prompt(),
             AgentKind::Specialist,
             "form-design",
         ) {
-            created += 1;
-            if let Some(d) = self.agents.iter_mut().find(|a| a.id == designer_id) {
-                d.purpose =
-                    "Designs and edits forms; delegates event handlers (Phase 2).".to_string();
-                d.provider = llm.provider.clone();
-                d.endpoint = llm.endpoint.clone();
-                d.model = llm.model.clone();
-                d.temperature = llm.temperature;
-                d.max_tokens = llm.max_tokens;
-                d.timeout_secs = llm.timeout_secs;
-                d.routing = "Receives: user form requests".to_string();
-                // Observe-only live-UI tools (spec 030 R4/R5). Design edits still
-                // go through the reviewable change-set path, not the live UI.
-                d.tools = vec!["egui.tree".to_string(), "egui.rects".to_string()];
-            }
-            if llm.reviewer_configured() {
-                if let Ok(ped_id) = self.create_kinded(
-                    "Pedantic UI Agent",
-                    &llm.pedantic_ui_prompt,
-                    AgentKind::Pedantic,
-                    "ui-review",
-                ) {
-                    created += 1;
-                    if let Some(p) = self.agents.iter_mut().find(|a| a.id == ped_id) {
-                        p.purpose =
-                            "Uncompromising reviewer of every Form Designer result.".to_string();
-                        p.provider = llm.reviewer_provider.clone();
-                        p.endpoint = llm.reviewer_endpoint.clone();
-                        p.model = llm.reviewer_model.clone();
-                        p.temperature = 0.0;
-                        p.routing = "Reviews: Form Designer Agent".to_string();
-                    }
-                    if let Some(d) = self.agents.iter_mut().find(|a| a.id == designer_id) {
-                        d.companion = Some(ped_id);
-                    }
+            Ok(id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|agent| agent.id == id) {
+                    agent.purpose =
+                        "Designs and edits project forms and delegates event implementation."
+                            .into();
+                    agent.provider = llm.provider.clone();
+                    agent.endpoint = llm.endpoint.clone();
+                    agent.model = llm.model.clone();
+                    agent.temperature = llm.temperature;
+                    agent.max_tokens = llm.max_tokens;
+                    agent.timeout_secs = llm.timeout_secs;
+                    agent.routing = FORM_DESIGNER_ROUTING.into();
+                    agent.tools = vec!["egui.tree".into(), "egui.rects".into()];
                 }
+                let _ = self.save_all();
+                self.sort_rail();
+                true
             }
-            // COBOL Event Handler Script Agent — a fixed specialist seeded with
-            // its own prompt and the same connection as the designer (one legacy
-            // connection; specialists may share a model). Gets its Pedantic COBOL
-            // companion when a reviewer model is configured.
-            if let Ok(ev_id) = self.create_kinded(
-                EVENT_HANDLER,
-                &crate::llm::default_event_handler_prompt(),
-                AgentKind::Specialist,
-                "cobol-events",
-            ) {
-                created += 1;
-                if let Some(e) = self.agents.iter_mut().find(|a| a.id == ev_id) {
-                    e.purpose =
-                        "Implements delegated COBOL-85 / RustCOBOL event handlers.".to_string();
-                    e.provider = llm.provider.clone();
-                    e.endpoint = llm.endpoint.clone();
-                    e.model = llm.model.clone();
-                    e.temperature = llm.temperature;
-                    e.max_tokens = llm.max_tokens;
-                    e.timeout_secs = llm.timeout_secs;
-                    e.routing = "Receives: delegations from Form Designer Agent".to_string();
-                }
-                if llm.reviewer_configured() {
-                    if let Ok(pc_id) = self.create_kinded(
-                        "Pedantic COBOL Companion",
-                        &llm.pedantic_event_prompt,
-                        AgentKind::Pedantic,
-                        "cobol-review",
-                    ) {
-                        created += 1;
-                        if let Some(p) = self.agents.iter_mut().find(|a| a.id == pc_id) {
-                            p.purpose =
-                                "Reviews every event-handler implementation before completion."
-                                    .to_string();
-                            p.provider = llm.reviewer_provider.clone();
-                            p.endpoint = llm.reviewer_endpoint.clone();
-                            p.model = llm.reviewer_model.clone();
-                            p.temperature = 0.0;
-                            p.routing = "Reviews: COBOL Event Handler Script Agent".to_string();
-                        }
-                        if let Some(e) = self.agents.iter_mut().find(|a| a.id == ev_id) {
-                            e.companion = Some(pc_id);
-                        }
-                    }
-                }
-            }
-            // Version Control Agent — a fixed Git specialist for the project
-            // repo, seeded with its prompt and the same connection. No pedantic
-            // companion by default (git ops are executed, not code-reviewed).
-            if let Ok(vc_id) = self.create_kinded(
-                VERSION_CONTROL,
-                &crate::llm::default_version_control_prompt(),
-                AgentKind::Specialist,
-                "version-control",
-            ) {
-                created += 1;
-                if let Some(v) = self.agents.iter_mut().find(|a| a.id == vc_id) {
-                    v.purpose =
-                        "Manages Git for the project: branches, commits, push, revert, rebase."
-                            .to_string();
-                    v.provider = llm.provider.clone();
-                    v.endpoint = llm.endpoint.clone();
-                    v.model = llm.model.clone();
-                    v.temperature = llm.temperature;
-                    v.max_tokens = llm.max_tokens;
-                    v.timeout_secs = llm.timeout_secs;
-                    v.tools = vec!["git (project repository)".to_string(), "git.run".to_string()];
-                    v.routing = "Delegated by Grace · version-control for the project repo".to_string();
-                }
-            }
-            let _ = self.save_all();
-            self.sort_rail();
+            Err(_) => false,
         }
-        created
     }
 
     /// Ensure the Version Control Agent exists (repairs databases seeded before
@@ -610,8 +1076,11 @@ impl AgentsDb {
                     v.temperature = temperature;
                     v.max_tokens = max_tokens;
                     v.timeout_secs = timeout_secs;
-                    v.tools = vec!["git (project repository)".to_string(), "git.run".to_string()];
-                    v.routing = "Delegated by Grace · version-control for the project repo".to_string();
+                    v.tools = vec![
+                        "git (project repository)".to_string(),
+                        "git.run".to_string(),
+                    ];
+                    v.routing = VERSION_CONTROL_ROUTING.to_string();
                 }
                 let _ = self.save_all();
                 self.sort_rail();
@@ -663,7 +1132,7 @@ impl AgentsDb {
                     e.temperature = temperature;
                     e.max_tokens = max_tokens;
                     e.timeout_secs = timeout_secs;
-                    e.routing = "Receives: delegations from Form Designer Agent".to_string();
+                    e.routing = EVENT_HANDLER_ROUTING.to_string();
                 }
                 let _ = self.save_all();
                 self.sort_rail();
@@ -671,6 +1140,513 @@ impl AgentsDb {
             }
             Err(_) => false,
         }
+    }
+
+    /// Create or repair the fixed Documentation Agent. Its connection follows
+    /// the Form Designer Agent when available, then the project's active model.
+    pub fn ensure_documentation_agent(&mut self, llm: &crate::llm::LlmConfig) -> bool {
+        if let Some(index) = self
+            .agents
+            .iter()
+            .position(|agent| agent.name.eq_ignore_ascii_case(DOCUMENTATION_AGENT))
+        {
+            let agent = &mut self.agents[index];
+            let required_tools = [
+                "documentation.write",
+                "documentation.read",
+                "documentation.list",
+                "knowledge.search",
+            ];
+            let mut changed = false;
+            if agent.kind != AgentKind::Specialist {
+                agent.kind = AgentKind::Specialist;
+                changed = true;
+            }
+            if agent.specialization != "documentation" {
+                agent.specialization = "documentation".into();
+                changed = true;
+            }
+            for tool in required_tools {
+                if !agent.tools.iter().any(|existing| existing == tool) {
+                    agent.tools.push(tool.into());
+                    changed = true;
+                }
+            }
+            if changed {
+                let _ = self.save_all();
+            }
+            return changed;
+        }
+
+        let template = self.by_name(FORM_DESIGNER).cloned();
+        let (provider, endpoint, model, temperature, max_tokens, timeout_secs, model_profile) =
+            match template {
+                Some(agent) => (
+                    agent.provider,
+                    agent.endpoint,
+                    agent.model,
+                    agent.temperature,
+                    agent.max_tokens,
+                    agent.timeout_secs,
+                    agent.model_profile,
+                ),
+                None => (
+                    llm.provider.clone(),
+                    llm.endpoint.clone(),
+                    llm.model.clone(),
+                    llm.temperature,
+                    llm.max_tokens,
+                    llm.timeout_secs,
+                    llm.model_profiles
+                        .iter()
+                        .find(|profile| {
+                            profile.provider == llm.provider && profile.model == llm.model
+                        })
+                        .or_else(|| llm.model_profiles.first())
+                        .map(|profile| profile.id.clone()),
+                ),
+            };
+        match self.create_kinded(
+            DOCUMENTATION_AGENT,
+            &crate::llm::default_documentation_agent_prompt(),
+            AgentKind::Specialist,
+            "documentation",
+        ) {
+            Ok(id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|agent| agent.id == id) {
+                    agent.purpose =
+                        "Creates and maintains indexed project documentation for Grace and specialists."
+                            .into();
+                    agent.provider = provider;
+                    agent.endpoint = endpoint;
+                    agent.model = model;
+                    agent.temperature = temperature;
+                    agent.max_tokens = max_tokens;
+                    agent.timeout_secs = timeout_secs;
+                    agent.model_profile = model_profile;
+                    agent.routing = DOCUMENTATION_ROUTING.into();
+                    agent.tools = vec![
+                        "documentation.write".into(),
+                        "documentation.read".into(),
+                        "documentation.list".into(),
+                        "knowledge.search".into(),
+                    ];
+                }
+                let _ = self.save_all();
+                self.sort_rail();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Create or repair the fixed Data (Indexed File) Agent. The specialist
+    /// uses the same `.cidx` model as the Indexed File UI and receives no tools
+    /// outside indexed-file maintenance and project-knowledge retrieval.
+    pub fn ensure_data_indexed_file_agent(&mut self, llm: &crate::llm::LlmConfig) -> bool {
+        let required_tools = [
+            "indexed_file.list",
+            "indexed_file.read",
+            "indexed_file.write",
+            "knowledge.search",
+        ];
+        if let Some(index) = self
+            .agents
+            .iter()
+            .position(|agent| agent.name.eq_ignore_ascii_case(DATA_INDEXED_FILE_AGENT))
+        {
+            let agent = &mut self.agents[index];
+            let mut changed = false;
+            if agent.kind != AgentKind::Specialist {
+                agent.kind = AgentKind::Specialist;
+                changed = true;
+            }
+            if agent.specialization != "indexed-files" {
+                agent.specialization = "indexed-files".into();
+                changed = true;
+            }
+            for tool in required_tools {
+                if !agent.tools.iter().any(|existing| existing == tool) {
+                    agent.tools.push(tool.into());
+                    changed = true;
+                }
+            }
+            if changed {
+                let _ = self.save_all();
+            }
+            return changed;
+        }
+
+        let template = self.by_name(FORM_DESIGNER).cloned();
+        let (provider, endpoint, model, temperature, max_tokens, timeout_secs, model_profile) =
+            match template {
+                Some(agent) => (
+                    agent.provider,
+                    agent.endpoint,
+                    agent.model,
+                    agent.temperature,
+                    agent.max_tokens,
+                    agent.timeout_secs,
+                    agent.model_profile,
+                ),
+                None => (
+                    llm.provider.clone(),
+                    llm.endpoint.clone(),
+                    llm.model.clone(),
+                    llm.temperature,
+                    llm.max_tokens,
+                    llm.timeout_secs,
+                    llm.model_profiles.first().map(|profile| profile.id.clone()),
+                ),
+            };
+        match self.create_kinded(
+            DATA_INDEXED_FILE_AGENT,
+            &crate::llm::default_data_indexed_file_agent_prompt(),
+            AgentKind::Specialist,
+            "indexed-files",
+        ) {
+            Ok(id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|agent| agent.id == id) {
+                    agent.purpose = "Creates and maintains normalized project indexed-file definitions through the PowerRustCOBOL Indexed File UI model.".into();
+                    agent.provider = provider;
+                    agent.endpoint = endpoint;
+                    agent.model = model;
+                    agent.temperature = temperature;
+                    agent.max_tokens = max_tokens;
+                    agent.timeout_secs = timeout_secs;
+                    agent.model_profile = model_profile;
+                    agent.routing = DATA_INDEXED_FILE_ROUTING.into();
+                    agent.tools = required_tools.iter().map(|tool| (*tool).into()).collect();
+                }
+                let _ = self.save_all();
+                self.sort_rail();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Ensure every specialist can retrieve project documentation. Write access
+    /// remains exclusive to Documentation Agent and is enforced by the backend.
+    pub fn ensure_specialist_knowledge_tools(&mut self) -> usize {
+        let mut changed = 0;
+        for agent in &mut self.agents {
+            if agent.kind == AgentKind::Specialist
+                && !agent.tools.iter().any(|tool| tool == "knowledge.search")
+            {
+                agent.tools.push("knowledge.search".into());
+                changed += 1;
+            }
+        }
+        if changed > 0 {
+            let _ = self.save_all();
+        }
+        changed
+    }
+
+    fn repair_builtin_definition(
+        &mut self,
+        name: &str,
+        kind: AgentKind,
+        specialization: &str,
+        purpose: &str,
+        routing: &str,
+        legacy_routings: &[&str],
+        default_prompt: &str,
+        required_tools: &[&str],
+        llm: &crate::llm::LlmConfig,
+    ) -> bool {
+        let Some(index) = self
+            .agents
+            .iter()
+            .position(|agent| agent.name.eq_ignore_ascii_case(name))
+        else {
+            return false;
+        };
+        let current_prompt = self.load_prompt(name);
+        let canonical_prompt = canonicalize_builtin_names(&current_prompt);
+        let legacy_form_prompt = name == FORM_DESIGNER
+            && (current_prompt.trim() == llm.system_prompt.trim()
+                || current_prompt.trim() == crate::llm::DEFAULT_SYSTEM_PROMPT
+                || current_prompt.trim() == "You are the PowerRustCOBOL Form Designer Agent.");
+        let repaired_prompt = if current_prompt.trim().is_empty() || legacy_form_prompt {
+            default_prompt.to_string()
+        } else {
+            canonical_prompt
+        };
+        let mut changed = false;
+        if repaired_prompt != current_prompt && self.save_prompt(name, &repaired_prompt).is_ok() {
+            changed = true;
+        }
+
+        let agent = &mut self.agents[index];
+        if agent.kind != kind {
+            agent.kind = kind;
+            changed = true;
+        }
+        if agent.specialization != specialization {
+            agent.specialization = specialization.into();
+            changed = true;
+        }
+        if agent.purpose.trim().is_empty() {
+            agent.purpose = purpose.into();
+            changed = true;
+        }
+        if agent.routing.trim().is_empty()
+            || legacy_routings
+                .iter()
+                .any(|legacy| agent.routing.trim() == *legacy)
+        {
+            if agent.routing != routing {
+                agent.routing = routing.into();
+                changed = true;
+            }
+        }
+        for tool in required_tools {
+            if !agent.tools.iter().any(|existing| existing == tool) {
+                agent.tools.push((*tool).into());
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn ensure_builtin_definitions(&mut self, llm: &crate::llm::LlmConfig) -> usize {
+        let form_prompt = crate::llm::default_form_designer_agent_prompt();
+        let event_prompt = crate::llm::default_event_handler_prompt();
+        let documentation_prompt = crate::llm::default_documentation_agent_prompt();
+        let data_indexed_file_prompt = crate::llm::default_data_indexed_file_agent_prompt();
+        let grace_reviewer_prompt = crate::llm::default_pedantic_grace_prompt();
+        let form_reviewer_prompt = crate::llm::default_pedantic_ui_prompt();
+        let event_reviewer_prompt = crate::llm::default_pedantic_event_prompt();
+        let documentation_reviewer_prompt = crate::llm::default_pedantic_documentation_prompt();
+        let version_control_reviewer_prompt = crate::llm::default_pedantic_version_control_prompt();
+        let data_indexed_file_reviewer_prompt =
+            crate::llm::default_pedantic_data_indexed_file_prompt();
+        let version_control_prompt = crate::llm::default_version_control_prompt();
+        let mut changed = 0;
+        changed += self.repair_builtin_definition(
+            FORM_DESIGNER,
+            AgentKind::Specialist,
+            "form-design",
+            "Designs and edits project forms and delegates event implementation.",
+            FORM_DESIGNER_ROUTING,
+            &["Receives: user form requests"],
+            &form_prompt,
+            &["egui.tree", "egui.rects"],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            EVENT_HANDLER,
+            AgentKind::Specialist,
+            "cobol-events",
+            "Implements delegated COBOL-85 / RustCOBOL event handlers.",
+            EVENT_HANDLER_ROUTING,
+            &["Receives: delegations from Form Designer Agent"],
+            &event_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            DOCUMENTATION_AGENT,
+            AgentKind::Specialist,
+            "documentation",
+            "Creates and maintains indexed project documentation for Grace and specialists.",
+            DOCUMENTATION_ROUTING,
+            &[
+                "Receives every documentation creation or update delegated by Grace.",
+                "Receives documentation tasks from Grace after authoritative domain-specialist handoff; writes only under Documentation/ or docs/ through documentation tools; for indexed-file work retrieves project knowledge, establishes file name and purpose, applies 1NF/2NF/3NF, requires the developer's UUID-or-PIC ID choice, and returns schema/helper-file requests to Grace without mutating .cidx files.",
+            ],
+            &documentation_prompt,
+            &[
+                "documentation.write",
+                "documentation.read",
+                "documentation.list",
+                "knowledge.search",
+            ],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            DATA_INDEXED_FILE_AGENT,
+            AgentKind::Specialist,
+            "indexed-files",
+            "Creates and maintains normalized project indexed-file definitions through the PowerRustCOBOL Indexed File UI model.",
+            DATA_INDEXED_FILE_ROUTING,
+            &[],
+            &data_indexed_file_prompt,
+            &[
+                "indexed_file.list",
+                "indexed_file.read",
+                "indexed_file.write",
+                "knowledge.search",
+            ],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            PEDANTIC_GRACE_REVIEWER,
+            AgentKind::Pedantic,
+            "orchestration-review",
+            "Independently reviews Grace's plans, delegation, evidence, and completion claims.",
+            GRACE_REVIEWER_ROUTING,
+            &["Reviews: Grace orchestration"],
+            &grace_reviewer_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            PEDANTIC_FORM_DESIGNER_REVIEWER,
+            AgentKind::Pedantic,
+            "form-design-review",
+            "Independently reviews form structure, controls, layout, styling, bindings, event delegation, accessibility, and regressions.",
+            FORM_DESIGNER_REVIEWER_ROUTING,
+            &["Reviews: Form Designer Agent"],
+            &form_reviewer_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            PEDANTIC_EVENT_HANDLER_REVIEWER,
+            AgentKind::Pedantic,
+            "cobol-event-review",
+            "Independently reviews COBOL event handlers for language correctness, exact form integration, behavior, safety, and regressions.",
+            EVENT_HANDLER_REVIEWER_ROUTING,
+            &["Reviews: COBOL Event Handler Script Agent"],
+            &event_reviewer_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            PEDANTIC_DOCUMENTATION_REVIEWER,
+            AgentKind::Pedantic,
+            "documentation-review",
+            "Independently reviews project documentation for source fidelity, technical accuracy, structure, allowed paths, and indexability.",
+            DOCUMENTATION_REVIEWER_ROUTING,
+            &[],
+            &documentation_reviewer_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            PEDANTIC_VERSION_CONTROL_REVIEWER,
+            AgentKind::Pedantic,
+            "version-control-review",
+            "Independently reviews Git operations for scope, repository safety, confirmation, evidence, reversibility, and unintended changes.",
+            VERSION_CONTROL_REVIEWER_ROUTING,
+            &[],
+            &version_control_reviewer_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            PEDANTIC_DATA_INDEXED_FILE_REVIEWER,
+            AgentKind::Pedantic,
+            "indexed-file-review",
+            "Independently reviews indexed-file schemas, normalization, keys, PIC clauses, helper files, generated artifacts, tool evidence, and regressions.",
+            DATA_INDEXED_FILE_REVIEWER_ROUTING,
+            &[],
+            &data_indexed_file_reviewer_prompt,
+            &[],
+            llm,
+        ) as usize;
+        changed += self.repair_builtin_definition(
+            VERSION_CONTROL,
+            AgentKind::Specialist,
+            "version-control",
+            "Manages Git for the project: branches, commits, push, revert, rebase.",
+            VERSION_CONTROL_ROUTING,
+            &[
+                "Delegated by Grace · version-control for the project repo",
+                "Delegated by Grace - version-control for the project repo",
+            ],
+            &version_control_prompt,
+            &["git (project repository)", "git.run"],
+            llm,
+        ) as usize;
+        if changed > 0 {
+            let _ = self.save_all();
+        }
+        changed
+    }
+
+    fn ensure_builtin_connections(&mut self, llm: &crate::llm::LlmConfig) -> usize {
+        let profile_id = llm
+            .model_profiles
+            .iter()
+            .find(|profile| profile.provider == llm.provider && profile.model == llm.model)
+            .or_else(|| llm.model_profiles.first())
+            .map(|profile| profile.id.clone());
+        let mut changed = 0;
+        for name in [
+            GRACE,
+            FORM_DESIGNER,
+            EVENT_HANDLER,
+            VERSION_CONTROL,
+            DOCUMENTATION_AGENT,
+            DATA_INDEXED_FILE_AGENT,
+        ] {
+            let Some(agent) = self
+                .agents
+                .iter_mut()
+                .find(|agent| agent.name.eq_ignore_ascii_case(name))
+            else {
+                continue;
+            };
+            // A selected profile, including a dangling one, is an explicit
+            // project choice and is never silently replaced here.
+            if agent.model_profile.is_some()
+                || !agent.provider.trim().is_empty()
+                || !agent.model.trim().is_empty()
+            {
+                continue;
+            }
+            if let Some(profile_id) = profile_id.clone() {
+                agent.model_profile = Some(profile_id);
+                changed += 1;
+            } else if !llm.provider.trim().is_empty() && !llm.model.trim().is_empty() {
+                agent.provider = llm.provider.clone();
+                agent.endpoint = llm.endpoint.clone();
+                agent.model = llm.model.clone();
+                agent.temperature = llm.temperature;
+                agent.max_tokens = llm.max_tokens;
+                agent.timeout_secs = llm.timeout_secs;
+                changed += 1;
+            }
+        }
+        if changed > 0 {
+            let _ = self.save_all();
+        }
+        changed
+    }
+
+    /// Seed and repair all agents required by the IDE's built-in workflows.
+    /// Idempotent and safe to call on project open and before every Grace run.
+    pub fn ensure_fixed_agents(&mut self, llm: &crate::llm::LlmConfig) -> usize {
+        let mut changed = self.migrate_builtin_aliases();
+        changed += self.seed_from_legacy(llm);
+        if self.ensure_grace() {
+            changed += 1;
+        }
+        if self.ensure_form_designer(llm) {
+            changed += 1;
+        }
+        if self.ensure_event_handler(llm) {
+            changed += 1;
+        }
+        if self.ensure_version_control(llm) {
+            changed += 1;
+        }
+        if self.ensure_documentation_agent(llm) {
+            changed += 1;
+        }
+        if self.ensure_data_indexed_file_agent(llm) {
+            changed += 1;
+        }
+        changed += self.ensure_required_reviewers(llm);
+        changed += self.ensure_builtin_definitions(llm);
+        changed += self.ensure_builtin_connections(llm);
+        changed += self.ensure_specialist_knowledge_tools();
+        self.sort_rail();
+        changed
     }
 }
 
@@ -694,7 +1670,7 @@ pub fn agent_effective_config(
 ) -> Option<crate::llm::LlmConfig> {
     let a = db.by_name(agent_name).filter(|a| a.enabled)?;
     let mut cfg = resolve_agent_connection(a, llm)?;
-    let prompt = db.load_prompt(&a.name);
+    let prompt = db.load_agent_core_instructions(&a.name);
     if !prompt.trim().is_empty() {
         cfg.system_prompt = prompt;
     }
@@ -712,7 +1688,7 @@ pub fn agent_effective_config(
             cfg.reviewer_provider = cc.provider.clone();
             cfg.reviewer_endpoint = cc.endpoint.clone();
             cfg.reviewer_model = cc.model.clone();
-            let ped_prompt = db.load_prompt(&c.name);
+            let ped_prompt = db.load_agent_core_instructions(&c.name);
             if !ped_prompt.trim().is_empty() {
                 cfg.pedantic_prompt = ped_prompt;
             }
@@ -835,6 +1811,17 @@ mod tests {
     }
 
     #[test]
+    fn builtin_prompt_migration_redirects_legacy_project_document_paths() {
+        let migrated = canonicalize_builtin_names(
+            "Read /Documentation/plan.md and /docs/tasks.md with DocumentationAgent.",
+        );
+        assert_eq!(
+            migrated,
+            "Read /Knowledge Base/plan.md and /Knowledge Base/tasks.md with Documentation Agent."
+        );
+    }
+
+    #[test]
     fn migration_synthesises_minimal_profiles_and_preserves_config() {
         let proj = tmp_project();
         let mut db = AgentsDb::load(&proj);
@@ -855,9 +1842,16 @@ mod tests {
 
         let migrated = migrate_to_profiles(&mut db, &mut llm);
         assert_eq!(migrated, 3, "all three agents migrated");
-        assert_eq!(llm.model_profiles.len(), 2, "identical configs collapse to 2 profiles");
+        assert_eq!(
+            llm.model_profiles.len(),
+            2,
+            "identical configs collapse to 2 profiles"
+        );
         for n in ["A", "B", "C"] {
-            assert!(db.by_name(n).unwrap().model_profile.is_some(), "{n} references a profile");
+            assert!(
+                db.by_name(n).unwrap().model_profile.is_some(),
+                "{n} references a profile"
+            );
         }
         // Effective config is unchanged post-migration (AC5 invariant).
         let after: Vec<String> = ["A", "B", "C"]
@@ -885,9 +1879,15 @@ mod tests {
 
         let before = designer_agent_config(&db, &llm).model;
         let n = migrate_to_profiles(&mut db, &mut llm);
-        assert!(n >= 4, "seeded specialists + companions migrated onto profiles");
+        assert!(
+            n >= 4,
+            "seeded specialists + companions migrated onto profiles"
+        );
         let d = db.by_name("Form Designer Agent").unwrap();
-        assert!(d.model_profile.is_some(), "seeded Form Designer references a profile (AC7)");
+        assert!(
+            d.model_profile.is_some(),
+            "seeded Form Designer references a profile (AC7)"
+        );
         // Resolved config is unchanged, now via the profile.
         assert_eq!(designer_agent_config(&db, &llm).model, before);
         // No API key is ever stored in agent.json (AC4).
@@ -903,7 +1903,10 @@ mod tests {
         set_embedded(&mut db, &a, "prov", "https://e", "m1");
         let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
         migrate_to_profiles(&mut db, &mut llm);
-        assert!(agent_effective_config(&db, &llm, "A").is_some(), "resolves via its profile");
+        assert!(
+            agent_effective_config(&db, &llm, "A").is_some(),
+            "resolves via its profile"
+        );
         // Delete the referenced profile → clear "no model" state, not a crash (R8).
         llm.model_profiles.clear();
         assert!(agent_effective_config(&db, &llm, "A").is_none());
@@ -911,10 +1914,48 @@ mod tests {
     }
 
     #[test]
+    fn agent_call_uses_model_id_and_key_from_selected_profile() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        let agent_id = db.create("A", "p").unwrap();
+        set_embedded(
+            &mut db,
+            &agent_id,
+            "openai",
+            "https://stale.example/v1",
+            "stale-model",
+        );
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let profile_id = llm.find_or_create_profile(
+            "ollama_cloud",
+            "https://ollama.com/api/chat",
+            "qwen3.5:397b",
+            0.4,
+            8192,
+            120,
+        );
+        llm.store_api_key(crate::llm::profile_api_key_slot(&profile_id), "profile-key");
+        db.agents
+            .iter_mut()
+            .find(|agent| agent.id == agent_id)
+            .unwrap()
+            .model_profile = Some(profile_id);
+
+        let cfg = resolve_agent_connection(db.by_id(&agent_id).unwrap(), &llm).unwrap();
+        assert_eq!(cfg.provider, "ollama_cloud");
+        assert_eq!(cfg.endpoint, "https://ollama.com/api/chat");
+        assert_eq!(cfg.model, "qwen3.5:397b");
+        assert_eq!(cfg.api_key, "profile-key");
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
     fn create_scaffolds_the_operator_structure_and_round_trips() {
         let proj = tmp_project();
         let mut db = AgentsDb::load(&proj);
-        let id = db.create("Form Designer Agent", "line one\nline two\n").unwrap();
+        let id = db
+            .create("Form Designer Agent", "line one\nline two\n")
+            .unwrap();
         let dir = proj.join("agentic_ai/Form Designer Agent");
         for p in [
             "agent.json",
@@ -928,10 +1969,16 @@ mod tests {
             assert!(dir.join(p).exists(), "missing {p}");
         }
         // multi-line prompt survives verbatim
-        assert_eq!(db.load_prompt("Form Designer Agent"), "line one\nline two\n");
+        assert_eq!(
+            db.load_prompt("Form Designer Agent"),
+            "line one\nline two\n"
+        );
         // manifest never contains a key field
         let json = std::fs::read_to_string(dir.join("agent.json")).unwrap();
-        assert!(!json.to_lowercase().contains("api_key"), "key leaked: {json}");
+        assert!(
+            !json.to_lowercase().contains("api_key"),
+            "key leaked: {json}"
+        );
         // reload sees the same agent
         let db2 = AgentsDb::load(&proj);
         assert_eq!(db2.agents.len(), 1);
@@ -975,6 +2022,59 @@ mod tests {
     }
 
     #[test]
+    fn companion_relationship_is_one_to_one_from_either_direction() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        let first = db
+            .create_kinded("First Specialist", "p", AgentKind::Specialist, "first")
+            .unwrap();
+        let second = db
+            .create_kinded("Second Specialist", "p", AgentKind::Specialist, "second")
+            .unwrap();
+        let reviewer = db
+            .create_kinded("Pedantic One", "p", AgentKind::Pedantic, "review")
+            .unwrap();
+        let other_reviewer = db
+            .create_kinded("Pedantic Two", "p", AgentKind::Pedantic, "review")
+            .unwrap();
+
+        assert!(db.set_companion(&first, Some(&reviewer)).unwrap());
+        assert_eq!(db.companion_owner(&reviewer).unwrap().id, first);
+
+        assert!(db.set_companion(&second, Some(&reviewer)).unwrap());
+        assert!(db.by_id(&first).unwrap().companion.is_none());
+        assert_eq!(db.companion_owner(&reviewer).unwrap().id, second);
+
+        assert!(db.set_companion(&second, Some(&other_reviewer)).unwrap());
+        assert!(db.companion_owner(&reviewer).is_none());
+        assert_eq!(db.companion_owner(&other_reviewer).unwrap().id, second);
+
+        assert!(db.set_companion(&second, None).unwrap());
+        assert!(db.companion_owner(&other_reviewer).is_none());
+        assert!(db.set_companion(&reviewer, Some(&other_reviewer)).is_err());
+        assert!(db.set_companion(&first, Some(&second)).is_err());
+
+        // Older manifests could contain the same reviewer on multiple owners.
+        // Loading repairs that legacy state deterministically (alphabetical
+        // specialist order after the orchestrator priority).
+        db.agents
+            .iter_mut()
+            .find(|agent| agent.id == first)
+            .unwrap()
+            .companion = Some(reviewer.clone());
+        db.agents
+            .iter_mut()
+            .find(|agent| agent.id == second)
+            .unwrap()
+            .companion = Some(reviewer.clone());
+        db.save_all().unwrap();
+        let repaired = AgentsDb::load(&proj);
+        assert_eq!(repaired.companion_owner(&reviewer).unwrap().id, first);
+        assert!(repaired.by_id(&second).unwrap().companion.is_none());
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
     fn seeding_migrates_the_legacy_pair() {
         let proj = tmp_project();
         let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
@@ -985,13 +2085,24 @@ mod tests {
         llm.reviewer_model = "claude-opus-4-8".into();
         llm.reviewer_endpoint = llm.endpoint.clone();
         let mut db = AgentsDb::load(&proj);
-        // Grace + designer + pedantic-ui + event-handler + pedantic-cobol +
-        // version-control
-        assert_eq!(db.seed_from_legacy(&llm), 6);
+        // Six built-in primaries, each immediately paired with its own
+        // purpose-specific Pedantic reviewer.
+        assert_eq!(db.seed_from_legacy(&llm), 12);
         let grace = db.by_name(GRACE).unwrap();
         assert_eq!(grace.kind, AgentKind::Orchestrator);
         assert!(db.orchestrator_violation().is_none());
         assert!(!db.load_prompt(GRACE).is_empty(), "Grace prompt seeded");
+        let grace_reviewer = db.by_name(PEDANTIC_GRACE_REVIEWER).unwrap();
+        assert_eq!(grace_reviewer.kind, AgentKind::Pedantic);
+        assert_eq!(grace.companion.as_deref(), Some(grace_reviewer.id.as_str()));
+        assert!(
+            grace_reviewer.model.trim().is_empty(),
+            "the developer chooses every reviewer model"
+        );
+        assert_eq!(
+            db.load_prompt(PEDANTIC_GRACE_REVIEWER),
+            crate::llm::default_pedantic_grace_prompt()
+        );
         // The COBOL Event Handler is a fixed specialist with its prompt loaded.
         let ev = db.by_name(EVENT_HANDLER).unwrap().clone();
         assert_eq!(ev.kind, AgentKind::Specialist);
@@ -1001,32 +2112,43 @@ mod tests {
             db.load_prompt(EVENT_HANDLER).contains("Event Handler"),
             "event-handler prompt loaded"
         );
-        // Its pedantic companion was created and linked (reviewer configured).
-        let pc = db.by_name("Pedantic COBOL Companion").unwrap();
+        // Its purpose-specific Pedantic reviewer exists and is linked even
+        // though no reviewer model has been selected yet.
+        let pc = db.by_name(PEDANTIC_EVENT_HANDLER_REVIEWER).unwrap();
         assert_eq!(pc.kind, AgentKind::Pedantic);
         assert_eq!(ev.companion.as_deref(), Some(pc.id.as_str()));
+        assert!(pc.model.trim().is_empty());
         assert!(db.pair_rule_violation().is_none());
         assert!(db.ensure_event_handler(&llm) == false, "idempotent");
         // The Version Control (Git) specialist is seeded with its prompt.
         let vc = db.by_name(VERSION_CONTROL).unwrap();
         assert_eq!(vc.kind, AgentKind::Specialist);
         assert_eq!(vc.specialization, "version-control");
-        assert!(vc.companion.is_none(), "git agent has no auto companion");
+        let vc_reviewer = db.by_name(PEDANTIC_VERSION_CONTROL_REVIEWER).unwrap();
+        assert_eq!(
+            vc.companion.as_deref(),
+            Some(vc_reviewer.id.as_str()),
+            "Git specialist is paired automatically"
+        );
         assert!(
             db.load_prompt(VERSION_CONTROL).contains("Version Control"),
             "version-control prompt loaded"
         );
         assert!(db.ensure_version_control(&llm) == false, "idempotent");
         let designer = db.by_name("Form Designer Agent").unwrap().clone();
-        let ped = db.by_name("Pedantic UI Agent").unwrap();
+        let ped = db.by_name(PEDANTIC_FORM_DESIGNER_REVIEWER).unwrap();
         assert_eq!(designer.model, "claude-sonnet-5");
         assert_eq!(designer.companion.as_deref(), Some(ped.id.as_str()));
-        assert_eq!(ped.model, "claude-opus-4-8");
+        assert!(ped.model.trim().is_empty());
         assert!(db.pair_rule_violation().is_none());
         // spec 030 R2: seeded agents declare the concrete tool names governance
         // recognises — VC gets git.run, the Form Designer gets the egui observers.
         assert!(
-            db.by_name(VERSION_CONTROL).unwrap().tools.iter().any(|t| t == "git.run"),
+            db.by_name(VERSION_CONTROL)
+                .unwrap()
+                .tools
+                .iter()
+                .any(|t| t == "git.run"),
             "VC declares git.run"
         );
         assert!(
@@ -1034,17 +2156,37 @@ mod tests {
                 && designer.tools.iter().any(|t| t == "egui.rects"),
             "Form Designer declares the egui observe tools"
         );
+        let data_agent = db.by_name(DATA_INDEXED_FILE_AGENT).unwrap();
+        assert_eq!(data_agent.specialization, "indexed-files");
+        assert!(data_agent
+            .tools
+            .iter()
+            .any(|tool| tool == "indexed_file.write"));
+        let data_reviewer = db.by_name(PEDANTIC_DATA_INDEXED_FILE_REVIEWER).unwrap();
+        assert_eq!(
+            data_agent.companion.as_deref(),
+            Some(data_reviewer.id.as_str())
+        );
         // Second call is a no-op (agents exist).
         assert_eq!(db.seed_from_legacy(&llm), 0);
         // R8: the designer flow resolves to the DB entry, and the DB
         // companion becomes the reviewer (pedantic handles the check).
         let cfg = designer_agent_config(&db, &llm);
         assert_eq!(cfg.model, "claude-sonnet-5");
-        assert_eq!(cfg.reviewer_model, "claude-opus-4-8");
-        assert!(cfg.reviewer_configured());
-        // Designer + event-handler are reviewed; only the companion-less Git
-        // specialist is flagged unreviewed.
-        assert_eq!(unreviewed_primaries(&db), vec![VERSION_CONTROL.to_string()]);
+        assert!(!cfg.reviewer_configured());
+        let unreviewed = unreviewed_primaries(&db);
+        for name in [
+            FORM_DESIGNER,
+            EVENT_HANDLER,
+            DOCUMENTATION_AGENT,
+            VERSION_CONTROL,
+            DATA_INDEXED_FILE_AGENT,
+        ] {
+            assert!(
+                unreviewed.contains(&name.to_string()),
+                "{name} remains inactive for review until the developer selects its reviewer model"
+            );
+        }
         // Remove the companion link: the primary is now unreviewed and the
         // resolved config carries NO reviewer (caller must warn the user).
         db.agents
@@ -1054,16 +2196,377 @@ mod tests {
             .companion = None;
         let cfg = designer_agent_config(&db, &llm);
         assert!(!cfg.reviewer_configured());
-        // Kinds are STORED (spec 029): the unlinked pedantic reviewer and
-        // Grace are NOT unreviewed primaries — only companion-less specialists
-        // are (now the designer AND the Git agent).
+        // Kinds are stored: reviewers and Grace are not unreviewed primaries.
         let unreviewed = unreviewed_primaries(&db);
         assert!(unreviewed.contains(&"Form Designer Agent".to_string()));
-        assert!(unreviewed.contains(&VERSION_CONTROL.to_string()));
-        assert_eq!(unreviewed.len(), 2);
         // Grace is singleton + reserved.
         assert!(!db.ensure_grace(), "second ensure_grace is a no-op");
         assert!(db.create("grace", "p").is_err(), "name reserved");
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn fixed_agents_include_protected_documentation_with_project_retrieval() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider = "openai".into();
+        llm.endpoint = "https://api.openai.com/v1".into();
+        llm.model = "gpt-test".into();
+        let mut db = AgentsDb::load(&proj);
+
+        assert!(db.ensure_fixed_agents(&llm) > 0);
+        let grace = db.by_name(GRACE).unwrap().clone();
+        let grace_reviewer = db.by_name(PEDANTIC_GRACE_REVIEWER).unwrap().clone();
+        assert_eq!(grace_reviewer.kind, AgentKind::Pedantic);
+        assert_eq!(grace_reviewer.specialization, "orchestration-review");
+        assert_eq!(grace.companion.as_deref(), Some(grace_reviewer.id.as_str()));
+        assert_eq!(
+            db.load_prompt(PEDANTIC_GRACE_REVIEWER),
+            crate::llm::default_pedantic_grace_prompt()
+        );
+        assert!(db.delete(&grace_reviewer.id).is_err());
+        let documentation = db.by_name(DOCUMENTATION_AGENT).unwrap().clone();
+        assert_eq!(documentation.kind, AgentKind::Specialist);
+        assert_eq!(documentation.specialization, "documentation");
+        for tool in [
+            "documentation.write",
+            "documentation.read",
+            "documentation.list",
+            "knowledge.search",
+        ] {
+            assert!(
+                documentation.tools.iter().any(|declared| declared == tool),
+                "Documentation Agent declares {tool}"
+            );
+        }
+        assert!(db
+            .agents
+            .iter()
+            .filter(|agent| agent.kind == AgentKind::Specialist)
+            .all(|agent| agent.tools.iter().any(|tool| tool == "knowledge.search")));
+        assert!(db.delete(&documentation.id).is_err());
+        assert!(db.by_name(DOCUMENTATION_AGENT).is_some());
+        let data_agent = db.by_name(DATA_INDEXED_FILE_AGENT).unwrap();
+        for tool in [
+            "indexed_file.list",
+            "indexed_file.read",
+            "indexed_file.write",
+            "knowledge.search",
+        ] {
+            assert!(
+                data_agent.tools.iter().any(|declared| declared == tool),
+                "Data (Indexed File) Agent declares {tool}"
+            );
+        }
+        for name in [
+            EVENT_HANDLER,
+            DOCUMENTATION_AGENT,
+            DATA_INDEXED_FILE_AGENT,
+            FORM_DESIGNER,
+            PEDANTIC_GRACE_REVIEWER,
+            PEDANTIC_FORM_DESIGNER_REVIEWER,
+            PEDANTIC_EVENT_HANDLER_REVIEWER,
+            PEDANTIC_DOCUMENTATION_REVIEWER,
+            PEDANTIC_DATA_INDEXED_FILE_REVIEWER,
+            PEDANTIC_VERSION_CONTROL_REVIEWER,
+            VERSION_CONTROL,
+        ] {
+            let agent = db.by_name(name).unwrap_or_else(|| panic!("missing {name}"));
+            assert!(
+                !agent.routing.trim().is_empty(),
+                "{name} routing is defined"
+            );
+            assert!(
+                !db.load_prompt(name).trim().is_empty(),
+                "{name} prompt is defined"
+            );
+        }
+        for (owner_name, reviewer_name) in [
+            (GRACE, PEDANTIC_GRACE_REVIEWER),
+            (FORM_DESIGNER, PEDANTIC_FORM_DESIGNER_REVIEWER),
+            (EVENT_HANDLER, PEDANTIC_EVENT_HANDLER_REVIEWER),
+            (DOCUMENTATION_AGENT, PEDANTIC_DOCUMENTATION_REVIEWER),
+            (DATA_INDEXED_FILE_AGENT, PEDANTIC_DATA_INDEXED_FILE_REVIEWER),
+            (VERSION_CONTROL, PEDANTIC_VERSION_CONTROL_REVIEWER),
+        ] {
+            let owner = db.by_name(owner_name).unwrap();
+            let reviewer = db.by_name(reviewer_name).unwrap();
+            assert_eq!(reviewer_name, format!("{owner_name} Pedantic Reviewer"));
+            assert_eq!(reviewer.kind, AgentKind::Pedantic);
+            assert_eq!(owner.companion.as_deref(), Some(reviewer.id.as_str()));
+            assert!(reviewer.model_profile.is_none());
+            assert!(reviewer.provider.trim().is_empty());
+            assert!(reviewer.model.trim().is_empty());
+            assert!(is_fixed_agent_name(reviewer_name));
+        }
+        assert!(db
+            .load_prompt(FORM_DESIGNER)
+            .contains("You are the PowerRustCOBOL Form Designer Agent"));
+        db.save_prompt(PEDANTIC_GRACE_REVIEWER, "project-edited reviewer prompt")
+            .unwrap();
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "repair is idempotent");
+        assert_eq!(
+            db.load_prompt(PEDANTIC_GRACE_REVIEWER),
+            "project-edited reviewer prompt",
+            "fixed-agent repair must preserve project prompt edits"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn fixed_tandems_exist_before_any_model_is_configured() {
+        let proj = tmp_project();
+        let mut llm = crate::llm::LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.endpoint.clear();
+        llm.model.clear();
+        llm.model_profiles.clear();
+        llm.reviewer_provider.clear();
+        llm.reviewer_endpoint.clear();
+        llm.reviewer_model.clear();
+
+        let mut db = AgentsDb::load(&proj);
+        assert!(db.ensure_fixed_agents(&llm) > 0);
+        assert_eq!(db.agents.len(), 12);
+        for (owner_name, reviewer_name) in [
+            (GRACE, PEDANTIC_GRACE_REVIEWER),
+            (FORM_DESIGNER, PEDANTIC_FORM_DESIGNER_REVIEWER),
+            (EVENT_HANDLER, PEDANTIC_EVENT_HANDLER_REVIEWER),
+            (DOCUMENTATION_AGENT, PEDANTIC_DOCUMENTATION_REVIEWER),
+            (DATA_INDEXED_FILE_AGENT, PEDANTIC_DATA_INDEXED_FILE_REVIEWER),
+            (VERSION_CONTROL, PEDANTIC_VERSION_CONTROL_REVIEWER),
+        ] {
+            let owner = db.by_name(owner_name).unwrap();
+            let reviewer = db.by_name(reviewer_name).unwrap();
+            assert_eq!(owner.companion.as_deref(), Some(reviewer.id.as_str()));
+            assert!(reviewer.model_profile.is_none());
+            assert!(reviewer.model.trim().is_empty());
+        }
+
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn project_open_recreates_a_missing_tandem_and_preserves_reviewer_customization() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        assert!(db.ensure_fixed_agents(&llm) > 0);
+
+        let documentation_reviewer_id = db
+            .by_name(PEDANTIC_DOCUMENTATION_REVIEWER)
+            .unwrap()
+            .id
+            .clone();
+        db.save_prompt(
+            PEDANTIC_DOCUMENTATION_REVIEWER,
+            "Project-specific documentation review rules.",
+        )
+        .unwrap();
+        let reviewer = db
+            .agents
+            .iter_mut()
+            .find(|agent| agent.id == documentation_reviewer_id)
+            .unwrap();
+        reviewer.model_profile = Some("developer-selected-reviewer-model".into());
+        reviewer.skills.push("project-terminology-check".into());
+        db.save_all().unwrap();
+
+        assert_eq!(db.ensure_fixed_agents(&llm), 0);
+        let reviewer = db.by_name(PEDANTIC_DOCUMENTATION_REVIEWER).unwrap();
+        assert_eq!(
+            db.load_prompt(PEDANTIC_DOCUMENTATION_REVIEWER),
+            "Project-specific documentation review rules."
+        );
+        assert_eq!(
+            reviewer.model_profile.as_deref(),
+            Some("developer-selected-reviewer-model")
+        );
+        assert!(reviewer
+            .skills
+            .iter()
+            .any(|skill| skill == "project-terminology-check"));
+
+        let missing_id = db
+            .by_name(PEDANTIC_EVENT_HANDLER_REVIEWER)
+            .unwrap()
+            .id
+            .clone();
+        std::fs::remove_dir_all(db.dir(PEDANTIC_EVENT_HANDLER_REVIEWER)).unwrap();
+        let mut reopened = AgentsDb::load(&proj);
+        assert!(reopened.by_name(PEDANTIC_EVENT_HANDLER_REVIEWER).is_none());
+        assert!(reopened.ensure_fixed_agents(&llm) > 0);
+        let owner = reopened.by_name(EVENT_HANDLER).unwrap();
+        let recreated = reopened.by_name(PEDANTIC_EVENT_HANDLER_REVIEWER).unwrap();
+        assert_ne!(recreated.id, missing_id);
+        assert_eq!(owner.companion.as_deref(), Some(recreated.id.as_str()));
+        assert!(!reopened
+            .load_prompt(PEDANTIC_EVENT_HANDLER_REVIEWER)
+            .trim()
+            .is_empty());
+        assert!(recreated.model_profile.is_none());
+        assert!(recreated.model.trim().is_empty());
+
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn fixed_agent_aliases_migrate_without_losing_identity_or_configuration() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        assert!(db.ensure_grace());
+        assert!(db.ensure_form_designer(&llm));
+        assert!(db.ensure_event_handler(&llm));
+
+        let reviewer_id = db
+            .create_kinded(
+                LEGACY_PEDANTIC_GRACE_REVIEWER,
+                "Custom Pedantic Grace Reviewer project prompt.",
+                AgentKind::Pedantic,
+                "orchestration-review",
+            )
+            .unwrap();
+        db.agents
+            .iter_mut()
+            .find(|agent| agent.id == reviewer_id)
+            .unwrap()
+            .model_profile = Some("stable-reviewer-profile".into());
+        let grace_id = db.by_name(GRACE).unwrap().id.clone();
+        db.set_companion(&grace_id, Some(&reviewer_id)).unwrap();
+        db.create_kinded(
+            LEGACY_ORCHESTRATOR_REVIEWER,
+            "obsolete duplicate prompt",
+            AgentKind::Pedantic,
+            "orchestration-review",
+        )
+        .unwrap();
+
+        let documentation_id = db
+            .create_kinded(
+                LEGACY_DOCUMENTATION_AGENT,
+                "Custom DocumentationAgent project prompt.",
+                AgentKind::Specialist,
+                "documentation",
+            )
+            .unwrap();
+
+        let form_reviewer_id = db
+            .create_kinded(
+                LEGACY_FORM_DESIGNER_REVIEWER,
+                "Custom Pedantic UI Agent project prompt.",
+                AgentKind::Pedantic,
+                "form-design-review",
+            )
+            .unwrap();
+        let form_id = db.by_name(FORM_DESIGNER).unwrap().id.clone();
+        db.set_companion(&form_id, Some(&form_reviewer_id)).unwrap();
+
+        let event_reviewer_id = db
+            .create_kinded(
+                LEGACY_EVENT_HANDLER_REVIEWER,
+                "Custom Pedantic COBOL Companion project prompt.",
+                AgentKind::Pedantic,
+                "cobol-event-review",
+            )
+            .unwrap();
+        let event_id = db.by_name(EVENT_HANDLER).unwrap().id.clone();
+        db.set_companion(&event_id, Some(&event_reviewer_id))
+            .unwrap();
+        db.save_all().unwrap();
+
+        assert!(db.ensure_fixed_agents(&llm) > 0);
+        assert!(db.by_name(LEGACY_PEDANTIC_GRACE_REVIEWER).is_none());
+        assert!(db.by_name(LEGACY_ORCHESTRATOR_REVIEWER).is_none());
+        assert!(db.by_name(LEGACY_FORM_DESIGNER_REVIEWER).is_none());
+        assert!(db.by_name(LEGACY_EVENT_HANDLER_REVIEWER).is_none());
+        assert!(db.by_name(LEGACY_DOCUMENTATION_AGENT).is_none());
+
+        let reviewer = db.by_name(PEDANTIC_GRACE_REVIEWER).unwrap();
+        assert_eq!(reviewer.id, reviewer_id);
+        assert_eq!(
+            reviewer.model_profile.as_deref(),
+            Some("stable-reviewer-profile")
+        );
+        assert_eq!(
+            db.by_name(GRACE).unwrap().companion.as_deref(),
+            Some(reviewer_id.as_str())
+        );
+        assert_eq!(
+            db.load_prompt(PEDANTIC_GRACE_REVIEWER),
+            "Custom Grace Pedantic Reviewer project prompt."
+        );
+
+        let documentation = db.by_name(DOCUMENTATION_AGENT).unwrap();
+        assert_eq!(documentation.id, documentation_id);
+        assert_eq!(
+            db.load_prompt(DOCUMENTATION_AGENT),
+            "Custom Documentation Agent project prompt."
+        );
+        assert_eq!(
+            db.by_name(PEDANTIC_FORM_DESIGNER_REVIEWER).unwrap().id,
+            form_reviewer_id
+        );
+        assert_eq!(
+            db.by_name(FORM_DESIGNER).unwrap().companion.as_deref(),
+            Some(form_reviewer_id.as_str())
+        );
+        assert_eq!(
+            db.load_prompt(PEDANTIC_FORM_DESIGNER_REVIEWER),
+            "Custom Form Designer Agent Pedantic Reviewer project prompt."
+        );
+        assert_eq!(
+            db.by_name(PEDANTIC_EVENT_HANDLER_REVIEWER).unwrap().id,
+            event_reviewer_id
+        );
+        assert_eq!(
+            db.by_name(EVENT_HANDLER).unwrap().companion.as_deref(),
+            Some(event_reviewer_id.as_str())
+        );
+        assert_eq!(
+            db.load_prompt(PEDANTIC_EVENT_HANDLER_REVIEWER),
+            "Custom COBOL Event Handler Script Agent Pedantic Reviewer project prompt."
+        );
+        assert!(db.dir(PEDANTIC_GRACE_REVIEWER).exists());
+        assert!(db.dir(DOCUMENTATION_AGENT).exists());
+        assert!(!db.dir(LEGACY_ORCHESTRATOR_REVIEWER).exists());
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn load_agent_instructions_skills_and_knowledge_files() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        let id = db.create("CustomAgent", "Main core prompt.").unwrap();
+        let agent_dir = db.dir("CustomAgent");
+        std::fs::write(agent_dir.join("steering/custom_steering.md"), "Custom steering content.").unwrap();
+        std::fs::write(agent_dir.join("policies.md"), "Custom policy content.").unwrap();
+        std::fs::write(agent_dir.join("skills/custom_skill.md"), "Custom skill content.").unwrap();
+        std::fs::write(agent_dir.join("knowledge/custom_doc.md"), "Custom knowledge content.").unwrap();
+
+        let agent = db.agents.iter_mut().find(|a| a.id == id).unwrap();
+        agent.steering = vec!["custom_steering.md".into()];
+        agent.policies = vec!["policies.md".into()];
+        agent.skills = vec!["custom_skill.md".into()];
+        agent.knowledge = vec!["custom_doc.md".into()];
+        db.save_all().unwrap();
+
+        let loaded = AgentsDb::load(&proj);
+        let core = loaded.load_agent_core_instructions("CustomAgent");
+        assert!(core.contains("Main core prompt."));
+        assert!(core.contains("--- STEERING (custom_steering.md) ---"));
+        assert!(core.contains("Custom steering content."));
+        assert!(core.contains("--- POLICIES (policies.md) ---"));
+        assert!(core.contains("Custom policy content."));
+
+        let skills = loaded.load_agent_capabilities("CustomAgent");
+        assert!(skills.contains("--- SKILL (custom_skill.md) ---"));
+        assert!(skills.contains("Custom skill content."));
+
+        let knowledge = loaded.load_agent_knowledge("CustomAgent");
+        assert!(knowledge.contains("--- KNOWLEDGE (custom_doc.md) ---"));
+        assert!(knowledge.contains("Custom knowledge content."));
+
         let _ = std::fs::remove_dir_all(proj);
     }
 }

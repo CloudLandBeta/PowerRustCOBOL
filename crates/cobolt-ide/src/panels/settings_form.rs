@@ -53,7 +53,7 @@ pub struct SettingsDraft {
     // ── Run-Form inspector ──
     pub insp_dump_enabled: bool,
     pub insp_dump_path: String,
-    // ── AI assistant (global) ──
+    // ── AI assistant (project-scoped; credentials remain machine-local) ──
     /// Selected AI provider id (empty ⇒ "Select the AI Provider").
     pub llm_provider: String,
     pub llm_endpoint: String,
@@ -115,14 +115,7 @@ impl SettingsDraft {
             llm_reviewer_provider: llm.reviewer_provider.clone(),
             llm_reviewer_endpoint: llm.reviewer_endpoint.clone(),
             llm_reviewer_model: llm.reviewer_model.clone(),
-            llm_reviewer_api_key: llm
-                .api_keys
-                .get(&crate::llm::api_key_slot(
-                    &llm.reviewer_provider,
-                    &llm.reviewer_model,
-                ))
-                .cloned()
-                .unwrap_or_default(),
+            llm_reviewer_api_key: llm.reviewer_config().api_key,
         }
     }
 
@@ -147,15 +140,26 @@ impl SettingsDraft {
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
         llm.provider = self.llm_provider.clone();
         llm.endpoint = self.llm_endpoint.clone();
-        llm.api_key = self.llm_api_key.clone();
-        let mut keys = self.llm_api_keys.clone();
-        let slot = crate::llm::api_key_slot(&self.llm_provider, &self.llm_model);
-        if !self.llm_model.trim().is_empty() {
-            if self.llm_api_key.trim().is_empty() {
-                keys.remove(&slot);
-            } else {
-                keys.insert(slot, self.llm_api_key.clone());
-            }
+        if !self.llm_api_key.trim().is_empty() {
+            llm.api_key = self.llm_api_key.clone();
+        }
+        // This draft may have been opened before Models Manager saved another
+        // profile. Merge non-empty credentials instead of replacing the live
+        // map, so saving Project Settings can never erase those newer keys.
+        llm.merge_api_keys(&self.llm_api_keys);
+        if !self.llm_model.trim().is_empty() && !self.llm_api_key.trim().is_empty() {
+            let profile_id = llm.find_or_create_profile(
+                &self.llm_provider,
+                &self.llm_endpoint,
+                &self.llm_model,
+                llm.temperature,
+                self.llm_max_tokens.max(1),
+                self.llm_timeout.max(1),
+            );
+            llm.store_api_key(
+                crate::llm::profile_api_key_slot(&profile_id),
+                &self.llm_api_key,
+            );
         }
         llm.reviewer_provider = self.llm_reviewer_provider.clone();
         llm.reviewer_endpoint = self.llm_reviewer_endpoint.clone();
@@ -168,17 +172,19 @@ impl SettingsDraft {
             llm.reviewer_model.clear();
         }
         if !self.llm_reviewer_model.trim().is_empty() {
-            let slot = crate::llm::api_key_slot(
+            let profile_id = llm.find_or_create_profile(
                 &self.llm_reviewer_provider,
+                &self.llm_reviewer_endpoint,
                 &self.llm_reviewer_model,
+                llm.temperature,
+                self.llm_max_tokens.max(1),
+                self.llm_timeout.max(1),
             );
-            if self.llm_reviewer_api_key.trim().is_empty() {
-                keys.remove(&slot);
-            } else {
-                keys.insert(slot, self.llm_reviewer_api_key.clone());
-            }
+            llm.store_api_key(
+                crate::llm::profile_api_key_slot(&profile_id),
+                &self.llm_reviewer_api_key,
+            );
         }
-        llm.api_keys = keys;
         llm.model = self.llm_model.clone();
         llm.cobol_proficiency_prompt = self.llm_cobol_proficiency_prompt.clone();
         llm.timeout_secs = self.llm_timeout.max(1);
@@ -870,7 +876,7 @@ impl SettingsForm {
                         });
 
                         // Provider (drives the default endpoint + the model list)
-                        // ── Agent Manager (spec 028): the agent database UI ────
+                        // ── Agents Manager (spec 028): the agent database UI ───
                         ui.horizontal_top(|ui| {
                             let left_rect = ui
                                 .allocate_exact_size(
@@ -904,8 +910,8 @@ impl SettingsForm {
                         // Legacy per-agent connection fields (provider, endpoint,
                         // model, API key, reviewer, proficiency prompt, verbose).
                         // Spec 028/029: this configuration now lives PER AGENT in
-                        // the Agent Manager (seeded from any prior config on first
-                        // open), so the AI section is just the "Manage agents…"
+                        // the Agents Manager (seeded from any prior config on first
+                        // open), so the AI section is just the "Agents Manager…"
                         // button above plus the non-agent inspection port below.
                         // The draft fields are still loaded/saved so nothing is
                         // orphaned; only the UI is retired.

@@ -20,6 +20,9 @@ pub struct MeshRequest {
     pub model: String,
     pub api_key: String,
     pub endpoint: String,
+    /// When true, `endpoint` is the complete request URL entered by the
+    /// developer and must not receive a conventional path suffix.
+    pub endpoint_user_edited: bool,
     /// Explicit target specialist (FormsDesigner, EventBinder, CodeGenerator).
     /// If None, the orchestrator routes based on the user prompt.
     pub specialist: Option<String>,
@@ -42,6 +45,15 @@ pub struct MeshRequest {
 
 pub struct Orchestrator {
     specialists: Vec<Specialist>,
+}
+
+fn compose_system_prompt(host_prompt: &str, specialist: Option<&Specialist>) -> String {
+    match (host_prompt.trim(), specialist) {
+        ("", Some(specialist)) => specialist.system_prompt.clone(),
+        ("", None) => String::new(),
+        (host, Some(specialist)) => format!("{host}\n\n{}", specialist.system_prompt),
+        (host, None) => host.to_string(),
+    }
 }
 
 impl Default for Orchestrator {
@@ -77,24 +89,16 @@ impl Orchestrator {
         } else {
             route_specialist(&req.user_prompt).to_string()
         };
-        let specialist = self
-            .specialists
-            .iter()
-            .find(|s| s.name == target)
-            .expect("built-in specialist");
-        on_log(format!("routing → {} specialist", specialist.name));
-
-        // ── Compose messages (host prompt wins; specialist is the fallback) ──
-        // ── Compose messages (host prompt + specialist is combined) ──
-        let system = if req.system_prompt.trim().is_empty() {
-            specialist.system_prompt.clone()
+        let specialist = self.specialists.iter().find(|s| s.name == target);
+        if let Some(specialist) = specialist {
+            on_log(format!("routing → {} specialist", specialist.name));
         } else {
-            format!(
-                "{}\n\n{}",
-                req.system_prompt.trim(),
-                specialist.system_prompt
-            )
-        };
+            on_log(format!("routing → {target} project agent"));
+        }
+
+        // Built-in mesh routes combine both contracts. Named project agents
+        // use their complete host-supplied prompt without a foreign preamble.
+        let system = compose_system_prompt(&req.system_prompt, specialist);
         let mut messages = vec![serde_json::json!({ "role": "system", "content": system })];
         if !req.skills.trim().is_empty() {
             messages.push(serde_json::json!({
@@ -129,33 +133,17 @@ impl Orchestrator {
             // configured `/v1/chat/completions` gets the OpenAI wire even on an
             // Ollama-family provider (and vice-versa). `base` is kept for the
             // reasoning-hint check below.
-            let base = heal_endpoint_host(&req.provider, req.endpoint.trim().trim_end_matches('/'));
-            // `native` = Ollama-native chat API (`…/api/chat`, response shape
-            // `{"message":{"content":…}}`); otherwise OpenAI-compatible
-            // (`…/chat/completions`, response shape `choices[0].message.content`).
-            let (url, native) = resolve_wire(&req.provider, &base);
-
-            let mut body = if native {
-                serde_json::json!({
-                    "model": req.model,
-                    "messages": messages,
-                    "stream": true,
-                    "think": false,
-                    "options": {
-                        "temperature": req.temperature,
-                        "num_predict": req.max_tokens,
-                    },
-                })
+            let base = if req.endpoint_user_edited {
+                req.endpoint.trim().to_string()
             } else {
-                serde_json::json!({
-                    "model": req.model,
-                    "messages": messages,
-                    "temperature": req.temperature,
-                    "max_tokens": req.max_tokens,
-                    "stream": true,
-                })
+                heal_endpoint_host(&req.provider, req.endpoint.trim().trim_end_matches('/'))
             };
-            if !native && provider_uses_ollama_reasoning(&req.provider, &base) {
+            let (url, wire) = resolve_wire(&req.provider, &base, req.endpoint_user_edited);
+
+            let mut body = build_request_body(req, &messages, wire);
+            if wire == WireFormat::ChatCompletions
+                && provider_uses_ollama_reasoning(&req.provider, &base)
+            {
                 // Ollama-family OpenAI-compatible endpoints accept this hint for
                 // thinking models. Other providers can reject unknown fields, so
                 // keep it scoped to endpoints we know may emit `delta.reasoning`.
@@ -166,12 +154,12 @@ impl Orchestrator {
                 "POST {url} · model {} · {} message(s) · {} wire format (batch {loop_count})",
                 req.model,
                 messages.len(),
-                if native { "ollama-native" } else { "openai" },
+                wire.label(),
             ));
 
             let mut trace = format!(
                 "=== API REQUEST ===\nEndpoint: {url}\nWire: {}\nModel: {}\nMessages: {}\n",
-                if native { "ollama-native" } else { "openai" },
+                wire.label(),
                 req.model,
                 messages.len(),
             );
@@ -225,79 +213,24 @@ impl Orchestrator {
                                 continue;
                             }
 
-                            if line.starts_with("data: ") {
-                                let json_str = line.strip_prefix("data: ").unwrap();
-                                if json_str == "[DONE]" {
-                                    continue;
+                            let json_str = line.strip_prefix("data: ").unwrap_or(&line);
+                            if json_str == "[DONE]" {
+                                continue;
+                            }
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                if let Some(content) = stream_text_delta(wire, &json) {
+                                    full_content.push_str(content);
+                                    on_chunk(content);
                                 }
-                                if let Ok(json) =
-                                    serde_json::from_str::<serde_json::Value>(json_str)
-                                {
-                                    if let Some(content) = json
-                                        .get("choices")
-                                        .and_then(|c| c.get(0))
-                                        .and_then(|c| c.get("delta"))
-                                        .and_then(|m| m.get("content"))
-                                        .and_then(|c| c.as_str())
-                                    {
-                                        full_content.push_str(content);
-                                        on_chunk(content);
-                                    }
-                                    if let Some(reasoning) = json
-                                        .get("choices")
-                                        .and_then(|c| c.get(0))
-                                        .and_then(|c| c.get("delta"))
-                                        .and_then(|m| {
-                                            m.get("reasoning")
-                                                .or_else(|| m.get("reasoning_content"))
-                                        })
-                                        .and_then(|c| c.as_str())
-                                    {
-                                        reasoning_chars += reasoning.chars().count();
-                                    }
-                                    if let Some(usage) = json.get("usage") {
-                                        if let Some(i) =
-                                            usage.get("prompt_tokens").and_then(|v| v.as_u64())
-                                        {
-                                            inp_tokens = Some(i);
-                                        }
-                                        if let Some(o) =
-                                            usage.get("completion_tokens").and_then(|v| v.as_u64())
-                                        {
-                                            out_tokens = Some(o);
-                                        }
-                                    }
+                                if let Some(reasoning) = stream_reasoning_delta(wire, &json) {
+                                    reasoning_chars += reasoning.chars().count();
                                 }
-                            } else {
-                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
-                                    if let Some(content) = json
-                                        .get("message")
-                                        .and_then(|m| m.get("content"))
-                                        .and_then(|c| c.as_str())
-                                    {
-                                        full_content.push_str(content);
-                                        on_chunk(content);
-                                    }
-                                    if let Some(reasoning) = json
-                                        .get("message")
-                                        .and_then(|m| {
-                                            m.get("reasoning")
-                                                .or_else(|| m.get("reasoning_content"))
-                                        })
-                                        .and_then(|c| c.as_str())
-                                    {
-                                        reasoning_chars += reasoning.chars().count();
-                                    }
-                                    if let Some(usage) =
-                                        json.get("prompt_eval_count").and_then(|v| v.as_u64())
-                                    {
-                                        inp_tokens = Some(usage);
-                                    }
-                                    if let Some(usage) =
-                                        json.get("eval_count").and_then(|v| v.as_u64())
-                                    {
-                                        out_tokens = Some(usage);
-                                    }
+                                let (input, output) = stream_usage(wire, &json);
+                                if input.is_some() {
+                                    inp_tokens = input;
+                                }
+                                if output.is_some() {
+                                    out_tokens = output;
                                 }
                             }
                         }
@@ -578,11 +511,8 @@ fn provider_is_ollama(provider: &str) -> bool {
 /// hostname fragment — adding a provider is one row. `base` should already be
 /// trimmed and have no trailing slash.
 fn heal_endpoint_host(provider: &str, base: &str) -> String {
-    // (provider-name fragment, wrong host, canonical host). Empty for now —
-    // Ollama Cloud's real host IS api.ollama.com (operator-confirmed), so it
-    // must NOT be rewritten. Kept as a generic, data-driven mechanism for any
-    // future provider that ships a wrong default.
-    const HEALS: &[(&str, &str, &str)] = &[];
+    // (provider-name fragment, wrong host, canonical host).
+    const HEALS: &[(&str, &str, &str)] = &[("ollama", "api.ollama.com", "ollama.com")];
     let p = provider.to_ascii_lowercase();
     let mut out = base.to_string();
     for (prov, wrong, right) in HEALS {
@@ -593,38 +523,86 @@ fn heal_endpoint_host(provider: &str, base: &str) -> String {
     out
 }
 
-/// Resolve the chat URL and wire format from a (healed) endpoint, generically
-/// across providers and models.
-///
-/// Priority — most specific wins, so a user's explicit choice is honoured:
-///   1. an explicit wire suffix (`/api/chat` → native, `/chat/completions` →
-///      OpenAI) is used verbatim, regardless of the provider name;
-///   2. a version-only suffix (`/api` → native, `/v1` → OpenAI) implies its
-///      conventional wire;
-///   3. otherwise the provider default (Ollama-family → native `/api/chat`,
-///      everything else → OpenAI-compatible `/v1/chat/completions`).
-fn resolve_wire(provider: &str, base: &str) -> (String, bool) {
-    if base.ends_with("/api/chat") {
-        return (base.to_string(), true);
-    }
-    if base.ends_with("/chat/completions") {
-        return (base.to_string(), false);
-    }
-    if base.ends_with("/api") {
-        return (format!("{base}/chat"), true);
-    }
-    if base.ends_with("/v1") {
-        return (format!("{base}/chat/completions"), false);
-    }
-    if provider_is_ollama(provider) {
-        (ollama_native_chat_url(base), true)
-    } else {
-        (format!("{base}/v1/chat/completions"), false)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WireFormat {
+    OllamaNative,
+    ChatCompletions,
+    Responses,
+}
+
+impl WireFormat {
+    fn label(self) -> &'static str {
+        match self {
+            Self::OllamaNative => "ollama-native",
+            Self::ChatCompletions => "chat-completions",
+            Self::Responses => "responses",
+        }
     }
 }
 
+/// Resolve the request URL and wire format from an endpoint, generically
+/// across providers and models.
+///
+/// Developer-edited endpoints are complete request URLs and are always used
+/// verbatim. Conventional suffixes are added only to provider-generated
+/// defaults.
+fn resolve_wire(
+    provider: &str,
+    endpoint: &str,
+    endpoint_user_edited: bool,
+) -> (String, WireFormat) {
+    let suffix_start = endpoint
+        .find(|character| character == '?' || character == '#')
+        .unwrap_or(endpoint.len());
+    let classified = endpoint[..suffix_start].trim_end_matches('/');
+    let explicit_wire = if classified.ends_with("/responses") {
+        WireFormat::Responses
+    } else if classified.ends_with("/api/chat") {
+        WireFormat::OllamaNative
+    } else if classified.ends_with("/chat/completions") {
+        WireFormat::ChatCompletions
+    } else if provider_is_ollama(provider) {
+        WireFormat::OllamaNative
+    } else {
+        WireFormat::ChatCompletions
+    };
+    if endpoint_user_edited {
+        return (endpoint.to_string(), explicit_wire);
+    }
+    if endpoint.ends_with("/api/chat") {
+        return (endpoint.to_string(), WireFormat::OllamaNative);
+    }
+    if provider_is_ollama(provider) {
+        return (ollama_native_chat_url(endpoint), WireFormat::OllamaNative);
+    }
+    if endpoint.ends_with("/responses") {
+        return (endpoint.to_string(), WireFormat::Responses);
+    }
+    if endpoint.ends_with("/chat/completions") {
+        return (endpoint.to_string(), WireFormat::ChatCompletions);
+    }
+    if endpoint.ends_with("/api") {
+        return (format!("{endpoint}/chat"), WireFormat::OllamaNative);
+    }
+    if endpoint.ends_with("/v1") {
+        return (
+            format!("{endpoint}/chat/completions"),
+            WireFormat::ChatCompletions,
+        );
+    }
+    (
+        format!("{endpoint}/v1/chat/completions"),
+        WireFormat::ChatCompletions,
+    )
+}
+
 fn ollama_native_chat_url(base: &str) -> String {
-    for suffix in ["/v1/chat/completions", "/api/chat", "/chat/completions"] {
+    for suffix in [
+        "/v1/chat/completions",
+        "/api/chat",
+        "/api/tags",
+        "/chat/completions",
+    ] {
         if let Some(root) = base.strip_suffix(suffix) {
             return format!("{root}/api/chat");
         }
@@ -643,9 +621,152 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
 }
 
+fn stream_text_delta<'a>(wire: WireFormat, json: &'a serde_json::Value) -> Option<&'a str> {
+    match wire {
+        WireFormat::OllamaNative => json
+            .get("message")
+            .and_then(|message| message.get("content"))
+            .and_then(|content| content.as_str()),
+        WireFormat::ChatCompletions => json
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("delta"))
+            .and_then(|delta| delta.get("content"))
+            .and_then(|content| content.as_str()),
+        WireFormat::Responses => (json.get("type").and_then(|kind| kind.as_str())
+            == Some("response.output_text.delta"))
+        .then(|| json.get("delta").and_then(|delta| delta.as_str()))
+        .flatten(),
+    }
+}
+
+fn stream_reasoning_delta<'a>(wire: WireFormat, json: &'a serde_json::Value) -> Option<&'a str> {
+    match wire {
+        WireFormat::OllamaNative => json
+            .get("message")
+            .and_then(|message| {
+                message
+                    .get("reasoning")
+                    .or_else(|| message.get("reasoning_content"))
+            })
+            .and_then(|reasoning| reasoning.as_str()),
+        WireFormat::ChatCompletions => json
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("delta"))
+            .and_then(|delta| {
+                delta
+                    .get("reasoning")
+                    .or_else(|| delta.get("reasoning_content"))
+            })
+            .and_then(|reasoning| reasoning.as_str()),
+        WireFormat::Responses => (json.get("type").and_then(|kind| kind.as_str())
+            == Some("response.reasoning_text.delta"))
+        .then(|| json.get("delta").and_then(|delta| delta.as_str()))
+        .flatten(),
+    }
+}
+
+fn stream_usage(wire: WireFormat, json: &serde_json::Value) -> (Option<u64>, Option<u64>) {
+    let usage = match wire {
+        WireFormat::Responses => json
+            .get("response")
+            .and_then(|response| response.get("usage")),
+        _ => json.get("usage"),
+    };
+    match wire {
+        WireFormat::OllamaNative => (
+            json.get("prompt_eval_count")
+                .and_then(|value| value.as_u64()),
+            json.get("eval_count").and_then(|value| value.as_u64()),
+        ),
+        WireFormat::ChatCompletions => (
+            usage
+                .and_then(|value| value.get("prompt_tokens"))
+                .and_then(|value| value.as_u64()),
+            usage
+                .and_then(|value| value.get("completion_tokens"))
+                .and_then(|value| value.as_u64()),
+        ),
+        WireFormat::Responses => (
+            usage
+                .and_then(|value| value.get("input_tokens"))
+                .and_then(|value| value.as_u64()),
+            usage
+                .and_then(|value| value.get("output_tokens"))
+                .and_then(|value| value.as_u64()),
+        ),
+    }
+}
+
+fn build_request_body(
+    req: &MeshRequest,
+    messages: &[serde_json::Value],
+    wire: WireFormat,
+) -> serde_json::Value {
+    match wire {
+        WireFormat::OllamaNative => serde_json::json!({
+            "model": req.model,
+            "messages": messages,
+            "stream": true,
+            "think": false,
+            "options": {
+                "temperature": req.temperature,
+                "num_predict": req.max_tokens,
+            },
+        }),
+        WireFormat::Responses => serde_json::json!({
+            "model": req.model,
+            "input": messages,
+            "temperature": req.temperature,
+            "max_output_tokens": req.max_tokens,
+            "stream": true,
+        }),
+        WireFormat::ChatCompletions => {
+            let mut body = serde_json::json!({
+                "model": req.model,
+                "messages": messages,
+                "temperature": req.temperature,
+                "stream": true,
+            });
+            let token_field = if req.provider.trim().eq_ignore_ascii_case("openai") {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            body.as_object_mut()
+                .expect("chat request body is an object")
+                .insert(token_field.to_string(), req.max_tokens.into());
+            body
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ollama_native_chat_url, route_specialist};
+    use super::{
+        build_request_body, compose_system_prompt, ollama_native_chat_url, resolve_wire,
+        route_specialist, stream_text_delta, MeshRequest, WireFormat,
+    };
+
+    fn request(provider: &str) -> MeshRequest {
+        MeshRequest {
+            provider: provider.into(),
+            model: "test-model".into(),
+            api_key: "test-key".into(),
+            endpoint: "https://example.com/v1".into(),
+            endpoint_user_edited: false,
+            specialist: None,
+            system_prompt: String::new(),
+            skills: String::new(),
+            context: String::new(),
+            history: Vec::new(),
+            user_prompt: "Reply with OK only.".into(),
+            temperature: 0.4,
+            max_tokens: 123,
+            verbose: false,
+        }
+    }
 
     #[test]
     fn routes_crud_navigation_wiring_to_event_binder() {
@@ -663,6 +784,13 @@ mod tests {
             route_specialist("fazer os botões salvar atualizar excluir e navegar funcionarem"),
             "EventBinder"
         );
+    }
+
+    #[test]
+    fn named_project_agent_uses_only_its_host_prompt() {
+        let prompt = "Grace must end planning with workflow JSON.";
+        assert_eq!(compose_system_prompt(prompt, None), prompt);
+        assert!(!compose_system_prompt(prompt, None).contains("Do not output JSON"));
     }
 
     #[test]
@@ -684,6 +812,10 @@ mod tests {
             "https://ollama.com/api/chat"
         );
         assert_eq!(
+            ollama_native_chat_url("https://ollama.com/api/tags"),
+            "https://ollama.com/api/chat"
+        );
+        assert_eq!(
             ollama_native_chat_url("http://localhost:11434/api"),
             "http://localhost:11434/api/chat"
         );
@@ -692,10 +824,10 @@ mod tests {
     #[test]
     fn host_healing_is_provider_scoped() {
         use super::heal_endpoint_host;
-        // Ollama Cloud's real host IS api.ollama.com — it must be left as-is.
+        // Ollama Cloud uses ollama.com for native chat/list APIs.
         assert_eq!(
             heal_endpoint_host("ollama_cloud", "https://api.ollama.com/v1/chat/completions"),
-            "https://api.ollama.com/v1/chat/completions"
+            "https://ollama.com/v1/chat/completions"
         );
         // Every provider's configured host is passed through unchanged; the
         // heal table is a generic hook, currently empty.
@@ -710,37 +842,108 @@ mod tests {
     }
 
     #[test]
-    fn wire_format_follows_the_explicit_endpoint_across_providers() {
-        use super::resolve_wire;
-        // Explicit OpenAI suffix wins even on an Ollama-family provider.
+    fn provider_defaults_receive_conventional_request_paths() {
         assert_eq!(
-            resolve_wire("ollama_cloud", "https://ollama.com/v1/chat/completions"),
-            ("https://ollama.com/v1/chat/completions".into(), false)
-        );
-        // Explicit native suffix wins even on a non-Ollama provider.
-        assert_eq!(
-            resolve_wire("openai", "http://host/api/chat"),
-            ("http://host/api/chat".into(), true)
-        );
-        // Version-only suffixes imply their conventional wire.
-        assert_eq!(
-            resolve_wire("ollama", "http://host/api"),
-            ("http://host/api/chat".into(), true)
+            resolve_wire("ollama", "http://host/api", false),
+            ("http://host/api/chat".into(), WireFormat::OllamaNative)
         );
         assert_eq!(
-            resolve_wire("openai", "https://api.openai.com/v1"),
-            ("https://api.openai.com/v1/chat/completions".into(), false)
-        );
-        // Bare host: provider default. Any non-Ollama provider (Anthropic,
-        // xAI, Mistral, a generic OpenAI-compatible gateway…) gets the
-        // OpenAI-compatible wire.
-        assert_eq!(
-            resolve_wire("mistral", "https://api.mistral.ai"),
-            ("https://api.mistral.ai/v1/chat/completions".into(), false)
+            resolve_wire("openai", "https://api.openai.com/v1", false),
+            (
+                "https://api.openai.com/v1/chat/completions".into(),
+                WireFormat::ChatCompletions,
+            )
         );
         assert_eq!(
-            resolve_wire("ollama", "http://localhost:11434"),
-            ("http://localhost:11434/api/chat".into(), true)
+            resolve_wire("mistral", "https://api.mistral.ai", false),
+            (
+                "https://api.mistral.ai/v1/chat/completions".into(),
+                WireFormat::ChatCompletions,
+            )
+        );
+    }
+
+    #[test]
+    fn developer_edited_endpoint_is_used_verbatim() {
+        assert_eq!(
+            resolve_wire("openai", "https://api.openai.com/v1/responses", true),
+            (
+                "https://api.openai.com/v1/responses".into(),
+                WireFormat::Responses,
+            )
+        );
+        assert_eq!(
+            resolve_wire(
+                "xai",
+                "https://api.x.ai/v1/responses?region=us#stream",
+                true,
+            ),
+            (
+                "https://api.x.ai/v1/responses?region=us#stream".into(),
+                WireFormat::Responses,
+            )
+        );
+        assert_eq!(
+            resolve_wire("mistral", "https://gateway.example/custom", true),
+            (
+                "https://gateway.example/custom".into(),
+                WireFormat::ChatCompletions,
+            )
+        );
+        assert_eq!(
+            resolve_wire(
+                "ollama_cloud",
+                "https://ollama.com/v1/chat/completions",
+                true,
+            ),
+            (
+                "https://ollama.com/v1/chat/completions".into(),
+                WireFormat::ChatCompletions,
+            )
+        );
+    }
+
+    #[test]
+    fn openai_chat_payload_uses_max_completion_tokens() {
+        let body = build_request_body(&request("openai"), &[], WireFormat::ChatCompletions);
+
+        assert_eq!(body["max_completion_tokens"], 123);
+        assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn compatible_provider_payload_keeps_max_tokens() {
+        let body = build_request_body(&request("mistral"), &[], WireFormat::ChatCompletions);
+
+        assert_eq!(body["max_tokens"], 123);
+        assert!(body.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn ollama_native_payload_keeps_num_predict() {
+        let body = build_request_body(&request("ollama_cloud"), &[], WireFormat::OllamaNative);
+
+        assert_eq!(body["options"]["num_predict"], 123);
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn responses_payload_and_stream_delta_use_responses_wire() {
+        let messages = vec![serde_json::json!({"role": "user", "content": "hello"})];
+        let body = build_request_body(&request("openai"), &messages, WireFormat::Responses);
+        assert_eq!(body["input"], serde_json::Value::Array(messages));
+        assert_eq!(body["max_output_tokens"], 123);
+        assert!(body.get("messages").is_none());
+        assert_eq!(
+            stream_text_delta(
+                WireFormat::Responses,
+                &serde_json::json!({
+                    "type": "response.output_text.delta",
+                    "delta": "OK"
+                }),
+            ),
+            Some("OK")
         );
     }
 }

@@ -104,19 +104,44 @@ pub trait AgentInvoker {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GraceEvent {
     /// Grace dispatched a task to a specialist.
-    TaskStarted { id: String, agent: String, objective: String },
+    TaskStarted {
+        id: String,
+        agent: String,
+        objective: String,
+    },
     /// The specialist returned a submission (with evidence).
-    Submitted { id: String, agent: String },
+    Submitted {
+        id: String,
+        agent: String,
+    },
     /// A pedantic review round began.
-    ReviewStarted { id: String, reviewer: String, round: usize },
+    ReviewStarted {
+        id: String,
+        reviewer: String,
+        round: usize,
+    },
     /// A review round's verdict landed.
-    Verdict { id: String, reviewer: String, approved: bool },
+    Verdict {
+        id: String,
+        reviewer: String,
+        approved: bool,
+    },
     /// The reviewer found defects; a correction was requested.
-    CorrectionRequested { id: String, round: usize },
+    CorrectionRequested {
+        id: String,
+        round: usize,
+    },
     /// A task reached a terminal state.
-    Approved { id: String },
-    Failed { id: String, reason: String },
-    Blocked { id: String },
+    Approved {
+        id: String,
+    },
+    Failed {
+        id: String,
+        reason: String,
+    },
+    Blocked {
+        id: String,
+    },
 }
 
 /// Convenience: a no-op observer for the non-streaming [`GraceEngine::run`].
@@ -215,11 +240,13 @@ impl GraceEngine {
                 .map(|r| r.spec.id.clone())
                 .collect();
             let terminal = |s: TaskState| {
-                matches!(s, TaskState::Approved | TaskState::Failed | TaskState::Blocked)
+                matches!(
+                    s,
+                    TaskState::Approved | TaskState::Failed | TaskState::Blocked
+                )
             };
             let Some(idx) = records.iter().position(|r| {
-                !terminal(r.final_state)
-                    && r.spec.depends_on.iter().all(|d| approved.contains(d))
+                !terminal(r.final_state) && r.spec.depends_on.iter().all(|d| approved.contains(d))
             }) else {
                 // No runnable task left: block whatever still waits on a
                 // failed dependency.
@@ -228,12 +255,44 @@ impl GraceEngine {
                         r.states.push(TaskState::Blocked);
                         r.final_state = TaskState::Blocked;
                         r.failure_reason = "dependency not approved".into();
-                        on_event(GraceEvent::Blocked { id: r.spec.id.clone() });
+                        on_event(GraceEvent::Blocked {
+                            id: r.spec.id.clone(),
+                        });
                     }
                 }
                 break;
             };
-            self.run_task(&mut records[idx], invoker, system_for, on_event);
+            let dependency_outputs = records[idx]
+                .spec
+                .depends_on
+                .iter()
+                .filter_map(|dependency_id| {
+                    records
+                        .iter()
+                        .find(|record| {
+                            record.spec.id == *dependency_id
+                                && record.final_state == TaskState::Approved
+                        })
+                        .and_then(|record| {
+                            record.submissions.last().map(|submission| {
+                                format!(
+                                    "DEPENDENCY {id} — {agent}\nOBJECTIVE: {objective}\nAPPROVED OUTPUT:\n{submission}",
+                                    id = record.spec.id,
+                                    agent = record.spec.agent,
+                                    objective = record.spec.objective,
+                                )
+                            })
+                        })
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n---\n\n");
+            self.run_task(
+                &mut records[idx],
+                &dependency_outputs,
+                invoker,
+                system_for,
+                on_event,
+            );
         }
 
         let all_ok = records.iter().all(|r| r.final_state == TaskState::Approved);
@@ -254,6 +313,7 @@ impl GraceEngine {
     fn run_task(
         &self,
         rec: &mut TaskRecord,
+        dependency_outputs: &str,
         invoker: &mut dyn AgentInvoker,
         system_for: &dyn Fn(&str) -> String,
         on_event: &mut dyn FnMut(GraceEvent),
@@ -266,8 +326,13 @@ impl GraceEngine {
             agent: spec.agent.clone(),
             objective: spec.objective.clone(),
         });
+        let dependency_outputs = if dependency_outputs.trim().is_empty() {
+            "(no dependency outputs)"
+        } else {
+            dependency_outputs
+        };
         let user = format!(
-            "TASK {id}: {obj}\n\nCONTEXT (identifiers are exact — do not paraphrase):\n{ctx}\n\nACCEPTANCE CRITERIA:\n{acc}\n\nReturn the complete result. A bare claim of completion without the actual artifact is a failure.",
+            "TASK {id}: {obj}\n\nCONTEXT (identifiers are exact — do not paraphrase):\n{ctx}\n\nAPPROVED DEPENDENCY OUTPUTS (authoritative handoff from prior specialists):\n{dependency_outputs}\n\nACCEPTANCE CRITERIA:\n{acc}\n\nReturn the complete result. A bare claim of completion without the actual artifact is a failure.",
             id = spec.id,
             obj = spec.objective,
             ctx = spec.context,
@@ -289,7 +354,10 @@ impl GraceEngine {
                 rec.states.push(TaskState::Failed);
                 rec.final_state = TaskState::Failed;
                 rec.failure_reason = e.clone();
-                on_event(GraceEvent::Failed { id: spec.id.clone(), reason: e });
+                on_event(GraceEvent::Failed {
+                    id: spec.id.clone(),
+                    reason: e,
+                });
                 return;
             }
         };
@@ -303,7 +371,9 @@ impl GraceEngine {
             // No mandated review gate for this task.
             rec.states.push(TaskState::Approved);
             rec.final_state = TaskState::Approved;
-            on_event(GraceEvent::Approved { id: spec.id.clone() });
+            on_event(GraceEvent::Approved {
+                id: spec.id.clone(),
+            });
             return;
         };
 
@@ -316,7 +386,7 @@ impl GraceEngine {
                 round,
             });
             let review_user = format!(
-                "This is a review round: review the response and END with the round-verdict JSON per your tooling contract.\n\n=== AUTHORITATIVE TASK ===\n{obj}\n\nCONTEXT:\n{ctx}\n\nACCEPTANCE CRITERIA:\n{acc}\n\n=== SUBMISSION UNDER REVIEW ===\n{submission}",
+                "This is a review round: review the response and END with the round-verdict JSON per your tooling contract.\n\n=== AUTHORITATIVE TASK ===\n{obj}\n\nCONTEXT:\n{ctx}\n\nAPPROVED DEPENDENCY OUTPUTS:\n{dependency_outputs}\n\nACCEPTANCE CRITERIA:\n{acc}\n\n=== SUBMISSION UNDER REVIEW ===\n{submission}",
                 obj = spec.objective,
                 ctx = spec.context,
                 acc = spec.acceptance,
@@ -362,7 +432,9 @@ impl GraceEngine {
             if !defects {
                 rec.states.push(TaskState::Approved);
                 rec.final_state = TaskState::Approved;
-                on_event(GraceEvent::Approved { id: spec.id.clone() });
+                on_event(GraceEvent::Approved {
+                    id: spec.id.clone(),
+                });
                 return;
             }
             if round == self.max_revisions {
@@ -375,7 +447,7 @@ impl GraceEngine {
                 round: round + 1,
             });
             let fix_user = format!(
-                "TASK {id}: {obj}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== PEDANTIC CORRECTION REQUEST ===\n{req}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
+                "TASK {id}: {obj}\n\n=== APPROVED DEPENDENCY OUTPUTS ===\n{dependency_outputs}\n\n=== YOUR PREVIOUS COMPLETE RESPONSE ===\n{submission}\n\n=== PEDANTIC CORRECTION REQUEST ===\n{req}\n\nCorrect the defects and submit the COMPLETE result again — a full replacement, not isolated patches.",
                 id = spec.id,
                 obj = spec.objective,
                 req = if correction.trim().is_empty() { review.as_str() } else { correction.as_str() },
@@ -439,7 +511,7 @@ mod tests {
                 agent: "Form Designer Agent".into(),
                 objective: "Add BTN-OK to MAIN-FORM".into(),
                 context: "form MAIN-FORM, theme Liquid Glass".into(),
-                reviewer: Some("Pedantic UI Agent".into()),
+                reviewer: Some("Form Designer Agent Pedantic Reviewer".into()),
                 depends_on: vec![],
                 acceptance: "button exists, tab order intact".into(),
             },
@@ -448,7 +520,7 @@ mod tests {
                 agent: "COBOL Event Handler Script Agent".into(),
                 objective: "Implement BTN-OK onClick".into(),
                 context: "control BTN-OK, event onClick".into(),
-                reviewer: Some("Pedantic COBOL Companion".into()),
+                reviewer: Some("COBOL Event Handler Script Agent Pedantic Reviewer".into()),
                 depends_on: vec!["T1".into()],
                 acceptance: "COBOL-85 clean".into(),
             },
@@ -464,17 +536,17 @@ mod tests {
             script: vec![
                 ("Form Designer Agent", "deployed BTN-OK v1"),
                 (
-                    "Pedantic UI Agent",
+                    "Form Designer Agent Pedantic Reviewer",
                     "misaligned.\n```json\n{\"pedantic_verdict\": \"defects\", \"correction_request\": \"1. align BTN-OK to the button row\"}\n```",
                 ),
                 ("Form Designer Agent", "deployed BTN-OK v2, aligned"),
                 (
-                    "Pedantic UI Agent",
+                    "Form Designer Agent Pedantic Reviewer",
                     "clean.\n```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
                 ),
                 ("COBOL Event Handler Script Agent", "MOVE 1 TO WS-OK."),
                 (
-                    "Pedantic COBOL Companion",
+                    "COBOL Event Handler Script Agent Pedantic Reviewer",
                     "fine.\n```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
                 ),
             ],
@@ -485,7 +557,11 @@ mod tests {
         assert_eq!(t1.final_state, TaskState::Approved);
         assert!(t1.states.contains(&TaskState::CorrectionRequired));
         assert!(t1.states.contains(&TaskState::Revalidating));
-        assert_eq!(t1.submissions.len(), 2, "both submissions preserved as evidence");
+        assert_eq!(
+            t1.submissions.len(),
+            2,
+            "both submissions preserved as evidence"
+        );
         assert_eq!(t1.reviews.len(), 2);
         assert!(t1.reviews[0].defects && !t1.reviews[1].defects);
         // The correction request reached the specialist verbatim.
@@ -504,17 +580,17 @@ mod tests {
             script: vec![
                 ("Form Designer Agent", "v1"),
                 (
-                    "Pedantic UI Agent",
+                    "Form Designer Agent Pedantic Reviewer",
                     "```json\n{\"pedantic_verdict\": \"defects\", \"correction_request\": \"1. fix\"}\n```",
                 ),
                 ("Form Designer Agent", "v2"),
                 (
-                    "Pedantic UI Agent",
+                    "Form Designer Agent Pedantic Reviewer",
                     "```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
                 ),
                 ("COBOL Event Handler Script Agent", "MOVE 1 TO WS-OK."),
                 (
-                    "Pedantic COBOL Companion",
+                    "COBOL Event Handler Script Agent Pedantic Reviewer",
                     "```json\n{\"pedantic_verdict\": \"acceptable\", \"correction_request\": \"\"}\n```",
                 ),
             ],
@@ -535,7 +611,11 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(started, vec!["T1", "T2"], "tasks started in dependency order");
+        assert_eq!(
+            started,
+            vec!["T1", "T2"],
+            "tasks started in dependency order"
+        );
         assert!(events.iter().any(|e| matches!(e, GraceEvent::CorrectionRequested { id, round } if id == "T1" && *round == 1)));
         let approvals: Vec<_> = events
             .iter()
@@ -547,6 +627,52 @@ mod tests {
         assert_eq!(approvals, vec!["T1", "T2"]);
     }
 
+    #[test]
+    fn approved_specialist_output_is_handed_to_documentation_agent() {
+        let plan = vec![
+            TaskSpec {
+                id: "T1".into(),
+                agent: "Form Designer Agent".into(),
+                objective: "Prepare an authoritative inventory of the CUSTOMER form interface"
+                    .into(),
+                context: "CUSTOMER form".into(),
+                reviewer: None,
+                depends_on: vec![],
+                acceptance: "Describe controls, layout, bindings, and events without writing files"
+                    .into(),
+            },
+            TaskSpec {
+                id: "T2".into(),
+                agent: "Documentation Agent".into(),
+                objective: "Format and save the CUSTOMER interface documentation".into(),
+                context: "/Documentation/Forms/customer.md".into(),
+                reviewer: None,
+                depends_on: vec!["T1".into()],
+                acceptance: "Write the document using the approved Form Designer output".into(),
+            },
+        ];
+        let authoritative = "CUSTOMER contains BTN-SAVE and GRID-ORDERS bound to SQLConnection-1.";
+        let mut mock = Mock {
+            calls: Vec::new(),
+            script: vec![
+                ("Form Designer Agent", authoritative),
+                (
+                    "Documentation Agent",
+                    "saved Documentation/Forms/customer.md",
+                ),
+            ],
+        };
+
+        let record = GraceEngine::default().run("wf-doc", &plan, &mut mock, &|_| "sys".into());
+
+        assert_eq!(record.status, "completed");
+        assert_eq!(mock.calls[1].0, "Documentation Agent");
+        assert!(mock.calls[1]
+            .1
+            .contains("DEPENDENCY T1 — Form Designer Agent"));
+        assert!(mock.calls[1].1.contains(authoritative));
+    }
+
     /// Bounded loop: persistent defects exhaust max_revisions → Failed, and
     /// the dependent task is Blocked (never silently completed).
     #[test]
@@ -556,11 +682,11 @@ mod tests {
             calls: Vec::new(),
             script: vec![
                 ("Form Designer Agent", "v1"),
-                ("Pedantic UI Agent", reject),
+                ("Form Designer Agent Pedantic Reviewer", reject),
                 ("Form Designer Agent", "v2"),
-                ("Pedantic UI Agent", reject),
+                ("Form Designer Agent Pedantic Reviewer", reject),
                 ("Form Designer Agent", "v3"),
-                ("Pedantic UI Agent", reject),
+                ("Form Designer Agent Pedantic Reviewer", reject),
             ],
         };
         let rec = GraceEngine::default().run("wf-fail", &plan2(), &mut mock, &|_| "sys".into());
@@ -568,7 +694,11 @@ mod tests {
         assert_eq!(rec.tasks[0].final_state, TaskState::Failed);
         assert!(rec.tasks[0].failure_reason.contains("bounded"));
         assert_eq!(rec.tasks[1].final_state, TaskState::Blocked);
-        assert_eq!(mock.calls.len(), 6, "loop terminated — no uncontrolled retries");
+        assert_eq!(
+            mock.calls.len(),
+            6,
+            "loop terminated — no uncontrolled retries"
+        );
     }
 
     /// "done" without evidence is rejected; plan parsing round-trips.
@@ -585,10 +715,13 @@ mod tests {
         assert!(rec.tasks[0].failure_reason.contains("evidence"));
 
         let (wf, tasks) = parse_plan(
-            "plan…\n```json\n{\"workflow_id\": \"w1\", \"tasks\": [{\"id\": \"T1\", \"agent\": \"Form Designer Agent\", \"objective\": \"x\", \"reviewer\": \"Pedantic UI Agent\", \"depends_on\": [], \"acceptance\": \"a\"}]}\n```",
+            "plan…\n```json\n{\"workflow_id\": \"w1\", \"tasks\": [{\"id\": \"T1\", \"agent\": \"Form Designer Agent\", \"objective\": \"x\", \"reviewer\": \"Form Designer Agent Pedantic Reviewer\", \"depends_on\": [], \"acceptance\": \"a\"}]}\n```",
         )
         .unwrap();
         assert_eq!(wf, "w1");
-        assert_eq!(tasks[0].reviewer.as_deref(), Some("Pedantic UI Agent"));
+        assert_eq!(
+            tasks[0].reviewer.as_deref(),
+            Some("Form Designer Agent Pedantic Reviewer")
+        );
     }
 }

@@ -73,14 +73,42 @@ pub fn command_string(argv: &[String]) -> String {
 /// Subcommands that read or mutate only the local repository — safe to run
 /// without prompting.
 const AUTONOMOUS: &[&str] = &[
-    "status", "diff", "log", "show", "add", "commit", "branch", "checkout", "switch", "restore",
-    "stash", "tag", "init", "remote", "config", "rev-parse", "ls-files", "blame", "describe",
-    "merge", "revert", "mv", "rm",
+    "status",
+    "diff",
+    "log",
+    "show",
+    "add",
+    "commit",
+    "branch",
+    "checkout",
+    "switch",
+    "restore",
+    "stash",
+    "tag",
+    "init",
+    "remote",
+    "config",
+    "rev-parse",
+    "ls-files",
+    "blame",
+    "describe",
+    "merge",
+    "revert",
+    "mv",
+    "rm",
 ];
 
 /// Subcommands that touch the network or rewrite history — gated behind an
 /// explicit per-op operator confirmation.
-const GATED: &[&str] = &["push", "fetch", "pull", "clone", "rebase", "filter-branch", "filter-repo"];
+const GATED: &[&str] = &[
+    "push",
+    "fetch",
+    "pull",
+    "clone",
+    "rebase",
+    "filter-branch",
+    "filter-repo",
+];
 
 /// Arguments that could redirect git away from the open project — always rejected
 /// (spec 030 R9 scope).
@@ -104,7 +132,11 @@ pub fn classify(argv: &[String]) -> Result<GitClass, String> {
         let hard = argv
             .iter()
             .any(|a| a == "--hard" || a == "--keep" || a == "--merge");
-        return Ok(if hard { GitClass::Gated } else { GitClass::Autonomous });
+        return Ok(if hard {
+            GitClass::Gated
+        } else {
+            GitClass::Autonomous
+        });
     }
     if GATED.contains(&sub) {
         return Ok(GitClass::Gated);
@@ -223,16 +255,34 @@ mod tests {
     #[test]
     fn classifier_splits_autonomous_gated_rejected() {
         assert_eq!(classify(&argv(&["status"])).unwrap(), GitClass::Autonomous);
-        assert_eq!(classify(&argv(&["commit", "-m", "x"])).unwrap(), GitClass::Autonomous);
-        assert_eq!(classify(&argv(&["log", "--oneline"])).unwrap(), GitClass::Autonomous);
+        assert_eq!(
+            classify(&argv(&["commit", "-m", "x"])).unwrap(),
+            GitClass::Autonomous
+        );
+        assert_eq!(
+            classify(&argv(&["log", "--oneline"])).unwrap(),
+            GitClass::Autonomous
+        );
         assert_eq!(classify(&argv(&["reset"])).unwrap(), GitClass::Autonomous);
         // Network / rewrite → gated.
-        assert_eq!(classify(&argv(&["push", "origin", "main"])).unwrap(), GitClass::Gated);
-        assert_eq!(classify(&argv(&["push", "--force"])).unwrap(), GitClass::Gated);
+        assert_eq!(
+            classify(&argv(&["push", "origin", "main"])).unwrap(),
+            GitClass::Gated
+        );
+        assert_eq!(
+            classify(&argv(&["push", "--force"])).unwrap(),
+            GitClass::Gated
+        );
         assert_eq!(classify(&argv(&["fetch"])).unwrap(), GitClass::Gated);
         assert_eq!(classify(&argv(&["pull"])).unwrap(), GitClass::Gated);
-        assert_eq!(classify(&argv(&["rebase", "main"])).unwrap(), GitClass::Gated);
-        assert_eq!(classify(&argv(&["reset", "--hard", "HEAD~1"])).unwrap(), GitClass::Gated);
+        assert_eq!(
+            classify(&argv(&["rebase", "main"])).unwrap(),
+            GitClass::Gated
+        );
+        assert_eq!(
+            classify(&argv(&["reset", "--hard", "HEAD~1"])).unwrap(),
+            GitClass::Gated
+        );
         // Unrecognised → rejected.
         assert!(classify(&argv(&["frobnicate"])).is_err());
     }
@@ -242,7 +292,11 @@ mod tests {
         let repo = init_repo("cwd");
         let out = run_git(repo.path(), &argv(&["status", "--porcelain"])).unwrap();
         assert!(out.ok(), "status on a clean repo exits 0: {out:?}");
-        assert_eq!(out.cwd, repo.path(), "cwd is the project root, never the workspace root");
+        assert_eq!(
+            out.cwd,
+            repo.path(),
+            "cwd is the project root, never the workspace root"
+        );
         let log = run_git(repo.path(), &argv(&["log", "--oneline"])).unwrap();
         assert!(log.stdout.contains("seed"), "log shows the seeded commit");
     }

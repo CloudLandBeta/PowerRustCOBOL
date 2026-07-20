@@ -56,6 +56,10 @@ pub struct FormRuntime {
     pub form_height: u32,
     /// Form background colour (hex RGB, e.g. "141622") and transparency (0–100).
     pub background_color: String,
+    pub background_gradient_enabled: bool,
+    pub background_gradient_start_color: String,
+    pub background_gradient_end_color: String,
+    pub background_gradient_direction: String,
     pub transparency: u8,
     /// Optional form background image (path) + how it's scaled.
     pub background_image: String,
@@ -377,6 +381,10 @@ impl FormRuntime {
             form_width: form.width,
             form_height: form.height,
             background_color: form.background_color.clone(),
+            background_gradient_enabled: form.background_gradient_enabled,
+            background_gradient_start_color: form.background_gradient_start_color.clone(),
+            background_gradient_end_color: form.background_gradient_end_color.clone(),
+            background_gradient_direction: form.background_gradient_direction.clone(),
             transparency: form.transparency.clamp(0, 100) as u8,
             background_image: form.background_image.clone(),
             bg_image_mode: form.bg_image_mode,

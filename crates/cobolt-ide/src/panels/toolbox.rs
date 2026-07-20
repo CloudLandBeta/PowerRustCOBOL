@@ -515,8 +515,12 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
 
         let rounding = visuals.corner_radius;
         ui.painter().rect_filled(rect, rounding, bg);
-        ui.painter()
-            .rect_stroke(rect, rounding, Stroke::new(1.0, border_color), egui::StrokeKind::Middle);
+        ui.painter().rect_stroke(
+            rect,
+            rounding,
+            Stroke::new(1.0, border_color),
+            egui::StrokeKind::Middle,
+        );
 
         // Theme-aware icon strokes: dark on light themes, light on dark ones.
         let theme = crate::theme::active();
@@ -1270,7 +1274,9 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             painter.rect_stroke(
                 egui::Rect::from_center_size(c, Vec2::new(r * 2.0, r * 1.6)),
                 2.0,
-                s, egui::StrokeKind::Middle);
+                s,
+                egui::StrokeKind::Middle,
+            );
         }
     }
 }
