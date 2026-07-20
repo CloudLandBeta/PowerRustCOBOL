@@ -8,6 +8,19 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.56] — 2026-07-19
+
+### Fixed
+
+- **Existing projects kept the broken agent prompts** — Agent prompts are files
+  inside each project, so correcting the shipped defaults in 1.30.55 only
+  reached newly created projects. An existing project went on instructing its
+  Form Designer to set `Theme` to an invented `"neumorphic-dark"` through an
+  operation the applier discards, and its Pedantic Reviewer to demand proof
+  that a change had already been applied. Opening a project now replaces any
+  built-in prompt still carrying that superseded guidance, while genuine
+  project prompt edits are still preserved.
+
 ## [PowerRustCOBOL 1.30.55] — 2026-07-19
 
 ### Fixed

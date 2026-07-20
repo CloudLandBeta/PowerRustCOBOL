@@ -204,6 +204,38 @@ fn extend_unique(target: &mut Vec<String>, source: &[String]) {
     }
 }
 
+/// Detect a stored built-in prompt still carrying the form-style guidance that
+/// cannot work (spec 1.30.55). Agent prompts live as files inside each project,
+/// so correcting the Rust defaults only helps NEW projects — an existing
+/// project keeps teaching its agents to set `Theme` to an invented
+/// "neumorphic-dark" id via `UPDATE_FORM_PROPERTY`, an operation the change-set
+/// applier discards. Such a prompt is not a project customization worth
+/// preserving; it is broken, so project-open repair replaces it wholesale.
+fn prompt_carries_broken_form_style_guidance(prompt: &str) -> bool {
+    // A corrected prompt always names the real property. Stale ones never do —
+    // they only ever spoke of `Theme`. This keeps the corrected defaults from
+    // matching their own warnings ("do NOT invent slugs such as …"), which they
+    // must state to be useful.
+    if prompt.contains("GlassStyle") {
+        return false;
+    }
+
+    // Markers of superseded guidance: operation names the change-set applier
+    // discards, invented theme slugs that never named a real style, and the
+    // reviewer's demand for proof that a change was already applied — which
+    // cannot be met, since change-sets are applied only after approval.
+    const BROKEN_MARKERS: &[&str] = &[
+        "UPDATE_FORM_PROPERTY",
+        "UPDATE_CONTROL_PROPERTIES",
+        "neumorphic-dark",
+        "emerald-glass",
+        "cobalt-steel",
+        "The theme MUST be applied",
+        "proving each change was applied",
+    ];
+    BROKEN_MARKERS.iter().any(|m| prompt.contains(m))
+}
+
 fn canonicalize_builtin_names(text: &str) -> String {
     text.replace(LEGACY_ORCHESTRATOR_REVIEWER, PEDANTIC_GRACE_REVIEWER)
         .replace(LEGACY_PEDANTIC_GRACE_REVIEWER, PEDANTIC_GRACE_REVIEWER)
@@ -1369,7 +1401,10 @@ impl AgentsDb {
             && (current_prompt.trim() == llm.system_prompt.trim()
                 || current_prompt.trim() == crate::llm::DEFAULT_SYSTEM_PROMPT
                 || current_prompt.trim() == "You are the PowerRustCOBOL Form Designer Agent.");
-        let repaired_prompt = if current_prompt.trim().is_empty() || legacy_form_prompt {
+        let repaired_prompt = if current_prompt.trim().is_empty()
+            || legacy_form_prompt
+            || prompt_carries_broken_form_style_guidance(&current_prompt)
+        {
             default_prompt.to_string()
         } else {
             canonical_prompt
@@ -2309,6 +2344,80 @@ mod tests {
             db.load_prompt(PEDANTIC_GRACE_REVIEWER),
             "project-edited reviewer prompt",
             "fixed-agent repair must preserve project prompt edits"
+        );
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    /// Agent prompts are files inside the project, so an existing project keeps
+    /// its stale copy until repair rewrites it. A prompt still teaching the
+    /// discredited `Theme`/`UPDATE_FORM_PROPERTY` route must be replaced, while
+    /// an unrelated project edit is still preserved.
+    #[test]
+    fn project_open_replaces_prompts_with_broken_form_style_guidance() {
+        let proj = tmp_project();
+        let llm = crate::llm::LlmConfig::load_defaults_for_test();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&llm);
+
+        // Simulate the project provisioned by an older release.
+        db.save_prompt(
+            FORM_DESIGNER,
+            "You are the PowerRustCOBOL Form Designer Agent.\n\
+             Apply the theme by setting the Form's `Theme` property to the theme \
+             ID (e.g. \"neumorphic-dark\") via `UPDATE_FORM_PROPERTY`.",
+        )
+        .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "repair must fire");
+
+        let repaired = db.load_prompt(FORM_DESIGNER);
+        assert!(
+            repaired.contains("GlassStyle") && repaired.contains("\"Neumorphic Dark\""),
+            "stale prompt must be replaced with the corrected default"
+        );
+
+        // The reviewer's stale prompt carries DIFFERENT broken text than the
+        // designer's — it demands the `Theme` route and proof that a change was
+        // already applied. Both must be detected, or the reviewer keeps
+        // rejecting correct work while the designer looks fixed.
+        db.save_prompt(
+            PEDANTIC_FORM_DESIGNER_REVIEWER,
+            "The theme MUST be applied by setting the Form's \"Theme\" property to a predefined \
+             theme name (e.g. \"neumorphic\", \"emerald-glass\", \"cobalt-steel\").\n\
+             Require actual inspection results proving each change was applied correctly.",
+        )
+        .unwrap();
+        assert!(db.ensure_fixed_agents(&llm) > 0, "reviewer repair must fire");
+        assert!(
+            db.load_prompt(PEDANTIC_FORM_DESIGNER_REVIEWER)
+                .contains("GlassStyle"),
+            "stale reviewer prompt must be replaced too"
+        );
+
+        // No shipped default may look stale to the detector, or repair would
+        // rewrite every prompt on every project open.
+        for (name, default) in [
+            (FORM_DESIGNER, crate::llm::DEFAULT_FORM_DESIGNER_AGENT_PROMPT),
+            (GRACE, crate::llm::DEFAULT_GRACE_PROMPT),
+            (
+                PEDANTIC_FORM_DESIGNER_REVIEWER,
+                crate::llm::DEFAULT_PEDANTIC_UI_PROMPT,
+            ),
+        ] {
+            assert!(
+                !prompt_carries_broken_form_style_guidance(default),
+                "{name}'s shipped default must not look broken to the detector"
+            );
+        }
+        assert_eq!(db.ensure_fixed_agents(&llm), 0, "repair is idempotent");
+
+        // An unrelated customization is still the developer's to keep.
+        db.save_prompt(FORM_DESIGNER, "Our house style: buttons are 90px wide.")
+            .unwrap();
+        db.ensure_fixed_agents(&llm);
+        assert_eq!(
+            db.load_prompt(FORM_DESIGNER),
+            "Our house style: buttons are 90px wide.",
+            "repair must still preserve genuine project prompt edits"
         );
         let _ = std::fs::remove_dir_all(proj);
     }
