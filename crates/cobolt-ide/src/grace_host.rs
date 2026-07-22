@@ -602,7 +602,19 @@ impl DbAgentInvoker {
         let record = {
             let sink = self.evidence.clone();
             let agent = agent.to_string();
+            let verbose = self.llm.verbose_log;
             move |tool: &str, args: &serde_json::Value, ok: bool, summary: String| {
+                if verbose {
+                    crate::llm::push_ai_log(
+                        crate::llm::AiLogKind::Detail,
+                        format!(
+                            "=== TOOL CALL · {agent} · {tool} [{}] ===\n{}\n→ {summary}",
+                            if ok { "ok" } else { "error" },
+                            serde_json::to_string_pretty(args)
+                                .unwrap_or_else(|_| args.to_string()),
+                        ),
+                    );
+                }
                 if let Ok(mut ev) = sink.lock() {
                     ev.push(ToolEvidence {
                         agent: agent.clone(),
@@ -762,7 +774,7 @@ impl DbAgentInvoker {
         }
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Info,
-            format!("rig · typed {purpose} extraction ({agent}) — deterministic parse failed"),
+            format!("typed {purpose} extraction ({agent}) — deterministic parse failed"),
         );
         let call = cobolt_agents::rig_transport::ExtractCall {
             provider: cfg.provider.clone(),
@@ -781,7 +793,7 @@ impl DbAgentInvoker {
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Detail,
             format!(
-                "rig · typed {purpose} extraction · tokens: {} in / {} out",
+                "typed {purpose} extraction · tokens: {} in / {} out",
                 reply.input_tokens, reply.output_tokens
             ),
         );
@@ -869,10 +881,52 @@ impl AgentInvoker for DbAgentInvoker {
         };
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Info,
-            format!("rig · {agent} → {}/{}", cfg.provider, cfg.model),
+            format!("{agent} → {}/{}", cfg.provider, cfg.model),
         );
-        let reply = cobolt_agents::rig_transport::run_agent_blocking(&call)
-            .map_err(|e| format!("{agent}: {e}"))?;
+        // Verbose mode logs the complete exchange — the full composed request
+        // (system prompt, skills, user message), the resolved wire target,
+        // the reply with JSON pretty-printed, timings, and exact token usage —
+        // to both the Agentic AI log and the connection log.
+        if cfg.verbose_log {
+            let base = cobolt_agents::rig_transport::normalize_base(&cfg.provider, &cfg.endpoint);
+            let wire = if cfg.provider.eq_ignore_ascii_case("anthropic") {
+                "messages (anthropic native)"
+            } else {
+                "chat/completions"
+            };
+            let block = format!(
+                "=== AGENT REQUEST · {agent} → {}/{} ===\nPOST {base}/{wire}\n\n--- SYSTEM PROMPT ({} chars) ---\n{}\n\n--- SKILLS / KNOWLEDGE ({} chars) ---\n{}\n\n--- USER MESSAGE ---\n{}",
+                cfg.provider,
+                cfg.model,
+                call.system_prompt.len(),
+                call.system_prompt,
+                call.skills.len(),
+                if call.skills.trim().is_empty() {
+                    "(none)"
+                } else {
+                    call.skills.as_str()
+                },
+                call.user_prompt,
+            );
+            crate::llm::push_ai_log(crate::llm::AiLogKind::Detail, block.clone());
+            crate::llm::push_connection_log(&format!("{block}\n"));
+        }
+        let started = std::time::Instant::now();
+        let reply = match cobolt_agents::rig_transport::run_agent_blocking(&call) {
+            Ok(reply) => reply,
+            Err(e) => {
+                if cfg.verbose_log {
+                    let block = format!(
+                        "=== AGENT ERROR · {agent} · {:.1}s ===\n{e}",
+                        started.elapsed().as_secs_f32()
+                    );
+                    crate::llm::push_ai_log(crate::llm::AiLogKind::Error, block.clone());
+                    crate::llm::push_connection_log(&format!("{block}\n"));
+                }
+                return Err(format!("{agent}: {e}"));
+            }
+        };
+        let secs = started.elapsed().as_secs_f32();
         if let Ok(mut totals) = self.tokens.lock() {
             totals.0 += reply.input_tokens;
             totals.1 += reply.output_tokens;
@@ -880,12 +934,22 @@ impl AgentInvoker for DbAgentInvoker {
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Detail,
             format!(
-                "rig · {agent} · tokens: {} in / {} out · {} chars",
+                "{agent} · tokens: {} in / {} out · {} chars · {secs:.1}s",
                 reply.input_tokens,
                 reply.output_tokens,
                 reply.text.len()
             ),
         );
+        if cfg.verbose_log {
+            let block = format!(
+                "=== AGENT RESPONSE · {agent} · {secs:.1}s · {} in / {} out ===\n{}",
+                reply.input_tokens,
+                reply.output_tokens,
+                crate::llm::pretty_json_blocks(&reply.text),
+            );
+            crate::llm::push_ai_log(crate::llm::AiLogKind::Detail, block.clone());
+            crate::llm::push_connection_log(&format!("{block}\n"));
+        }
         Ok(reply.text)
     }
 }
@@ -1006,6 +1070,12 @@ pub fn run_grace_workflow_with_context(
     on_progress: &mut dyn FnMut(String),
     confirm: &mut dyn FnMut(GitConfirmRequest) -> bool,
 ) -> Result<(WorkflowRecord, PathBuf), String> {
+    if llm.verbose_log {
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Detail,
+            format!("=== DEVELOPER REQUEST ===\n{request}"),
+        );
+    }
     let mut db = AgentsDb::load(project_dir);
     let repaired = db.ensure_fixed_agents(llm);
     if repaired > 0 {

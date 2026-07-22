@@ -8,6 +8,36 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.60] — 2026-07-22
+
+### Fixed
+
+- **Agents on OpenAI-compatible providers failed with `JsonError: invalid
+  type: null, expected a boolean`** — rig 0.40's `openai::Client` defaults to
+  the OpenAI **Responses API** (`/responses`), which compatible gateways
+  implement partially or not at all: Ollama Cloud's implementation echoes tool
+  definitions with `"strict": null` where the Responses types demand a
+  boolean, killing the whole task (seen live on Documentation Agent →
+  `ollama_cloud/gemma4:31b`). Every OpenAI-compatible provider now goes
+  through rig's **chat-completions** client (`CompletionsClient`) — the wire
+  these providers actually mean by "OpenAI-compatible" and the one the
+  pre-Rig transport always spoke. Applies to agent invocations, typed
+  extraction, and the streamed editor/chat entry points alike. On that wire,
+  real OpenAI rejects the classic `max_tokens` on current models (HTTP 400,
+  "use `max_completion_tokens`"), so the provider-keyed parameter switch the
+  legacy transport used is restored: profiles with provider `openai` send
+  `max_completion_tokens`; every other gateway keeps `max_tokens`.
+- **Agentic AI log: `rig ·` prefix dropped** — log lines now read
+  `Grace → openai/gpt-5.6-terra`, not `rig · Grace → …`.
+- **Verbose mode now logs the full interaction** — the developer request; per
+  agent call the resolved wire target (`POST <base>/chat/completions`) and
+  the complete composed request (system prompt, skills/knowledge, user
+  message); the full response with fenced JSON pretty-printed for human
+  reading; native tool calls with pretty-printed arguments and outcomes; and
+  durations plus exact token usage. Everything goes to both the Agentic AI
+  log and the connection log; errors log the same way. Non-verbose keeps the
+  concise one-line entries.
+
 ## [PowerRustCOBOL 1.30.59] — 2026-07-21
 
 ### Fixed

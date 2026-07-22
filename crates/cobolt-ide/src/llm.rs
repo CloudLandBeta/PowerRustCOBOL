@@ -766,6 +766,52 @@ pub fn push_ai_log(kind: AiLogKind, text: impl Into<String>) {
     }
 }
 
+/// Re-render text for the verbose logs with JSON made human-readable: a body
+/// that is entirely JSON is pretty-printed whole; otherwise every fenced
+/// ```json block (or unlabeled fence containing valid JSON) is pretty-printed
+/// in place and the surrounding prose is kept verbatim.
+pub fn pretty_json_blocks(text: &str) -> String {
+    let trimmed = text.trim();
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Ok(pretty) = serde_json::to_string_pretty(&value) {
+            return pretty;
+        }
+    }
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("```") {
+        let after = &rest[start + 3..];
+        // The fence's language tag runs to the end of the fence line.
+        let body_offset = after.find('\n').map(|n| n + 1).unwrap_or(after.len());
+        let lang = after[..body_offset].trim();
+        let body = &after[body_offset..];
+        let Some(end) = body.find("```") else { break };
+        let inner = &body[..end];
+        let pretty = if lang.is_empty() || lang.eq_ignore_ascii_case("json") {
+            serde_json::from_str::<serde_json::Value>(inner.trim())
+                .ok()
+                .and_then(|v| serde_json::to_string_pretty(&v).ok())
+        } else {
+            None
+        };
+        out.push_str(&rest[..start]);
+        match pretty {
+            Some(pretty) => {
+                out.push_str("```json\n");
+                out.push_str(&pretty);
+                out.push_str("\n```");
+            }
+            None => {
+                // Not JSON — keep the fence exactly as written.
+                out.push_str(&rest[start..start + 3 + body_offset + end + 3]);
+            }
+        }
+        rest = &body[end + 3..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Bound on change-set pagination batches per request (a model that keeps
 /// answering `has_more` forever is cut off, mirroring the legacy transport).
 const MAX_PAGINATION_BATCHES: usize = 10;
@@ -868,7 +914,7 @@ fn run_mesh_request(
             push_ai_log(
                 AiLogKind::Detail,
                 format!(
-                    "agent · rig · {} → {}/{} · {} history turn(s) (batch {batch})",
+                    "agent · {} → {}/{} · {} history turn(s) (batch {batch})",
                     endpoint,
                     req.provider,
                     req.model,
@@ -914,7 +960,7 @@ fn run_mesh_request(
                 reply.text.len()
             ));
             if req.verbose {
-                trace.push_str(&format!("Body:\n{}\n", reply.text));
+                trace.push_str(&format!("Body:\n{}\n", pretty_json_blocks(&reply.text)));
             }
             trace.push('\n');
 
@@ -2898,6 +2944,27 @@ mod tests {
                 "form designer prompt must list GlassStyle {value:?}"
             );
         }
+    }
+
+    /// Verbose logs render JSON human-readably: whole-JSON bodies and fenced
+    /// json blocks are pretty-printed; prose and non-JSON fences stay intact.
+    #[test]
+    fn pretty_json_blocks_formats_for_humans() {
+        let whole = pretty_json_blocks(r#"{"a":1,"b":[true,null]}"#);
+        assert!(whole.contains("\n  \"a\": 1"), "{whole}");
+
+        let mixed = pretty_json_blocks(
+            "plan below.\n```json\n{\"workflow_id\":\"w1\",\"tasks\":[]}\n```\ndone.",
+        );
+        assert!(mixed.starts_with("plan below.\n```json\n{\n"), "{mixed}");
+        assert!(mixed.contains("  \"workflow_id\": \"w1\""), "{mixed}");
+        assert!(mixed.ends_with("```\ndone."), "{mixed}");
+
+        let cobol = "code:\n```cobol\n       MOVE 1 TO WS-X.\n```";
+        assert_eq!(pretty_json_blocks(cobol), cobol, "non-JSON fences untouched");
+
+        let prose = "no json here at all";
+        assert_eq!(pretty_json_blocks(prose), prose);
     }
 
     #[test]

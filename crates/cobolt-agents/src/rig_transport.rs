@@ -6,9 +6,10 @@
 //!
 //! Design decisions (see the Rig alignment report):
 //! - Every OpenAI-compatible provider (OpenAI, Ollama's `/v1` endpoint,
-//!   Mistral, Groq, …) goes through `rig::providers::openai::Client` with a
-//!   custom base URL. Anthropic goes through its native client. No wire-format
-//!   sniffing.
+//!   Mistral, Groq, …) goes through rig's openai **chat-completions** client
+//!   (`CompletionsClient`) with a custom base URL — never the Responses-API
+//!   default, which compatible gateways do not reliably implement. Anthropic
+//!   goes through its native client. No wire-format sniffing.
 //! - No hooks in v1: token usage is read from the completion response's
 //!   `usage`, and tool governance is by construction (an agent only receives
 //!   the tools it declares), so nothing here depends on post-0.40 APIs.
@@ -50,6 +51,15 @@ impl AgentTools {
 /// guard against a model that never stops calling tools).
 const MAX_TOOL_ROUNDS: usize = 6;
 
+/// Real OpenAI rejects the classic `max_tokens` on current chat models
+/// ("Unsupported parameter … use 'max_completion_tokens' instead") while every
+/// other OpenAI-compatible gateway still speaks `max_tokens` — the same
+/// provider-keyed switch the legacy transport used. Rig's builder only knows
+/// `max_tokens`, so for OpenAI the limit rides in as an additional parameter.
+fn uses_max_completion_tokens(provider: &str) -> bool {
+    provider.trim().eq_ignore_ascii_case("openai")
+}
+
 /// One agent invocation: everything the transport needs, composed by the host
 /// (per-agent model config from the agents DB + the engine's task prompt).
 #[derive(Clone)]
@@ -85,7 +95,8 @@ pub struct AgentReply {
 
 /// Normalise a configured endpoint to the base URL a Rig provider client
 /// expects. Legacy configs store full request URLs; Rig wants the API root.
-fn normalize_base(provider: &str, endpoint: &str) -> String {
+/// Public so hosts can log the true request root in verbose mode.
+pub fn normalize_base(provider: &str, endpoint: &str) -> String {
     let mut base = endpoint.trim().trim_end_matches('/').to_string();
     for suffix in ["/chat/completions", "/completions", "/messages"] {
         if let Some(stripped) = base.strip_suffix(suffix) {
@@ -128,7 +139,14 @@ pub async fn run_agent(call: &AgentCall) -> Result<AgentReply, String> {
     } else {
         // Every other configured provider speaks the OpenAI wire at its base
         // URL (Ollama via /v1); one client covers them all.
-        let client = openai::Client::builder()
+        // The chat-completions client, NOT the default `openai::Client`: rig
+        // 0.40's default routes through the OpenAI Responses API
+        // (`/responses`), which "OpenAI-compatible" gateways implement
+        // partially or not at all (Ollama Cloud, for one, echoes tool
+        // definitions with `"strict": null` where rig's Responses types
+        // demand a boolean — a hard parse failure). `/chat/completions` is
+        // the actual compatibility wire every configured provider speaks.
+        let client = openai::CompletionsClient::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
             .build()
@@ -190,7 +208,14 @@ where
             .map_err(|e| format!("anthropic client build failed: {e}"))?;
         extract_with::<_, T>(client, call, source_text).await
     } else {
-        let client = openai::Client::builder()
+        // The chat-completions client, NOT the default `openai::Client`: rig
+        // 0.40's default routes through the OpenAI Responses API
+        // (`/responses`), which "OpenAI-compatible" gateways implement
+        // partially or not at all (Ollama Cloud, for one, echoes tool
+        // definitions with `"strict": null` where rig's Responses types
+        // demand a boolean — a hard parse failure). `/chat/completions` is
+        // the actual compatibility wire every configured provider speaks.
+        let client = openai::CompletionsClient::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
             .build()
@@ -204,12 +229,15 @@ where
     C: CompletionClient,
     T: schemars::JsonSchema + serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
 {
-    let extractor = client
-        .extractor::<T>(&call.model)
-        .preamble(&call.preamble)
-        .max_tokens(call.max_tokens as u64)
-        .retries(EXTRACT_RETRIES)
-        .build();
+    let mut builder = client.extractor::<T>(&call.model).preamble(&call.preamble);
+    builder = if uses_max_completion_tokens(&call.provider) {
+        builder.additional_params(serde_json::json!({
+            "max_completion_tokens": call.max_tokens
+        }))
+    } else {
+        builder.max_tokens(call.max_tokens as u64)
+    };
+    let extractor = builder.retries(EXTRACT_RETRIES).build();
     let response = extractor
         .extract_with_usage(source_text)
         .await
@@ -271,7 +299,14 @@ pub async fn run_chat(
             .map_err(|e| format!("anthropic client build failed: {e}"))?;
         chat_with(client, call, on_chunk).await
     } else {
-        let client = openai::Client::builder()
+        // The chat-completions client, NOT the default `openai::Client`: rig
+        // 0.40's default routes through the OpenAI Responses API
+        // (`/responses`), which "OpenAI-compatible" gateways implement
+        // partially or not at all (Ollama Cloud, for one, echoes tool
+        // definitions with `"strict": null` where rig's Responses types
+        // demand a boolean — a hard parse failure). `/chat/completions` is
+        // the actual compatibility wire every configured provider speaks.
+        let client = openai::CompletionsClient::builder()
             .api_key(call.api_key.as_str())
             .base_url(&base)
             .build()
@@ -291,8 +326,14 @@ where
     let mut builder = client
         .agent(&call.model)
         .preamble(&call.system_prompt)
-        .temperature(call.temperature as f64)
-        .max_tokens(call.max_tokens as u64);
+        .temperature(call.temperature as f64);
+    builder = if uses_max_completion_tokens(&call.provider) {
+        builder.additional_params(serde_json::json!({
+            "max_completion_tokens": call.max_tokens
+        }))
+    } else {
+        builder.max_tokens(call.max_tokens as u64)
+    };
     if !call.skills.trim().is_empty() {
         builder = builder.context(&call.skills);
     }
@@ -425,8 +466,14 @@ where
     let mut builder = client
         .agent(&call.model)
         .preamble(&call.system_prompt)
-        .temperature(call.temperature as f64)
-        .max_tokens(call.max_tokens as u64);
+        .temperature(call.temperature as f64);
+    builder = if uses_max_completion_tokens(&call.provider) {
+        builder.additional_params(serde_json::json!({
+            "max_completion_tokens": call.max_tokens
+        }))
+    } else {
+        builder.max_tokens(call.max_tokens as u64)
+    };
     if !call.skills.trim().is_empty() {
         builder = builder.context(&call.skills);
     }
@@ -538,6 +585,19 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Real OpenAI needs `max_completion_tokens`; every compatible gateway
+    /// keeps the classic `max_tokens` (the legacy transport's switch).
+    #[test]
+    fn token_limit_parameter_is_provider_keyed() {
+        assert!(uses_max_completion_tokens("openai"));
+        assert!(uses_max_completion_tokens(" OpenAI "));
+        assert!(!uses_max_completion_tokens("openrouter"));
+        assert!(!uses_max_completion_tokens("ollama"));
+        assert!(!uses_max_completion_tokens("ollama_cloud"));
+        assert!(!uses_max_completion_tokens("anthropic"));
+        assert!(!uses_max_completion_tokens("mistral"));
+    }
 
     #[test]
     fn endpoint_normalisation_covers_legacy_shapes() {
