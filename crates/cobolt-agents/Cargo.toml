@@ -11,6 +11,8 @@ categories.workspace = true
 
 [dependencies]
 rig-core = { workspace = true }
+futures = "0.3"
+schemars = "1"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

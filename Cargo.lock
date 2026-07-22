@@ -1158,6 +1158,7 @@ name = "cobolt-agents"
 version = "0.2.0"
 dependencies = [
  "cobolt-forms",
+ "futures",
  "ndarray 0.15.6",
  "num_cpus",
  "opentelemetry",
@@ -1167,6 +1168,7 @@ dependencies = [
  "rig-core",
  "rig-sqlite",
  "rusqlite",
+ "schemars",
  "serde",
  "serde_json",
  "sqlite-vec",
@@ -1300,6 +1302,7 @@ dependencies = [
  "reqwest 0.12.28",
  "resvg",
  "rfd",
+ "schemars",
  "serde",
  "serde_json",
  "syntect",

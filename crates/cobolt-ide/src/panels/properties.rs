@@ -6023,6 +6023,19 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // ── Async I/O (spec 032) ──
+                section_header(ui, "Async");
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Async", "Sync"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 
@@ -6101,6 +6114,19 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // ── Async I/O (spec 032) — Sync by default; opt into Async ──
+                section_header(ui, "Async");
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 
@@ -6183,6 +6209,19 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(ui, &mut self.text_bufs, id, key, &cur, label, hint, action);
                 }
+                // ── Async I/O (spec 032) — Sync by default; opt into Async ──
+                section_header(ui, "Async");
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 
@@ -7620,6 +7659,18 @@ fn bool_row(
 }
 
 /// Bool property — inline horizontal style.
+/// Read-only display of a control's runtime `Busy` flag (spec 032). `Busy` is
+/// set by the async engine while an operation is in flight and is not
+/// user-editable, so it is shown as a plain indicator rather than a checkbox.
+fn busy_row_readonly(ui: &mut Ui, ctrl: &Control) {
+    let busy = ctrl.get_prop("Busy").map(|p| p.as_bool()).unwrap_or(false);
+    property_row(ui, "Busy:", |ui| {
+        ui.add_enabled_ui(false, |ui| {
+            ui.label(if busy { "running" } else { "idle" });
+        });
+    });
+}
+
 fn bool_row_inline(
     ui: &mut Ui,
     ctrl_id: &str,

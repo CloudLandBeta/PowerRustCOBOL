@@ -8,6 +8,92 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.30.59] — 2026-07-21
+
+### Fixed
+
+- **Verbose AI log is presented as the project-wide setting it always was** —
+  the toggle rendered inside the Models Manager's selected-profile editor
+  (reading as a per-agent/per-model setting) while its intended home, the
+  ⚙ Settings AI section, hid it behind the retired legacy-fields block. The
+  single control now lives in ⚙ Settings → **AI Assistants** (section renamed
+  from "AI assistant"); it governs every agent and chat surface and persists
+  in `cobolt.toml`. The Agentic AI master switch moved out of the profile
+  editor too, into its own "Project-wide AI settings (apply to every agent)"
+  panel of the Models Manager, with both toggles' labels and hints properly
+  localized in all six UI languages (they were English-only literals before).
+
+- **Agentic AI: malformed plans, verdicts, and change-sets no longer burn
+  correction roundtrips (Rig migration phase 3)** — Grace's workflow plan, each
+  Pedantic round verdict, and the Form Designer's change-set are now obtained
+  as **typed structures**: the deterministic fenced-JSON parse runs first (free,
+  unchanged for well-behaved replies), and when it fails the SAME reply is
+  recovered through the provider's native typed extraction (schema-forced
+  `submit` tool call) instead of asking the agent to resend everything. The
+  "malformed workflow plan → request one corrected plan" roundtrip is deleted —
+  a full re-plan could silently drift from the original. A review whose verdict
+  cannot be parsed no longer silently counts as "defects" (which charged the
+  *specialist* a correction round for the *reviewer's* formatting); the verdict
+  is extracted, and only an unobtainable verdict fails the task, honestly.
+  Approved Form-Designer submissions are canonicalized on the worker thread, so
+  the apply path stays deterministic and the audit record keeps the original
+  submission as evidence. Extraction token usage joins the workflow totals.
+  A reply extraction cannot repair — one carrying **no tasks at all** — is
+  Grace talking (a clarifying question, a refusal, an answer) despite the
+  action classification: the engine re-asks once (plan, or ask the developer
+  plainly), and if the retry still has no plan, Grace's actual words are
+  relayed to the developer as a direct reply instead of the previous opaque
+  "could not produce an executable workflow plan" error. Both plan-less
+  responses are captured verbatim in the connection log.
+- **Agentic AI: the hand-rolled HTTP orchestrator is retired (Rig migration
+  phase 4)** — the last four legacy entry points (AI Dev Agent chat, editor
+  assistant, history compaction, connection test) now run on the same Rig
+  transport as Grace's workflows, and the bespoke wire/streaming code
+  (`cobolt-agents::orchestrator`, ~950 lines) is deleted. Preserved unchanged:
+  multilingual specialist routing and prompt composition (now in
+  `cobolt-agents::specialist`), live text streaming into the chat panels,
+  change-set pagination (`has_more`/`next_cursor` batches merge into one
+  change-set), the provider-scoped endpoint heal, the reasoning-only-reply
+  guard, verbose request/response traces in the connection log, and exact
+  token usage. Behaviour notes: every OpenAI-compatible provider (including
+  Ollama's `/v1` endpoint) speaks the chat-completions wire — the
+  Ollama-native `/api/chat` wire and the OpenAI Responses wire are no longer
+  used by these entry points; Anthropic profiles now work here through the
+  native client (the legacy path could not reach them at all); a multi-batch
+  paginated change-set no longer drops the `note` of single-batch replies.
+
+## [PowerRustCOBOL 1.30.58] — 2026-07-20
+
+### Added
+
+- **Async I/O for RestClient (spec 032)** — A `RestClient` HTTP call no longer
+  blocks the whole form while it runs. `RestClient` is now **async by default**:
+  `GET`/`POST`/`PUT`/`DELETE` start a background worker, set the control's new
+  `Busy` flag, and return immediately; the event loop keeps dispatching (timer
+  ticks, other controls) and the response arrives as an `onComplete` (or
+  `onError`) event. A generic async engine in the runtime delivers completions
+  through the existing event channel — `COBOL-WAIT-EVENT` drains results and
+  dispatches their lifecycle event, one per return. New per-control surface on
+  `RestClient`, `SqlDatabase`, and `IndexedFile`: properties `Mode`
+  (`Async`/`Sync`), `Busy`, `TimeoutMs`; a `Cancel()` method; and the uniform
+  events `onComplete`, `onError`, `onCancelled`, `onTimeout`. `Cancel()` and
+  timeouts abandon the worker safely (a generation check discards any late
+  result). `SqlDatabase` and `IndexedFile` remain **synchronous by default**
+  (fast local ops), with the new properties/events available for opt-in.
+- **Compatibility note** — Existing `RestClient` forms that read `ResponseBody`
+  on the statement after a `GET` should set the control's `Mode` to `Sync` to
+  keep the original blocking, same-statement-result behaviour.
+
+### Fixed
+
+- **Light strip on the run-form window's right and bottom edges** — A running
+  form window was created 4px larger than the form and hosted its content in a
+  `ScrollArea::both`, so the scrollbar gutter / panel background showed as a
+  faint light border along the right and bottom edges. The window is now sized
+  exactly to the form and the host panel uses floating scrollbars (which overlay
+  content only when a resized window actually needs to scroll), so no border
+  shows.
+
 ## [PowerRustCOBOL 1.30.57] — 2026-07-19
 
 ### Fixed

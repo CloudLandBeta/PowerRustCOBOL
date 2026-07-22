@@ -32,7 +32,7 @@ pub enum TaskState {
 }
 
 /// One delegated task (the delegation contract, condensed).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskSpec {
     pub id: String,
     /// Responsible agent (agent-database name).
@@ -68,6 +68,33 @@ pub struct ReviewRound {
     pub defects: bool,
     pub correction_request: String,
     pub raw: String,
+}
+
+/// Grace's typed workflow plan (Rig migration, phase 3). Extractable: the
+/// schema is what the provider's forced `submit` tool call must satisfy.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct WorkflowPlan {
+    /// Short kebab-case workflow identifier.
+    pub workflow_id: String,
+    /// The ordered, dependency-aware task list. Never empty for an executable plan.
+    pub tasks: Vec<TaskSpec>,
+}
+
+/// A Pedantic reviewer's typed round verdict (Rig migration, phase 3).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ReviewVerdict {
+    /// "acceptable" when the submission passes review; any other value
+    /// (canonically "defects") means corrections are required.
+    pub pedantic_verdict: String,
+    /// The numbered correction list when defects were found; empty otherwise.
+    #[serde(default)]
+    pub correction_request: String,
+}
+
+impl ReviewVerdict {
+    pub fn has_defects(&self) -> bool {
+        !self.pedantic_verdict.eq_ignore_ascii_case("acceptable")
+    }
 }
 
 /// Full audit trail for one task.
@@ -106,8 +133,31 @@ pub struct WorkflowRecord {
 
 /// Host-supplied transport: invoke one named agent with a system+user prompt
 /// and return its full reply. The host resolves models, keys, endpoints.
+///
+/// The `extract_*` hooks obtain the *typed* structures the engine needs from a
+/// reply (Rig migration, phase 3). The defaults are the deterministic
+/// fenced-JSON parsers — sufficient for mocks and well-behaved replies. A real
+/// transport overrides them to fall back to provider-native typed extraction
+/// when the deterministic parse fails, which is what deleted the old
+/// "malformed plan, resend everything" correction roundtrips.
 pub trait AgentInvoker {
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String>;
+
+    /// Obtain the typed workflow plan from `agent`'s planning reply.
+    fn extract_plan(&mut self, agent: &str, plan_reply: &str) -> Result<WorkflowPlan, String> {
+        let _ = agent;
+        parse_plan(plan_reply).map(|(workflow_id, tasks)| WorkflowPlan { workflow_id, tasks })
+    }
+
+    /// Obtain the typed round verdict from `reviewer`'s review reply.
+    fn extract_verdict(
+        &mut self,
+        reviewer: &str,
+        review_reply: &str,
+    ) -> Result<ReviewVerdict, String> {
+        let _ = reviewer;
+        parse_verdict(review_reply)
+    }
 }
 
 /// A live workflow transition (spec 029 Phase C). Emitted by the engine so an
@@ -193,6 +243,26 @@ pub fn parse_plan(reply: &str) -> Result<(String, Vec<TaskSpec>), String> {
         return Err("Grace's plan contained no tasks".into());
     }
     Ok((wf, tasks))
+}
+
+/// Deterministically parse a Pedantic review reply's round-verdict JSON (the
+/// LAST fenced block carrying `pedantic_verdict`).
+pub fn parse_verdict(reply: &str) -> Result<ReviewVerdict, String> {
+    let v = last_json_block(reply).ok_or("the review contained no verdict JSON block")?;
+    let verdict = v
+        .get("pedantic_verdict")
+        .and_then(|x| x.as_str())
+        .ok_or("the review's JSON block carried no pedantic_verdict")?
+        .to_string();
+    let correction_request = v
+        .get("correction_request")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(ReviewVerdict {
+        pedantic_verdict: verdict,
+        correction_request,
+    })
 }
 
 /// Engine configuration.
@@ -417,20 +487,26 @@ impl GraceEngine {
                     return;
                 }
             };
-            let verdict = last_json_block(&review);
-            // No parseable verdict ⇒ pedantic about the pedant: defects.
-            let defects = verdict
-                .as_ref()
-                .and_then(|v| v.get("pedantic_verdict"))
-                .and_then(|v| v.as_str())
-                .map(|v| !v.eq_ignore_ascii_case("acceptable"))
-                .unwrap_or(true);
-            let correction = verdict
-                .as_ref()
-                .and_then(|v| v.get("correction_request"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            // Typed verdict (phase 3). A malformed verdict used to be silently
+            // read as "defects", charging the SPECIALIST a correction round for
+            // the reviewer's formatting sin; now the transport extracts the
+            // typed verdict (with provider-native recovery), and only a verdict
+            // that cannot be obtained at all fails the task honestly.
+            let verdict = match invoker.extract_verdict(&reviewer, &review) {
+                Ok(v) => v,
+                Err(e) => {
+                    rec.states.push(TaskState::Failed);
+                    rec.final_state = TaskState::Failed;
+                    rec.failure_reason = format!("review verdict could not be extracted: {e}");
+                    on_event(GraceEvent::Failed {
+                        id: spec.id.clone(),
+                        reason: rec.failure_reason.clone(),
+                    });
+                    return;
+                }
+            };
+            let defects = verdict.has_defects();
+            let correction = verdict.correction_request.clone();
             rec.reviews.push(ReviewRound {
                 reviewer: reviewer.clone(),
                 defects,
@@ -712,6 +788,42 @@ mod tests {
             6,
             "loop terminated — no uncontrolled retries"
         );
+    }
+
+    /// Phase 3: a review whose verdict cannot be extracted at all fails the
+    /// task honestly — it no longer reads as "defects" and silently charges
+    /// the specialist a correction roundtrip for the reviewer's formatting.
+    #[test]
+    fn unextractable_verdict_fails_the_task() {
+        let mut mock = Mock {
+            calls: Vec::new(),
+            script: vec![
+                ("Form Designer Agent", "v1"),
+                (
+                    "Form Designer Agent Pedantic Reviewer",
+                    "looks fine to me, approved!",
+                ),
+            ],
+        };
+        let rec = GraceEngine::default().run("wf-v", &plan2()[..1], &mut mock, &|_| "s".into());
+        assert_eq!(rec.tasks[0].final_state, TaskState::Failed);
+        assert!(rec.tasks[0].failure_reason.contains("verdict"));
+        assert_eq!(mock.calls.len(), 2, "no correction roundtrip was burned");
+    }
+
+    /// The deterministic verdict parser handles the tooling contract's shapes.
+    #[test]
+    fn verdict_parsing_contract() {
+        let v = parse_verdict("ok.\n```json\n{\"pedantic_verdict\": \"Acceptable\"}\n```").unwrap();
+        assert!(!v.has_defects());
+        let v = parse_verdict(
+            "```json\n{\"pedantic_verdict\": \"defects\", \"correction_request\": \"1. x\"}\n```",
+        )
+        .unwrap();
+        assert!(v.has_defects());
+        assert_eq!(v.correction_request, "1. x");
+        assert!(parse_verdict("no json at all").is_err());
+        assert!(parse_verdict("```json\n{\"other\": 1}\n```").is_err());
     }
 
     /// "done" without evidence is rejected; plan parsing round-trips.

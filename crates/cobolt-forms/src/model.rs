@@ -2504,7 +2504,16 @@ impl ControlType {
             ],
             ControlType::AgentObject => &["onResponse", "onError", "onStreamChunk", "onThinking"],
             ControlType::RestClient => {
-                &["onResponseReceived", "onError", "onTimeout", "onProgress"]
+                // The last two are the uniform async lifecycle events (spec 032);
+                // onError/onTimeout already double as the async error/timeout events.
+                &[
+                    "onResponseReceived",
+                    "onError",
+                    "onTimeout",
+                    "onProgress",
+                    "onComplete",
+                    "onCancelled",
+                ]
             }
             ControlType::SqlDatabase => &[
                 "onQueryComplete",
@@ -2512,6 +2521,11 @@ impl ControlType {
                 "onConnectError",
                 "onQueryError",
                 "onRowFetched",
+                // Uniform async lifecycle events (spec 032).
+                "onComplete",
+                "onError",
+                "onCancelled",
+                "onTimeout",
             ],
             ControlType::IndexedFile => &[
                 "onOpen",
@@ -2523,6 +2537,10 @@ impl ControlType {
                 "onRewrite",
                 "onDelete",
                 "onError",
+                // Uniform async lifecycle events (spec 032).
+                "onComplete",
+                "onCancelled",
+                "onTimeout",
             ],
             ControlType::GroupBox | ControlType::Panel => &[
                 "onClick",
@@ -3384,6 +3402,13 @@ impl Control {
                 props.insert("ResponseDataItem".into(), PropValue::String("".into())); // where response goes
                 props.insert("StatusDataItem".into(), PropValue::String("".into()));
                 // HTTP status code
+                // Async I/O (spec 032): REST is async by default. Mode = Sync
+                // restores blocking same-statement results. Busy is a runtime
+                // flag; TimeoutMs is the async operation timeout (0 falls back to
+                // TimeoutSeconds).
+                props.insert("Mode".into(), PropValue::String("Async".into())); // Async | Sync
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(30000));
             }
             ControlType::SqlDatabase => {
                 // Connection
@@ -3399,6 +3424,11 @@ impl Control {
                 props.insert("ResultSetDataItem".into(), PropValue::String("".into()));
                 // e.g. resultset1
                 // COBOL paragraphs
+                // Async I/O (spec 032): Sync by default (fast local ops, max
+                // speed); opt into Async per control. Busy/TimeoutMs mirror REST.
+                props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(0));
             }
             ControlType::IndexedFile => {
                 props.insert("IndexedFile".into(), PropValue::String("".into()));
@@ -3411,6 +3441,10 @@ impl Control {
                 props.insert("StatusDataItem".into(), PropValue::String("".into()));
                 props.insert("CurrentRecordDataItem".into(), PropValue::String("".into()));
                 props.insert("OperatorName".into(), PropValue::String("".into()));
+                // Async I/O (spec 032): Sync by default; opt into Async per control.
+                props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(0));
             }
 
             // ── Charts ────────────────────────────────────────────────────────
@@ -5754,15 +5788,26 @@ mod tests {
     }
 
     #[test]
-    fn non_visual_supported_events_stay_unchanged() {
+    fn non_visual_supported_events_include_async_lifecycle() {
+        // Timer / AgentObject are unaffected by the async I/O work (spec 032).
         assert_eq!(ControlType::Timer.supported_events(), &["onTick"]);
         assert_eq!(
             ControlType::AgentObject.supported_events(),
             &["onResponse", "onError", "onStreamChunk", "onThinking"]
         );
+        // RestClient / SqlDatabase / IndexedFile gain the uniform async lifecycle
+        // events onComplete/onError/onCancelled/onTimeout (skipping any the
+        // control already declared).
         assert_eq!(
             ControlType::RestClient.supported_events(),
-            &["onResponseReceived", "onError", "onTimeout", "onProgress"]
+            &[
+                "onResponseReceived",
+                "onError",
+                "onTimeout",
+                "onProgress",
+                "onComplete",
+                "onCancelled",
+            ]
         );
         assert_eq!(
             ControlType::SqlDatabase.supported_events(),
@@ -5771,9 +5816,42 @@ mod tests {
                 "onConnectOk",
                 "onConnectError",
                 "onQueryError",
-                "onRowFetched"
+                "onRowFetched",
+                "onComplete",
+                "onError",
+                "onCancelled",
+                "onTimeout",
             ]
         );
+    }
+
+    #[test]
+    fn async_controls_have_mode_busy_timeout_and_no_duplicate_events() {
+        for (ct, default_mode) in [
+            (ControlType::RestClient, "Async"),
+            (ControlType::SqlDatabase, "Sync"),
+            (ControlType::IndexedFile, "Sync"),
+        ] {
+            // The async lifecycle events must be present and unique.
+            let evs = ct.supported_events();
+            for ev in ["onComplete", "onError", "onCancelled", "onTimeout"] {
+                assert!(evs.contains(&ev), "{ct:?} missing {ev}");
+            }
+            let mut seen = std::collections::HashSet::new();
+            for ev in evs {
+                assert!(seen.insert(*ev), "{ct:?} duplicate event {ev}");
+            }
+
+            // `ct` is consumed here (ControlType is not Copy), so this comes last.
+            let c = Control::new("X", ct, 0, 0);
+            assert_eq!(
+                c.properties.get("Mode"),
+                Some(&PropValue::String(default_mode.into())),
+                "default Mode for {default_mode}"
+            );
+            assert!(matches!(c.properties.get("Busy"), Some(PropValue::Bool(false))));
+            assert!(matches!(c.properties.get("TimeoutMs"), Some(PropValue::Int(_))));
+        }
     }
 
     #[test]

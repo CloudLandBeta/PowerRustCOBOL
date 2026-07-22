@@ -32,6 +32,7 @@
 //! }
 //! ```
 
+pub mod async_op;
 pub mod channels;
 pub mod compress;
 pub mod db_runtime;

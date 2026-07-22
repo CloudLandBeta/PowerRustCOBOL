@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 
-use cobolt_agents::Orchestrator;
+use cobolt_agents::specialist::{compose_system_prompt, route_specialist, Specialist};
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are an expert pair programmer for PowerRustCOBOL...";
 
@@ -766,9 +766,31 @@ pub fn push_ai_log(kind: AiLogKind, text: impl Into<String>) {
     }
 }
 
-/// Run one mesh request on a worker thread, streaming progress into the
-/// Agentic AI activity log and the connection log. Shared by the agent,
-/// direct-editor, and compaction entry points.
+/// Bound on change-set pagination batches per request (a model that keeps
+/// answering `has_more` forever is cut off, mirroring the legacy transport).
+const MAX_PAGINATION_BATCHES: usize = 10;
+
+/// Correct known-bad hosts for a provider before a request is attempted.
+/// Provider-scoped so a correction never fires for an unrelated provider that
+/// merely shares a hostname fragment; each row is (provider-name fragment,
+/// wrong host, canonical host).
+fn heal_endpoint_host(provider: &str, base: &str) -> String {
+    const HEALS: &[(&str, &str, &str)] = &[("ollama", "api.ollama.com", "ollama.com")];
+    let p = provider.to_ascii_lowercase();
+    let mut out = base.to_string();
+    for (prov, wrong, right) in HEALS {
+        if p.contains(prov) && out.contains(wrong) {
+            out = out.replace(wrong, right);
+        }
+    }
+    out
+}
+
+/// Run one mesh request on a worker thread through the Rig transport
+/// (Rig migration phase 4 — the hand-rolled HTTP orchestrator is deleted),
+/// streaming text deltas and progress into the Agentic AI activity log and
+/// the connection log. Shared by the agent, direct-editor, compaction, and
+/// connection-test entry points.
 fn run_mesh_request(
     req: cobolt_agents::MeshRequest,
     label: &'static str,
@@ -786,47 +808,168 @@ fn run_mesh_request(
         return rx;
     }
     std::thread::spawn(move || {
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(e) => {
-                let _ = tx.send(LlmResponse::Err(format!(
-                    "Failed to start async runtime: {e}"
-                )));
-                return;
+        // ── Route (unchanged contract: explicit specialist wins, otherwise
+        // keyword routing; named project agents get no built-in preamble) ──
+        let target = req
+            .specialist
+            .clone()
+            .unwrap_or_else(|| route_specialist(&req.user_prompt).to_string());
+        let specialist = Specialist::builtin(&target);
+        push_ai_log(
+            AiLogKind::Detail,
+            match &specialist {
+                Some(s) => format!("agent · routing → {} specialist", s.name),
+                None => format!("agent · routing → {target} project agent"),
+            },
+        );
+        let system = compose_system_prompt(&req.system_prompt, specialist.as_ref());
+        let user = if req.context.trim().is_empty() {
+            req.user_prompt.trim().to_string()
+        } else {
+            format!("{}\n\n{}", req.user_prompt.trim(), req.context)
+        };
+        let endpoint = heal_endpoint_host(&req.provider, req.endpoint.trim().trim_end_matches('/'));
+
+        if req.verbose {
+            push_ai_log(
+                AiLogKind::Detail,
+                format!("Verbose: Loaded Skills:\n{}", req.skills),
+            );
+        }
+
+        // Text deltas stream straight into the receiver as they arrive.
+        // (The Mutex makes the closure Sync; an mpsc Sender alone is not.)
+        let chunk_tx = std::sync::Mutex::new(tx.clone());
+        let on_chunk = move |chunk: &str| {
+            if let Ok(t) = chunk_tx.lock() {
+                let _ = t.send(LlmResponse::Chunk(chunk.to_string()));
             }
         };
-        rt.block_on(async {
-            let orch = Orchestrator::new();
-            // Every orchestrator step lands in the activity log as it happens.
-            let token_sink_for_log = token_sink.clone();
-            let on_log = move |line: String| {
-                accumulate_tokens(&token_sink_for_log, &line);
-                push_ai_log(AiLogKind::Detail, format!("agent · {line}"));
+
+        let mut history = req.history.clone();
+        let mut prompt = user;
+        let mut operations_acc: Vec<serde_json::Value> = Vec::new();
+        let mut trace = String::new();
+        let mut final_content = String::new();
+
+        for batch in 1..=MAX_PAGINATION_BATCHES {
+            let call = cobolt_agents::rig_transport::ChatCall {
+                provider: req.provider.clone(),
+                model: req.model.clone(),
+                api_key: req.api_key.clone(),
+                endpoint: endpoint.clone(),
+                system_prompt: system.clone(),
+                skills: req.skills.clone(),
+                history: history.clone(),
+                user_prompt: prompt.clone(),
+                temperature: req.temperature,
+                max_tokens: req.max_tokens,
             };
-            let tx_clone = tx.clone();
-            let on_chunk = move |chunk: &str| {
-                let _ = tx_clone.send(LlmResponse::Chunk(chunk.to_string()));
-            };
-            match orch.handle_request(&req, &on_log, &on_chunk).await {
-                Ok((resp, trace)) => {
-                    push_connection_log(&trace);
-                    push_ai_log(
-                        AiLogKind::Reasoning,
-                        format!(
-                            "reply: {} chars — {}",
-                            resp.len(),
-                            truncate_for_log(&resp, 200)
-                        ),
-                    );
-                    let _ = tx.send(LlmResponse::Ok(resp));
-                }
+            push_ai_log(
+                AiLogKind::Detail,
+                format!(
+                    "agent · rig · {} → {}/{} · {} history turn(s) (batch {batch})",
+                    endpoint,
+                    req.provider,
+                    req.model,
+                    call.history.len()
+                ),
+            );
+            trace.push_str(&format!(
+                "=== RIG REQUEST ===\nEndpoint: {endpoint}\nProvider: {}\nModel: {}\nHistory turns: {}\n",
+                req.provider,
+                req.model,
+                call.history.len()
+            ));
+            if req.verbose {
+                trace.push_str(&format!(
+                    "System prompt:\n{system}\n\nSkills:\n{}\n\nUser message:\n{prompt}\n",
+                    req.skills
+                ));
+            }
+
+            let started = std::time::Instant::now();
+            let reply = match cobolt_agents::rig_transport::run_chat_blocking(&call, &on_chunk) {
+                Ok(r) => r,
                 Err(e) => {
-                    push_connection_log(&format!("=== ERROR ===\n{e}\n"));
+                    push_connection_log(&format!("{trace}=== ERROR ===\n{e}\n"));
                     push_ai_log(AiLogKind::Error, e.clone());
                     let _ = tx.send(LlmResponse::Err(e));
+                    return;
+                }
+            };
+            let secs = started.elapsed().as_secs_f32();
+            push_ai_log(
+                AiLogKind::Detail,
+                format!("agent · reply in {secs:.1}s · {} chars", reply.text.len()),
+            );
+            if reply.input_tokens > 0 || reply.output_tokens > 0 {
+                // The exact usage line the token accumulator parses.
+                let line = format!("tokens: {} in / {} out", reply.input_tokens, reply.output_tokens);
+                accumulate_tokens(&token_sink, &line);
+                push_ai_log(AiLogKind::Detail, format!("agent · {line}"));
+            }
+            trace.push_str(&format!(
+                "=== RIG RESPONSE ===\nDuration: {secs:.1}s\nChars: {}\n",
+                reply.text.len()
+            ));
+            if req.verbose {
+                trace.push_str(&format!("Body:\n{}\n", reply.text));
+            }
+            trace.push('\n');
+
+            // Change-set pagination: a bare-JSON reply may carry
+            // has_more/next_cursor; accumulate operation batches and continue
+            // the conversation until the model reports completion.
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&reply.text) {
+                if let Some(ops) = json.get("operations").and_then(|o| o.as_array()) {
+                    operations_acc.extend(ops.clone());
+                }
+                let has_more = json
+                    .get("has_more")
+                    .and_then(|h| h.as_bool())
+                    .unwrap_or(false);
+                let response_id = json
+                    .get("response_id")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("");
+                let next_cursor = json.get("next_cursor").and_then(|c| c.as_str());
+                if has_more && next_cursor.is_some() && batch < MAX_PAGINATION_BATCHES {
+                    history.push(("user".into(), prompt.clone()));
+                    history.push(("assistant".into(), reply.text.clone()));
+                    prompt = format!(
+                        "Continue response {} from cursor {}. Return only the next complete JSON batch.",
+                        response_id,
+                        next_cursor.unwrap()
+                    );
+                    push_ai_log(
+                        AiLogKind::Detail,
+                        format!("agent · pagination detected — fetching batch {}…", batch + 1),
+                    );
+                    continue;
                 }
             }
-        });
+            // Multi-batch runs are merged into one change-set; a single batch
+            // is returned verbatim (preserving any note alongside operations).
+            final_content = if batch > 1 && !operations_acc.is_empty() {
+                serde_json::to_string_pretty(&serde_json::json!({ "operations": operations_acc }))
+                    .unwrap_or(reply.text)
+            } else {
+                reply.text
+            };
+            break;
+        }
+
+        push_connection_log(&trace);
+        push_ai_log(
+            AiLogKind::Reasoning,
+            format!(
+                "reply: {} chars — {}",
+                final_content.len(),
+                truncate_for_log(&final_content, 200)
+            ),
+        );
+        let _ = tx.send(LlmResponse::Ok(final_content));
     });
     rx
 }
@@ -871,7 +1014,6 @@ fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
         model: cfg.model.clone(),
         api_key: cfg.api_key.clone(),
         endpoint: cfg.endpoint.clone(),
-        endpoint_user_edited: cfg.endpoint_user_edited,
         specialist: None,
         system_prompt: String::new(),
         skills: String::new(),
@@ -2710,20 +2852,6 @@ pub fn extract_code(reply: &str) -> Option<String> {
     None
 }
 pub fn ai_question(_reply: &str) {}
-
-pub struct MeshSession {
-    orchestrator: Orchestrator,
-}
-
-impl MeshSession {
-    pub fn new() -> Self {
-        Self {
-            orchestrator: Orchestrator::new(),
-        }
-    }
-
-    pub fn execute_request(&self, _request: &str) {}
-}
 
 #[cfg(test)]
 mod tests {

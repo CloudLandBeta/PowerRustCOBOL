@@ -8297,11 +8297,39 @@ pub(crate) fn draw_icon_toolbar(
     // Inter-group gap — half of one icon (button) width, with a separator line.
     let group_gap = btn_size * 0.5;
 
-    // Colour palette (frozen white glass)
-    let col_normal = Color32::from_rgba_premultiplied(215, 225, 255, 210);
-    let col_dim = Color32::from_rgba_premultiplied(215, 225, 255, 70);
+    // Colour palette (frozen white glass). This reads correctly against the
+    // dark/glass chrome themes, but near-white icons wash out on light
+    // backgrounds — Neumorphic Light in particular — so light themes fall
+    // back to the theme's own high-contrast bright/dim text colours instead.
+    let theme = crate::theme::active();
+    let is_neumorphic = theme.is_neumorphic();
+    let (col_normal, col_dim) = if theme.dark {
+        (
+            Color32::from_rgba_premultiplied(215, 225, 255, 210),
+            Color32::from_rgba_premultiplied(215, 225, 255, 70),
+        )
+    } else {
+        (
+            theme.text_bright,
+            Color32::from_rgba_unmultiplied(
+                theme.text_dim.r(),
+                theme.text_dim.g(),
+                theme.text_dim.b(),
+                110,
+            ),
+        )
+    };
     let _col_active = Color32::from_rgba_premultiplied(130, 180, 255, 255);
-    let col_accent = Color32::from_rgba_premultiplied(255, 220, 100, 240); // gold for toggles
+    let col_accent = if theme.dark {
+        Color32::from_rgba_premultiplied(255, 220, 100, 240) // gold for toggles
+    } else if is_neumorphic {
+        // The toggled fill below is a graphite badge (see `face`), not the
+        // theme's blue accent — drawing the icon in that same blue would
+        // repeat the blue-on-blue invisibility bug, so use white instead.
+        Color32::WHITE
+    } else {
+        theme.accent
+    };
 
     // Closure: allocate a button rect, draw the icon (collected as shapes and
     // uniformly resized to the reference extent), return whether it was clicked.
@@ -8313,27 +8341,52 @@ pub(crate) fn draw_icon_toolbar(
      -> bool {
         let (resp, painter) = ui.allocate_painter(Vec2::splat(btn_size), egui::Sense::click());
         let icon_rect = Rect::from_center_size(resp.rect.center(), Vec2::splat(icon_size));
-        let col = if !enabled {
-            col_dim
-        } else if toggled {
+        // Toggled wins over disabled: a button that is disabled *because* it is
+        // currently engaged (e.g. Debug Form while a debug session is already
+        // running) must still read clearly as "this is the active state" —
+        // fading it to the dim/disabled colour would hide the one thing the
+        // badge exists to communicate. Applies to every button that reaches
+        // this closure (Toggle Grid, Toggle Glass, Run/Stop, Debug, Inspector,
+        // Live Preview), so the high-contrast fix is uniform, not per-button.
+        let col = if toggled {
             col_accent
+        } else if !enabled {
+            col_dim
         } else {
             col_normal
         };
-        // Hover/active bg ring
-        if resp.hovered() && enabled {
-            painter.rect_filled(
-                resp.rect,
-                6.0,
-                Color32::from_rgba_premultiplied(80, 110, 200, 40),
-            );
-        }
-        if toggled {
-            painter.rect_filled(
-                resp.rect,
-                6.0,
-                Color32::from_rgba_premultiplied(60, 100, 200, 55),
-            );
+        if is_neumorphic {
+            // Discrete neumorphic 3D relief (dark shadow SE + light highlight
+            // NW) painted BEFORE the flat surface fill, so only the soft
+            // edges peek out — same technique as the toolbox buttons.
+            crate::theme::paint_neumorphic_relief(&painter, resp.rect, 6.0, &theme);
+            let face = if toggled {
+                // Graphite, not the theme's blue accent — paired with the
+                // white icon colour set above so the toggled icon stays
+                // legible instead of disappearing into a same-hue fill.
+                crate::theme::NEUMORPHIC_ACTIVE_GRAPHITE
+            } else if resp.hovered() && enabled {
+                theme.bg_hover
+            } else {
+                theme.bg_control
+            };
+            painter.rect_filled(resp.rect, 6.0, face);
+        } else {
+            // Hover/active bg ring
+            if resp.hovered() && enabled {
+                painter.rect_filled(
+                    resp.rect,
+                    6.0,
+                    Color32::from_rgba_premultiplied(80, 110, 200, 40),
+                );
+            }
+            if toggled {
+                painter.rect_filled(
+                    resp.rect,
+                    6.0,
+                    Color32::from_rgba_premultiplied(60, 100, 200, 55),
+                );
+            }
         }
         // Draw the icon into a shape buffer, then scale it to the common size.
         let mut shapes: Vec<Shape> = Vec::new();

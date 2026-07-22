@@ -400,7 +400,9 @@ pub fn cmd_run_form(args: &[String]) {
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(&title)
-        .with_inner_size([fw + 4.0, fh + 4.0])
+        // Size the window exactly to the form. The previous +4 slack left a
+        // strip of panel/scrollbar-gutter visible on the right and bottom edges.
+        .with_inner_size([fw, fh])
         .with_resizable(true);
     if let Some(icon) = load_run_form_icon(icon_path.as_deref()) {
         viewport = viewport.with_icon(icon);
@@ -632,6 +634,11 @@ impl eframe::App for FormApp {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(bg_fill))
                 .show(root_ui, |ui| {
+                    // Floating scrollbars overlay the content instead of
+                    // reserving a gutter, so no light track strip shows on the
+                    // right/bottom edges when the form fits (only appears, as an
+                    // overlay, if the user shrinks the resizable window).
+                    ui.style_mut().spacing.scroll = egui::style::ScrollStyle::floating();
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {

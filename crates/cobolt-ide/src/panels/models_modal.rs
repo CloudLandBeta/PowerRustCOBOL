@@ -293,6 +293,35 @@ impl ModelsModal {
                         ui.add_space(4.0);
                     });
 
+                // Project-wide AI settings. These govern EVERY agent in the
+                // project and persist in cobolt.toml — they are not part of the
+                // selected model profile, so they render in their own panel
+                // (above the footer) instead of inside the profile editor,
+                // where they used to read as per-agent settings.
+                egui::Panel::bottom(ui.id().with("models_project_settings"))
+                    .resizable(false)
+                    .show_separator_line(true)
+                    .frame(egui::Frame::NONE)
+                    .show(ui, |ui| {
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new(tr.models_project_scope).strong());
+                        ui.add_space(2.0);
+                        // The verbose-log toggle deliberately does NOT appear
+                        // here: its single control is ⚙ Settings → AI
+                        // Assistants (the settings draft applies on OK, so a
+                        // second live-editing control could silently stomp it).
+                        ui.horizontal(|ui| {
+                            if ui
+                                .checkbox(&mut llm.agentic_ai_enabled, tr.models_agentic_enable)
+                                .on_hover_text(tr.models_agentic_enable_hint)
+                                .changed()
+                            {
+                                action.applied = true;
+                            }
+                        });
+                        ui.add_space(6.0);
+                    });
+
                 // Left Panel for profile list
                 egui::Panel::left(ui.id().with("models_left_rail"))
                     .resizable(true)
@@ -526,30 +555,6 @@ impl ModelsModal {
                                         }
                                         ui.end_row();
 
-                                        ui.label("Agentic AI:");
-                                        if ui
-                                            .checkbox(
-                                                &mut llm.agentic_ai_enabled,
-                                                "Enable assistant and agents",
-                                            )
-                                            .on_hover_text(
-                                                "Turn off to hide AI assistant surfaces and keep a traditional programming workflow.",
-                                            )
-                                            .changed()
-                                        {
-                                            action.applied = true;
-                                        }
-                                        ui.end_row();
-
-                                        ui.label(tr.settings_ai_verbose);
-                                        if ui
-                                            .checkbox(&mut llm.verbose_log, "")
-                                            .on_hover_text(tr.settings_ai_verbose_hint)
-                                            .changed()
-                                        {
-                                            action.applied = true;
-                                        }
-                                        ui.end_row();
                                     });
 
                                 ui.add_space(8.0);

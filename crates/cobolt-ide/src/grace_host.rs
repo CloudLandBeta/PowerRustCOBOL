@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use cobolt_agents::grace::{
-    AgentInvoker, GraceEngine, GraceEvent, TaskRecord, TaskSpec, TaskState, WorkflowRecord,
+    AgentInvoker, GraceEngine, GraceEvent, ReviewVerdict, TaskRecord, TaskSpec, TaskState,
+    WorkflowPlan, WorkflowRecord,
 };
 use serde::{Deserialize, Serialize};
 
@@ -115,7 +116,7 @@ fn clause_starts_with_action(clause: &str) -> bool {
     })
 }
 
-fn direct_grace_record(reply: String) -> WorkflowRecord {
+fn direct_grace_record(reply: String, objective: &str) -> WorkflowRecord {
     WorkflowRecord {
         workflow_id: format!("conversation-{}", crate::agents_db::new_uuid()),
         status: "completed".into(),
@@ -123,7 +124,7 @@ fn direct_grace_record(reply: String) -> WorkflowRecord {
             spec: TaskSpec {
                 id: "C1".into(),
                 agent: GRACE.into(),
-                objective: "Answer the developer's read-only request directly".into(),
+                objective: objective.into(),
                 context: String::new(),
                 reviewer: None,
                 depends_on: Vec::new(),
@@ -727,7 +728,111 @@ impl DbAgentInvoker {
 /// rejections.
 const VERBOSE_PEDANTIC_REPORT_DIRECTIVE: &str = "\n\nVERBOSE MODE IS ACTIVE. Regardless of your verdict, return a complete report to Grace: what you inspected, the specific requirements and acceptance criteria you checked it against, and the full reasoning behind the verdict. An \"acceptable\" verdict must be justified in the same depth as a \"defects\" verdict — do not shorten it to a bare confirmation like \"looks good\" or \"clean.\"; state explicitly why each requirement is satisfied. This applies to every round, including the final assessment.";
 
+/// Extraction preambles (Rig migration phase 3). Each runs only after a
+/// deterministic fenced-JSON parse failed, and instructs the provider-native
+/// extractor to transcribe — never to improvise.
+const PLAN_EXTRACT_PREAMBLE: &str = "The provided text is an agent's workflow-planning response whose plan JSON could not be parsed. Extract the workflow plan it describes EXACTLY: workflow_id and every task with id, agent, objective, context, reviewer (null when none), depends_on, and acceptance. Copy agent and reviewer names verbatim from the text — never invent, rename, merge, or drop tasks.";
+
+const VERDICT_EXTRACT_PREAMBLE: &str = "The provided text is a Pedantic reviewer's round verdict whose verdict JSON could not be parsed. Extract the verdict EXACTLY as the review states it: pedantic_verdict is \"acceptable\" only when the review approves the submission without requiring corrections, otherwise \"defects\"; correction_request carries the requested corrections verbatim (empty when acceptable). Never soften, add, or drop defects.";
+
+const CHANGE_SET_EXTRACT_PREAMBLE: &str = "The provided text is a Form Designer submission whose change-set JSON could not be parsed. Extract the change-set operations it specifies EXACTLY — deploy_control, set_property, generate_event_handler, create_procedure — with identifiers, property names, values, and code copied verbatim. If the text proposes no concrete form operations, submit an empty operations array and carry its message in note. Never invent operations the text does not state.";
+
+impl DbAgentInvoker {
+    /// Provider-native typed extraction over `source` using `agent`'s resolved
+    /// model profile — the phase-3 recovery path, reached only after a
+    /// deterministic parse failed. Token usage joins the workflow totals.
+    fn typed_extract<T>(
+        &self,
+        agent: &str,
+        purpose: &str,
+        preamble: &str,
+        source: &str,
+    ) -> Result<T, String>
+    where
+        T: schemars::JsonSchema
+            + serde::de::DeserializeOwned
+            + serde::Serialize
+            + Send
+            + Sync
+            + 'static,
+    {
+        let (cfg, _core, _skills, _kind) = self.config_for(agent)?;
+        if let Some(gap) = crate::llm::credential_gap(&cfg) {
+            return Err(format!("{agent}: {gap}"));
+        }
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Info,
+            format!("rig · typed {purpose} extraction ({agent}) — deterministic parse failed"),
+        );
+        let call = cobolt_agents::rig_transport::ExtractCall {
+            provider: cfg.provider.clone(),
+            model: cfg.model.clone(),
+            api_key: cfg.api_key.clone(),
+            endpoint: cfg.endpoint.clone(),
+            preamble: preamble.to_string(),
+            max_tokens: cfg.max_tokens,
+        };
+        let reply = cobolt_agents::rig_transport::extract_typed_blocking::<T>(&call, source)
+            .map_err(|e| format!("{agent}: {purpose} extraction failed: {e}"))?;
+        if let Ok(mut totals) = self.tokens.lock() {
+            totals.0 += reply.input_tokens;
+            totals.1 += reply.output_tokens;
+        }
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Detail,
+            format!(
+                "rig · typed {purpose} extraction · tokens: {} in / {} out",
+                reply.input_tokens, reply.output_tokens
+            ),
+        );
+        Ok(reply.data)
+    }
+
+    /// Recover a Form Designer change-set from a submission whose fenced JSON
+    /// did not parse deterministically.
+    pub fn extract_change_set(&self, source: &str) -> Result<crate::agent::AgentChangeSet, String> {
+        self.typed_extract::<crate::agent::AgentChangeSet>(
+            crate::agents_db::FORM_DESIGNER,
+            "change-set",
+            CHANGE_SET_EXTRACT_PREAMBLE,
+            source,
+        )
+    }
+}
+
 impl AgentInvoker for DbAgentInvoker {
+    fn extract_plan(&mut self, agent: &str, plan_reply: &str) -> Result<WorkflowPlan, String> {
+        // Deterministic first — free and exact for well-behaved replies.
+        if let Ok((workflow_id, tasks)) = cobolt_agents::grace::parse_plan(plan_reply) {
+            return Ok(WorkflowPlan { workflow_id, tasks });
+        }
+        let mut plan =
+            self.typed_extract::<WorkflowPlan>(agent, "plan", PLAN_EXTRACT_PREAMBLE, plan_reply)?;
+        if plan.tasks.is_empty() {
+            return Err("Grace's plan contained no tasks".into());
+        }
+        if plan.workflow_id.trim().is_empty() {
+            plan.workflow_id = "workflow".into();
+        }
+        Ok(plan)
+    }
+
+    fn extract_verdict(
+        &mut self,
+        reviewer: &str,
+        review_reply: &str,
+    ) -> Result<ReviewVerdict, String> {
+        if let Ok(verdict) = cobolt_agents::grace::parse_verdict(review_reply) {
+            return Ok(verdict);
+        }
+        self.typed_extract::<ReviewVerdict>(
+            reviewer,
+            "verdict",
+            VERDICT_EXTRACT_PREAMBLE,
+            review_reply,
+        )
+    }
+
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
         let (cfg, core_instructions, skills, kind) = self.config_for(agent)?;
         // Report a blank credential as itself rather than letting the provider
@@ -1052,32 +1157,60 @@ pub fn run_grace_workflow_with_context(
     let plan_reply = invoker.invoke(GRACE, "", &plan_user)?;
     if direct_response {
         on_progress("Grace answered the read-only request directly.".into());
-        let record = direct_grace_record(plan_reply);
+        let record = direct_grace_record(
+            plan_reply,
+            "Answer the developer's read-only request directly",
+        );
         let path = save_workflow_record(project_dir, &record, &[])?;
         return Ok((record, path));
     }
-    let (mut workflow_id, mut plan) = match cobolt_agents::grace::parse_plan(&plan_reply) {
-        Ok(parsed) => parsed,
-        Err(first_error) => {
+    // Typed plan (Rig migration phase 3): deterministic parse first, then
+    // provider-native typed extraction over the SAME reply. The old
+    // "malformed plan, resend everything" correction roundtrip — a full
+    // re-plan that could drift from the original — is gone; encoding damage
+    // is repaired by extraction. What extraction cannot repair is a reply
+    // with NO tasks in it: that is Grace talking (a clarifying question, a
+    // refusal, an answer) despite the ACTION classification. For that case:
+    // one contract re-ask (plan, or ask the developer plainly), and if the
+    // retry still carries no plan, Grace's words are surfaced to the
+    // developer as a direct reply instead of an opaque error.
+    let mut plan_reply = plan_reply;
+    let extracted = match invoker.extract_plan(GRACE, &plan_reply) {
+        Ok(extracted) => extracted,
+        Err(cause) => {
+            crate::llm::push_connection_log(&format!(
+                "=== GRACE PLAN-LESS RESPONSE (attempt 1: {cause}) ===\n{plan_reply}\n"
+            ));
             on_progress(format!(
-                "Grace returned a malformed workflow plan ({first_error}). Requesting one corrected plan."
+                "Grace's response contained no executable plan ({cause}). Asking once for a plan or an explicit question."
             ));
             let correction = format!(
-                "Your previous response could not be executed because: {first_error}\n\nReturn a COMPLETE corrected workflow plan for the original request. END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array. Use only agent and reviewer names from the supplied registry. Do not add any text after the JSON block.\n\nORIGINAL REQUEST:\n{request}\n\nMALFORMED RESPONSE:\n{plan_reply}"
+                "Your previous response to this ACTION request contained no executable workflow tasks.\n\nIf the work can proceed, return the COMPLETE workflow plan now: END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.\n\nIf you cannot plan because information only the developer can supply is missing, reply with ONLY your question(s) to the developer as plain readable Markdown and no JSON.\n\nORIGINAL REQUEST:\n{request}\n\nYOUR PREVIOUS RESPONSE:\n{plan_reply}"
             );
-            let corrected_reply = invoker.invoke(GRACE, "", &correction)?;
-            cobolt_agents::grace::parse_plan(&corrected_reply).map_err(|second_error| {
-                let error = format!(
-                    "Grace could not produce an executable workflow plan after one correction.\n\nFirst parser error: {first_error}\nCorrected parser error: {second_error}\n\nCorrected response payload:\n{corrected_reply}"
-                );
-                crate::llm::push_ai_log(crate::llm::AiLogKind::Error, error.clone());
-                crate::llm::push_connection_log(&format!(
-                    "=== GRACE WORKFLOW ERROR ===\n{error}\n"
-                ));
-                error
-            })?
+            let retry_reply = invoker.invoke(GRACE, "", &correction)?;
+            match invoker.extract_plan(GRACE, &retry_reply) {
+                Ok(extracted) => {
+                    plan_reply = retry_reply;
+                    extracted
+                }
+                Err(retry_cause) => {
+                    crate::llm::push_connection_log(&format!(
+                        "=== GRACE PLAN-LESS RESPONSE (attempt 2: {retry_cause}) ===\n{retry_reply}\n"
+                    ));
+                    on_progress(
+                        "Grace responded without workflow tasks; relaying her reply to the developer.".into(),
+                    );
+                    let record = direct_grace_record(
+                        retry_reply,
+                        "Relay Grace's response to an action request that produced no workflow tasks",
+                    );
+                    let path = save_workflow_record(project_dir, &record, &[])?;
+                    return Ok((record, path));
+                }
+            }
         }
     };
+    let (mut workflow_id, mut plan) = (extracted.workflow_id, extracted.tasks);
     let plan_db = AgentsDb::load(project_dir);
     if let Err(defect) = validate_workflow_coordination(&plan_db, request, &plan) {
         on_progress(format!(
@@ -1087,7 +1220,8 @@ pub fn run_grace_workflow_with_context(
             "Your previous workflow plan was rejected because: {defect}\n\nReturn a COMPLETE corrected workflow plan. Preserve the Documentation coordination contract. For indexed-file work, use {DOCUMENTATION_AGENT} first for file name, purpose, project knowledge, 1NF/2NF/3NF, helper-file analysis, and the developer's UUID-or-PIC decision; only then assign dependent mutation tasks to {DATA_INDEXED_FILE_AGENT}. If required information is absent, return only a Documentation clarification task and do not mutate. END with the corrected plan JSON and nothing after it.\n\nORIGINAL REQUEST:\n{request}\n\nREJECTED PLAN:\n{plan_reply}"
         );
         let corrected_reply = invoker.invoke(GRACE, "", &correction)?;
-        (workflow_id, plan) = cobolt_agents::grace::parse_plan(&corrected_reply)?;
+        let corrected = invoker.extract_plan(GRACE, &corrected_reply)?;
+        (workflow_id, plan) = (corrected.workflow_id, corrected.tasks);
         validate_workflow_coordination(&plan_db, request, &plan).map_err(|error| {
             format!("Grace's corrected plan still violates a coordination contract: {error}")
         })?;
@@ -1147,6 +1281,11 @@ pub fn run_grace_workflow_with_context(
     flush_tools(on_progress); // any evidence recorded after the last transition
     drop(invoker); // release the borrows on evidence before draining it
 
+    // Phase 3: canonicalize approved Form Designer submissions whose fenced
+    // change-set JSON does not parse. Recovery runs here on the worker thread
+    // — the apply path on the UI thread stays deterministic.
+    normalize_form_change_sets(&inner, &mut record, on_progress);
+
     // Enrich the record for the chatbot surface: KB summary, Grace's concise
     // one-line summary, and the workflow's total token consumption.
     record.knowledge_summary = summarize_knowledge_context(&knowledge_context);
@@ -1164,6 +1303,53 @@ pub fn run_grace_workflow_with_context(
         record.workflow_id, record.status
     ));
     Ok((record, path))
+}
+
+/// Canonicalize approved Form Designer submissions (Rig migration phase 3):
+/// when the final submission's change-set JSON does not parse
+/// deterministically, recover the typed change-set through provider-native
+/// extraction and append its canonical encoding as a new submission — the
+/// original stays in the record as evidence, and `approved_form_change_sets`
+/// (which reads the LAST submission) then parses without a model in the loop.
+/// An unrecoverable submission is left as-is; the apply path surfaces its
+/// parse error exactly as before.
+fn normalize_form_change_sets(
+    invoker: &DbAgentInvoker,
+    record: &mut WorkflowRecord,
+    on_progress: &mut dyn FnMut(String),
+) {
+    for task in &mut record.tasks {
+        if task.final_state != TaskState::Approved
+            || task.spec.agent != crate::agents_db::FORM_DESIGNER
+        {
+            continue;
+        }
+        let Some(submission) = task.submissions.last().cloned() else {
+            continue;
+        };
+        if crate::agent::parse_change_set(&submission).is_ok() {
+            continue;
+        }
+        match invoker.extract_change_set(&submission) {
+            Ok(change_set) => match serde_json::to_string_pretty(&change_set) {
+                Ok(json) => {
+                    task.submissions.push(format!("```json\n{json}\n```"));
+                    on_progress(format!(
+                        "  {}: form change-set recovered via typed extraction.",
+                        task.spec.id
+                    ));
+                }
+                Err(e) => on_progress(format!(
+                    "  {}: recovered change-set could not be re-encoded ({e}); the raw submission stands.",
+                    task.spec.id
+                )),
+            },
+            Err(e) => on_progress(format!(
+                "  {}: form change-set could not be recovered ({e}); the raw submission stands.",
+                task.spec.id
+            )),
+        }
+    }
 }
 
 /// Convert a completed workflow into the reply shown by a chatbot. Prefer the
@@ -1649,7 +1835,10 @@ mod tests {
         // A genuine "when" question with no imperative consequent stays a conversation.
         assert!(is_informational_grace_request("When does the timer fire?"));
 
-        let record = direct_grace_record("I coordinate the project agents.".into());
+        let record = direct_grace_record(
+            "I coordinate the project agents.".into(),
+            "Answer the developer's read-only request directly",
+        );
         assert_eq!(
             workflow_chat_reply(&record, None, false),
             "I coordinate the project agents."

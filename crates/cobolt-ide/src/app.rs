@@ -7842,6 +7842,28 @@ fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     // too noisy). Use the theme's dim border colour.
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, theme.border_dim);
 
+    if theme.is_neumorphic() {
+        // Discrete 3D shadow for window/panel chrome (intensity dialled up
+        // 50% over the original discrete relief — see `theme::paint_neumorphic_relief`).
+        // Neumorphic Dark uses a near-black shadow (its surface is already
+        // dark, so the blue-grey tint used on Neumorphic Light would barely
+        // register); Neumorphic Light keeps the blue-grey tint.
+        v.window_shadow = Shadow {
+            offset: [3, 3],
+            blur: 12,
+            spread: 0,
+            color: if theme.dark {
+                Color32::from_rgba_unmultiplied(0, 0, 0, 170)
+            } else {
+                Color32::from_rgba_unmultiplied(165, 175, 205, 135)
+            },
+        };
+        // Labels have no borders and no drop shadows
+        v.widgets.noninteractive.bg_stroke = Stroke::NONE;
+        v.widgets.noninteractive.weak_bg_fill = Color32::TRANSPARENT;
+        v.widgets.noninteractive.bg_fill = Color32::TRANSPARENT;
+    }
+
     // ── Selection ─────────────────────────────────────────────────────────
     v.selection.bg_fill = theme.selection;
     v.selection.stroke = Stroke::new(1.0, accent);

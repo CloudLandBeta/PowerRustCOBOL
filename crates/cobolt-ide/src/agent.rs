@@ -18,13 +18,16 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ── Change-set data model (T1) ───────────────────────────────────────────────
 
 /// One structured operation the agent may propose. `op` is the JSON discriminator
 /// (`deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+/// Serialize + JsonSchema so a malformed submission can be recovered through
+/// provider-native typed extraction (Rig migration, phase 3) and re-encoded
+/// canonically.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum AgentOp {
     /// Deploy a new control onto the form.
@@ -60,7 +63,7 @@ pub enum AgentOp {
 
 /// A parsed agent reply: an ordered list of operations, plus an optional note used
 /// when the agent cannot express the request as operations.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentChangeSet {
     pub operations: Vec<AgentOp>,
     #[serde(default)]
@@ -1104,6 +1107,35 @@ mod tests {
             AgentOp::GenerateEventHandler { .. }
         ));
         assert!(matches!(cs.operations[3], AgentOp::CreateProcedure { .. }));
+    }
+
+    /// Phase 3: a change-set recovered by typed extraction is re-encoded
+    /// canonically and appended as a submission — that encoding must parse
+    /// back deterministically, or recovery would loop.
+    #[test]
+    fn canonical_serialization_round_trips_through_parse() {
+        let reply = r#"```json
+{ "operations": [
+  { "op": "deploy_control", "control_type": "Button", "id": "SAVE",
+    "properties": { "Caption": "Save", "X": 10 } },
+  { "op": "set_property", "control_id": "L1", "key": "Bold", "value": true },
+  { "op": "generate_event_handler", "control_id": "SAVE", "event": "onClick", "code": "x" },
+  { "op": "create_procedure", "name": "P", "code": "y" },
+  { "op": "message", "message": "hi" }
+] }
+```"#;
+        let cs = parse_change_set(reply).expect("should parse");
+        let json = serde_json::to_string_pretty(&cs).expect("serializes");
+        let back = parse_change_set(&format!("```json\n{json}\n```")).expect("round-trips");
+        assert_eq!(cs, back);
+    }
+
+    /// The extraction schema generates (guards the schemars derives).
+    #[test]
+    fn change_set_schema_generates() {
+        let schema = schemars::schema_for!(AgentChangeSet);
+        let text = serde_json::to_string(&schema).expect("schema serializes");
+        assert!(text.contains("operations"));
     }
 
     #[test]

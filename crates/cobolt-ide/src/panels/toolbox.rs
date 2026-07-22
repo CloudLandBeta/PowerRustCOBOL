@@ -294,6 +294,17 @@ impl ToolboxPanel {
             dragged_user_control: None,
         };
 
+        // Category header colour: the frosty light-blue reads fine on the
+        // dark/glass chrome themes it was tuned for, but washes out ("too
+        // dimmed") against light backgrounds — Neumorphic Light especially.
+        // Light themes use the theme's own accent colour for solid contrast.
+        let theme = crate::theme::active();
+        let heading_color = if theme.dark {
+            Color32::from_rgb(150, 180, 255)
+        } else {
+            theme.accent
+        };
+
         ui.vertical(|ui| {
             ui.heading("Toolbox");
             ui.separator();
@@ -328,7 +339,7 @@ impl ToolboxPanel {
                                 RichText::new(format!("{arrow}{cat_label}"))
                                     .small()
                                     .strong()
-                                    .color(Color32::from_rgb(150, 180, 255)),
+                                    .color(heading_color),
                             )
                             .frame(false)
                             .min_size(Vec2::new(ui.available_width(), 16.0));
@@ -391,12 +402,21 @@ fn render_user_controls(
         return;
     }
 
+    // Same theme-aware contrast fix as the category headers above: the frosty
+    // blue washes out on light themes, so use the theme's accent there.
+    let theme = crate::theme::active();
+    let heading_color = if theme.dark {
+        Color32::from_rgb(150, 180, 255)
+    } else {
+        theme.accent
+    };
+
     ui.add_space(4.0);
     ui.label(
         RichText::new(format!("▾ {}", tr.uc_section_title))
             .small()
             .strong()
-            .color(Color32::from_rgb(150, 180, 255)),
+            .color(heading_color),
     );
     ui.add_space(4.0);
 
@@ -496,8 +516,25 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
 
     if ui.is_rect_visible(rect) {
         let visuals = ui.style().interact(&resp);
+        let theme = crate::theme::active();
+        let is_neumorphic = theme.is_neumorphic();
 
-        let bg = if pressed || dragging {
+        let bg = if is_neumorphic {
+            // Flat soft-UI surface: the control's fill stays close to the
+            // background colour (depth comes from the relief halo painted
+            // below, not from a contrasting fill) — matches Form Neumorphic
+            // Light, where the surface colour IS the background colour.
+            // Pressed/dragging uses a graphite badge instead of the theme's
+            // blue accent (paired with a white icon below) — a blue fill
+            // with the icon drawn in theme colours read poorly against it.
+            if pressed || dragging {
+                crate::theme::NEUMORPHIC_ACTIVE_GRAPHITE
+            } else if hovered {
+                theme.bg_hover
+            } else {
+                theme.bg_control
+            }
+        } else if pressed || dragging {
             Color32::from_rgba_premultiplied(80, 120, 220, 100)
         } else if hovered {
             Color32::from_rgba_premultiplied(80, 120, 220, 45)
@@ -505,7 +542,9 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
             Color32::TRANSPARENT
         };
 
-        let border_color = if pressed || dragging {
+        let border_color = if is_neumorphic {
+            Color32::TRANSPARENT // relief halo reads as depth, not a hard edge
+        } else if pressed || dragging {
             Color32::from_rgba_premultiplied(120, 160, 255, 200)
         } else if hovered {
             Color32::from_rgba_premultiplied(120, 160, 255, 100)
@@ -514,17 +553,27 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
         };
 
         let rounding = visuals.corner_radius;
+
+        // Discrete neumorphic 3D relief (dark shadow SE + light highlight NW),
+        // painted BEFORE the surface fill so only the soft edges peek out.
+        crate::theme::paint_neumorphic_relief(ui.painter(), rect, rounding, &theme);
+
         ui.painter().rect_filled(rect, rounding, bg);
-        ui.painter().rect_stroke(
-            rect,
-            rounding,
-            Stroke::new(1.0, border_color),
-            egui::StrokeKind::Middle,
-        );
+        if border_color != Color32::TRANSPARENT {
+            ui.painter().rect_stroke(
+                rect,
+                rounding,
+                Stroke::new(1.0, border_color),
+                egui::StrokeKind::Middle,
+            );
+        }
 
         // Theme-aware icon strokes: dark on light themes, light on dark ones.
-        let theme = crate::theme::active();
-        let icon_color = if pressed || dragging || hovered {
+        // Pressed/dragging under Neumorphic Light sits on the graphite badge
+        // above, so the icon is white there instead of the theme's dark text.
+        let icon_color = if is_neumorphic && (pressed || dragging) {
+            Color32::WHITE
+        } else if pressed || dragging || hovered {
             theme.text_bright
         } else {
             theme.text_dim
@@ -567,6 +616,58 @@ fn icon_btn(ui: &mut Ui, entry: &ToolEntry) -> Option<ControlType> {
 }
 
 // ── Vector icon painter ────────────────────────────────────────────────────────
+
+/// Draw a rounded "stacked disks" database cylinder — a curved top rim
+/// ellipse, a curved front-facing seam, a curved front-facing base, and two
+/// side walls closing the body. Modelled on the classic database-service
+/// glyph (full elliptical rim + curved shelf lines rather than flat chords),
+/// shared by the SqlDatabase toolbox icon and the small database glyph
+/// nested inside the IndexedFile document icon.
+fn draw_database_glyph(
+    painter: &egui::Painter,
+    center: Pos2,
+    rx: f32,
+    ry: f32,
+    step: f32,
+    rim: Stroke,
+    seam: Stroke,
+) {
+    use std::f32::consts::{PI, TAU};
+
+    // Sample `n+1` points along the ellipse of radii (rx, ry) centred at
+    // (center.x, cy), from angle `a0` to `a1` (radians). `0..PI` traces the
+    // near/front-facing curve (the visible "shelf" of a disk boundary);
+    // `0..TAU` traces the full rim.
+    let arc = |cy: f32, a0: f32, a1: f32, n: usize| -> Vec<Pos2> {
+        (0..=n)
+            .map(|i| {
+                let t = a0 + (a1 - a0) * (i as f32 / n as f32);
+                Pos2::new(center.x + rx * t.cos(), cy + ry * t.sin())
+            })
+            .collect()
+    };
+
+    let top_y = center.y - step;
+    let mid_y = center.y;
+    let bot_y = center.y + step;
+
+    // Side walls.
+    painter.line_segment(
+        [Pos2::new(center.x - rx, top_y), Pos2::new(center.x - rx, bot_y)],
+        rim,
+    );
+    painter.line_segment(
+        [Pos2::new(center.x + rx, top_y), Pos2::new(center.x + rx, bot_y)],
+        rim,
+    );
+
+    // Top rim: the full ellipse is visible (nothing occludes it).
+    painter.add(egui::Shape::closed_line(arc(top_y, 0.0, TAU, 22), rim));
+    // Middle seam and base: only the near/front-facing curve is visible —
+    // the far half is hidden behind the solid body of the cylinder.
+    painter.add(egui::Shape::line(arc(mid_y, 0.0, PI, 14), seam));
+    painter.add(egui::Shape::line(arc(bot_y, 0.0, PI, 14), rim));
+}
 
 /// Draw a miniature vector icon centred inside `rect`.
 /// `r` is the icon scaling unit = 25 % of the button's logical size, giving ~3.25 px
@@ -1121,6 +1222,38 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                     Pos2::new(c.x + lw, c.y + r * 0.85),
                     Pos2::new(c.x + lw * 0.3, c.y + r * 1.0),
                 ],
+                th,
+            );
+        }
+        ControlType::SqlDatabase => {
+            // Classic "3 stacked disks" database cylinder, curved rim/seams.
+            draw_database_glyph(painter, c, r * 0.85, r * 0.3, r * 0.72, s, th);
+        }
+        ControlType::IndexedFile => {
+            // Document with a folded top-right corner...
+            let pts = [
+                Pos2::new(c.x - r * 0.75, c.y - r * 1.15),
+                Pos2::new(c.x + r * 0.15, c.y - r * 1.15),
+                Pos2::new(c.x + r * 0.75, c.y - r * 0.55),
+                Pos2::new(c.x + r * 0.75, c.y + r * 1.15),
+                Pos2::new(c.x - r * 0.75, c.y + r * 1.15),
+            ];
+            for i in 0..pts.len() {
+                painter.line_segment([pts[i], pts[(i + 1) % pts.len()]], s);
+            }
+            // Folded-corner crease.
+            painter.line_segment([pts[1], Pos2::new(c.x + r * 0.15, c.y - r * 0.55)], th);
+            painter.line_segment([Pos2::new(c.x + r * 0.15, c.y - r * 0.55), pts[2]], th);
+
+            // ...with a small database glyph nested inside, since this is the
+            // indexed (keyed, database-style) file control.
+            draw_database_glyph(
+                painter,
+                Pos2::new(c.x, c.y + r * 0.35),
+                r * 0.42,
+                r * 0.15,
+                r * 0.28,
+                th,
                 th,
             );
         }

@@ -32,7 +32,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use cobolt_agents::grace::{last_json_block, AgentInvoker};
+use cobolt_agents::grace::{last_json_block, AgentInvoker, ReviewVerdict, WorkflowPlan};
 
 use crate::git_exec::{self, GitClass, GitConfirmRequest};
 
@@ -281,6 +281,21 @@ impl<'a> ToolExecutingInvoker<'a> {
 }
 
 impl AgentInvoker for ToolExecutingInvoker<'_> {
+    // Typed extraction (Rig migration phase 3) is a transport concern:
+    // delegate straight to the wrapped invoker so its provider-native
+    // recovery stays reachable through this decorator.
+    fn extract_plan(&mut self, agent: &str, plan_reply: &str) -> Result<WorkflowPlan, String> {
+        self.inner.extract_plan(agent, plan_reply)
+    }
+
+    fn extract_verdict(
+        &mut self,
+        reviewer: &str,
+        review_reply: &str,
+    ) -> Result<ReviewVerdict, String> {
+        self.inner.extract_verdict(reviewer, review_reply)
+    }
+
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
         let declared = (self.declared)(agent);
         let mut convo_user = user.to_string();

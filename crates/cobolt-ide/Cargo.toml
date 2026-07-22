@@ -72,6 +72,7 @@ toml        = { workspace = true }
 
 # AI assistant — optional cloud LLM for the COBOL code editor.
 cobolt-agents = { path = "../cobolt-agents" }
+schemars = "1"
 tokio = { workspace = true, features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
 

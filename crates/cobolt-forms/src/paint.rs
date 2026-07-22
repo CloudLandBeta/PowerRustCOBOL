@@ -1565,6 +1565,31 @@ pub fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     painter.add(egui::Shape::line(front, st));
 }
 
+/// Document icon with a nested database glyph. IndexedFile is a keyed,
+/// database-style file, so its deployed-on-canvas icon combines both: a
+/// folded-corner document outline with the shared database cylinder glyph
+/// (`nv_icon_database`) nested inside — matching the toolbox's IndexedFile
+/// icon so the same control looks identical whether it's still in the
+/// toolbox or already placed on the form.
+pub fn nv_icon_indexed_file(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    let pts = [
+        Pos2::new(c.x - s * 0.75, c.y - s * 0.95),
+        Pos2::new(c.x + s * 0.15, c.y - s * 0.95),
+        Pos2::new(c.x + s * 0.75, c.y - s * 0.45),
+        Pos2::new(c.x + s * 0.75, c.y + s * 0.95),
+        Pos2::new(c.x - s * 0.75, c.y + s * 0.95),
+    ];
+    for i in 0..pts.len() {
+        painter.line_segment([pts[i], pts[(i + 1) % pts.len()]], st);
+    }
+    // Folded-corner crease.
+    painter.line_segment([pts[1], Pos2::new(c.x + s * 0.15, c.y - s * 0.45)], st);
+    painter.line_segment([Pos2::new(c.x + s * 0.15, c.y - s * 0.45), pts[2]], st);
+
+    // Nested database glyph in the lower half of the document.
+    nv_icon_database(painter, Pos2::new(c.x, c.y + s * 0.30), s * 0.38, st);
+}
+
 /// A control's own `Opacity` (0–100) as a 0.0–1.0 multiplier (default 1.0). The
 /// render walk multiplies a container's `opacity_of` into the `alpha_mul` it
 /// passes to descendants, so a faded container dims its whole subtree (spec 012).
@@ -1917,7 +1942,7 @@ pub fn draw_control(
                 ctrl.get_prop("Driver").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "sqlite".into())
             }
             _ /* IndexedFile */ => {
-                nv_icon_database(painter, cen, s, st);
+                nv_icon_indexed_file(painter, cen, s, st);
                 ctrl.get_prop("OpenMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "INPUT".into())
             }
         };

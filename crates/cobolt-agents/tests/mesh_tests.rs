@@ -1,62 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use cobolt_agents::orchestrator::{route_specialist, MeshRequest, Orchestrator};
+//! Mesh-level behaviour that must survive the Rig migration: multilingual
+//! specialist routing and prompt composition (the HTTP wire is owned by Rig
+//! now — the hand-rolled orchestrator and its wire tests are deleted).
+
 #[cfg(feature = "local-retrieval")]
 use cobolt_agents::retrieval::index::LexicalIndex;
-use std::sync::Mutex;
-
-fn probe_request(prompt: &str) -> MeshRequest {
-    MeshRequest {
-        provider: "openai".into(),
-        model: "test-model".into(),
-        api_key: String::new(),
-        // Unreachable on purpose: the request must fail fast AFTER routing
-        // and URL resolution have been logged, so tests stay offline.
-        endpoint: "http://127.0.0.1:1/v1".into(),
-        endpoint_user_edited: false,
-        specialist: None,
-        system_prompt: String::new(),
-        skills: String::new(),
-        context: String::new(),
-        history: vec![],
-        user_prompt: prompt.into(),
-        temperature: 0.0,
-        max_tokens: 16,
-        verbose: false,
-    }
-}
-
-/// Routing decisions are observable through the on_log callback — the first
-/// line names the specialist. The network call then fails (offline test).
-async fn routed_specialist(prompt: &str) -> String {
-    let orch = Orchestrator::new();
-    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    let on_log = |line: String| lines.lock().unwrap().push(line);
-    let _ = orch
-        .handle_request(&probe_request(prompt), &on_log, &|_: &str| {})
-        .await;
-    let lines = lines.into_inner().unwrap();
-    lines
-        .iter()
-        .find(|l| l.starts_with("routing"))
-        .cloned()
-        .unwrap_or_default()
-}
-
-#[tokio::test]
-async fn orchestrator_routes_by_domain() {
-    assert!(routed_specialist("I need a new UI form for login")
-        .await
-        .contains("FormsDesigner"));
-    assert!(
-        routed_specialist("Please bind the click event to my button")
-            .await
-            .contains("EventBinder")
-    );
-    assert!(routed_specialist("Write a function to calculate tax")
-        .await
-        .contains("CodeGenerator"));
-}
+use cobolt_agents::{compose_system_prompt, route_specialist, Specialist};
 
 #[test]
 fn router_recognizes_power_rust_cobol_languages() {
@@ -94,46 +44,34 @@ fn router_recognizes_power_rust_cobol_languages() {
     }
 }
 
-#[tokio::test]
-async fn ollama_cloud_endpoint_uses_native_chat_wire() {
-    let orch = Orchestrator::new();
-    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    let on_log = |line: String| lines.lock().unwrap().push(line);
-    let mut req = probe_request("hello");
-    req.provider = "ollama_cloud".into();
-    // Older saved OpenAI-compatible Ollama Cloud endpoints are healed to the
-    // native Ollama Cloud streaming chat endpoint.
-    req.endpoint = "https://api.ollama.com/v1/chat/completions".into();
-    req.api_key = "test-key".into();
-    let _ = orch.handle_request(&req, &on_log, &|_: &str| {}).await;
-    let lines = lines.into_inner().unwrap();
-    let post = lines
-        .iter()
-        .find(|l| l.starts_with("POST"))
-        .expect("URL resolution must be logged");
-    assert!(
-        post.contains("https://ollama.com/api/chat"),
-        "endpoint must heal to native Ollama Cloud chat: {post}"
+#[test]
+fn router_routes_by_domain() {
+    assert_eq!(
+        route_specialist("I need a new UI form for login"),
+        "FormsDesigner"
     );
-    assert!(post.contains("ollama-native wire format"), "{post}");
+    assert_eq!(
+        route_specialist("Please bind the click event to my button"),
+        "EventBinder"
+    );
+    assert_eq!(
+        route_specialist("Write a function to calculate tax"),
+        "CodeGenerator"
+    );
 }
 
-#[tokio::test]
-async fn local_ollama_native_wire_chosen_from_api_suffix() {
-    let orch = Orchestrator::new();
-    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    let on_log = |line: String| lines.lock().unwrap().push(line);
-    let mut req = probe_request("hello");
-    req.provider = "ollama".into();
-    req.endpoint = "http://127.0.0.1:1/api".into();
-    let _ = orch.handle_request(&req, &on_log, &|_: &str| {}).await;
-    let lines = lines.into_inner().unwrap();
-    let post = lines
-        .iter()
-        .find(|l| l.starts_with("POST"))
-        .expect("logged");
-    assert!(post.contains("/api/chat"), "{post}");
-    assert!(post.contains("ollama-native wire format"), "{post}");
+/// Built-in mesh routes combine both contracts; named project agents use
+/// their complete host-supplied prompt without a foreign preamble.
+#[test]
+fn composition_contract_for_builtins_and_project_agents() {
+    let forms = Specialist::builtin("FormsDesigner").expect("built-in");
+    let combined = compose_system_prompt("HOST CONTRACT", Some(&forms));
+    assert!(combined.starts_with("HOST CONTRACT\n\n"));
+    assert!(combined.contains("Forms Designer Agent"));
+
+    assert!(Specialist::builtin("Grace").is_none());
+    let host_only = compose_system_prompt("Grace plans workflows.", None);
+    assert_eq!(host_only, "Grace plans workflows.");
 }
 
 #[test]

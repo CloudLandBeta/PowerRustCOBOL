@@ -15,10 +15,13 @@
 //! - The blocking wrapper mirrors the previous per-request-runtime pattern so
 //!   the synchronous `AgentInvoker` seam in `grace.rs` is preserved.
 
+use futures::StreamExt;
 use rig_core::client::CompletionClient;
 use rig_core::completion::Completion;
+use rig_core::completion::GetTokenUsage;
 use rig_core::message::{AssistantContent, Message};
 use rig_core::providers::{anthropic, openai};
+use rig_core::streaming::{StreamedAssistantContent, StreamingCompletion};
 use rig_core::tool::{Tool, ToolDyn};
 use std::sync::Arc;
 
@@ -132,6 +135,224 @@ pub async fn run_agent(call: &AgentCall) -> Result<AgentReply, String> {
             .map_err(|e| format!("openai-compatible client build failed: {e}"))?;
         complete_with(client, call).await
     }
+}
+
+/// One typed-extraction invocation (Rig migration, phase 3): pull a
+/// schema-shaped value out of `source_text` with the provider's native
+/// forced-tool-call extraction (`submit`). Used as the recovery path when a
+/// reply's deterministic fenced-JSON parse fails — it replaces the old
+/// "malformed plan, please resend everything" correction roundtrips.
+#[derive(Clone)]
+pub struct ExtractCall {
+    /// Provider id from the model profile (lowercase, e.g. "openai").
+    pub provider: String,
+    pub model: String,
+    pub api_key: String,
+    pub endpoint: String,
+    /// Extraction-specific instructions appended to Rig's extractor preamble.
+    pub preamble: String,
+    pub max_tokens: u32,
+}
+
+/// A typed extraction result plus exact token usage (all attempts included).
+#[derive(Debug, Clone)]
+pub struct ExtractedReply<T> {
+    pub data: T,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// Retries Rig performs internally when the model fails to call `submit` with
+/// schema-valid arguments. Bounded like MAX_TOOL_ROUNDS: never an open loop.
+const EXTRACT_RETRIES: u64 = 2;
+
+/// Extract a `T` from `source_text` synchronously (worker-thread callers).
+pub fn extract_typed_blocking<T>(call: &ExtractCall, source_text: &str) -> Result<ExtractedReply<T>, String>
+where
+    T: schemars::JsonSchema + serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+{
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("failed to start async runtime: {e}"))?;
+    rt.block_on(extract_typed::<T>(call, source_text))
+}
+
+/// Extract a `T` from `source_text` asynchronously.
+pub async fn extract_typed<T>(call: &ExtractCall, source_text: &str) -> Result<ExtractedReply<T>, String>
+where
+    T: schemars::JsonSchema + serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+{
+    let base = normalize_base(&call.provider, &call.endpoint);
+    if call.provider.eq_ignore_ascii_case("anthropic") {
+        let client = anthropic::Client::builder()
+            .api_key(call.api_key.as_str())
+            .base_url(&base)
+            .build()
+            .map_err(|e| format!("anthropic client build failed: {e}"))?;
+        extract_with::<_, T>(client, call, source_text).await
+    } else {
+        let client = openai::Client::builder()
+            .api_key(call.api_key.as_str())
+            .base_url(&base)
+            .build()
+            .map_err(|e| format!("openai-compatible client build failed: {e}"))?;
+        extract_with::<_, T>(client, call, source_text).await
+    }
+}
+
+async fn extract_with<C, T>(client: C, call: &ExtractCall, source_text: &str) -> Result<ExtractedReply<T>, String>
+where
+    C: CompletionClient,
+    T: schemars::JsonSchema + serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+{
+    let extractor = client
+        .extractor::<T>(&call.model)
+        .preamble(&call.preamble)
+        .max_tokens(call.max_tokens as u64)
+        .retries(EXTRACT_RETRIES)
+        .build();
+    let response = extractor
+        .extract_with_usage(source_text)
+        .await
+        .map_err(|e| format!("typed extraction failed: {e}"))?;
+    Ok(ExtractedReply {
+        data: response.data,
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+    })
+}
+
+/// One streamed chat invocation (Rig migration, phase 4): the transport for
+/// the IDE's single-agent entry points (AI Dev Agent, editor assistant,
+/// history compaction, connection test) — replaces the hand-rolled HTTP
+/// orchestrator's request loop. Prior turns ride along as history and text
+/// deltas stream through `on_chunk` as the model produces them.
+#[derive(Clone)]
+pub struct ChatCall {
+    /// Provider id from the model profile (lowercase, e.g. "openai").
+    pub provider: String,
+    pub model: String,
+    pub api_key: String,
+    pub endpoint: String,
+    /// Full system prompt composed by the host (host prompt + any specialist
+    /// preamble) — the transport never invents or drops it.
+    pub system_prompt: String,
+    /// Reference material (skills) — attached as a static context document.
+    pub skills: String,
+    /// Prior conversation turns as (role, content); any non-"user" role is an
+    /// assistant turn.
+    pub history: Vec<(String, String)>,
+    /// The final user message (context already appended by the host).
+    pub user_prompt: String,
+    pub temperature: f32,
+    pub max_tokens: u32,
+}
+
+/// Invoke one streamed chat synchronously (worker-thread callers).
+pub fn run_chat_blocking(
+    call: &ChatCall,
+    on_chunk: &(dyn Fn(&str) + Send + Sync),
+) -> Result<AgentReply, String> {
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("failed to start async runtime: {e}"))?;
+    rt.block_on(run_chat(call, on_chunk))
+}
+
+/// Invoke one streamed chat asynchronously.
+pub async fn run_chat(
+    call: &ChatCall,
+    on_chunk: &(dyn Fn(&str) + Send + Sync),
+) -> Result<AgentReply, String> {
+    let base = normalize_base(&call.provider, &call.endpoint);
+    if call.provider.eq_ignore_ascii_case("anthropic") {
+        let client = anthropic::Client::builder()
+            .api_key(call.api_key.as_str())
+            .base_url(&base)
+            .build()
+            .map_err(|e| format!("anthropic client build failed: {e}"))?;
+        chat_with(client, call, on_chunk).await
+    } else {
+        let client = openai::Client::builder()
+            .api_key(call.api_key.as_str())
+            .base_url(&base)
+            .build()
+            .map_err(|e| format!("openai-compatible client build failed: {e}"))?;
+        chat_with(client, call, on_chunk).await
+    }
+}
+
+async fn chat_with<C>(
+    client: C,
+    call: &ChatCall,
+    on_chunk: &(dyn Fn(&str) + Send + Sync),
+) -> Result<AgentReply, String>
+where
+    C: CompletionClient,
+{
+    let mut builder = client
+        .agent(&call.model)
+        .preamble(&call.system_prompt)
+        .temperature(call.temperature as f64)
+        .max_tokens(call.max_tokens as u64);
+    if !call.skills.trim().is_empty() {
+        builder = builder.context(&call.skills);
+    }
+    let agent = builder.build();
+
+    let history: Vec<Message> = call
+        .history
+        .iter()
+        .map(|(role, content)| {
+            if role == "user" {
+                Message::user(content.clone())
+            } else {
+                Message::assistant(content.clone())
+            }
+        })
+        .collect();
+
+    let mut stream = agent
+        .stream_completion(call.user_prompt.as_str(), history)
+        .await
+        .map_err(|e| format!("completion setup failed: {e}"))?
+        .stream()
+        .await
+        .map_err(|e| format!("model request failed: {e}"))?;
+
+    let mut text = String::new();
+    let mut reasoning_chars = 0usize;
+    while let Some(item) = stream.next().await {
+        match item.map_err(|e| format!("stream error: {e}"))? {
+            StreamedAssistantContent::Text(t) => {
+                on_chunk(&t.text);
+                text.push_str(&t.text);
+            }
+            StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
+                reasoning_chars += reasoning.chars().count();
+            }
+            StreamedAssistantContent::Reasoning(_) => {
+                reasoning_chars += 1;
+            }
+            _ => {}
+        }
+    }
+    let usage = stream.response.token_usage();
+
+    if text.trim().is_empty() && reasoning_chars > 0 {
+        return Err(format!(
+            "The model returned {reasoning_chars} reasoning character(s) but no assistant \
+             message content. PowerRustCOBOL cannot apply hidden reasoning as form \
+             operations. Use a non-reasoning/chat model or disable thinking/reasoning for \
+             this model."
+        ));
+    }
+    if text.trim().is_empty() {
+        return Err("the model returned no assistant text".to_string());
+    }
+    Ok(AgentReply {
+        text,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+    })
 }
 
 /// Error type for host-executed tools; the message is fed back to the model.

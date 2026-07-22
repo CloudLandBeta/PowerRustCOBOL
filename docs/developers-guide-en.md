@@ -1999,6 +1999,42 @@ reference: `docs/database-runtime.md`.
 > timeouts in COBOL, and never embed secrets (API keys, tokens) in a form you
 > intend to ship. Treat those as runtime configuration.
 
+### Asynchronous I/O (`Mode`, `Busy`, `TimeoutMs`, `Cancel()`)
+
+A `RestClient` call no longer blocks the whole form while it runs. The control
+is **asynchronous by default**: `GET` / `POST` / `PUT` / `DELETE` start a
+background worker, set the control's `Busy` flag, and return immediately. The
+event loop keeps dispatching (timer ticks, clicks, other controls), and the
+response arrives later as an event on the same control:
+
+- `onComplete` — the response arrived; read `ResponseBody` / `StatusCode` in
+  the handler.
+- `onError` — the transport failed (no HTTP status); `LastError` has the
+  message and `StatusCode` is `0`.
+- `onCancelled` — you called `Cancel()` while a request was in flight.
+- `onTimeout` — the request exceeded `TimeoutMs` without completing.
+
+The control surface, on `RestClient`, `SqlDatabase`, and `IndexedFile` alike:
+
+- **`Mode`** (`Async` / `Sync`) — `RestClient` defaults to `Async`;
+  `SqlDatabase` and `IndexedFile` default to `Sync` (their operations are
+  local and fast, and today they always execute synchronously — the property
+  and events exist on them for forward compatibility).
+- **`Busy`** (read-only) — `1` while an operation is in flight. A second call
+  while `Busy` is ignored; poll `Busy` or wait for the lifecycle event.
+- **`TimeoutMs`** — per-control timeout in milliseconds; `0` falls back to the
+  legacy `TimeoutSeconds × 1000`. On expiry the control fires `onTimeout` and
+  clears `Busy`.
+- **`Cancel()`** — abandon the in-flight operation immediately: `Busy` clears,
+  `onCancelled` fires, and any late result from the abandoned worker is
+  discarded safely. Calling `Cancel()` with nothing in flight is a no-op.
+
+> ⚠️ **Compatibility.** An existing form that reads `ResponseBody` on the
+> statement *after* a `GET` relies on the old blocking behaviour. Set that
+> control's `Mode` to `Sync` to keep the original same-statement result, or
+> move the read into an `onComplete` handler. The `COBOL-HTTP-*` CALL surface
+> is unchanged and always synchronous.
+
 ### Driving the IDE with an AI agent (MCP)
 
 The IDE itself is agent-operable. At startup it serves the **egui inspection
