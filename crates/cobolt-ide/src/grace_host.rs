@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agents_db::{AgentKind, AgentsDb, DATA_INDEXED_FILE_AGENT, DOCUMENTATION_AGENT, GRACE};
 use crate::git_exec::GitConfirmRequest;
-use crate::llm::{LlmConfig, LlmResponse};
+use crate::llm::LlmConfig;
 use crate::tool_exec::{IdeToolBackend, ToolEvidence, ToolExecutingInvoker};
 
 /// Bound on tool-execution rounds per task (spec 030) — guards a model that
@@ -76,7 +76,12 @@ fn is_informational_grace_request(request: &str) -> bool {
     ]
     .iter()
     .any(|marker| normalized.contains(marker));
-    !follow_on_action
+    // A "when/if <event>, <verb> <target>" directive opens like a question but
+    // asks for a concrete change; treat its imperative consequent as an action.
+    let conditional_action = normalized
+        .split_once(',')
+        .is_some_and(|(_, consequent)| clause_starts_with_action(consequent));
+    !(follow_on_action || conditional_action)
         && (normalized == "help"
             || normalized.contains("what can you do")
             || normalized.contains("what are your capabilities")
@@ -85,6 +90,29 @@ fn is_informational_grace_request(request: &str) -> bool {
             || passive_openers
                 .iter()
                 .any(|opener| normalized.starts_with(opener)))
+}
+
+/// True when `clause` begins with an imperative action verb at a word boundary.
+///
+/// Used to detect the consequent of a "when/if <event>, <verb> ..." directive so
+/// event-wiring requests (e.g. "when Button-1 is clicked, activate Timer-1") are
+/// routed to the ACTION contract instead of being mistaken for read-only
+/// questions merely because they open with a passive keyword like "when".
+fn clause_starts_with_action(clause: &str) -> bool {
+    const ACTION_VERBS: &[&str] = &[
+        "create", "modify", "update", "change", "save", "write", "delete", "remove",
+        "implement", "fix", "add", "insert", "set", "apply", "assign", "populate",
+        "activate", "deactivate", "enable", "disable", "start", "stop", "run",
+        "trigger", "invoke", "call", "wire", "bind", "connect", "attach", "toggle",
+        "show", "hide", "open", "close", "move", "resize", "rename", "restyle",
+        "align", "clear", "reset",
+    ];
+    let clause = clause.trim_start();
+    ACTION_VERBS.iter().any(|verb| {
+        clause.strip_prefix(verb).is_some_and(|rest| {
+            rest.is_empty() || rest.starts_with(|character: char| !character.is_ascii_alphanumeric())
+        })
+    })
 }
 
 fn direct_grace_record(reply: String) -> WorkflowRecord {
@@ -107,6 +135,7 @@ fn direct_grace_record(reply: String) -> WorkflowRecord {
             final_state: TaskState::Approved,
             failure_reason: String::new(),
         }],
+        ..Default::default()
     }
 }
 
@@ -435,12 +464,57 @@ fn validate_no_pedantic_task_agent(db: &AgentsDb, plan: &[TaskSpec]) -> Result<(
     Ok(())
 }
 
+fn validate_domain_specialist_authorization(plan: &[TaskSpec]) -> Result<(), String> {
+    for task in plan {
+        let text = task_text(task);
+
+        // 1. Form design / UI restyling / control deployment must be Form Designer Agent ONLY
+        let claims_form_design = text.contains("deploy_control")
+            || text.contains("set_property")
+            || text.contains("restyle form")
+            || text.contains("form theme")
+            || text.contains("glassstyle")
+            || text.contains("form layout");
+
+        if claims_form_design && !task.agent.eq_ignore_ascii_case(crate::agents_db::FORM_DESIGNER) {
+            return Err(format!(
+                "task {} assigns form design/styling to {}; only {} is authorized to modify forms and UI controls",
+                task.id, task.agent, crate::agents_db::FORM_DESIGNER
+            ));
+        }
+
+        // 2. COBOL event handler implementation must be COBOL Event Handler Script Agent ONLY
+        let claims_event_handler = text.contains("generate_event_handler")
+            || text.contains("cobol event handler")
+            || text.contains("event handler script");
+
+        if claims_event_handler && !task.agent.eq_ignore_ascii_case(crate::agents_db::EVENT_HANDLER) {
+            return Err(format!(
+                "task {} assigns COBOL event handler implementation to {}; only {} is authorized to write event handlers",
+                task.id, task.agent, crate::agents_db::EVENT_HANDLER
+            ));
+        }
+
+        // 3. Documentation Agent fallback boundary: Documentation Agent may analyze and document missing capabilities, but may not perform restricted implementation
+        if task.agent.eq_ignore_ascii_case(DOCUMENTATION_AGENT) {
+            if claims_form_design || claims_event_handler || task_claims_indexed_mutation(task) {
+                return Err(format!(
+                    "task {} assigns restricted implementation work to {}; Documentation Agent may only analyze, document missing capabilities, and prepare handoff/clarification requests",
+                    task.id, DOCUMENTATION_AGENT
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_workflow_coordination(
     db: &AgentsDb,
     request: &str,
     plan: &[TaskSpec],
 ) -> Result<(), String> {
     validate_no_pedantic_task_agent(db, plan)?;
+    validate_domain_specialist_authorization(plan)?;
     validate_documentation_coordination(request, plan)?;
     validate_indexed_file_coordination(request, plan)
 }
@@ -501,10 +575,122 @@ pub fn load_run_file(path: &Path) -> Result<RunFile, String> {
 pub struct DbAgentInvoker {
     pub project_dir: PathBuf,
     pub llm: LlmConfig,
+    /// Shared (input, output) token accumulator across every LLM call this
+    /// invoker makes; read back by the workflow host after the run.
+    pub tokens: std::sync::Arc<std::sync::Mutex<(u64, u64)>>,
+    /// Shared tool-evidence sink: native-tool executions are recorded here by
+    /// the host closures (spec 030 R11), same records as the fenced protocol.
+    pub evidence: std::sync::Arc<std::sync::Mutex<Vec<ToolEvidence>>>,
 }
 
 impl DbAgentInvoker {
-    fn config_for(&self, agent: &str) -> Result<(LlmConfig, String, String), String> {
+    /// Native Rig tools granted to `agent`, built from its declared tools.
+    /// Only declared tools get definitions — governance by construction.
+    fn native_tools(&self, agent: &str) -> cobolt_agents::rig_transport::AgentTools {
+        use cobolt_agents::rig_transport::{AgentTools, HostToolFn};
+        let declared: std::collections::HashSet<String> = AgentsDb::load(&self.project_dir)
+            .by_name(agent)
+            .map(|a| a.tools.iter().cloned().collect())
+            .unwrap_or_default();
+        let now = || {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        };
+        let record = {
+            let sink = self.evidence.clone();
+            let agent = agent.to_string();
+            move |tool: &str, args: &serde_json::Value, ok: bool, summary: String| {
+                if let Ok(mut ev) = sink.lock() {
+                    ev.push(ToolEvidence {
+                        agent: agent.clone(),
+                        tool: tool.to_string(),
+                        args_digest: {
+                            let digest = args.to_string();
+                            digest.chars().take(160).collect()
+                        },
+                        summary,
+                        ok,
+                        ts: now(),
+                    });
+                }
+            }
+        };
+        let mut tools = AgentTools::default();
+        if declared.contains("knowledge.search") {
+            let dir = self.project_dir.clone();
+            let record = record.clone();
+            let f: HostToolFn = std::sync::Arc::new(move |args: serde_json::Value| {
+                let query = args
+                    .get("query")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if query.is_empty() {
+                    record("knowledge.search", &args, false, "missing query".into());
+                    return Err("\"query\" must be a non-empty string".into());
+                }
+                let limit = args
+                    .get("limit")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(5)
+                    .clamp(1, 10) as usize;
+                let _ = cobolt_agents::project_knowledge::sync_documentation(&dir);
+                match cobolt_agents::project_knowledge::search(&dir, &query, limit) {
+                    Ok(hits) => {
+                        record(
+                            "knowledge.search",
+                            &args,
+                            true,
+                            format!("retrieved {} project document(s)", hits.len()),
+                        );
+                        Ok(hits
+                            .iter()
+                            .map(|hit| {
+                                format!(
+                                    "PATH: {}\nSCORE: {:.4}\nEXCERPT:\n{}",
+                                    hit.path, hit.score, hit.excerpt
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n\n---\n\n"))
+                    }
+                    Err(error) => {
+                        record("knowledge.search", &args, false, "search failed".into());
+                        Err(error)
+                    }
+                }
+            });
+            tools.knowledge_search = Some(f);
+        }
+        for (declared_name, native) in [("egui.tree", true), ("egui.rects", false)] {
+            if declared.contains(declared_name) {
+                let record = record.clone();
+                let tool_name = declared_name.to_string();
+                let f: HostToolFn = std::sync::Arc::new(move |args: serde_json::Value| {
+                    let result = crate::agent_inspection::observe(&tool_name);
+                    record(&tool_name, &args, result.ok, result.summary.clone());
+                    if result.ok {
+                        Ok(result.detail)
+                    } else {
+                        Err(result.detail)
+                    }
+                });
+                if native {
+                    tools.egui_tree = Some(f);
+                } else {
+                    tools.egui_rects = Some(f);
+                }
+            }
+        }
+        tools
+    }
+}
+
+impl DbAgentInvoker {
+    fn config_for(&self, agent: &str) -> Result<(LlmConfig, String, String, AgentKind), String> {
         let db = AgentsDb::load(&self.project_dir);
         let Some(a) = db.by_name(agent) else {
             return Err(format!(
@@ -528,13 +714,22 @@ impl DbAgentInvoker {
             }
             combined_skills.push_str(&knowledge);
         }
-        Ok((cfg, core_instructions, combined_skills))
+        Ok((cfg, core_instructions, combined_skills, a.kind))
     }
 }
 
+/// Appended to a Pedantic Agent's review prompt when the operator's Verbose AI
+/// log setting is on. Without this, the tooling contract only forces detail
+/// out of a *rejection* (`correction_request` carries the defect list) — an
+/// "acceptable" verdict can legally be a bare one-line confirmation with nothing
+/// for Grace (or the developer reading the verbose log) to audit. Verbose mode
+/// closes that gap: the reviewer must justify approvals with the same rigor as
+/// rejections.
+const VERBOSE_PEDANTIC_REPORT_DIRECTIVE: &str = "\n\nVERBOSE MODE IS ACTIVE. Regardless of your verdict, return a complete report to Grace: what you inspected, the specific requirements and acceptance criteria you checked it against, and the full reasoning behind the verdict. An \"acceptable\" verdict must be justified in the same depth as a \"defects\" verdict — do not shorten it to a bare confirmation like \"looks good\" or \"clean.\"; state explicitly why each requirement is satisfied. This applies to every round, including the final assessment.";
+
 impl AgentInvoker for DbAgentInvoker {
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
-        let (cfg, core_instructions, skills) = self.config_for(agent)?;
+        let (cfg, core_instructions, skills, kind) = self.config_for(agent)?;
         // Report a blank credential as itself rather than letting the provider
         // answer 401, which reads like an account problem.
         if let Some(gap) = crate::llm::credential_gap(&cfg) {
@@ -545,22 +740,48 @@ impl AgentInvoker for DbAgentInvoker {
         } else {
             system
         };
-        let rx = crate::llm::spawn_named_agent_request(
-            &cfg,
-            final_system,
-            &skills,
-            user,
-            agent,
+        // Pedantic companions get an explicit verbose-reporting directive when
+        // the operator has verbose logging on — see
+        // `VERBOSE_PEDANTIC_REPORT_DIRECTIVE`. Every other agent is unaffected.
+        let effective_user = if cfg.verbose_log && kind == AgentKind::Pedantic {
+            format!("{user}{VERBOSE_PEDANTIC_REPORT_DIRECTIVE}")
+        } else {
+            user.to_string()
+        };
+        // Rig transport (migration phase 1): one provider client per profile,
+        // no wire-format sniffing, exact token usage from the response.
+        let call = cobolt_agents::rig_transport::AgentCall {
+            provider: cfg.provider.clone(),
+            model: cfg.model.clone(),
+            api_key: cfg.api_key.clone(),
+            endpoint: cfg.endpoint.clone(),
+            system_prompt: final_system.to_string(),
+            skills: skills.clone(),
+            user_prompt: effective_user,
+            temperature: cfg.temperature,
+            max_tokens: cfg.max_tokens,
+            tools: self.native_tools(agent),
+        };
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Info,
+            format!("rig · {agent} → {}/{}", cfg.provider, cfg.model),
         );
-        // Drain the stream to the final result (chunks are progress only).
-        loop {
-            match rx.recv() {
-                Ok(LlmResponse::Chunk(_)) => {}
-                Ok(LlmResponse::Ok(full)) => return Ok(full),
-                Ok(LlmResponse::Err(e)) => return Err(e),
-                Err(_) => return Err("agent worker stopped unexpectedly".into()),
-            }
+        let reply = cobolt_agents::rig_transport::run_agent_blocking(&call)
+            .map_err(|e| format!("{agent}: {e}"))?;
+        if let Ok(mut totals) = self.tokens.lock() {
+            totals.0 += reply.input_tokens;
+            totals.1 += reply.output_tokens;
         }
+        crate::llm::push_ai_log(
+            crate::llm::AiLogKind::Detail,
+            format!(
+                "rig · {agent} · tokens: {} in / {} out · {} chars",
+                reply.input_tokens,
+                reply.output_tokens,
+                reply.text.len()
+            ),
+        );
+        Ok(reply.text)
     }
 }
 
@@ -745,12 +966,15 @@ pub fn run_grace_workflow_with_context(
     );
     // Base transport (resolves model/key/prompt per agent), decorated with the
     // tool-execution layer: declared-tools governance + git/egui backends.
+    let token_sink: Arc<Mutex<(u64, u64)>> = Arc::new(Mutex::new((0, 0)));
+    let evidence: Arc<Mutex<Vec<ToolEvidence>>> = Arc::new(Mutex::new(Vec::new()));
     let mut inner = DbAgentInvoker {
         project_dir: project_dir.to_path_buf(),
         llm: llm.clone(),
+        tokens: token_sink.clone(),
+        evidence: evidence.clone(),
     };
     let mut backend = IdeToolBackend::new(project_dir.to_path_buf(), confirm);
-    let evidence: Arc<Mutex<Vec<ToolEvidence>>> = Arc::new(Mutex::new(Vec::new()));
     let dir_for_decl = project_dir.to_path_buf();
     let declared = move |agent: &str| -> std::collections::HashSet<String> {
         AgentsDb::load(&dir_for_decl)
@@ -910,7 +1134,7 @@ pub fn run_grace_workflow_with_context(
             emitted += 1;
         }
     };
-    let record = GraceEngine::default().run_with_progress(
+    let mut record = GraceEngine::default().run_with_progress(
         &workflow_id,
         &plan,
         &mut invoker,
@@ -922,6 +1146,16 @@ pub fn run_grace_workflow_with_context(
     );
     flush_tools(on_progress); // any evidence recorded after the last transition
     drop(invoker); // release the borrows on evidence before draining it
+
+    // Enrich the record for the chatbot surface: KB summary, Grace's concise
+    // one-line summary, and the workflow's total token consumption.
+    record.knowledge_summary = summarize_knowledge_context(&knowledge_context);
+    record.final_summary = grace_final_summary(&record);
+    {
+        let (inp, out) = *token_sink.lock().unwrap();
+        record.input_tokens = inp;
+        record.output_tokens = out;
+    }
 
     let tool_calls = evidence.lock().unwrap().clone();
     let path = save_workflow_record(project_dir, &record, &tool_calls)?;
@@ -935,9 +1169,23 @@ pub fn run_grace_workflow_with_context(
 /// Convert a completed workflow into the reply shown by a chatbot. Prefer the
 /// surface's specialist output when it exists (important for structured form
 /// change-sets); otherwise include every approved specialist submission.
-pub fn workflow_chat_reply(record: &WorkflowRecord, preferred_specialist: Option<&str>) -> String {
+pub fn workflow_chat_reply(
+    record: &WorkflowRecord,
+    preferred_specialist: Option<&str>,
+    verbose: bool,
+) -> String {
     use cobolt_agents::grace::TaskState;
 
+    if verbose {
+        return verbose_transcript(record);
+    }
+
+    // Concise mode: Grace's one-line, user-facing summary of the work done.
+    if !record.final_summary.trim().is_empty() {
+        return with_token_footer(record.final_summary.trim().to_string(), record);
+    }
+
+    // Fallbacks when no summary was produced.
     let approved: Vec<_> = record
         .tasks
         .iter()
@@ -949,22 +1197,25 @@ pub fn workflow_chat_reply(record: &WorkflowRecord, preferred_specialist: Option
             approved
                 .iter()
                 .filter(|(agent, _)| agent.eq_ignore_ascii_case(name))
-                .map(|(_, text)| (*text).clone())
+                .map(|(_, text)| readable_submission(text))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
     if !preferred.is_empty() {
-        return preferred.join("\n\n");
+        return with_token_footer(preferred.join("\n\n"), record);
     }
     if approved.len() == 1 && approved[0].0.eq_ignore_ascii_case(GRACE) {
-        return approved[0].1.clone();
+        return with_token_footer(readable_submission(approved[0].1), record);
     }
     if !approved.is_empty() {
-        return approved
-            .into_iter()
-            .map(|(agent, text)| format!("{agent}:\n{text}"))
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        return with_token_footer(
+            approved
+                .into_iter()
+                .map(|(agent, text)| format!("{agent}: {}", readable_submission(text)))
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+            record,
+        );
     }
 
     let failures: Vec<_> = record
@@ -982,6 +1233,272 @@ pub fn workflow_chat_reply(record: &WorkflowRecord, preferred_specialist: Option
             failures.join("\n")
         )
     }
+}
+
+/// The verbose chatbot transcript: Grace's plan, each delegated request and the
+/// agent's (summarised) response, the Pedantic verdict, and Grace's final line.
+/// Change-sets are rendered in plain language rather than dumped as raw JSON.
+fn verbose_transcript(record: &WorkflowRecord) -> String {
+    use cobolt_agents::grace::TaskState;
+    let mut out = String::new();
+    if !record.knowledge_summary.trim().is_empty() {
+        out.push_str(&format!("Knowledge Base: {}\n\n", record.knowledge_summary.trim()));
+    }
+    // A direct conversation (single Grace task, no delegation).
+    if record.tasks.len() == 1 && record.tasks[0].spec.agent.eq_ignore_ascii_case(GRACE) {
+        let reply = record.tasks[0].submissions.last().cloned().unwrap_or_default();
+        out.push_str(&format!("Grace: {}", reply.trim()));
+        return with_token_footer(out.trim_end().to_string(), record);
+    }
+    out.push_str(&format!("Grace: planned {} step(s).\n\n", record.tasks.len()));
+    for task in &record.tasks {
+        let agent = &task.spec.agent;
+        out.push_str(&format!("Grace \u{2192} {agent}: {}\n", task.spec.objective.trim()));
+        if let Some(sub) = task.submissions.last() {
+            out.push_str(&format!("{agent}: {}\n", readable_submission(sub)));
+        }
+        if let Some(review) = task.reviews.last() {
+            let verdict = if review.defects { "REJECTED" } else { "APPROVED" };
+            let detail = if review.defects && !review.correction_request.trim().is_empty() {
+                format!(" \u{2014} {}", first_nonempty_line(&review.correction_request))
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("{}: {verdict}{detail}\n", review.reviewer));
+        } else if task.final_state == TaskState::Failed {
+            out.push_str(&format!("Result: failed \u{2014} {}\n", task.failure_reason.trim()));
+        }
+        out.push('\n');
+    }
+    if !record.final_summary.trim().is_empty() {
+        out.push_str(&format!("Grace: {}", record.final_summary.trim()));
+    }
+    with_token_footer(out.trim_end().to_string(), record)
+}
+
+/// Append a compact token-consumption footer, unless no tokens were recorded.
+fn with_token_footer(body: String, record: &WorkflowRecord) -> String {
+    if record.input_tokens == 0 && record.output_tokens == 0 {
+        body
+    } else {
+        format!(
+            "{body}\n\n\u{2014} {} tokens in / {} tokens out",
+            record.input_tokens, record.output_tokens
+        )
+    }
+}
+
+fn first_nonempty_line(s: &str) -> String {
+    s.lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+/// Render one agent submission for the chatbot: a plain-language change-set
+/// summary when the submission carries operations, else a short prose lead with
+/// fenced code/JSON blocks stripped out.
+fn readable_submission(sub: &str) -> String {
+    let ops = extract_operations(sub);
+    if !ops.is_empty() {
+        return summarize_operations(&ops).join(" ");
+    }
+    let mut prose = String::new();
+    let mut in_fence = false;
+    for line in sub.lines() {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if !in_fence {
+            prose.push_str(line);
+            prose.push(' ');
+        }
+    }
+    let words: Vec<&str> = prose.split_whitespace().collect();
+    let mut s = words.iter().take(50).cloned().collect::<Vec<_>>().join(" ");
+    if words.len() > 50 {
+        s.push('\u{2026}');
+    }
+    if s.is_empty() {
+        "(completed)".to_string()
+    } else {
+        s
+    }
+}
+
+/// Extract the `operations` array from a change-set submission (fenced or bare),
+/// tolerating surrounding prose. Returns an empty vec when none is present.
+fn extract_operations(submission: &str) -> Vec<serde_json::Value> {
+    for (start, _) in submission.match_indices('{') {
+        if let Some(end) = matching_brace(submission, start) {
+            let slice = &submission[start..=end];
+            if slice.contains("\"operations\"") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(slice) {
+                    if let Some(ops) = v.get("operations").and_then(|o| o.as_array()) {
+                        return ops.clone();
+                    }
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// Index of the `}` that closes the `{` at `start`, respecting JSON strings.
+fn matching_brace(s: &str, start: usize) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut esc = false;
+    for (i, &c) in bytes.iter().enumerate().skip(start) {
+        if in_str {
+            if esc {
+                esc = false;
+            } else if c == b'\\' {
+                esc = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+        } else {
+            match c {
+                b'"' => in_str = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(i);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+/// Turn change-set operations into plain-language lines (grouping identical
+/// property assignments across controls).
+fn summarize_operations(ops: &[serde_json::Value]) -> Vec<String> {
+    use std::collections::BTreeMap;
+    let str_of = |v: &serde_json::Value, k: &str| -> String {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .unwrap_or("?")
+            .to_string()
+    };
+    let val_of = |v: &serde_json::Value| -> String {
+        match v.get("value") {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(other) => other.to_string(),
+            None => "?".to_string(),
+        }
+    };
+    let mut lines = Vec::new();
+    let mut set_groups: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for op in ops {
+        match op.get("op").and_then(|v| v.as_str()).unwrap_or("") {
+            "set_property" => {
+                let key = str_of(op, "key");
+                let val = val_of(op);
+                set_groups
+                    .entry((key, val))
+                    .or_default()
+                    .push(str_of(op, "control_id"));
+            }
+            "deploy_control" => {
+                lines.push(format!(
+                    "Added {} '{}'.",
+                    str_of(op, "control_type"),
+                    str_of(op, "id")
+                ));
+            }
+            "generate_event_handler" => {
+                lines.push(format!(
+                    "Wired {} on {}.",
+                    str_of(op, "event"),
+                    str_of(op, "control_id")
+                ));
+            }
+            "create_procedure" => {
+                lines.push(format!("Added procedure {}.", str_of(op, "name")));
+            }
+            _ => {}
+        }
+    }
+    for ((key, val), ids) in set_groups {
+        if key == "GlassStyle" && ids.iter().any(|c| c.eq_ignore_ascii_case("Form")) {
+            lines.push(format!("Set form style to {val}."));
+        } else {
+            lines.push(format!("Set {key} to {val} for {}.", ids.join(", ")));
+        }
+    }
+    lines
+}
+
+/// Condense the injected Knowledge Base context into a <=15 word summary, or an
+/// empty string when there was no relevant evidence.
+fn summarize_knowledge_context(ctx: &str) -> String {
+    let head = ctx
+        .split("\n\nPROJECT KNOWLEDGE PRECEDENCE CONTRACT:")
+        .next()
+        .unwrap_or("")
+        .trim();
+    let lower = head.to_ascii_lowercase();
+    if head.is_empty() || lower.contains("no relevant") {
+        return String::new();
+    }
+    let words: Vec<&str> = head.split_whitespace().collect();
+    let mut s = words.iter().take(15).cloned().collect::<Vec<_>>().join(" ");
+    if words.len() > 15 {
+        s.push('\u{2026}');
+    }
+    s
+}
+
+/// Grace's concise, user-facing one-liner, derived deterministically from the
+/// approved work so it costs no extra model roundtrip. Change-sets are
+/// summarised in plain language; other agents are summarised from their task
+/// objective.
+fn grace_final_summary(record: &WorkflowRecord) -> String {
+    use cobolt_agents::grace::TaskState;
+    let mut lines = Vec::new();
+    for task in &record.tasks {
+        if task.final_state == TaskState::Approved {
+            if let Some(sub) = task.submissions.last() {
+                lines.extend(summarize_operations(&extract_operations(sub)));
+            }
+        }
+    }
+    if !lines.is_empty() {
+        return lines.join(" ");
+    }
+    if record.status == "failed" {
+        return String::new();
+    }
+    // No change-set (COBOL/doc/etc.) — summarise from the approved task objectives
+    // rather than spending another Grace call on a one-liner.
+    let done: Vec<String> = record
+        .tasks
+        .iter()
+        .filter(|t| t.final_state == TaskState::Approved)
+        .map(|t| {
+            let objective = t
+                .spec
+                .objective
+                .split(['.', '\n'])
+                .next()
+                .unwrap_or("")
+                .trim();
+            if objective.is_empty() {
+                format!("{} completed its task", t.spec.agent)
+            } else {
+                format!("{}: {objective}", t.spec.agent)
+            }
+        })
+        .collect();
+    done.join("; ")
 }
 
 #[cfg(test)]
@@ -1009,6 +1526,7 @@ mod tests {
                 final_state: TaskState::Approved,
                 failure_reason: String::new(),
             }],
+            ..Default::default()
         }
     }
 
@@ -1069,6 +1587,7 @@ mod tests {
                 // Approved but a different agent → ignored.
                 task("Version Control Agent", TaskState::Approved, "done"),
             ],
+            ..Default::default()
         };
         let sets = approved_form_change_sets(&record, "Form Designer Agent");
         assert_eq!(sets.len(), 1, "one approved Form-Designer task");
@@ -1089,14 +1608,15 @@ mod tests {
                     "event result",
                 ),
             ],
+            ..Default::default()
         };
         assert_eq!(
-            workflow_chat_reply(&record, Some("Form Designer Agent")),
+            workflow_chat_reply(&record, Some("Form Designer Agent"), false),
             "form result"
         );
-        let project_reply = workflow_chat_reply(&record, None);
-        assert!(project_reply.contains("Form Designer Agent:\nform result"));
-        assert!(project_reply.contains("COBOL Event Handler Script Agent:\nevent result"));
+        let project_reply = workflow_chat_reply(&record, None, false);
+        assert!(project_reply.contains("Form Designer Agent: form result"));
+        assert!(project_reply.contains("COBOL Event Handler Script Agent: event result"));
     }
 
     #[test]
@@ -1118,10 +1638,20 @@ mod tests {
         assert!(!is_informational_grace_request(
             "Describe the customer schema and create the indexed file"
         ));
+        // Event-wiring directives open with a passive keyword ("when") but ask
+        // for a concrete change, so they must route to the ACTION contract.
+        assert!(!is_informational_grace_request(
+            "when the user click on button-1, activate timer-1"
+        ));
+        assert!(!is_informational_grace_request(
+            "When Button-1 is clicked, start Timer-1"
+        ));
+        // A genuine "when" question with no imperative consequent stays a conversation.
+        assert!(is_informational_grace_request("When does the timer fire?"));
 
         let record = direct_grace_record("I coordinate the project agents.".into());
         assert_eq!(
-            workflow_chat_reply(&record, None),
+            workflow_chat_reply(&record, None, false),
             "I coordinate the project agents."
         );
         assert_eq!(record.tasks[0].spec.agent, GRACE);

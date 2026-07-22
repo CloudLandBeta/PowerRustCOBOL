@@ -141,11 +141,11 @@ pub fn parse_tool_calls(reply: &str) -> Result<Option<Vec<ToolCall>>, String> {
 
 const GIT_TOOL_CONTRACT: &str = "\n\n--- Tool execution (git) — how you actually run git ---\nYou run git through one tool. To execute a command, END your reply with exactly one fenced JSON block and nothing after it:\n```json\n{\"tool_calls\":[{\"tool\":\"git.run\",\"args\":{\"argv\":[\"status\",\"--porcelain\"]}}]}\n```\n`argv` is the git argument vector WITHOUT the leading \"git\" (e.g. [\"commit\",\"-m\",\"message\"]). Do not pass -C, --git-dir, or --work-tree — the executor is already bound to the open project's repository and will reject them. Read and local-mutation ops run immediately; network and history-rewriting ops (push, fetch, pull, rebase, reset --hard) are GATED on explicit operator approval and will not run if declined. Each command returns its real exit status and output as a TOOL RESULTS block — a non-zero exit is a failure, never a success. When the task is complete, reply with your final result and DO NOT emit a tool_calls block.";
 
-const EGUI_TOOL_CONTRACT: &str = "\n\n--- Tool execution (live UI — observe only) ---\nYou may inspect the rendered form to verify your work. To read the live widget tree, END your reply with exactly one fenced JSON block:\n```json\n{\"tool_calls\":[{\"tool\":\"egui.tree\",\"args\":{}}]}\n```\nThe UI tools (egui.tree, egui.rects) are READ-ONLY: they let you SEE the rendered UI; they do NOT change it. Every form edit must be expressed as change-set operations, never by driving the live UI. The observed tree returns as a TOOL RESULTS block. When finished, reply with your final result and DO NOT emit a tool_calls block.";
+const EGUI_TOOL_CONTRACT: &str = "\n\n--- Live UI inspection (observe only) ---\nYou may inspect the rendered form to verify your work by calling the native function tools `egui_tree` (widget tree) or `egui_rects` (geometry). They are READ-ONLY: they let you SEE the rendered UI; they do NOT change it. Every form edit must be expressed as change-set operations, never by driving the live UI. Call the tool directly — do not describe the call in prose or emit any fenced tool_calls JSON block.";
 
 const DOCUMENTATION_TOOL_CONTRACT: &str = "\n\n--- Tool execution (project Knowledge Base) ---\nYou create and inspect project Knowledge Base documents through these tools. To write a Markdown document, END your reply with exactly one fenced JSON block and nothing after it:\n```json\n{\"tool_calls\":[{\"tool\":\"documentation.write\",\"args\":{\"path\":\"/Knowledge Base/Projects/example.md\",\"content\":\"# Example\\n\"}}]}\n```\nUse documentation.list with empty args and documentation.read with {\"path\":\"/Knowledge Base/...\"}. Writes are restricted to the open project's Knowledge Base/ folder and are automatically indexed in the project's SQLite vector database. A document exists only after a successful TOOL RESULTS response. When finished, reply with your final result and DO NOT emit a tool_calls block.";
 
-const KNOWLEDGE_TOOL_CONTRACT: &str = "\n\n--- Tool execution (project knowledge retrieval) ---\nUse the project-local SQLite vector index before relying on prior plans, requirements, task lists, or other documentation. END your reply with exactly one fenced JSON block:\n```json\n{\"tool_calls\":[{\"tool\":\"knowledge.search\",\"args\":{\"query\":\"PowerRustERP approved implementation tasks\",\"limit\":5}}]}\n```\nUse only returned project paths and excerpts as evidence. When finished, reply with your final result and DO NOT emit a tool_calls block.";
+const KNOWLEDGE_TOOL_CONTRACT: &str = "\n\n--- Project knowledge retrieval ---\nUse the native function tool `knowledge_search` (arguments: query, optional limit 1-10) to consult the project-local SQLite vector index before relying on prior plans, requirements, task lists, or other documentation. Use only returned project paths and excerpts as evidence. Call the tool directly — do not describe the call in prose or emit any fenced tool_calls JSON block.";
 
 const INDEXED_FILE_TOOL_CONTRACT: &str = r#"
 
@@ -1420,17 +1420,19 @@ mod tests {
             "git contract present"
         );
         assert!(
-            !git.contains("egui.tree"),
+            !git.contains("egui_tree"),
             "no egui contract when not declared"
         );
 
+        // Native-tool contracts (Rig migration phase 2): knowledge/egui are
+        // described as native function tools, not fenced tool_calls blocks.
         let egui = tool_contract_appendix(&declared(&["egui.tree", "egui.rects"]));
-        assert!(egui.contains("egui.tree") && egui.to_lowercase().contains("read-only"));
+        assert!(egui.contains("egui_tree") && egui.to_lowercase().contains("read-only"));
         assert!(!egui.contains("git.run"));
 
         let docs = tool_contract_appendix(&declared(&["documentation.write", "knowledge.search"]));
         assert!(docs.contains("documentation.write"));
-        assert!(docs.contains("knowledge.search"));
+        assert!(docs.contains("knowledge_search"));
         assert!(docs.contains("SQLite vector"));
 
         let indexed = tool_contract_appendix(&declared(&["indexed_file.write"]));

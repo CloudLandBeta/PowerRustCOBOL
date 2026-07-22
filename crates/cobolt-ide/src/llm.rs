@@ -769,7 +769,11 @@ pub fn push_ai_log(kind: AiLogKind, text: impl Into<String>) {
 /// Run one mesh request on a worker thread, streaming progress into the
 /// Agentic AI activity log and the connection log. Shared by the agent,
 /// direct-editor, and compaction entry points.
-fn run_mesh_request(req: cobolt_agents::MeshRequest, label: &'static str) -> Receiver<LlmResponse> {
+fn run_mesh_request(
+    req: cobolt_agents::MeshRequest,
+    label: &'static str,
+    token_sink: Option<std::sync::Arc<std::sync::Mutex<(u64, u64)>>>,
+) -> Receiver<LlmResponse> {
     let (tx, rx) = mpsc::channel();
     push_ai_log(
         AiLogKind::Info,
@@ -794,7 +798,11 @@ fn run_mesh_request(req: cobolt_agents::MeshRequest, label: &'static str) -> Rec
         rt.block_on(async {
             let orch = Orchestrator::new();
             // Every orchestrator step lands in the activity log as it happens.
-            let on_log = |line: String| push_ai_log(AiLogKind::Detail, format!("agent · {line}"));
+            let token_sink_for_log = token_sink.clone();
+            let on_log = move |line: String| {
+                accumulate_tokens(&token_sink_for_log, &line);
+                push_ai_log(AiLogKind::Detail, format!("agent · {line}"));
+            };
             let tx_clone = tx.clone();
             let on_chunk = move |chunk: &str| {
                 let _ = tx_clone.send(LlmResponse::Chunk(chunk.to_string()));
@@ -821,6 +829,30 @@ fn run_mesh_request(req: cobolt_agents::MeshRequest, label: &'static str) -> Rec
         });
     });
     rx
+}
+
+/// Parse a "tokens: N in / M out" (or "tokens: N in" / "tokens: N out") agent
+/// log line and add the counts to `sink`. Best-effort: unrecognised lines are
+/// ignored, so token totals degrade to 0 rather than breaking.
+fn accumulate_tokens(sink: &Option<std::sync::Arc<std::sync::Mutex<(u64, u64)>>>, line: &str) {
+    let Some(sink) = sink else { return };
+    let line = line.strip_prefix("Verbose: ").unwrap_or(line);
+    let Some(rest) = line.strip_prefix("tokens:") else {
+        return;
+    };
+    let toks: Vec<&str> = rest.split_whitespace().collect();
+    let mut inp = 0u64;
+    let mut out = 0u64;
+    for pair in toks.windows(2) {
+        if let Ok(n) = pair[0].parse::<u64>() {
+            if pair[1].starts_with("in") {
+                inp = n;
+            } else if pair[1].starts_with("out") {
+                out = n;
+            }
+        }
+    }
+    if (inp > 0 || out > 0) && sink.lock().map(|mut g| { g.0 += inp; g.1 += out; }).is_ok() {}
 }
 
 fn truncate_for_log(s: &str, max: usize) -> String {
@@ -901,7 +933,7 @@ pub fn spawn_agent_request(
     }
     req.history = h;
     req.user_prompt = sent.to_string();
-    run_mesh_request(req, "agent request")
+    run_mesh_request(req, "agent request", None)
 }
 
 pub fn spawn_request(
@@ -934,7 +966,7 @@ pub fn spawn_request(
     }
     req.history = h;
     req.user_prompt = prompt.to_string();
-    run_mesh_request(req, "editor request")
+    run_mesh_request(req, "editor request", None)
 }
 
 pub fn spawn_compaction(cfg: &LlmConfig, history: &[ChatTurn]) -> Receiver<LlmResponse> {
@@ -948,7 +980,7 @@ pub fn spawn_compaction(cfg: &LlmConfig, history: &[ChatTurn]) -> Receiver<LlmRe
         .map(|t| (t.role.clone(), t.content.clone()))
         .collect();
     req.user_prompt = "Summarize the preceding chat history concisely.".to_string();
-    run_mesh_request(req, "history compaction")
+    run_mesh_request(req, "history compaction", None)
 }
 
 /// Heal endpoints saved with the previously shipped wrong Ollama Cloud host
@@ -976,7 +1008,7 @@ pub fn spawn_test(cfg: &LlmConfig) -> Receiver<LlmResponse> {
     req.system_prompt =
         "You are testing model access. Reply with the exact text OK and nothing else.".to_string();
     req.user_prompt = "Reply with OK only.".to_string();
-    run_mesh_request(req, "connection/model access test")
+    run_mesh_request(req, "connection/model access test", None)
 }
 
 /// The Pedantic Agent's system prompt — authored verbatim by the operator
@@ -1193,9 +1225,17 @@ Design rules
   - `Theme` and `UseThemeBackground` are a SEPARATE named asset-pack slot. They are NOT how a GlassStyle is selected; do not set them when the developer asked for a neumorphic/classic/enhanced style.
   - Do NOT generate or invent individual custom color, border, padding, radius, or shadow properties for each control when applying a form style — the style engine paints every control automatically.
   - Only set individual control properties when the developer explicitly requests custom styling for specific named controls.
+- Layout & Alignment Improvement:
+  - When asked to "improve the layout", align controls, or clean up spacing, calculate precise, neat grid coordinates (`X`, `Y`, `Width`, `Height`) for existing controls.
+  - Maintain consistent row heights, uniform vertical gaps (e.g. 8px–12px), aligned label columns, consistent input control widths, and grouped action buttons.
+  - Use `{ "op": "set_property", "control_id": "<control_id>", "key": "X", "value": "<number>" }` and `{ "op": "set_property", "control_id": "<control_id>", "key": "Y", "value": "<number>" }` for each control requiring repositioning or resizing.
+  - Preserve all control IDs, captions, bindings, tab order, and non-visual control configuration.
+- Non-Visual Controls (`IndexedFile`, `SqlDatabase`, `RestClient`, `AgentObject`, `Timer`):
+  - Non-visual controls reside on the form canvas, but due to their nature they are not managed or configured by Form Designer Agent. Leave their schema, properties, data bindings, and status parameters intact.
+  - The ONLY exception to this rule is their visual designer geometry (`X`, `Y`, `Width`, `Height`), which Form Designer Agent is authorized to adjust if explicitly requested by the developer for canvas layout purposes.
 - Only use property keys explicitly listed under `PROPERTY KEYS BY TYPE` (per control type) or `FORM PROPERTIES` (form level) in the context. Do NOT invent or speculate property names (such as `shadowColorDark`, `shadowColorLight`, `innerShadow`, `hoverBackgroundColor`, `fontStyle`).
 - Target actual control IDs from the form context (e.g., `lblActorName`, `txtActorName`), or `Form` for form-level properties. Do NOT use bulk/wildcard identifiers (such as `ALL_LABELS` or `ALL_TEXTBOXES`). The ONLY valid operations are `deploy_control`, `set_property`, `generate_event_handler`, and `create_procedure`; names like `UPDATE_FORM_PROPERTY`, `UPDATE_CONTROL_PROPERTIES`, or `UPDATE_FORM_STYLE` do not exist and cannot be applied.
-- Do NOT modify unrequested form properties (such as `Title` or form dimensions). Do NOT modify non-visual controls (such as `IndexedFile-1` or `SqlDatabase-1`) or alter their properties/visibility. Preserve all control bounds, positions, captions, tab order, data bindings, and COBOL event handlers unless explicitly requested.
+- Do NOT modify unrequested form properties (such as `Title` or form dimensions). Preserve all control bounds, positions, captions, tab order, data bindings, and COBOL event handlers unless explicitly requested.
 - Do not implement unrelated COBOL business logic, Git operations, documentation writes, or source-code refactors.
 
 Validation
@@ -1278,17 +1318,23 @@ A subtask must be sufficiently precise that the receiving agent does not need to
 
 The Orchestrator must avoid excessive fragmentation. Tasks that belong to the same technical responsibility should remain together unless separation is required for parallelism, isolation, or independent review.
 
-Agent Selection
+Agent Selection & Domain Authorization
 
-Grace must maintain or obtain an accurate registry of available agents and their capabilities.
+Grace must maintain or obtain an accurate registry of available agents, their declared specializations, and authorized scopes.
 
-Agent selection must be based on: declared specialization; supported tools; authorized scope; target language or framework; current task requirements; required input and output formats; known dependencies; review obligations; suitability for the requested operation.
+Every task must be routed to and executed by the specialist explicitly designated for that domain. Grace must validate agent ownership, scope, and authorization before creating or delegating any task:
+- Form design, layout, control deployment, and visual restyling must be assigned ONLY to Form Designer Agent.
+- COBOL event handler implementations must be assigned ONLY to COBOL Event Handler Script Agent.
+- PowerRustCOBOL indexed-file (.cidx) schema maintenance must be assigned ONLY to Data (Indexed File) Agent.
+- Project documentation formatting and file writes must be assigned ONLY to Documentation Agent.
+- Git and version-control operations must be assigned ONLY to Version Control Agent.
 
-The Orchestrator must not select an agent solely because its name appears superficially related to the task.
+A specialist must NEVER implement work that belongs exclusively to another agent, even when it appears technically capable of doing so.
+
+Fallback Contract for Missing Capabilities or Unassigned Domains:
+When no authorized specialist can be identified for a requested implementation, Grace MUST NOT reassign the implementation to an unrelated agent. Instead, Documentation Agent must act as the fallback to analyze the request, document the missing capability, gather required information, and produce a structured handoff or clarification request to the developer. The Documentation Agent may NOT perform the restricted implementation itself.
 
 Before delegation, it must verify that the selected agent: supports the required operation; has access to the necessary tools; is permitted to modify the affected resource; understands the expected output contract; has access to the authoritative instructions; has an assigned Pedantic Agent companion when one is required.
-
-If no agent is suitable, the Orchestrator must report the missing capability rather than fabricate an agent, tool, or successful result.
 
 Context Management
 
@@ -1365,6 +1411,8 @@ Companion relationships are one-to-one. Grace must use exactly the Pedantic comp
 For each reviewed task, the Orchestrator must track: the original submission; the reviewing Pedantic Agent; defects reported; severity of each defect; corrections requested; revised submission; regression review; final verdict; final score, when applicable.
 
 A specialist agent cannot approve its own work.
+
+Every Pedantic Agent must return a complete report to Grace regardless of the verdict — approved or rejected — whenever verbose mode is active. A rejection's correction request already carries full defect detail; under verbose mode an approval must be reported with the same rigor: what was inspected, which requirements and acceptance criteria were checked, and the reasoning that supports the verdict. A bare one-line confirmation is not an acceptable approval report while verbose mode is active. When verbose mode is inactive, a concise approval (verdict plus an empty correction request) remains acceptable, but a rejection must always carry full defect detail regardless of verbose mode.
 
 The Orchestrator must reject any review that: is superficial; fails to inspect the full affected scope; ignores explicit instructions; approves work with unresolved critical defects; relies only on the specialist agent's claim of correctness; does not revalidate the complete affected result after corrections.
 
@@ -1645,6 +1693,19 @@ It must validate:
 * that the Form Designer Agent's submission ends with a change-set whose operations are all valid (`deploy_control`, `set_property`, `generate_event_handler`, `create_procedure`) and whose property keys and values are legal.
 
 A change-set is applied only AFTER you approve it. You are reviewing a proposal, not a completed edit. Never demand proof that a change has already been applied, a post-change inspection, or a tool result confirming the new state — none of those can exist at review time, and demanding them can only exhaust the correction loop and discard correct work. Judge the proposed change-set on evidence that CAN exist now: the operation names, the target identifiers, the property keys, the property values, the CONTEXT the agent was given, and read-only tool results describing the state BEFORE the change.
+
+Deterministic approval gate (evaluate this FIRST, before any other scrutiny)
+
+Decide approval against these objective conditions and return the verdict "acceptable" when ALL of them hold; do not manufacture further obstacles when they do:
+1. every operation is one of `deploy_control`, `set_property`, `generate_event_handler`, or `create_procedure`;
+2. every `control_id` targeted by a `set_property`, `generate_event_handler`, or `create_procedure` operation appears in the supplied CONTEXT (its control list / CONTROL API BY ID) or in a read-only tool result already provided. A `deploy_control` operation ADDS a new control, so its `id` is EXPECTED not to appear in the CONTEXT — a newly created id is not an "invented identifier" and must never be rejected on that basis;
+3. for each `set_property`, the property key is listed among that control's supported keys in the CONTEXT and the value is legal for that key; for each `deploy_control`, the `control_type` is one of the AVAILABLE CONTROL TYPES and every key in its `properties` is listed under that type's PROPERTY KEYS BY TYPE with a legal value;
+4. no operation targets IDE chrome, modifies an unrelated existing control, or changes a property or theme of an existing control that the task did not ask to change.
+
+The CONTEXT you were given — its AVAILABLE CONTROL TYPES, control list, CONTROL API BY ID, and PROPERTY KEYS BY TYPE — is itself authoritative pre-change evidence of what exists, what may be created, and what each control supports. When it already establishes conditions 2 and 3, that is sufficient: do NOT reject the change-set for lack of live tool-execution evidence, and do NOT require the specialist to run `egui.tree` or any other tool to "prove" that a listed control exists or that a listed property is supported. `egui.tree` observes the IDE window, not the form model, and cannot supply such proof anyway; demanding it only exhausts the bounded correction loop and discards correct work. The absence of a Knowledge Base document is likewise NOT a defect: never require the specialist to cite Knowledge Base documentation, and never fault a `knowledge.search` that returned nothing, for a control type or property that the CONTEXT already enumerates — the CONTEXT alone is enough to approve.
+
+Return "defects" only when a condition above genuinely fails — an unknown identifier, an unsupported property key, an illegal value, an out-of-scope edit, or a missing or malformed change-set — and then name the exact operation and the failed condition in the correction request. Absent such a failure, approve.
+
 Any invented MCP operation, unsupported property, fabricated method, guessed identifier, or unjustified assumption must be treated as a critical defect.
 
 Control Methods and Properties
@@ -2190,6 +2251,7 @@ pub fn spawn_named_agent_request(
     skills: &str,
     user_prompt: &str,
     agent: &str,
+    token_sink: Option<std::sync::Arc<std::sync::Mutex<(u64, u64)>>>,
 ) -> Receiver<LlmResponse> {
     let mut c = cfg.clone();
     c.endpoint = heal_endpoint(&c.endpoint);
@@ -2201,7 +2263,7 @@ pub fn spawn_named_agent_request(
     req.system_prompt = system_prompt.to_string();
     req.skills = skills.to_string();
     req.user_prompt = user_prompt.to_string();
-    run_mesh_request(req, "Grace workflow task")
+    run_mesh_request(req, "Grace workflow task", token_sink)
 }
 
 pub fn spawn_cobol_proficiency_benchmark(cfg: &LlmConfig) -> Receiver<LlmResponse> {
@@ -2227,7 +2289,7 @@ fn spawn_benchmark_primary(cfg: &LlmConfig) -> Receiver<LlmResponse> {
     req.specialist = Some("CodeGenerator".to_string());
     req.system_prompt = "You are a strict COBOL-85 and PowerRustCOBOL model evaluator.".to_string();
     req.user_prompt = benchmark_primary_prompt(&bench_cfg);
-    run_mesh_request(req, "COBOL proficiency benchmark")
+    run_mesh_request(req, "COBOL proficiency benchmark", None)
 }
 
 /// One primary-model round with an arbitrary user prompt (revision requests).
@@ -2238,7 +2300,7 @@ fn spawn_benchmark_primary_with(cfg: &LlmConfig, user_prompt: String) -> Receive
     req.specialist = Some("CodeGenerator".to_string());
     req.system_prompt = "You are a strict COBOL-85 and PowerRustCOBOL model evaluator.".to_string();
     req.user_prompt = user_prompt;
-    run_mesh_request(req, "COBOL proficiency benchmark (revision)")
+    run_mesh_request(req, "COBOL proficiency benchmark (revision)", None)
 }
 
 /// One Pedantic Agent round. `final_round` switches the tooling contract to
@@ -2271,7 +2333,7 @@ fn spawn_pedantic_review(
     req.user_prompt = format!(
         "{phase}\n\n=== AUTHORITATIVE PRIMARY PROMPT (the specification) ===\n{primary_prompt}\n\n{context}=== PRIMARY AGENT RESPONSE UNDER REVIEW ===\n{answer}"
     );
-    run_mesh_request(req, "Pedantic Agent review")
+    run_mesh_request(req, "Pedantic Agent review", None)
 }
 
 /// Forward one worker's stream to the tandem output, returning the final text.

@@ -214,8 +214,11 @@ pub fn spawn_contextual_request(
                 &mut deny_unattended_git,
             ) {
                 Ok((record, _)) => {
-                    let reply =
-                        crate::grace_host::workflow_chat_reply(&record, preferred.as_deref());
+                    let reply = crate::grace_host::workflow_chat_reply(
+                        &record,
+                        preferred.as_deref(),
+                        llm.verbose_log,
+                    );
                     let _ = tx.send(LlmResponse::Ok(reply));
                 }
                 Err(error) => {

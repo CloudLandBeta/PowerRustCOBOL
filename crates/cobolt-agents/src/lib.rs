@@ -3,6 +3,7 @@
 pub mod grace;
 pub mod orchestrator;
 pub mod project_knowledge;
+pub mod rig_transport;
 pub mod sandbox;
 pub mod specialist;
 

@@ -84,12 +84,24 @@ pub struct TaskRecord {
 
 /// The workflow record (spec 029 observability): saved by the host under
 /// `agentic_ai/Grace/runs/<workflow_id>.json`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkflowRecord {
     pub workflow_id: String,
     pub tasks: Vec<TaskRecord>,
     /// completed | partial | failed
     pub status: String,
+    /// Total prompt tokens consumed by the whole workflow (0 when unknown).
+    #[serde(default)]
+    pub input_tokens: u64,
+    /// Total completion tokens consumed by the whole workflow (0 when unknown).
+    #[serde(default)]
+    pub output_tokens: u64,
+    /// Short (<=15 word) summary of the relevant Knowledge Base evidence, if any.
+    #[serde(default)]
+    pub knowledge_summary: String,
+    /// Grace's concise, user-facing one-line summary of the completed work.
+    #[serde(default)]
+    pub final_summary: String,
 }
 
 /// Host-supplied transport: invoke one named agent with a system+user prompt
@@ -307,6 +319,7 @@ impl GraceEngine {
             } else {
                 "failed".into()
             },
+            ..Default::default()
         }
     }
 

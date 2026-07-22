@@ -1975,20 +1975,59 @@ fn even_tile_centers(start: f32, end: f32, nominal: f32) -> Vec<f32> {
         .collect()
 }
 
-fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, color: Color32) {
+/// Horizontal inset of a rounded-rect silhouette at vertical position `y`. Used
+/// to keep DataGrid background patterns inside the rounded corners instead of
+/// bleeding into the square corner notches (spec 027 corner bleed).
+fn rounded_edge_inset(rect: Rect, radius: f32, y: f32) -> f32 {
+    let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    if r <= 0.0 {
+        return 0.0;
+    }
+    let d = (y - rect.min.y).min(rect.max.y - y);
+    if d < 0.0 || d >= r {
+        return 0.0;
+    }
+    let k = r - d;
+    r - (r * r - k * k).max(0.0).sqrt()
+}
+
+fn draw_datagrid_pattern(
+    painter: &egui::Painter,
+    rect: Rect,
+    radius: f32,
+    pattern: &str,
+    color: Color32,
+) {
     let pattern = pattern.trim().to_ascii_lowercase();
     if pattern.is_empty() || pattern == "none" {
         return;
     }
 
+    // A point-pattern mark whose centre falls inside a rounded corner notch would
+    // poke past the grid's arc; skip it. `rect` is the square grid body, so marks
+    // in the corner triangles are exactly the corner bleed (spec 027).
+    let inside_silhouette = |cx: f32, cy: f32| -> bool {
+        let inset = rounded_edge_inset(rect, radius, cy);
+        cx >= rect.min.x + inset && cx <= rect.max.x - inset
+    };
+
     match pattern.as_str() {
         "stripes" | "stripe" => {
             // Horizontal bands, evenly distributed with balanced top/bottom margins.
             for cy in even_tile_centers(rect.min.y, rect.max.y, 12.0) {
+                // Recede the band's ends along the corner arcs near top/bottom.
+                let inset = rounded_edge_inset(rect, radius, cy)
+                    .max(rounded_edge_inset(rect, radius, cy - 3.0))
+                    .max(rounded_edge_inset(rect, radius, cy + 3.0));
+                let x0 = rect.min.x + inset;
+                let x1 = rect.max.x - inset;
+                if x1 <= x0 {
+                    continue;
+                }
                 painter.rect_filled(
                     Rect::from_min_max(
-                        pos2(rect.min.x, (cy - 3.0).max(rect.min.y)),
-                        pos2(rect.max.x, (cy + 3.0).min(rect.max.y)),
+                        pos2(x0, (cy - 3.0).max(rect.min.y)),
+                        pos2(x1, (cy + 3.0).min(rect.max.y)),
                     ),
                     0.0,
                     color,
@@ -1998,7 +2037,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
         "dots" | "dot" => {
             for cy in even_tile_centers(rect.min.y, rect.max.y, 12.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 12.0) {
-                    painter.circle_filled(pos2(cx, cy), 1.0, color);
+                    if inside_silhouette(cx, cy) {
+                        painter.circle_filled(pos2(cx, cy), 1.0, color);
+                    }
                 }
             }
         }
@@ -2006,6 +2047,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    if !inside_silhouette(cx, cy) {
+                        continue;
+                    }
                     painter.line_segment([pos2(cx - 3.0, cy), pos2(cx + 3.0, cy)], stroke);
                     painter.line_segment([pos2(cx, cy - 3.0), pos2(cx, cy + 3.0)], stroke);
                 }
@@ -2015,6 +2059,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    if !inside_silhouette(cx, cy) {
+                        continue;
+                    }
                     painter
                         .line_segment([pos2(cx - 3.0, cy - 3.0), pos2(cx + 3.0, cy + 3.0)], stroke);
                     painter
@@ -2026,6 +2073,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
+                    if !inside_silhouette(cx, cy) {
+                        continue;
+                    }
                     let points = [
                         pos2(cx - 3.0, cy - 3.0),
                         pos2(cx + 3.0, cy - 3.0),
@@ -2044,7 +2094,9 @@ fn draw_datagrid_pattern(painter: &egui::Painter, rect: Rect, pattern: &str, col
             let stroke = Stroke::new(1.0, color);
             for cy in even_tile_centers(rect.min.y, rect.max.y, 14.0) {
                 for cx in even_tile_centers(rect.min.x, rect.max.x, 14.0) {
-                    painter.circle_stroke(pos2(cx, cy), 3.0, stroke);
+                    if inside_silhouette(cx, cy) {
+                        painter.circle_stroke(pos2(cx, cy), 3.0, stroke);
+                    }
                 }
             }
         }
@@ -2462,14 +2514,21 @@ fn render_interactive(
                 })
                 .inner
             } else {
-                ui.put(
-                    edit_rect,
-                    egui::TextEdit::singleline(&mut buf)
-                        .id(ctrl_id)
-                        .frame(egui::Frame::NONE)
-                        .interactive(enabled)
-                        .text_color(txt_col),
-                )
+                // Clip to the box so an oversized font is cut at the border instead
+                // of spilling out, and vertically centre the single line of text.
+                ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+                    ui.set_clip_rect(screen.intersect(ui.clip_rect()));
+                    ui.put(
+                        edit_rect,
+                        egui::TextEdit::singleline(&mut buf)
+                            .id(ctrl_id)
+                            .frame(egui::Frame::NONE)
+                            .interactive(enabled)
+                            .vertical_align(egui::Align::Center)
+                            .text_color(txt_col),
+                    )
+                })
+                .inner
             };
             if resp.changed() {
                 out.prop_updates
@@ -2827,7 +2886,21 @@ fn render_interactive(
         }
         CT::DataGrid => {
             let painter = painter.with_clip_rect(painter.clip_rect().intersect(screen));
-            let cell_fg = Color32::from_rgb(225, 230, 250);
+            // Cell text honours the grid's ForegroundColor when explicitly set,
+            // falling back to the readable default (previously hardcoded).
+            let cell_fg = {
+                let raw = sv(ctrl, "ForegroundColor");
+                let default_fg = crate::model::DEFAULT_FOREGROUND_COLOR.trim_start_matches('#');
+                paint::parse_hex(&raw)
+                    .filter(|c| {
+                        c.a() > 0
+                            && !raw
+                                .trim()
+                                .trim_start_matches('#')
+                                .eq_ignore_ascii_case(default_fg)
+                    })
+                    .unwrap_or(Color32::from_rgb(225, 230, 250))
+            };
             let columns_raw = sv(ctrl, "Columns");
             let rows_raw = sv(ctrl, "Rows");
             let cols: Vec<(String, String)> = columns_raw
@@ -2998,17 +3071,61 @@ fn render_interactive(
                 if let Some(tex) = tex {
                     let mode = BgImageMode::from_str(&sv(ctrl, "GridBackgroundImageMode"));
                     let dest = image_dest(screen, tex.size_vec2(), mode);
-                    painter.image(
-                        tex.id(),
-                        dest,
-                        Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                        Color32::from_rgba_unmultiplied(255, 255, 255, (alpha * 255.0) as u8),
-                    );
+                    // Clip the background image to the grid's rounded silhouette so it
+                    // doesn't square off past the corner arcs (spec 027 corner bleed).
+                    let visible = dest.intersect(screen);
+                    if visible.width() > 0.5 && visible.height() > 0.5 {
+                        let dw = dest.width().max(1.0);
+                        let dh = dest.height().max(1.0);
+                        let uv = Rect::from_min_max(
+                            pos2(
+                                (visible.min.x - dest.min.x) / dw,
+                                (visible.min.y - dest.min.y) / dh,
+                            ),
+                            pos2(
+                                (visible.max.x - dest.min.x) / dw,
+                                (visible.max.y - dest.min.y) / dh,
+                            ),
+                        );
+                        // Round only the corners where the image actually reaches a
+                        // grid corner, so a smaller centred image is left square.
+                        let r = paint::cr8(paint::corner_radius(ctrl));
+                        let eps = 0.5;
+                        let corner = |vx: f32, sx: f32, vy: f32, sy: f32| {
+                            if (vx - sx).abs() < eps && (vy - sy).abs() < eps {
+                                r
+                            } else {
+                                0
+                            }
+                        };
+                        let rounding = egui::CornerRadius {
+                            nw: corner(visible.min.x, screen.min.x, visible.min.y, screen.min.y),
+                            ne: corner(visible.max.x, screen.max.x, visible.min.y, screen.min.y),
+                            sw: corner(visible.min.x, screen.min.x, visible.max.y, screen.max.y),
+                            se: corner(visible.max.x, screen.max.x, visible.max.y, screen.max.y),
+                        };
+                        painter.add(egui::Shape::Rect(
+                            egui::epaint::RectShape::new(
+                                visible,
+                                rounding,
+                                Color32::from_rgba_unmultiplied(
+                                    255,
+                                    255,
+                                    255,
+                                    (alpha * 255.0) as u8,
+                                ),
+                                Stroke::NONE,
+                                egui::StrokeKind::Middle,
+                            )
+                            .with_texture(tex.id(), uv),
+                        ));
+                    }
                 }
             }
             draw_datagrid_pattern(
                 &painter,
                 screen,
+                paint::corner_radius(ctrl),
                 &sv(ctrl, "GridBackgroundPattern"),
                 Color32::from_rgba_unmultiplied(255, 255, 255, 24),
             );
@@ -3205,6 +3322,13 @@ fn render_interactive(
                     } else {
                         ui.ctx()
                             .memory_mut(|m| m.data.insert_temp(selection_id, new_selection));
+                    }
+                    // Fire selection events when the selection actually moved.
+                    if new_selection != selected {
+                        out.events.push(UiEvent::ev(id, "onSelectionChanged"));
+                        if new_selection.row_index != selected.row_index {
+                            out.events.push(UiEvent::ev(id, "onRowSelect"));
+                        }
                     }
 
                     if display_row >= frozen_rows {
@@ -3635,6 +3759,7 @@ fn render_interactive(
                 draw_datagrid_pattern(
                     &body_painter,
                     rrect,
+                    0.0,
                     &sv(ctrl, "RowBackgroundPattern"),
                     Color32::from_rgba_unmultiplied(255, 255, 255, 18),
                 );
@@ -3744,6 +3869,7 @@ fn render_interactive(
                         draw_datagrid_pattern(
                             &body_painter,
                             cell_rect,
+                            0.0,
                             &column.background_pattern,
                             Color32::from_rgba_unmultiplied(255, 255, 255, 26),
                         );

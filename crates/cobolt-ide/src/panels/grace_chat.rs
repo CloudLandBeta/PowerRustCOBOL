@@ -107,7 +107,7 @@ impl GraceChatPanel {
         std::fs::write(path, json).map_err(|e| e.to_string())
     }
 
-    fn poll(&mut self, ctx: &egui::Context) {
+    fn poll(&mut self, ctx: &egui::Context, verbose: bool) {
         if let Some(session) = self.session.as_mut() {
             if session.poll() || session.is_running() {
                 ctx.request_repaint();
@@ -126,7 +126,9 @@ impl GraceChatPanel {
             match result {
                 Ok((record, _)) => {
                     self.history
-                        .push(ChatTurn::assistant(workflow_chat_reply(&record, None)));
+                        .push(ChatTurn::assistant(workflow_chat_reply(
+                            &record, None, verbose,
+                        )));
                     self.status = Some(format!("Workflow {} completed.", record.workflow_id));
                     let _ = self.persist();
                 }
@@ -174,7 +176,7 @@ impl GraceChatPanel {
     ) -> GraceChatAction {
         self.load_project(root);
         let ctx = panel_ui.ctx().clone();
-        self.poll(&ctx);
+        self.poll(&ctx, llm.verbose_log);
 
         let busy = self.session.as_ref().is_some_and(GraceSession::is_running)
             || self.compact_rx.is_some();
