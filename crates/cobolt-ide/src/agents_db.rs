@@ -1056,7 +1056,11 @@ impl AgentsDb {
                     agent.max_tokens = llm.max_tokens;
                     agent.timeout_secs = llm.timeout_secs;
                     agent.routing = FORM_DESIGNER_ROUTING.into();
-                    agent.tools = vec!["egui.tree".into(), "egui.rects".into()];
+                    agent.tools = vec![
+                        "egui.tree".into(),
+                        "egui.rects".into(),
+                        "project.select_target".into(),
+                    ];
                 }
                 let _ = self.save_all();
                 self.sort_rail();
@@ -1188,6 +1192,7 @@ impl AgentsDb {
                 "documentation.read",
                 "documentation.list",
                 "knowledge.search",
+                "project.select_target",
             ];
             let mut changed = false;
             if agent.kind != AgentKind::Specialist {
@@ -1262,6 +1267,7 @@ impl AgentsDb {
                         "documentation.read".into(),
                         "documentation.list".into(),
                         "knowledge.search".into(),
+                        "project.select_target".into(),
                     ];
                 }
                 let _ = self.save_all();
@@ -1281,6 +1287,7 @@ impl AgentsDb {
             "indexed_file.read",
             "indexed_file.write",
             "knowledge.search",
+            "project.select_target",
         ];
         if let Some(index) = self
             .agents
@@ -1468,7 +1475,7 @@ impl AgentsDb {
             FORM_DESIGNER_ROUTING,
             &["Receives: user form requests"],
             &form_prompt,
-            &["egui.tree", "egui.rects"],
+            &["egui.tree", "egui.rects", "project.select_target"],
             llm,
         ) as usize;
         changed += self.repair_builtin_definition(
@@ -1498,6 +1505,7 @@ impl AgentsDb {
                 "documentation.read",
                 "documentation.list",
                 "knowledge.search",
+                "project.select_target",
             ],
             llm,
         ) as usize;
@@ -1514,6 +1522,7 @@ impl AgentsDb {
                 "indexed_file.read",
                 "indexed_file.write",
                 "knowledge.search",
+                "project.select_target",
             ],
             llm,
         ) as usize;
@@ -2191,6 +2200,17 @@ mod tests {
                 && designer.tools.iter().any(|t| t == "egui.rects"),
             "Form Designer declares the egui observe tools"
         );
+        // spec 034: the create/edit specialists declare the target-picker tool.
+        for agent in [FORM_DESIGNER, DOCUMENTATION_AGENT, DATA_INDEXED_FILE_AGENT] {
+            assert!(
+                db.by_name(agent)
+                    .unwrap()
+                    .tools
+                    .iter()
+                    .any(|t| t == "project.select_target"),
+                "{agent} declares project.select_target"
+            );
+        }
         let data_agent = db.by_name(DATA_INDEXED_FILE_AGENT).unwrap();
         assert_eq!(data_agent.specialization, "indexed-files");
         assert!(data_agent

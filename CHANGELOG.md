@@ -8,6 +8,36 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.33.0] — 2026-07-24
+
+### Added
+
+- **Animated agent control moves (spec 035)** — when the AI agent repositions
+  controls on a form, each moved control now **glides** from its old position to
+  the new one, all controls together, over ~1 second with an ease-in-out curve,
+  so the agent's layout work is visible instead of a jump. The effect is purely
+  visual: the form model, saved `.cfrm`, and generated COBOL hold the final
+  coordinates the instant the change is applied (a save or regenerate mid-glide
+  is always correct), and only agent-applied moves animate — manual drags and
+  newly created controls do not. A change-set arriving mid-animation retargets
+  smoothly from the controls' current on-screen positions.
+
+## [PowerRustCOBOL 1.32.0] — 2026-07-24
+
+### Added
+
+- **Grace target disambiguation (spec 034)** — now that the project tree has
+  folders, a name can exist in more than one place, so the AI agent asks you to
+  pick the target before it acts. When you ask Grace to **create** an element it
+  opens a centered project-tree window to choose the destination **folder** (you
+  can create a new folder inline); when you ask it to **edit** by name and more
+  than one element matches, the window lets you pick **which one** (a single
+  match proceeds with no prompt). Cancelling stops the operation. Implemented as
+  a declared `project.select_target` agent tool that drives the modal over a
+  blocking worker↔UI handshake; the chosen path is always project-relative.
+  *Known limitation:* the compact editor/designer chat surfaces have no modal
+  host, so an ambiguous request there is deferred to the full project Grace chat.
+
 ## [PowerRustCOBOL 1.31.0] — 2026-07-23
 
 ### Added
@@ -22,9 +52,10 @@ See the LICENSE file in the project root for full license information.
     all of its contents from disk**, drops those files from the project, and
     closes any editors showing them (after a confirmation).
   - **Drag-and-drop moves** — drag a file onto another folder within the tree,
-    or drop files in from the OS file manager to import them into a folder.
-    Same-name overwrites, moves into a folder's own descendant, and files whose
-    type does not match the destination category are rejected.
+    or drop files in from the OS file manager to import them into a folder. A
+    document icon rides the cursor while dragging so the gesture clearly reads as
+    moving a file. Same-name overwrites, moves into a folder's own descendant, and
+    files whose type does not match the destination category are rejected.
   - **Keyboard navigation** — with the pointer over the tree, use ↑/↓ to move
     between rows, → to expand a folder (or step into it), ← to move up to the
     parent folder, and Enter to open the selected item.

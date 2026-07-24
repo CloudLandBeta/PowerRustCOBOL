@@ -290,7 +290,42 @@ impl LlmConfig {
     }
 
     pub fn is_configured(&self) -> bool {
-        self.agentic_ai_enabled && !self.provider.is_empty() && !self.model.is_empty()
+        self.agentic_ai_enabled
+            && ((!self.provider.is_empty() && !self.model.is_empty())
+                || self.has_usable_model_profile())
+    }
+
+    /// True if any model profile carries both a provider and a model (spec 031).
+    /// Grace's agents resolve their model from profiles, so a profile-only setup
+    /// is still "configured" for the direct AI surfaces (event editor, code
+    /// editor, inspector) — which is why `is_configured` accepts it.
+    pub fn has_usable_model_profile(&self) -> bool {
+        self.model_profiles
+            .iter()
+            .any(|p| !p.provider.trim().is_empty() && !p.model.trim().is_empty())
+    }
+
+    /// When there is no top-level default model but a usable model profile exists,
+    /// adopt the first such profile as the default. The direct AI surfaces call
+    /// the top-level `provider`/`model` (they do not resolve per-agent profiles
+    /// the way Grace does), so without this a profile-only project would show the
+    /// AI rows but every direct call would fail. Call this after `model_profiles`
+    /// is populated and before resolving the API key.
+    pub fn ensure_default_model_from_profiles(&mut self) {
+        if !self.provider.trim().is_empty() && !self.model.trim().is_empty() {
+            return;
+        }
+        if let Some(profile) = self
+            .model_profiles
+            .iter()
+            .find(|p| !p.provider.trim().is_empty() && !p.model.trim().is_empty())
+        {
+            self.provider = profile.provider.clone();
+            self.model = profile.model.clone();
+            if self.endpoint.trim().is_empty() {
+                self.endpoint = profile.endpoint.clone();
+            }
+        }
     }
 
     /// Look up a model profile by id (spec 031).
@@ -2924,6 +2959,53 @@ pub fn ai_question(_reply: &str) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ollama_profile() -> ModelProfile {
+        ModelProfile {
+            id: "p1".into(),
+            name: "Ollama · qwen".into(),
+            provider: "ollama".into(),
+            endpoint: "http://localhost:11434".into(),
+            endpoint_user_edited: false,
+            model: "qwen3".into(),
+            temperature: 0.4,
+            max_tokens: 8192,
+            timeout_secs: 120,
+        }
+    }
+
+    #[test]
+    fn profile_only_config_counts_as_configured_and_adopts_a_default() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.agentic_ai_enabled = true;
+        cfg.provider.clear();
+        cfg.model.clear();
+        cfg.model_profiles.clear();
+        // No top-level model and no profiles → not configured.
+        assert!(!cfg.is_configured());
+
+        // A usable profile (as Grace's agents use) makes it configured — so the
+        // event-editor / editor / inspector AI rows appear (spec 034 follow-up).
+        cfg.model_profiles.push(ollama_profile());
+        assert!(cfg.is_configured(), "a usable profile counts as configured");
+
+        // …and the top-level default is adopted so direct AI calls actually work.
+        cfg.ensure_default_model_from_profiles();
+        assert_eq!(cfg.provider, "ollama");
+        assert_eq!(cfg.model, "qwen3");
+        assert_eq!(cfg.endpoint, "http://localhost:11434");
+    }
+
+    #[test]
+    fn ensure_default_does_not_override_an_existing_top_level_model() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.provider = "openai".into();
+        cfg.model = "gpt-5".into();
+        cfg.model_profiles.push(ollama_profile());
+        cfg.ensure_default_model_from_profiles();
+        assert_eq!(cfg.provider, "openai", "an explicit default is preserved");
+        assert_eq!(cfg.model, "gpt-5");
+    }
 
     /// Prompts must name the real GlassStyle values and the real operation
     /// names. Drift here is invisible at runtime: a bad style value falls back

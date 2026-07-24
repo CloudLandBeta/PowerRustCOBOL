@@ -35,6 +35,7 @@ pub mod pdf_export;
 mod project_fs;
 mod project_model;
 mod runner;
+mod target_select;
 pub mod theme;
 pub mod theme_ui;
 pub mod tool_exec;

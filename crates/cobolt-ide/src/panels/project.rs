@@ -358,6 +358,10 @@ impl ProjectPanel {
             self.handle_tree_keys(ctx, &mut events);
         }
 
+        // While a file is being dragged, paint a small document icon riding the
+        // cursor (over the grabbing hand) so the drag reads as "moving a file".
+        paint_drag_ghost(ctx);
+
         // Consume Select events internally (update the highlighted element).
         events.retain(|e| {
             if let ProjectPanelEvent::Select(key) = e {
@@ -1007,11 +1011,32 @@ impl ProjectPanel {
             _ => ProjectPanelEvent::Open(p.clone()),
         });
         let key = sel_file(rel);
+        // Forms and indexed files are themselves expandable (their controls/
+        // events/fields subtrees), so record their CollapsingState id — computed
+        // with the same source the item renderer uses — so Right expands them
+        // (spec 033, R16). Other categories are true leaves.
+        let (folder_id, expanded) = match cat {
+            Category::Forms => {
+                let id = ui.make_persistent_id(("form_item", rel));
+                let open = egui::collapsing_header::CollapsingState::load(ui.ctx(), id)
+                    .map(|s| s.is_open())
+                    .unwrap_or(false);
+                (Some(id), open)
+            }
+            Category::IndexedFiles => {
+                let id = ui.make_persistent_id(("indexed_item", rel));
+                let open = egui::collapsing_header::CollapsingState::load(ui.ctx(), id)
+                    .map(|s| s.is_open())
+                    .unwrap_or(false);
+                (Some(id), open)
+            }
+            _ => (None, false),
+        };
         self.nav_rows.push(NavRow {
             key: key.clone(),
             depth: depth + 1,
-            folder_id: None,
-            expanded: false,
+            folder_id,
+            expanded,
             activate,
         });
         let st = self.status_for(rel);
@@ -1616,6 +1641,40 @@ fn folder_context_menu(
             ui.close();
         }
     });
+}
+
+/// While a tree file drag is in progress (a `String` payload is live), paint a
+/// document icon on the cursor over the grabbing hand, so the gesture visibly
+/// represents a file being moved (spec 033, R9/R11). A soft rounded backing plate
+/// keeps the glyph legible on any background.
+fn paint_drag_ghost(ctx: &Context) {
+    if egui::DragAndDrop::payload::<String>(ctx).is_none() {
+        return;
+    }
+    let Some(pos) = ctx.pointer_interact_pos() else {
+        return;
+    };
+    // Sit the icon just above-right of the hand's hotspot so both read clearly.
+    let center = pos + egui::vec2(11.0, -11.0);
+    let size = egui::vec2(ICON_SIZE, ICON_SIZE);
+    let icon_rect = egui::Rect::from_center_size(center, size);
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Tooltip,
+        egui::Id::new("prc_tree_drag_ghost"),
+    ));
+    let theme = crate::theme::active();
+    // Backing plate for contrast, then the crisp vector document glyph.
+    painter.rect_filled(
+        icon_rect.expand(3.0),
+        egui::CornerRadius::same(4),
+        egui::Color32::from_rgba_unmultiplied(0, 0, 0, if theme.dark { 150 } else { 90 }),
+    );
+    let color = if theme.dark {
+        egui::Color32::WHITE
+    } else {
+        theme.text_bright
+    };
+    draw_document_icon(&painter, icon_rect.shrink(1.8), color);
 }
 
 /// Make `resp` a drop target for an in-tree file drag (spec 033, R9). When a

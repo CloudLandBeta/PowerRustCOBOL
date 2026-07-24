@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 use cobolt_agents::grace::{last_json_block, AgentInvoker, ReviewVerdict, WorkflowPlan};
 
 use crate::git_exec::{self, GitClass, GitConfirmRequest};
+use crate::target_select::{TargetChoice, TargetRequest};
 
 /// A single tool invocation requested by an agent, parsed from its reply.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -240,6 +241,8 @@ Create or replace one complete definition with `indexed_file.write`:
 
 A finalized definition is LOCKED: any structural change (new/removed field, changed PIC, changed keys or storage) is refused and the write returns a confirmation-required result asking the developer to authorize destroying and recreating the file. Do NOT retry such a write unchanged and do NOT set `confirm_recreate` on your own. Only after Grace relays that the DEVELOPER explicitly confirmed the destroy-and-recreate may you repeat the write with `"confirm_recreate": true`, which overwrites the locked file with the new schema (its stored data is lost)."#;
 
+const PROJECT_TOOL_CONTRACT: &str = "\n\n--- Target selection (project tree, spec 034) ---\nBefore you CREATE or EDIT a named project element (a form, indexed file, common-code source, documentation file, or asset), you MUST first resolve WHICH target the developer means, because folders allow several elements to share a name. Call `project.select_target` with `{\"op\":\"create\"|\"edit\",\"kind\":\"form\"|\"indexed\"|\"source\"|\"documentation\"|\"asset\",\"name\":\"<the element name>\"}`. The TOOL RESULT returns one project-relative path: for `create` it is the destination FOLDER the developer picked (place the new element inside it); for `edit` it is the exact element FILE to modify. Use that returned path verbatim in your subsequent write. A `create` always prompts the developer; an `edit` prompts only when the name is ambiguous and otherwise returns the single match. If the result is a cancellation, STOP and do not create or edit anything.";
+
 /// How a Form Designer submission must encode its edits. Only this JSON shape
 /// is parsed and applied (`crate::agent::parse_change_set`); prose, tables, or
 /// invented operation names apply nothing. Appended to the Form Designer's
@@ -274,6 +277,9 @@ pub fn tool_contract_appendix(declared: &HashSet<String>) -> String {
     }
     if declared.iter().any(|t| t.starts_with("indexed_file.")) {
         out.push_str(INDEXED_FILE_TOOL_CONTRACT);
+    }
+    if declared.iter().any(|t| t == "project.select_target") {
+        out.push_str(PROJECT_TOOL_CONTRACT);
     }
     out
 }
@@ -497,16 +503,21 @@ pub struct IdeToolBackend<'a> {
     pub project_dir: PathBuf,
     /// Confirmation for gated git ops (R12). Returns true to proceed.
     pub confirm: &'a mut dyn FnMut(GitConfirmRequest) -> bool,
+    /// Target picker for ambiguous create/edit (spec 034). Returns the chosen
+    /// project-relative target, or `None` to cancel.
+    pub select_target: &'a mut dyn FnMut(TargetRequest) -> Option<TargetChoice>,
 }
 
 impl<'a> IdeToolBackend<'a> {
     pub fn new(
         project_dir: PathBuf,
         confirm: &'a mut dyn FnMut(GitConfirmRequest) -> bool,
+        select_target: &'a mut dyn FnMut(TargetRequest) -> Option<TargetChoice>,
     ) -> Self {
         Self {
             project_dir,
             confirm,
+            select_target,
         }
     }
 
@@ -557,6 +568,78 @@ impl<'a> IdeToolBackend<'a> {
 
     fn exec_egui(&mut self, call: &ToolCall) -> ToolResult {
         crate::agent_inspection::observe(&call.tool)
+    }
+
+    /// `project.select_target` (spec 034): resolve where a create/edit acts by
+    /// asking the developer to pick a target on the project tree, and return the
+    /// chosen **project-relative** path for the agent to use in its write.
+    fn exec_project(&mut self, call: &ToolCall) -> ToolResult {
+        use crate::target_select::{create_request, edit_candidates, edit_request, TargetChoice};
+        if call.tool != "project.select_target" {
+            return ToolResult::critical(format!("unknown project tool “{}”", call.tool));
+        }
+        let op = match Self::string_arg(call, "op") {
+            Ok(v) => v.to_ascii_lowercase(),
+            Err(e) => return e,
+        };
+        let kind_s = match Self::string_arg(call, "kind") {
+            Ok(v) => v.to_ascii_lowercase(),
+            Err(e) => return e,
+        };
+        let name = match Self::string_arg(call, "name") {
+            Ok(v) => v.to_string(),
+            Err(e) => return e,
+        };
+        let Some(kind) = parse_file_kind(&kind_s) else {
+            return ToolResult::err(
+                "unknown element kind",
+                "kind must be one of: form, indexed, source, documentation, asset.",
+            );
+        };
+
+        let request = match op.as_str() {
+            "create" => create_request(kind, &name),
+            "edit" => {
+                let project = crate::project_model::load_project(
+                    &self.project_dir.join("cobolt.toml"),
+                )
+                .unwrap_or_else(|_| crate::project_model::CoboltProject::new("", ""));
+                let candidates = edit_candidates(&project, kind, &name);
+                match candidates.len() {
+                    0 => {
+                        return ToolResult::err(
+                            format!("no “{name}” element to edit"),
+                            "No project element of that name and kind exists.",
+                        )
+                    }
+                    // Exactly one match resolves without a modal (spec 034, R4).
+                    1 => {
+                        return ToolResult::ok(
+                            format!("target: {}", candidates[0]),
+                            candidates[0].clone(),
+                        )
+                    }
+                    _ => edit_request(&project, kind, &name).expect("2+ candidates ⇒ request"),
+                }
+            }
+            _ => {
+                return ToolResult::err(
+                    "unknown op",
+                    "op must be \"create\" or \"edit\".",
+                )
+            }
+        };
+
+        match (self.select_target)(request) {
+            Some(TargetChoice { rel_path }) => {
+                ToolResult::ok(format!("target: {rel_path}"), rel_path)
+            }
+            // Cancel: stop the workflow and tell the developer nothing was done
+            // (spec 034, R5) — like the confirm-required flow.
+            None => ToolResult::needs_confirmation(format!(
+                "Target selection for “{name}” was cancelled; nothing was created or edited."
+            )),
+        }
     }
 
     fn string_arg<'b>(call: &'b ToolCall, name: &str) -> Result<&'b str, ToolResult> {
@@ -1278,12 +1361,27 @@ impl ToolBackend for IdeToolBackend<'_> {
             self.exec_knowledge(call)
         } else if call.tool.starts_with("indexed_file.") {
             self.exec_indexed_file(agent, call)
+        } else if call.tool.starts_with("project.") {
+            self.exec_project(call)
         } else {
             ToolResult::critical(format!(
                 "unknown tool namespace for \u{201c}{}\u{201d}",
                 call.tool
             ))
         }
+    }
+}
+
+/// Map a `project.select_target` `kind` argument to a [`FileKind`].
+fn parse_file_kind(kind: &str) -> Option<crate::project_model::FileKind> {
+    use crate::project_model::FileKind;
+    match kind {
+        "form" => Some(FileKind::Form),
+        "indexed" | "indexed_file" | "cidx" => Some(FileKind::Indexed),
+        "source" | "common" | "common_code" | "cobol" => Some(FileKind::Source),
+        "documentation" | "doc" | "knowledge" => Some(FileKind::Documentation),
+        "asset" => Some(FileKind::Asset),
+        _ => None,
     }
 }
 
@@ -1716,7 +1814,8 @@ mod tests {
             confirms += 1;
             true
         };
-        let mut be = IdeToolBackend::new(repo.clone(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut be = IdeToolBackend::new(repo.clone(), &mut confirm, &mut _pick);
         let res = be.execute(
             "Version Control Agent",
             &git_call(&["status", "--porcelain"]),
@@ -1736,7 +1835,8 @@ mod tests {
             asked.push(r.command);
             false
         };
-        let mut be = IdeToolBackend::new(repo.clone(), &mut deny);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut be = IdeToolBackend::new(repo.clone(), &mut deny, &mut _pick);
         let res = be.execute(
             "Version Control Agent",
             &git_call(&["push", "origin", "main"]),
@@ -1756,7 +1856,8 @@ mod tests {
     fn backend_rejects_unrecognised_op() {
         let repo = init_repo("rej");
         let mut confirm = |_r: GitConfirmRequest| true;
-        let mut be = IdeToolBackend::new(repo.clone(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut be = IdeToolBackend::new(repo.clone(), &mut confirm, &mut _pick);
         let res = be.execute("Version Control Agent", &git_call(&["frobnicate"]));
         drop(be);
         assert!(!res.ok, "unrecognised op is rejected");
@@ -1767,7 +1868,8 @@ mod tests {
     #[test]
     fn backend_unknown_namespace_is_critical() {
         let mut confirm = |_r: GitConfirmRequest| true;
-        let mut be = IdeToolBackend::new(std::env::temp_dir(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut be = IdeToolBackend::new(std::env::temp_dir(), &mut confirm, &mut _pick);
         let res = be.execute(
             "Anyone",
             &ToolCall {
@@ -1867,7 +1969,8 @@ mod tests {
             }),
         };
         let mut confirm = |_request: GitConfirmRequest| false;
-        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm, &mut _pick);
         let rejected = backend.execute("Form Designer Agent", &call);
         assert!(rejected.critical);
         assert!(!root
@@ -1935,7 +2038,8 @@ mod tests {
     fn indexed_file_tools_are_reserved_for_the_data_agent() {
         let root = indexed_tool_root("ownership");
         let mut confirm = |_request: GitConfirmRequest| false;
-        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm, &mut _pick);
         let result = backend.execute(crate::agents_db::DOCUMENTATION_AGENT, &indexed_write_call());
         assert!(
             result.critical,
@@ -1951,7 +2055,8 @@ mod tests {
         let mut call = indexed_write_call();
         call.args.as_object_mut().unwrap().remove("normalization");
         let mut confirm = |_request: GitConfirmRequest| false;
-        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm, &mut _pick);
         let result = backend.execute(crate::agents_db::DATA_INDEXED_FILE_AGENT, &call);
         assert!(result.critical);
         assert!(result.detail.contains("normalization"));
@@ -1978,7 +2083,8 @@ mod tests {
             args.remove("id_definitions");
         }
         let mut confirm = |_request: GitConfirmRequest| false;
-        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm, &mut _pick);
         let result = backend.execute(crate::agents_db::DATA_INDEXED_FILE_AGENT, &call);
         assert!(
             result.critical,
@@ -2003,7 +2109,8 @@ mod tests {
     fn indexed_file_write_generates_ui_artifacts_and_preserves_existing_data() {
         let root = indexed_tool_root("write");
         let mut confirm = |_request: GitConfirmRequest| false;
-        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm);
+        let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm, &mut _pick);
         let result = backend.execute(
             crate::agents_db::DATA_INDEXED_FILE_AGENT,
             &indexed_write_call(),
@@ -2136,7 +2243,8 @@ mod tests {
                 calls: 0,
             };
             let mut confirm = |_r: GitConfirmRequest| true;
-            let mut backend = IdeToolBackend::new(repo.clone(), &mut confirm);
+            let mut _pick = |_: TargetRequest| -> Option<TargetChoice> { None };
+            let mut backend = IdeToolBackend::new(repo.clone(), &mut confirm, &mut _pick);
             let evidence = Arc::new(Mutex::new(Vec::new()));
             let declared_set: HashSet<String> = if declares {
                 declared(&["git.run"])
@@ -2163,5 +2271,117 @@ mod tests {
             }
         }
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    // ── project.select_target (spec 034) ────────────────────────────────────
+    mod project_select_target {
+        use super::*;
+        use crate::project_model::{Category, CoboltProject};
+        use crate::target_select::{TargetChoice, TargetOp, TargetRequest};
+        use std::cell::RefCell;
+
+        fn call(op: &str, kind: &str, name: &str) -> ToolCall {
+            ToolCall {
+                tool: "project.select_target".into(),
+                args: serde_json::json!({ "op": op, "kind": kind, "name": name }),
+            }
+        }
+
+        fn tmp() -> PathBuf {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static SEQ: AtomicU64 = AtomicU64::new(0);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let d = std::env::temp_dir().join(format!(
+                "prc_pst_{}_{}_{}",
+                std::process::id(),
+                nanos,
+                SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&d).unwrap();
+            d
+        }
+
+        #[test]
+        fn create_always_asks_and_returns_chosen_folder() {
+            let dir = tmp();
+            let seen = RefCell::new(Vec::<TargetOp>::new());
+            let mut confirm = |_: GitConfirmRequest| true;
+            let mut pick = |req: TargetRequest| {
+                seen.borrow_mut().push(req.op);
+                Some(TargetChoice {
+                    rel_path: "forms/customers".into(),
+                })
+            };
+            let mut be = IdeToolBackend::new(dir.clone(), &mut confirm, &mut pick);
+            let res = be.execute("Form Designer Agent", &call("create", "form", "invoice"));
+            drop(be);
+            assert!(res.ok);
+            assert_eq!(res.detail, "forms/customers");
+            assert_eq!(*seen.borrow(), vec![TargetOp::Create]);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn edit_single_match_resolves_without_asking() {
+            let dir = tmp();
+            let mut proj = CoboltProject::new("T", "src/main.cbl");
+            proj.add_file_to("forms/a/order.cfrm", Category::Forms);
+            crate::project_model::save_project(&proj, &dir.join("cobolt.toml")).unwrap();
+
+            let asked = RefCell::new(false);
+            let mut confirm = |_: GitConfirmRequest| true;
+            let mut pick = |_req: TargetRequest| {
+                *asked.borrow_mut() = true;
+                None
+            };
+            let mut be = IdeToolBackend::new(dir.clone(), &mut confirm, &mut pick);
+            let res = be.execute("Form Designer Agent", &call("edit", "form", "order"));
+            drop(be);
+            assert!(res.ok);
+            assert_eq!(res.detail, "forms/a/order.cfrm");
+            assert!(!*asked.borrow(), "a single match must not open the modal");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn edit_ambiguous_asks_with_candidates() {
+            let dir = tmp();
+            let mut proj = CoboltProject::new("T", "src/main.cbl");
+            proj.add_file_to("forms/a/order.cfrm", Category::Forms);
+            proj.add_file_to("forms/b/order.cfrm", Category::Forms);
+            crate::project_model::save_project(&proj, &dir.join("cobolt.toml")).unwrap();
+
+            let count = RefCell::new(0usize);
+            let mut confirm = |_: GitConfirmRequest| true;
+            let mut pick = |req: TargetRequest| {
+                *count.borrow_mut() = req.candidates.len();
+                Some(TargetChoice {
+                    rel_path: "forms/b/order.cfrm".into(),
+                })
+            };
+            let mut be = IdeToolBackend::new(dir.clone(), &mut confirm, &mut pick);
+            let res = be.execute("Form Designer Agent", &call("edit", "form", "order"));
+            drop(be);
+            assert!(res.ok);
+            assert_eq!(res.detail, "forms/b/order.cfrm");
+            assert_eq!(*count.borrow(), 2, "the modal receives both candidates");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn cancel_stops_the_workflow_cleanly() {
+            let dir = tmp();
+            let mut confirm = |_: GitConfirmRequest| true;
+            let mut pick = |_req: TargetRequest| None; // developer cancelled
+            let mut be = IdeToolBackend::new(dir.clone(), &mut confirm, &mut pick);
+            let res = be.execute("Form Designer Agent", &call("create", "form", "invoice"));
+            drop(be);
+            assert!(res.needs_confirmation, "cancel halts the loop, not a defect");
+            assert!(!res.critical);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }

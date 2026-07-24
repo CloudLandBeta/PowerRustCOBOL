@@ -784,6 +784,13 @@ pub struct Tr {
     pub folder_err_self_descendant: &'static str,
     pub folder_err_incompatible_kind: &'static str,
     pub folder_err_generic: &'static str,
+
+    // ── Grace target disambiguation (spec 034) ───────────────────────────────
+    pub pick_target_title: &'static str,
+    pub pick_folder_for_creating: &'static str,
+    pub pick_element_for_editing: &'static str,
+    pub btn_select: &'static str,
+    pub pick_no_candidates: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -1459,6 +1466,12 @@ const EN: Tr = Tr {
     folder_err_self_descendant: "A folder cannot be moved into itself or one of its subfolders.",
     folder_err_incompatible_kind: "That file type does not belong in this category.",
     folder_err_generic: "The folder operation could not be completed.",
+
+    pick_target_title: "Select target",
+    pick_folder_for_creating: "Select the folder for creating",
+    pick_element_for_editing: "Select the element for editing",
+    btn_select: "Select",
+    pick_no_candidates: "No matching element was found.",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -2115,6 +2128,12 @@ const ES: Tr = Tr {
     folder_err_self_descendant: "No se puede mover una carpeta dentro de sí misma o de una de sus subcarpetas.",
     folder_err_incompatible_kind: "Ese tipo de archivo no pertenece a esta categoría.",
     folder_err_generic: "No se pudo completar la operación de carpeta.",
+
+    pick_target_title: "Seleccionar destino",
+    pick_folder_for_creating: "Seleccione la carpeta para crear",
+    pick_element_for_editing: "Seleccione el elemento para editar",
+    btn_select: "Seleccionar",
+    pick_no_candidates: "No se encontró ningún elemento coincidente.",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -2771,6 +2790,12 @@ const PT: Tr = Tr {
     folder_err_self_descendant: "Não é possível mover uma pasta para dentro dela mesma ou de uma de suas subpastas.",
     folder_err_incompatible_kind: "Esse tipo de arquivo não pertence a esta categoria.",
     folder_err_generic: "Não foi possível concluir a operação de pasta.",
+
+    pick_target_title: "Selecionar destino",
+    pick_folder_for_creating: "Selecione a pasta para criar",
+    pick_element_for_editing: "Selecione o elemento para editar",
+    btn_select: "Selecionar",
+    pick_no_candidates: "Nenhum elemento correspondente foi encontrado.",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -3427,6 +3452,12 @@ const JA: Tr = Tr {
     folder_err_self_descendant: "フォルダーを自身またはそのサブフォルダーへ移動することはできません。",
     folder_err_incompatible_kind: "そのファイルの種類はこのカテゴリには入れられません。",
     folder_err_generic: "フォルダー操作を完了できませんでした。",
+
+    pick_target_title: "対象を選択",
+    pick_folder_for_creating: "作成先のフォルダーを選択",
+    pick_element_for_editing: "編集する要素を選択",
+    btn_select: "選択",
+    pick_no_candidates: "一致する要素が見つかりませんでした。",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -4090,6 +4121,12 @@ const ZH: Tr = Tr {
     folder_err_self_descendant: "无法将文件夹移动到其自身或其子文件夹中。",
     folder_err_incompatible_kind: "该文件类型不属于此类别。",
     folder_err_generic: "无法完成文件夹操作。",
+
+    pick_target_title: "选择目标",
+    pick_folder_for_creating: "选择用于创建的文件夹",
+    pick_element_for_editing: "选择要编辑的元素",
+    btn_select: "选择",
+    pick_no_candidates: "未找到匹配的元素。",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -4746,6 +4783,12 @@ const FR: Tr = Tr {
     folder_err_self_descendant: "Impossible de déplacer un dossier dans lui-même ou dans l'un de ses sous-dossiers.",
     folder_err_incompatible_kind: "Ce type de fichier n'appartient pas à cette catégorie.",
     folder_err_generic: "L'opération sur le dossier n'a pas pu être effectuée.",
+
+    pick_target_title: "Sélectionner la cible",
+    pick_folder_for_creating: "Sélectionnez le dossier pour créer",
+    pick_element_for_editing: "Sélectionnez l'élément à modifier",
+    btn_select: "Sélectionner",
+    pick_no_candidates: "Aucun élément correspondant n'a été trouvé.",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

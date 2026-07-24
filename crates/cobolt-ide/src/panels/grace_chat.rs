@@ -13,7 +13,9 @@ use egui::{CentralPanel, Color32, RichText, ScrollArea};
 
 use crate::grace_host::GraceRoutingContext;
 use crate::grace_session::GraceSession;
+use crate::i18n::Tr;
 use crate::llm::{ChatTurn, LlmConfig, LlmResponse};
+use crate::panels::target_picker::TargetPicker;
 
 const HISTORY_FILE: &str = "grace-conversation.json";
 const GRACE_TITLE: &str = "👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator";
@@ -85,6 +87,8 @@ pub struct GraceChatPanel {
     /// (renders at the 3-row default); only the corner-grip drag writes it,
     /// clamped between the 1-row and 6-row limits — never layout measurement.
     prompt_height: f32,
+    /// The target-disambiguation modal for this surface (spec 034).
+    target_picker: TargetPicker,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +114,7 @@ impl Default for GraceChatPanel {
             collected_answers: Vec::new(),
             last_tokens: None,
             prompt_height: 0.0, // 0 = never dragged → 3-row default
+            target_picker: TargetPicker::default(),
         }
     }
 }
@@ -311,10 +316,21 @@ impl GraceChatPanel {
         panel_ui: &mut egui::Ui,
         root: &Path,
         llm: &LlmConfig,
+        tr: &Tr,
     ) -> GraceChatAction {
         self.load_project(root);
         let ctx = panel_ui.ctx().clone();
         self.poll(&ctx, llm.verbose_log);
+
+        // A create/edit paused awaiting the developer's target pick (spec 034).
+        if let Some(req) = self.session.as_ref().and_then(|s| s.pending_select()).cloned() {
+            if let Some(outcome) = self.target_picker.show(&ctx, &req, root, tr) {
+                if let Some(session) = self.session.as_mut() {
+                    session.respond_select(outcome);
+                }
+                ctx.request_repaint();
+            }
+        }
 
         let busy = self.session.as_ref().is_some_and(GraceSession::is_running)
             || self.compact_rx.is_some();

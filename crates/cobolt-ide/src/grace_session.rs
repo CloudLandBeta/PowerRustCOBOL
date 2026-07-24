@@ -20,12 +20,17 @@ use cobolt_agents::grace::WorkflowRecord;
 use crate::git_exec::GitConfirmRequest;
 use crate::llm::LlmConfig;
 use crate::llm::{ChatTurn, LlmResponse};
+use crate::target_select::{TargetChoice, TargetRequest};
 
 enum GraceMsg {
     Progress(String),
     /// A gated git op is waiting for the operator (spec 030 R12). The worker
     /// blocks on `reply` until the UI answers (or drops it → deny).
     Confirm(GitConfirmRequest, Sender<bool>),
+    /// A create/edit needs the developer to pick a target on the project tree
+    /// (spec 034). The worker blocks on `reply` until the UI answers; a dropped
+    /// channel (or a `None` reply) means the developer cancelled.
+    SelectTarget(TargetRequest, Sender<Option<TargetChoice>>),
     Done(Result<(WorkflowRecord, PathBuf), String>),
 }
 
@@ -37,6 +42,8 @@ pub struct GraceSession {
     finished: Option<Result<(WorkflowRecord, PathBuf), String>>,
     /// A gated git op awaiting the operator's Approve/Deny (spec 030 R12).
     pending_confirm: Option<(GitConfirmRequest, Sender<bool>)>,
+    /// A create/edit awaiting the developer's target pick on the tree (spec 034).
+    pending_select: Option<(TargetRequest, Sender<Option<TargetChoice>>)>,
     /// Live stop flag + token totals shared with the worker.
     control: crate::grace_host::WorkflowControl,
 }
@@ -83,6 +90,17 @@ impl GraceSession {
                     }
                     rrx.recv().unwrap_or(false)
                 };
+                // Target-selection handshake (spec 034): send the request to the
+                // UI and block until the developer picks or cancels. A dropped
+                // channel counts as a cancel.
+                let tx4 = tx.clone();
+                let mut select_target = move |req: TargetRequest| -> Option<TargetChoice> {
+                    let (rtx, rrx) = mpsc::channel();
+                    if tx4.send(GraceMsg::SelectTarget(req, rtx)).is_err() {
+                        return None;
+                    }
+                    rrx.recv().unwrap_or(None)
+                };
                 let result = crate::grace_host::run_grace_workflow_with_control(
                     &dir,
                     &llm,
@@ -91,6 +109,7 @@ impl GraceSession {
                     &worker_control,
                     &mut on_progress,
                     &mut confirm,
+                    &mut select_target,
                 );
                 let _ = tx.send(GraceMsg::Done(result));
             })
@@ -101,6 +120,7 @@ impl GraceSession {
             rx: Some(rx),
             finished: None,
             pending_confirm: None,
+            pending_select: None,
             control,
         }
     }
@@ -142,6 +162,12 @@ impl GraceSession {
                     self.pending_confirm = Some((req, reply));
                     changed = true;
                 }
+                Ok(GraceMsg::SelectTarget(req, reply)) => {
+                    self.log
+                        .push(format!("⏸ awaiting target selection: {}", req.name));
+                    self.pending_select = Some((req, reply));
+                    changed = true;
+                }
                 Ok(GraceMsg::Done(result)) => {
                     self.finished = Some(result);
                     self.rx = None;
@@ -179,9 +205,87 @@ impl GraceSession {
         }
     }
 
+    /// The create/edit target request awaiting the developer's pick, if any
+    /// (spec 034).
+    pub fn pending_select(&self) -> Option<&TargetRequest> {
+        self.pending_select.as_ref().map(|(r, _)| r)
+    }
+
+    /// Answer the pending target selection. `Some(choice)` proceeds against the
+    /// chosen target; `None` cancels the operation.
+    pub fn respond_select(&mut self, choice: Option<TargetChoice>) {
+        if let Some((_, reply)) = self.pending_select.take() {
+            let _ = reply.send(choice);
+        }
+    }
+
     /// The completed result, once available.
     pub fn finished(&self) -> Option<&Result<(WorkflowRecord, PathBuf), String>> {
         self.finished.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod handshake_tests {
+    use super::*;
+    use crate::project_model::FileKind;
+    use crate::target_select::TargetOp;
+
+    fn request() -> TargetRequest {
+        TargetRequest {
+            op: TargetOp::Create,
+            kind: FileKind::Form,
+            name: "order".into(),
+            candidates: Vec::new(),
+        }
+    }
+
+    /// The worker's `select_target` closure sends a request and blocks; the UI
+    /// side answers, and the choice comes back (spec 034).
+    #[test]
+    fn select_target_roundtrip_returns_choice() {
+        let (tx, rx) = mpsc::channel::<GraceMsg>();
+        let mut select_target = move |req: TargetRequest| -> Option<TargetChoice> {
+            let (rtx, rrx) = mpsc::channel();
+            if tx.send(GraceMsg::SelectTarget(req, rtx)).is_err() {
+                return None;
+            }
+            rrx.recv().unwrap_or(None)
+        };
+        let worker = std::thread::spawn(move || select_target(request()));
+        // UI side: receive the request and respond with a chosen folder.
+        match rx.recv().unwrap() {
+            GraceMsg::SelectTarget(req, reply) => {
+                assert_eq!(req.name, "order");
+                reply
+                    .send(Some(TargetChoice {
+                        rel_path: "forms/customers".into(),
+                    }))
+                    .unwrap();
+            }
+            _ => panic!("expected SelectTarget"),
+        }
+        assert_eq!(
+            worker.join().unwrap(),
+            Some(TargetChoice {
+                rel_path: "forms/customers".into()
+            })
+        );
+    }
+
+    /// A dropped UI channel (session dismissed) is a cancel → `None`.
+    #[test]
+    fn dropped_channel_cancels() {
+        let (tx, rx) = mpsc::channel::<GraceMsg>();
+        drop(rx);
+        let mut select_target = move |req: TargetRequest| -> Option<TargetChoice> {
+            let (rtx, rrx) = mpsc::channel();
+            if tx.send(GraceMsg::SelectTarget(req, rtx)).is_err() {
+                return None;
+            }
+            rrx.recv().unwrap_or(None)
+        };
+        assert_eq!(select_target(request()), None);
     }
 }
 
@@ -229,6 +333,10 @@ pub fn spawn_contextual_request(
                 let _ = progress_tx.send(LlmResponse::Chunk(format!("{line}\n")));
             };
             let mut deny_unattended_git = |_req: GitConfirmRequest| false;
+            // Compact chat surfaces have no modal host, so a create/edit that
+            // needs a target pick cannot be disambiguated here: cancel it and let
+            // Grace report that the full project Grace chat is required (spec 034).
+            let mut no_target_picker = |_req: TargetRequest| None;
             match crate::grace_host::run_grace_workflow_with_context(
                 &dir,
                 &llm,
@@ -236,6 +344,7 @@ pub fn spawn_contextual_request(
                 &routing,
                 &mut on_progress,
                 &mut deny_unattended_git,
+                &mut no_target_picker,
             ) {
                 Ok((record, _)) => {
                     let reply = crate::grace_host::workflow_chat_reply(

@@ -479,6 +479,8 @@ pub struct CoboltApp {
     use_grace: bool,
     /// The running (or just-finished) Grace workflow, when routed.
     grace_session: Option<crate::grace_session::GraceSession>,
+    /// The target-disambiguation modal for the agent surface (spec 034).
+    target_picker: crate::panels::target_picker::TargetPicker,
     /// One-shot guard: whether the current finished session's approved
     /// form-design output has been applied to the form yet (spec 030 R7).
     grace_applied: bool,
@@ -1046,6 +1048,7 @@ impl CoboltApp {
             agent_pending: None,
             use_grace: true,
             grace_session: None,
+            target_picker: crate::panels::target_picker::TargetPicker::default(),
             grace_applied: false,
             agent_history: Vec::new(),
             agent_history_form: None,
@@ -8572,7 +8575,7 @@ impl eframe::App for CoboltApp {
             self.show_welcome_pane(root_ui, &tr);
         } else if self.show_grace_chat {
             if let Some(root) = self.project_dir() {
-                let action = self.grace_chat.show(root_ui, &root, &self.llm);
+                let action = self.grace_chat.show(root_ui, &root, &self.llm, &tr);
                 if action.rescan_documentation {
                     self.sync_project_documentation_membership(&root);
                 }
@@ -8640,6 +8643,7 @@ impl eframe::App for CoboltApp {
         self.show_folder_create_dialog(ctx, &tr);
         self.show_folder_rename_dialog(ctx, &tr);
         self.show_folder_delete_confirm(ctx, &tr);
+        self.show_target_picker(ctx, &tr);
         self.show_indexed_delete_confirm(ctx, &tr);
 
         // Tree semaphore: the active file, if edited since its last check, goes
@@ -10298,6 +10302,27 @@ impl CoboltApp {
                         "Could not delete Knowledge Base folder.\n\n{error}"
                     ))
                 }
+            }
+        }
+    }
+
+    /// Render the Grace target-disambiguation modal when a workflow is paused
+    /// awaiting a target pick, and feed the choice back to the worker (spec 034).
+    fn show_target_picker(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(req) = self
+            .grace_session
+            .as_ref()
+            .and_then(|s| s.pending_select())
+            .cloned()
+        else {
+            return;
+        };
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        if let Some(outcome) = self.target_picker.show(ctx, &req, &root, tr) {
+            if let Some(sess) = self.grace_session.as_mut() {
+                sess.respond_select(outcome);
             }
         }
     }

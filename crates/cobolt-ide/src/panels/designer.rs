@@ -967,6 +967,68 @@ fn explain_syntax_error(message: &str) -> &'static str {
     }
 }
 
+// ── Animated agent control moves (spec 035) ────────────────────────────────────
+
+/// One control gliding from its pre-change position to the agent's new one. The
+/// model already holds `to`; only the *drawn* position interpolates (R5).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveAnim {
+    pub id: String,
+    pub from: egui::Pos2,
+    pub to: egui::Pos2,
+}
+
+/// Duration of an agent control-move animation, in seconds (spec 035, R3).
+const MOVE_ANIM_SECS: f64 = 1.0;
+
+/// Ease-in-out over `[0,1]` (cubic): smooth acceleration and settle (R3).
+fn eased(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.5 {
+        4.0 * t * t * t
+    } else {
+        let f = 2.0 * t - 2.0;
+        1.0 + f * f * f / 2.0
+    }
+}
+
+/// The draw offset for a moving control at progress `t`: `lerp(from,to,eased) - to`.
+/// Zero at `t≥1`, so the control rests exactly at its final (model) position (R5).
+fn move_offset(from: egui::Pos2, to: egui::Pos2, t: f32) -> egui::Vec2 {
+    let e = eased(t);
+    let cur = from + (to - from) * e;
+    cur - to
+}
+
+/// Build move animations by diffing a `before` snapshot of control positions
+/// against the form after an agent change-set. Only a control that existed
+/// before, still exists, kept the **same parent**, and whose `(x,y)` changed is
+/// animated — created / deleted / unmoved / reparented controls are not (R1, R7,
+/// R8, Q3).
+fn diff_moves(
+    before: &std::collections::HashMap<String, (i32, i32, Option<String>)>,
+    form: &Form,
+) -> Vec<MoveAnim> {
+    let mut anims = Vec::new();
+    for c in &form.controls {
+        let Some((ox, oy, oparent)) = before.get(&c.id) else {
+            continue; // newly created → no move animation
+        };
+        if *oparent != c.parent {
+            continue; // reparented → just apply (Q3)
+        }
+        if *ox == c.rect.x && *oy == c.rect.y {
+            continue; // unmoved
+        }
+        anims.push(MoveAnim {
+            id: c.id.clone(),
+            from: egui::pos2(*ox as f32, *oy as f32),
+            to: egui::pos2(c.rect.x as f32, c.rect.y as f32),
+        });
+    }
+    anims
+}
+
 // ── DesignerPanel ─────────────────────────────────────────────────────────────
 
 pub struct DesignerPanel {
@@ -1027,6 +1089,14 @@ pub struct DesignerPanel {
     /// inherit it so a form keeps a consistent typeface.
     last_font_name: Option<String>,
     last_font_size: Option<i64>,
+
+    /// In-flight agent control-move animations and their shared start time
+    /// (spec 035). Purely visual — the model already holds the final positions.
+    move_anims: Vec<MoveAnim>,
+    move_anim_start: Option<f64>,
+    /// The `ctx.input().time` of the last canvas paint, so a retargeting move
+    /// (R6) can compute each control's current on-screen position at apply time.
+    move_anim_last_now: Option<f64>,
 
     // ── Resize handle press capture ───────────────────────────────────────────
     /// Stores which resize handle the pointer was on when the mouse button was
@@ -1119,6 +1189,9 @@ impl DesignerPanel {
             image_cache: HashMap::new(),
             last_font_name: None,
             last_font_size: None,
+            move_anims: Vec::new(),
+            move_anim_start: None,
+            move_anim_last_now: None,
             press_handle: None,
             press_form_edge: None,
             menu_modal: None,
@@ -1387,9 +1460,64 @@ impl DesignerPanel {
 
         let n = cmds.len();
         if n > 0 {
+            // Snapshot positions BEFORE applying so we can animate the moves
+            // (spec 035, R1). If an animation is already running, use each
+            // control's CURRENT on-screen position as the "before" so a new
+            // change-set retargets smoothly (R6).
+            let mut before: std::collections::HashMap<String, (i32, i32, Option<String>)> =
+                std::collections::HashMap::new();
+            for c in &self.form.controls {
+                let (bx, by) = self
+                    .live_move_from(&c.id)
+                    .unwrap_or((c.rect.x, c.rect.y));
+                before.insert(c.id.clone(), (bx, by, c.parent.clone()));
+            }
+
             self.apply(Cmd::AgentBatch { cmds });
+
+            let anims = diff_moves(&before, &self.form);
+            if !anims.is_empty() {
+                self.move_anims = anims;
+                self.move_anim_start = None; // armed — first paint stamps the start
+            }
         }
         n
+    }
+
+    /// The current on-screen position of a control mid-animation, as integer
+    /// design coordinates — the eased interpolation from `from` to `to` at the
+    /// last painted time. `None` when it is not animating. Retargets a fresh
+    /// move so it continues from where the control visually is (R6).
+    fn live_move_from(&self, id: &str) -> Option<(i32, i32)> {
+        let anim = self.move_anims.iter().find(|a| a.id == id)?;
+        let (start, now) = (self.move_anim_start?, self.move_anim_last_now?);
+        let t = ((now - start) / MOVE_ANIM_SECS).clamp(0.0, 1.0) as f32;
+        let cur = anim.from + (anim.to - anim.from) * eased(t);
+        Some((cur.x.round() as i32, cur.y.round() as i32))
+    }
+
+    /// Advance the agent control-move animation for this paint (spec 035): stamp
+    /// the start on the first frame, drive repaints while running, finish at
+    /// `MOVE_ANIM_SECS`, and return each animating control's current **draw
+    /// offset**. Empty when idle. The offset feeds paint positions ONLY — never
+    /// any layout/container size (egui self-inflation guard, plan §5).
+    fn tick_move_anims(&mut self, now: f64, ctx: &egui::Context) -> HashMap<String, Vec2> {
+        self.move_anim_last_now = Some(now);
+        if self.move_anims.is_empty() {
+            return HashMap::new();
+        }
+        let start = *self.move_anim_start.get_or_insert(now);
+        let t = ((now - start) / MOVE_ANIM_SECS).clamp(0.0, 1.0) as f32;
+        if t >= 1.0 {
+            self.move_anims.clear();
+            self.move_anim_start = None;
+            return HashMap::new();
+        }
+        ctx.request_repaint(); // keep ticking until the motion completes (R4)
+        self.move_anims
+            .iter()
+            .map(|a| (a.id.clone(), move_offset(a.from, a.to, t)))
+            .collect()
     }
 
     pub fn undo(&mut self) {
@@ -3388,16 +3516,31 @@ impl DesignerPanel {
                                         .round()
                                         .max(1.0)) as usize;
                                     let box_size = egui::vec2(text_w, prompt_height);
+                                    // Enter sends; Shift+Enter inserts a newline.
+                                    // Plain Enter is consumed BEFORE the TextEdit
+                                    // sees it (only while the box is focused) so no
+                                    // newline is inserted; Shift+Enter is left alone.
+                                    let te_id = egui::Id::new("global_ai_prompt_edit");
+                                    let mut enter_send = false;
                                     let inner = ui.allocate_ui(box_size, |ui| {
                                         ui.set_min_size(box_size);
                                         egui::ScrollArea::vertical()
                                             .id_salt("global_ai_prompt_scroll")
                                             .auto_shrink([false, false])
                                             .show(ui, |ui| {
+                                                if ui.memory(|m| m.has_focus(te_id)) {
+                                                    enter_send = ui.input_mut(|i| {
+                                                        i.consume_key(
+                                                            egui::Modifiers::NONE,
+                                                            egui::Key::Enter,
+                                                        )
+                                                    });
+                                                }
                                                 ui.add(
                                                     egui::TextEdit::multiline(
                                                         &mut self.global_ai_prompt,
                                                     )
+                                                    .id(te_id)
                                                     .hint_text("How can I help you today?")
                                                     .desired_width(f32::INFINITY)
                                                     .desired_rows(prompt_rows)
@@ -3406,6 +3549,10 @@ impl DesignerPanel {
                                             })
                                             .inner
                                     });
+                                    if enter_send && !busy && !self.global_ai_prompt.trim().is_empty()
+                                    {
+                                        do_send = true;
+                                    }
                                     let box_rect = inner.response.rect;
                                     // Bottom-right resize grip, registered AFTER
                                     // the TextEdit so it wins the hit-test over
@@ -4078,10 +4225,33 @@ impl DesignerPanel {
                         None
                     };
 
+                // Agent control-move animation (spec 035): interpolate the DRAWN
+                // positions only. The model keeps its final coordinates; we render
+                // a lightweight clone shifted by each control's live offset.
+                let anim_now = ui.ctx().input(|i| i.time);
+                let move_offsets = self.tick_move_anims(anim_now, ui.ctx());
+                let animated_controls: Option<Vec<cobolt_forms::model::Control>> =
+                    (!move_offsets.is_empty()).then(|| {
+                        self.form
+                            .controls
+                            .iter()
+                            .map(|c| {
+                                let mut c = c.clone();
+                                if let Some(off) = move_offsets.get(&c.id) {
+                                    c.rect.x = (c.rect.x as f32 + off.x).round() as i32;
+                                    c.rect.y = (c.rect.y as f32 + off.y).round() as i32;
+                                }
+                                c
+                            })
+                            .collect()
+                    });
+                let controls_for_render: &[cobolt_forms::model::Control] =
+                    animated_controls.as_deref().unwrap_or(&self.form.controls);
+
                 let control_rects = {
                     let st = DesignerState { anim: &anim_tf };
                     let input = cobolt_forms::render::RenderInput {
-                        controls: &self.form.controls,
+                        controls: controls_for_render,
                         state: &st,
                         form_size: Vec2::new(form_w, form_h),
                         glass: self.glass_mode,
@@ -10752,5 +10922,104 @@ mod text_align_tests {
         d.set_form_prop("GlassStyle", "neumorphic-dark".into());
         assert_eq!(d.form.glass_style, GlassStyle::Classic);
         assert!(!GlassStyle::ALL.contains(&"neumorphic-dark"));
+    }
+}
+
+#[cfg(test)]
+mod move_anim_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, Form};
+    use std::collections::HashMap;
+
+    #[test]
+    fn eased_is_symmetric_ease_in_out() {
+        assert!((eased(0.0) - 0.0).abs() < 1e-6);
+        assert!((eased(1.0) - 1.0).abs() < 1e-6);
+        assert!((eased(0.5) - 0.5).abs() < 1e-6);
+        // Ease-in: below the line early, above it late (symmetric about 0.5).
+        assert!(eased(0.25) < 0.25);
+        assert!(eased(0.75) > 0.75);
+        // Monotonic.
+        assert!(eased(0.3) < eased(0.6));
+    }
+
+    #[test]
+    fn move_offset_starts_at_delta_and_ends_at_zero() {
+        let from = egui::pos2(0.0, 0.0);
+        let to = egui::pos2(100.0, 40.0);
+        // t=0 → drawn at `from`, i.e. offset = from - to.
+        assert_eq!(move_offset(from, to, 0.0), from - to);
+        // t≥1 → offset zero (rests at final/model position).
+        assert_eq!(move_offset(from, to, 1.0), egui::Vec2::ZERO);
+        assert_eq!(move_offset(from, to, 1.5), egui::Vec2::ZERO);
+        // t=0.5 → eased midpoint (halfway for a symmetric curve).
+        let mid = move_offset(from, to, 0.5);
+        assert!((mid.x - (-50.0)).abs() < 0.5);
+        assert!((mid.y - (-20.0)).abs() < 0.5);
+    }
+
+    fn ctrl(id: &str, x: i32, y: i32, parent: Option<&str>) -> Control {
+        let mut c = Control::new(id, ControlType::Button, x, y);
+        c.parent = parent.map(str::to_string);
+        c
+    }
+
+    #[test]
+    fn diff_moves_only_animates_moved_same_parent_controls() {
+        // before: A@(10,10), B@(0,0), C@(5,5, parent P), D@(1,1)
+        let mut before: HashMap<String, (i32, i32, Option<String>)> = HashMap::new();
+        before.insert("A".into(), (10, 10, None));
+        before.insert("B".into(), (0, 0, None));
+        before.insert("C".into(), (5, 5, Some("P".into())));
+        before.insert("D".into(), (1, 1, None));
+
+        let mut form = Form::new("F", "F", 640, 480);
+        form.controls.push(ctrl("A", 200, 80, None)); // moved → animate
+        form.controls.push(ctrl("B", 0, 0, None)); // unmoved → no
+        form.controls.push(ctrl("C", 99, 99, None)); // moved BUT reparented → no
+        form.controls.push(ctrl("E", 300, 300, None)); // newly created → no
+        // D was deleted (absent from form) → no
+
+        let anims = diff_moves(&before, &form);
+        assert_eq!(anims.len(), 1, "only A animates");
+        assert_eq!(anims[0].id, "A");
+        assert_eq!(anims[0].from, egui::pos2(10.0, 10.0));
+        assert_eq!(anims[0].to, egui::pos2(200.0, 80.0));
+    }
+
+    #[test]
+    fn apply_moves_model_immediately_and_arms_animation() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.add_control(ControlType::Button, 10, 10);
+        let id = d.form.controls[0].id.clone();
+
+        // Agent moves the control to (300, 120) via set_property X/Y.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: id.clone(),
+                    key: "X".into(),
+                    value: serde_json::json!(300),
+                },
+                AgentOp::SetProperty {
+                    control_id: id.clone(),
+                    key: "Y".into(),
+                    value: serde_json::json!(120),
+                },
+            ],
+            note: None,
+        };
+        let n = d.apply_agent_change_set(&cs);
+        assert!(n > 0);
+        // R5/AC3: the model holds the FINAL coordinates the instant it applies.
+        let c = &d.form.controls[0];
+        assert_eq!((c.rect.x, c.rect.y), (300, 120));
+        // …and the move is armed for animation.
+        assert_eq!(d.move_anims.len(), 1);
+        assert_eq!(d.move_anims[0].id, id);
+        assert_eq!(d.move_anims[0].to, egui::pos2(300.0, 120.0));
+        assert!(d.move_anim_start.is_none(), "start is stamped on first paint");
     }
 }

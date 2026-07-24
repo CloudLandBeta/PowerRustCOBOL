@@ -432,6 +432,18 @@ progress, and approval controls for gated operations.
 Its property-pane header identifies it as
 **👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator**.
 
+**Choosing where things go.** Because the project tree supports folders, a name
+can exist in more than one place. When you ask Grace to **create** an element
+(a form, indexed file, common-code source, documentation file, or asset), it
+opens a small centered window showing the project tree so you pick the
+destination **folder** — you can also create a new folder there on the spot.
+When you ask Grace to **edit** an element by name and more than one element
+shares that name, the same window lets you pick **which one**; if only one
+matches, Grace just edits it. Cancelling the window stops the operation, and
+Grace reports that nothing was created or edited. (This prompt appears in the
+full project Grace chat; the compact editor/designer chat surfaces cannot show
+it, so an ambiguous request there asks you to use the project Grace chat.)
+
 Every IDE chatbot routes through Grace. The surface supplies an advisory
 preference: the RAD Form Designer prefers the Form Designer Agent, its event
 editor prefers the COBOL Event Handler Script Agent, and the code editor asks
@@ -440,6 +452,12 @@ split a request across any enabled specialists, so a request to create a button
 and wire its `onClick` behavior can coordinate both form-design and event-handler
 tasks. Each workflow runs its configured pedantic reviews, streams progress,
 and saves an auditable record under `agentic_ai/Grace/runs/`.
+
+When the agent **repositions controls** on a form, the affected controls
+**glide** from their old places to the new ones — all at once, over about a
+second — so you can see the layout change take shape instead of the controls
+jumping. The animation is purely visual: the form and its generated code hold the
+final positions immediately.
 
 Every chatbot composer keeps **Send** immediately to the right of its prompt.
 The prompt consumes the remaining width while the command stays visible as the

@@ -188,6 +188,11 @@ impl ProjectAiSettings {
         llm.pedantic_ui_prompt = self.pedantic_ui_prompt.clone();
         llm.pedantic_event_prompt = self.pedantic_event_prompt.clone();
         llm.model_profiles = self.model_profiles.clone();
+        // Profile-only projects (a model set per-agent but no top-level default,
+        // e.g. Form Designer → ollama) must still drive the direct AI surfaces,
+        // which call the top-level model. Adopt a usable profile as the default
+        // before resolving the API key so the key matches (spec 031).
+        llm.ensure_default_model_from_profiles();
         llm.api_key = llm
             .model_profiles
             .iter()

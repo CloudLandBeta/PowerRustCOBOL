@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::agents_db::{AgentKind, AgentsDb, DATA_INDEXED_FILE_AGENT, DOCUMENTATION_AGENT, GRACE};
 use crate::git_exec::GitConfirmRequest;
 use crate::llm::LlmConfig;
+use crate::target_select::{TargetChoice, TargetRequest};
 use crate::tool_exec::{IdeToolBackend, ToolEvidence, ToolExecutingInvoker};
 
 /// Bound on tool-execution rounds per task (spec 030) — guards a model that
@@ -929,6 +930,7 @@ pub fn run_grace_workflow(
     request: &str,
     on_progress: &mut dyn FnMut(String),
     confirm: &mut dyn FnMut(GitConfirmRequest) -> bool,
+    select_target: &mut dyn FnMut(TargetRequest) -> Option<TargetChoice>,
 ) -> Result<(WorkflowRecord, PathBuf), String> {
     run_grace_workflow_with_context(
         project_dir,
@@ -937,6 +939,7 @@ pub fn run_grace_workflow(
         &GraceRoutingContext::default(),
         on_progress,
         confirm,
+        select_target,
     )
 }
 
@@ -950,6 +953,7 @@ pub fn run_grace_workflow_with_context(
     routing: &GraceRoutingContext,
     on_progress: &mut dyn FnMut(String),
     confirm: &mut dyn FnMut(GitConfirmRequest) -> bool,
+    select_target: &mut dyn FnMut(TargetRequest) -> Option<TargetChoice>,
 ) -> Result<(WorkflowRecord, PathBuf), String> {
     run_grace_workflow_with_control(
         project_dir,
@@ -959,11 +963,13 @@ pub fn run_grace_workflow_with_context(
         &WorkflowControl::default(),
         on_progress,
         confirm,
+        select_target,
     )
 }
 
 /// Like [`run_grace_workflow_with_context`], with a live [`WorkflowControl`]
 /// so the UI can stop the run and watch token usage as each model returns.
+#[allow(clippy::too_many_arguments)]
 pub fn run_grace_workflow_with_control(
     project_dir: &Path,
     llm: &LlmConfig,
@@ -972,6 +978,7 @@ pub fn run_grace_workflow_with_control(
     control: &WorkflowControl,
     on_progress: &mut dyn FnMut(String),
     confirm: &mut dyn FnMut(GitConfirmRequest) -> bool,
+    select_target: &mut dyn FnMut(TargetRequest) -> Option<TargetChoice>,
 ) -> Result<(WorkflowRecord, PathBuf), String> {
     if llm.verbose_log {
         crate::llm::push_ai_log(
@@ -1053,7 +1060,7 @@ pub fn run_grace_workflow_with_control(
         evidence: evidence.clone(),
         cancel: control.cancel.clone(),
     };
-    let mut backend = IdeToolBackend::new(project_dir.to_path_buf(), confirm);
+    let mut backend = IdeToolBackend::new(project_dir.to_path_buf(), confirm, select_target);
     let dir_for_decl = project_dir.to_path_buf();
     let declared = move |agent: &str| -> std::collections::HashSet<String> {
         AgentsDb::load(&dir_for_decl)
