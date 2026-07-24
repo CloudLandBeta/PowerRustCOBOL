@@ -11,12 +11,40 @@ use std::sync::mpsc;
 
 use egui::{CentralPanel, Color32, RichText, ScrollArea};
 
-use crate::grace_host::{workflow_chat_reply, GraceRoutingContext};
+use crate::grace_host::GraceRoutingContext;
 use crate::grace_session::GraceSession;
 use crate::llm::{ChatTurn, LlmConfig, LlmResponse};
 
 const HISTORY_FILE: &str = "grace-conversation.json";
 const GRACE_TITLE: &str = "👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator";
+
+/// Prompt-box row limits: the box opens at 3 text rows; the bottom-right grip
+/// may shrink it to 1 row or grow it to 6, and clamps at both limits.
+const PROMPT_DEFAULT_ROWS: f32 = 3.0;
+const PROMPT_MIN_ROWS: f32 = 1.0;
+const PROMPT_MAX_ROWS: f32 = 6.0;
+/// The TextEdit's total vertical inner margin inside the box.
+const PROMPT_VERTICAL_MARGIN: f32 = 4.0;
+/// Fixed chrome of the input slab besides the prompt box itself: separators,
+/// token label and the button rows (the historical 158 − 72 split).
+const INPUT_CHROME_HEIGHT: f32 = 86.0;
+/// Extra slab height while a pending approval block is shown (230 − 158).
+const APPROVAL_BLOCK_HEIGHT: f32 = 72.0;
+/// The history keeps at least this height however tall the prompt is dragged.
+const MIN_HISTORY_HEIGHT: f32 = 100.0;
+
+/// Height of a prompt box holding `rows` text rows at the style's row height.
+fn prompt_height_for(rows: f32, row_height: f32) -> f32 {
+    rows * row_height + PROMPT_VERTICAL_MARGIN
+}
+
+/// Tallest prompt the panel itself allows: whatever leaves the input chrome,
+/// the approval block (when shown) and a minimal history inside the panel. The
+/// panel height comes from the window/panel layout — it is externally fixed,
+/// never from our own content, so this clamp cannot create a feedback loop.
+fn max_prompt_height(panel_height: f32, approval_extra: f32) -> f32 {
+    (panel_height - INPUT_CHROME_HEIGHT - approval_extra - MIN_HISTORY_HEIGHT).max(0.0)
+}
 
 const WELCOME_MESSAGE: &str = r#"Welcome to PowerRustCOBOL Grace Chatbot. If you are not sure what you can ask Grace, type:
 
@@ -44,6 +72,19 @@ pub struct GraceChatPanel {
     error_modal: Option<String>,
     history_font_size: f32,
     rescan_documentation: bool,
+    /// Agent questions not yet shown — surfaced one balloon at a time.
+    pending_questions: std::collections::VecDeque<String>,
+    /// The question currently awaiting the developer's answer.
+    current_question: Option<String>,
+    /// Answers collected so far, resubmitted to Grace when the last question
+    /// is answered.
+    collected_answers: Vec<(String, String)>,
+    /// Token totals of the last finished workflow, shown under the input box.
+    last_tokens: Option<(u64, u64)>,
+    /// Height of the prompt box, user-authoritative: 0 = "never dragged"
+    /// (renders at the 3-row default); only the corner-grip drag writes it,
+    /// clamped between the 1-row and 6-row limits — never layout measurement.
+    prompt_height: f32,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -64,8 +105,33 @@ impl Default for GraceChatPanel {
             error_modal: None,
             history_font_size: 14.0,
             rescan_documentation: false,
+            pending_questions: std::collections::VecDeque::new(),
+            current_question: None,
+            collected_answers: Vec::new(),
+            last_tokens: None,
+            prompt_height: 0.0, // 0 = never dragged → 3-row default
         }
     }
+}
+
+/// While a question balloon awaits its answer, decide whether the developer's
+/// message is that answer or a different task. A task starts with (or pivots
+/// via "instead" to) an action verb; anything else — "UUID", "use PIC 9(9)",
+/// "COMPANY-MASTER.cidx" — is treated as the answer.
+fn looks_like_new_task(message: &str) -> bool {
+    let lower = message.trim().to_ascii_lowercase();
+    if lower.contains("instead") {
+        return true;
+    }
+    let action_verbs = [
+        "create", "add", "remove", "delete", "build", "generate", "design", "implement",
+        "modify", "change", "rename", "move", "update", "fix", "make", "write", "refactor",
+        "plan", "deploy",
+    ];
+    lower
+        .split_whitespace()
+        .take(2)
+        .any(|word| action_verbs.contains(&word.trim_matches(|c: char| !c.is_alphanumeric())))
 }
 
 impl GraceChatPanel {
@@ -88,10 +154,25 @@ impl GraceChatPanel {
         self.status = None;
         self.error_modal = None;
         self.rescan_documentation = false;
+        self.pending_questions.clear();
+        self.current_question = None;
+        self.collected_answers.clear();
+        self.last_tokens = None;
         self.history = std::fs::read_to_string(Self::history_path(root))
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
             .unwrap_or_default();
+    }
+
+    /// Show the next queued agent question as its own red balloon — one
+    /// question at a time; the next appears only after this one is answered.
+    fn ask_next_question(&mut self) {
+        if let Some(question) = self.pending_questions.pop_front() {
+            self.history.push(ChatTurn::question(&question));
+            self.current_question = Some(question);
+        } else {
+            self.current_question = None;
+        }
     }
 
     fn persist(&self) -> Result<(), String> {
@@ -119,22 +200,79 @@ impl GraceChatPanel {
             .as_ref()
             .and_then(|session| session.finished().cloned());
         if let Some(result) = finished {
+            // Keep the finished run's exact token totals for the footer label.
+            if let Some(session) = self.session.as_ref() {
+                self.last_tokens = Some(session.token_totals());
+            }
+            // Typographic rule: agents report in the history when they start
+            // and finish a task. The live progress log carries those lines;
+            // persist them as a Markdown list before the reply.
+            let coordination = self
+                .session
+                .as_ref()
+                .map(|session| {
+                    session
+                        .log
+                        .iter()
+                        .map(|line| line.trim_start_matches('▸').trim())
+                        .filter(|line| {
+                            line.contains(": starting ") || line.contains(": finishing ")
+                        })
+                        .map(|line| format!("- {line}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default();
             self.session = None;
             // A workflow may have created documentation before either completing
             // or failing a later task. Reconcile the project tree in both cases.
             self.rescan_documentation = true;
             match result {
                 Ok((record, _)) => {
-                    self.history
-                        .push(ChatTurn::assistant(workflow_chat_reply(
-                            &record, None, verbose,
+                    if !coordination.is_empty() {
+                        self.history.push(ChatTurn::assistant(format!(
+                            "Coordination log:\n\n{coordination}"
                         )));
+                    }
+                    // Verbose mode yields two balloons: the coordination
+                    // transcript, then Grace's OWN final balloon — her summary
+                    // no longer drowns at the tail of the transcript balloon.
+                    let mut balloons =
+                        crate::grace_host::workflow_chat_balloons(&record, verbose);
+                    let reply = balloons.pop().unwrap_or_default();
+                    for balloon in balloons {
+                        self.history.push(ChatTurn::assistant(balloon));
+                    }
+                    // Agent questions live in their own red balloons, one at a
+                    // time: show the surrounding context now, queue the
+                    // questions, and surface only the first.
+                    let (context, questions) =
+                        crate::grace_host::split_developer_questions(&reply);
+                    if questions.is_empty() {
+                        self.history.push(ChatTurn::assistant(reply));
+                    } else {
+                        if !context.is_empty() {
+                            self.history.push(ChatTurn::assistant(context));
+                        }
+                        self.pending_questions = questions.into();
+                        self.collected_answers.clear();
+                        self.ask_next_question();
+                    }
                     self.status = Some(format!("Workflow {} completed.", record.workflow_id));
                     let _ = self.persist();
                 }
                 Err(error) => {
                     self.status = None;
-                    self.error_modal = Some(error);
+                    // A developer-initiated stop is an outcome, not an error.
+                    if error.contains("stopped by the developer") {
+                        self.history.push(ChatTurn::assistant(
+                            "Stopped at your request. Nothing further was executed.",
+                        ));
+                        self.status = Some("Workflow stopped.".into());
+                        let _ = self.persist();
+                    } else {
+                        self.error_modal = Some(error);
+                    }
                 }
             }
         }
@@ -208,6 +346,18 @@ impl GraceChatPanel {
         let mut clear = false;
         let mut close = false;
         let mut confirm: Option<bool> = None;
+        let mut stop = false;
+        let stop_requested = self
+            .session
+            .as_ref()
+            .is_some_and(GraceSession::stop_requested);
+        // Live token totals: the running session's accumulator the moment each
+        // model returns, or the last finished workflow's totals.
+        let token_totals = self
+            .session
+            .as_ref()
+            .map(GraceSession::token_totals)
+            .or(self.last_tokens);
 
         let frame = crate::theme::glass_panel_frame(
             ctx.global_style().visuals.panel_fill,
@@ -218,6 +368,21 @@ impl GraceChatPanel {
                 ui.heading(GRACE_TITLE);
                 if busy {
                     ui.add(egui::Spinner::new());
+                    // Stop sign, visible only while the spinner is: halts
+                    // Grace/agents as soon as the in-flight call returns.
+                    if stop_requested {
+                        ui.label(
+                            RichText::new("Stopping…")
+                                .small()
+                                .color(crate::theme::active().text_dim),
+                        );
+                    } else if ui
+                        .button(RichText::new("🛑").size(16.0))
+                        .on_hover_text("Stop Grace and the agents")
+                        .clicked()
+                    {
+                        stop = true;
+                    }
                     ui.label(
                         RichText::new("Coordinating specialists...")
                             .small()
@@ -227,12 +392,31 @@ impl GraceChatPanel {
             });
             ui.separator();
 
-            let input_height = if pending_command.is_some() {
-                230.0
+            // The input slab is sized from the USER-chosen prompt height (only
+            // the corner-grip drag writes `self.prompt_height`) plus fixed
+            // chrome — never from content or remaining space, so the input can
+            // neither inflate on its own nor slide under the Output panel.
+            let approval_extra = if pending_command.is_some() {
+                APPROVAL_BLOCK_HEIGHT
             } else {
-                158.0
+                0.0
             };
-            let history_height = (ui.available_height() - input_height).max(100.0);
+            // Row-based limits (1..=6 rows, default 3), from the style's row
+            // height — never from content. The panel height (fixed by the
+            // window layout) additionally caps growth on tiny windows.
+            let prompt_row = ui.text_style_height(&egui::TextStyle::Body);
+            let prompt_min_height = prompt_height_for(PROMPT_MIN_ROWS, prompt_row);
+            let prompt_max_height = prompt_height_for(PROMPT_MAX_ROWS, prompt_row)
+                .min(max_prompt_height(ui.available_height(), approval_extra))
+                .max(prompt_min_height);
+            let prompt_height = if self.prompt_height > 0.0 {
+                self.prompt_height
+            } else {
+                prompt_height_for(PROMPT_DEFAULT_ROWS, prompt_row)
+            }
+            .clamp(prompt_min_height, prompt_max_height);
+            let input_height = prompt_height + INPUT_CHROME_HEIGHT + approval_extra;
+            let history_height = (ui.available_height() - input_height).max(MIN_HISTORY_HEIGHT);
             ScrollArea::vertical()
                 .id_salt("project_grace_chat_history")
                 .auto_shrink([false, false])
@@ -287,18 +471,114 @@ impl GraceChatPanel {
             ui.horizontal(|ui| {
                 let prompt_width =
                     super::chat_prompt_width(ui.available_width(), ui.spacing().item_spacing.x);
-                let response = ui.add_sized(
-                    [prompt_width, 72.0],
-                    egui::TextEdit::multiline(&mut self.prompt)
-                        .hint_text("How can I help you today?")
-                        .desired_rows(3)
-                        .interactive(!busy),
-                );
-                submit_shortcut = response.has_focus()
-                    && ui.input(|input| {
-                        input.key_pressed(egui::Key::Enter)
-                            && (input.modifiers.command || input.modifiers.ctrl)
+                // Plain Enter submits like the Send button; Shift+Enter inserts
+                // a newline. The Enter event must be consumed BEFORE the
+                // TextEdit runs, or submitting would also type a newline into
+                // the prompt — hence the focus check against last frame's id.
+                let prompt_edit_id = egui::Id::new("project_grace_prompt_edit");
+                // NOT consume_key: that matches "logically" (extra Shift/Alt
+                // ignored) and would swallow Shift+Enter too. Only an Enter
+                // with NO modifiers submits; Shift+Enter falls through to the
+                // TextEdit and types the newline.
+                let enter_submit = !busy
+                    && ui.memory(|memory| memory.has_focus(prompt_edit_id))
+                    && ui.input_mut(|input| {
+                        let mut pressed = false;
+                        input.events.retain(|event| {
+                            let plain_enter = matches!(
+                                event,
+                                egui::Event::Key {
+                                    key: egui::Key::Enter,
+                                    pressed: true,
+                                    modifiers,
+                                    ..
+                                } if modifiers.is_none()
+                            );
+                            pressed |= plain_enter;
+                            !plain_enter
+                        });
+                        pressed
                     });
+                // User-resizable prompt box: a FIXED (prompt_width ×
+                // prompt_height) allocation — the height comes only from the
+                // 3-row default or the grip drag below, never from content or
+                // remaining space, so the box cannot grow by itself.
+                let box_size = egui::vec2(prompt_width, prompt_height);
+                let inner = ui.allocate_ui(box_size, |ui| {
+                    // Fill the box exactly, so the slab math above stays true.
+                    ui.set_min_size(box_size);
+                    // Longer text scrolls INSIDE the fixed box; the TextEdit
+                    // keeps the cursor visible in the scroll.
+                    ScrollArea::vertical()
+                        .id_salt("project_grace_prompt_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            // desired_rows follows the dragged size so the
+                            // editor's frame fills the box at every height.
+                            let rows = (((prompt_height - PROMPT_VERTICAL_MARGIN)
+                                / prompt_row)
+                                .round()
+                                .max(1.0)) as usize;
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.prompt)
+                                    .id(prompt_edit_id)
+                                    .hint_text("How can I help you today?")
+                                    .desired_rows(rows)
+                                    .desired_width(f32::INFINITY)
+                                    .interactive(!busy),
+                            )
+                        })
+                        .inner
+                });
+                let box_rect = inner.response.rect;
+                let response = inner.inner;
+                // Bottom-right resize grip. Registered AFTER the TextEdit so it
+                // wins the hit-test over it (egui: later widget is on top) —
+                // an egui::Resize corner is registered before its contents and
+                // a full-box TextEdit steals its drags as text selection.
+                let grip_size = 14.0;
+                let grip_rect = egui::Rect::from_min_size(
+                    box_rect.max - egui::vec2(grip_size, grip_size),
+                    egui::vec2(grip_size, grip_size),
+                );
+                let grip = ui.interact(
+                    grip_rect,
+                    egui::Id::new("project_grace_prompt_grip"),
+                    egui::Sense::drag(),
+                );
+                if grip.dragged() {
+                    // The ONLY writer of the height besides the 3-row default.
+                    // The clamp pins the grip inside the 1-row/6-row limits.
+                    self.prompt_height = (prompt_height + grip.drag_delta().y)
+                        .clamp(prompt_min_height, prompt_max_height);
+                }
+                if grip.hovered() || grip.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                // Diagonal grip lines in the corner, like a window's.
+                let stroke = if grip.hovered() || grip.dragged() {
+                    ui.visuals().widgets.hovered.fg_stroke
+                } else {
+                    ui.visuals().widgets.inactive.fg_stroke
+                };
+                let corner = box_rect.max - egui::vec2(3.0, 3.0);
+                for step in 1..=3 {
+                    let offset = 3.0 * step as f32;
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(corner.x - offset, corner.y),
+                            egui::pos2(corner.x, corner.y - offset),
+                        ],
+                        stroke,
+                    );
+                }
+                // Cmd/Ctrl+Enter keeps submitting too, for muscle memory.
+                submit_shortcut = enter_submit
+                    || (response.has_focus()
+                        && ui.input(|input| {
+                            input.key_pressed(egui::Key::Enter)
+                                && (input.modifiers.command || input.modifiers.ctrl)
+                        }));
                 if ui
                     .add_enabled(
                         !busy && !self.prompt.trim().is_empty(),
@@ -312,6 +592,16 @@ impl GraceChatPanel {
             });
             if submit_shortcut {
                 send = true;
+            }
+            // Up-to-date token usage, refreshed the moment each model returns.
+            if let Some((input_tokens, output_tokens)) = token_totals {
+                ui.label(
+                    RichText::new(format!(
+                        "Tokens: {input_tokens} in / {output_tokens} out"
+                    ))
+                    .small()
+                    .color(crate::theme::active().text_dim),
+                );
             }
             ui.horizontal_wrapped(|ui| {
                 if ui
@@ -371,6 +661,13 @@ impl GraceChatPanel {
             self.status = None;
             let _ = self.persist();
         }
+        if stop {
+            if let Some(session) = self.session.as_ref() {
+                session.stop();
+            }
+            self.status =
+                Some("Stopping — waiting for the current agent call to return.".into());
+        }
         if save {
             match self.persist() {
                 Ok(()) => self.status = Some("Conversation saved in this project.".into()),
@@ -390,29 +687,98 @@ impl GraceChatPanel {
             } else {
                 let request = self.prompt.trim().to_string();
                 if !request.is_empty() {
-                    let conversation = self
-                        .history
-                        .iter()
-                        .map(|turn| format!("{}: {}", turn.role, turn.content))
-                        .collect::<Vec<_>>()
-                        .join("\n\n");
-                    self.history.push(ChatTurn::user(&request));
-                    self.prompt.clear();
-                    self.status = None;
-                    let _ = self.persist();
-                    self.session = Some(GraceSession::spawn_with_context(
-                        root,
-                        llm,
-                        &request,
-                        GraceRoutingContext::new(
-                            "Project workspace",
-                            None,
-                            format!(
-                                "The developer opened the project-wide Grace chatbot. No specialist is preselected; route by capability.\n\nCONVERSATION SO FAR:\n{conversation}"
+                    // A bare greeting gets a greeting back — no workflow, no
+                    // model calls, no tokens. A pending questionnaire (if any)
+                    // stays exactly as it is.
+                    if let Some(greeting) = crate::grace_host::simple_greeting_reply(&request) {
+                        self.history.push(ChatTurn::user(&request));
+                        self.history.push(ChatTurn::assistant(greeting));
+                        self.prompt.clear();
+                        self.status = None;
+                        let _ = self.persist();
+                        ctx.request_repaint();
+                        send = false;
+                    }
+                }
+                if send && !request.is_empty() {
+                    // A pending agent question: the message is either its
+                    // answer (advance the questionnaire) or a new task (drop
+                    // the questionnaire and do what the developer asked).
+                    let answered_question = self
+                        .current_question
+                        .clone()
+                        .filter(|_| !looks_like_new_task(&request));
+                    if let Some(question) = answered_question {
+                        self.history.push(ChatTurn::user(&request));
+                        self.prompt.clear();
+                        self.status = None;
+                        self.collected_answers.push((question, request));
+                        if !self.pending_questions.is_empty() {
+                            // More questions — next balloon, no workflow yet.
+                            self.ask_next_question();
+                            let _ = self.persist();
+                        } else {
+                            self.current_question = None;
+                            let answers = self
+                                .collected_answers
+                                .drain(..)
+                                .map(|(question, answer)| {
+                                    format!("- {question}\n  Answer: {answer}")
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            let conversation = self
+                                .history
+                                .iter()
+                                .map(|turn| format!("{}: {}", turn.role, turn.content))
+                                .collect::<Vec<_>>()
+                                .join("\n\n");
+                            let _ = self.persist();
+                            self.session = Some(GraceSession::spawn_with_context(
+                                root,
+                                llm,
+                                &format!(
+                                    "The developer answered the pending clarification questions:\n\n{answers}\n\nContinue the requested work applying these decisions."
+                                ),
+                                GraceRoutingContext::new(
+                                    "Project workspace",
+                                    None,
+                                    format!(
+                                        "The developer opened the project-wide Grace chatbot. No specialist is preselected; route by capability.\n\nCONVERSATION SO FAR:\n{conversation}"
+                                    ),
+                                ),
+                            ));
+                        }
+                        ctx.request_repaint();
+                    } else {
+                        // A fresh request abandons any unanswered questionnaire.
+                        self.pending_questions.clear();
+                        self.current_question = None;
+                        self.collected_answers.clear();
+                        let conversation = self
+                            .history
+                            .iter()
+                            .map(|turn| format!("{}: {}", turn.role, turn.content))
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+                        self.history.push(ChatTurn::user(&request));
+                        self.prompt.clear();
+                        self.status = None;
+                        let _ = self.persist();
+                        self.session = Some(GraceSession::spawn_with_context(
+                            root,
+                            llm,
+                            &request,
+                            GraceRoutingContext::new(
+                                "Project workspace",
+                                None,
+                                format!(
+                                    "The developer opened the project-wide Grace chatbot. No specialist is preselected; route by capability.\n\nCONVERSATION SO FAR:\n{conversation}"
+                                ),
                             ),
-                        ),
-                    ));
-                    ctx.request_repaint();
+                        ));
+                        ctx.request_repaint();
+                    }
                 }
             }
         }
@@ -500,5 +866,80 @@ mod tests {
             GRACE_TITLE,
             "👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator"
         );
+    }
+
+    #[test]
+    fn answers_are_not_mistaken_for_new_tasks() {
+        assert!(!looks_like_new_task("UUID"));
+        assert!(!looks_like_new_task("Use PIC 9(9) for every ID"));
+        assert!(!looks_like_new_task("COMPANY-MASTER.cidx"));
+        assert!(!looks_like_new_task("yes, one registered address per company"));
+        assert!(looks_like_new_task("create a login form"));
+        assert!(looks_like_new_task("Actually, forget that — build the CRUD forms instead"));
+        assert!(looks_like_new_task("please add a datagrid to FORM-1"));
+    }
+
+    #[test]
+    fn prompt_height_opens_at_three_rows_and_clamps_between_one_and_six() {
+        // "Never dragged" sentinel: renders at the 3-row default.
+        assert_eq!(GraceChatPanel::new().prompt_height, 0.0);
+
+        // Row-based limits at a representative row height.
+        let row = 18.0;
+        let min = prompt_height_for(PROMPT_MIN_ROWS, row);
+        let default = prompt_height_for(PROMPT_DEFAULT_ROWS, row);
+        let six = prompt_height_for(PROMPT_MAX_ROWS, row);
+        assert!(min < default && default < six);
+        assert_eq!(min, row + PROMPT_VERTICAL_MARGIN);
+        assert_eq!(six, 6.0 * row + PROMPT_VERTICAL_MARGIN);
+
+        // A roomy panel: the 6-row cap is the binding limit; drags clamp into
+        // [1 row, 6 rows] at both ends.
+        let max = six.min(max_prompt_height(600.0, 0.0)).max(min);
+        assert_eq!(max, six);
+        assert_eq!(900.0_f32.clamp(min, max), six);
+        assert_eq!(1.0_f32.clamp(min, max), min);
+
+        // The approval block reserves its own slice before the prompt's.
+        assert_eq!(
+            max_prompt_height(600.0, APPROVAL_BLOCK_HEIGHT),
+            600.0 - INPUT_CHROME_HEIGHT - APPROVAL_BLOCK_HEIGHT - MIN_HISTORY_HEIGHT
+        );
+
+        // A tiny panel caps growth below 6 rows but never below the 1-row min.
+        let tiny_max = six.min(max_prompt_height(120.0, 0.0)).max(min);
+        assert_eq!(tiny_max, min);
+    }
+
+    #[test]
+    fn questions_surface_one_balloon_at_a_time() {
+        let mut panel = GraceChatPanel::new();
+        panel.pending_questions = vec![
+            "Please specify the primary file name.".to_string(),
+            "For every ID field: UUID or a COBOL PIC definition?".to_string(),
+        ]
+        .into();
+        panel.ask_next_question();
+        // Exactly one red balloon so far, and it holds the FIRST question.
+        let questions: Vec<_> = panel
+            .history
+            .iter()
+            .filter(|turn| turn.role == "question")
+            .collect();
+        assert_eq!(questions.len(), 1);
+        assert!(questions[0].content.contains("primary file name"));
+        assert_eq!(panel.pending_questions.len(), 1, "second question is held back");
+        assert!(panel.current_question.is_some());
+
+        panel.ask_next_question();
+        assert_eq!(
+            panel
+                .history
+                .iter()
+                .filter(|turn| turn.role == "question")
+                .count(),
+            2
+        );
+        assert!(panel.pending_questions.is_empty());
     }
 }

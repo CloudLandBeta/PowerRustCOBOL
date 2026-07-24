@@ -201,6 +201,50 @@ flowchart TB
   **Click the root node at the very top** (📁 YourProjectName) at any time to
   bring up the full project settings form in the main work area.
 
+#### Organising the project tree with folders
+
+Every category can hold an arbitrary hierarchy of **folders**, so large,
+enterprise-grade projects stay navigable (for example `forms/customers/`,
+`src/billing/`).
+
+- **Create a folder.** Click the **📁+** button on a category header to add a
+  folder at its root, or right-click any folder and choose **New folder…** to
+  nest one inside it.
+- **Rename a folder.** Right-click the folder and choose **Rename folder…**.
+  Every file the project tracks under that folder — and any open editor tab
+  pointing at one — follows the change automatically.
+- **Delete a folder.** Right-click and choose **Delete folder…**. After you
+  confirm, the folder and **everything inside it is permanently removed from
+  disk**, the files are dropped from the project, and any editors showing them
+  are closed. This cannot be undone.
+
+Folder paths are always stored **relative to the project folder**, so a project
+can be moved, zipped, or shared without breaking any references.
+
+#### Moving files: drag-and-drop
+
+- **Within the tree.** Drag a file onto another folder (or onto a category
+  header) to move it there; the file is moved on disk and its project entry is
+  updated. A file cannot overwrite an existing one of the same name, and a
+  folder cannot be dropped into itself.
+- **From the operating system.** Drag files from Finder/Explorer onto a folder
+  or category to import them. They are copied into the project and tracked with a
+  relative path. A file whose type does not match the destination category (for
+  example a `.cfrm` dropped on Common Code) is rejected.
+
+#### Keyboard navigation
+
+With the pointer over the project tree you can move around without the mouse:
+
+- **↑ / ↓** — move to the previous / next visible row. The element loads
+  immediately (its properties or editor, just like a single click), and the tree
+  scrolls as needed to keep the highlighted row in view, one row clear of the top
+  or bottom edge.
+- **→** — expand a collapsed folder; if it is already open, move into its first
+  child.
+- **←** — move up to the parent folder.
+- **Enter** — open the selected item (the same as a single click).
+
 On first launch (or any time no project is open) the IDE shows a single full
 welcome pane that is a single centered block of information (title + license +
 one blank line + quote + author) in the middle of the available area below the
@@ -1304,35 +1348,50 @@ In words:
   `onClose` (as it closes) are pre-created for every form; the rest you attach as
   needed.
 
-> **Events fire at run time.** Control events are handled through the same
-> generated event loop in *Run Form* and compiled output. The live renderer now
-> covers the common interactive event families:
+> **Every event in the design view fires at run time.** Control events are
+> handled through the same generated event loop in *Run Form* and compiled
+> output, grouped by family:
 >
 > - **Every visual control** gets the universal pointer set — `onClick`,
->   `onDblClick`, `onDoubleClick`, `onRightClick`, `onMiddleClick`,
+>   `onDblClick`/`onDoubleClick`, `onRightClick`, `onMiddleClick`,
 >   `onContextMenu`, `onMouseDown`, `onMouseUp`, `onMouseMove`,
 >   `onMouseEnter`, `onMouseLeave`, `onMouseWheel`, `onHoverEnter`,
->   `onHoverLeave`, and `onLoad` — whenever the gesture or lifecycle condition
->   happens.
+>   `onHoverLeave` (after the control's `HoverDelayMs`, default 200 ms), and
+>   `onLoad` — plus the **geometry** set `onResize`/`onResized` and
+>   `onMove`/`onMoved`, and the **state** pair
+>   `onVisibleChanged`/`onEnabledChanged`.
+> - **Focusable controls** (Button, CheckBox, RadioButton, Slider,
+>   NumericUpDown, DateTimePicker, TextBox…) fire `onGotFocus`/`onLostFocus`
+>   and the keyboard set `onKeyDown`/`onKeyUp`/`onKeyPress`,
+>   `onEnterPressed`, `onEscapePressed` while focused.
 > - **Value controls** fire `onChange` plus their semantic aliases:
 >   `onCheckedChanged`/`onValueChanged` (check box / radio),
->   `onSelectedIndexChanged` (list / combo), the combo's `onDropDown` on open,
->   and Slider `onValueChanged` when a drag finishes.
-> - **Text input** fires `onGotFocus`/`onEnter`, `onLostFocus`/`onLeave`, and
->   `onKeyDown`/`onKeyUp`/`onKeyPress`, `onEnterPressed`,
->   `onEscapePressed`, and `onTextChanged`.
+>   `onSelectedIndexChanged` and `onItemDoubleClick` (list), the combo's
+>   `onDropDown`/`onDropDownClosed`, Slider `onValueChanged` on drag end, and
+>   ProgressBar `onValueChanged`/`onCompleted` as COBOL writes its Value.
+> - **Text input** additionally fires `onEnter`/`onLeave` and `onTextChanged`.
+> - **Containers & composites** — TabControl `onTabClick`/`onTabChanged`;
+>   TreeView `onNodeClick`/`onNodeSelect`/`onNodeDblClick`; Panel `onScroll`
+>   (AutoScroll); MenuBar `onMenuOpen`/`onMenuClose`; DataGrid
+>   `onCellClick`/`onCellDoubleClick`/`onRowDoubleClick`/`onColumnClick`/
+>   `onScroll` plus its selection events.
+> - **Media & charts** — PictureBox `onImageLoaded`/`onImageError`; Animator
+>   `onStarted`/`onFrameChanged`/`onLooped`/`onEnded`; charts `onDataChanged`
+>   when their data properties change.
+> - **Data controls** — SqlDatabase fires `onConnectOk`/`onConnectError` on
+>   `Open`, `onQueryComplete`/`onQueryError` on `Query`/`Execute`, and
+>   `onRowFetched` on `Fetch`; RestClient fires the async lifecycle
+>   (`onComplete`/`onError`/`onCancelled`/`onTimeout` — §16); the AI agent
+>   fires `onResponse` when `Ask` returns a reply. These dispatch on the next
+>   `COBOL-WAIT-EVENT` return.
 > - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes).
 >
-> Some specialised events are tied to conditions the lightweight *Run Form*
-> preview does not fully model yet — back-end completions
-> (`onResponseReceived`, `onQueryComplete`, the AI agent's
-> `onResponse`/`onError`) and a few control-internal ones (`onNodeExpand`,
-> `onCellChange`). They are still designable and generate correctly; wire them
-> where their real source exists. When in doubt, confirm in a *Run Form*
-> session.
+> Events with no engine behind them (drag-and-drop, column sorting/resizing,
+> chart zoom, tree-node expand/checkbox states…) are no longer listed in the
+> design view — an event you can bind is an event that fires.
 
 ### Adding a handler
 

@@ -1817,9 +1817,26 @@ pub fn draw_control(
 
     // ── Shape control ─────────────────────────────────────────────────────────
     if matches!(ctrl.control_type, CT::Shape) {
+        // Face colour: the type-specific FillColor when set; otherwise the
+        // Appearance Back colour — but only when the user changed it from the
+        // universal default, matching the renderer-wide "still on the default
+        // means no explicit background" convention.
+        let appearance_back = ctrl
+            .get_prop("BackgroundColor")
+            .map(|v| v.as_str().to_owned())
+            .filter(|raw| {
+                let t = raw.trim().trim_start_matches('#');
+                !t.is_empty()
+                    && !t.eq_ignore_ascii_case(
+                        crate::model::DEFAULT_BACKGROUND_COLOR.trim_start_matches('#'),
+                    )
+            })
+            .map(|raw| parse_color(&raw))
+            .filter(|c| c.a() > 0);
         let fill_color = ctrl
             .get_prop("FillColor")
             .map(|v| parse_color(v.as_str()))
+            .or(appearance_back)
             .unwrap_or(Color32::from_rgb(192, 192, 192));
         let line_color = ctrl
             .get_prop("LineColor")
@@ -1837,79 +1854,178 @@ pub fn draw_control(
             .get_prop("ShapeType")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| "Rectangle".into());
+        // LineStyle: None | Solid | Dash | Dot | DashDot — the shape's outline.
+        let line_style = ctrl
+            .get_prop("LineStyle")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Solid".into());
+        // FormStyle (default true): the shape follows the form's current style
+        // (Classic/Enhanced glass, Neumorphic); off = flat classic fill.
+        let glass = glass && ctrl.get_prop("FormStyle").map(|v| v.as_bool()).unwrap_or(true);
 
         let rr = match shape_type.as_str() {
             "Circle" => rect.width().min(rect.height()) / 2.0,
             "Ellipse" => rect.width().min(rect.height()) / 2.0, // backward compat
-            "RoundRect" => 8.0,
-            _ => 0.0,
+            "RoundRect" => 8.0, // legacy forms; the picker no longer offers it
+            // Rectangle: the user's CornerRadius property controls the rounding.
+            _ => corner_radius(ctrl).min(0.5 * rect.width().min(rect.height())),
         };
+        let is_round = matches!(shape_type.as_str(), "Circle" | "Ellipse");
+        let is_tri = shape_type == "Triangle";
+        let circ_r = rect.width().min(rect.height()) / 2.0;
+        let cc = rect.center();
+        // Triangle — equilateral pointing up, filling the bounding rect.
+        let tri_top = Pos2::new(rect.center().x, rect.min.y);
+        let tri_bl = Pos2::new(rect.min.x, rect.max.y);
+        let tri_br = Pos2::new(rect.max.x, rect.max.y);
 
-        let border_c = if selected {
-            Color32::from_rgba_premultiplied(60, 120, 230, a)
-        } else {
-            alpha_color(line_color)
-        };
-
-        if shape_type == "Circle" || shape_type == "Ellipse" {
-            // Circle / Ellipse — use circle primitives so the shape doesn't bleed.
-            let circ_r = rect.width().min(rect.height()) / 2.0;
-            let cc = rect.center();
-            if glass && fill_style != "None" {
-                draw_glass_circle(painter, cc, circ_r, fill_color, selected, alpha_mul);
-                if thickness > 0.0 {
-                    painter.circle_stroke(cc, circ_r, Stroke::new(thickness, border_c));
-                }
-            } else {
-                let fill = if fill_style == "None" {
-                    Color32::TRANSPARENT
-                } else {
-                    alpha_color(fill_color)
-                };
-                painter.circle_filled(cc, circ_r, fill);
-                painter.circle_stroke(cc, circ_r, Stroke::new(thickness, border_c));
-            }
-        } else if shape_type == "Triangle" {
-            // Triangle — equilateral pointing up, filling the bounding rect.
-            let top = Pos2::new(rect.center().x, rect.min.y);
-            let bot_l = Pos2::new(rect.min.x, rect.max.y);
-            let bot_r = Pos2::new(rect.max.x, rect.max.y);
-            let pts = vec![top, bot_r, bot_l];
-            let fill = if fill_style == "None" {
-                Color32::TRANSPARENT
-            } else {
-                alpha_color(fill_color)
-            };
-            painter.add(egui::Shape::convex_polygon(
-                pts,
-                fill,
-                Stroke::new(thickness, border_c),
-            ));
-        } else if glass && fill_style != "None" {
-            // Rectangle / RoundRect — draw frosted glass using the user's FillColor as tint.
-            draw_glass_auto(painter, rect, fill_color, rr, selected, alpha_mul);
-            if thickness > 0.0 {
-                painter.rect_stroke(
-                    rect,
-                    rr,
-                    Stroke::new(thickness, border_c),
-                    egui::StrokeKind::Middle,
-                );
-            }
-        } else {
-            let fill = if fill_style == "None" {
-                Color32::TRANSPARENT
-            } else {
-                alpha_color(fill_color)
-            };
-            painter.rect_filled(rect, rr, fill);
-            painter.rect_stroke(
-                rect,
-                rr,
-                Stroke::new(thickness, border_c),
-                egui::StrokeKind::Middle,
-            );
+        // Property-driven drop shadow. Rect silhouettes ride the shared regular
+        // (pre-face) / Neumorphic (in-face) shadow paths; circle & triangle draw
+        // their own silhouette-matching shadow here — the shared one is a
+        // rectangle and would poke out around the shape.
+        if is_round || is_tri {
+            draw_shape_silhouette_shadow(painter, ctrl, rect, &shape_type, is_neumorphic, alpha_mul);
         }
+
+        // ── Face ──────────────────────────────────────────────────────────────
+        if fill_style != "None" {
+            let flat_fill = alpha_color(fill_color);
+            if glass && is_neumorphic && (is_round || is_tri) {
+                // Neumorphic: flat matte surface — the relief comes from the
+                // dual silhouette shadows drawn above.
+                if is_round {
+                    painter.circle_filled(cc, circ_r, flat_fill);
+                } else {
+                    painter.add(egui::Shape::convex_polygon(
+                        vec![tri_top, tri_br, tri_bl],
+                        flat_fill,
+                        Stroke::NONE,
+                    ));
+                }
+            } else if glass && is_round {
+                draw_glass_circle(painter, cc, circ_r, fill_color, selected, alpha_mul);
+            } else if glass && is_tri {
+                // Frosted body — same tint math as draw_glass_circle: 85 % cool
+                // blue-white + 15 % of the user's FillColor at 20 % opacity, so
+                // the canvas shows through and the triangle matches its glass
+                // siblings.
+                let t = 0.20_f32 * alpha_mul.clamp(0.0, 1.0);
+                let fr = ((200.0 * 0.85 + fill_color.r() as f32 * 0.15) * t) as u8;
+                let fg = ((210.0 * 0.85 + fill_color.g() as f32 * 0.15) * t) as u8;
+                let fb = ((220.0 * 0.85 + fill_color.b() as f32 * 0.15) * t) as u8;
+                let fa = (255.0 * t) as u8;
+                let frost = Color32::from_rgba_premultiplied(fr, fg, fb, fa);
+                painter.add(egui::Shape::convex_polygon(
+                    vec![tri_top, tri_br, tri_bl],
+                    frost,
+                    Stroke::NONE,
+                ));
+                // Soft highlight in the upper half: a smaller inner triangle
+                // fading the frost brighter toward the apex.
+                let c = Pos2::new(
+                    (tri_top.x + tri_bl.x + tri_br.x) / 3.0,
+                    (tri_top.y + tri_bl.y + tri_br.y) / 3.0,
+                );
+                let hi = |p: Pos2| c + (p - c) * 0.55;
+                let ha = (52.0 * alpha_mul.clamp(0.0, 1.0)) as u8;
+                painter.add(egui::Shape::convex_polygon(
+                    vec![hi(tri_top), hi(tri_br), hi(tri_bl)],
+                    Color32::from_rgba_premultiplied(ha, ha, ha, ha),
+                    Stroke::NONE,
+                ));
+            } else if glass {
+                // Rectangle / RoundRect — style-aware surface (Classic/Enhanced
+                // frost or Neumorphic matte + relief) tinted by FillColor.
+                draw_glass_auto(painter, rect, fill_color, rr, selected, alpha_mul);
+            } else if is_round {
+                painter.circle_filled(cc, circ_r, flat_fill);
+            } else if is_tri {
+                painter.add(egui::Shape::convex_polygon(
+                    vec![tri_top, tri_br, tri_bl],
+                    flat_fill,
+                    Stroke::NONE,
+                ));
+            } else {
+                painter.rect_filled(rect, rr, flat_fill);
+            }
+        }
+
+        // ── Outline (LineStyle) ───────────────────────────────────────────────
+        // "None" removes the outline; a selected shape still shows the thin blue
+        // designer outline so selection stays visible.
+        let user_stroke = line_style != "None" && thickness > 0.0;
+        if user_stroke || selected {
+            let border_c = if selected {
+                Color32::from_rgba_premultiplied(60, 120, 230, a)
+            } else {
+                alpha_color(line_color)
+            };
+            let sw = if user_stroke { thickness.max(1.0) } else { 1.0 };
+            let stroke = Stroke::new(sw, border_c);
+            let style = if user_stroke { line_style.as_str() } else { "Solid" };
+            match style {
+                "Dash" | "Dot" | "DashDot" => {
+                    // Closed silhouette path; the dash pattern follows the
+                    // perimeter (same dash metrics as the Line control).
+                    let pts: Vec<Pos2> = if is_round {
+                        let n = 72;
+                        (0..=n)
+                            .map(|i| {
+                                let ang = i as f32 / n as f32 * std::f32::consts::TAU;
+                                cc + Vec2::new(ang.cos(), ang.sin()) * circ_r
+                            })
+                            .collect()
+                    } else if is_tri {
+                        vec![tri_top, tri_br, tri_bl, tri_top]
+                    } else if rr > 0.0 {
+                        rounded_rect_outline_points(rect, rr)
+                    } else {
+                        vec![
+                            rect.left_top(),
+                            rect.right_top(),
+                            rect.right_bottom(),
+                            rect.left_bottom(),
+                            rect.left_top(),
+                        ]
+                    };
+                    let t = sw;
+                    match style {
+                        "Dash" => painter.extend(egui::Shape::dashed_line(
+                            &pts,
+                            stroke,
+                            t * 5.0,
+                            t * 4.0,
+                        )),
+                        "Dot" => painter.extend(egui::Shape::dashed_line(
+                            &pts,
+                            stroke,
+                            t * 1.2,
+                            t * 2.5,
+                        )),
+                        _ => painter.extend(egui::Shape::dashed_line_with_offset(
+                            &pts,
+                            stroke,
+                            &[t * 5.0, t * 1.2],
+                            &[t * 3.0, t * 3.0],
+                            0.0,
+                        )),
+                    }
+                }
+                _ => {
+                    if is_round {
+                        painter.circle_stroke(cc, circ_r, stroke);
+                    } else if is_tri {
+                        painter.add(egui::Shape::closed_line(
+                            vec![tri_top, tri_br, tri_bl],
+                            stroke,
+                        ));
+                    } else {
+                        painter.rect_stroke(rect, rr, stroke, egui::StrokeKind::Middle);
+                    }
+                }
+            }
+        }
+
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
             draw_regular_drop_shadow(painter, shadow, alpha_mul);
         }
@@ -5736,6 +5852,14 @@ pub fn textbox_inner_padding(ctrl: &Control) -> f32 {
 /// shadow cores aligned with `CornerRadius`, legacy `BorderRadius`, per-control
 /// defaults, and size clamping.
 fn drop_shadow_corner_radius(ctrl: &Control) -> f32 {
+    // Rectangle shapes round via CornerRadius like everything else; legacy
+    // RoundRect forms keep their fixed 8px face radius. (Circle/Triangle never
+    // reach this path — they draw silhouette shadows in the Shape branch.)
+    if matches!(ctrl.control_type, ControlType::Shape)
+        && ctrl.get_prop("ShapeType").map(|v| v.as_str()) == Some("RoundRect")
+    {
+        return 8.0;
+    }
     corner_radius(ctrl)
 }
 
@@ -5770,6 +5894,13 @@ fn regular_drop_shadow(
                 | CT::SqlDatabase
                 | CT::IndexedFile
         )
+        // Circle/Ellipse/Triangle shapes draw their own silhouette-matching
+        // shadow in the Shape branch — this rectangle would poke out around them.
+        || (matches!(ctrl.control_type, CT::Shape)
+            && matches!(
+                ctrl.get_prop("ShapeType").map(|v| v.as_str()),
+                Some("Circle" | "Ellipse" | "Triangle")
+            ))
     {
         return None;
     }
@@ -5826,6 +5957,155 @@ fn regular_drop_shadow(
         corner_radius: drop_shadow_corner_radius(ctrl),
         overlay: signed_blur < 0,
     })
+}
+
+/// Closed outline path of a rounded rect, for dashed Shape outlines.
+fn rounded_rect_outline_points(rect: Rect, r: f32) -> Vec<Pos2> {
+    let r = r.clamp(0.0, 0.5 * rect.width().min(rect.height()));
+    let seg = 6; // arc segments per corner
+    let mut pts = Vec::with_capacity(4 * (seg + 1) + 1);
+    // Clockwise from the top-right arc: NE, SE, SW, NW.
+    let corners = [
+        (Pos2::new(rect.max.x - r, rect.min.y + r), -90.0_f32),
+        (Pos2::new(rect.max.x - r, rect.max.y - r), 0.0),
+        (Pos2::new(rect.min.x + r, rect.max.y - r), 90.0),
+        (Pos2::new(rect.min.x + r, rect.min.y + r), 180.0),
+    ];
+    for (c, start) in corners {
+        for i in 0..=seg {
+            let ang = (start + 90.0 * i as f32 / seg as f32).to_radians();
+            pts.push(c + Vec2::new(ang.cos(), ang.sin()) * r);
+        }
+    }
+    let first = pts[0];
+    pts.push(first);
+    pts
+}
+
+/// Property-driven drop shadow for non-rectangular Shape silhouettes
+/// (Circle/Ellipse/Triangle). Rect-based shapes ride the shared regular /
+/// Neumorphic shadow paths; a rectangle behind these silhouettes would poke
+/// out, so the Shape branch calls this instead. Layer falloff matches
+/// `draw_regular_drop_shadow`; Neumorphic styles get the dual (light + dark)
+/// relief like `draw_glass_neumorphic`.
+fn draw_shape_silhouette_shadow(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    rect: Rect,
+    shape_type: &str,
+    is_neumorphic: bool,
+    alpha_mul: f32,
+) {
+    let enabled = ctrl
+        .get_prop("ShadowEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(is_neumorphic); // Neumorphic default: ON, like every control
+    if !enabled || alpha_mul <= 0.0 {
+        return;
+    }
+    let am = alpha_mul.clamp(0.0, 1.0);
+    let shadow_color = ctrl
+        .get_prop("ShadowColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::BLACK);
+    let opacity = ctrl
+        .get_prop("ShadowOpacity")
+        .map(|v| v.as_i64())
+        .unwrap_or(if is_neumorphic { 6 } else { 20 })
+        .clamp(0, 100) as f32
+        / 100.0;
+    let dir = ctrl
+        .get_prop("ShadowDirection")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| if is_neumorphic { "SouthEast" } else { "South" }.into());
+    let distance = ctrl
+        .get_prop("ShadowDistance")
+        .map(|v| v.as_i64())
+        .unwrap_or(7)
+        .clamp(0, 60) as f32;
+    let blur_enabled = ctrl
+        .get_prop("ShadowBlur")
+        .map(|v| v.as_bool())
+        .unwrap_or(true);
+    let blur = if blur_enabled {
+        ctrl.get_prop("ShadowBlurStrength")
+            .map(|v| v.as_i64())
+            .unwrap_or(8)
+            .clamp(-20, 20)
+            .unsigned_abs() as usize
+    } else {
+        0
+    };
+    let (ux, uy): (f32, f32) = match dir.as_str() {
+        "North" => (0.0, -1.0),
+        "NorthEast" => (0.707, -0.707),
+        "East" => (1.0, 0.0),
+        "SouthEast" => (0.707, 0.707),
+        "South" => (0.0, 1.0),
+        "SouthWest" => (-0.707, 0.707),
+        "West" => (-1.0, 0.0),
+        "NorthWest" => (-0.707, -0.707),
+        _ => (0.0, 1.0),
+    };
+    let offset = Vec2::new(ux * distance, uy * distance);
+
+    let circ_r = rect.width().min(rect.height()) / 2.0;
+    let cc = rect.center();
+    let tri = [
+        Pos2::new(rect.center().x, rect.min.y),
+        Pos2::new(rect.max.x, rect.max.y),
+        Pos2::new(rect.min.x, rect.max.y),
+    ];
+    // The silhouette translated by `off` and grown by `expand`.
+    let paint_sil = |off: Vec2, expand: f32, col: Color32| {
+        if matches!(shape_type, "Circle" | "Ellipse") {
+            painter.circle_filled(cc + off, circ_r + expand, col);
+        } else {
+            // Grow by scaling about the centroid — close enough for the soft
+            // shadow layers of a triangle.
+            let centroid = Pos2::new(
+                (tri[0].x + tri[1].x + tri[2].x) / 3.0,
+                (tri[0].y + tri[1].y + tri[2].y) / 3.0,
+            );
+            let k = 1.0 + expand / (0.5 * rect.width().min(rect.height())).max(1.0);
+            let pts = tri
+                .iter()
+                .map(|p| centroid + (*p - centroid) * k + off)
+                .collect::<Vec<_>>();
+            painter.add(egui::Shape::convex_polygon(pts, col, Stroke::NONE));
+        }
+    };
+    let tint = |c: Color32, a01: f32| {
+        Color32::from_rgba_premultiplied(
+            (c.r() as f32 * a01) as u8,
+            (c.g() as f32 * a01) as u8,
+            (c.b() as f32 * a01) as u8,
+            (a01 * 255.0) as u8,
+        )
+    };
+    // One layered soft shadow — same outer-to-core falloff as the rect path.
+    let layered = |off: Vec2, col: Color32, max_opac: f32| {
+        if blur == 0 {
+            paint_sil(off, 0.0, tint(col, max_opac * am));
+            return;
+        }
+        for i in 0..=blur {
+            let t = 1.0 - (i as f32 / blur as f32);
+            let falloff = (-3.0 * t * t).exp();
+            paint_sil(off, t * blur as f32, tint(col, max_opac * am * falloff));
+        }
+    };
+    if is_neumorphic {
+        // Dual relief: light opposite the shadow direction, dark along it.
+        let light = ctrl
+            .get_prop("ShadowLightColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::WHITE);
+        layered(-offset, light, (opacity * 3.25).clamp(0.0, 1.0));
+        layered(offset, shadow_color, opacity);
+    } else {
+        layered(offset, shadow_color, opacity);
+    }
 }
 
 fn draw_regular_drop_shadow(painter: &egui::Painter, shadow: &RegularDropShadow, alpha_mul: f32) {
@@ -7577,5 +7857,154 @@ mod theme_render_tests {
         assert!(gl > bl && gs < bs, "grid pastel should be lighter + softer");
         // Border on a dark background is lighter than the base.
         assert!(rgb_to_hsl(border_variant(base, true)).2 > bl);
+    }
+
+    // ── Shape control: property-driven drop shadow (all styles) ────────────────
+
+    fn shape_leaf_count(style: crate::model::GlassStyle, shape_type: &str, shadow: bool) -> usize {
+        use crate::model::{Control, ControlType, PropValue};
+
+        let ctx = egui::Context::default();
+        set_glass_style(&ctx, style);
+        let mut c = Control::new("SHP", ControlType::Shape, 0, 0);
+        c.rect = crate::model::Rect::new(60, 60, 120, 80);
+        c.set_prop("ShapeType", PropValue::String(shape_type.into()));
+        // Explicit on/off: Neumorphic styles default the shadow to ON, so the
+        // baseline must disable it rather than rely on the absent-prop default.
+        c.set_prop("ShadowEnabled", PropValue::Bool(shadow));
+        if shadow {
+            c.set_prop("ShadowDistance", PropValue::Int(20));
+        }
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                });
+        });
+        fn leaves(s: &egui::Shape) -> usize {
+            match s {
+                egui::Shape::Vec(v) => v.iter().map(leaves).sum(),
+                _ => 1,
+            }
+        }
+        full.shapes.iter().map(|cs| leaves(&cs.shape)).sum()
+    }
+
+    #[test]
+    fn shape_shadow_properties_add_geometry_in_every_style() {
+        use crate::model::GlassStyle as GS;
+        for style in [GS::Classic, GS::Enhanced, GS::Neumorphic, GS::NeumorphicDark] {
+            for st in ["Rectangle", "RoundRect", "Circle", "Triangle"] {
+                let without = shape_leaf_count(style, st, false);
+                let with = shape_leaf_count(style, st, true);
+                assert!(
+                    with > without,
+                    "ShadowEnabled must add geometry for {st} in {style:?} \
+                     (without: {without}, with: {with})"
+                );
+            }
+        }
+    }
+
+    fn shape_flat_fill_colors(props: &[(&str, &str)]) -> Vec<Color32> {
+        use crate::model::{Control, ControlType, PropValue};
+
+        let ctx = egui::Context::default();
+        set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+        let mut c = Control::new("SHP", ControlType::Shape, 0, 0);
+        c.rect = crate::model::Rect::new(60, 60, 120, 80);
+        // Flat classic fill: FormStyle off keeps the face a single filled rect.
+        c.set_prop("FormStyle", PropValue::Bool(false));
+        c.set_prop("ShadowEnabled", PropValue::Bool(false));
+        for (key, value) in props {
+            c.set_prop(key, PropValue::String((*value).into()));
+        }
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                });
+        });
+        fn collect(s: &egui::Shape, out: &mut Vec<Color32>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                egui::Shape::Rect(r) => out.push(r.fill),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn appearance_back_color_fills_a_shape_unless_fill_color_overrides() {
+        // Untouched colours (BackgroundColor still on the universal default
+        // every new control gets) → the legacy silver face.
+        assert!(shape_flat_fill_colors(&[]).contains(&Color32::from_rgb(192, 192, 192)));
+        // Appearance → Back colour changed from the default fills the shape.
+        assert!(shape_flat_fill_colors(&[("BackgroundColor", "#FF0000")])
+            .contains(&Color32::from_rgb(255, 0, 0)));
+        // The type-specific FillColor stays authoritative over Appearance.
+        let both = shape_flat_fill_colors(&[
+            ("BackgroundColor", "#FF0000"),
+            ("FillColor", "#00FF00"),
+        ]);
+        assert!(both.contains(&Color32::from_rgb(0, 255, 0)));
+        assert!(!both.contains(&Color32::from_rgb(255, 0, 0)));
+    }
+
+    fn shape_line_style_leaf_count(shape_type: &str, line_style: &str) -> usize {
+        use crate::model::{Control, ControlType, PropValue};
+
+        let ctx = egui::Context::default();
+        set_glass_style(&ctx, crate::model::GlassStyle::Classic);
+        let mut c = Control::new("SHP", ControlType::Shape, 0, 0);
+        c.rect = crate::model::Rect::new(60, 60, 120, 80);
+        c.set_prop("ShapeType", PropValue::String(shape_type.into()));
+        c.set_prop("LineStyle", PropValue::String(line_style.into()));
+        c.set_prop("FillStyle", PropValue::String("None".into()));
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                });
+        });
+        fn leaves(s: &egui::Shape) -> usize {
+            match s {
+                egui::Shape::Vec(v) => v.iter().map(leaves).sum(),
+                _ => 1,
+            }
+        }
+        full.shapes.iter().map(|cs| leaves(&cs.shape)).sum()
+    }
+
+    #[test]
+    fn shape_line_style_none_removes_outline_and_dashes_add_segments() {
+        for st in ["Rectangle", "RoundRect", "Circle", "Triangle"] {
+            let none = shape_line_style_leaf_count(st, "None");
+            let solid = shape_line_style_leaf_count(st, "Solid");
+            let dash = shape_line_style_leaf_count(st, "Dash");
+            assert!(
+                none < solid,
+                "LineStyle None must drop the outline for {st} (none: {none}, solid: {solid})"
+            );
+            assert!(
+                dash > solid,
+                "LineStyle Dash must tessellate into dash segments for {st} \
+                 (dash: {dash}, solid: {solid})"
+            );
+        }
     }
 }

@@ -37,6 +37,8 @@ pub struct GraceSession {
     finished: Option<Result<(WorkflowRecord, PathBuf), String>>,
     /// A gated git op awaiting the operator's Approve/Deny (spec 030 R12).
     pending_confirm: Option<(GitConfirmRequest, Sender<bool>)>,
+    /// Live stop flag + token totals shared with the worker.
+    control: crate::grace_host::WorkflowControl,
 }
 
 impl GraceSession {
@@ -62,6 +64,8 @@ impl GraceSession {
         let dir = project_dir.to_path_buf();
         let llm = llm.clone();
         let req = request.to_string();
+        let control = crate::grace_host::WorkflowControl::default();
+        let worker_control = control.clone();
         std::thread::Builder::new()
             .name("grace-workflow".into())
             .spawn(move || {
@@ -79,11 +83,12 @@ impl GraceSession {
                     }
                     rrx.recv().unwrap_or(false)
                 };
-                let result = crate::grace_host::run_grace_workflow_with_context(
+                let result = crate::grace_host::run_grace_workflow_with_control(
                     &dir,
                     &llm,
                     &req,
                     &routing,
+                    &worker_control,
                     &mut on_progress,
                     &mut confirm,
                 );
@@ -96,7 +101,26 @@ impl GraceSession {
             rx: Some(rx),
             finished: None,
             pending_confirm: None,
+            control,
         }
+    }
+
+    /// Ask the running workflow to stop: every model call from now on refuses
+    /// immediately, so the run winds down as soon as the in-flight provider
+    /// request returns.
+    pub fn stop(&self) {
+        self.control.request_stop();
+    }
+
+    /// Whether the developer already pressed Stop.
+    pub fn stop_requested(&self) -> bool {
+        self.control.stop_requested()
+    }
+
+    /// Exact (input, output) token totals accumulated so far — updated the
+    /// moment each model returns.
+    pub fn token_totals(&self) -> (u64, u64) {
+        self.control.token_totals()
     }
 
     /// Drain progress + completion. Returns `true` if anything changed this

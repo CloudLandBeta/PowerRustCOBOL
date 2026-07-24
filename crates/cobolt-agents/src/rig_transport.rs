@@ -535,6 +535,54 @@ where
             });
         }
 
+        // Host-executed (fenced-protocol) tools invoked via NATIVE function
+        // calling are bridged back to the caller as the fenced JSON block the
+        // host executor understands. Observed live: gemma called
+        // `indexed_file.write` natively, the transport answered "tool is not
+        // available", and the agent gave up ("the required tool is not
+        // available in my current environment") with the whole schema in hand.
+        let (native, foreign): (Vec<_>, Vec<_>) = tool_calls
+            .into_iter()
+            .partition(|(name, _)| matches!(name.as_str(), "knowledge_search" | "egui_tree" | "egui_rects"));
+        if !foreign.is_empty() {
+            let mut out = text.trim_end().to_string();
+            // Any native calls in the same round still execute; their results
+            // ride along as text so no information is lost.
+            for (name, args) in &native {
+                let exec = match name.as_str() {
+                    "knowledge_search" => call.tools.knowledge_search.clone(),
+                    "egui_tree" => call.tools.egui_tree.clone(),
+                    "egui_rects" => call.tools.egui_rects.clone(),
+                    _ => None,
+                };
+                if let Some(f) = exec {
+                    let outcome = match f(args.clone()) {
+                        Ok(detail) => format!("TOOL RESULT {name} [ok]:\n{detail}"),
+                        Err(error) => format!("TOOL RESULT {name} [error]: {error}"),
+                    };
+                    if !out.is_empty() {
+                        out.push_str("\n\n");
+                    }
+                    out.push_str(&outcome);
+                }
+            }
+            let calls: Vec<serde_json::Value> = foreign
+                .iter()
+                .map(|(name, args)| serde_json::json!({ "tool": name, "args": args }))
+                .collect();
+            let fenced = serde_json::json!({ "tool_calls": calls });
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            out.push_str(&format!("```json\n{fenced}\n```"));
+            return Ok(AgentReply {
+                text: out,
+                input_tokens: total_in,
+                output_tokens: total_out,
+            });
+        }
+        let tool_calls = native;
+
         // Execute this round's tool calls through the host closures and feed
         // the results back as the next turn.
         let mut results = String::from("TOOL RESULTS:\n");

@@ -86,6 +86,8 @@ pub struct ProjectAiSettings {
     pub timeout_secs: u32,
     #[serde(default)]
     pub verbose_log: bool,
+    #[serde(default = "crate::llm::default_max_review_revisions")]
+    pub max_review_revisions: u32,
     #[serde(default = "crate::llm::default_agentic_ai_enabled")]
     pub agentic_ai_enabled: bool,
     #[serde(default)]
@@ -118,6 +120,7 @@ impl Default for ProjectAiSettings {
             max_tokens: crate::llm::default_max_tokens(),
             timeout_secs: crate::llm::default_timeout_secs(),
             verbose_log: false,
+            max_review_revisions: crate::llm::default_max_review_revisions(),
             agentic_ai_enabled: true,
             reviewer_provider: String::new(),
             reviewer_endpoint: String::new(),
@@ -151,6 +154,7 @@ impl ProjectAiSettings {
             max_tokens: llm.max_tokens,
             timeout_secs: llm.timeout_secs,
             verbose_log: llm.verbose_log,
+            max_review_revisions: llm.max_review_revisions,
             agentic_ai_enabled: llm.agentic_ai_enabled,
             reviewer_provider: llm.reviewer_provider.clone(),
             reviewer_endpoint: llm.reviewer_endpoint.clone(),
@@ -175,6 +179,7 @@ impl ProjectAiSettings {
         llm.max_tokens = self.max_tokens;
         llm.timeout_secs = self.timeout_secs;
         llm.verbose_log = self.verbose_log;
+        llm.max_review_revisions = self.max_review_revisions;
         llm.agentic_ai_enabled = self.agentic_ai_enabled;
         llm.reviewer_provider = self.reviewer_provider.clone();
         llm.reviewer_endpoint = self.reviewer_endpoint.clone();
@@ -458,6 +463,82 @@ impl CoboltProject {
         self.files.indexed.retain(|f| f != &rel);
     }
 
+    /// Every tracked file list, mutably (spec 033 folder ops iterate all six).
+    fn all_lists_mut(&mut self) -> [&mut Vec<String>; 6] {
+        let ProjectFiles {
+            sources,
+            forms,
+            assets,
+            documentation,
+            generated,
+            indexed,
+        } = &mut self.files;
+        [sources, forms, assets, documentation, generated, indexed]
+    }
+
+    /// Rewrite every tracked path under the folder `old_dir` to sit under
+    /// `new_dir` instead (folder rename/move). Both are project-relative,
+    /// forward-slash directory paths without a trailing slash. All rewritten
+    /// paths stay relative (spec 033, R4, R21).
+    pub fn rename_prefix(&mut self, old_dir: &str, new_dir: &str) {
+        let old_dir = old_dir.replace('\\', "/");
+        let new_dir = new_dir.replace('\\', "/");
+        if old_dir.is_empty() || old_dir == new_dir {
+            return;
+        }
+        let prefix = format!("{old_dir}/");
+        for list in self.all_lists_mut() {
+            for entry in list.iter_mut() {
+                if let Some(rest) = entry.strip_prefix(&prefix) {
+                    *entry = format!("{new_dir}/{rest}");
+                } else if *entry == old_dir {
+                    // A tracked entry that *is* the directory (rare).
+                    *entry = new_dir.clone();
+                }
+            }
+        }
+    }
+
+    /// Rewrite a single tracked file path from `old_rel` to `new_rel` (drag-drop
+    /// move). Preserves the list (category) it was in. Both stay relative
+    /// (spec 033, R9, R21).
+    pub fn move_entry(&mut self, old_rel: &str, new_rel: &str) {
+        let old_rel = old_rel.replace('\\', "/");
+        let new_rel = new_rel.replace('\\', "/");
+        if old_rel == new_rel {
+            return;
+        }
+        for list in self.all_lists_mut() {
+            for entry in list.iter_mut() {
+                if *entry == old_rel {
+                    *entry = new_rel.clone();
+                }
+            }
+        }
+    }
+
+    /// Remove and return every tracked file whose path sits under the folder
+    /// `dir` (recursive folder delete). Returned paths are relative — the caller
+    /// uses them to close editor tabs / views (spec 033, R6).
+    pub fn drain_under(&mut self, dir: &str) -> Vec<String> {
+        let dir = dir.replace('\\', "/");
+        if dir.is_empty() {
+            return Vec::new();
+        }
+        let prefix = format!("{dir}/");
+        let mut removed = Vec::new();
+        for list in self.all_lists_mut() {
+            list.retain(|entry| {
+                let under = entry.starts_with(&prefix) || *entry == dir;
+                if under {
+                    removed.push(entry.clone());
+                }
+                !under
+            });
+        }
+        removed
+    }
+
     /// True if `rel` is tracked by the project.
     pub fn contains(&self, rel: &str) -> bool {
         let rel = rel.replace('\\', "/");
@@ -602,15 +683,43 @@ impl Category {
         !matches!(self, Category::Generated)
     }
 
+    /// The category's root subdirectory (project-relative), where its files and
+    /// folders live on disk. Assets and Documentation have their own resolvers in
+    /// the panel (legacy-case fallbacks); this returns their canonical names.
+    pub fn root_subdir(self) -> &'static str {
+        match self {
+            Category::Forms => "forms",
+            Category::IndexedFiles => "indexed",
+            Category::CommonCode => "src",
+            Category::Generated => "generated",
+            Category::Assets => "Assets",
+            Category::Documentation => cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT,
+        }
+    }
+
     /// Route a path to a category by extension.
     pub fn of_path(path: &str) -> Category {
-        match FileKind::from_path(path) {
+        Category::of_kind(FileKind::from_path(path))
+    }
+
+    /// The category a file kind belongs to (its "home" category).
+    pub fn of_kind(kind: FileKind) -> Category {
+        match kind {
             FileKind::Form => Category::Forms,
             FileKind::Indexed => Category::IndexedFiles,
             FileKind::Source => Category::CommonCode,
             FileKind::Documentation => Category::Documentation,
             FileKind::Asset => Category::Assets,
         }
+    }
+
+    /// The category whose root subdir is the top component of `dir_rel`, if any.
+    pub fn from_root_component(dir_rel: &str) -> Option<Category> {
+        let top = dir_rel.replace('\\', "/");
+        let top = top.split('/').next().unwrap_or("");
+        Category::TOP
+            .into_iter()
+            .find(|c| c.root_subdir().eq_ignore_ascii_case(top))
     }
 
     // NOTE: Visual icons for the project tree are hand-written vector shapes
@@ -879,6 +988,51 @@ mod tests {
 
     fn proj() -> CoboltProject {
         CoboltProject::new("T", "src/main.cbl")
+    }
+
+    #[test]
+    fn rename_prefix_rewrites_only_entries_under_dir() {
+        let mut p = proj();
+        p.add_file_to("forms/customers/order.cfrm", Category::Forms);
+        p.add_file_to("forms/customers/invoice.cfrm", Category::Forms);
+        p.add_file_to("forms/login.cfrm", Category::Forms);
+        p.add_file_to("src/customers/util.cbl", Category::CommonCode);
+
+        p.rename_prefix("forms/customers", "forms/clients");
+
+        assert!(p.files.forms.contains(&"forms/clients/order.cfrm".to_string()));
+        assert!(p.files.forms.contains(&"forms/clients/invoice.cfrm".to_string()));
+        // Untouched: a sibling not under the renamed dir, and a same-named dir in
+        // another category root.
+        assert!(p.files.forms.contains(&"forms/login.cfrm".to_string()));
+        assert!(p.files.sources.contains(&"src/customers/util.cbl".to_string()));
+        // No absolute path leaked (R21).
+        assert!(p.all_files().all(|f| !Path::new(f).is_absolute()));
+    }
+
+    #[test]
+    fn move_entry_rewrites_single_file_keeping_category() {
+        let mut p = proj();
+        p.add_file_to("forms/a/order.cfrm", Category::Forms);
+        p.move_entry("forms/a/order.cfrm", "forms/b/order.cfrm");
+        assert_eq!(p.files.forms, vec!["forms/b/order.cfrm".to_string()]);
+    }
+
+    #[test]
+    fn drain_under_removes_and_returns_subtree() {
+        let mut p = proj();
+        p.add_file_to("forms/customers/order.cfrm", Category::Forms);
+        p.add_file_to("generated/customers/order.cbl", Category::Generated);
+        p.add_file_to("forms/login.cfrm", Category::Forms);
+
+        let removed = p.drain_under("forms/customers");
+        assert_eq!(removed, vec!["forms/customers/order.cfrm".to_string()]);
+        assert!(p.files.forms.contains(&"forms/login.cfrm".to_string()));
+        // A same-named folder under a different category root is not touched.
+        assert!(p
+            .files
+            .generated
+            .contains(&"generated/customers/order.cbl".to_string()));
     }
 
     #[test]

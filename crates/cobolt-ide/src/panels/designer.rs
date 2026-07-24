@@ -34,10 +34,11 @@ use crate::app::{
 use crate::project_model::{CoboltProject, UserControlDef, UserControlEntry};
 use cobolt_forms::render::{card_appear_transform, PlacementEffect};
 
-// The prompt/input block is a fixed 170px slab pinned to the pane bottom (an
-// arbitrary fixed size, not a min or max); the history takes everything above
-// it, so the pane's top-edge resizer is the single resizer for the history
-// (default pane height gives it ~70px to start).
+// The prompt/input block is a slab pinned to the pane bottom: 170px of fixed
+// chrome around a prompt box whose height the user may drag between 1 and 6
+// text rows (default 3 — at the default the slab is exactly 170px). The
+// history takes everything above it, so the pane's top-edge resizer resizes
+// the history (default pane height gives it ~70px to start).
 const GLOBAL_AI_HISTORY_MIN_HEIGHT: f32 = 48.0;
 const GLOBAL_AI_INPUT_HEIGHT: f32 = 170.0;
 const GLOBAL_AI_PANE_MIN_HEIGHT: f32 = GLOBAL_AI_HISTORY_MIN_HEIGHT + GLOBAL_AI_INPUT_HEIGHT + 24.0;
@@ -1067,6 +1068,10 @@ pub struct DesignerPanel {
     pub ai_history_font_size: f32,
     pub ai_error_font_size: f32,
     pub global_ai_prompt: String,
+    /// Prompt-box height, user-authoritative: 0 = "never dragged" (renders at
+    /// the 3-row default); only the box's corner-grip drag writes it, clamped
+    /// between the 1-row and 6-row limits.
+    pub ai_prompt_height: f32,
     pub global_ai_streaming: String,
 
     // ── Form preview ──────────────────────────────────────────────────────────
@@ -1133,6 +1138,7 @@ impl DesignerPanel {
             ai_history_font_size: 14.0,
             ai_error_font_size: 13.0,
             global_ai_prompt: String::new(),
+            ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
             global_ai_streaming: String::new(),
             show_preview: false,
             cobol_structure_edit: None,
@@ -3252,11 +3258,30 @@ impl DesignerPanel {
                     // egui hit-tests ±resize_grab_radius_side around the top edge
                     // — a bubble inside that band steals the drag as text select.
                     ui.add_space(10.0);
-                    // The history takes everything above the fixed input slab, so
-                    // the pane's top-edge resizer is the ONLY resizer — dragging
-                    // it effectively resizes the history.
+                    // Prompt-box height: the 3-row default, or the height the
+                    // user dragged the box's corner grip to — clamped between
+                    // 1 and 6 text rows. Derived only from the style's row
+                    // height and the stored drag, never from content, so the
+                    // box cannot grow by itself.
+                    let prompt_row = ui.text_style_height(&egui::TextStyle::Body);
+                    let prompt_height_for = |rows: f32| rows * prompt_row + 4.0;
+                    let prompt_min_height = prompt_height_for(1.0);
+                    let prompt_max_height = prompt_height_for(6.0);
+                    let prompt_default_height = prompt_height_for(3.0);
+                    let prompt_height = if self.ai_prompt_height > 0.0 {
+                        self.ai_prompt_height
+                    } else {
+                        prompt_default_height
+                    }
+                    .clamp(prompt_min_height, prompt_max_height);
+                    // The input slab keeps its fixed chrome (buttons, status
+                    // rows); only the prompt's share of it varies with the drag.
+                    let input_height =
+                        GLOBAL_AI_INPUT_HEIGHT + (prompt_height - prompt_default_height);
+                    // The history takes everything above the input slab, so the
+                    // pane's top-edge resizer keeps resizing the history.
                     let history_h = (ui.available_height()
-                        - GLOBAL_AI_INPUT_HEIGHT
+                        - input_height
                         - ui.spacing().item_spacing.y)
                         .max(0.0);
                     let (history_rect, _) = ui.allocate_exact_size(
@@ -3327,9 +3352,9 @@ impl DesignerPanel {
                     // it: egui persists a resizable panel's height from its CONTENT
                     // rect, so if the content is shorter than the dragged height the
                     // pane snaps back on mouse release.
-                    ui.add_space((ui.available_height() - GLOBAL_AI_INPUT_HEIGHT).max(0.0));
+                    ui.add_space((ui.available_height() - input_height).max(0.0));
                     let (input_rect, _) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width(), GLOBAL_AI_INPUT_HEIGHT),
+                        egui::vec2(ui.available_width(), input_height),
                         egui::Sense::hover(),
                     );
                     // Detached child (see history above): the busy spinner/status
@@ -3355,13 +3380,72 @@ impl DesignerPanel {
                                     .inner_margin(egui::Margin::same(2));
 
                                 ui.vertical(|ui| {
-                                    let resp = ui.add(
-                                        egui::TextEdit::multiline(&mut self.global_ai_prompt)
-                                            .hint_text("How can I help you today?")
-                                            .desired_width(text_w)
-                                            .desired_rows(3)
-                                            .interactive(!busy),
+                                    // Fixed (text_w × prompt_height) box; text
+                                    // beyond it scrolls INSIDE. desired_rows
+                                    // matches the box so the editor's frame
+                                    // fills it exactly at every dragged size.
+                                    let prompt_rows = (((prompt_height - 4.0) / prompt_row)
+                                        .round()
+                                        .max(1.0)) as usize;
+                                    let box_size = egui::vec2(text_w, prompt_height);
+                                    let inner = ui.allocate_ui(box_size, |ui| {
+                                        ui.set_min_size(box_size);
+                                        egui::ScrollArea::vertical()
+                                            .id_salt("global_ai_prompt_scroll")
+                                            .auto_shrink([false, false])
+                                            .show(ui, |ui| {
+                                                ui.add(
+                                                    egui::TextEdit::multiline(
+                                                        &mut self.global_ai_prompt,
+                                                    )
+                                                    .hint_text("How can I help you today?")
+                                                    .desired_width(f32::INFINITY)
+                                                    .desired_rows(prompt_rows)
+                                                    .interactive(!busy),
+                                                )
+                                            })
+                                            .inner
+                                    });
+                                    let box_rect = inner.response.rect;
+                                    // Bottom-right resize grip, registered AFTER
+                                    // the TextEdit so it wins the hit-test over
+                                    // text selection. The clamp pins the grip
+                                    // inside the 1-row/6-row limits.
+                                    let grip_size = 14.0;
+                                    let grip_rect = egui::Rect::from_min_size(
+                                        box_rect.max - egui::vec2(grip_size, grip_size),
+                                        egui::vec2(grip_size, grip_size),
                                     );
+                                    let grip = ui.interact(
+                                        grip_rect,
+                                        egui::Id::new("global_ai_prompt_grip"),
+                                        egui::Sense::drag(),
+                                    );
+                                    if grip.dragged() {
+                                        self.ai_prompt_height = (prompt_height
+                                            + grip.drag_delta().y)
+                                            .clamp(prompt_min_height, prompt_max_height);
+                                    }
+                                    if grip.hovered() || grip.dragged() {
+                                        ui.ctx()
+                                            .set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                                    }
+                                    let stroke = if grip.hovered() || grip.dragged() {
+                                        ui.visuals().widgets.hovered.fg_stroke
+                                    } else {
+                                        ui.visuals().widgets.inactive.fg_stroke
+                                    };
+                                    let corner = box_rect.max - egui::vec2(3.0, 3.0);
+                                    for step in 1..=3 {
+                                        let offset = 3.0 * step as f32;
+                                        ui.painter().line_segment(
+                                            [
+                                                egui::pos2(corner.x - offset, corner.y),
+                                                egui::pos2(corner.x, corner.y - offset),
+                                            ],
+                                            stroke,
+                                        );
+                                    }
                                     let submit = ui.input(|i| {
                                         i.key_pressed(egui::Key::Enter)
                                             && (i.modifiers.command || i.modifiers.ctrl)

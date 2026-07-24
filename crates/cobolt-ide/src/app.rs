@@ -257,6 +257,26 @@ impl DesignerActivationRequests {
     }
 }
 
+/// Pending "New folder" dialog state (spec 033).
+struct PendingFolderCreate {
+    parent_rel: PathBuf,
+    category_root: String,
+    name: String,
+}
+
+/// Pending "Rename folder" dialog state (spec 033).
+struct PendingFolderRename {
+    folder_rel: PathBuf,
+    category_root: String,
+    name: String,
+}
+
+/// Pending "Delete folder" confirmation state (spec 033).
+struct PendingFolderDelete {
+    folder_rel: PathBuf,
+    category_root: String,
+}
+
 pub struct CoboltApp {
     // Code workspace
     project: ProjectPanel,
@@ -347,6 +367,10 @@ pub struct CoboltApp {
     knowledge_folder_parent: Option<PathBuf>,
     knowledge_folder_name: String,
     pending_knowledge_folder_delete: Option<PathBuf>,
+    // Generic project-tree folder dialogs (spec 033).
+    folder_create: Option<PendingFolderCreate>,
+    folder_rename: Option<PendingFolderRename>,
+    folder_delete: Option<PendingFolderDelete>,
     pending_user_control_delete: Option<String>,
     pending_indexed_delete: Option<String>,
     delete_cidx_file: bool,
@@ -967,6 +991,9 @@ impl CoboltApp {
             knowledge_folder_parent: None,
             knowledge_folder_name: String::new(),
             pending_knowledge_folder_delete: None,
+            folder_create: None,
+            folder_rename: None,
+            folder_delete: None,
             pending_user_control_delete: None,
             pending_indexed_delete: None,
             delete_cidx_file: false,
@@ -2378,6 +2405,17 @@ impl CoboltApp {
             .and_then(|s| s.pending_confirm())
             .map(|r| r.command.clone());
         let mut do_grace_confirm: Option<bool> = None;
+        let mut do_grace_stop = false;
+        let grace_stop_requested = self
+            .grace_session
+            .as_ref()
+            .is_some_and(|s| s.stop_requested());
+        // Live (input, output) token totals, updated as each model returns.
+        let grace_tokens: Option<(u64, u64)> = self
+            .grace_session
+            .as_ref()
+            .map(|s| s.token_totals())
+            .filter(|(input, output)| *input > 0 || *output > 0);
         let status = self.agent_status.clone();
         let preview = self.agent_preview.clone();
         let has_debug = crate::llm::has_connection_log();
@@ -2404,6 +2442,23 @@ impl CoboltApp {
                         .on_hover_text(tr.agent_use_grace_hint);
                     if busy {
                         ui.add(egui::Spinner::new());
+                        // Stop sign, shown only while the spinner is: halts
+                        // Grace/agents when the in-flight call returns.
+                        if grace_running {
+                            if grace_stop_requested {
+                                ui.label(
+                                    egui::RichText::new("Stopping…")
+                                        .small()
+                                        .color(Color32::from_gray(170)),
+                                );
+                            } else if ui
+                                .button(egui::RichText::new("🛑").size(14.0))
+                                .on_hover_text("Stop Grace and the agents")
+                                .clicked()
+                            {
+                                do_grace_stop = true;
+                            }
+                        }
                         ui.label(
                             egui::RichText::new(tr.agent_hint)
                                 .small()
@@ -2443,6 +2498,16 @@ impl CoboltApp {
                         do_send = true;
                     }
                 });
+                // Up-to-date token usage, refreshed as each model returns.
+                if let Some((tokens_in, tokens_out)) = grace_tokens {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Tokens: {tokens_in} in / {tokens_out} out"
+                        ))
+                        .small()
+                        .color(Color32::from_gray(170)),
+                    );
+                }
 
                 if status.is_some() || has_debug {
                     ui.horizontal_wrapped(|ui| {
@@ -2561,6 +2626,14 @@ impl CoboltApp {
         if let Some(approved) = do_grace_confirm {
             if let Some(sess) = self.grace_session.as_mut() {
                 sess.respond_confirm(approved);
+            }
+            ctx.request_repaint();
+        }
+
+        // Stop the running Grace workflow at the developer's request.
+        if do_grace_stop {
+            if let Some(sess) = self.grace_session.as_ref() {
+                sess.stop();
             }
             ctx.request_repaint();
         }
@@ -3725,12 +3798,24 @@ impl CoboltApp {
         }
     }
 
-    /// Path for a form's generated `.cbl`: under the project's `generated/`
-    /// folder when a project is open, else next to the `.cfrm`.
+    /// The tracked `generated/` entry whose file name is `file_name`, if the user
+    /// relocated it into a subfolder (spec 033, R7). Lets regenerate rewrite the
+    /// moved file in place instead of resurrecting it at the default path.
+    fn tracked_generated_rel(&self, file_name: &str) -> Option<String> {
+        tracked_generated_rel(self.cobolt_project.as_ref(), file_name)
+    }
+
+    /// Path for a form's generated `.cbl`: the tracked (possibly relocated) entry
+    /// when one exists, else the project's `generated/` folder, else next to the
+    /// `.cfrm`.
     fn generated_cbl_path(&self, cfrm: &std::path::Path) -> PathBuf {
         let stem = cfrm.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
+        let file_name = format!("{stem}.cbl");
         if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
-            return dir.join("generated").join(format!("{stem}.cbl"));
+            if let Some(rel) = self.tracked_generated_rel(&file_name) {
+                return dir.join(rel);
+            }
+            return dir.join("generated").join(&file_name);
         }
         cfrm.with_extension("cbl")
     }
@@ -3740,8 +3825,12 @@ impl CoboltApp {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("indexed");
+        let file_name = format!("{stem}-indexed.cbl");
         if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
-            return dir.join("generated").join(format!("{stem}-indexed.cbl"));
+            if let Some(rel) = self.tracked_generated_rel(&file_name) {
+                return dir.join(rel);
+            }
+            return dir.join("generated").join(&file_name);
         }
         cidx.with_extension("cbl")
     }
@@ -8308,6 +8397,23 @@ impl eframe::App for CoboltApp {
             let proj_events = self
                 .project
                 .show(root_ui, self.cobolt_project.as_ref(), &tr);
+
+            // OS file-manager drop into the tree (spec 033, R10). eframe surfaces
+            // dropped paths on `raw.dropped_files`; the panel tells us which folder
+            // was under the pointer.
+            let dropped: Vec<PathBuf> = ctx.input(|i| {
+                i.raw
+                    .dropped_files
+                    .iter()
+                    .filter_map(|f| f.path.clone())
+                    .collect()
+            });
+            if !dropped.is_empty() {
+                if let Some(dest) = self.project.hovered_dir().map(str::to_string) {
+                    self.do_import_os_files(dropped, dest);
+                }
+            }
+
             for ev in proj_events {
                 if !matches!(&ev, ProjectPanelEvent::OpenGraceChat) {
                     self.show_grace_chat = false;
@@ -8414,6 +8520,48 @@ impl eframe::App for CoboltApp {
                         // Any pending editor open should yield to the settings form.
                         self.pending_open_in_editor = None;
                     }
+                    ProjectPanelEvent::CreateFolder {
+                        parent_rel,
+                        category_root,
+                    } => {
+                        self.folder_create = Some(PendingFolderCreate {
+                            parent_rel,
+                            category_root,
+                            name: String::new(),
+                        });
+                    }
+                    ProjectPanelEvent::RenameFolder {
+                        folder_rel,
+                        category_root,
+                    } => {
+                        let name = folder_rel
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_string();
+                        self.folder_rename = Some(PendingFolderRename {
+                            folder_rel,
+                            category_root,
+                            name,
+                        });
+                    }
+                    ProjectPanelEvent::DeleteFolder {
+                        folder_rel,
+                        category_root,
+                    } => {
+                        self.folder_delete = Some(PendingFolderDelete {
+                            folder_rel,
+                            category_root,
+                        });
+                    }
+                    ProjectPanelEvent::MoveInternal {
+                        src_rel,
+                        dest_dir_rel,
+                    } => self.do_move_tracked_file(src_rel, dest_dir_rel),
+                    ProjectPanelEvent::ImportOs {
+                        paths,
+                        dest_dir_rel,
+                    } => self.do_import_os_files(paths, dest_dir_rel),
                 }
             }
         }
@@ -8489,6 +8637,9 @@ impl eframe::App for CoboltApp {
         self.show_asset_delete_confirm(ctx, &tr);
         self.show_knowledge_folder_dialog(ctx, &tr);
         self.show_knowledge_folder_delete_confirm(ctx, &tr);
+        self.show_folder_create_dialog(ctx, &tr);
+        self.show_folder_rename_dialog(ctx, &tr);
+        self.show_folder_delete_confirm(ctx, &tr);
         self.show_indexed_delete_confirm(ctx, &tr);
 
         // Tree semaphore: the active file, if edited since its last check, goes
@@ -10147,6 +10298,345 @@ impl CoboltApp {
                         "Could not delete Knowledge Base folder.\n\n{error}"
                     ))
                 }
+            }
+        }
+    }
+
+    /// Localised message for a `project_fs` error (spec 033, R19).
+    fn folder_err_message(&self, tr: &Tr, err: &crate::project_fs::FolderOpError) -> String {
+        use crate::project_fs::FolderOpError as E;
+        match err {
+            E::EmptyName | E::DottedName | E::NotSingleComponent | E::IllegalChar => {
+                tr.folder_err_invalid_name
+            }
+            E::IsCategoryRoot => tr.folder_err_is_category_root,
+            E::Collision(_) => tr.folder_err_exists,
+            E::SelfDescendant => tr.folder_err_self_descendant,
+            _ => tr.folder_err_generic,
+        }
+        .to_string()
+    }
+
+    /// New-folder dialog for any category (spec 033, R1–R3).
+    fn show_folder_create_dialog(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(state) = self.folder_create.as_ref() else {
+            return;
+        };
+        let parent_rel = state.parent_rel.clone();
+        let category_root = state.category_root.clone();
+        let mut cancel = false;
+        let mut create = false;
+        egui::Window::new(tr.dlg_new_folder_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(format!("{} {}", tr.dlg_folder_create_in, parent_rel.display()));
+                let name = &mut self.folder_create.as_mut().unwrap().name;
+                let response = ui.add(
+                    egui::TextEdit::singleline(name)
+                        .hint_text(tr.dlg_folder_name_hint)
+                        .desired_width(320.0),
+                );
+                if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    create = true;
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !name.trim().is_empty(),
+                            egui::Button::new(tr.btn_create),
+                        )
+                        .clicked()
+                    {
+                        create = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.folder_create = None;
+        } else if create {
+            let name = self.folder_create.as_ref().unwrap().name.clone();
+            let Some(root) = self.project_dir() else {
+                self.folder_create = None;
+                return;
+            };
+            let _ = category_root;
+            match crate::project_fs::create_folder(&root, &parent_rel, &name) {
+                Ok(rel) => {
+                    self.output
+                        .push_status(format!("Created folder {}", rel.display()));
+                    self.folder_create = None;
+                }
+                Err(err) => self.alert_error = Some(self.folder_err_message(tr, &err)),
+            }
+        }
+    }
+
+    /// Rename-folder dialog for any category (spec 033, R4).
+    fn show_folder_rename_dialog(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(state) = self.folder_rename.as_ref() else {
+            return;
+        };
+        let folder_rel = state.folder_rel.clone();
+        let category_root = PathBuf::from(state.category_root.clone());
+        let mut cancel = false;
+        let mut rename = false;
+        egui::Window::new(tr.dlg_rename_folder_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(egui::RichText::new(folder_rel.display().to_string()).small());
+                let name = &mut self.folder_rename.as_mut().unwrap().name;
+                let response = ui.add(
+                    egui::TextEdit::singleline(name)
+                        .hint_text(tr.dlg_folder_name_hint)
+                        .desired_width(320.0),
+                );
+                if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    rename = true;
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !name.trim().is_empty(),
+                            egui::Button::new(tr.btn_rename),
+                        )
+                        .clicked()
+                    {
+                        rename = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.folder_rename = None;
+        } else if rename {
+            let new_name = self.folder_rename.as_ref().unwrap().name.clone();
+            let Some(root) = self.project_dir() else {
+                self.folder_rename = None;
+                return;
+            };
+            match crate::project_fs::rename_folder(&root, &folder_rel, &new_name, &category_root) {
+                Ok(new_rel) => {
+                    let old = crate::project_fs::rel_string(&folder_rel);
+                    let new = crate::project_fs::rel_string(&new_rel);
+                    if let Some(proj) = &mut self.cobolt_project {
+                        proj.rename_prefix(&old, &new);
+                    }
+                    self.rewrite_open_paths(&root, &old, &new);
+                    self.do_save_project();
+                    self.output
+                        .push_status(format!("Renamed folder to {new}"));
+                    self.folder_rename = None;
+                }
+                Err(err) => self.alert_error = Some(self.folder_err_message(tr, &err)),
+            }
+        }
+    }
+
+    /// Recursive folder-delete confirmation for any category (spec 033, R5, R6).
+    fn show_folder_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
+        let Some(state) = self.folder_delete.as_ref() else {
+            return;
+        };
+        let folder_rel = state.folder_rel.clone();
+        let category_root = PathBuf::from(state.category_root.clone());
+        let mut cancel = false;
+        let mut confirm = false;
+        egui::Window::new(tr.dlg_delete_folder_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(tr.dlg_delete_folder_body);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(folder_rel.display().to_string()).small());
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(tr.dlg_delete_folder_warning)
+                        .color(Color32::from_rgb(230, 150, 120)),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.btn_cancel).clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(tr.delete_confirm_ok).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
+
+        if cancel {
+            self.folder_delete = None;
+        } else if confirm {
+            self.folder_delete = None;
+            let Some(root) = self.project_dir() else {
+                return;
+            };
+            match crate::project_fs::delete_folder(&root, &folder_rel, &category_root) {
+                Ok(removed) => {
+                    let dir = crate::project_fs::rel_string(&removed);
+                    // Drop tracked members under the folder and close their views.
+                    let dropped = self
+                        .cobolt_project
+                        .as_mut()
+                        .map(|proj| proj.drain_under(&dir))
+                        .unwrap_or_default();
+                    let absolute = root.join(&removed);
+                    self.close_views_under(&absolute);
+                    let _ = dropped;
+                    // Knowledge-Base deletes also refresh documentation membership.
+                    if category_root == Path::new(crate::project_model::Category::Documentation.root_subdir())
+                    {
+                        self.sync_project_documentation_membership(&root);
+                    }
+                    self.do_save_project();
+                    self.output
+                        .push_status(format!("Deleted folder {dir}"));
+                }
+                Err(err) => self.alert_error = Some(self.folder_err_message(tr, &err)),
+            }
+        }
+    }
+
+    /// Move a tracked file into another folder via drag-and-drop (spec 033, R9).
+    fn do_move_tracked_file(&mut self, src_rel: String, dest_dir_rel: String) {
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        match crate::project_fs::move_path(
+            &root,
+            Path::new(&src_rel),
+            Path::new(&dest_dir_rel),
+        ) {
+            Ok(new_rel) => {
+                let new = crate::project_fs::rel_string(&new_rel);
+                if let Some(proj) = &mut self.cobolt_project {
+                    proj.move_entry(&src_rel, &new);
+                }
+                self.rewrite_open_paths(&root, &src_rel, &new);
+                self.do_save_project();
+                self.output.push_status(format!("Moved {src_rel} → {new}"));
+            }
+            Err(err) => {
+                let tr = self.lang.tr();
+                self.alert_error = Some(self.folder_err_message(&tr, &err));
+            }
+        }
+    }
+
+    /// Import files dropped from the OS file manager into a folder (spec 033,
+    /// R10, R14, R21). Copies each file in and tracks a project-relative path.
+    fn do_import_os_files(&mut self, paths: Vec<PathBuf>, dest_dir_rel: String) {
+        use crate::project_model::{Category, FileKind};
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        let dest_cat = Category::from_root_component(&dest_dir_rel);
+        for path in paths {
+            if !path.is_file() {
+                continue;
+            }
+            let kind = FileKind::from_path(&path.to_string_lossy());
+            // Reject a file whose kind does not belong in the destination
+            // category (R14).
+            if let Some(dest_cat) = dest_cat {
+                if Category::of_kind(kind) != dest_cat {
+                    let tr = self.lang.tr();
+                    self.alert_error = Some(tr.folder_err_incompatible_kind.to_string());
+                    continue;
+                }
+            }
+            self.import_file_into_folder(path, &root, &dest_dir_rel);
+        }
+    }
+
+    /// Copy one OS file into the project-relative folder `dest_dir_rel` and track
+    /// it under the matching category with a **relative** path (spec 033, R21).
+    fn import_file_into_folder(&mut self, src: PathBuf, root: &Path, dest_dir_rel: &str) {
+        let Some(fname) = src.file_name().and_then(|n| n.to_str()) else {
+            return;
+        };
+        let dest_dir = root.join(dest_dir_rel);
+        let _ = std::fs::create_dir_all(&dest_dir);
+        let dest = dest_dir.join(fname);
+        if dest.exists() {
+            let tr = self.lang.tr();
+            self.alert_error = Some(tr.folder_err_exists.to_string());
+            return;
+        }
+        if let Err(e) = std::fs::copy(&src, &dest) {
+            self.output.push_status(format!("Could not import {fname}: {e}"));
+            return;
+        }
+        let rel = format!("{}/{fname}", dest_dir_rel.trim_end_matches('/'));
+        if let Some(proj) = &mut self.cobolt_project {
+            proj.add_file_to(&rel, crate::project_model::Category::of_path(&rel));
+        }
+        self.do_save_project();
+        self.output.push_status(format!("Imported {rel}"));
+    }
+
+    /// Rewrite open editor tabs, designer and indexed views whose path lies under
+    /// the moved/renamed folder prefix `old` → `new` (spec 033, R4, Q3).
+    fn rewrite_open_paths(&mut self, root: &Path, old: &str, new: &str) {
+        let old_abs = root.join(old);
+        let new_abs = root.join(new);
+        let remap = |p: &Path| -> Option<PathBuf> {
+            if p == old_abs {
+                Some(new_abs.clone())
+            } else if let Ok(rest) = p.strip_prefix(&old_abs) {
+                Some(new_abs.join(rest))
+            } else {
+                None
+            }
+        };
+        for tab in self.editor.tabs.iter_mut() {
+            if let Some(np) = remap(&tab.path) {
+                tab.path = np;
+            }
+        }
+        for (p, _) in self.designers.iter_mut() {
+            if let Some(np) = remap(p) {
+                *p = np;
+            }
+        }
+        for (p, _) in self.indexed_grids.iter_mut() {
+            if let Some(np) = remap(p) {
+                *p = np;
+            }
+        }
+        if let Some(st) = &mut self.indexed_inspect {
+            if let Some(np) = remap(&st.path) {
+                st.path = np;
+            }
+        }
+    }
+
+    /// Close editor tabs, designer and indexed views bound to a file under the
+    /// deleted directory `dir_abs` (spec 033, R6).
+    fn close_views_under(&mut self, dir_abs: &Path) {
+        self.editor.tabs.retain(|tab| !tab.path.starts_with(dir_abs));
+        if self.editor.active >= self.editor.tabs.len() && !self.editor.tabs.is_empty() {
+            self.editor.active = self.editor.tabs.len() - 1;
+        }
+        self.designers.retain(|(p, _)| !p.starts_with(dir_abs));
+        self.indexed_grids.retain(|(p, _)| !p.starts_with(dir_abs));
+        if let Some(st) = &self.indexed_inspect {
+            if st.path.starts_with(dir_abs) {
+                self.indexed_inspect = None;
             }
         }
     }
@@ -11904,6 +12394,45 @@ fn decode_icon_data(bytes: &[u8]) -> Option<egui::IconData> {
         width: w,
         height: h,
     })
+}
+
+/// The tracked `generated/` entry whose file name is `file_name`, if any. Free
+/// function so the resolve-relocated-generated behaviour (spec 033, R7) is
+/// unit-testable without constructing the full `App`.
+fn tracked_generated_rel(
+    project: Option<&CoboltProject>,
+    file_name: &str,
+) -> Option<String> {
+    project?
+        .files_in(crate::project_model::Category::Generated)
+        .iter()
+        .find(|rel| {
+            std::path::Path::new(rel)
+                .file_name()
+                .and_then(|n| n.to_str())
+                == Some(file_name)
+        })
+        .cloned()
+}
+
+#[cfg(test)]
+mod generated_path_tests {
+    use super::*;
+    use crate::project_model::{Category, CoboltProject};
+
+    #[test]
+    fn relocated_generated_file_resolves_to_tracked_path() {
+        let mut proj = CoboltProject::new("T", "src/main.cbl");
+        proj.add_file_to("generated/customers/order.cbl", Category::Generated);
+        // A form whose stem matches a relocated generated entry resolves there.
+        assert_eq!(
+            tracked_generated_rel(Some(&proj), "order.cbl").as_deref(),
+            Some("generated/customers/order.cbl")
+        );
+        // An unknown stem falls through (caller uses the default path).
+        assert_eq!(tracked_generated_rel(Some(&proj), "unknown.cbl"), None);
+        assert_eq!(tracked_generated_rel(None, "order.cbl"), None);
+    }
 }
 
 #[cfg(test)]

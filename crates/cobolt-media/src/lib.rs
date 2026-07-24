@@ -247,6 +247,38 @@ pub fn play(
     Some((tex.id(), cache.size))
 }
 
+/// The current playback position of an animation started by [`play`]:
+/// `(frame index, completed loop count)`. `None` until the animation has been
+/// decoded (or when it has no frames). Lets the host fire frame/loop
+/// lifecycle events without owning the media clock.
+pub fn playback_position(
+    ctx: &egui::Context,
+    key: &str,
+    auto_play: bool,
+    looping: bool,
+) -> Option<(usize, u32, bool)> {
+    let id = egui::Id::new(("cobolt_anim", key));
+    let cache = ctx.memory(|m| m.data.get_temp::<Arc<AnimCache>>(id))?;
+    if cache.textures.is_empty() || cache.total_ms == 0 {
+        return None;
+    }
+    let now = ctx.input(|i| i.time);
+    let elapsed = ((now - cache.start) * 1000.0).max(0.0);
+    let idx = if auto_play {
+        frame_at(&cache.delays_ms, cache.total_ms, elapsed, looping)
+    } else {
+        0
+    };
+    let loops = if looping && auto_play {
+        (elapsed / cache.total_ms as f64) as u32
+    } else {
+        0
+    };
+    // A non-looping animation has ended once the clock passes its total time.
+    let ended = auto_play && !looping && elapsed >= cache.total_ms as f64;
+    Some((idx.min(cache.textures.len() - 1), loops, ended))
+}
+
 /// Drop any cached decode/textures for `key` (e.g. when the source path changes).
 pub fn forget(ctx: &egui::Context, key: &str) {
     let id = egui::Id::new(("cobolt_anim", key));

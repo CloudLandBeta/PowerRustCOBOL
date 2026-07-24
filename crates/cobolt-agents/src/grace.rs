@@ -210,14 +210,19 @@ pub enum GraceEvent {
 fn no_progress(_: GraceEvent) {}
 
 /// Extract the LAST fenced JSON block of a reply (the tooling contract).
+/// A final fence the model never closed still counts — the remainder of the
+/// reply is taken as the block body (observed live: a plan ending in
+/// `…}]}` with no closing ```).
 pub fn last_json_block(reply: &str) -> Option<serde_json::Value> {
     let mut last = None;
     let mut rest = reply;
     while let Some(start) = rest.find("```") {
         rest = &rest[start + 3..];
-        let Some(end) = rest.find("```") else { break };
-        let block = rest[..end].trim();
-        rest = &rest[end + 3..];
+        let (block, next) = match rest.find("```") {
+            Some(end) => (rest[..end].trim(), &rest[end + 3..]),
+            None => (rest.trim(), ""),
+        };
+        rest = next;
         let json = block.strip_prefix("json").map(str::trim).unwrap_or(block);
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(json) {
             last = Some(v);
@@ -809,6 +814,21 @@ mod tests {
         assert_eq!(rec.tasks[0].final_state, TaskState::Failed);
         assert!(rec.tasks[0].failure_reason.contains("verdict"));
         assert_eq!(mock.calls.len(), 2, "no correction roundtrip was burned");
+    }
+
+    /// Observed live: a valid plan whose final fence the model never closed.
+    /// The unterminated block still parses deterministically.
+    #[test]
+    fn unterminated_final_fence_still_parses() {
+        let reply = "I need two decisions first.\n\n```json\n{\"workflow_id\": \"w9\", \"tasks\": [{\"id\": \"T1\", \"agent\": \"Documentation Agent\", \"objective\": \"clarify\", \"reviewer\": \"Documentation Agent Pedantic Reviewer\", \"depends_on\": [], \"acceptance\": \"a\"}]}";
+        let (wf, tasks) = parse_plan(reply).expect("unterminated fence parses");
+        assert_eq!(wf, "w9");
+        assert_eq!(tasks.len(), 1);
+        // A closed fence still parses exactly as before.
+        let closed = format!("{reply}\n```");
+        assert!(parse_plan(&closed).is_ok());
+        // Prose with a dangling fence and no JSON stays a parse failure.
+        assert!(parse_plan("thoughts…\n```json\nnot json at all").is_err());
     }
 
     /// The deterministic verdict parser handles the tooling contract's shapes.

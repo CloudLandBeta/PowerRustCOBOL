@@ -318,6 +318,18 @@ impl ModelsModal {
                             {
                                 action.applied = true;
                             }
+                            ui.add_space(16.0);
+                            ui.label(tr.models_max_revisions);
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut llm.max_review_revisions)
+                                        .range(0..=10),
+                                )
+                                .on_hover_text(tr.models_max_revisions_hint)
+                                .changed()
+                            {
+                                action.applied = true;
+                            }
                         });
                         ui.add_space(6.0);
                     });

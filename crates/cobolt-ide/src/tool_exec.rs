@@ -58,6 +58,12 @@ pub struct ToolResult {
     /// A governance/critical defect (undeclared or fabricated tool use, etc.):
     /// the task must fail, not continue (spec 030 R2/R3).
     pub critical: bool,
+    /// The operation is blocked pending an explicit developer confirmation
+    /// (e.g. a destructive recreate of a finalized indexed file). Unlike a
+    /// defect, this is not the agent's fault to fix: the tool loop stops at
+    /// once and surfaces `summary` to the developer as Grace's reply, so the
+    /// developer can confirm or cancel.
+    pub needs_confirmation: bool,
 }
 
 impl ToolResult {
@@ -67,6 +73,7 @@ impl ToolResult {
             summary: summary.into(),
             detail: detail.into(),
             critical: false,
+            needs_confirmation: false,
         }
     }
     /// A recoverable failure (the tool ran but reported an error, e.g. a
@@ -77,6 +84,7 @@ impl ToolResult {
             summary: summary.into(),
             detail: detail.into(),
             critical: false,
+            needs_confirmation: false,
         }
     }
     /// A critical defect that must fail the whole task.
@@ -87,6 +95,20 @@ impl ToolResult {
             detail: s.clone(),
             summary: s,
             critical: true,
+            needs_confirmation: false,
+        }
+    }
+    /// The task cannot proceed without the developer's explicit go-ahead. The
+    /// tool loop returns `summary` straight to the chat as Grace's reply — no
+    /// fix-and-repeat, no failure — so the developer decides.
+    pub fn needs_confirmation(summary: impl Into<String>) -> Self {
+        let s = summary.into();
+        Self {
+            ok: false,
+            detail: s.clone(),
+            summary: s,
+            critical: false,
+            needs_confirmation: true,
         }
     }
 }
@@ -131,12 +153,68 @@ pub fn parse_tool_calls(reply: &str) -> Result<Option<Vec<ToolCall>>, String> {
     let Some(tc) = v.get("tool_calls") else {
         return Ok(None); // valid JSON, but a final result — not a tool call
     };
-    let calls: Vec<ToolCall> = serde_json::from_value(tc.clone())
+    let mut calls: Vec<ToolCall> = serde_json::from_value(tc.clone())
         .map_err(|e| format!("malformed tool_calls block: {e}"))?;
     if calls.is_empty() {
         return Ok(None);
     }
+    for call in &mut calls {
+        unwrap_double_nested_args(call);
+        strip_quoted_keys(&mut call.args);
+    }
     Ok(Some(calls))
+}
+
+/// Models sometimes emit object keys wrapped in LITERAL quote characters —
+/// observed live from gemma: `"normalization": {"\"1nf\"": "…"}` (the key is
+/// `"1nf"`, quotes included), which fails the backend's `1nf/2nf/3nf`
+/// validation. No host tool has argument keys containing quote characters, so
+/// stripping them recursively is always safe.
+fn strip_quoted_keys(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let quoted: Vec<String> = map
+                .keys()
+                .filter(|key| {
+                    let trimmed = key.trim_matches('"');
+                    trimmed != key.as_str() && !trimmed.is_empty()
+                })
+                .cloned()
+                .collect();
+            for key in quoted {
+                let trimmed = key.trim_matches('"').to_string();
+                if !map.contains_key(&trimmed) {
+                    if let Some(inner) = map.remove(&key) {
+                        map.insert(trimmed, inner);
+                    }
+                }
+            }
+            for (_key, inner) in map.iter_mut() {
+                strip_quoted_keys(inner);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for inner in items {
+                strip_quoted_keys(inner);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Models sometimes double-wrap tool arguments — observed live from gemma:
+/// `{"tool":"indexed_file.write","args":{"args":{…real payload…}}}`. No host
+/// tool has a single `"args"` object as its own argument, so unwrapping one
+/// level is always safe and saves an otherwise perfect call from failing as
+/// malformed.
+fn unwrap_double_nested_args(call: &mut ToolCall) {
+    if let serde_json::Value::Object(map) = &call.args {
+        if map.len() == 1 {
+            if let Some(inner @ serde_json::Value::Object(_)) = map.get("args") {
+                call.args = inner.clone();
+            }
+        }
+    }
 }
 
 const GIT_TOOL_CONTRACT: &str = "\n\n--- Tool execution (git) — how you actually run git ---\nYou run git through one tool. To execute a command, END your reply with exactly one fenced JSON block and nothing after it:\n```json\n{\"tool_calls\":[{\"tool\":\"git.run\",\"args\":{\"argv\":[\"status\",\"--porcelain\"]}}]}\n```\n`argv` is the git argument vector WITHOUT the leading \"git\" (e.g. [\"commit\",\"-m\",\"message\"]). Do not pass -C, --git-dir, or --work-tree — the executor is already bound to the open project's repository and will reject them. Read and local-mutation ops run immediately; network and history-rewriting ops (push, fetch, pull, rebase, reset --hard) are GATED on explicit operator approval and will not run if declined. Each command returns its real exit status and output as a TOOL RESULTS block — a non-zero exit is a failure, never a success. When the task is complete, reply with your final result and DO NOT emit a tool_calls block.";
@@ -158,7 +236,9 @@ Create or replace one complete definition with `indexed_file.write`:
 ```json
 {"tool_calls":[{"tool":"indexed_file.write","args":{"path":"indexed/customers.cidx","name":"CUSTOMER-FILE","purpose":"Customer master data for invoicing","assign_path":"data/customers.idx","record":"       01 CUSTOMER-RECORD.\n          05 CUSTOMER-ID PIC X(36).\n          05 CUSTOMER-NAME PIC X(80).","primary_key":"CUSTOMER-ID","alternate_keys":[],"access_mode":"dynamic","storage":"disk","id_definitions":{"CUSTOMER-ID":"UUID"},"normalization":{"1nf":"Atomic customer attributes; no repeating groups.","2nf":"Single-field primary key; no partial dependencies.","3nf":"All non-key fields depend only on CUSTOMER-ID."}}}]}
 ```
-`alternate_keys` entries use `{"field":"FIELD-NAME","duplicates":false}`. Set `finalized` explicitly when needed; new definitions default to finalized after validation. Every ID field requires an `id_definitions` entry whose value is either `UUID` or the exact `PIC ...` chosen by the developer. The `normalization` object must contain non-empty `1nf`, `2nf`, and `3nf` decisions from the approved Documentation Agent handoff. The write validates the COBOL record and key fields, saves the `.cidx`, and regenerates Indexed File UI COBOL/copybook artifacts. Finalized definitions preserve the Indexed File UI lock and reject structural changes. A helper normalized relation is a separate `indexed_file.write` call. Use TOOL RESULTS as evidence and never claim a file changed without a successful result."#;
+`alternate_keys` entries use `{"field":"FIELD-NAME","duplicates":false}`. Set `finalized` explicitly when needed; new definitions default to finalized after validation. Every ID field requires an `id_definitions` entry whose value is either `UUID` or the exact `PIC ...` chosen by the developer. The `normalization` object must contain non-empty `1nf`, `2nf`, and `3nf` decisions from the approved Documentation Agent handoff. The write validates the COBOL record and key fields, saves the `.cidx`, and regenerates Indexed File UI COBOL/copybook artifacts. A helper normalized relation is a separate `indexed_file.write` call. Use TOOL RESULTS as evidence and never claim a file changed without a successful result.
+
+A finalized definition is LOCKED: any structural change (new/removed field, changed PIC, changed keys or storage) is refused and the write returns a confirmation-required result asking the developer to authorize destroying and recreating the file. Do NOT retry such a write unchanged and do NOT set `confirm_recreate` on your own. Only after Grace relays that the DEVELOPER explicitly confirmed the destroy-and-recreate may you repeat the write with `"confirm_recreate": true`, which overwrites the locked file with the new schema (its stored data is lost)."#;
 
 /// How a Form Designer submission must encode its edits. Only this JSON shape
 /// is parsed and applied (`crate::agent::parse_change_set`); prose, tables, or
@@ -300,11 +380,33 @@ impl AgentInvoker for ToolExecutingInvoker<'_> {
         let declared = (self.declared)(agent);
         let mut convo_user = user.to_string();
         let mut rounds = 0usize;
+        // Fallback contract: one fix-and-repeat round per task for a REJECTED
+        // (critical) tool call — the error is relayed verbatim for the agent
+        // itself to correct; the host never patches the call. A second
+        // rejection fails the task and the error reaches the chat history.
+        let mut critical_retry_used = false;
         loop {
             let reply = self.inner.invoke(agent, system, &convo_user)?;
-            let calls = match parse_tool_calls(&reply)? {
-                None => return Ok(reply), // final result — no tools requested
-                Some(calls) => calls,
+            let calls = match parse_tool_calls(&reply) {
+                Ok(None) => return Ok(reply), // final result — no tools requested
+                Ok(Some(calls)) => calls,
+                Err(cause) => {
+                    // A malformed block is usually one broken bracket (observed
+                    // live: a documentation.write missing its closing `]`
+                    // failed the task and blocked the whole dependency chain).
+                    // Give the agent a bounded correction round instead of
+                    // failing the task on the spot.
+                    if rounds >= self.max_tool_rounds {
+                        return Err(format!(
+                            "tool-call block still malformed after {rounds} correction round(s): {cause}"
+                        ));
+                    }
+                    rounds += 1;
+                    convo_user = format!(
+                        "{convo_user}\n\n=== TOOL CALL ERROR (round {rounds}) ===\nYour previous reply ended with a tool_calls block that could not be parsed: {cause}\n\nYOUR PREVIOUS REPLY:\n{reply}\n\nRe-send the reply with the corrected fenced JSON tool_calls block — verify every bracket closes: {{\"tool_calls\":[{{\"tool\":\"...\",\"args\":{{...}}}}]}} — or reply with your final result and no tool_calls block."
+                    );
+                    continue;
+                }
             };
             if rounds >= self.max_tool_rounds {
                 return Err(format!(
@@ -315,9 +417,24 @@ impl AgentInvoker for ToolExecutingInvoker<'_> {
             rounds += 1;
 
             let mut rendered = String::new();
+            let mut rejected = false;
             for call in &calls {
-                let res = if declared.contains(&call.tool) {
-                    self.backend.execute(agent, call)
+                // Native function names cannot contain `.`, so a model calling
+                // a fenced tool natively says `indexed_file_write`; map the
+                // last underscore back to the declared dotted name.
+                let resolved: Option<ToolCall> = if declared.contains(&call.tool) {
+                    Some(call.clone())
+                } else {
+                    call.tool.rsplit_once('_').and_then(|(ns, op)| {
+                        let dotted = format!("{ns}.{op}");
+                        declared.contains(&dotted).then(|| ToolCall {
+                            tool: dotted,
+                            args: call.args.clone(),
+                        })
+                    })
+                };
+                let res = if let Some(resolved) = &resolved {
+                    self.backend.execute(agent, resolved)
                 } else {
                     ToolResult::critical(format!(
                         "Agent \u{201c}{agent}\u{201d} invoked undeclared tool \u{201c}{}\u{201d} — ungoverned/fabricated tool use is a critical defect (spec 029 R4).",
@@ -325,10 +442,30 @@ impl AgentInvoker for ToolExecutingInvoker<'_> {
                     ))
                 };
                 self.record(agent, call, &res);
+                if res.needs_confirmation {
+                    // Blocked pending the developer's go-ahead (e.g. a
+                    // destructive recreate of a finalized file). Not a defect
+                    // to fix: stop now and return the message as Grace's reply
+                    // so the developer confirms or cancels. Calls after this
+                    // one were NOT executed.
+                    return Ok(res.summary);
+                }
                 if res.critical {
-                    // Abort the task: the engine records the Err as the failure
-                    // reason (spec 030 R2/R3).
-                    return Err(format!("CRITICAL DEFECT: {}", res.summary));
+                    if critical_retry_used {
+                        // Second rejection: fail the task. The engine stores
+                        // this as the failure reason, so the error message and
+                        // the check-the-prompt request reach the chat history.
+                        return Err(format!(
+                            "CRITICAL DEFECT: {} — the tool call was rejected again after a fix-and-repeat round; check \u{201c}{agent}\u{201d}'s prompt and this task's instructions",
+                            res.summary
+                        ));
+                    }
+                    rendered.push_str(&format!(
+                        "- {} [REJECTED]: {}\n{}\n",
+                        call.tool, res.summary, res.detail
+                    ));
+                    rejected = true;
+                    break; // calls after the rejected one are NOT executed
                 }
                 rendered.push_str(&format!(
                     "- {} [{}]: {}\n{}\n",
@@ -338,9 +475,16 @@ impl AgentInvoker for ToolExecutingInvoker<'_> {
                     res.detail
                 ));
             }
-            convo_user = format!(
-                "{convo_user}\n\n=== TOOL RESULTS (round {rounds}) ===\n{rendered}\nUse these real results. When the task is complete, reply with your final result and DO NOT emit a tool_calls block."
-            );
+            convo_user = if rejected {
+                critical_retry_used = true;
+                format!(
+                    "{convo_user}\n\n=== TOOL CALL REJECTED (round {rounds}) ===\n{rendered}\nAnalyse the rejection, fix your tool call, and repeat it. Any calls after the rejected one were NOT executed. This is your only correction round: a second rejection fails the task."
+                )
+            } else {
+                format!(
+                    "{convo_user}\n\n=== TOOL RESULTS (round {rounds}) ===\n{rendered}\nUse these real results. When the task is complete, reply with your final result and DO NOT emit a tool_calls block."
+                )
+            };
         }
     }
 }
@@ -653,31 +797,67 @@ impl<'a> IdeToolBackend<'a> {
 
     fn is_id_field(name: &str) -> bool {
         let upper = name.to_ascii_uppercase();
-        upper == "ID" || upper.ends_with("-ID") || upper.ends_with("_ID")
+        if upper == "ID" || upper.ends_with("-ID") || upper.ends_with("_ID") {
+            return true;
+        }
+        // camelCase identifiers (CompanyID, UserId): an "ID"/"Id" suffix right
+        // after a lowercase letter. Whole words ending in "id" (VALID, MADRID,
+        // Paid, Grid) stay excluded because their preceding letter is not a
+        // lowercase-to-uppercase case break.
+        let bytes = name.as_bytes();
+        bytes.len() >= 3
+            && (name.ends_with("ID") || name.ends_with("Id"))
+            && bytes[bytes.len() - 3].is_ascii_lowercase()
     }
 
     fn validate_id_definitions(
         call: &ToolCall,
         leaves: &[&cobolt_indexed::IndexedField],
     ) -> Result<String, ToolResult> {
-        let id_fields: Vec<_> = leaves
+        // The record parser uppercases COBOL data-names, which collapses
+        // camelCase spellings (CompanyID → COMPANYID) and would let camelCase
+        // ID fields bypass this gate. Detect ID fields from their RAW spelling
+        // in the submitted record text, and also govern every field the caller
+        // explicitly listed in id_definitions.
+        let record_text = call
+            .args
+            .get("record")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let raw_spelling = |field_name: &str| {
+            record_text
+                .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_')))
+                .find(|token| token.eq_ignore_ascii_case(field_name))
+        };
+        let declared = call
+            .args
+            .get("id_definitions")
+            .and_then(|value| value.as_object());
+        let id_fields: Vec<(&cobolt_indexed::IndexedField, String)> = leaves
             .iter()
-            .filter(|field| Self::is_id_field(&field.name))
+            .filter_map(|field| {
+                let spelling = raw_spelling(&field.name)
+                    .unwrap_or(field.name.as_str())
+                    .to_owned();
+                let governed = Self::is_id_field(&spelling)
+                    || declared.is_some_and(|definitions| {
+                        definitions
+                            .keys()
+                            .any(|name| name.eq_ignore_ascii_case(&field.name))
+                    });
+                governed.then_some((*field, spelling))
+            })
             .collect();
         if id_fields.is_empty() {
             return Ok("No ID fields are present in this record.".into());
         }
-        let Some(definitions) = call
-            .args
-            .get("id_definitions")
-            .and_then(|value| value.as_object())
-        else {
+        let Some(definitions) = declared else {
             return Err(ToolResult::critical(
                 "every ID field requires the developer's UUID or exact PIC choice in id_definitions",
             ));
         };
         let mut evidence = Vec::new();
-        for field in id_fields {
+        for (field, spelling) in id_fields {
             let choice = definitions
                 .iter()
                 .find(|(name, _)| name.eq_ignore_ascii_case(&field.name))
@@ -686,15 +866,14 @@ impl<'a> IdeToolBackend<'a> {
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
                     ToolResult::critical(format!(
-                        "ID field {} has no developer-approved UUID or PIC definition",
-                        field.name
+                        "ID field {spelling} has no developer-approved UUID or PIC definition"
                     ))
                 })?;
             if choice.eq_ignore_ascii_case("UUID") {
                 if !field.pic.trim().eq_ignore_ascii_case("X(36)") {
                     return Err(ToolResult::critical(format!(
                         "ID field {} was approved as UUID and must use PIC X(36), but the record uses PIC {}",
-                        field.name, field.pic
+                        spelling, field.pic
                     )));
                 }
             } else if let Some(pic) = choice
@@ -704,16 +883,15 @@ impl<'a> IdeToolBackend<'a> {
                 if !field.pic.trim().eq_ignore_ascii_case(pic.trim()) {
                     return Err(ToolResult::critical(format!(
                         "ID field {} uses PIC {}, which does not match the developer-approved {}",
-                        field.name, field.pic, choice
+                        spelling, field.pic, choice
                     )));
                 }
             } else {
                 return Err(ToolResult::critical(format!(
-                    "ID field {} must be defined as UUID or an exact PIC clause, not {}",
-                    field.name, choice
+                    "ID field {spelling} must be defined as UUID or an exact PIC clause, not {choice}"
                 )));
             }
-            evidence.push(format!("{}: {}", field.name, choice));
+            evidence.push(format!("{spelling}: {choice}"));
         }
         Ok(evidence.join(", "))
     }
@@ -1012,10 +1190,24 @@ impl<'a> IdeToolBackend<'a> {
                         || locked.keys != def.keys
                         || locked.fields != def.fields;
                     if structure_changed || !def.finalized {
-                        return ToolResult::critical(format!(
-                            "{} is finalized; the Indexed File UI locks its schema and storage properties. The developer must explicitly unfinalize it in the UI before structural maintenance.",
-                            relative.display()
-                        ));
+                        // The developer may authorize the destructive rewrite by
+                        // confirming; the Data agent then repeats the write with
+                        // `confirm_recreate: true`. Absent that, stop and ask —
+                        // this is not a defect the agent can fix on its own.
+                        let confirmed = call
+                            .args
+                            .get("confirm_recreate")
+                            .and_then(|value| value.as_bool())
+                            .unwrap_or(false);
+                        if !confirmed {
+                            return ToolResult::needs_confirmation(format!(
+                                "The task cannot be completed as a normal edit: {} is finalized (its schema and storage are locked by the Indexed File UI). Completing this change would DESTROY and RECREATE the file, erasing its stored data. Reply to confirm you want to destroy and recreate {}, or cancel to keep it unchanged.",
+                                relative.display(),
+                                relative.display()
+                            ));
+                        }
+                        // Confirmed: fall through to overwrite (recreate) the
+                        // file with the new schema.
                     }
                 }
                 if let Err(error) = cobolt_indexed::validate_definition(&def) {
@@ -1168,6 +1360,61 @@ mod tests {
         set.iter().map(|s| s.to_string()).collect()
     }
 
+    /// Observed live: gemma wrapped the `normalization` keys in literal quote
+    /// characters (`"\"1nf\"": …`) inside a double-nested args payload — the
+    /// backend's 1nf/2nf/3nf validation would reject the otherwise-valid
+    /// write. Both normalizations must compose.
+    #[test]
+    fn quoted_object_keys_are_stripped_recursively() {
+        let reply = r#"```json
+{"tool_calls":[{"tool":"indexed_file.write","args":{"args":{"path":"indexed/idx-company.cidx","normalization":{"\"1nf\"":"Atomic.","\"2nf\"":"No partial deps.","\"3nf\"":"No transitive deps."}}}}]}
+```"#;
+        let calls = parse_tool_calls(reply).unwrap().expect("calls");
+        let normalization = calls[0]
+            .args
+            .get("normalization")
+            .and_then(|v| v.as_object())
+            .expect("normalization object");
+        assert_eq!(
+            normalization.get("1nf").and_then(|v| v.as_str()),
+            Some("Atomic."),
+            "quoted keys must be stripped: {normalization:?}"
+        );
+        assert!(normalization.get("2nf").is_some());
+        assert!(normalization.get("3nf").is_some());
+        assert_eq!(
+            calls[0].args.get("path").and_then(|v| v.as_str()),
+            Some("indexed/idx-company.cidx"),
+            "double-nested unwrap still applies"
+        );
+    }
+
+    /// Observed live: gemma emitted `"args":{"args":{…real payload…}}` on an
+    /// otherwise perfect indexed_file.write. The parser unwraps the extra
+    /// level so the backend sees path/record/keys at the top of `args`.
+    #[test]
+    fn double_nested_args_are_unwrapped() {
+        let reply = "```json\n{\"tool_calls\":[{\"tool\":\"indexed_file.write\",\"args\":{\"args\":{\"path\":\"indexed/idx-company-legal.cidx\",\"primary_key\":\"COMPANY-ID\"}}}]}\n```";
+        let calls = parse_tool_calls(reply).unwrap().expect("calls");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].args.get("path").and_then(|v| v.as_str()),
+            Some("indexed/idx-company-legal.cidx"),
+            "payload fields must surface at the top level"
+        );
+        assert_eq!(
+            calls[0].args.get("primary_key").and_then(|v| v.as_str()),
+            Some("COMPANY-ID")
+        );
+        // A legitimate single-level call is untouched.
+        let plain = "```json\n{\"tool_calls\":[{\"tool\":\"documentation.write\",\"args\":{\"path\":\"/Knowledge Base/x.md\",\"content\":\"# X\"}}]}\n```";
+        let calls = parse_tool_calls(plain).unwrap().expect("calls");
+        assert_eq!(
+            calls[0].args.get("path").and_then(|v| v.as_str()),
+            Some("/Knowledge Base/x.md")
+        );
+    }
+
     #[test]
     fn parses_trailing_tool_call_block() {
         let reply = "Reasoning here.\n```json\n{\"tool_calls\":[{\"tool\":\"git.status\",\"args\":{}}]}\n```";
@@ -1190,6 +1437,93 @@ mod tests {
         // Present but the wrong shape → a parse error, never a silent empty.
         let bad = "```json\n{\"tool_calls\":\"not-an-array\"}\n```";
         assert!(parse_tool_calls(bad).is_err());
+    }
+
+    /// Observed live: the Documentation Agent emitted a documentation.write
+    /// whose tool_calls JSON was missing the closing `]` — the task failed
+    /// immediately and every dependent Data-agent task was blocked ("why did
+    /// it stop?"). A malformed block must get a correction round, and the
+    /// corrected call must then execute.
+    #[test]
+    fn malformed_tool_call_block_gets_a_correction_round() {
+        let mut inner = ScriptInvoker {
+            replies: vec![
+                // Missing `]` before the final `}` — the live failure shape.
+                "The handoff.\n```json\n{\"tool_calls\":[{\"tool\":\"documentation.write\",\"args\":{\"path\":\"/Knowledge Base/x.md\",\"content\":\"# X\"}}}\n```".into(),
+                // Corrected block on the retry.
+                "The handoff.\n```json\n{\"tool_calls\":[{\"tool\":\"documentation.write\",\"args\":{\"path\":\"/Knowledge Base/x.md\",\"content\":\"# X\"}}]}\n```".into(),
+                "Handoff written.".into(),
+            ],
+            calls: 0,
+        };
+        let mut backend = EchoBackend { executed: 0 };
+        let evidence = Arc::new(Mutex::new(Vec::new()));
+        let declared_tools = declared(&["documentation.write"]);
+        let mut inv = ToolExecutingInvoker::new(
+            &mut inner,
+            &mut backend,
+            move |_agent: &str| declared_tools.clone(),
+            evidence.clone(),
+            4,
+        );
+        let out = inv
+            .invoke("Documentation Agent", "sys", "task")
+            .expect("correction round must rescue the task");
+        drop(inv);
+        assert_eq!(out, "Handoff written.");
+        assert_eq!(backend.executed, 1, "the corrected call must actually run");
+    }
+
+    /// Observed live: gemma invoked the fenced tool natively — the transport
+    /// bridges it back as a fenced block whose name keeps the native
+    /// underscore form ("indexed_file_write"). The executor must map it to the
+    /// declared dotted name and run it, not flag fabricated tool use.
+    #[test]
+    fn native_underscore_tool_names_resolve_to_declared_dotted_tools() {
+        let mut inner = ScriptInvoker {
+            replies: vec![
+                "Creating the file.\n```json\n{\"tool_calls\":[{\"tool\":\"indexed_file_write\",\"args\":{\"path\":\"indexed/x.cidx\"}}]}\n```".into(),
+                "File created.".into(),
+            ],
+            calls: 0,
+        };
+        let mut backend = EchoBackend { executed: 0 };
+        let evidence = Arc::new(Mutex::new(Vec::new()));
+        let declared_tools = declared(&["indexed_file.write"]);
+        let mut inv = ToolExecutingInvoker::new(
+            &mut inner,
+            &mut backend,
+            move |_agent: &str| declared_tools.clone(),
+            evidence.clone(),
+            4,
+        );
+        let out = inv
+            .invoke("Data (Indexed File) Agent", "sys", "task")
+            .expect("underscore alias must execute");
+        drop(inv);
+        assert_eq!(out, "File created.");
+        assert_eq!(backend.executed, 1, "the aliased call must actually run");
+        // A genuinely unknown tool is still a critical defect — after the one
+        // fix-and-repeat round, a repeated fabrication fails the task.
+        let made_up =
+            "```json\n{\"tool_calls\":[{\"tool\":\"made_up_tool\",\"args\":{}}]}\n```".to_string();
+        let mut inner = ScriptInvoker {
+            replies: vec![made_up.clone(), made_up],
+            calls: 0,
+        };
+        let mut backend = EchoBackend { executed: 0 };
+        let declared_tools = declared(&["indexed_file.write"]);
+        let mut inv = ToolExecutingInvoker::new(
+            &mut inner,
+            &mut backend,
+            move |_agent: &str| declared_tools.clone(),
+            Arc::new(Mutex::new(Vec::new())),
+            4,
+        );
+        let err = inv
+            .invoke("Data (Indexed File) Agent", "sys", "task")
+            .unwrap_err();
+        assert!(err.contains("CRITICAL DEFECT"), "{err}");
     }
 
     #[test]
@@ -1225,10 +1559,9 @@ mod tests {
 
     #[test]
     fn undeclared_tool_fails_the_task() {
+        let push = "```json\n{\"tool_calls\":[{\"tool\":\"git.push\",\"args\":{}}]}\n```".to_string();
         let mut inner = ScriptInvoker {
-            replies: vec![
-                "```json\n{\"tool_calls\":[{\"tool\":\"git.push\",\"args\":{}}]}\n```".into(),
-            ],
+            replies: vec![push.clone(), push],
             calls: 0,
         };
         let mut backend = EchoBackend { executed: 0 };
@@ -1248,15 +1581,69 @@ mod tests {
             err.contains("CRITICAL DEFECT"),
             "undeclared tool fails the task: {err}"
         );
+        assert!(
+            err.contains("check \u{201c}Version Control Agent\u{201d}'s prompt"),
+            "the failure asks the developer to check the prompt: {err}"
+        );
         assert_eq!(
             backend.executed, 0,
             "undeclared tool never reaches the backend"
         );
         assert_eq!(
             evidence.lock().unwrap().len(),
-            1,
-            "the critical defect is recorded"
+            2,
+            "both rejections are recorded"
         );
+    }
+
+    /// Fallback contract: a REJECTED (critical) tool call is relayed back to
+    /// the SAME agent for exactly one fix-and-repeat round; a corrected call
+    /// then executes normally. The host never patches the call itself.
+    #[test]
+    fn rejected_tool_call_gets_one_fix_and_repeat_round() {
+        /// Rejects calls without a "path" argument, accepts the rest.
+        struct PickyBackend {
+            executed: usize,
+        }
+        impl ToolBackend for PickyBackend {
+            fn execute(&mut self, _agent: &str, call: &ToolCall) -> ToolResult {
+                if call.args.get("path").is_none() {
+                    ToolResult::critical("malformed indexed_file.write call: path is required")
+                } else {
+                    self.executed += 1;
+                    ToolResult::ok("saved indexed/x.cidx", "")
+                }
+            }
+        }
+        let mut inner = ScriptInvoker {
+            replies: vec![
+                // Round 1: parameter error (no path) — rejected.
+                "```json\n{\"tool_calls\":[{\"tool\":\"indexed_file.write\",\"args\":{\"name\":\"X\"}}]}\n```".into(),
+                // Round 2: the agent fixed its own call — executes.
+                "```json\n{\"tool_calls\":[{\"tool\":\"indexed_file.write\",\"args\":{\"path\":\"indexed/x.cidx\"}}]}\n```".into(),
+                "File created.".into(),
+            ],
+            calls: 0,
+        };
+        let mut backend = PickyBackend { executed: 0 };
+        let evidence = Arc::new(Mutex::new(Vec::new()));
+        let declared_tools = declared(&["indexed_file.write"]);
+        let mut inv = ToolExecutingInvoker::new(
+            &mut inner,
+            &mut backend,
+            move |_agent: &str| declared_tools.clone(),
+            evidence.clone(),
+            6,
+        );
+        let out = inv
+            .invoke("Data (Indexed File) Agent", "sys", "task")
+            .expect("the fix-and-repeat round must rescue the task");
+        drop(inv);
+        assert_eq!(out, "File created.");
+        assert_eq!(backend.executed, 1, "the corrected call actually ran");
+        let ev = evidence.lock().unwrap();
+        assert_eq!(ev.len(), 2, "the rejection and the corrected run are both evidence");
+        assert!(!ev[0].ok && ev[1].ok);
     }
 
     #[test]
@@ -1579,6 +1966,40 @@ mod tests {
     }
 
     #[test]
+    fn indexed_file_write_governs_camel_case_id_fields() {
+        let root = indexed_tool_root("camel-ids");
+        let camel_record = "01 COMPANY-RECORD.\n    05 CompanyID PIC X(36).\n    05 CompanyName PIC X(80).\n    05 LegalRepID PIC X(36).";
+        let mut call = indexed_write_call();
+        {
+            let args = call.args.as_object_mut().unwrap();
+            args.insert("record".into(), serde_json::json!(camel_record));
+            args.insert("primary_key".into(), serde_json::json!("CompanyID"));
+            args.insert("alternate_keys".into(), serde_json::json!([]));
+            args.remove("id_definitions");
+        }
+        let mut confirm = |_request: GitConfirmRequest| false;
+        let mut backend = IdeToolBackend::new(root.clone(), &mut confirm);
+        let result = backend.execute(crate::agents_db::DATA_INDEXED_FILE_AGENT, &call);
+        assert!(
+            result.critical,
+            "camelCase ID fields must demand id_definitions: {result:?}"
+        );
+        assert!(result.detail.contains("ID field"));
+
+        // With the developer's UUID choices supplied, the same write succeeds
+        // and the evidence names each governed camelCase ID field.
+        call.args.as_object_mut().unwrap().insert(
+            "id_definitions".into(),
+            serde_json::json!({"CompanyID": "UUID", "LegalRepID": "UUID"}),
+        );
+        let result = backend.execute(crate::agents_db::DATA_INDEXED_FILE_AGENT, &call);
+        assert!(result.ok, "{result:?}");
+        assert!(result.detail.contains("CompanyID: UUID"), "{result:?}");
+        assert!(result.detail.contains("LegalRepID: UUID"), "{result:?}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn indexed_file_write_generates_ui_artifacts_and_preserves_existing_data() {
         let root = indexed_tool_root("write");
         let mut confirm = |_request: GitConfirmRequest| false;
@@ -1620,19 +2041,79 @@ mod tests {
             "01 CUSTOMER-RECORD.\n    05 CUSTOMER-ID PIC X(36).\n    05 CUSTOMER-NAME PIC X(81)."
                 .into(),
         );
-        let rejected = backend.execute(
+        // A structural change to a finalized file is not a defect to fix: it
+        // asks the developer to confirm a destroy-and-recreate, and leaves the
+        // definition untouched until they do.
+        let blocked = backend.execute(
             crate::agents_db::DATA_INDEXED_FILE_AGENT,
             &structural_change,
         );
-        assert!(rejected.critical);
-        assert!(rejected.detail.contains("is finalized"));
+        assert!(blocked.needs_confirmation, "{blocked:?}");
+        assert!(!blocked.critical);
+        assert!(blocked.detail.contains("DESTROY and RECREATE"));
         assert_eq!(
             std::fs::read(root.join("indexed/customers.cidx")).unwrap(),
             before_definition,
-            "a finalized schema rejection must leave the definition untouched"
+            "a confirmation-required result must leave the definition untouched"
+        );
+
+        // With the developer's explicit confirmation, the same change overwrites
+        // (recreates) the locked file.
+        structural_change.args["confirm_recreate"] = serde_json::Value::Bool(true);
+        let recreated = backend.execute(
+            crate::agents_db::DATA_INDEXED_FILE_AGENT,
+            &structural_change,
+        );
+        assert!(recreated.ok, "{recreated:?}");
+        let loaded = cobolt_indexed::load_indexed(root.join("indexed/customers.cidx")).unwrap();
+        assert!(
+            loaded
+                .record_root()
+                .map(cobolt_indexed::IndexedField::all_leaves)
+                .unwrap_or_default()
+                .iter()
+                .any(|field| field.name == "CUSTOMER-NAME" && field.pic.contains("81")),
+            "the confirmed recreate must apply the new schema"
         );
         let _ = take_indexed_files_changed(&root);
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// The tool loop turns a confirmation-required result into Grace's reply —
+    /// no fix-and-repeat, no task failure — so the developer decides.
+    #[test]
+    fn confirmation_required_tool_result_surfaces_to_the_developer() {
+        struct LockedBackend;
+        impl ToolBackend for LockedBackend {
+            fn execute(&mut self, _agent: &str, _call: &ToolCall) -> ToolResult {
+                ToolResult::needs_confirmation(
+                    "conta-a-pagar.cidx is finalized; confirm destroy and recreate.",
+                )
+            }
+        }
+        let mut inner = ScriptInvoker {
+            replies: vec![
+                "```json\n{\"tool_calls\":[{\"tool\":\"indexed_file.write\",\"args\":{\"path\":\"indexed/conta-a-pagar.cidx\"}}]}\n```".into(),
+            ],
+            calls: 0,
+        };
+        let mut backend = LockedBackend;
+        let evidence = Arc::new(Mutex::new(Vec::new()));
+        let declared_tools = declared(&["indexed_file.write"]);
+        let mut inv = ToolExecutingInvoker::new(
+            &mut inner,
+            &mut backend,
+            move |_agent: &str| declared_tools.clone(),
+            evidence.clone(),
+            6,
+        );
+        let out = inv
+            .invoke("Data (Indexed File) Agent", "sys", "add a field")
+            .expect("a confirmation request is not a task failure");
+        drop(inv);
+        assert!(out.contains("confirm destroy and recreate"), "{out}");
+        // The block was recorded once; the agent was never asked to retry.
+        assert_eq!(inner.calls, 1, "no fix-and-repeat round for a confirmation");
     }
 
     #[test]
@@ -1643,11 +2124,15 @@ mod tests {
             ("Version Control Agent", true, true),
             ("Form Designer Agent", false, false),
         ] {
+            let git_call = "```json\n{\"tool_calls\":[{\"tool\":\"git.run\",\"args\":{\"argv\":[\"status\",\"--porcelain\"]}}]}\n```".to_string();
             let mut inner = ScriptInvoker {
-                replies: vec![
-                    "```json\n{\"tool_calls\":[{\"tool\":\"git.run\",\"args\":{\"argv\":[\"status\",\"--porcelain\"]}}]}\n```".into(),
-                    "Working tree is clean.".into(),
-                ],
+                // The declaring agent finishes after one call; the undeclared
+                // one insists through its fix-and-repeat round and fails.
+                replies: if declares {
+                    vec![git_call, "Working tree is clean.".into()]
+                } else {
+                    vec![git_call.clone(), git_call]
+                },
                 calls: 0,
             };
             let mut confirm = |_r: GitConfirmRequest| true;

@@ -18,7 +18,7 @@
 //! The panel returns a `Vec<ProjectPanelEvent>` every frame; the caller
 //! processes those events against the application state.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -93,6 +93,31 @@ pub enum ProjectPanelEvent {
     /// User clicked the top/root project node in the tree (📁 ProjectName).
     /// Shows the project Settings form (parameters) in the main work area.
     ShowProjectSettings,
+    /// Create a new folder inside `parent_rel` (project-relative). `category_root`
+    /// is the category's root subdir, used to protect it (spec 033).
+    CreateFolder {
+        parent_rel: PathBuf,
+        category_root: String,
+    },
+    /// Rename the project-relative folder `folder_rel` (guarded by `category_root`).
+    RenameFolder {
+        folder_rel: PathBuf,
+        category_root: String,
+    },
+    /// Confirm recursive deletion of the project-relative folder `folder_rel`.
+    DeleteFolder {
+        folder_rel: PathBuf,
+        category_root: String,
+    },
+    /// Drag-and-drop: move the tracked file `src_rel` into the folder
+    /// `dest_dir_rel` (both project-relative).
+    MoveInternal { src_rel: String, dest_dir_rel: String },
+    /// OS file-manager drop: import `paths` into the project-relative folder
+    /// `dest_dir_rel`.
+    ImportOs {
+        paths: Vec<PathBuf>,
+        dest_dir_rel: String,
+    },
 }
 
 // ── ProjectPanel ──────────────────────────────────────────────────────────────
@@ -110,6 +135,28 @@ pub struct ProjectPanel {
     status: HashMap<String, ElementStatus>,
     /// The currently selected tree element (a unique key — see `sel_*` helpers).
     selected: Option<String>,
+    /// Project-relative folder currently under the pointer (updated each frame),
+    /// used as the destination for an OS file-manager drop (spec 033, R10).
+    hovered_dir: Option<String>,
+    /// Ordered list of navigable rows for the current frame, in visible order,
+    /// driving arrow-key navigation (spec 033, R15–R18).
+    nav_rows: Vec<NavRow>,
+    /// A row key that keyboard navigation asked to scroll into view; consumed on
+    /// the next frame's render, keeping a one-row margin from the edge (R15).
+    scroll_to_key: Option<String>,
+}
+
+/// One keyboard-navigable tree row (spec 033).
+struct NavRow {
+    /// Selection key (`sel_file(rel)` for leaves, a synthetic key for folders).
+    key: String,
+    depth: usize,
+    /// `Some(collapsing_id)` for a folder row (used to expand/collapse it).
+    folder_id: Option<egui::Id>,
+    /// Whether a folder row is currently expanded.
+    expanded: bool,
+    /// The event to emit when the row is activated with Enter (leaf rows).
+    activate: Option<ProjectPanelEvent>,
 }
 
 impl Default for ProjectPanel {
@@ -121,6 +168,9 @@ impl Default for ProjectPanel {
             indexed: HashMap::new(),
             status: HashMap::new(),
             selected: None,
+            hovered_dir: None,
+            nav_rows: Vec::new(),
+            scroll_to_key: None,
         }
     }
 }
@@ -157,7 +207,10 @@ fn full_width_select(
         egui::TextStyle::Body,
     );
     let h = (galley.size().y + 8.0).max(24.0);
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(full_w, h), egui::Sense::click());
+    // `click_and_drag` so file rows can act as drag sources for folder moves
+    // (spec 033, R9); a plain click still reports `clicked()`.
+    let (rect, resp) =
+        ui.allocate_exact_size(egui::vec2(full_w, h), egui::Sense::click_and_drag());
 
     // Full-width rounded pill for selection / hover.
     let fill = if selected {
@@ -240,6 +293,12 @@ impl ProjectPanel {
             .unwrap_or_default()
     }
 
+    /// The project-relative folder currently under the pointer, if any — the
+    /// destination for an OS file-manager drop (spec 033, R10).
+    pub fn hovered_dir(&self) -> Option<&str> {
+        self.hovered_dir.as_deref()
+    }
+
     /// The relative path of the currently selected *file* element, if any
     /// (used by the toolbar to gate Debug on a Generated Code selection).
     pub fn selected_file(&self) -> Option<&str> {
@@ -262,12 +321,15 @@ impl ProjectPanel {
         let ctx = &ctx;
 
         let mut events = Vec::new();
+        // Recomputed every frame from the folder headers under the pointer.
+        self.hovered_dir = None;
+        self.nav_rows.clear();
 
         let frame = crate::theme::glass_panel_frame(
             ctx.global_style().visuals.panel_fill,
             &crate::theme::active(),
         );
-        Panel::left("project_panel")
+        let panel_resp = Panel::left("project_panel")
             .resizable(true)
             .default_size(410.0)
             // Keeps the project-wide Grace command at its requested 150 px
@@ -290,6 +352,12 @@ impl ProjectPanel {
                 None => self.show_tree_mode(ui, &mut events, tr),
             });
 
+        // Arrow-key navigation, scoped to when the pointer is over the tree so we
+        // never hijack arrows from the editor or other panels (spec 033, R15–R18).
+        if panel_resp.response.contains_pointer() {
+            self.handle_tree_keys(ctx, &mut events);
+        }
+
         // Consume Select events internally (update the highlighted element).
         events.retain(|e| {
             if let ProjectPanelEvent::Select(key) = e {
@@ -300,6 +368,119 @@ impl ProjectPanel {
             }
         });
         events
+    }
+
+    /// Handle Up/Down/Left/Right/Enter over the tree's visible rows (spec 033,
+    /// R15–R18). Right expands (or descends into) a folder; Left always ascends to
+    /// the parent (it never collapses). Expansion is toggled through egui's
+    /// `CollapsingState` memory so the change is reflected on the next frame.
+    fn handle_tree_keys(&mut self, ctx: &egui::Context, events: &mut Vec<ProjectPanelEvent>) {
+        if self.nav_rows.is_empty() {
+            return;
+        }
+        // Never steal keys while a text field (rename dialog, search, …) is focused.
+        if ctx.memory(|m| m.focused()).is_some() {
+            return;
+        }
+        let (up, down, left, right, enter) = ctx.input_mut(|i| {
+            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter};
+            let m = egui::Modifiers::NONE;
+            (
+                i.consume_key(m, ArrowUp),
+                i.consume_key(m, ArrowDown),
+                i.consume_key(m, ArrowLeft),
+                i.consume_key(m, ArrowRight),
+                i.consume_key(m, Enter),
+            )
+        });
+        if !(up || down || left || right || enter) {
+            return;
+        }
+
+        let set_open = |ctx: &egui::Context, id: egui::Id, open: bool| {
+            if let Some(mut s) = egui::collapsing_header::CollapsingState::load(ctx, id) {
+                s.set_open(open);
+                s.store(ctx);
+            }
+        };
+
+        let cur_idx = self
+            .selected
+            .as_ref()
+            .and_then(|k| self.nav_rows.iter().position(|r| &r.key == k));
+
+        let Some(idx) = cur_idx else {
+            // No current selection in view → any nav key lands on the first row.
+            self.select_row(0, events);
+            ctx.request_repaint();
+            return;
+        };
+
+        let folder_id = self.nav_rows[idx].folder_id;
+        let expanded = self.nav_rows[idx].expanded;
+        let depth = self.nav_rows[idx].depth;
+        let activate = self.nav_rows[idx].activate.clone();
+
+        // The row to move selection to (if any), and whether to toggle a folder.
+        let mut new_idx: Option<usize> = None;
+        if down && idx + 1 < self.nav_rows.len() {
+            new_idx = Some(idx + 1);
+        } else if up && idx > 0 {
+            new_idx = Some(idx - 1);
+        } else if right {
+            if let Some(fid) = folder_id {
+                if !expanded {
+                    set_open(ctx, fid, true);
+                    // Keep the folder selected and in view as it opens.
+                    self.scroll_to_key = self.selected.clone();
+                } else if idx + 1 < self.nav_rows.len() {
+                    new_idx = Some(idx + 1);
+                }
+            }
+        } else if left {
+            // Left always ascends to the parent folder (never collapses).
+            if let Some(p) = self.nav_rows[..idx].iter().rposition(|r| r.depth < depth) {
+                new_idx = Some(p);
+            }
+        } else if enter {
+            if let Some(fid) = folder_id {
+                set_open(ctx, fid, !expanded);
+            } else if let Some(ev) = activate {
+                events.push(ProjectPanelEvent::Select(self.nav_rows[idx].key.clone()));
+                events.push(ev);
+            }
+        }
+
+        if let Some(ni) = new_idx {
+            self.select_row(ni, events);
+        }
+        ctx.request_repaint();
+    }
+
+    /// If `key` is the row keyboard navigation asked to reveal, scroll it into
+    /// view keeping a one-row margin from the edge (egui clamps at the ends, so
+    /// the first/last row simply rests against the border). Consumes the request.
+    fn maybe_scroll_to(&mut self, ui: &Ui, key: &str, rect: egui::Rect) {
+        if self.scroll_to_key.as_deref() == Some(key) {
+            // Pad by ~one row top and bottom so the highlighted item is never the
+            // very first/last visible line unless it is genuinely at an end.
+            let margin = egui::vec2(0.0, 26.0);
+            ui.scroll_to_rect(rect.expand2(margin), None);
+            self.scroll_to_key = None;
+        }
+    }
+
+    /// Select the nav row at `idx`: highlight it, request that it scroll into
+    /// view, and — so navigation loads the element like a click — emit its
+    /// activation (property/editor load) when it is a file row (spec 033, R15).
+    fn select_row(&mut self, idx: usize, events: &mut Vec<ProjectPanelEvent>) {
+        let key = self.nav_rows[idx].key.clone();
+        self.selected = Some(key.clone());
+        self.scroll_to_key = Some(key.clone());
+        if let Some(ev) = self.nav_rows[idx].activate.clone() {
+            events.push(ProjectPanelEvent::Select(key));
+            events.push(ev);
+        }
     }
 
     // ── Project mode ──────────────────────────────────────────────────────────
@@ -644,23 +825,24 @@ impl ProjectPanel {
             Category::Documentation => (tr.cat_documentation, Some(FileKind::Documentation)),
         };
         let is_generated = cat == Category::Generated;
-        let is_forms = cat == Category::Forms;
-        let is_indexed = cat == Category::IndexedFiles;
         let is_assets = cat == Category::Assets;
         let is_knowledge_base = cat == Category::Documentation;
         let root = self.root.clone();
 
         let id = ui.make_persistent_id(("project_cat", label));
-        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+        let (_toggle, header_inner, _body) =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
             .show_header(ui, |ui| {
                 match cat {
                     Category::IndexedFiles => tree_icon(ui, draw_indexed_icon),
                     _ => tree_icon(ui, draw_folder_icon),
                 }
+                let header_hover =
+                    ui.interact(ui.max_rect(), id.with("cat_hover"), egui::Sense::hover());
                 ui.label(RichText::new(label).strong());
-                // Generated Code is IDE-owned (forms populate it) — no [+].
-                if let Some(kind) = kind {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Generated Code is IDE-owned (forms populate it) — no file [+].
+                    if let Some(kind) = kind {
                         let plus = ui
                             .small_button("+")
                             .on_hover_text(format!("{}: {label}", tr.tree_create_hover));
@@ -674,34 +856,45 @@ impl ProjectPanel {
                                 ui.close();
                             }
                         });
-                        if is_knowledge_base
-                            && ui
-                                .small_button("📁+")
-                                .on_hover_text("Create Knowledge Base subfolder")
-                                .clicked()
-                        {
+                    }
+                    // New-folder affordance for every category (spec 033, R1).
+                    if ui
+                        .small_button("📁+")
+                        .on_hover_text(tr.tree_new_folder)
+                        .clicked()
+                    {
+                        if is_knowledge_base {
+                            // Documentation keeps its Knowledge-Base-aware create
+                            // path (indexes + doc-sync).
                             events.push(ProjectPanelEvent::CreateKnowledgeFolder(PathBuf::from(
                                 cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT,
                             )));
+                        } else {
+                            events.push(ProjectPanelEvent::CreateFolder {
+                                parent_rel: PathBuf::from(cat.root_subdir()),
+                                category_root: cat.root_subdir().to_string(),
+                            });
                         }
-                    });
-                }
+                    }
+                });
+                header_hover
             })
             .body(|ui| {
                 if is_knowledge_base {
                     if let Some(root) = &root {
-                        self.show_knowledge_base(ui, root, cur, events);
+                        self.show_knowledge_base(ui, root, cur, events, tr);
                     }
                     return;
                 }
                 if is_assets {
                     if let Some(root) = &root {
-                        self.show_assets_folder(ui, root, cur, events);
+                        self.show_assets_folder(ui, root, cur, events, tr);
                     }
                     return;
                 }
                 let files: Vec<String> = proj.files_in(cat).to_vec();
-                if files.is_empty() {
+                let structure = FolderStructure::build(root.as_deref(), cat, &files);
+                if structure.is_empty() {
                     let hint = if is_generated {
                         tr.tree_generated_empty
                     } else {
@@ -714,33 +907,142 @@ impl ProjectPanel {
                     );
                     return;
                 }
-                for rel in &files {
-                    let st = self.status_for(rel);
-                    if is_forms {
-                        self.show_form_item(ui, rel, &root, cur, events, tr);
-                    } else if is_indexed {
-                        self.show_indexed_item(ui, rel, &root, cur, events, tr);
-                    } else if is_generated {
-                        file_row(
-                            ui,
-                            rel,
-                            "🔒",
-                            Some(crate::theme::active().ed_generated),
-                            false,
-                            true,
-                            st,
-                            cur,
-                            &root,
-                            events,
-                        );
-                    } else {
-                        // The icon string is only used as a selector for vector draw
-                        // (see file_row); real drawing no longer depends on FileKind::icon().
-                        file_row(ui, rel, "doc", None, true, false, st, cur, &root, events);
-                    }
-                }
+                let sub = cat.root_subdir().to_string();
+                self.render_folder_children(ui, cat, &sub, &structure, 0, &root, cur, events, tr);
             });
+        // Category header as a fallback OS-drop / move target = the category root
+        // (dropping a file here moves it out of any subfolder). A more specific
+        // subfolder under the pointer overrides this (set later in the frame).
+        if self.hovered_dir.is_none() && header_inner.inner.contains_pointer() {
+            self.hovered_dir = Some(cat.root_subdir().to_string());
+        }
         ui.add_space(2.0);
+    }
+
+    /// Recursively render the subfolders and tracked files whose parent directory
+    /// is `dir_rel`, for a flat (`cobolt.toml`-tracked) category. Folder nodes are
+    /// collapsing headers with a New/Rename/Delete context menu and act as
+    /// drag-drop move targets (spec 033, R1, R9).
+    #[allow(clippy::too_many_arguments)]
+    fn render_folder_children(
+        &mut self,
+        ui: &mut Ui,
+        cat: Category,
+        dir_rel: &str,
+        structure: &FolderStructure,
+        depth: usize,
+        root: &Option<PathBuf>,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
+    ) {
+        let category_root = cat.root_subdir().to_string();
+        // Subfolders first, then files (both already sorted by the builder).
+        for folder_rel in structure.subfolders_of(dir_rel) {
+            let name = folder_rel.rsplit('/').next().unwrap_or(folder_rel);
+            let fid = ui.make_persistent_id(("cat_folder", cat.root_subdir(), folder_rel));
+            let expanded = egui::collapsing_header::CollapsingState::load(ui.ctx(), fid)
+                .map(|s| s.is_open())
+                .unwrap_or(false);
+            let folder_key = format!("catfolder:{folder_rel}");
+            self.nav_rows.push(NavRow {
+                key: folder_key.clone(),
+                depth,
+                folder_id: Some(fid),
+                expanded,
+                activate: None,
+            });
+            let (_toggle, header_inner, _body) =
+                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), fid, false)
+                    .show_header(ui, |ui| {
+                        ui.add_space(8.0 + depth as f32 * 14.0);
+                        tree_icon(ui, draw_folder_icon);
+                        ui.label(RichText::new(name).strong())
+                    })
+                    .body(|ui| {
+                        self.render_folder_children(
+                            ui,
+                            cat,
+                            folder_rel,
+                            structure,
+                            depth + 1,
+                            root,
+                            cur,
+                            events,
+                            tr,
+                        );
+                    });
+            let header_resp = header_inner.inner;
+            self.maybe_scroll_to(ui, &folder_key, header_resp.rect);
+            if header_resp.contains_pointer() {
+                self.hovered_dir = Some(folder_rel.to_string());
+            }
+            folder_context_menu(&header_resp, folder_rel, &category_root, tr, events);
+            accept_file_drop(ui, &header_resp, folder_rel, events);
+        }
+        for rel in structure.files_of(dir_rel) {
+            self.render_folder_leaf(ui, cat, rel, depth, root, cur, events, tr);
+        }
+    }
+
+    /// Render one tracked file inside a folder, dispatching to the category's
+    /// existing item renderer. The row is also a drag source (spec 033, R9).
+    #[allow(clippy::too_many_arguments)]
+    fn render_folder_leaf(
+        &mut self,
+        ui: &mut Ui,
+        cat: Category,
+        rel: &str,
+        depth: usize,
+        root: &Option<PathBuf>,
+        cur: &Option<String>,
+        events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
+    ) {
+        // Record this leaf for keyboard navigation (spec 033, R15, R18).
+        let abs = root.as_ref().map(|d| d.join(rel));
+        let activate = abs.as_ref().map(|p| match cat {
+            Category::Forms => ProjectPanelEvent::InspectForm(p.clone()),
+            Category::IndexedFiles => ProjectPanelEvent::InspectIndexedFile(p.clone()),
+            _ => ProjectPanelEvent::Open(p.clone()),
+        });
+        let key = sel_file(rel);
+        self.nav_rows.push(NavRow {
+            key: key.clone(),
+            depth: depth + 1,
+            folder_id: None,
+            expanded: false,
+            activate,
+        });
+        let st = self.status_for(rel);
+        // Measure the vertical span the row occupies so keyboard navigation can
+        // scroll it into view (the leaf renderers don't return a response).
+        let top_before = ui.cursor().top();
+        match cat {
+            Category::Forms => self.show_form_item(ui, rel, root, cur, events, tr),
+            Category::IndexedFiles => self.show_indexed_item(ui, rel, root, cur, events, tr),
+            Category::Generated => file_row(
+                ui,
+                rel,
+                "🔒",
+                Some(crate::theme::active().ed_generated),
+                false,
+                true,
+                st,
+                cur,
+                root,
+                events,
+            ),
+            _ => file_row(ui, rel, "doc", None, true, false, st, cur, root, events),
+        }
+        if self.scroll_to_key.as_deref() == Some(key.as_str()) {
+            let bottom_after = ui.cursor().top();
+            let rect = egui::Rect::from_min_max(
+                egui::pos2(ui.max_rect().left(), top_before),
+                egui::pos2(ui.max_rect().right(), bottom_after),
+            );
+            self.maybe_scroll_to(ui, &key, rect);
+        }
     }
 
     fn show_knowledge_base(
@@ -749,6 +1051,7 @@ impl ProjectPanel {
         root: &Path,
         cur: &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
     ) {
         let directory = root.join(cobolt_agents::project_knowledge::KNOWLEDGE_BASE_ROOT);
         let _ = std::fs::create_dir_all(&directory);
@@ -762,10 +1065,11 @@ impl ProjectPanel {
             return;
         }
         for path in entries {
-            self.show_knowledge_path(ui, root, &path, 0, cur, events);
+            self.show_knowledge_path(ui, root, &path, 0, cur, events, tr);
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn show_knowledge_path(
         &mut self,
         ui: &mut Ui,
@@ -774,6 +1078,7 @@ impl ProjectPanel {
         depth: usize,
         cur: &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
     ) {
         let name = path
             .file_name()
@@ -796,22 +1101,35 @@ impl ProjectPanel {
                 })
                 .body(|ui| {
                     for child in sorted_directory_entries(path) {
-                        self.show_knowledge_path(ui, root, &child, depth + 1, cur, events);
+                        self.show_knowledge_path(ui, root, &child, depth + 1, cur, events, tr);
                     }
                 });
             let response = header_inner.inner;
+            let relative_menu = relative.clone();
             response.context_menu(|ui| {
-                if ui.button("New subfolder...").clicked() {
-                    events.push(ProjectPanelEvent::CreateKnowledgeFolder(relative.clone()));
+                if ui.button(tr.tree_new_folder).clicked() {
+                    events.push(ProjectPanelEvent::CreateKnowledgeFolder(relative_menu.clone()));
                     ui.close();
                 }
-                if ui.button("Delete folder...").clicked() {
+                if ui.button(tr.tree_rename_folder).clicked() {
+                    events.push(ProjectPanelEvent::RenameFolder {
+                        folder_rel: relative_menu.clone(),
+                        category_root: Category::Documentation.root_subdir().to_string(),
+                    });
+                    ui.close();
+                }
+                if ui.button(tr.tree_delete_folder).clicked() {
                     events.push(ProjectPanelEvent::ConfirmDeleteKnowledgeFolder(
-                        relative.clone(),
+                        relative_menu.clone(),
                     ));
                     ui.close();
                 }
             });
+            let folder_rel = relative.to_string_lossy().replace('\\', "/");
+            if response.contains_pointer() {
+                self.hovered_dir = Some(folder_rel.clone());
+            }
+            accept_file_drop(ui, &response, &folder_rel, events);
             return;
         }
 
@@ -850,6 +1168,7 @@ impl ProjectPanel {
         root: &Path,
         cur: &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
     ) {
         let dir = Self::assets_dir(root);
         let _ = std::fs::create_dir_all(&dir);
@@ -895,10 +1214,11 @@ impl ProjectPanel {
         }
 
         for path in entries {
-            self.show_asset_path(ui, root, &path, 0, cur, events);
+            self.show_asset_path(ui, root, &path, 0, cur, events, tr);
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn show_asset_path(
         &mut self,
         ui: &mut Ui,
@@ -907,15 +1227,19 @@ impl ProjectPanel {
         depth: usize,
         cur: &Option<String>,
         events: &mut Vec<ProjectPanelEvent>,
+        tr: &Tr,
     ) {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
         if path.is_dir() {
+            let folder_rel = relative_to(path, root).unwrap_or_else(|| path.display().to_string());
+            let folder_rel = folder_rel.replace('\\', "/");
             let id = ui.make_persistent_id(("asset_dir", path));
-            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+            let (_toggle, header_inner, _body) =
+                egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
                 .show_header(ui, |ui| {
                     ui.add_space(8.0 + depth as f32 * 14.0);
                     tree_icon(ui, draw_folder_icon);
-                    ui.label(RichText::new(name).strong());
+                    ui.label(RichText::new(name).strong())
                 })
                 .body(|ui| {
                     let mut children: Vec<PathBuf> = std::fs::read_dir(path)
@@ -941,9 +1265,16 @@ impl ProjectPanel {
                         })
                     });
                     for child in children {
-                        self.show_asset_path(ui, root, &child, depth + 1, cur, events);
+                        self.show_asset_path(ui, root, &child, depth + 1, cur, events, tr);
                     }
                 });
+            let header_resp = header_inner.inner;
+            if header_resp.contains_pointer() {
+                self.hovered_dir = Some(folder_rel.clone());
+            }
+            let category_root = Category::Assets.root_subdir().to_string();
+            folder_context_menu(&header_resp, &folder_rel, &category_root, tr, events);
+            accept_file_drop(ui, &header_resp, &folder_rel, events);
             return;
         }
 
@@ -965,6 +1296,8 @@ impl ProjectPanel {
                 full_width_select(ui, is_sel, RichText::new(name)).on_hover_text(&rel)
             })
             .inner;
+        // Drag source: move the asset into another folder (spec 033, R9).
+        resp.dnd_set_drag_payload(rel.clone());
         if resp.clicked() || resp.double_clicked() {
             events.push(ProjectPanelEvent::Select(key));
             events.push(ProjectPanelEvent::Open(path.to_path_buf()));
@@ -1060,6 +1393,7 @@ impl ProjectPanel {
                 });
         // Single click → inspect form properties; double click → open the designer.
         let resp = header_inner.inner;
+        resp.dnd_set_drag_payload(rel.to_string());
         if let Some(p) = &abs {
             if resp.double_clicked() {
                 events.push(ProjectPanelEvent::OpenDesigner(p.clone()));
@@ -1125,6 +1459,7 @@ impl ProjectPanel {
                     }
                 });
         let resp = header_inner.inner;
+        resp.dnd_set_drag_payload(rel.to_string());
         resp.context_menu(|ui| {
             if ui.button("Remove from project").clicked() {
                 remove_clicked = true;
@@ -1142,6 +1477,176 @@ impl ProjectPanel {
             }
         }
         ui.add_space(1.0);
+    }
+}
+
+/// A flat category's folder hierarchy, derived from the union of its on-disk
+/// directories (so empty folders survive) and its `cobolt.toml`-tracked files
+/// (spec 033, Q2). Keys and values are project-relative, forward-slash paths.
+struct FolderStructure {
+    /// parent dir rel → its direct child dir rels (sorted).
+    subfolders: BTreeMap<String, Vec<String>>,
+    /// parent dir rel → the tracked files directly in it (sorted).
+    files: BTreeMap<String, Vec<String>>,
+    /// Whether there is anything at all to show (files or subfolders).
+    has_any: bool,
+}
+
+impl FolderStructure {
+    fn build(root: Option<&Path>, cat: Category, tracked: &[String]) -> Self {
+        let sub = cat.root_subdir().to_string();
+        let mut dirs: BTreeSet<String> = BTreeSet::new();
+        if let Some(root) = root {
+            collect_dirs_rel(&root.join(&sub), root, &mut dirs);
+        }
+        let mut files: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for raw in tracked {
+            let rel = raw.replace('\\', "/");
+            // Bare (root-level) tracked files show under the category root.
+            let parent = match rel.rfind('/') {
+                Some(i) => rel[..i].to_string(),
+                None => sub.clone(),
+            };
+            // Record the ancestor chain so folders exist even without a disk walk.
+            let mut ancestor = parent.clone();
+            while ancestor != sub && !ancestor.is_empty() {
+                dirs.insert(ancestor.clone());
+                match ancestor.rfind('/') {
+                    Some(i) => ancestor.truncate(i),
+                    None => break,
+                }
+            }
+            files.entry(parent).or_default().push(rel);
+        }
+        let mut subfolders: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for dir in &dirs {
+            if *dir == sub {
+                continue;
+            }
+            let parent = match dir.rfind('/') {
+                Some(i) => dir[..i].to_string(),
+                None => String::new(),
+            };
+            subfolders.entry(parent).or_default().push(dir.clone());
+        }
+        for v in subfolders.values_mut() {
+            v.sort();
+            v.dedup();
+        }
+        for v in files.values_mut() {
+            v.sort();
+            v.dedup();
+        }
+        let has_any = !tracked.is_empty() || subfolders.values().any(|v| !v.is_empty());
+        Self {
+            subfolders,
+            files,
+            has_any,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        !self.has_any
+    }
+
+    fn subfolders_of(&self, dir: &str) -> &[String] {
+        self.subfolders.get(dir).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    fn files_of(&self, dir: &str) -> &[String] {
+        self.files.get(dir).map(Vec::as_slice).unwrap_or(&[])
+    }
+}
+
+/// Recursively collect directory paths under `abs`, as project-relative
+/// forward-slash strings. Hidden (dot) directories are skipped.
+fn collect_dirs_rel(abs: &Path, root: &Path, out: &mut BTreeSet<String>) {
+    let Ok(entries) = std::fs::read_dir(abs) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let hidden = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.starts_with('.'))
+            .unwrap_or(false);
+        if hidden {
+            continue;
+        }
+        if let Some(rel) = relative_to(&path, root) {
+            out.insert(rel.replace('\\', "/"));
+            collect_dirs_rel(&path, root, out);
+        }
+    }
+}
+
+/// Attach the New/Rename/Delete-folder context menu to a folder header
+/// (spec 033, R1, R4, R5).
+fn folder_context_menu(
+    resp: &egui::Response,
+    folder_rel: &str,
+    category_root: &str,
+    tr: &Tr,
+    events: &mut Vec<ProjectPanelEvent>,
+) {
+    resp.context_menu(|ui| {
+        if ui.button(tr.tree_new_folder).clicked() {
+            events.push(ProjectPanelEvent::CreateFolder {
+                parent_rel: PathBuf::from(folder_rel),
+                category_root: category_root.to_string(),
+            });
+            ui.close();
+        }
+        if ui.button(tr.tree_rename_folder).clicked() {
+            events.push(ProjectPanelEvent::RenameFolder {
+                folder_rel: PathBuf::from(folder_rel),
+                category_root: category_root.to_string(),
+            });
+            ui.close();
+        }
+        if ui.button(tr.tree_delete_folder).clicked() {
+            events.push(ProjectPanelEvent::DeleteFolder {
+                folder_rel: PathBuf::from(folder_rel),
+                category_root: category_root.to_string(),
+            });
+            ui.close();
+        }
+    });
+}
+
+/// Make `resp` a drop target for an in-tree file drag (spec 033, R9). When a
+/// `String` payload (the source rel path) is hovering and the pointer releases
+/// here, emit a `MoveInternal` into `dest_dir_rel`.
+fn accept_file_drop(
+    ui: &mut Ui,
+    resp: &egui::Response,
+    dest_dir_rel: &str,
+    events: &mut Vec<ProjectPanelEvent>,
+) {
+    if !resp.contains_pointer() {
+        return;
+    }
+    let Some(payload) = egui::DragAndDrop::payload::<String>(ui.ctx()) else {
+        return;
+    };
+    // Highlight the valid target while dragging over it (R11).
+    ui.painter().rect_stroke(
+        resp.rect,
+        egui::CornerRadius::same(4),
+        egui::Stroke::new(1.5, crate::theme::active().selection),
+        egui::StrokeKind::Inside,
+    );
+    if ui.input(|i| i.pointer.any_released()) {
+        let src = (*payload).clone();
+        let _ = egui::DragAndDrop::take_payload::<String>(ui.ctx());
+        events.push(ProjectPanelEvent::MoveInternal {
+            src_rel: src,
+            dest_dir_rel: dest_dir_rel.to_string(),
+        });
     }
 }
 
@@ -1386,6 +1891,9 @@ fn file_row(
         })
         .inner;
 
+    // Drag source: carry the tracked rel path for a folder move (spec 033, R9).
+    resp.dnd_set_drag_payload(rel.to_string());
+
     // Single click selects + opens the file in the Main Pane.
     if resp.clicked() {
         events.push(ProjectPanelEvent::Select(key));
@@ -1400,6 +1908,173 @@ fn file_row(
                 ui.close();
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod folder_structure_tests {
+    use super::*;
+
+    #[test]
+    fn groups_tracked_files_by_folder_and_lists_subfolders() {
+        let tracked = vec![
+            "forms/login.cfrm".to_string(),
+            "forms/customers/order.cfrm".to_string(),
+            "forms/customers/invoice.cfrm".to_string(),
+            "top.cfrm".to_string(), // bare file → shown under the category root
+        ];
+        // root = None → structure comes purely from tracked paths.
+        let s = FolderStructure::build(None, Category::Forms, &tracked);
+        assert!(!s.is_empty());
+        // The category root ("forms") has the login form, the bare file, and one
+        // subfolder "forms/customers".
+        assert_eq!(s.subfolders_of("forms"), &["forms/customers".to_string()]);
+        let top_files = s.files_of("forms");
+        assert!(top_files.contains(&"forms/login.cfrm".to_string()));
+        assert!(top_files.contains(&"top.cfrm".to_string()));
+        // The subfolder holds its two forms.
+        assert_eq!(
+            s.files_of("forms/customers"),
+            &[
+                "forms/customers/invoice.cfrm".to_string(),
+                "forms/customers/order.cfrm".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_category_reports_empty() {
+        let s = FolderStructure::build(None, Category::Forms, &[]);
+        assert!(s.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod keyboard_nav_tests {
+    use super::*;
+
+    /// Build a panel with a synthetic nav-row list and drive `handle_tree_keys`
+    /// by injecting key events, asserting the resulting selection / expansion.
+    fn panel_with_rows() -> ProjectPanel {
+        let mut p = ProjectPanel::new();
+        // forms/ (folder, collapsed) ; forms/a.cfrm ; forms/customers/ (folder)
+        p.nav_rows = vec![
+            NavRow {
+                key: "catfolder:forms/customers".into(),
+                depth: 0,
+                folder_id: Some(egui::Id::new("f_customers")),
+                expanded: false,
+                activate: None,
+            },
+            NavRow {
+                key: sel_file("forms/a.cfrm"),
+                depth: 1,
+                folder_id: None,
+                expanded: false,
+                activate: Some(ProjectPanelEvent::Open(PathBuf::from("/x/forms/a.cfrm"))),
+            },
+        ];
+        p
+    }
+
+    fn run_keys(panel: &mut ProjectPanel, keys: &[egui::Key]) -> Vec<ProjectPanelEvent> {
+        let ctx = egui::Context::default();
+        let mut events = Vec::new();
+        let events_in: Vec<egui::Event> = keys
+            .iter()
+            .map(|k| egui::Event::Key {
+                key: *k,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            })
+            .collect();
+        let input = egui::RawInput {
+            events: events_in,
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |root_ui| {
+            let c = root_ui.ctx().clone();
+            panel.handle_tree_keys(&c, &mut events);
+        });
+        events
+    }
+
+    #[test]
+    fn down_moves_selection_to_next_visible_row() {
+        let mut p = panel_with_rows();
+        p.selected = Some("catfolder:forms/customers".into());
+        run_keys(&mut p, &[egui::Key::ArrowDown]);
+        assert_eq!(p.selected.as_deref(), Some(sel_file("forms/a.cfrm").as_str()));
+    }
+
+    #[test]
+    fn navigating_onto_a_file_row_activates_it_and_requests_scroll() {
+        let mut p = panel_with_rows();
+        p.selected = Some("catfolder:forms/customers".into());
+        let events = run_keys(&mut p, &[egui::Key::ArrowDown]);
+        // Landing on a file row loads it (like a single click) …
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, ProjectPanelEvent::Open(_))));
+        // … and asks to be scrolled into view.
+        assert_eq!(p.scroll_to_key.as_deref(), Some(sel_file("forms/a.cfrm").as_str()));
+    }
+
+    #[test]
+    fn up_moves_selection_to_previous_row() {
+        let mut p = panel_with_rows();
+        p.selected = Some(sel_file("forms/a.cfrm"));
+        run_keys(&mut p, &[egui::Key::ArrowUp]);
+        assert_eq!(
+            p.selected.as_deref(),
+            Some("catfolder:forms/customers")
+        );
+    }
+
+    #[test]
+    fn left_on_leaf_ascends_to_parent_folder() {
+        let mut p = panel_with_rows();
+        p.selected = Some(sel_file("forms/a.cfrm"));
+        run_keys(&mut p, &[egui::Key::ArrowLeft]);
+        assert_eq!(p.selected.as_deref(), Some("catfolder:forms/customers"));
+    }
+
+    #[test]
+    fn left_on_expanded_folder_ascends_without_collapsing() {
+        // A depth-1 expanded folder selected; Left moves to its depth-0 parent
+        // instead of collapsing it.
+        let mut p = ProjectPanel::new();
+        p.nav_rows = vec![
+            NavRow {
+                key: "catfolder:forms/customers".into(),
+                depth: 0,
+                folder_id: Some(egui::Id::new("f_customers")),
+                expanded: true,
+                activate: None,
+            },
+            NavRow {
+                key: "catfolder:forms/customers/orders".into(),
+                depth: 1,
+                folder_id: Some(egui::Id::new("f_orders")),
+                expanded: true,
+                activate: None,
+            },
+        ];
+        p.selected = Some("catfolder:forms/customers/orders".into());
+        run_keys(&mut p, &[egui::Key::ArrowLeft]);
+        assert_eq!(p.selected.as_deref(), Some("catfolder:forms/customers"));
+    }
+
+    #[test]
+    fn enter_on_leaf_activates_it() {
+        let mut p = panel_with_rows();
+        p.selected = Some(sel_file("forms/a.cfrm"));
+        let events = run_keys(&mut p, &[egui::Key::Enter]);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, ProjectPanelEvent::Open(_))));
     }
 }
 

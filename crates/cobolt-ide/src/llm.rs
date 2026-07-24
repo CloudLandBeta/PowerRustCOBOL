@@ -37,6 +37,10 @@ pub struct LlmConfig {
     pub provider: String,
     #[serde(default)]
     pub verbose_log: bool,
+    /// Bounded Pedantic correction loops per workflow task (spec 029) —
+    /// project-wide, was a hardcoded 2.
+    #[serde(default = "default_max_review_revisions")]
+    pub max_review_revisions: u32,
     /// Master switch for the agentic assistant surfaces. Defaults on for
     /// existing configurations; turning it off restores a traditional editor
     /// feel while preserving saved model profiles and keys.
@@ -146,12 +150,16 @@ pub fn default_inspection_port() -> u16 {
     5719
 }
 
+pub fn default_max_review_revisions() -> u32 {
+    2
+}
+
 pub fn default_agentic_ai_enabled() -> bool {
     true
 }
 
 impl LlmConfig {
-    fn defaults() -> Self {
+    pub(crate) fn defaults() -> Self {
         Self {
             endpoint: String::new(),
             endpoint_user_edited: false,
@@ -164,6 +172,7 @@ impl LlmConfig {
             timeout_secs: 30,
             provider: String::new(),
             verbose_log: false,
+            max_review_revisions: default_max_review_revisions(),
             agentic_ai_enabled: true,
             inspection_port: default_inspection_port(),
             api_keys: std::collections::HashMap::new(),
@@ -588,6 +597,14 @@ impl ChatTurn {
             content: content.into(),
         }
     }
+    /// A question an agent asks the developer. Rendered as its own red balloon
+    /// (one question = one balloon) and answered before the next one appears.
+    pub fn question(content: impl Into<String>) -> Self {
+        Self {
+            role: "question".into(),
+            content: content.into(),
+        }
+    }
 }
 
 pub enum AiLogKind {
@@ -785,8 +802,12 @@ pub fn pretty_json_blocks(text: &str) -> String {
         let body_offset = after.find('\n').map(|n| n + 1).unwrap_or(after.len());
         let lang = after[..body_offset].trim();
         let body = &after[body_offset..];
-        let Some(end) = body.find("```") else { break };
-        let inner = &body[..end];
+        // A final fence the model never closed still formats: the remainder
+        // of the text is the block body.
+        let (inner, next) = match body.find("```") {
+            Some(end) => (&body[..end], &body[end + 3..]),
+            None => (body, ""),
+        };
         let pretty = if lang.is_empty() || lang.eq_ignore_ascii_case("json") {
             serde_json::from_str::<serde_json::Value>(inner.trim())
                 .ok()
@@ -803,10 +824,11 @@ pub fn pretty_json_blocks(text: &str) -> String {
             }
             None => {
                 // Not JSON — keep the fence exactly as written.
-                out.push_str(&rest[start..start + 3 + body_offset + end + 3]);
+                let fence_len = rest.len() - start - next.len();
+                out.push_str(&rest[start..start + fence_len]);
             }
         }
-        rest = &body[end + 3..];
+        rest = next;
     }
     out.push_str(rest);
     out
@@ -2965,6 +2987,14 @@ mod tests {
 
         let prose = "no json here at all";
         assert_eq!(pretty_json_blocks(prose), prose);
+
+        // Observed live: a final fence the model never closed still formats.
+        let unterminated = "plan:\n```json\n{\"a\":1}";
+        let formatted = pretty_json_blocks(unterminated);
+        assert!(formatted.contains("\"a\": 1"), "{formatted}");
+        // A dangling non-JSON fence stays verbatim.
+        let dangling = "note:\n```cobol\n       MOVE 1 TO X.";
+        assert_eq!(pretty_json_blocks(dangling), dangling);
     }
 
     #[test]

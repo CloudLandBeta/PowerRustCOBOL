@@ -252,20 +252,22 @@ pub fn parse_record_text(text: &str) -> Result<Vec<FlatEntry>, String> {
 }
 
 fn split_name_clauses(rest: &str) -> (&str, &str) {
+    // COBOL allows any run of spaces between the data-name and its clauses
+    // (column-aligned records are idiomatic), so the name side is trimmed.
     if let Some(pos) = rest.find(" PIC ") {
-        return (&rest[..pos], &rest[pos + 1..]);
+        return (rest[..pos].trim_end(), &rest[pos + 1..]);
     }
     if let Some(pos) = rest.find(" USAGE ") {
-        return (&rest[..pos], &rest[pos + 1..]);
+        return (rest[..pos].trim_end(), &rest[pos + 1..]);
     }
     if let Some(pos) = rest.find(" OCCURS ") {
-        return (&rest[..pos], &rest[pos + 1..]);
+        return (rest[..pos].trim_end(), &rest[pos + 1..]);
     }
     if let Some(pos) = rest.find(" REDEFINES ") {
-        return (&rest[..pos], &rest[pos + 1..]);
+        return (rest[..pos].trim_end(), &rest[pos + 1..]);
     }
     if let Some(pos) = rest.find(" SYNCHRONIZED") {
-        return (&rest[..pos], &rest[pos + 1..]);
+        return (rest[..pos].trim_end(), &rest[pos + 1..]);
     }
     if let Some(pos) = rest.find('.') {
         let name = rest[..pos].trim();
@@ -469,6 +471,23 @@ mod tests {
         text_to_record(&mut def2, &text).expect(&text);
         assert_eq!(def2.fields[0].children.len(), 1, "from:\n{text}");
         assert_eq!(def2.fields[0].children[0].pic, "X(8)");
+    }
+
+    #[test]
+    fn parse_accepts_column_aligned_records() {
+        // Live agent payload (Grace T2): PIC clauses column-aligned with runs of
+        // spaces after the data-name. The padding is whitespace, not part of the
+        // name — this used to fail with "data-name 'COMPANY-ID      ' contains
+        // invalid character ' '".
+        let flat = parse_record_text(
+            "       01 COMPANY-RECORD.\n          05 COMPANY-ID       PIC X(36).\n          05 NIF               PIC X(9).\n          05 FOUNDATION-DATE   PIC 9(8).",
+        )
+        .unwrap();
+        assert_eq!(flat.len(), 4);
+        assert_eq!(flat[1].field.name, "COMPANY-ID");
+        assert_eq!(flat[1].field.pic, "X(36)");
+        assert_eq!(flat[3].field.name, "FOUNDATION-DATE");
+        assert_eq!(flat[3].field.pic, "9(8)");
     }
 
     #[test]

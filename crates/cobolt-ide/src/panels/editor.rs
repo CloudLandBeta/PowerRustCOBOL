@@ -1159,11 +1159,68 @@ pub(crate) fn chat_bubble_with_font_size(
     ui.add_space(5.0);
 }
 
+/// Heuristic: does chat content carry HEAVY Markdown structure (headings,
+/// tables, fenced code) that needs the theme-colored document card? Simple
+/// prose and short bullet lists stay in the regular blue dialog bubble —
+/// Grace's concise summaries belong there; the document cards are for the
+/// detailed specialist content shown in verbose mode.
+pub(crate) fn looks_like_markdown(content: &str) -> bool {
+    content.contains("```")
+        || content.lines().any(|line| {
+            let t = line.trim_start();
+            (t.starts_with('#') && t.trim_start_matches('#').starts_with(' '))
+                || t.starts_with("| ")
+        })
+}
+
 fn render_chat_bubble(ui: &mut egui::Ui, role: &str, content: &str, font_size: f32) {
-    let is_user = role != "assistant";
-    let fill = chat_bubble_fill(is_user);
+    // An agent's question to the developer: its own balloon, red background,
+    // white foreground, agent-side alignment. Always plain text — the red
+    // fill and the Markdown card would fight each other.
+    let is_question = role == "question";
+    let is_user = !is_question && role != "assistant";
+    let fill = if is_question {
+        Color32::from_rgb(0xC0, 0x2A, 0x22)
+    } else {
+        chat_bubble_fill(is_user)
+    };
     let fg = egui::Color32::WHITE;
     let max_w = (ui.available_width() * 0.82).max(120.0);
+
+    // Typographic rule: Markdown content in the history is rendered as
+    // Markdown, not shown as raw text. The card uses the theme background so
+    // the theme-aware renderer stays readable in light and dark modes.
+    if !is_user && !is_question && looks_like_markdown(content) {
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+            egui::Frame::NONE
+                .fill(ui.visuals().extreme_bg_color)
+                .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                .corner_radius(egui::CornerRadius::same(15))
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.set_max_width(max_w);
+                    ui.vertical(|ui| {
+                        let opts = crate::panels::md_render::RenderOpts {
+                            search: "",
+                            base: font_size,
+                            scroll_to_heading: None,
+                            active_match: None,
+                            scroll_to_active: false,
+                            anchors: &[],
+                        };
+                        crate::panels::md_render::render(
+                            ui,
+                            content.trim(),
+                            &opts,
+                            &mut |ui, code| {
+                                ui.label(egui::RichText::new(code).monospace());
+                            },
+                        );
+                    });
+                });
+        });
+        return;
+    }
 
     // Developer bubbles hug the right, assistant bubbles the left; text inside both
     // reads left-to-right.
@@ -1320,6 +1377,23 @@ mod chat_bubble_tests {
             super::chat_bubble_fill(true).to_array(),
             [0x61, 0xC6, 0x54, 0xFF]
         );
+    }
+
+    #[test]
+    fn markdown_detection_targets_heavy_structure_only() {
+        // Headings, tables, and fenced code get the document card.
+        assert!(super::looks_like_markdown("### Clarification\n- file name?"));
+        assert!(super::looks_like_markdown("| Field | Decision |\n| --- | --- |"));
+        assert!(super::looks_like_markdown("```cobol\nMOVE A TO B\n```"));
+        // Concise summaries — plain prose and simple bullet lists — stay in
+        // the blue dialog bubble.
+        assert!(!super::looks_like_markdown("**T1** — done"));
+        assert!(!super::looks_like_markdown(
+            "Executed:\n\n- indexed_file.write — wrote indexed/idx-company.cidx"
+        ));
+        assert!(!super::looks_like_markdown(
+            "The workflow completed. All tasks were approved."
+        ));
     }
 
     #[test]

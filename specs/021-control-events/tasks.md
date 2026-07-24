@@ -1,6 +1,6 @@
 # Tasks — Comprehensive fireable events for all controls
 
-- **Status:** draft
+- **Status:** done except T13/T14 (event-data WS items — deferred; the renderer now captures payloads in `UiEvent.value`, the WS plumbing through FormEvent dispatch is the remaining piece). T6/T8–T10/T12 implemented 2026-07-22 (1.30.62); events with no engine (drag family, tree expand/checkbox/dnd, grid sort/column-resize/cell-edit, chart zoom/series-click, tooltips-as-events, onPropertyChanged, IndexedFile per-op events, agent streaming) were REMOVED from supported_events instead — the design view only advertises events that fire.
 - **Plan:** ./plan.md   **Date:** 2026-06-29
 
 Ordered, small, independently-verifiable tasks. Each names the files it touches,
@@ -50,7 +50,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     `onDoubleClick` if `want("onDoubleClick")`.
   - Verify: `cargo check -p cobolt-forms --features render` green.
 
-- [ ] **T6 — Fire onKeyDown, onKeyUp, onKeyPress, onEnterPressed, onEscapePressed** (R1, R3.1)
+- [x] **T6 — Fire onKeyDown, onKeyUp, onKeyPress, onEnterPressed, onEscapePressed** (R1, R3.1)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: Add a new function `control_keyboard_events()` called from
     `render_interactive()` for focusable controls. Check `ui.input(|i| i.events)`
@@ -70,7 +70,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-forms --features render` green.
     **Covers AC10.**
 
-- [ ] **T8 — Fire onGotFocus, onLostFocus for all focusable controls** (R1, R3.1)
+- [x] **T8 — Fire onGotFocus, onLostFocus for all focusable controls** (R1, R3.1)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: Currently only TextBox fires these. Move the focus-tracking pattern
     (using `resp.gained_focus()` / `resp.lost_focus()`) into
@@ -79,7 +79,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     DateTimePicker, TreeView, DataGrid) fire `onGotFocus` and `onLostFocus`.
   - Verify: `cargo check -p cobolt-forms --features render` green.
 
-- [ ] **T9 — Fire onVisibleChanged, onEnabledChanged** (R1, R3.4)
+- [x] **T9 — Fire onVisibleChanged, onEnabledChanged** (R1, R3.4)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: In `render_form()` or `render_interactive()`, track previous
     visible/enabled state per control in egui temp. When the state changes
@@ -88,7 +88,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
   - Verify: `cargo check -p cobolt-forms --features render` green.
     **Covers AC9.**
 
-- [ ] **T10 — Fire onResize, onResized, onMove, onMoved** (R1, R3.2, R3.3)
+- [x] **T10 — Fire onResize, onResized, onMove, onMoved** (R1, R3.2, R3.3)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: Track previous rect (x, y, w, h) per control in egui temp. When size
     changes: fire `onResize` on each frame the size differs from the previous.
@@ -104,7 +104,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     it doesn't fire again.
   - Verify: `cargo check -p cobolt-forms --features render` green.
 
-- [ ] **T12 — Fire type-specific new events** (R2, R3.1)
+- [x] **T12 — Fire type-specific new events** (R2, R3.1)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: For each control type's new events, add firing logic in the
     appropriate `CT::*` match arm in `render_interactive()`:
@@ -146,7 +146,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     `UiEvent.value` field to pass the raw data from render.rs to app.rs.
   - Verify: `cargo check -p cobolt-ide` green.
 
-- [ ] **T15 — Docs: developers-guide-en.md event tables**
+- [x] **T15 — Docs: developers-guide-en.md event tables**
   - Files: `docs/developers-guide-en.md`
   - Do: Update the "Events you can handle" section with the full event table
     per control type. Group events by category (Mouse, Focus, Keyboard,
@@ -154,7 +154,7 @@ the requirement(s) it satisfies, and how to verify it. Check off as completed.
     each control type showing its supported events.
   - Verify: Read the section. Translations untouched.
 
-- [ ] **T16 — Finalize: version bump, full test, manual check**
+- [x] **T16 — Finalize: version bump, full test, manual check**
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`
   - Do: Bump patch version (`z`). Add CHANGELOG entry under Fix. Run full
     `cargo test`. Launch the IDE and verify:

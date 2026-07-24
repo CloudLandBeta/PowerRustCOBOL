@@ -931,6 +931,15 @@ impl Interpreter {
         CobolValue::from_str("", 0)
     }
 
+    /// Queue a control lifecycle event for dispatch on the next
+    /// `COBOL-WAIT-EVENT` return (spec 021; rides the spec-032 dispatch
+    /// queue). Events without a bound handler are dropped by the generated
+    /// dispatch code, so queuing is always safe.
+    fn queue_control_event(&mut self, obj: &str, event: &str) {
+        self.async_dispatch_queue
+            .push_back((obj.to_string(), event.to_string()));
+    }
+
     /// Cancel any in-flight operation on `obj` (spec 032 R10/R11). Runs entirely
     /// on the interpreter thread — bumps the generation (so the abandoned
     /// worker's eventual result is discarded), clears `Busy`, and queues
@@ -6150,7 +6159,12 @@ impl Interpreter {
             }
             "ASK" => {
                 self.obj_set(obj, "Prompt", arg(0));
-                val(self.obj_get(obj, "LastReply"))
+                let reply = self.obj_get(obj, "LastReply");
+                // spec 021: a non-empty reply is a delivered response.
+                if !reply.trim().is_empty() {
+                    self.queue_control_event(obj, "onResponse");
+                }
+                val(reply)
             }
             // ── REST / HTTP client ──
             // Async by default (spec 032): unless `Mode = Sync`, the verb spawns
@@ -6240,20 +6254,28 @@ impl Interpreter {
                 Ok(h) => {
                     self.obj_set(obj, "_Handle", h.to_string());
                     self.obj_set(obj, "StatusCode", "0".into());
+                    // spec 021: connection lifecycle events (dispatched by the
+                    // event loop on the next COBOL-WAIT-EVENT).
+                    self.queue_control_event(obj, "onConnectOk");
                     val(h.to_string())
                 }
                 Err(e) => {
                     self.obj_set(obj, "LastError", e);
                     self.obj_set(obj, "StatusCode", "1".into());
+                    self.queue_control_event(obj, "onConnectError");
                     val("0".to_string())
                 }
             },
             "EXECUTE" | "EXEC" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 match self.db.exec(h, &arg(0)) {
-                    Ok(n) => val(n.to_string()),
+                    Ok(n) => {
+                        self.queue_control_event(obj, "onQueryComplete");
+                        val(n.to_string())
+                    }
                     Err(e) => {
                         self.obj_set(obj, "LastError", e);
+                        self.queue_control_event(obj, "onQueryError");
                         val("0".to_string())
                     }
                 }
@@ -6261,16 +6283,24 @@ impl Interpreter {
             "QUERY" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 match self.db.exec(h, &arg(0)) {
-                    Ok(_) => val(self.db.row_count(h).to_string()),
+                    Ok(_) => {
+                        self.queue_control_event(obj, "onQueryComplete");
+                        val(self.db.row_count(h).to_string())
+                    }
                     Err(e) => {
                         self.obj_set(obj, "LastError", e);
+                        self.queue_control_event(obj, "onQueryError");
                         val("0".to_string())
                     }
                 }
             }
             "FETCH" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                val(if self.db.next_row(h) { "1" } else { "0" }.to_string())
+                let fetched = self.db.next_row(h);
+                if fetched {
+                    self.queue_control_event(obj, "onRowFetched");
+                }
+                val(if fetched { "1" } else { "0" }.to_string())
             }
             "FETCHALL" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;

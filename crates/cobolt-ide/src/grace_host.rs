@@ -28,92 +28,86 @@ use crate::tool_exec::{IdeToolBackend, ToolEvidence, ToolExecutingInvoker};
 /// never stops emitting tool calls.
 const MAX_TOOL_ROUNDS: usize = 6;
 
-fn is_informational_grace_request(request: &str) -> bool {
+/// A bare social greeting ("Hola", "olá Grace", "good morning") deserves a
+/// greeting back — not a planning call, an ACTION-contract retry, and a
+/// delegated "greeting task" (observed live: ~9.4k tokens and four model calls
+/// to answer "Hola"). Returns the canned reply in the greeting's language, or
+/// `None` when the message is anything more than a greeting.
+pub fn simple_greeting_reply(request: &str) -> Option<&'static str> {
+    // Accent-folded so "¿cómo estás?" and "como estas" match the same entry
+    // (observed live: "Hola, ¿cómo estás?" missed the exact-match list and ran
+    // the whole ACTION pipeline again).
     let normalized = request
-        .trim()
-        .trim_matches(|character: char| character.is_ascii_punctuation())
-        .to_ascii_lowercase();
-    let passive_openers = [
-        "what ",
-        "why ",
-        "how ",
-        "who ",
-        "which ",
-        "when ",
-        "where ",
-        "describe ",
-        "explain ",
-        "summarize ",
-        "summarise ",
-        "tell me ",
-        "suggest ",
-        "recommend ",
-        "compare ",
-        "outline ",
-        "provide information ",
-        "provide an overview ",
-        "give me information ",
-        "generate a description ",
-        "generate an explanation ",
-        "generate a summary ",
-    ];
-    let follow_on_action = [
-        " then create",
-        " and create",
-        " then modify",
-        " and modify",
-        " then update",
-        " and update",
-        " then save",
-        " and save",
-        " then write",
-        " and write",
-        " then delete",
-        " and delete",
-        " then implement",
-        " and implement",
-        " then fix",
-        " and fix",
-    ]
-    .iter()
-    .any(|marker| normalized.contains(marker));
-    // A "when/if <event>, <verb> <target>" directive opens like a question but
-    // asks for a concrete change; treat its imperative consequent as an action.
-    let conditional_action = normalized
-        .split_once(',')
-        .is_some_and(|(_, consequent)| clause_starts_with_action(consequent));
-    !(follow_on_action || conditional_action)
-        && (normalized == "help"
-            || normalized.contains("what can you do")
-            || normalized.contains("what are your capabilities")
-            || normalized.contains("how can you help")
-            || normalized.contains("who are you")
-            || passive_openers
-                .iter()
-                .any(|opener| normalized.starts_with(opener)))
-}
-
-/// True when `clause` begins with an imperative action verb at a word boundary.
-///
-/// Used to detect the consequent of a "when/if <event>, <verb> ..." directive so
-/// event-wiring requests (e.g. "when Button-1 is clicked, activate Timer-1") are
-/// routed to the ACTION contract instead of being mistaken for read-only
-/// questions merely because they open with a passive keyword like "when".
-fn clause_starts_with_action(clause: &str) -> bool {
-    const ACTION_VERBS: &[&str] = &[
-        "create", "modify", "update", "change", "save", "write", "delete", "remove",
-        "implement", "fix", "add", "insert", "set", "apply", "assign", "populate",
-        "activate", "deactivate", "enable", "disable", "start", "stop", "run",
-        "trigger", "invoke", "call", "wire", "bind", "connect", "attach", "toggle",
-        "show", "hide", "open", "close", "move", "resize", "rename", "restyle",
-        "align", "clear", "reset",
-    ];
-    let clause = clause.trim_start();
-    ACTION_VERBS.iter().any(|verb| {
-        clause.strip_prefix(verb).is_some_and(|rest| {
-            rest.is_empty() || rest.starts_with(|character: char| !character.is_ascii_alphanumeric())
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ñ' => 'n',
+            'ç' => 'c',
+            c if c.is_alphanumeric() || c.is_whitespace() => c,
+            _ => ' ',
         })
-    })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let stripped = normalized.strip_suffix(" grace").unwrap_or(&normalized);
+    const SPANISH: &[&str] = &[
+        "hola",
+        "buenos dias",
+        "buenas tardes",
+        "buenas noches",
+        "que tal",
+        "saludos",
+        "como estas",
+        "hola como estas",
+        "hola que tal",
+        "hola buenos dias",
+        "hola buenas tardes",
+        "hola buenas noches",
+    ];
+    const PORTUGUESE: &[&str] = &[
+        "ola",
+        "oi",
+        "bom dia",
+        "boa tarde",
+        "boa noite",
+        "tudo bem",
+        "e ai",
+        "como vai",
+        "ola tudo bem",
+        "oi tudo bem",
+        "ola como vai",
+        "ola bom dia",
+    ];
+    const ENGLISH: &[&str] = &[
+        "hello",
+        "hi",
+        "hey",
+        "howdy",
+        "greetings",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "how are you",
+        "hello how are you",
+        "hi how are you",
+        "hey how are you",
+    ];
+    if SPANISH.contains(&stripped) {
+        return Some("¡Hola! ¿Cómo estás? ¿Creamos algo juntos?");
+    }
+    if PORTUGUESE.contains(&stripped) {
+        return Some("Olá! Tudo bem? Vamos criar algo juntos?");
+    }
+    if ENGLISH.contains(&stripped) {
+        return Some("Hello! How are you? Shall we create something together?");
+    }
+    None
 }
 
 fn direct_grace_record(reply: String, objective: &str) -> WorkflowRecord {
@@ -138,81 +132,6 @@ fn direct_grace_record(reply: String, objective: &str) -> WorkflowRecord {
         }],
         ..Default::default()
     }
-}
-
-fn has_documentation_intent(request: &str) -> bool {
-    let request = request.to_ascii_lowercase();
-    request.contains("document")
-        || request.contains("/docs/")
-        || request.contains("knowledge base")
-        || request.contains("plan the creation")
-        || request.contains("create tasks")
-}
-
-fn task_claims_document_write(task: &TaskSpec) -> bool {
-    let text =
-        format!("{} {} {}", task.objective, task.context, task.acceptance).to_ascii_lowercase();
-    if text.contains("documentation.write") {
-        return true;
-    }
-    if text.contains("indexed_file.write") {
-        return false;
-    }
-    let actions = [
-        "write", "save", "create", "format", "publish", "store", "author", "update", "edit",
-    ];
-    actions.iter().any(|action| {
-        text.match_indices(action).any(|(start, _)| {
-            let before = &text[..start];
-            let previous = before
-                .get(before.len().saturating_sub(20)..)
-                .unwrap_or(before);
-            if previous.contains("do not")
-                || previous.contains("must not")
-                || previous.contains("without")
-            {
-                return false;
-            }
-            let after_action = start + action.len();
-            if text
-                .as_bytes()
-                .get(after_action)
-                .is_some_and(u8::is_ascii_alphanumeric)
-            {
-                return false;
-            }
-            let suffix = &text[after_action..];
-            let window_end = suffix
-                .char_indices()
-                .nth(64)
-                .map(|(index, _)| index)
-                .unwrap_or(suffix.len());
-            let window = &suffix[..window_end];
-            let Some(document_end) = window
-                .find("document")
-                .map(|index| index + "document".len())
-            else {
-                return false;
-            };
-            let assignment = &window[..document_end];
-            if assignment.contains("indexed file")
-                || assignment.contains("indexed-file")
-                || assignment.contains(".cidx")
-            {
-                return false;
-            }
-            ![
-                "source material",
-                "source information",
-                "inventory",
-                "authoritative facts",
-                "schema handoff",
-                "documentation agent handoff",
-            ]
-            .iter()
-            .any(|source_phrase| assignment.contains(source_phrase))
-        })
-    })
 }
 
 fn pedantic_relationship_contract(db: &AgentsDb, name: &str) -> String {
@@ -246,200 +165,6 @@ fn pedantic_relationship_contract(db: &AgentsDb, name: &str) -> String {
         .unwrap_or_default()
 }
 
-fn validate_documentation_coordination(request: &str, plan: &[TaskSpec]) -> Result<(), String> {
-    for task in plan {
-        if task_claims_document_write(task) && !task.agent.eq_ignore_ascii_case(DOCUMENTATION_AGENT)
-        {
-            return Err(format!(
-                "task {} assigns documentation writing to {}; only {} may format and save project documents",
-                task.id, task.agent, DOCUMENTATION_AGENT
-            ));
-        }
-    }
-    if !has_documentation_intent(request) {
-        return Ok(());
-    }
-    let documentation_tasks = plan
-        .iter()
-        .filter(|task| task.agent.eq_ignore_ascii_case(DOCUMENTATION_AGENT))
-        .collect::<Vec<_>>();
-    if documentation_tasks.is_empty() {
-        return Err(format!(
-            "the request produces project documentation but the plan has no {DOCUMENTATION_AGENT} task"
-        ));
-    }
-    let producer_tasks = plan
-        .iter()
-        .filter(|task| !task.agent.eq_ignore_ascii_case(DOCUMENTATION_AGENT))
-        .collect::<Vec<_>>();
-    for documentation in &documentation_tasks {
-        let missing_sources = producer_tasks
-            .iter()
-            .filter(|producer| !documentation.depends_on.contains(&producer.id))
-            .map(|producer| producer.id.as_str())
-            .collect::<Vec<_>>();
-        if !missing_sources.is_empty() {
-            return Err(format!(
-                "{} task {} must depend on every specialist source task; missing: {}",
-                DOCUMENTATION_AGENT,
-                documentation.id,
-                missing_sources.join(", ")
-            ));
-        }
-    }
-    let request = request.to_ascii_lowercase();
-    if request.contains("form") || request.contains("interface") {
-        let designer_ids = producer_tasks
-            .iter()
-            .filter(|task| {
-                task.agent
-                    .eq_ignore_ascii_case(crate::agents_db::FORM_DESIGNER)
-            })
-            .map(|task| task.id.as_str())
-            .collect::<Vec<_>>();
-        if designer_ids.is_empty()
-            || documentation_tasks.iter().any(|documentation| {
-                !designer_ids.iter().any(|id| {
-                    documentation
-                        .depends_on
-                        .iter()
-                        .any(|dependency| dependency == *id)
-                })
-            })
-        {
-            return Err(format!(
-                "interface/form documentation requires {} to prepare the authoritative interface information and every {DOCUMENTATION_AGENT} writing task must depend on that output",
-                crate::agents_db::FORM_DESIGNER
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn has_indexed_file_intent(request: &str) -> bool {
-    let request = request.to_ascii_lowercase();
-    request.contains("indexed file")
-        || request.contains("indexed-file")
-        || request.contains(".cidx")
-}
-
-fn has_indexed_file_mutation_intent(request: &str) -> bool {
-    if !has_indexed_file_intent(request) {
-        return false;
-    }
-    let request = request.to_ascii_lowercase();
-    [
-        "create",
-        "add",
-        "new",
-        "define",
-        "modify",
-        "update",
-        "change",
-        "maintain",
-        "normalize",
-        "delete",
-        "remove",
-    ]
-    .iter()
-    .any(|action| request.contains(action))
-}
-
-fn task_text(task: &TaskSpec) -> String {
-    format!("{} {} {}", task.objective, task.context, task.acceptance).to_ascii_lowercase()
-}
-
-fn task_claims_indexed_mutation(task: &TaskSpec) -> bool {
-    let text = task_text(task);
-    if text.contains("indexed_file.write") {
-        return true;
-    }
-    let explicitly_non_mutating = [
-        "schema handoff",
-        "schema proposal",
-        "proposed schema",
-        "source material",
-        "normalization analysis",
-        "without writing",
-        "without mutation",
-        "do not write",
-        "do not mutate",
-    ]
-    .iter()
-    .any(|marker| text.contains(marker));
-    if explicitly_non_mutating {
-        return false;
-    }
-    let names_resource =
-        text.contains(".cidx") || text.contains("indexed file") || text.contains("indexed-file");
-    names_resource
-        && ["write", "save", "mutate", "delete", "remove"]
-            .iter()
-            .any(|action| text.contains(action))
-}
-
-fn validate_indexed_file_coordination(request: &str, plan: &[TaskSpec]) -> Result<(), String> {
-    for task in plan {
-        if task_claims_indexed_mutation(task)
-            && !task.agent.eq_ignore_ascii_case(DATA_INDEXED_FILE_AGENT)
-        {
-            return Err(format!(
-                "task {} assigns indexed-file mutation to {}; only {} may maintain .cidx resources",
-                task.id, task.agent, DATA_INDEXED_FILE_AGENT
-            ));
-        }
-    }
-    let needs_schema_handoff =
-        has_indexed_file_mutation_intent(request) || plan.iter().any(task_claims_indexed_mutation);
-    if !needs_schema_handoff {
-        return Ok(());
-    }
-
-    let documentation_tasks = plan
-        .iter()
-        .filter(|task| task.agent.eq_ignore_ascii_case(DOCUMENTATION_AGENT))
-        .collect::<Vec<_>>();
-    if documentation_tasks.is_empty() {
-        return Err(format!(
-            "indexed-file work requires {DOCUMENTATION_AGENT} to establish the file name, purpose, project knowledge, normalization, and ID policy"
-        ));
-    }
-    let data_tasks = plan
-        .iter()
-        .filter(|task| task.agent.eq_ignore_ascii_case(DATA_INDEXED_FILE_AGENT))
-        .collect::<Vec<_>>();
-    if data_tasks.is_empty() {
-        // A Documentation-only workflow is valid when it is explicitly asking
-        // the developer for information required before mutation can begin.
-        if documentation_tasks.iter().all(|task| {
-            let text = task_text(task);
-            text.contains("ask") || text.contains("clarif") || text.contains("obtain")
-        }) {
-            return Ok(());
-        }
-        return Err(format!(
-            "indexed-file work has no {DATA_INDEXED_FILE_AGENT} task and is not an explicit clarification workflow"
-        ));
-    }
-    for data_task in data_tasks {
-        let missing = documentation_tasks
-            .iter()
-            .filter(|documentation| !data_task.depends_on.contains(&documentation.id))
-            .map(|documentation| documentation.id.as_str())
-            .collect::<Vec<_>>();
-        if !missing.is_empty() {
-            return Err(format!(
-                "{} task {} must depend on every approved {} handoff; missing: {}",
-                DATA_INDEXED_FILE_AGENT,
-                data_task.id,
-                DOCUMENTATION_AGENT,
-                missing.join(", ")
-            ));
-        }
-    }
-    Ok(())
-}
-
 /// A Pedantic agent is a companion reviewer, never a task agent. Grace
 /// sometimes plans a redundant "review the completed work" task assigning the
 /// reviewer as the responsible agent; every task already carries its reviewer,
@@ -465,59 +190,20 @@ fn validate_no_pedantic_task_agent(db: &AgentsDb, plan: &[TaskSpec]) -> Result<(
     Ok(())
 }
 
-fn validate_domain_specialist_authorization(plan: &[TaskSpec]) -> Result<(), String> {
-    for task in plan {
-        let text = task_text(task);
-
-        // 1. Form design / UI restyling / control deployment must be Form Designer Agent ONLY
-        let claims_form_design = text.contains("deploy_control")
-            || text.contains("set_property")
-            || text.contains("restyle form")
-            || text.contains("form theme")
-            || text.contains("glassstyle")
-            || text.contains("form layout");
-
-        if claims_form_design && !task.agent.eq_ignore_ascii_case(crate::agents_db::FORM_DESIGNER) {
-            return Err(format!(
-                "task {} assigns form design/styling to {}; only {} is authorized to modify forms and UI controls",
-                task.id, task.agent, crate::agents_db::FORM_DESIGNER
-            ));
-        }
-
-        // 2. COBOL event handler implementation must be COBOL Event Handler Script Agent ONLY
-        let claims_event_handler = text.contains("generate_event_handler")
-            || text.contains("cobol event handler")
-            || text.contains("event handler script");
-
-        if claims_event_handler && !task.agent.eq_ignore_ascii_case(crate::agents_db::EVENT_HANDLER) {
-            return Err(format!(
-                "task {} assigns COBOL event handler implementation to {}; only {} is authorized to write event handlers",
-                task.id, task.agent, crate::agents_db::EVENT_HANDLER
-            ));
-        }
-
-        // 3. Documentation Agent fallback boundary: Documentation Agent may analyze and document missing capabilities, but may not perform restricted implementation
-        if task.agent.eq_ignore_ascii_case(DOCUMENTATION_AGENT) {
-            if claims_form_design || claims_event_handler || task_claims_indexed_mutation(task) {
-                return Err(format!(
-                    "task {} assigns restricted implementation work to {}; Documentation Agent may only analyze, document missing capabilities, and prepare handoff/clarification requests",
-                    task.id, DOCUMENTATION_AGENT
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
+/// STRUCTURAL validation only — checks that need no interpretation of the
+/// request or task wording. Intent understanding (what the developer wants,
+/// which contract applies, whether a handoff or clarification is required) is
+/// the MODEL's job: Grace routes via the coordination contracts in her prompt,
+/// and each specialist enforces its own runtime gate (e.g. the Data agent
+/// refuses `.cidx` mutation without an approved handoff in its dependency
+/// outputs). Keyword-based intent validators were removed deliberately — every
+/// one of them produced false rejections or false passes in live use.
 fn validate_workflow_coordination(
     db: &AgentsDb,
-    request: &str,
+    _request: &str,
     plan: &[TaskSpec],
 ) -> Result<(), String> {
-    validate_no_pedantic_task_agent(db, plan)?;
-    validate_domain_specialist_authorization(plan)?;
-    validate_documentation_coordination(request, plan)?;
-    validate_indexed_file_coordination(request, plan)
+    validate_no_pedantic_task_agent(db, plan)
 }
 
 /// Advisory routing information supplied by the chatbot surface that opened
@@ -573,6 +259,28 @@ pub fn load_run_file(path: &Path) -> Result<RunFile, String> {
 /// Synchronous invoker over the project agent database. Each call resolves
 /// the agent fresh (config can change between tasks) and blocks until the
 /// model's full reply arrived.
+/// Live control surface shared between a running workflow and its UI: the
+/// developer's Stop button sets `cancel` (every subsequent model call refuses
+/// immediately), and `tokens` accumulates exact (input, output) usage after
+/// every model return so the UI can show it live.
+#[derive(Clone, Default)]
+pub struct WorkflowControl {
+    pub cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub tokens: Arc<Mutex<(u64, u64)>>,
+}
+
+impl WorkflowControl {
+    pub fn stop_requested(&self) -> bool {
+        self.cancel.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    pub fn request_stop(&self) {
+        self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    pub fn token_totals(&self) -> (u64, u64) {
+        *self.tokens.lock().unwrap()
+    }
+}
+
 pub struct DbAgentInvoker {
     pub project_dir: PathBuf,
     pub llm: LlmConfig,
@@ -582,6 +290,8 @@ pub struct DbAgentInvoker {
     /// Shared tool-evidence sink: native-tool executions are recorded here by
     /// the host closures (spec 030 R11), same records as the fenced protocol.
     pub evidence: std::sync::Arc<std::sync::Mutex<Vec<ToolEvidence>>>,
+    /// Developer stop request — checked before every model call.
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl DbAgentInvoker {
@@ -759,6 +469,7 @@ impl DbAgentInvoker {
         purpose: &str,
         preamble: &str,
         source: &str,
+        cause: &str,
     ) -> Result<T, String>
     where
         T: schemars::JsonSchema
@@ -768,14 +479,37 @@ impl DbAgentInvoker {
             + Sync
             + 'static,
     {
+        if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(format!("{agent}: stopped by the developer"));
+        }
         let (cfg, _core, _skills, _kind) = self.config_for(agent)?;
         if let Some(gap) = crate::llm::credential_gap(&cfg) {
             return Err(format!("{agent}: {gap}"));
         }
+        // A mapped model policy can disable provider-native extraction
+        // entirely (e.g. providers rejecting function tools + reasoning
+        // effort with HTTP 400 — every attempt burned a failing call).
+        let policy = crate::model_policy::policy_for(&cfg.provider, &cfg.model);
+        if policy.avoid_typed_extraction {
+            return Err(format!(
+                "typed {purpose} extraction skipped by model policy for {}/{} ({}); deterministic parse failed: {cause}",
+                cfg.provider, cfg.model, policy.note
+            ));
+        }
+        // The deterministic failure's cause is the key debugging fact — a
+        // serde error names the exact field/position that broke.
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Info,
-            format!("typed {purpose} extraction ({agent}) — deterministic parse failed"),
+            format!("typed {purpose} extraction ({agent}) — deterministic parse failed: {cause}"),
         );
+        if cfg.verbose_log {
+            let block = format!(
+                "=== EXTRACTION REQUEST · {purpose} via {}/{} ===\n--- INSTRUCTIONS ---\n{preamble}\n\n--- SOURCE TEXT ---\n{source}",
+                cfg.provider, cfg.model,
+            );
+            crate::llm::push_ai_log(crate::llm::AiLogKind::Detail, block.clone());
+            crate::llm::push_connection_log(&format!("{block}\n"));
+        }
         let call = cobolt_agents::rig_transport::ExtractCall {
             provider: cfg.provider.clone(),
             model: cfg.model.clone(),
@@ -784,8 +518,17 @@ impl DbAgentInvoker {
             preamble: preamble.to_string(),
             max_tokens: cfg.max_tokens,
         };
-        let reply = cobolt_agents::rig_transport::extract_typed_blocking::<T>(&call, source)
-            .map_err(|e| format!("{agent}: {purpose} extraction failed: {e}"))?;
+        let reply = match cobolt_agents::rig_transport::extract_typed_blocking::<T>(&call, source) {
+            Ok(reply) => reply,
+            Err(e) => {
+                let msg = format!("{agent}: {purpose} extraction failed: {e}");
+                crate::llm::push_ai_log(crate::llm::AiLogKind::Error, msg.clone());
+                crate::llm::push_connection_log(&format!(
+                    "=== EXTRACTION ERROR · {purpose} ===\n{e}\n"
+                ));
+                return Err(msg);
+            }
+        };
         if let Ok(mut totals) = self.tokens.lock() {
             totals.0 += reply.input_tokens;
             totals.1 += reply.output_tokens;
@@ -797,17 +540,32 @@ impl DbAgentInvoker {
                 reply.input_tokens, reply.output_tokens
             ),
         );
+        if cfg.verbose_log {
+            let pretty = serde_json::to_string_pretty(&reply.data)
+                .unwrap_or_else(|_| "(unrenderable)".into());
+            let block = format!(
+                "=== EXTRACTION RESULT · {purpose} · {} in / {} out ===\n{pretty}",
+                reply.input_tokens, reply.output_tokens
+            );
+            crate::llm::push_ai_log(crate::llm::AiLogKind::Detail, block.clone());
+            crate::llm::push_connection_log(&format!("{block}\n"));
+        }
         Ok(reply.data)
     }
 
     /// Recover a Form Designer change-set from a submission whose fenced JSON
     /// did not parse deterministically.
-    pub fn extract_change_set(&self, source: &str) -> Result<crate::agent::AgentChangeSet, String> {
+    pub fn extract_change_set(
+        &self,
+        source: &str,
+        cause: &str,
+    ) -> Result<crate::agent::AgentChangeSet, String> {
         self.typed_extract::<crate::agent::AgentChangeSet>(
             crate::agents_db::FORM_DESIGNER,
             "change-set",
             CHANGE_SET_EXTRACT_PREAMBLE,
             source,
+            cause,
         )
     }
 }
@@ -815,11 +573,24 @@ impl DbAgentInvoker {
 impl AgentInvoker for DbAgentInvoker {
     fn extract_plan(&mut self, agent: &str, plan_reply: &str) -> Result<WorkflowPlan, String> {
         // Deterministic first — free and exact for well-behaved replies.
-        if let Ok((workflow_id, tasks)) = cobolt_agents::grace::parse_plan(plan_reply) {
-            return Ok(WorkflowPlan { workflow_id, tasks });
+        let cause = match cobolt_agents::grace::parse_plan(plan_reply) {
+            Ok((workflow_id, tasks)) => return Ok(WorkflowPlan { workflow_id, tasks }),
+            Err(cause) => cause,
+        };
+        // A reply with no JSON at all is Grace routing back to the developer
+        // (a direct answer or a clarification), not a damaged plan — skip the
+        // typed-extraction model call entirely (observed live: it burned a
+        // failing provider call on every relayed question).
+        if !plan_reply.contains('{') {
+            return Err(cause);
         }
-        let mut plan =
-            self.typed_extract::<WorkflowPlan>(agent, "plan", PLAN_EXTRACT_PREAMBLE, plan_reply)?;
+        let mut plan = self.typed_extract::<WorkflowPlan>(
+            agent,
+            "plan",
+            PLAN_EXTRACT_PREAMBLE,
+            plan_reply,
+            &cause,
+        )?;
         if plan.tasks.is_empty() {
             return Err("Grace's plan contained no tasks".into());
         }
@@ -834,18 +605,23 @@ impl AgentInvoker for DbAgentInvoker {
         reviewer: &str,
         review_reply: &str,
     ) -> Result<ReviewVerdict, String> {
-        if let Ok(verdict) = cobolt_agents::grace::parse_verdict(review_reply) {
-            return Ok(verdict);
-        }
+        let cause = match cobolt_agents::grace::parse_verdict(review_reply) {
+            Ok(verdict) => return Ok(verdict),
+            Err(cause) => cause,
+        };
         self.typed_extract::<ReviewVerdict>(
             reviewer,
             "verdict",
             VERDICT_EXTRACT_PREAMBLE,
             review_reply,
+            &cause,
         )
     }
 
     fn invoke(&mut self, agent: &str, system: &str, user: &str) -> Result<String, String> {
+        if self.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(format!("{agent}: stopped by the developer"));
+        }
         let (cfg, core_instructions, skills, kind) = self.config_for(agent)?;
         // Report a blank credential as itself rather than letting the provider
         // answer 401, which reads like an account problem.
@@ -865,6 +641,23 @@ impl AgentInvoker for DbAgentInvoker {
         } else {
             user.to_string()
         };
+        // Mapped per-model workarounds (built-in + operator-extended) apply
+        // before the call is built — see `crate::model_policy`.
+        let policy = crate::model_policy::policy_for(&cfg.provider, &cfg.model);
+        if !policy.is_noop() && cfg.verbose_log {
+            crate::llm::push_ai_log(
+                crate::llm::AiLogKind::Info,
+                format!(
+                    "{agent}: model policy for {}/{} — {}",
+                    cfg.provider, cfg.model, policy.note
+                ),
+            );
+        }
+        let tools = if policy.avoid_native_tools {
+            cobolt_agents::rig_transport::AgentTools::default()
+        } else {
+            self.native_tools(agent)
+        };
         // Rig transport (migration phase 1): one provider client per profile,
         // no wire-format sniffing, exact token usage from the response.
         let call = cobolt_agents::rig_transport::AgentCall {
@@ -876,8 +669,8 @@ impl AgentInvoker for DbAgentInvoker {
             skills: skills.clone(),
             user_prompt: effective_user,
             temperature: cfg.temperature,
-            max_tokens: cfg.max_tokens,
-            tools: self.native_tools(agent),
+            max_tokens: cfg.max_tokens.max(policy.min_max_tokens),
+            tools,
         };
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Info,
@@ -912,18 +705,76 @@ impl AgentInvoker for DbAgentInvoker {
             crate::llm::push_connection_log(&format!("{block}\n"));
         }
         let started = std::time::Instant::now();
-        let reply = match cobolt_agents::rig_transport::run_agent_blocking(&call) {
-            Ok(reply) => reply,
-            Err(e) => {
-                if cfg.verbose_log {
-                    let block = format!(
-                        "=== AGENT ERROR · {agent} · {:.1}s ===\n{e}",
-                        started.elapsed().as_secs_f32()
+        // Transient provider failures — an empty response (observed live from
+        // ollama_cloud/gemma4: "Response contained no message or tool call"),
+        // a timeout, a dropped connection, a 429/5xx — get bounded retries
+        // before the task fails and blocks its dependents. Empty responses
+        // from tool-carrying requests are often DETERMINISTIC (gemma emitted
+        // nothing on every follow-up round that attached native tool
+        // definitions), so retries drop the native tools: the fenced protocol
+        // in the system prompt keeps every tool reachable as text.
+        let mut attempt = 0usize;
+        let reply = loop {
+            let effective_call = if attempt > 0 {
+                // Retries change two things at once. Native tools are dropped
+                // (the fenced protocol in the system prompt keeps every tool
+                // reachable as text) and the token budget is raised: a hidden-
+                // reasoning model can exhaust `max_tokens` thinking about a
+                // large task and return EMPTY final content — observed live as
+                // ever-longer generations (6s→15s→28s) that all came back
+                // empty, and once as 805 output tokens carrying only 352
+                // visible characters.
+                let mut adjusted = call.clone();
+                adjusted.tools = cobolt_agents::rig_transport::AgentTools::default();
+                adjusted.max_tokens = call
+                    .max_tokens
+                    .saturating_mul(1u32 << attempt.min(3))
+                    .min(32_768)
+                    .max(call.max_tokens);
+                adjusted
+            } else {
+                call.clone()
+            };
+            match cobolt_agents::rig_transport::run_agent_blocking(&effective_call) {
+                Ok(reply) => break reply,
+                Err(e) => {
+                    let msg = e.to_string();
+                    if cfg.verbose_log {
+                        let block = format!(
+                            "=== AGENT ERROR · {agent} · {:.1}s ===\n{msg}",
+                            started.elapsed().as_secs_f32()
+                        );
+                        crate::llm::push_ai_log(crate::llm::AiLogKind::Error, block.clone());
+                        crate::llm::push_connection_log(&format!("{block}\n"));
+                    }
+                    let stopped = self.cancel.load(std::sync::atomic::Ordering::Relaxed);
+                    if stopped || attempt >= 2 || !is_transient_model_error(&msg) {
+                        // Persistent empty responses are a model/provider
+                        // incompatibility the operator can fix in the Models
+                        // Manager — say so instead of leaving a bare error.
+                        let hint = if msg.contains("no message or tool call") {
+                            format!(
+                                " — {}/{} returned empty responses repeatedly for this agent's prompts; consider assigning \u{201c}{agent}\u{201d} a different model in the Models Manager",
+                                cfg.provider, cfg.model
+                            )
+                        } else {
+                            String::new()
+                        };
+                        return Err(format!("{agent}: {msg}{hint}"));
+                    }
+                    attempt += 1;
+                    crate::llm::push_ai_log(
+                        crate::llm::AiLogKind::Info,
+                        format!(
+                            "{agent}: transient model error — retry {attempt}/2 (native tools detached; max_tokens raised to {})",
+                            call.max_tokens
+                                .saturating_mul(1u32 << attempt.min(3))
+                                .min(32_768)
+                                .max(call.max_tokens)
+                        ),
                     );
-                    crate::llm::push_ai_log(crate::llm::AiLogKind::Error, block.clone());
-                    crate::llm::push_connection_log(&format!("{block}\n"));
+                    std::thread::sleep(std::time::Duration::from_millis(750 * attempt as u64));
                 }
-                return Err(format!("{agent}: {e}"));
             }
         };
         let secs = started.elapsed().as_secs_f32();
@@ -952,6 +803,32 @@ impl AgentInvoker for DbAgentInvoker {
         }
         Ok(reply.text)
     }
+}
+
+/// Whether a model-transport failure is worth retrying: empty responses,
+/// timeouts, dropped connections, and rate/server errors are transient;
+/// authentication and request-shape errors are not.
+fn is_transient_model_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    [
+        "no message or tool call",
+        "(empty)",
+        "timed out",
+        "timeout",
+        "connection reset",
+        "connection closed",
+        "connection refused",
+        "broken pipe",
+        "429",
+        "500 ",
+        "502",
+        "503",
+        "504",
+        "overloaded",
+        "temporarily unavailable",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
 }
 
 /// Extract the change-sets an *approved* Form-Designer task produced, so the
@@ -1004,22 +881,26 @@ pub fn describe_event(e: &GraceEvent) -> String {
             agent,
             objective,
         } => {
-            format!("▸ {id}: delegating to {agent} — {objective}")
+            // Typographic rule: every agent reports "<name>: starting task X".
+            format!("▸ {agent}: starting task {id} — {objective}")
         }
-        GraceEvent::Submitted { id, agent } => format!("  {id}: {agent} submitted a result"),
+        GraceEvent::Submitted { id, agent } => format!("  {agent}: finishing task {id}"),
         GraceEvent::ReviewStarted {
             id,
             reviewer,
             round,
         } => {
-            format!("  {id}: {reviewer} reviewing (round {})", round + 1)
+            format!(
+                "  {reviewer}: starting review of task {id} (round {})",
+                round + 1
+            )
         }
         GraceEvent::Verdict {
             id,
             reviewer,
             approved,
         } => format!(
-            "  {id}: {reviewer} verdict — {}",
+            "  {reviewer}: finishing review of task {id} — {}",
             if *approved {
                 "approved"
             } else {
@@ -1067,6 +948,28 @@ pub fn run_grace_workflow_with_context(
     llm: &LlmConfig,
     request: &str,
     routing: &GraceRoutingContext,
+    on_progress: &mut dyn FnMut(String),
+    confirm: &mut dyn FnMut(GitConfirmRequest) -> bool,
+) -> Result<(WorkflowRecord, PathBuf), String> {
+    run_grace_workflow_with_control(
+        project_dir,
+        llm,
+        request,
+        routing,
+        &WorkflowControl::default(),
+        on_progress,
+        confirm,
+    )
+}
+
+/// Like [`run_grace_workflow_with_context`], with a live [`WorkflowControl`]
+/// so the UI can stop the run and watch token usage as each model returns.
+pub fn run_grace_workflow_with_control(
+    project_dir: &Path,
+    llm: &LlmConfig,
+    request: &str,
+    routing: &GraceRoutingContext,
+    control: &WorkflowControl,
     on_progress: &mut dyn FnMut(String),
     confirm: &mut dyn FnMut(GitConfirmRequest) -> bool,
 ) -> Result<(WorkflowRecord, PathBuf), String> {
@@ -1141,13 +1044,14 @@ pub fn run_grace_workflow_with_context(
     );
     // Base transport (resolves model/key/prompt per agent), decorated with the
     // tool-execution layer: declared-tools governance + git/egui backends.
-    let token_sink: Arc<Mutex<(u64, u64)>> = Arc::new(Mutex::new((0, 0)));
+    let token_sink: Arc<Mutex<(u64, u64)>> = control.tokens.clone();
     let evidence: Arc<Mutex<Vec<ToolEvidence>>> = Arc::new(Mutex::new(Vec::new()));
     let mut inner = DbAgentInvoker {
         project_dir: project_dir.to_path_buf(),
         llm: llm.clone(),
         tokens: token_sink.clone(),
         evidence: evidence.clone(),
+        cancel: control.cancel.clone(),
     };
     let mut backend = IdeToolBackend::new(project_dir.to_path_buf(), confirm);
     let dir_for_decl = project_dir.to_path_buf();
@@ -1170,10 +1074,14 @@ pub fn run_grace_workflow_with_context(
         .agents
         .iter()
         .map(|a| {
+            // Only an ENABLED companion is advertised — a disabled reviewer
+            // must read as "no companion" so Grace leaves reviewer null
+            // (the host enforces the mapping mechanically afterwards anyway).
             let comp = a
                 .companion
                 .as_ref()
                 .and_then(|cid| db.by_id(cid))
+                .filter(|c| c.enabled)
                 .map(|c| format!(" · companion: {}", c.name))
                 .unwrap_or_default();
             format!(
@@ -1207,106 +1115,98 @@ pub fn run_grace_workflow_with_context(
         routing.context.trim()
     };
     let plan_user = format!(
-        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{context}\n\nRELEVANT INDEXED PROJECT KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
+        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{context}\n\nRELEVANT INDEXED PROJECT KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
     );
-    let direct_response = is_informational_grace_request(request);
-    let plan_user = if direct_response {
-        format!(
-            "{plan_user}\n\nDIRECT INFORMATION RESPONSE CONTRACT:\nThis is a read-only request for an explanation, description, summary, recommendation, comparison, or answer. Answer first from relevant project Knowledge Base evidence and cite its PATH entries. If no relevant evidence exists, state that limitation before offering clearly labeled general guidance. Respond directly as readable Markdown for the chatbot. Do not create workflow tasks, do not emit workflow JSON, do not claim that project resources were changed, and do not reject Markdown merely because agent workflows use JSON."
-        )
-    } else {
-        format!(
-            "{plan_user}\n\nACTION RESPONSE CONTRACT:\nThis request may create, inspect, plan, or modify project work. Return an executable workflow and end with the required fenced workflow JSON."
-        )
-    };
-    on_progress(if direct_response {
-        "Grace is preparing a direct response…".into()
-    } else {
-        "Grace is planning the workflow…".into()
-    });
+    // The MODEL routes the request — no keyword pre-classification. Grace
+    // reads the request and the contracts and chooses one of three shapes:
+    // a direct Markdown answer, developer-facing questions, or a workflow
+    // plan. The host only recognizes the shape she chose.
+    let plan_user = format!(
+        "{plan_user}\n\nRESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n2. DEVELOPER CLARIFICATION — the work cannot proceed without information or decisions only the developer can supply: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block."
+    );
+    on_progress("Grace is reading the request…".into());
     let plan_reply = invoker.invoke(GRACE, "", &plan_user)?;
-    if direct_response {
-        on_progress("Grace answered the read-only request directly.".into());
-        let record = direct_grace_record(
-            plan_reply,
-            "Answer the developer's read-only request directly",
-        );
-        let path = save_workflow_record(project_dir, &record, &[])?;
-        return Ok((record, path));
-    }
     // Typed plan (Rig migration phase 3): deterministic parse first, then
-    // provider-native typed extraction over the SAME reply. The old
-    // "malformed plan, resend everything" correction roundtrip — a full
-    // re-plan that could drift from the original — is gone; encoding damage
-    // is repaired by extraction. What extraction cannot repair is a reply
-    // with NO tasks in it: that is Grace talking (a clarifying question, a
-    // refusal, an answer) despite the ACTION classification. For that case:
-    // one contract re-ask (plan, or ask the developer plainly), and if the
-    // retry still carries no plan, Grace's words are surfaced to the
-    // developer as a direct reply instead of an opaque error.
-    let mut plan_reply = plan_reply;
+    // provider-native typed extraction over the SAME reply. A reply with NO
+    // tasks is not an error: it is Grace routing the request back to the
+    // developer (an answer or a clarification question) per the routing
+    // contract, and it is relayed as-is.
     let extracted = match invoker.extract_plan(GRACE, &plan_reply) {
         Ok(extracted) => extracted,
         Err(cause) => {
             crate::llm::push_connection_log(&format!(
-                "=== GRACE PLAN-LESS RESPONSE (attempt 1: {cause}) ===\n{plan_reply}\n"
+                "=== GRACE DIRECT RESPONSE (no plan: {cause}) ===\n{plan_reply}\n"
             ));
-            on_progress(format!(
-                "Grace's response contained no executable plan ({cause}). Asking once for a plan or an explicit question."
-            ));
-            let correction = format!(
-                "Your previous response to this ACTION request contained no executable workflow tasks.\n\nIf the work can proceed, return the COMPLETE workflow plan now: END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.\n\nIf you cannot plan because information only the developer can supply is missing, reply with ONLY your question(s) to the developer as plain readable Markdown and no JSON.\n\nORIGINAL REQUEST:\n{request}\n\nYOUR PREVIOUS RESPONSE:\n{plan_reply}"
+            on_progress("Grace routed the request back to the developer.".into());
+            let record = direct_grace_record(
+                plan_reply,
+                "Answer or ask the developer directly (no workflow required)",
             );
-            let retry_reply = invoker.invoke(GRACE, "", &correction)?;
-            match invoker.extract_plan(GRACE, &retry_reply) {
-                Ok(extracted) => {
-                    plan_reply = retry_reply;
-                    extracted
-                }
-                Err(retry_cause) => {
-                    crate::llm::push_connection_log(&format!(
-                        "=== GRACE PLAN-LESS RESPONSE (attempt 2: {retry_cause}) ===\n{retry_reply}\n"
-                    ));
-                    on_progress(
-                        "Grace responded without workflow tasks; relaying her reply to the developer.".into(),
-                    );
-                    let record = direct_grace_record(
-                        retry_reply,
-                        "Relay Grace's response to an action request that produced no workflow tasks",
-                    );
-                    let path = save_workflow_record(project_dir, &record, &[])?;
-                    return Ok((record, path));
-                }
-            }
+            let path = save_workflow_record(project_dir, &record, &[])?;
+            return Ok((record, path));
         }
     };
     let (mut workflow_id, mut plan) = (extracted.workflow_id, extracted.tasks);
     let plan_db = AgentsDb::load(project_dir);
-    if let Err(defect) = validate_workflow_coordination(&plan_db, request, &plan) {
+    // Plan-correction loop with multiple rounds. Observed live: the first
+    // corrected plan traded one violation (no Documentation task) for a new
+    // one (a Pedantic reviewer as task agent) and the old single-shot limit
+    // killed the whole run on the second rejection.
+    let mut last_reply = plan_reply;
+    let mut correction_rounds = 0usize;
+    while let Err(defect) = validate_workflow_coordination(&plan_db, request, &plan) {
+        if correction_rounds >= 3 {
+            return Err(format!(
+                "Grace's plan still violates a coordination contract after {correction_rounds} correction round(s): {defect}"
+            ));
+        }
+        correction_rounds += 1;
         on_progress(format!(
-            "Grace's plan violated a coordination contract: {defect}. Requesting a corrected plan."
+            "Grace's plan violated a coordination contract: {defect}. Requesting a corrected plan (round {correction_rounds}/3)."
         ));
         let correction = format!(
-            "Your previous workflow plan was rejected because: {defect}\n\nReturn a COMPLETE corrected workflow plan. Preserve the Documentation coordination contract. For indexed-file work, use {DOCUMENTATION_AGENT} first for file name, purpose, project knowledge, 1NF/2NF/3NF, helper-file analysis, and the developer's UUID-or-PIC decision; only then assign dependent mutation tasks to {DATA_INDEXED_FILE_AGENT}. If required information is absent, return only a Documentation clarification task and do not mutate. END with the corrected plan JSON and nothing after it.\n\nORIGINAL REQUEST:\n{request}\n\nREJECTED PLAN:\n{plan_reply}"
+            "Your previous workflow plan was rejected because: {defect}\n\nReturn a COMPLETE corrected workflow plan that fixes THIS defect without introducing another. All coordination rules apply simultaneously:\n- A Pedantic reviewer is NEVER a task agent; reviews happen through each task's `reviewer` field only.\n- Preserve the Documentation coordination contract. For indexed-file work, use {DOCUMENTATION_AGENT} first for file name, purpose, project knowledge, 1NF/2NF/3NF, helper-file analysis, and the developer's UUID-or-PIC decision; only then assign dependent mutation tasks to {DATA_INDEXED_FILE_AGENT}.\n- If required information is absent, return only a Documentation clarification task and do not mutate.\nEND with the corrected plan JSON and nothing after it.\n\nORIGINAL REQUEST:\n{request}\n\nREJECTED PLAN:\n{last_reply}"
         );
         let corrected_reply = invoker.invoke(GRACE, "", &correction)?;
         let corrected = invoker.extract_plan(GRACE, &corrected_reply)?;
+        last_reply = corrected_reply;
         (workflow_id, plan) = (corrected.workflow_id, corrected.tasks);
-        validate_workflow_coordination(&plan_db, request, &plan).map_err(|error| {
-            format!("Grace's corrected plan still violates a coordination contract: {error}")
-        })?;
     }
-    on_progress(format!(
-        "Grace planned {} task(s) [{}].",
-        plan.len(),
-        workflow_id
-    ));
+    // The Pedantic-companion contract is enforced mechanically, whatever
+    // reviewer names the plan carried.
+    let companion_of = |agent_name: &str| -> Option<String> {
+        let responsible = plan_db.by_name(agent_name)?;
+        let companion_id = responsible.companion.as_ref()?;
+        let companion = plan_db.by_id(companion_id)?;
+        companion.enabled.then(|| companion.name.clone())
+    };
+    sanitize_plan_reviewers(&companion_of, &mut plan, on_progress);
+    // Typographic rule: action items are listed with their T# bullet, with a
+    // blank line between the paragraph and the list.
+    let mut planned = format!("Grace planned {} task(s) [{}]:\n", plan.len(), workflow_id);
+    for task in &plan {
+        let first_sentence = task
+            .objective
+            .split(['.', '\n'])
+            .next()
+            .unwrap_or("")
+            .trim();
+        planned.push_str(&format!("\n- **{}** — {}: {first_sentence}", task.id, task.agent));
+    }
+    on_progress(planned);
 
     let db2 = AgentsDb::load(project_dir);
     let system_for = move |name: &str| {
         let base = db2.load_agent_core_instructions(name);
         let relationship = pedantic_relationship_contract(&db2, name);
-        let base = format!("{base}{relationship}");
+        // The Documentation Agent's deliverable goes straight to the chat and
+        // to dependent agents: demand the artifact, not the thought process.
+        let concise = if name.eq_ignore_ascii_case(DOCUMENTATION_AGENT) {
+            DOCUMENTATION_CONCISE_CONTRACT
+        } else {
+            ""
+        };
+        let base = format!("{base}{relationship}{concise}");
         // Append the tool-calling contract for whatever tools this agent
         // declares (spec 030 R2) — always consistent with its actual grant.
         let declared: std::collections::HashSet<String> = db2
@@ -1338,7 +1238,11 @@ pub fn run_grace_workflow_with_context(
             emitted += 1;
         }
     };
-    let mut record = GraceEngine::default().run_with_progress(
+    // The correction-loop bound is the project's AI setting (was hardcoded 2).
+    let mut record = GraceEngine {
+        max_revisions: llm.max_review_revisions.min(10) as usize,
+    }
+    .run_with_progress(
         &workflow_id,
         &plan,
         &mut invoker,
@@ -1357,22 +1261,59 @@ pub fn run_grace_workflow_with_context(
     normalize_form_change_sets(&inner, &mut record, on_progress);
 
     // Enrich the record for the chatbot surface: KB summary, Grace's concise
-    // one-line summary, and the workflow's total token consumption.
+    // summary (evidence-backed), and the workflow's total token consumption.
+    let tool_calls = evidence.lock().unwrap().clone();
     record.knowledge_summary = summarize_knowledge_context(&knowledge_context);
-    record.final_summary = grace_final_summary(&record);
+    record.final_summary = grace_final_summary(&record, &tool_calls);
     {
         let (inp, out) = *token_sink.lock().unwrap();
         record.input_tokens = inp;
         record.output_tokens = out;
     }
 
-    let tool_calls = evidence.lock().unwrap().clone();
     let path = save_workflow_record(project_dir, &record, &tool_calls)?;
     on_progress(format!(
         "Workflow {}: {}.",
         record.workflow_id, record.status
     ));
     Ok((record, path))
+}
+
+/// Enforce the Pedantic-companion contract mechanically (governance by
+/// construction): each task's reviewer is exactly its responsible agent's
+/// ENABLED companion. A fabricated reviewer name ("COBOL Pedantic Agent" was
+/// observed live) is replaced with the real companion; a missing or disabled
+/// companion clears the review gate instead of failing the task at review
+/// time with "agent is disabled". Grace's plan expresses intent — the host
+/// owns the mapping.
+fn sanitize_plan_reviewers(
+    companion_of: &dyn Fn(&str) -> Option<String>,
+    plan: &mut [TaskSpec],
+    on_progress: &mut dyn FnMut(String),
+) {
+    for task in plan.iter_mut() {
+        let expected = companion_of(&task.agent);
+        if task.reviewer == expected {
+            continue;
+        }
+        let note = match (&task.reviewer, &expected) {
+            (Some(was), Some(now)) => format!(
+                "  {}: reviewer \u{201c}{was}\u{201d} corrected to \u{201c}{now}\u{201d} — the responsible agent's companion.",
+                task.id
+            ),
+            (Some(was), None) => format!(
+                "  {}: reviewer \u{201c}{was}\u{201d} cleared — \u{201c}{}\u{201d} has no enabled Pedantic companion.",
+                task.id, task.agent
+            ),
+            (None, Some(now)) => format!(
+                "  {}: reviewer set to \u{201c}{now}\u{201d} — the responsible agent's companion.",
+                task.id
+            ),
+            (None, None) => continue,
+        };
+        on_progress(note);
+        task.reviewer = expected;
+    }
 }
 
 /// Canonicalize approved Form Designer submissions (Rig migration phase 3):
@@ -1397,10 +1338,11 @@ fn normalize_form_change_sets(
         let Some(submission) = task.submissions.last().cloned() else {
             continue;
         };
-        if crate::agent::parse_change_set(&submission).is_ok() {
-            continue;
-        }
-        match invoker.extract_change_set(&submission) {
+        let cause = match crate::agent::parse_change_set(&submission) {
+            Ok(_) => continue,
+            Err(cause) => cause,
+        };
+        match invoker.extract_change_set(&submission, &cause) {
             Ok(change_set) => match serde_json::to_string_pretty(&change_set) {
                 Ok(json) => {
                     task.submissions.push(format!("```json\n{json}\n```"));
@@ -1495,6 +1437,19 @@ pub fn workflow_chat_reply(
 /// agent's (summarised) response, the Pedantic verdict, and Grace's final line.
 /// Change-sets are rendered in plain language rather than dumped as raw JSON.
 fn verbose_transcript(record: &WorkflowRecord) -> String {
+    let (body, summary) = verbose_transcript_parts(record);
+    let joined = match summary {
+        Some(summary) => format!("{body}\n\nGrace: {summary}"),
+        None => body,
+    };
+    with_token_footer(joined.trim_end().to_string(), record)
+}
+
+/// The verbose transcript split in two: the coordination body (plan, delegated
+/// requests, submissions, verdicts) and — when the workflow produced one —
+/// Grace's final consolidated summary, so the chat can show the summary as
+/// Grace's OWN balloon instead of burying it at the tail of the transcript.
+fn verbose_transcript_parts(record: &WorkflowRecord) -> (String, Option<String>) {
     use cobolt_agents::grace::TaskState;
     let mut out = String::new();
     if !record.knowledge_summary.trim().is_empty() {
@@ -1504,14 +1459,16 @@ fn verbose_transcript(record: &WorkflowRecord) -> String {
     if record.tasks.len() == 1 && record.tasks[0].spec.agent.eq_ignore_ascii_case(GRACE) {
         let reply = record.tasks[0].submissions.last().cloned().unwrap_or_default();
         out.push_str(&format!("Grace: {}", reply.trim()));
-        return with_token_footer(out.trim_end().to_string(), record);
+        return (out.trim_end().to_string(), None);
     }
     out.push_str(&format!("Grace: planned {} step(s).\n\n", record.tasks.len()));
     for task in &record.tasks {
         let agent = &task.spec.agent;
         out.push_str(&format!("Grace \u{2192} {agent}: {}\n", task.spec.objective.trim()));
         if let Some(sub) = task.submissions.last() {
-            out.push_str(&format!("{agent}: {}\n", readable_submission(sub)));
+            // Verbose is where the specialists' full content (their applied
+            // reasoning) belongs — word-capped, fenced blocks stripped.
+            out.push_str(&format!("{agent}: {}\n", full_prose_submission(sub)));
         }
         if let Some(review) = task.reviews.last() {
             let verdict = if review.defects { "REJECTED" } else { "APPROVED" };
@@ -1526,10 +1483,29 @@ fn verbose_transcript(record: &WorkflowRecord) -> String {
         }
         out.push('\n');
     }
-    if !record.final_summary.trim().is_empty() {
-        out.push_str(&format!("Grace: {}", record.final_summary.trim()));
+    let summary = record.final_summary.trim();
+    (
+        out.trim_end().to_string(),
+        (!summary.is_empty()).then(|| summary.to_string()),
+    )
+}
+
+/// The workflow reply as chat balloons. Concise mode stays one balloon. In
+/// verbose mode a delegated workflow yields TWO: the coordination transcript,
+/// then Grace's own final balloon (her consolidated summary plus the token
+/// footer) — previously the summary sat at the tail of one giant transcript
+/// balloon and read as the last specialist's text.
+pub fn workflow_chat_balloons(record: &WorkflowRecord, verbose: bool) -> Vec<String> {
+    if !verbose {
+        return vec![workflow_chat_reply(record, None, false)];
     }
-    with_token_footer(out.trim_end().to_string(), record)
+    match verbose_transcript_parts(record) {
+        (body, Some(summary)) => vec![
+            body,
+            with_token_footer(format!("Grace: {summary}"), record),
+        ],
+        (body, None) => vec![with_token_footer(body, record)],
+    }
 }
 
 /// Append a compact token-consumption footer, unless no tokens were recorded.
@@ -1550,6 +1526,61 @@ fn first_nonempty_line(s: &str) -> String {
         .unwrap_or("")
         .trim()
         .to_string()
+}
+
+/// The full prose of a submission with fenced code/JSON blocks removed and the
+/// line structure preserved. Used when the submission itself is the
+/// deliverable — a clarification handoff — where the 50-word chat lead of
+/// [`readable_submission`] would swallow the questions (observed live: the
+/// UUID-or-PIC questions sat beyond word 50, so the developer saw only a
+/// truncated intro and no question balloons).
+/// Appended to the Documentation Agent's system prompt on every workflow
+/// invocation: its output is relayed to the developer's chat and handed to
+/// dependent agents, so it must be the artifact itself — concise, no
+/// reasoning narrative.
+const DOCUMENTATION_CONCISE_CONTRACT: &str = "\n\nCONCISE OUTPUT CONTRACT\nRespond with only the content required to execute or hand off the task: the artifact, the analysis results, and any developer questions. No reasoning narrative, no restated instructions, no meta-commentary about your process. Keep the handoff as short as the task allows.";
+
+/// Upper bound on the words a relayed handoff may carry into the chat. Real
+/// clarification handoffs run hundreds of words; helper-heavy schemas run
+/// bigger. Raise this if specialists legitimately need more room — the full
+/// text is always preserved in the workflow record on disk.
+const CLARIFICATION_RELAY_MAX_WORDS: usize = 5_000;
+
+fn full_prose_submission(sub: &str) -> String {
+    let mut lines = Vec::new();
+    let mut in_fence = false;
+    for line in sub.lines() {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if !in_fence {
+            lines.push(line);
+        }
+    }
+    // Word cap, preserving line structure. Question lines are NEVER dropped —
+    // a handoff whose questions sit past the budget must still ask them.
+    let mut kept = Vec::with_capacity(lines.len());
+    let mut words = 0usize;
+    let mut truncated = false;
+    for line in lines {
+        if !truncated {
+            words += line.split_whitespace().count();
+            if words > CLARIFICATION_RELAY_MAX_WORDS {
+                truncated = true;
+                kept.push(format!(
+                    "\u{2026} (handoff truncated at {CLARIFICATION_RELAY_MAX_WORDS} words — the \
+                     complete text is preserved in the workflow record)"
+                ));
+            }
+        }
+        if !truncated {
+            kept.push(line.to_string());
+        } else if line_as_developer_question(line).is_some() {
+            kept.push(line.to_string());
+        }
+    }
+    kept.join("\n").trim().to_string()
 }
 
 /// Render one agent submission for the chatbot: a plain-language change-set
@@ -1717,28 +1748,122 @@ fn summarize_knowledge_context(ctx: &str) -> String {
 /// approved work so it costs no extra model roundtrip. Change-sets are
 /// summarised in plain language; other agents are summarised from their task
 /// objective.
-fn grace_final_summary(record: &WorkflowRecord) -> String {
+/// Split developer-facing questions out of an agent reply. Returns the reply
+/// remainder (context the developer may still see at once) and each question in
+/// order. A question is a line ending in `?` or an explicit "please specify /
+/// provide / choose / confirm / indicate / select" request — the phrasings the
+/// clarification contract produces. The chat surface shows them one balloon at
+/// a time, waiting for each answer.
+/// When `raw` reads as a developer-facing question — a line ending in `?` or
+/// an explicit "please specify / provide / choose / confirm / indicate /
+/// select" request — returns its cleaned text.
+fn line_as_developer_question(raw: &str) -> Option<String> {
+    let stripped = raw
+        .trim()
+        .trim_start_matches(['-', '*', '>'])
+        .trim_start_matches('#')
+        .trim()
+        .replace("**", "");
+    let clean = stripped.trim();
+    let lower = clean.to_ascii_lowercase();
+    let is_question = !clean.is_empty()
+        && !clean.starts_with('|')
+        && (clean.ends_with('?')
+            || [
+                "please specify",
+                "please provide",
+                "please choose",
+                "please confirm",
+                "please indicate",
+                "please select",
+            ]
+            .iter()
+            .any(|marker| lower.contains(marker)));
+    is_question.then(|| clean.to_string())
+}
+
+pub fn split_developer_questions(text: &str) -> (String, Vec<String>) {
+    let mut questions: Vec<String> = Vec::new();
+    let mut rest = Vec::new();
+    for raw in text.lines() {
+        match line_as_developer_question(raw) {
+            Some(question) => questions.push(question),
+            None => rest.push(raw),
+        }
+    }
+    // Dedupe: the verbose transcript can carry the same question twice — the
+    // per-task 50-word lead ("Documentation Agent: Developer, please provide…
+    // ### Schema…") and the clean relayed line. Observed live: the developer
+    // got two balloons for the CIF question and answered it twice. Containment
+    // on an alphanumeric key keeps the SHORTEST form of each question.
+    let key = |s: &str| -> String {
+        // Drop a leading speaker prefix ("Grace:", "Documentation Agent:") so
+        // the same question relayed under different speakers compares equal.
+        let body = match s.find(':') {
+            Some(i) if i <= 40 => s[i + 1..].trim_start(),
+            _ => s,
+        };
+        body.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let mut kept: Vec<String> = Vec::new();
+    'next_question: for question in questions {
+        let question_key = key(&question);
+        for existing in kept.iter_mut() {
+            let existing_key = key(existing);
+            if question_key.contains(&existing_key) {
+                continue 'next_question; // longer duplicate of a kept question
+            }
+            if existing_key.contains(&question_key) {
+                *existing = question; // shorter, cleaner form wins
+                continue 'next_question;
+            }
+        }
+        kept.push(question);
+    }
+    (rest.join("\n").trim().to_string(), kept)
+}
+
+/// Grace's CONCISE closing summary for the chat's blue dialog bubble. Built
+/// from structured facts only — executed tool evidence, task outcomes, and
+/// any developer questions extracted from the approved submissions. The full
+/// specialist submissions (their reasoning) appear only in the verbose
+/// transcript's dark cards.
+fn grace_final_summary(record: &WorkflowRecord, evidence: &[ToolEvidence]) -> String {
     use cobolt_agents::grace::TaskState;
-    let mut lines = Vec::new();
+    let mut sections: Vec<String> = Vec::new();
+
+    // Form change-set operations, when present.
+    let mut ops = Vec::new();
     for task in &record.tasks {
         if task.final_state == TaskState::Approved {
             if let Some(sub) = task.submissions.last() {
-                lines.extend(summarize_operations(&extract_operations(sub)));
+                ops.extend(summarize_operations(&extract_operations(sub)));
             }
         }
     }
-    if !lines.is_empty() {
-        return lines.join(" ");
+    if !ops.is_empty() {
+        sections.push(ops.join(" "));
     }
-    if record.status == "failed" {
-        return String::new();
+
+    // Mutations actually executed, from tool evidence — the ground truth of
+    // what was created or changed.
+    let executed: Vec<String> = evidence
+        .iter()
+        .filter(|e| e.ok && (e.tool.ends_with(".write") || e.tool == "git.run"))
+        .map(|e| format!("- {} — {}", e.tool, e.summary))
+        .collect();
+    if !executed.is_empty() {
+        sections.push(format!("Executed:\n\n{}", executed.join("\n")));
     }
-    // No change-set (COBOL/doc/etc.) — summarise from the approved task objectives
-    // rather than spending another Grace call on a one-liner.
-    let done: Vec<String> = record
+
+    // Task outcomes as the T#-bulleted list (typographic rule), including
+    // failures so nothing is concealed.
+    let outcomes: Vec<String> = record
         .tasks
         .iter()
-        .filter(|t| t.final_state == TaskState::Approved)
         .map(|t| {
             let objective = t
                 .spec
@@ -1747,14 +1872,43 @@ fn grace_final_summary(record: &WorkflowRecord) -> String {
                 .next()
                 .unwrap_or("")
                 .trim();
-            if objective.is_empty() {
-                format!("{} completed its task", t.spec.agent)
+            let label = if objective.is_empty() {
+                format!("{}", t.spec.agent)
             } else {
                 format!("{}: {objective}", t.spec.agent)
+            };
+            match t.final_state {
+                TaskState::Approved => format!("- {} — {label}", t.spec.id),
+                TaskState::Failed => format!(
+                    "- {} — {label} — FAILED: {}",
+                    t.spec.id,
+                    first_nonempty_line(&t.failure_reason)
+                ),
+                _ => format!("- {} — {label} — {:?}", t.spec.id, t.final_state),
             }
         })
         .collect();
-    done.join("; ")
+    if !outcomes.is_empty() {
+        sections.push(format!("Tasks:\n\n{}", outcomes.join("\n")));
+    }
+
+    // Developer questions still surface in concise mode — the chat turns
+    // them into their own red balloons. The surrounding detail stays verbose.
+    let mut questions: Vec<String> = Vec::new();
+    for task in &record.tasks {
+        if task.final_state == TaskState::Approved {
+            if let Some(sub) = task.submissions.last() {
+                let (_context, mut found) = split_developer_questions(&full_prose_submission(sub));
+                questions.append(&mut found);
+            }
+        }
+    }
+    questions.dedup();
+    if !questions.is_empty() {
+        sections.push(questions.join("\n"));
+    }
+
+    sections.join("\n\n")
 }
 
 #[cfg(test)]
@@ -1830,6 +1984,188 @@ mod tests {
         }
     }
 
+    /// The relay caps at [`CLARIFICATION_RELAY_MAX_WORDS`], but question lines
+    /// past the budget must still be asked — dropping them would recreate the
+    /// truncated-handoff bug at a larger size.
+    #[test]
+    fn oversized_handoffs_are_capped_but_never_lose_their_questions() {
+        let filler_line = "word ".repeat(100); // 100 words per line
+        let mut submission = String::new();
+        for _ in 0..60 {
+            submission.push_str(&filler_line);
+            submission.push('\n');
+        } // 6000 words of context — past the 5000 cap
+        submission.push_str("Please specify the ID format for CompanyID.\n");
+        submission.push_str("Should the registry number be unique per province?\n");
+
+        let relayed = full_prose_submission(&submission);
+        let relayed_words = relayed.split_whitespace().count();
+        assert!(
+            relayed_words < 5_200,
+            "cap must hold (got {relayed_words} words)"
+        );
+        assert!(relayed.contains("handoff truncated at 5000 words"));
+        assert!(
+            relayed.contains("Please specify the ID format for CompanyID."),
+            "questions past the cap must survive"
+        );
+        assert!(relayed.contains("Should the registry number be unique per province?"));
+
+        // Under the cap: untouched.
+        let small = "A short handoff.\nPlease specify the file name.";
+        assert_eq!(full_prose_submission(small), small);
+    }
+
+    /// The concise summary carries the QUESTIONS from a long handoff (they
+    /// become balloons) while the detail — filler, decision tables — stays in
+    /// the verbose transcript's document cards only.
+    #[test]
+    fn long_clarification_handoffs_keep_their_questions_and_drop_the_detail() {
+        let filler = "The analysis decomposes the requirements into normalized entities \
+             to eliminate redundancy and transitive dependencies across the domain. "
+            .repeat(10);
+        let submission = format!(
+            "Since no existing conventions were found, this is a greenfield requirement.\n\n\
+             {filler}\n\n\
+             | Entity | Proposed File Name |\n| --- | --- |\n| Branch | idx-branch.cidx |\n\n\
+             **Please specify for each ID category whether to use a UUID or a specific \
+             COBOL PIC clause (e.g., PIC X(10)).**\n\n\
+             Status: Pending Developer Choice. No mutation of resources has been performed."
+        );
+        let clarification = task("Documentation Agent", TaskState::Approved, &submission);
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![clarification],
+            ..Default::default()
+        };
+        let summary = grace_final_summary(&record, &[]);
+        assert!(
+            summary.contains("Please specify for each ID category"),
+            "the questions must reach the developer, got: {summary}"
+        );
+        assert!(
+            !summary.contains("| Branch | idx-branch.cidx |"),
+            "the detail belongs to verbose mode, not the concise bubble"
+        );
+        // Verbose keeps the full handoff, table included.
+        let verbose = workflow_chat_reply(&record, None, true);
+        assert!(verbose.contains("| Branch | idx-branch.cidx |"));
+    }
+
+    /// In verbose mode Grace's consolidated summary is its OWN balloon after
+    /// the coordination transcript — not the tail of one giant balloon that
+    /// reads as the last specialist's text.
+    #[test]
+    fn verbose_workflow_reply_gives_grace_her_own_final_balloon() {
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![
+                task("Documentation Agent", TaskState::Approved, "Handoff ready."),
+                task(
+                    "Data (Indexed File) Agent",
+                    TaskState::Approved,
+                    "All files are finalized and submitted for review.",
+                ),
+            ],
+            final_summary: "Executed:\n\n- indexed_file.write — saved indexed/banco.cidx".into(),
+            input_tokens: 100,
+            output_tokens: 50,
+            ..Default::default()
+        };
+        let balloons = workflow_chat_balloons(&record, true);
+        assert_eq!(balloons.len(), 2, "transcript + Grace's final balloon");
+        assert!(balloons[0].contains("Grace: planned 2 step(s)."));
+        assert!(balloons[0].contains("All files are finalized"));
+        assert!(
+            !balloons[0].contains("indexed_file.write — saved"),
+            "the summary must not also sit at the transcript tail"
+        );
+        assert!(balloons[1].starts_with("Grace: Executed:"));
+        assert!(
+            balloons[1].contains("tokens in"),
+            "the token footer rides Grace's final balloon"
+        );
+
+        // Concise mode stays one balloon.
+        assert_eq!(workflow_chat_balloons(&record, false).len(), 1);
+    }
+
+    #[test]
+    fn clarification_task_questions_are_relayed_in_final_summary() {
+        let clarification = task(
+            "Documentation Agent",
+            TaskState::Approved,
+            "### Developer Clarification Request\nPlease specify the primary file name \
+             (e.g. COMPANY-MASTER).\nFor every ID field: UUID or a specific COBOL PIC definition?",
+        );
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![clarification],
+            ..Default::default()
+        };
+        let summary = grace_final_summary(&record, &[]);
+        assert!(
+            summary.contains("primary file name"),
+            "the specialist's question must reach the developer, got: {summary}"
+        );
+        assert!(
+            summary.contains("UUID or a specific COBOL PIC"),
+            "the ID-format question must reach the developer, got: {summary}"
+        );
+    }
+
+    /// The blue-bubble summary is evidence-backed: executed .write tools are
+    /// listed as the ground truth of what was created.
+    #[test]
+    fn final_summary_lists_executed_writes_from_evidence() {
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![task(
+                "Data (Indexed File) Agent",
+                TaskState::Approved,
+                "The definition is finalized and locked.",
+            )],
+            ..Default::default()
+        };
+        let evidence = vec![
+            ToolEvidence {
+                agent: "Data (Indexed File) Agent".into(),
+                tool: "indexed_file.write".into(),
+                args_digest: String::new(),
+                summary: "wrote indexed/idx-company.cidx".into(),
+                ok: true,
+                ts: 0,
+            },
+            // Read-only evidence stays out of the summary.
+            ToolEvidence {
+                agent: "Data (Indexed File) Agent".into(),
+                tool: "indexed_file.list".into(),
+                args_digest: String::new(),
+                summary: "listed 6 indexed-file definition(s)".into(),
+                ok: true,
+                ts: 0,
+            },
+        ];
+        let summary = grace_final_summary(&record, &evidence);
+        assert!(
+            summary.contains("indexed_file.write — wrote indexed/idx-company.cidx"),
+            "{summary}"
+        );
+        assert!(!summary.contains("indexed_file.list"));
+        assert!(
+            summary.contains("- T — Data (Indexed File) Agent"),
+            "task outcomes list present: {summary}"
+        );
+        assert!(
+            !summary.contains("finalized and locked"),
+            "specialist prose stays out of the concise bubble"
+        );
+    }
+
     #[test]
     fn only_approved_form_designer_tasks_yield_change_sets() {
         let cs = "```json\n{\"operations\":[{\"op\":\"deploy_control\",\"control_type\":\"Button\",\"id\":\"BTN\"}]}\n```";
@@ -1876,47 +2212,6 @@ mod tests {
     }
 
     #[test]
-    fn read_only_questions_are_direct_grace_conversations() {
-        assert!(is_informational_grace_request("What can you do?"));
-        assert!(is_informational_grace_request("How can you help me?"));
-        assert!(is_informational_grace_request(
-            "Describe the fiscal information normally held for a Spanish company"
-        ));
-        assert!(is_informational_grace_request(
-            "Explain how indexed-file keys work"
-        ));
-        assert!(is_informational_grace_request(
-            "Generate a description of the fiscal fields used for Spanish companies"
-        ));
-        assert!(!is_informational_grace_request(
-            "Plan an accounts payable application"
-        ));
-        assert!(!is_informational_grace_request(
-            "Describe the customer schema and create the indexed file"
-        ));
-        // Event-wiring directives open with a passive keyword ("when") but ask
-        // for a concrete change, so they must route to the ACTION contract.
-        assert!(!is_informational_grace_request(
-            "when the user click on button-1, activate timer-1"
-        ));
-        assert!(!is_informational_grace_request(
-            "When Button-1 is clicked, start Timer-1"
-        ));
-        // A genuine "when" question with no imperative consequent stays a conversation.
-        assert!(is_informational_grace_request("When does the timer fire?"));
-
-        let record = direct_grace_record(
-            "I coordinate the project agents.".into(),
-            "Answer the developer's read-only request directly",
-        );
-        assert_eq!(
-            workflow_chat_reply(&record, None, false),
-            "I coordinate the project agents."
-        );
-        assert_eq!(record.tasks[0].spec.agent, GRACE);
-    }
-
-    #[test]
     fn legacy_bare_record_file_still_loads() {
         // A file written before spec 030 held a bare WorkflowRecord.
         let legacy = serde_json::to_string(&sample_record()).unwrap();
@@ -1933,199 +2228,237 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Observed live: "Hola" ran the full ACTION pipeline — plan, empty-plan
+    /// retry, failed typed extraction, and a delegated Documentation-Agent
+    /// "greeting task" (~9.4k tokens). A greeting must answer locally, free.
     #[test]
-    fn interface_documentation_requires_designer_then_documentation_agent() {
-        let invalid = vec![TaskSpec {
-            id: "T1".into(),
-            agent: "Form Designer Agent".into(),
-            objective: "Write and save the interface documentation".into(),
-            context: "/Knowledge Base/forms/customer.md".into(),
-            reviewer: None,
-            depends_on: vec![],
-            acceptance: "document exists".into(),
-        }];
-        assert!(
-            validate_documentation_coordination("Document the form interface", &invalid)
-                .unwrap_err()
-                .contains("only Documentation Agent")
+    fn bare_greetings_get_a_canned_reply_in_their_language() {
+        assert_eq!(
+            simple_greeting_reply("Hola"),
+            Some("¡Hola! ¿Cómo estás? ¿Creamos algo juntos?")
         );
-
-        let valid = vec![
-            TaskSpec {
-                id: "T1".into(),
-                agent: "Form Designer Agent".into(),
-                objective: "Prepare the authoritative interface inventory".into(),
-                context: "controls, layout, bindings, and events".into(),
-                reviewer: None,
-                depends_on: vec![],
-                acceptance: "source material is complete; no file is written".into(),
-            },
-            TaskSpec {
-                id: "T2".into(),
-                agent: DOCUMENTATION_AGENT.into(),
-                objective: "Format and save the interface documentation".into(),
-                context: "/Knowledge Base/forms/customer.md".into(),
-                reviewer: None,
-                depends_on: vec!["T1".into()],
-                acceptance: "document is formatted and indexed".into(),
-            },
-        ];
-        assert!(validate_documentation_coordination("Document the form interface", &valid).is_ok());
+        assert_eq!(
+            simple_greeting_reply("¡Hola, Grace!"),
+            Some("¡Hola! ¿Cómo estás? ¿Creamos algo juntos?")
+        );
+        assert_eq!(
+            simple_greeting_reply("olá"),
+            Some("Olá! Tudo bem? Vamos criar algo juntos?")
+        );
+        assert_eq!(
+            simple_greeting_reply("Bom dia"),
+            Some("Olá! Tudo bem? Vamos criar algo juntos?")
+        );
+        assert_eq!(
+            simple_greeting_reply("hello"),
+            Some("Hello! How are you? Shall we create something together?")
+        );
+        // Combined greeting + how-are-you, with accents (observed live:
+        // "Hola, ¿cómo estás?" missed the list and ran the ACTION pipeline).
+        assert_eq!(
+            simple_greeting_reply("Hola, ¿cómo estás?"),
+            Some("¡Hola! ¿Cómo estás? ¿Creamos algo juntos?")
+        );
+        assert_eq!(
+            simple_greeting_reply("como estas"),
+            Some("¡Hola! ¿Cómo estás? ¿Creamos algo juntos?")
+        );
+        assert_eq!(
+            simple_greeting_reply("Olá, tudo bem?"),
+            Some("Olá! Tudo bem? Vamos criar algo juntos?")
+        );
+        assert_eq!(
+            simple_greeting_reply("hi, how are you?"),
+            Some("Hello! How are you? Shall we create something together?")
+        );
+        // Anything beyond a greeting goes through the normal pipeline.
+        assert_eq!(simple_greeting_reply("Hola, crea un formulario de login"), None);
+        assert_eq!(simple_greeting_reply("Create an indexed file"), None);
+        assert_eq!(simple_greeting_reply("What can you do?"), None);
     }
 
     #[test]
-    fn documentation_accepts_source_preparation_and_requires_every_source() {
+    fn workflow_control_stop_gates_every_model_call() {
+        let control = WorkflowControl::default();
+        assert!(!control.stop_requested());
+        *control.tokens.lock().unwrap() = (100, 20);
+        assert_eq!(control.token_totals(), (100, 20));
+        control.request_stop();
+        assert!(control.stop_requested());
+        // The invoker refuses immediately once the flag is set.
+        let mut invoker = DbAgentInvoker {
+            project_dir: std::env::temp_dir(),
+            llm: LlmConfig::defaults(),
+            tokens: control.tokens.clone(),
+            evidence: Arc::new(Mutex::new(Vec::new())),
+            cancel: control.cancel.clone(),
+        };
+        let err = invoker
+            .invoke("Documentation Agent", "sys", "user")
+            .unwrap_err();
+        assert!(err.contains("stopped by the developer"), "{err}");
+    }
+
+    /// Observed live: the verbose transcript carried the CIF question twice —
+    /// once inside the flattened per-task lead ("Documentation Agent: …") and
+    /// once as the clean relayed line ("Grace: …") — producing two balloons
+    /// for one question. The dedupe keeps the shortest form only.
+    #[test]
+    fn duplicated_questions_across_transcript_lines_become_one_balloon() {
+        let transcript = "Documentation Agent: Developer, please provide the exact COBOL \
+             `PIC` clause for the `CIF` field in `idx-spain-company` (e.g., `PIC X(12)`). \
+             ### Schema Handoff Update: Spanish Entity Indexes File: `idx-spain-company` \
+             - `CIF`: [PENDING DEVELOPER PIC DEFINITION] - All other ID and Foreign Key fields:\u{2026}\n\
+             Some unrelated context line.\n\
+             Grace: Developer, please provide the exact COBOL `PIC` clause for the `CIF` \
+             field in `idx-spain-company` (e.g., `PIC X(12)`).\n";
+        let (context, questions) = split_developer_questions(transcript);
+        assert_eq!(questions.len(), 1, "{questions:?}");
+        assert!(
+            questions[0].starts_with("Grace: Developer, please provide"),
+            "the clean short form must win, got: {}",
+            questions[0]
+        );
+        assert!(context.contains("Some unrelated context line."));
+        // Genuinely distinct questions both survive.
+        let (_, two) = split_developer_questions(
+            "Please specify the file name.\nShould CIF be unique per company?",
+        );
+        assert_eq!(two.len(), 2);
+    }
+
+    #[test]
+    fn developer_questions_are_split_from_the_reply_context() {
+        let reply = "### Developer Clarification Request\n\n\
+            The proposed schema separates companies, addresses, and representatives.\n\n\
+            **A. Primary File Name**\n\
+            Please specify the desired filename for the primary company index.\n\n\
+            **B. ID-Format Decisions**\n\
+            For every ID field, should the system use UUID or a COBOL PIC definition?\n\n\
+            | Field | Decision |\n| --- | --- |\n";
+        let (context, questions) = split_developer_questions(reply);
+        assert_eq!(questions.len(), 2, "{questions:?}");
+        assert!(questions[0].contains("Please specify the desired filename"));
+        assert!(questions[1].contains("UUID or a COBOL PIC definition?"));
+        // The context keeps the schema explanation and table, not the questions.
+        assert!(context.contains("proposed schema"));
+        assert!(context.contains("| Field | Decision |"));
+        assert!(!context.contains("Please specify"));
+
+        // A reply with no questions passes through untouched.
+        let (all, none) = split_developer_questions("All tasks completed.\n\n- **T1** — done");
+        assert!(none.is_empty());
+        assert!(all.contains("**T1**"));
+    }
+
+    /// Typographic rules: agents report "<name>: starting/finishing task X" in
+    /// the history, and completed work is listed with T# bullets after a blank
+    /// line.
+    #[test]
+    fn history_lines_report_agent_start_and_finish() {
+        let started = describe_event(&cobolt_agents::grace::GraceEvent::TaskStarted {
+            id: "T1".into(),
+            agent: "Documentation Agent".into(),
+            objective: "clarify".into(),
+        });
+        assert!(started.contains("Documentation Agent: starting task T1"), "{started}");
+        let finished = describe_event(&cobolt_agents::grace::GraceEvent::Submitted {
+            id: "T1".into(),
+            agent: "Documentation Agent".into(),
+        });
+        assert!(finished.contains("Documentation Agent: finishing task T1"), "{finished}");
+    }
+
+    /// A plan-less Grace reply is the MODEL routing the request back to the
+    /// developer — it is relayed verbatim as a direct conversation record.
+    #[test]
+    fn plan_less_replies_are_relayed_as_direct_conversations() {
+        let record = direct_grace_record(
+            "I coordinate the project agents.".into(),
+            "Answer or ask the developer directly (no workflow required)",
+        );
+        assert_eq!(
+            workflow_chat_reply(&record, None, false),
+            "I coordinate the project agents."
+        );
+        assert_eq!(record.tasks[0].spec.agent, GRACE);
+        assert_eq!(record.status, "completed");
+    }
+
+    #[test]
+    fn final_summary_is_concise_task_outcomes_not_submission_prose() {
+        // The blue-bubble summary lists task outcomes (T# bullets, typographic
+        // rule); specialist prose like "done" stays out of concise mode.
+        let mut record = sample_record();
+        record.tasks[0].spec.id = "T1".into();
+        let summary = grace_final_summary(&record, &[]);
+        assert!(
+            summary.contains("Tasks:\n\n- T1 — Version Control Agent: commit"),
+            "paragraph, blank line, then T# bullets — got: {summary}"
+        );
+        assert!(!summary.contains("done"), "prose stays verbose-only");
+    }
+
+    /// Observed live: ollama_cloud/gemma4 returned "Response contained no
+    /// message or tool call (empty)" twice, failing tasks that were finally
+    /// actionable. Empty/timeout/5xx responses are transient and retried;
+    /// credential and request-shape errors are not.
+    #[test]
+    fn transient_model_errors_are_classified_for_retry() {
+        assert!(is_transient_model_error(
+            "model request failed: ResponseError: Response contained no message or tool call (empty)"
+        ));
+        assert!(is_transient_model_error("request timed out after 30s"));
+        assert!(is_transient_model_error("HTTP 503 Service Unavailable"));
+        assert!(is_transient_model_error("server overloaded, retry later"));
+        assert!(!is_transient_model_error("401 Unauthorized: invalid api key"));
+        assert!(!is_transient_model_error(
+            "Function tools with reasoning_effort are not supported"
+        ));
+    }
+
+    /// The Pedantic-companion contract is enforced mechanically: fabricated
+    /// reviewer names are replaced by the responsible agent's real companion,
+    /// and a disabled/missing companion clears the gate.
+    #[test]
+    fn plan_reviewers_are_sanitized_to_enabled_companions() {
+        let companion_of = |agent: &str| -> Option<String> {
+            match agent {
+                "Data (Indexed File) Agent" => Some("Data Reviewer".into()),
+                // Documentation Agent's companion is disabled → None.
+                _ => None,
+            }
+        };
         let mut plan = vec![
             TaskSpec {
                 id: "T1".into(),
-                agent: "Form Designer Agent".into(),
-                objective: "Create source material for the interface documentation".into(),
-                context: "Inventory controls and layout without writing a project document".into(),
-                reviewer: None,
+                agent: "Documentation Agent".into(),
+                objective: "clarify".into(),
+                context: String::new(),
+                reviewer: Some("Documentation Agent Pedantic Reviewer".into()),
                 depends_on: vec![],
-                acceptance: "Authoritative interface facts are returned to Grace".into(),
+                acceptance: String::new(),
             },
             TaskSpec {
                 id: "T2".into(),
-                agent: "COBOL Event Handler Script Agent".into(),
-                objective: "Produce the event-handler inventory for documentation".into(),
-                context: "Report event bindings as source material only".into(),
-                reviewer: None,
-                depends_on: vec![],
-                acceptance: "Authoritative event facts are returned to Grace".into(),
-            },
-            TaskSpec {
-                id: "T3".into(),
-                agent: DOCUMENTATION_AGENT.into(),
-                objective: "Format and save the interface documentation".into(),
-                context: "/Knowledge Base/forms/customer.md".into(),
-                reviewer: None,
+                agent: "Data (Indexed File) Agent".into(),
+                objective: "create schema".into(),
+                context: String::new(),
+                // Fabricated reviewer name, observed live.
+                reviewer: Some("COBOL Pedantic Agent".into()),
                 depends_on: vec!["T1".into()],
-                acceptance: "The approved source material is documented".into(),
+                acceptance: String::new(),
             },
         ];
-
-        let error =
-            validate_documentation_coordination("Document the form interface", &plan).unwrap_err();
-        assert!(error.contains("missing: T2"));
-
-        plan[2].depends_on.push("T2".into());
-        assert!(validate_documentation_coordination("Document the form interface", &plan).is_ok());
-    }
-
-    fn indexed_schema_task() -> TaskSpec {
-        TaskSpec {
-            id: "T1".into(),
-            agent: DOCUMENTATION_AGENT.into(),
-            objective: "Establish the indexed file name and purpose; search project knowledge"
-                .into(),
-            context: "Analyze 1NF, 2NF, and 3NF; obtain the developer's UUID or PIC choice for every ID field and identify helper files".into(),
-            reviewer: Some(crate::agents_db::PEDANTIC_DOCUMENTATION_REVIEWER.into()),
-            depends_on: vec![],
-            acceptance: "Approved schema handoff or a focused clarification asking for missing information".into(),
-        }
-    }
-
-    #[test]
-    fn indexed_file_mutation_requires_documentation_handoff_then_data_agent() {
-        let invalid = vec![TaskSpec {
-            id: "T1".into(),
-            agent: GRACE.into(),
-            objective: "Create the customer indexed file".into(),
-            context: ".cidx mutation".into(),
-            reviewer: None,
-            depends_on: vec![],
-            acceptance: "file saved".into(),
-        }];
-        let error =
-            validate_indexed_file_coordination("Create an indexed file for customers", &invalid)
-                .unwrap_err();
-        assert!(error.contains("only Data (Indexed File) Agent"));
-
-        let mut valid = vec![indexed_schema_task()];
-        valid.push(TaskSpec {
-            id: "T2".into(),
-            agent: DATA_INDEXED_FILE_AGENT.into(),
-            objective: "Create the approved customer indexed file with indexed_file.write".into(),
-            context: "Use only the approved normalized schema and ID policy".into(),
-            reviewer: Some(crate::agents_db::PEDANTIC_DATA_INDEXED_FILE_REVIEWER.into()),
-            depends_on: vec!["T1".into()],
-            acceptance: ".cidx and generated artifacts have successful tool evidence".into(),
-        });
-        assert!(
-            validate_indexed_file_coordination("Create an indexed file for customers", &valid)
-                .is_ok()
+        let mut notes = Vec::new();
+        sanitize_plan_reviewers(&companion_of, &mut plan, &mut |line| notes.push(line));
+        assert_eq!(plan[0].reviewer, None, "disabled companion clears the gate");
+        assert_eq!(
+            plan[1].reviewer.as_deref(),
+            Some("Data Reviewer"),
+            "fabricated reviewer replaced by the real companion"
         );
-    }
-
-    #[test]
-    fn documentation_may_prepare_an_indexed_schema_without_being_called_a_mutator() {
-        let documentation = TaskSpec {
-            id: "T1".into(),
-            agent: DOCUMENTATION_AGENT.into(),
-            objective:
-                "Create the normalized indexed-file schema handoff for detailed Spanish company fiscal information"
-                    .into(),
-            context: "Establish requirements and return a proposed schema without writing .cidx"
-                .into(),
-            reviewer: Some(crate::agents_db::PEDANTIC_DOCUMENTATION_REVIEWER.into()),
-            depends_on: vec![],
-            acceptance: "The approved schema proposal is ready for the Data agent".into(),
-        };
-        assert!(!task_claims_indexed_mutation(&documentation));
-
-        let data = TaskSpec {
-            id: "T2".into(),
-            agent: DATA_INDEXED_FILE_AGENT.into(),
-            objective: "Create the approved indexed file using indexed_file.write".into(),
-            context: "Use the Documentation Agent handoff".into(),
-            reviewer: Some(crate::agents_db::PEDANTIC_DATA_INDEXED_FILE_REVIEWER.into()),
-            depends_on: vec!["T1".into()],
-            acceptance: "The .cidx and generated artifacts are saved".into(),
-        };
-        assert!(validate_indexed_file_coordination(
-            "Create an indexed file containing detailed company and Spanish fiscal information",
-            &[documentation.clone(), data.clone()]
-        )
-        .is_ok());
-        let empty_db = AgentsDb::load(&std::env::temp_dir().join(format!(
-            "prc-coord-{}",
-            crate::agents_db::new_uuid()
-        )));
-        let coordinated = validate_workflow_coordination(
-            &empty_db,
-            "Create an indexed file containing detailed company and Spanish fiscal information",
-            &[documentation, data],
-        );
-        assert!(coordinated.is_ok(), "{coordinated:?}");
-    }
-
-    #[test]
-    fn indexed_file_clarification_can_stop_before_mutation() {
-        let clarification = vec![indexed_schema_task()];
-        assert!(validate_indexed_file_coordination(
-            "Create an indexed file for customers",
-            &clarification
-        )
-        .is_ok());
-    }
-
-    #[test]
-    fn indexed_file_inspection_does_not_require_a_schema_handoff() {
-        let inspection = vec![TaskSpec {
-            id: "T1".into(),
-            agent: DATA_INDEXED_FILE_AGENT.into(),
-            objective: "Inspect the customer indexed file with indexed_file.read".into(),
-            context: "Report its existing fields and keys without changes".into(),
-            reviewer: Some(crate::agents_db::PEDANTIC_DATA_INDEXED_FILE_REVIEWER.into()),
-            depends_on: vec![],
-            acceptance: "The existing definition is reported without mutation".into(),
-        }];
-        assert!(validate_indexed_file_coordination(
-            "Inspect indexed file indexed/customers.cidx",
-            &inspection
-        )
-        .is_ok());
+        assert_eq!(notes.len(), 2, "both corrections surfaced to the log");
     }
 
     /// Grace planned a second "review the completed change" task with the

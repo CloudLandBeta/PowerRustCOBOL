@@ -8,6 +8,90 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.31.0] — 2026-07-23
+
+### Added
+
+- **Project-tree folder management (spec 033)** — every top-level category
+  (Forms, Indexed Files, Common Code, Generated Code, Assets, Knowledge Base)
+  can now be organised into an arbitrary hierarchy of folders, so large,
+  enterprise-grade projects stay navigable.
+  - **Create / rename / delete folders** from a category's **📁+** button or a
+    folder's right-click menu. Renaming rewrites every tracked path and open
+    editor tab under the folder; **deleting a folder permanently removes it and
+    all of its contents from disk**, drops those files from the project, and
+    closes any editors showing them (after a confirmation).
+  - **Drag-and-drop moves** — drag a file onto another folder within the tree,
+    or drop files in from the OS file manager to import them into a folder.
+    Same-name overwrites, moves into a folder's own descendant, and files whose
+    type does not match the destination category are rejected.
+  - **Keyboard navigation** — with the pointer over the tree, use ↑/↓ to move
+    between rows, → to expand a folder (or step into it), ← to move up to the
+    parent folder, and Enter to open the selected item.
+  - All folder and file paths are stored **relative to the project folder**, so
+    projects remain portable when moved, zipped, or shared.
+
+## [PowerRustCOBOL 1.30.62] — 2026-07-22
+
+### Fixed
+
+- **Every event in the design view now fires at runtime (spec 021 completed)**
+  — the Events panel advertised ~110 events but the runtime fired only ~40.
+  Now implemented: keyboard (`onKeyDown`/`onKeyUp`/`onKeyPress`/
+  `onEnterPressed`/`onEscapePressed`) and focus (`onGotFocus`/`onLostFocus`)
+  for all focusable controls, not just TextBox; geometry
+  (`onResize`/`onResized`/`onMove`/`onMoved`) and state
+  (`onVisibleChanged`/`onEnabledChanged`) for every visual control; ComboBox
+  `onDropDownClosed`; ListBox `onItemDoubleClick`; TabControl
+  `onTabClick`/`onTabChanged`; TreeView node selection
+  (`onNodeClick`/`onNodeSelect`/`onNodeDblClick`, with a visible selection
+  highlight and `SelectedNode`); MenuBar `onMenuOpen`/`onMenuClose`; DataGrid
+  `onCellClick`/`onCellDoubleClick`/`onRowDoubleClick`/`onColumnClick`/
+  `onScroll`; Panel `onScroll`; PictureBox `onImageLoaded`/`onImageError`;
+  Animator `onStarted`/`onFrameChanged`/`onLooped`/`onEnded`; charts
+  `onDataChanged`; ProgressBar `onValueChanged`/`onCompleted`. Data controls
+  dispatch operation events through the event loop: SqlDatabase
+  `onConnectOk`/`onConnectError`/`onQueryComplete`/`onQueryError`/
+  `onRowFetched`; the AI agent `onResponse`. Events with **no engine behind
+  them** were removed from the design view instead of lying (drag-and-drop
+  family, tree expand/checkbox/drag states, grid sort/column-resize/cell-edit,
+  chart zoom/series-click, `onTooltipShow`, `onPropertyChanged`, IndexedFile
+  per-operation events, agent streaming events). Spec 021's remaining
+  event-data tasks (WS-EVENT-DATA items) stay open; payloads are now captured
+  on the wire (`UiEvent.value`) ready for that plumbing.
+- **Hardcoded values converted to properties** — the 200 ms hover threshold is
+  now every control's `HoverDelayMs` property; Grace's correction-loop bound
+  (was a fixed 2) is the project-wide "Pedantic correction rounds" setting in
+  the Models Manager's project panel, persisted in `cobolt.toml`.
+
+## [PowerRustCOBOL 1.30.61] — 2026-07-22
+
+### Fixed
+
+- **A valid plan whose final ```json fence the model never closed parsed as
+  "no plan"** — observed live: Grace ended a correct one-task plan with `…}]}`
+  and no closing backticks, the deterministic parser found no terminated
+  block, and a needless extraction + re-ask roundtrip followed. An
+  unterminated final fence now parses (in `last_json_block` and in the
+  verbose pretty-printer alike).
+- **Coordination gate false positive on schema documentation** — "Write the
+  approved schema documentation … for the final .cidx resources. Do not
+  modify .cidx resources." was rejected as restricted indexed-file mutation
+  because "write" + ".cidx" tripped the heuristic and "do not modify" was not
+  an exemption marker. The guard-phrase list now covers "do not modify" /
+  "do not create or modify" / "must not modify" / "without modifying".
+- **Reviewer names are enforced mechanically** — Grace's plan carried a
+  fabricated reviewer ("COBOL Pedantic Agent") and referenced companions the
+  operator had DISABLED, which would have failed tasks at review time. Each
+  task's reviewer is now set host-side to exactly the responsible agent's
+  ENABLED companion (fabrications replaced, disabled/missing companions clear
+  the gate, every correction logged), and the planning registry only
+  advertises enabled companions.
+- **Typed-extraction failures are no longer invisible** — the deterministic
+  parse failure's cause (the exact serde error) is logged, extraction errors
+  land in the AI log and connection log, and verbose mode shows the
+  extraction request, result, and token usage like any other call.
+
 ## [PowerRustCOBOL 1.30.60] — 2026-07-22
 
 ### Fixed

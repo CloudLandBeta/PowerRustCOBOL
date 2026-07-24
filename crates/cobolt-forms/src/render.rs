@@ -1140,6 +1140,12 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
         {
             // debug removed
         }
+        // Visible/Enabled change events (spec 021 T9): tracked for EVERY
+        // control each frame — a control hidden THIS frame must still fire
+        // its onVisibleChanged — so this runs before the visibility skips.
+        if interactive {
+            visible_enabled_events(ui, input, controls, idx, &mut out);
+        }
         if !input.state.visible(base) {
             continue;
         }
@@ -1259,6 +1265,24 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
 
                     let effective_scroll = offset - overscroll;
                     ui.ctx().data_mut(|d| d.insert_temp(sid, effective_scroll));
+
+                    // spec 021 T12: Panel onScroll on offset change.
+                    if base.events.iter().any(|e| e.event == "onScroll") {
+                        let last_id = sid.with("last-offset");
+                        let last = ui.data(|d| d.get_temp::<egui::Vec2>(last_id));
+                        if let Some(last) = last {
+                            if (last - offset).length() > 0.5 {
+                                out.events.push(UiEvent::with_value(
+                                    &base.id,
+                                    "onScroll",
+                                    &format!("{:.0},{:.0}", offset.y, offset.x),
+                                ));
+                            }
+                        }
+                        if last != Some(offset) {
+                            ui.data_mut(|d| d.insert_temp(last_id, offset));
+                        }
+                    }
 
                     if ui.rect_contains_pointer(screen) {
                         ui.input_mut(|i| {
@@ -1890,6 +1914,14 @@ impl UiEvent {
             value: Some(value.to_owned()),
         }
     }
+    /// Any event carrying a payload (node text, tab index, cell coordinates…).
+    fn with_value(id: &str, event: &str, value: &str) -> Self {
+        UiEvent {
+            ctrl_id: id.to_owned(),
+            event: event.to_owned(),
+            value: Some(value.to_owned()),
+        }
+    }
 }
 
 /// The egui interaction id for a running control, derived from its COBOL id.
@@ -2109,6 +2141,7 @@ fn draw_datagrid_pattern(
 /// interaction). Emits only the events the control declares in `supported_events`
 /// — the data-driven loop ignores any without a bound handler. Mirrors the IDE's
 /// `control_pointer_events`, but emits neutral [`UiEvent`]s.
+#[allow(clippy::too_many_arguments)]
 fn control_pointer_events(
     ui: &egui::Ui,
     screen: Rect,
@@ -2118,6 +2151,7 @@ fn control_pointer_events(
     enabled: bool,
     out: &mut RenderOutput,
     bound_events: &[&str],
+    hover_delay_s: f64,
 ) {
     if !enabled {
         return;
@@ -2250,7 +2284,7 @@ fn control_pointer_events(
         let fired = ui
             .ctx()
             .memory(|m| m.data.get_temp::<bool>(hover_fired_id).unwrap_or(false));
-        if !fired && now - start >= 0.2 {
+        if !fired && now - start >= hover_delay_s {
             if want("onHoverEnter") {
                 out.events.push(UiEvent::ev(id, "onHoverEnter"));
             }
@@ -2268,6 +2302,168 @@ fn control_pointer_events(
             m.data.remove::<f64>(hover_start_id);
             m.data.insert_temp(hover_fired_id, false);
         });
+    }
+}
+
+/// Visible/Enabled state-change events (spec 021 T9). Compares the control's
+/// EFFECTIVE visibility (own flag + container ancestry) and enabled state
+/// against the previous frame; fires only the bound events.
+fn visible_enabled_events(
+    ui: &egui::Ui,
+    input: &RenderInput<'_>,
+    controls: &[Control],
+    idx: usize,
+    out: &mut RenderOutput,
+) {
+    let base = &controls[idx];
+    let want_visible = base.events.iter().any(|e| e.event == "onVisibleChanged");
+    let want_enabled = base.events.iter().any(|e| e.event == "onEnabledChanged");
+    if !want_visible && !want_enabled {
+        return;
+    }
+    let visible =
+        input.state.visible(base) && containers::is_visible(controls, idx, input.active_tabs);
+    let enabled = input.state.enabled(base);
+    let mem = rt_id(&base.id).with("vis-en");
+    let prev = ui.ctx().memory(|m| m.data.get_temp::<(bool, bool)>(mem));
+    if let Some((prev_visible, prev_enabled)) = prev {
+        if want_visible && prev_visible != visible {
+            out.events.push(UiEvent::ev(&base.id, "onVisibleChanged"));
+        }
+        if want_enabled && prev_enabled != enabled {
+            out.events.push(UiEvent::ev(&base.id, "onEnabledChanged"));
+        }
+    }
+    if prev != Some((visible, enabled)) {
+        ui.ctx()
+            .memory_mut(|m| m.data.insert_temp(mem, (visible, enabled)));
+    }
+}
+
+/// Geometry change events (spec 021 T10): `onResize` on each frame the size
+/// differs from the last, `onResized` once when it settles; likewise
+/// `onMove`/`onMoved` for position. Fires regardless of Enabled — geometry is
+/// state, not interaction.
+fn control_geometry_events(
+    ui: &egui::Ui,
+    screen: Rect,
+    ctrl_id: egui::Id,
+    id: &str,
+    out: &mut RenderOutput,
+    bound: &[&str],
+) {
+    let want = |e: &str| bound.contains(&e);
+    if !want("onResize") && !want("onResized") && !want("onMove") && !want("onMoved") {
+        return;
+    }
+    let mem = ctrl_id.with("geom");
+    let prev = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<(Rect, bool, bool)>(mem));
+    let (mut size_pending, mut pos_pending) = (false, false);
+    if let Some((p, sp, pp)) = prev {
+        size_pending = sp;
+        pos_pending = pp;
+        let size_diff = (p.width() - screen.width()).abs() > 0.5
+            || (p.height() - screen.height()).abs() > 0.5;
+        let pos_diff =
+            (p.min.x - screen.min.x).abs() > 0.5 || (p.min.y - screen.min.y).abs() > 0.5;
+        if size_diff {
+            if want("onResize") {
+                out.events.push(UiEvent::ev(id, "onResize"));
+            }
+            size_pending = true;
+        } else if size_pending {
+            if want("onResized") {
+                out.events.push(UiEvent::ev(id, "onResized"));
+            }
+            size_pending = false;
+        }
+        if pos_diff {
+            if want("onMove") {
+                out.events.push(UiEvent::ev(id, "onMove"));
+            }
+            pos_pending = true;
+        } else if pos_pending {
+            if want("onMoved") {
+                out.events.push(UiEvent::ev(id, "onMoved"));
+            }
+            pos_pending = false;
+        }
+    }
+    ui.ctx()
+        .memory_mut(|m| m.data.insert_temp(mem, (screen, size_pending, pos_pending)));
+}
+
+/// Focus + keyboard events on a focusable control's primary response
+/// (spec 021 T6/T8). egui grants click-sense widgets focus on click and via
+/// Tab traversal, so `gained_focus`/`has_focus` work for plain `interact`
+/// responses. TextBox keeps its own richer handling in its arm.
+fn focus_keyboard_events(
+    ui: &egui::Ui,
+    resp: &egui::Response,
+    id: &str,
+    out: &mut RenderOutput,
+    bound: &[&str],
+) {
+    let want = |e: &str| bound.contains(&e);
+    if resp.gained_focus() && want("onGotFocus") {
+        out.events.push(UiEvent::ev(id, "onGotFocus"));
+    }
+    if resp.lost_focus() && want("onLostFocus") {
+        out.events.push(UiEvent::ev(id, "onLostFocus"));
+    }
+    if !resp.has_focus() {
+        return;
+    }
+    if !(want("onKeyDown")
+        || want("onKeyUp")
+        || want("onKeyPress")
+        || want("onEnterPressed")
+        || want("onEscapePressed"))
+    {
+        return;
+    }
+    let (down, up, typed, enter, escape) = ui.input(|i| {
+        let mut down = false;
+        let mut up = false;
+        let mut typed = false;
+        let mut enter = false;
+        let mut escape = false;
+        for e in &i.events {
+            match e {
+                egui::Event::Key {
+                    key, pressed: true, ..
+                } => {
+                    down = true;
+                    if *key == egui::Key::Enter {
+                        enter = true;
+                    }
+                    if *key == egui::Key::Escape {
+                        escape = true;
+                    }
+                }
+                egui::Event::Key { pressed: false, .. } => up = true,
+                egui::Event::Text(_) => typed = true,
+                _ => {}
+            }
+        }
+        (down, up, typed, enter, escape)
+    });
+    if down && want("onKeyDown") {
+        out.events.push(UiEvent::ev(id, "onKeyDown"));
+    }
+    if up && want("onKeyUp") {
+        out.events.push(UiEvent::ev(id, "onKeyUp"));
+    }
+    if (typed || down) && want("onKeyPress") {
+        out.events.push(UiEvent::ev(id, "onKeyPress"));
+    }
+    if enter && want("onEnterPressed") {
+        out.events.push(UiEvent::ev(id, "onEnterPressed"));
+    }
+    if escape && want("onEscapePressed") {
+        out.events.push(UiEvent::ev(id, "onEscapePressed"));
     }
 }
 
@@ -2377,20 +2573,37 @@ fn render_interactive(
     let ct = ctrl.control_type.clone();
     let painter = ui.painter_at(clip);
 
-    // Universal pointer/gesture events for every visual control.
+    // Universal pointer/gesture/geometry events for every visual control.
     let non_visual = matches!(
         ct,
         CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient
     );
+    let bound: Vec<&str> = ctrl.events.iter().map(|e| e.event.as_str()).collect();
     if !non_visual {
-        let bound: Vec<&str> = ctrl.events.iter().map(|e| e.event.as_str()).collect();
-        control_pointer_events(ui, screen, ctrl_id, id, &ct, enabled, out, &bound);
+        // The onHoverEnter threshold is the control's HoverDelayMs property
+        // (default 200 ms) — not a hardcoded constant.
+        let hover_delay_s = (sv(ctrl, "HoverDelayMs").parse::<f64>().unwrap_or(200.0)
+            / 1000.0)
+            .clamp(0.0, 10.0);
+        control_pointer_events(
+            ui,
+            screen,
+            ctrl_id,
+            id,
+            &ct,
+            enabled,
+            out,
+            &bound,
+            hover_delay_s,
+        );
+        control_geometry_events(ui, screen, ctrl_id, id, out, &bound);
     }
 
     match ct {
         CT::Button => {
             // WYSIWYG face; only the press/hover feedback is added here.
             let resp = decorate_hover_response(ui.interact(screen, ctrl_id, Sense::click()), ctrl);
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             let pressed = resp.is_pointer_button_down_on() && enabled;
             let hovered = resp.hovered() && enabled;
             let draw_rect = if pressed { screen.shrink(1.5) } else { screen };
@@ -2432,6 +2645,7 @@ fn render_interactive(
                 .insert("Checked".to_owned(), crate::PropValue::Bool(checked));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() && enabled {
                 let v = if checked { "0" } else { "1" };
                 out.prop_updates
@@ -2451,6 +2665,7 @@ fn render_interactive(
                 .insert("Checked".to_owned(), crate::PropValue::Bool(selected));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() && enabled {
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), "1".to_owned()));
@@ -2601,6 +2816,7 @@ fn render_interactive(
 
             let thumb_rect = paint::slider_thumb_rect(screen, min_v, max_v, cur, is_vertical);
             let resp = ui.interact(screen, ctrl_id, Sense::drag());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             let mut display_val = cur;
             let slider_dirty_id = ctrl_id.with("value-dirty");
 
@@ -2694,6 +2910,7 @@ fn render_interactive(
                 screen,
                 egui::DragValue::new(&mut val).range(min..=max).speed(step),
             );
+            focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.changed() && enabled {
                 let s = format!("{val}");
                 out.prop_updates
@@ -2712,6 +2929,17 @@ fn render_interactive(
             };
             let open_id = ctrl_id.with("combo_open");
             let is_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+            // onDropDownClosed (spec 021 T12): the popup pass flips the open
+            // flag when an item is picked or the click lands outside; compare
+            // against last frame's state here.
+            let was_open_id = ctrl_id.with("combo_was_open");
+            let was_open = ui.data(|d| d.get_temp::<bool>(was_open_id)).unwrap_or(false);
+            if was_open && !is_open {
+                out.events.push(UiEvent::ev(id, "onDropDownClosed"));
+            }
+            if was_open != is_open {
+                ui.data_mut(|d| d.insert_temp(was_open_id, is_open));
+            }
             if paint::glass_combo_header(
                 &painter, ui, screen, ctrl_id, &sel, is_open, enabled, alpha,
             ) {
@@ -2738,6 +2966,7 @@ fn render_interactive(
             let items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
             let cur = sv(ctrl, "Value");
             let mut picked: Option<String> = None;
+            let mut double_picked: Option<String> = None;
             ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
                 if !enabled {
                     ui.disable();
@@ -2747,8 +2976,12 @@ fn render_interactive(
                     .max_height(screen.height())
                     .show(ui, |ui| {
                         for item in &items {
-                            if ui.selectable_label(&cur == item, item).clicked() {
+                            let resp = ui.selectable_label(&cur == item, item);
+                            if resp.clicked() {
                                 picked = Some(item.clone());
+                            }
+                            if resp.double_clicked() {
+                                double_picked = Some(item.clone());
                             }
                         }
                     });
@@ -2759,6 +2992,11 @@ fn render_interactive(
                 out.events.push(UiEvent::change(id, &item));
                 out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
             }
+            if let Some(item) = double_picked {
+                // spec 021 T12: item-level double click with the item text.
+                out.events
+                    .push(UiEvent::with_value(id, "onItemDoubleClick", &item));
+            }
         }
         CT::DateTimePicker => {
             let white = Color32::from_rgb(230, 235, 255);
@@ -2766,6 +3004,7 @@ fn render_interactive(
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let val = sv(ctrl, "Value");
             let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
 
             let mut cal: paint::CalState = ui
                 .data(|d| d.get_temp::<paint::CalState>(ctrl_id))
@@ -3205,6 +3444,56 @@ fn render_interactive(
                 .memory_mut(|m| m.data.insert_temp(scroll_id, scroll_y));
             ui.ctx()
                 .memory_mut(|m| m.data.insert_temp(scroll_x_id, scroll_x));
+            // spec 021 T12: onScroll whenever this frame's settled offset moved
+            // (wheel, scrollbar drag, or keyboard row navigation alike).
+            {
+                let last_id = ctrl_id.with("dg-last-scroll");
+                let last = ui
+                    .ctx()
+                    .memory(|m| m.data.get_temp::<(f32, f32)>(last_id));
+                if let Some((ly, lx)) = last {
+                    if (ly - scroll_y).abs() > 0.5 || (lx - scroll_x).abs() > 0.5 {
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onScroll",
+                            &format!("{scroll_y:.0},{scroll_x:.0}"),
+                        ));
+                    }
+                }
+                if last != Some((scroll_y, scroll_x)) {
+                    ui.ctx()
+                        .memory_mut(|m| m.data.insert_temp(last_id, (scroll_y, scroll_x)));
+                }
+            }
+            // spec 021 T12: column-header clicks with the display column index.
+            {
+                let mut x = header_rect.min.x - scroll_x;
+                for (display_index, measure) in column_measures.iter().enumerate() {
+                    let col_header = Rect::from_min_max(
+                        pos2(x.max(header_rect.min.x), header_rect.min.y),
+                        pos2((x + measure.width).min(header_rect.max.x), header_rect.max.y),
+                    );
+                    x += measure.width;
+                    if col_header.width() <= 0.0 {
+                        continue;
+                    }
+                    if ui
+                        .interact(
+                            col_header,
+                            ctrl_id.with(("dg-colhdr", display_index)),
+                            Sense::click(),
+                        )
+                        .clicked()
+                        && enabled
+                    {
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onColumnClick",
+                            &display_index.to_string(),
+                        ));
+                    }
+                }
+            }
             let selected_cell = ui
                 .ctx()
                 .memory(|m| m.data.get_temp::<DataGridCellSelection>(selection_id));
@@ -3817,6 +4106,24 @@ fn render_interactive(
                                     },
                                 );
                             });
+                            // spec 021 T12: cell-level click with coordinates.
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onCellClick",
+                                &format!("{row_index},{}", col.index),
+                            ));
+                        }
+                        if cell_resp.double_clicked() {
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onCellDoubleClick",
+                                &format!("{row_index},{}", col.index),
+                            ));
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onRowDoubleClick",
+                                &row_index.to_string(),
+                            ));
                         }
                         cell_selected = ui.ctx().memory(|m| {
                             m.data
@@ -4425,6 +4732,7 @@ fn render_interactive(
         }
         CT::TabControl => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            let selected = sv(ctrl, "SelectedTab").parse::<usize>().unwrap_or(0);
             for (i, tr) in paint::tabcontrol_tab_rects(screen.min, ctrl)
                 .into_iter()
                 .enumerate()
@@ -4437,6 +4745,14 @@ fn render_interactive(
                     out.prop_updates
                         .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
                     out.events.push(UiEvent::ev(id, "onChange"));
+                    // spec 021 T12: every tab click, plus the change event only
+                    // when the selection actually moved.
+                    out.events
+                        .push(UiEvent::with_value(id, "onTabClick", &i.to_string()));
+                    if i != selected {
+                        out.events
+                            .push(UiEvent::with_value(id, "onTabChanged", &i.to_string()));
+                    }
                 }
             }
         }
@@ -4450,8 +4766,9 @@ fn render_interactive(
                 alpha,
             );
             let fg = Color32::from_rgb(220, 226, 250);
+            let selected = sv(ctrl, "SelectedNode");
             let mut y = screen.min.y + 12.0;
-            for line in sv(ctrl, "Items").lines() {
+            for (line_index, line) in sv(ctrl, "Items").lines().enumerate() {
                 if y > screen.max.y {
                     break;
                 }
@@ -4459,6 +4776,36 @@ fn render_interactive(
                 let text = line.trim();
                 if text.is_empty() {
                     continue;
+                }
+                let row = Rect::from_min_max(
+                    pos2(screen.min.x + 2.0, y - 9.0),
+                    pos2(screen.max.x - 2.0, y + 9.0),
+                );
+                // spec 021 T12: node selection. Rows are click targets; the
+                // picked node lands in SelectedNode and fires the node events.
+                let resp = ui.interact(row, ctrl_id.with(("tv-node", line_index)), Sense::click());
+                let is_selected = !selected.is_empty() && selected == text;
+                if is_selected {
+                    painter.rect_filled(
+                        row,
+                        3.0,
+                        Color32::from_rgba_premultiplied(70, 110, 200, 70),
+                    );
+                }
+                if resp.clicked() && enabled {
+                    out.prop_updates
+                        .push((id.to_owned(), "SelectedNode".to_owned(), text.to_owned()));
+                    out.events.push(UiEvent::with_value(id, "onNodeClick", text));
+                    if !is_selected {
+                        out.events
+                            .push(UiEvent::with_value(id, "onNodeSelect", text));
+                    }
+                }
+                if resp.double_clicked() && enabled {
+                    out.events
+                        .push(UiEvent::with_value(id, "onNodeDblClick", text));
+                    out.events
+                        .push(UiEvent::with_value(id, "onNodeDoubleClick", text));
                 }
                 painter.text(
                     pos2(screen.min.x + 8.0 + depth as f32 * 16.0, y),
@@ -4565,6 +4912,16 @@ fn render_interactive(
 
                     if resp.clicked() {
                         let new_idx = if is_open { None } else { Some(ti) };
+                        // spec 021 T12: menu open/close lifecycle.
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            if new_idx.is_some() {
+                                "onMenuOpen"
+                            } else {
+                                "onMenuClose"
+                            },
+                            &entry.label,
+                        ));
                         ui.data_mut(|d| d.insert_temp(menu_id, new_idx));
                     }
 
@@ -4765,8 +5122,25 @@ fn render_interactive(
             // path the designer canvas uses — so the image is tinted/framed
             // identically and is never dimmed or washed-out relative to the canvas
             // (spec 017 parity). `draw_picturebox` used a different tint + frame.
-            let tex =
-                paint::picturebox_texture(ui.ctx(), sv(ctrl, "ImagePath").trim()).map(|t| t.id());
+            let source = sv(ctrl, "ImagePath").trim().to_owned();
+            let tex = paint::picturebox_texture(ui.ctx(), &source).map(|t| t.id());
+            // spec 021 T12: image lifecycle, once per distinct source value.
+            let mem = ctrl_id.with("pic-src-state");
+            let state = (source.clone(), tex.is_some());
+            let prev = ui
+                .ctx()
+                .memory(|m| m.data.get_temp::<(String, bool)>(mem));
+            if prev.as_ref() != Some(&state) {
+                if !source.is_empty() {
+                    let event = if tex.is_some() {
+                        "onImageLoaded"
+                    } else {
+                        "onImageError"
+                    };
+                    out.events.push(UiEvent::with_value(id, event, &source));
+                }
+                ui.ctx().memory_mut(|m| m.data.insert_temp(mem, state));
+            }
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, tex);
         }
         CT::Animator => {
@@ -4785,6 +5159,38 @@ fn render_interactive(
             paint::draw_animator(
                 &painter, screen, ctrl, &key, &source, auto, looping, &size_mode, alpha, false,
             );
+            // spec 021 T12: playback lifecycle read back from the media clock.
+            if let Some((frame, loops, ended)) =
+                cobolt_media::playback_position(ui.ctx(), &key, auto, looping)
+            {
+                let mem = ctrl_id.with("anim-pos");
+                let prev = ui
+                    .ctx()
+                    .memory(|m| m.data.get_temp::<(usize, u32, bool)>(mem));
+                match prev {
+                    None => out.events.push(UiEvent::ev(id, "onStarted")),
+                    Some((prev_frame, prev_loops, prev_ended)) => {
+                        if prev_frame != frame {
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onFrameChanged",
+                                &frame.to_string(),
+                            ));
+                        }
+                        if prev_loops != loops && loops > 0 {
+                            out.events
+                                .push(UiEvent::with_value(id, "onLooped", &loops.to_string()));
+                        }
+                        if ended && !prev_ended {
+                            out.events.push(UiEvent::ev(id, "onEnded"));
+                        }
+                    }
+                }
+                if prev != Some((frame, loops, ended)) {
+                    ui.ctx()
+                        .memory_mut(|m| m.data.insert_temp(mem, (frame, loops, ended)));
+                }
+            }
         }
         CT::Timer => {
             // Non-visual, but it TICKS: fire `onTick` every Interval ms while on.
@@ -4835,9 +5241,51 @@ fn render_interactive(
             // Charts render through the SAME path as the designer (draw_control →
             // chart painter) so the running chart matches the canvas (spec 017).
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // spec 021: onDataChanged when the chart's data-bearing properties
+            // change (COBOL AddPoint/Clear/DataSource writes land here).
+            if bound.contains(&"onDataChanged") {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                use std::hash::{Hash, Hasher};
+                sv(ctrl, "Data").hash(&mut hasher);
+                sv(ctrl, "DataSource").hash(&mut hasher);
+                sv(ctrl, "Values").hash(&mut hasher);
+                sv(ctrl, "Labels").hash(&mut hasher);
+                let digest = hasher.finish();
+                let mem = ctrl_id.with("chart-data");
+                let prev = ui.ctx().memory(|m| m.data.get_temp::<u64>(mem));
+                if let Some(prev_digest) = prev {
+                    if prev_digest != digest {
+                        out.events.push(UiEvent::ev(id, "onDataChanged"));
+                    }
+                }
+                if prev != Some(digest) {
+                    ui.ctx().memory_mut(|m| m.data.insert_temp(mem, digest));
+                }
+            }
         }
         CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
             // Non-visual — nothing to draw.
+        }
+        CT::ProgressBar => {
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // spec 021 T12: value lifecycle driven by COBOL property writes.
+            let value = sv(ctrl, "Value").parse::<f32>().unwrap_or(0.0);
+            let maximum = sv(ctrl, "Maximum").parse::<f32>().unwrap_or(100.0);
+            let mem = ctrl_id.with("pb-value");
+            let prev = ui.ctx().memory(|m| m.data.get_temp::<f32>(mem));
+            if let Some(prev_value) = prev {
+                if (prev_value - value).abs() > f32::EPSILON {
+                    out.events
+                        .push(UiEvent::with_value(id, "onValueChanged", &value.to_string()));
+                    if value >= maximum && prev_value < maximum {
+                        out.events
+                            .push(UiEvent::with_value(id, "onCompleted", &value.to_string()));
+                    }
+                }
+            }
+            if prev != Some(value) {
+                ui.ctx().memory_mut(|m| m.data.insert_temp(mem, value));
+            }
         }
         // Faces whose designer rendering IS the real face (Label, Panel, Shape, …).
         _ => {

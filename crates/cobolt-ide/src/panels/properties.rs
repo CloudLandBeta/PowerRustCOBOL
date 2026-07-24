@@ -3121,15 +3121,24 @@ impl PropertiesPanel {
                 // ── Geometry ──────────────────────────────────────────────────────────
                 self.show_geometry_grid(ui, ctrl, &id, action, tr);
                 if ctrl.get_prop("CornerRadius").is_some() {
-                    int_row_inline(
-                        ui,
-                        &id,
-                        "CornerRadius",
-                        "Corner radius",
-                        ctrl,
-                        action,
-                        0..=400,
-                    );
+                    // CornerRadius rounds a Shape only when it is a Rectangle
+                    // (circles/triangles have no corners to round).
+                    let inert = matches!(ctrl.control_type, ControlType::Shape)
+                        && !matches!(
+                            ctrl.get_prop("ShapeType").map(|v| v.as_str()),
+                            None | Some("Rectangle") | Some("RoundRect")
+                        );
+                    ui.add_enabled_ui(!inert, |ui| {
+                        int_row_inline(
+                            ui,
+                            &id,
+                            "CornerRadius",
+                            "Corner radius",
+                            ctrl,
+                            action,
+                            0..=400,
+                        );
+                    });
                 }
                 ui.add_space(4.0);
 
@@ -5601,8 +5610,9 @@ impl PropertiesPanel {
                     "ShapeType",
                     ctrl,
                     action,
-                    &["Rectangle", "Circle", "RoundRect", "Triangle"],
+                    &["Rectangle", "Circle", "Triangle"],
                 );
+                bool_row_inline(ui, id, "FormStyle", "Form style (glass)", ctrl, action);
                 combo_row_inline(
                     ui,
                     id,
@@ -5628,7 +5638,7 @@ impl PropertiesPanel {
                     "LineStyle",
                     ctrl,
                     action,
-                    &["Solid", "Dash", "Dot", "DashDot"],
+                    &["None", "Solid", "Dash", "Dot", "DashDot"],
                 );
                 color_row(ui, id, "FillColor", ctrl, action);
                 color_row(ui, id, "LineColor", ctrl, action);
