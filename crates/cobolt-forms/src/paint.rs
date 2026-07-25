@@ -3304,19 +3304,36 @@ pub fn draw_control(
                     txt_color,
                 );
             } else {
-                let galley = painter.layout_job(styled_text_job(
-                    painter,
-                    ctrl,
-                    &label,
-                    &font_name,
-                    fsize,
-                    txt_color,
-                    (rect.width() - 2.0 * pad).max(1.0),
-                    egui::Align::LEFT,
-                ));
+                // Single line: the box has NO fixed top/bottom padding — the line
+                // is vertically centred in the FULL height, so a larger font uses
+                // all of it before anything else. If the line is still taller than
+                // the box, SHRINK the font until it fits so the text is never
+                // clipped by the top/bottom border (never truncated instead).
+                let inner_w = (rect.width() - 2.0 * pad).max(1.0);
+                let min_font = 6.0_f32;
+                let mut fit = fsize.max(min_font);
+                let layout = |size: f32| {
+                    painter.layout_job(styled_text_job(
+                        painter,
+                        ctrl,
+                        &label,
+                        &font_name,
+                        size,
+                        txt_color,
+                        inner_w,
+                        egui::Align::LEFT,
+                    ))
+                };
+                let mut galley = layout(fit);
+                while galley.size().y > rect.height() && fit > min_font {
+                    fit = (fit - 1.0).max(min_font);
+                    galley = layout(fit);
+                }
                 let text_pos =
                     egui::pos2(rect.left() + pad, rect.center().y - galley.size().y / 2.0);
-                paint_styled_galley(painter, ctrl, text_pos, galley, txt_color);
+                // Clip as a final guard (e.g. at the `min_font` floor in a tiny box).
+                let clipped = painter.with_clip_rect(rect);
+                paint_styled_galley(&clipped, ctrl, text_pos, galley, txt_color);
             }
         } else {
             let galley = painter.layout_job(styled_text_job(
@@ -6600,8 +6617,24 @@ pub fn restore_container_outline(
     rect: egui::Rect,
     radius: f32,
     glass: bool,
+    masked: egui::CornerRadius,
 ) {
     if radius < 0.5 {
+        return;
+    }
+    // Restore the rim ONLY on the corners the notch mask actually repainted
+    // (`masked`, the per-corner rounding from `corner_notch_rounding`). The mask is
+    // selective — it leaves clean corners (no child bled there) untouched — so
+    // redrawing the rim on an unmasked corner double-strokes the face's own rim and
+    // leaves a light spur/thickening at that corner (regressed when the per-corner
+    // guardian replaced the old blanket all-corners mask). A corner whose masked
+    // radius is ~0 was not repainted and must not be restored.
+    let lo = crate::paint::cr8(0.5);
+    let draw_nw = masked.nw >= lo;
+    let draw_ne = masked.ne >= lo;
+    let draw_se = masked.se >= lo;
+    let draw_sw = masked.sw >= lo;
+    if !(draw_nw || draw_ne || draw_se || draw_sw) {
         return;
     }
     debug_frame(
@@ -6662,14 +6695,30 @@ pub fn restore_container_outline(
     };
 
     let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    // Corner squares in guardian order: NW, NE, SE, SW — paired with the matching
+    // `masked` flag so only repainted corners are restored.
     let corners = [
-        egui::Rect::from_min_size(rect.min, egui::vec2(r, r)),
-        egui::Rect::from_min_size(egui::pos2(rect.max.x - r, rect.min.y), egui::vec2(r, r)),
-        egui::Rect::from_min_size(egui::pos2(rect.max.x - r, rect.max.y - r), egui::vec2(r, r)),
-        egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.max.y - r), egui::vec2(r, r)),
+        (draw_nw, egui::Rect::from_min_size(rect.min, egui::vec2(r, r))),
+        (
+            draw_ne,
+            egui::Rect::from_min_size(egui::pos2(rect.max.x - r, rect.min.y), egui::vec2(r, r)),
+        ),
+        (
+            draw_se,
+            egui::Rect::from_min_size(
+                egui::pos2(rect.max.x - r, rect.max.y - r),
+                egui::vec2(r, r),
+            ),
+        ),
+        (
+            draw_sw,
+            egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.max.y - r), egui::vec2(r, r)),
+        ),
     ];
-    for clip in corners {
-        draw_outline(clip);
+    for (draw, clip) in corners {
+        if draw {
+            draw_outline(clip);
+        }
     }
 }
 
@@ -7919,8 +7968,8 @@ mod theme_render_tests {
         // Flat classic fill: FormStyle off keeps the face a single filled rect.
         c.set_prop("FormStyle", PropValue::Bool(false));
         c.set_prop("ShadowEnabled", PropValue::Bool(false));
-        for (key, value) in props {
-            c.set_prop(key, PropValue::String((*value).into()));
+        for &(key, value) in props {
+            c.set_prop(key, PropValue::String(value.into()));
         }
         let mut input = egui::RawInput::default();
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));

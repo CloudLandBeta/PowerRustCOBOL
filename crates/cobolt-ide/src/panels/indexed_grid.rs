@@ -149,24 +149,30 @@ impl IndexedGridPanel {
             return (action, status);
         };
 
-        let edit_height = 280.0;
         let has_edit =
             self.drift_mismatch.is_none() && (self.new_row_mode || self.selected_row.is_some());
-        let grid_height = if has_edit {
-            (ui.available_height() - edit_height).max(100.0)
+
+        // Existing rows. While the edit form is open the grid is capped to a short
+        // strip so the form can fill the rest of the window, and its column-name
+        // header row is hidden — the form below already labels every field, so that
+        // header is redundant clutter during entry. (When just browsing, the grid
+        // fills the window and keeps its header for column identification.)
+        let grid_max = if has_edit {
+            160.0
         } else {
             ui.available_height()
         };
-
         egui::ScrollArea::both()
             .id_salt("grid_scroll")
-            .max_height(grid_height)
+            .max_height(grid_max)
             .show(ui, |ui| {
                 egui::Grid::new("idx_grid").striped(true).show(ui, |ui| {
-                    for field in &leaves {
-                        ui.strong(&field.name);
+                    if !has_edit {
+                        for field in &leaves {
+                            ui.strong(&field.name);
+                        }
+                        ui.end_row();
                     }
-                    ui.end_row();
                     for (abs, row) in &page_rows {
                         let selected = self.selected_row == Some(*abs);
                         for field in &leaves {
@@ -183,24 +189,34 @@ impl IndexedGridPanel {
                 });
             });
 
+        // The dynamic edit form ("New row" / "Edit row") fills the whole area beneath
+        // the toolbar/grid: the field list expands to take the remaining height while
+        // the Apply button stays pinned at the bottom. Sizing the list from the (now
+        // fixed) available height is a plain fill, not a resizable panel, so there is
+        // no self-inflation feedback (see the egui resize guardrail).
         if has_edit {
+            let record_len = def.record_length() as usize;
+            if self.edit_cells.len() != leaves.len() {
+                self.edit_cells = leaves
+                    .iter()
+                    .map(|_| EditCell::Text(String::new()))
+                    .collect();
+            }
+            ui.separator();
             ui.push_id("edit_form_container", |ui| {
-                ui.separator();
                 ui.heading(if self.new_row_mode {
                     tr.grid_new_row
                 } else {
                     tr.grid_edit_row
                 });
-                let record_len = def.record_length() as usize;
-                if self.edit_cells.len() != leaves.len() {
-                    self.edit_cells = leaves
-                        .iter()
-                        .map(|f| EditCell::Text(String::new()))
-                        .collect();
-                }
+                // Reserve room for the Apply row, then let the field list fill the
+                // rest of the height so the form occupies the full available space.
+                let apply_reserve = 46.0;
+                let list_h = (ui.available_height() - apply_reserve).max(80.0);
                 egui::ScrollArea::vertical()
                     .id_salt("edit_scroll")
-                    .max_height(edit_height - 120.0)
+                    .max_height(list_h)
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for (i, field) in leaves.iter().enumerate() {
                             ui.horizontal(|ui| {
@@ -210,7 +226,7 @@ impl IndexedGridPanel {
                         }
                     });
 
-                ui.add_space(10.0);
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.add_space(10.0); // left padding
                     if ui.button(tr.grid_btn_apply).clicked() {
@@ -253,7 +269,6 @@ impl IndexedGridPanel {
                         }
                     }
                 });
-                ui.add_space(20.0); // bottom padding
             });
         }
 

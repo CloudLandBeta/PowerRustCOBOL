@@ -757,14 +757,19 @@ flowchart LR
 
 - **Toolbox (left).** Widgets grouped into **Non-Visual**, **Common**,
   **Container**, **Data**, **Graphics**, **Menu**, **Charts**, and **Dialogs**.
-  Drag any control onto the canvas.
+  Drag any control onto the canvas. Use the **◀** chevron to collapse the sidebar
+  to a narrow **icon rail** (drag from the rail still works) and **▶** to expand
+  it; drag its edge to resize it, and the width you set is restored when you
+  re-expand.
 - **Canvas (centre).** Move, resize (drag the border grips), align, and
   distribute controls. A snap-to-grid keeps things tidy. You can resize the
   **form itself** by dragging its edges.
 - **Properties pane (right).** Edits the selected control — or, with nothing
   selected, the **form** itself. The pane is organised into collapsible
   **section cards** (Form Properties, Target Device, Appearance, Background
-  Image, Size, Events). Drag its edge to widen it.
+  Image, Size, Events). Drag its edge to widen it. It is a **drawer**: the
+  vertically-centered **◀** tab hides it (leaving a thin **▶** tab to slide it
+  back), and it reopens at the width you last set.
 
 Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 (a non-interactive render), **Run Form** (live, interactive), grid toggle, **Theme**

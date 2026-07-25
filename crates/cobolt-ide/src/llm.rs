@@ -1441,6 +1441,67 @@ pub fn default_form_designer_agent_prompt() -> String {
     DEFAULT_FORM_DESIGNER_AGENT_PROMPT.to_string()
 }
 
+/// Built-in skill docs for the Form Designer Agent, seeded to
+/// `agentic_ai/Form Designer Agent/skills/` and attached to its LLM calls as
+/// reference material. Each entry is `(file_name, markdown_content)`. They
+/// describe layout behaviors the Form Designer runtime GUARANTEES
+/// deterministically (container-carry + overlap-free moves) so the agent emits
+/// change sets that cooperate with them instead of re-deriving the mechanics.
+pub fn form_designer_builtin_skills() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "container-controls-move-as-a-whole.md",
+            CONTAINER_MOVE_SKILL,
+        ),
+        ("overlap-free-control-moves.md", OVERLAP_FREE_MOVE_SKILL),
+    ]
+}
+
+pub const CONTAINER_MOVE_SKILL: &str = r#"# Container controls move as a whole
+
+When you reposition a **container** control — Panel, GroupBox, TabControl, or any
+control that owns child controls — the PowerRustCOBOL Form Designer automatically
+moves every descendant by the **same delta**, so the children keep their exact
+positions inside the container. Container-type controls always move as a unit.
+
+What this means for your change sets:
+
+- **To relocate a container and everything inside it, set the container's `X`/`Y`
+  only.** Emit a single `set_property` for the container's `X` and/or `Y`. Do
+  **not** also emit `X`/`Y` moves for its children — they are carried
+  automatically, and redundant child moves risk an inconsistent layout.
+- **To send one child to a different spot than "carried", set that child's
+  `X`/`Y` explicitly in the same change set.** A child you position explicitly is
+  honored as-is and is **not** carried with the container.
+- Nested containers are handled too: moving an outer container carries inner
+  containers and their children by the outer container's delta.
+
+This matches how manual drag already behaves in the designer. The whole motion
+— container plus children — is a single undo and a single move animation.
+"#;
+
+pub const OVERLAP_FREE_MOVE_SKILL: &str = r#"# Overlap-free control moves
+
+After you move a control, the PowerRustCOBOL Form Designer automatically nudges it
+off any control it would land on: only the **moved** control (together with its
+child subtree) shifts to the nearest free spot — the controls it would have
+covered stay exactly where they are. Top-level controls are kept inside the form
+bounds.
+
+Treat this as a safety net, not a substitute for deliberate layout:
+
+- **Still compute neat, non-overlapping coordinates yourself.** Follow the Layout
+  & Alignment rules — consistent row heights, uniform vertical gaps, aligned label
+  columns, consistent input widths, grouped action buttons. The nudge only
+  prevents accidental collisions; it does not produce a tidy layout for you.
+- **Overlap is judged among controls that share the same parent** (siblings, or
+  two top-level controls). A child sitting inside its container is never a
+  collision, and deliberate layering across different nesting levels is preserved.
+- **If no free in-bounds position exists, the control is left where you put it**
+  and the overlap remains. Do not rely on the nudge to squeeze controls into a
+  full form — size and place them so they fit.
+"#;
+
 pub const DEFAULT_FORM_DESIGNER_AGENT_PROMPT: &str = r#"You are the PowerRustCOBOL Form Designer Agent, the specialist responsible for designing and modifying RAD desktop forms in the open project.
 
 Scope

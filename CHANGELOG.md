@@ -8,6 +8,17 @@ See the LICENSE file in the project root for full license information.
 
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.34.0] — 2026-07-24
+
+### Added
+
+- **Collapsible RAD designer panels** — more room on the form-designer screen.
+  The **toolbox** sidebar collapses (◀ chevron) to a narrow icon-only rail and
+  expands (▶) back; the **properties** pane is now a drawer with a vertically-
+  centered tab (◀ to hide, ▶ to slide back). Both open by default and stay
+  **user-resizable** when open, and each restores the width you dragged it to
+  when re-expanded — the panels never grow on their own.
+
 ## [PowerRustCOBOL 1.33.0] — 2026-07-24
 
 ### Added

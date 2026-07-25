@@ -852,6 +852,32 @@ pub fn approved_form_change_sets(
         .collect()
 }
 
+/// The RAW submission text of the first Approved `designer_agent` task whose
+/// change-set parses with at least one operation. The contextual RAD-designer
+/// chat applies edits by parsing the reply text, so it must receive this raw
+/// block (which carries `{"operations":…}`) rather than the readable summary
+/// (whose ops are stripped to prose) — otherwise the agent's edits never apply.
+pub fn approved_form_change_set_submission(
+    record: &WorkflowRecord,
+    designer_agent: &str,
+) -> Option<String> {
+    use cobolt_agents::grace::TaskState;
+    record
+        .tasks
+        .iter()
+        .filter(|t| {
+            t.final_state == TaskState::Approved
+                && t.spec.agent.eq_ignore_ascii_case(designer_agent)
+        })
+        .filter_map(|t| t.submissions.last())
+        .find(|s| {
+            crate::agent::parse_change_set(s)
+                .map(|cs| !cs.operations.is_empty())
+                .unwrap_or(false)
+        })
+        .cloned()
+}
+
 /// Persist a workflow record under `agentic_ai/Grace/runs/<workflow-id>.json`
 /// (spec 029 observability). Returns the file path.
 pub fn save_workflow_record(
@@ -1188,6 +1214,12 @@ pub fn run_grace_workflow_with_control(
         companion.enabled.then(|| companion.name.clone())
     };
     sanitize_plan_reviewers(&companion_of, &mut plan, on_progress);
+    // Grace's plan carries no per-task control inventory (the plan schema has no
+    // context field), so a form-design task delegated at the level of "reorganise
+    // the six charts into a 2×3 grid" reaches the specialist with an empty CONTEXT
+    // and nothing to resolve control ids or geometry against. The host owns the
+    // mapping: inject the compact inventory from the surface context.
+    inject_task_context(context, &mut plan);
     // Typographic rule: action items are listed with their T# bullet, with a
     // blank line between the paragraph and the list.
     let mut planned = format!("Grace planned {} task(s) [{}]:\n", plan.len(), workflow_id);
@@ -1321,6 +1353,86 @@ fn sanitize_plan_reviewers(
         on_progress(note);
         task.reviewer = expected;
     }
+}
+
+/// Fill each empty-context Form Designer task with the compact control
+/// inventory sliced from the surface context. The specialist otherwise receives
+/// only Grace's objective, so a high-level delegation ("reorganise the six
+/// charts into a 2×3 grid") gives it no ids or geometry to work from and it
+/// produces no operations. Grace's own explicit context, when present, is kept.
+fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
+    let inventory = control_inventory_excerpt(context);
+    let api = control_api_excerpt(context);
+    for task in plan.iter_mut() {
+        if !task.context.trim().is_empty() {
+            continue; // Grace's own explicit context wins.
+        }
+        if task.agent == crate::agents_db::FORM_DESIGNER {
+            // The designer resolves ids + geometry against the layout inventory.
+            if !inventory.is_empty() {
+                task.context = inventory.clone();
+            }
+        } else if task.agent == crate::agents_db::EVENT_HANDLER {
+            // The event agent must bind to real control ids/events AND call real
+            // methods on them (e.g. `PictureBox-2::PlayAnimation()`). Without the
+            // per-control API it invents method names (`Animate`, `StartAnimation`)
+            // that its reviewer can never verify, so the correction loop never
+            // terminates. Give it the inventory (ids/types) plus the CONTROL API
+            // BY ID block (each control's real methods and properties).
+            let mut ctx = inventory.clone();
+            if !api.is_empty() {
+                if !ctx.is_empty() {
+                    ctx.push_str("\n\n");
+                }
+                ctx.push_str(&api);
+            }
+            if !ctx.trim().is_empty() {
+                task.context = ctx;
+            }
+        }
+    }
+}
+
+/// Slice the layout-relevant head of the surface context: from the FORM header
+/// through the CONTROLS inventory, stopping before the verbose per-type property,
+/// event, and API dumps. Empty when the inventory markers are absent (e.g. a run
+/// with no surface context), so injection then no-ops.
+fn control_inventory_excerpt(context: &str) -> String {
+    let Some(controls_at) = context.find("CONTROLS:") else {
+        return String::new();
+    };
+    let start = context.find("FORM:").filter(|f| *f < controls_at).unwrap_or(controls_at);
+    let end = context[controls_at..]
+        .find("PROPERTY KEYS BY TYPE")
+        .map(|rel| controls_at + rel)
+        .unwrap_or(context.len());
+    context[start..end].trim_end().to_string()
+}
+
+/// Slice the `CONTROL API BY ID` block from the surface context: each control's
+/// real methods and properties. The event-handler agent needs this to invoke
+/// actual control methods (e.g. `PlayAnimation`) instead of guessing. Empty when
+/// the marker is absent.
+fn control_api_excerpt(context: &str) -> String {
+    let Some(at) = context.find("CONTROL API BY ID:") else {
+        return String::new();
+    };
+    let rest = &context[at..];
+    // Stop before the next top-level section so the verbose full-form dumps and
+    // project inventory stay out of the delegated budget.
+    let end = [
+        "PROPERTY INTENT MAP",
+        "PROCEDURES:",
+        "PROJECT TREE INVENTORY",
+        "LIVE UI TREE",
+        "RELEVANT INDEXED PROJECT KNOWLEDGE",
+        "PROJECT KNOWLEDGE PRECEDENCE",
+    ]
+    .iter()
+    .filter_map(|m| rest.find(m))
+    .min()
+    .unwrap_or(rest.len());
+    rest[..end].trim_end().to_string()
 }
 
 /// Canonicalize approved Form Designer submissions (Rig migration phase 3):
@@ -2195,6 +2307,38 @@ mod tests {
     }
 
     #[test]
+    fn contextual_reply_carries_the_raw_change_set_for_the_designer() {
+        // A Form Designer change-set submission the contextual designer chat must
+        // receive VERBATIM so it can `parse_change_set` + apply it (else the edits
+        // — and their animation — never happen).
+        let cs = "I reorganized the charts.\n```json\n{\"operations\":[{\"op\":\"set_property\",\"control_id\":\"BarChart-1\",\"key\":\"X\",\"value\":72}]}\n```";
+        let record = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![
+                // Not approved → skipped even though it has ops.
+                task("Form Designer Agent", TaskState::Failed, cs),
+                task("Form Designer Agent", TaskState::Approved, cs),
+            ],
+            ..Default::default()
+        };
+        let raw = approved_form_change_set_submission(&record, "Form Designer Agent")
+            .expect("an approved change-set submission");
+        // The raw block round-trips through the same parser the designer uses.
+        let parsed = crate::agent::parse_change_set(&raw).expect("parses");
+        assert_eq!(parsed.operations.len(), 1);
+
+        // No approved form task ⇒ None (caller falls back to the readable summary).
+        let none = WorkflowRecord {
+            workflow_id: "wf".into(),
+            status: "completed".into(),
+            tasks: vec![task("Form Designer Agent", TaskState::Failed, cs)],
+            ..Default::default()
+        };
+        assert!(approved_form_change_set_submission(&none, "Form Designer Agent").is_none());
+    }
+
+    #[test]
     fn chatbot_reply_prefers_its_surface_specialist() {
         let record = WorkflowRecord {
             workflow_id: "wf".into(),
@@ -2466,6 +2610,103 @@ mod tests {
             "fabricated reviewer replaced by the real companion"
         );
         assert_eq!(notes.len(), 2, "both corrections surfaced to the log");
+    }
+
+    /// A form-design task delegated with an empty context must receive the
+    /// control inventory from the surface context, so the specialist can resolve
+    /// ids and geometry instead of producing nothing. Non-form tasks and tasks
+    /// whose context Grace already filled are left untouched.
+    #[test]
+    fn form_task_gets_control_inventory_injected() {
+        let context = "CONTEXT\nFORM: MAIN-FORM (1352x2000)\n\
+             FORM PROPERTIES: GlassStyle=\"Enhanced\"\n\
+             AVAILABLE CONTROL TYPES: BarChart, PieChart\n\
+             CONTROLS:\n  \
+             BarChart-1 (BarChart) @(656,624) 320x220\n  \
+             PieChart-1 (PieChart) @(656,864) 320x220\n  \
+             PictureBox-2 (PictureBox) @(0,0) 800x400\n\
+             PROPERTY KEYS BY TYPE:\n  BarChart: Anchor, X, Y, Width, Height, ...\n\
+             CONTROL API BY ID:\n  \
+             PictureBox-2 (PictureBox): properties [ImagePath, Visible]; methods [PlayAnimation, StopAnimation, SetProperty]\n\
+             PROPERTY INTENT MAP: shadow => ShadowEnabled";
+        let mut plan = vec![
+            TaskSpec {
+                id: "T1".into(),
+                agent: crate::agents_db::FORM_DESIGNER.into(),
+                objective: "reorganise the six charts into a 2x3 grid".into(),
+                context: String::new(),
+                reviewer: None,
+                depends_on: vec![],
+                acceptance: String::new(),
+            },
+            TaskSpec {
+                id: "T2".into(),
+                agent: crate::agents_db::EVENT_HANDLER.into(),
+                objective: "wire onClick".into(),
+                context: String::new(),
+                reviewer: None,
+                depends_on: vec![],
+                acceptance: String::new(),
+            },
+            TaskSpec {
+                id: "T3".into(),
+                agent: crate::agents_db::FORM_DESIGNER.into(),
+                objective: "already specified".into(),
+                context: "Grace's own exact identifiers".into(),
+                reviewer: None,
+                depends_on: vec![],
+                acceptance: String::new(),
+            },
+        ];
+        inject_task_context(context, &mut plan);
+
+        // The empty-context form task now carries the inventory: form dims,
+        // control types, and the per-control lines — but NOT the verbose dump.
+        assert!(plan[0].context.contains("FORM: MAIN-FORM (1352x2000)"));
+        assert!(plan[0].context.contains("BarChart-1 (BarChart) @(656,624) 320x220"));
+        assert!(plan[0].context.contains("PieChart-1 (PieChart)"));
+        assert!(
+            !plan[0].context.contains("PROPERTY KEYS BY TYPE"),
+            "the verbose per-type dump must be excluded to protect the budget"
+        );
+        assert!(
+            !plan[0].context.contains("PlayAnimation"),
+            "the form designer does not need the method API"
+        );
+        // The event-handler task gets the inventory AND the per-control method
+        // API, so it can call PictureBox-2::PlayAnimation() instead of inventing
+        // a method its reviewer can never verify (the correction-loop deadlock).
+        assert!(
+            plan[1].context.contains("PictureBox-2 (PictureBox)"),
+            "event task gets the control inventory"
+        );
+        assert!(
+            plan[1].context.contains("PlayAnimation"),
+            "event task gets each control's real methods"
+        );
+        assert!(
+            !plan[1].context.contains("PROPERTY INTENT MAP"),
+            "the API excerpt stops before the next section"
+        );
+        // Grace-filled context is untouched.
+        assert_eq!(plan[2].context, "Grace's own exact identifiers");
+    }
+
+    /// With no surface context (markers absent), injection is a no-op — the
+    /// non-context workflow entry points must not be disturbed.
+    #[test]
+    fn inject_task_context_noops_without_surface_context() {
+        let mut plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::FORM_DESIGNER.into(),
+            objective: "do a thing".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+        inject_task_context("(no additional surface context)", &mut plan);
+        assert!(plan[0].context.is_empty());
     }
 
     /// Grace planned a second "review the completed change" task with the

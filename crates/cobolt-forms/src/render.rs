@@ -375,13 +375,21 @@ pub fn corner_notch_rounding(
 fn mask_container_notches(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
+    controls: &[Control],
     out: &RenderOutput,
     image: Option<(egui::TextureId, Rect)>,
     img_alpha: u8,
     bg: Color32,
     gradient: Option<(Rect, Color32, Color32, &str)>,
 ) {
-    let controls = input.controls;
+    // `controls` is the EFFECTIVE (post-`expand_repeating_groups`) list the render
+    // loop drew from — NOT `input.controls`. The notch-mask guardian
+    // (`corner_notch_rounding`) decides which corners to mask by looking each
+    // descendant's rect up in `out.control_rects`, which is keyed by the drawn
+    // (instance) ids. Walking the original template here would leave a databound
+    // container's expanded card instances invisible to the guardian, so it would
+    // mask nothing and the card content bleeds past the container arc (spec 015/024
+    // repeating groups × the spec 017 notch mask).
     for (idx, base) in controls.iter().enumerate() {
         if !matches!(
             base.control_type,
@@ -417,11 +425,18 @@ fn mask_container_notches(
         crate::paint::draw_container_notch_mask(
             painter, screen, rounding, bg, gradient, image, img_alpha,
         );
-        // The notch mask repaints the backdrop over the corner arcs, erasing the
-        // container's own border/rim there. Restore it so all four rounded corners
-        // keep their outline (otherwise a Panel shows a border on its straight
-        // edges but a gap at every corner).
-        crate::paint::restore_container_outline(painter, &live, screen, rad, input.glass);
+        // The notch mask repaints the backdrop over the corner arcs it touched,
+        // erasing the container's own border/rim there. Restore the rim on exactly
+        // those corners (`rounding`) — restoring an unmasked corner would
+        // double-stroke the face's own rim and leave a light spur.
+        crate::paint::restore_container_outline(
+            painter,
+            &live,
+            screen,
+            rad,
+            input.glass,
+            rounding,
+        );
     }
 }
 
@@ -1380,6 +1395,7 @@ pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     mask_container_notches(
         &painter,
         input,
+        controls,
         &out,
         backdrop_img,
         backdrop_img_alpha,
@@ -2021,6 +2037,56 @@ fn rounded_edge_inset(rect: Rect, radius: f32, y: f32) -> f32 {
     }
     let k = r - d;
     r - (r * r - k * k).max(0.0).sqrt()
+}
+
+/// Vertical inset of a rounded-rect silhouette at horizontal position `x` — the
+/// transpose of [`rounded_edge_inset`]. How far in from the top/bottom edge the
+/// arc has cut at that `x`. Used to shorten a DataGrid's vertical grid-line
+/// separators so they follow the rounded corner instead of poking into the notch.
+fn rounded_edge_inset_v(rect: Rect, radius: f32, x: f32) -> f32 {
+    let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    if r <= 0.0 {
+        return 0.0;
+    }
+    let d = (x - rect.min.x).min(rect.max.x - x);
+    if d < 0.0 || d >= r {
+        return 0.0;
+    }
+    let k = r - d;
+    r - (r * r - k * k).max(0.0).sqrt()
+}
+
+/// Shorten an axis-aligned DataGrid grid line so its ends stay inside the grid's
+/// rounded silhouette. A vertical separator near a side edge, or a horizontal
+/// separator near the top/bottom, otherwise runs its full extent and pokes past
+/// the arc into the corner notch (the "datagrid lines bleed past the corner"
+/// case). The DataGrid is a leaf drawn directly, and — when nested inside a
+/// translucent panel — the backdrop notch-mask can't be used, so preventing the
+/// bleed at the line is the only artifact-free fix. Returns the endpoints unchanged
+/// for a non-axis-aligned line or when the radius is negligible.
+fn clip_datagrid_line_to_corners(rect: Rect, radius: f32, pts: [egui::Pos2; 2]) -> [egui::Pos2; 2] {
+    let r = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    if r < 0.5 {
+        return pts;
+    }
+    let [p0, p1] = pts;
+    if (p0.x - p1.x).abs() < 0.5 {
+        // Vertical line at x: clamp its y-span to the arc at that x.
+        let x = p0.x;
+        let v = rounded_edge_inset_v(rect, r, x);
+        let lo = p0.y.min(p1.y).max(rect.min.y + v);
+        let hi = p0.y.max(p1.y).min(rect.max.y - v);
+        [pos2(x, lo), pos2(x, hi.max(lo))]
+    } else if (p0.y - p1.y).abs() < 0.5 {
+        // Horizontal line at y: clamp its x-span to the arc at that y.
+        let y = p0.y;
+        let h = rounded_edge_inset(rect, r, y);
+        let lo = p0.x.min(p1.x).max(rect.min.x + h);
+        let hi = p0.x.max(p1.x).min(rect.max.x - h);
+        [pos2(lo, y), pos2(hi.max(lo), y)]
+    } else {
+        pts
+    }
 }
 
 fn draw_datagrid_pattern(
@@ -2694,16 +2760,33 @@ fn render_interactive(
             // Keep the editable content clear of the box's own rounded corners: inset
             // by at least the corner radius so text never renders in the corner zone
             // (outside the rounded arc), which would read as bleed past the corner.
+            // Horizontal inset keeps the text clear of the rounded corners, so it
+            // is floored by the corner radius. The VERTICAL inset is not: a centred
+            // single line never reaches the corners, and flooring the top/bottom by
+            // the corner radius (or any fixed pad) pushes the text off-centre and
+            // wastes the height a tall font needs. So vertical padding is just
+            // `InnerPadding`, capped so it can never consume the whole box.
             let pad = paint::textbox_inner_padding(ctrl)
                 .max(paint::corner_radius(ctrl))
                 .min((screen.width() * 0.45).min(screen.height() * 0.45));
-            let edit_rect = screen.shrink(pad);
+            let vpad = paint::textbox_inner_padding(ctrl).min((screen.height() * 0.5 - 1.0).max(0.0));
             // A Multiline TextBox uses egui's multiline editor, which wraps text to
             // the field width (honouring WordWrap); single-line otherwise.
             let multiline = ctrl
                 .get_prop("Multiline")
                 .map(|v| v.as_bool())
                 .unwrap_or(false);
+            // Multiline text starts at the top and can reach the corners, so it
+            // keeps the corner-safe inset on every side; a single line is centred
+            // and only needs the small vertical padding.
+            let edit_rect = if multiline {
+                screen.shrink(pad)
+            } else {
+                egui::Rect::from_min_max(
+                    egui::pos2(screen.left() + pad, screen.top() + vpad),
+                    egui::pos2(screen.right() - pad, screen.bottom() - vpad),
+                )
+            };
             let resp = if multiline {
                 // egui's multiline editor auto-grows to its content, so it would
                 // spill past the TextBox's fixed height (and its rounded bottom).
@@ -4632,7 +4715,11 @@ fn render_interactive(
                 if x > min_x && x < screen.max.x {
                     draw_datagrid_line(
                         &painter,
-                        [pos2(x, screen.min.y), pos2(x, screen.max.y)],
+                        clip_datagrid_line_to_corners(
+                            screen,
+                            grid_cr,
+                            [pos2(x, screen.min.y), pos2(x, screen.max.y)],
+                        ),
                         Stroke::new(1.0, grid_c),
                         grid_line_style,
                     );
@@ -4640,10 +4727,14 @@ fn render_interactive(
             }
             draw_datagrid_line(
                 &painter,
-                [
-                    pos2(screen.min.x, screen.min.y + header_h),
-                    pos2(screen.max.x, screen.min.y + header_h),
-                ],
+                clip_datagrid_line_to_corners(
+                    screen,
+                    grid_cr,
+                    [
+                        pos2(screen.min.x, screen.min.y + header_h),
+                        pos2(screen.max.x, screen.min.y + header_h),
+                    ],
+                ),
                 Stroke::new(1.0, grid_c),
                 grid_line_style,
             );
@@ -4712,9 +4803,15 @@ fn render_interactive(
                 }
             }
             if layout.max_scroll_y > 0.0 && body_rect.height() > 8.0 {
+                // The track hugs the right edge, so its bottom sits inside the grid's
+                // rounded corner band. Pull the bottom up by the arc's vertical inset
+                // at the track's x so the scrollbar never pokes past the rounded
+                // bottom-right corner (a DataGrid-line-style bleed).
+                let track_v_inset = rounded_edge_inset_v(screen, grid_cr, screen.max.x - 3.5);
+                let track_bottom = (body_rect.max.y - 2.0).min(screen.max.y - track_v_inset);
                 let track = Rect::from_min_max(
                     pos2(screen.max.x - 5.0, body_rect.min.y + 2.0),
-                    pos2(screen.max.x - 2.0, body_rect.max.y - 2.0),
+                    pos2(screen.max.x - 2.0, track_bottom),
                 );
                 let thumb_h = (body_rect.height() / layout.total_rows_height * track.height())
                     .clamp(12.0, track.height());
@@ -5353,6 +5450,103 @@ mod tests {
         assert_eq!(r.nw, 0, "NW is clean ⇒ untouched");
         assert_eq!(r.ne, 0, "NE is clean ⇒ untouched");
         assert_eq!(r.se, 0, "SE is clean ⇒ untouched");
+    }
+
+    /// Which of the four corner squares of a 200×150 / r=20 panel a restore stroke
+    /// landed in, derived from each stroke shape's clip rect. Restore clips each
+    /// corner's rim to that corner's square, so the clip rect names the corner.
+    fn restored_corners(rect: Rect, r: f32, masked: egui::CornerRadius) -> std::collections::BTreeSet<&'static str> {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Enhanced);
+        let mut panel = Control::new("PNL", ControlType::Panel, rect.min.x as i32, rect.min.y as i32);
+        panel.rect = crate::model::Rect::new(
+            rect.min.x as i32,
+            rect.min.y as i32,
+            rect.width() as i32,
+            rect.height() as i32,
+        );
+        panel.set_prop("BorderStyle", crate::model::PropValue::String("Single".into()));
+        panel.set_prop("BorderWidth", crate::model::PropValue::Int(1));
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
+        let full = ctx.run_ui(input, |root_ui| {
+            let painter = root_ui.painter_at(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
+            crate::paint::restore_container_outline(&painter, &panel, rect, r, true, masked);
+        });
+        let mut hit = std::collections::BTreeSet::new();
+        let classify = |c: egui::Pos2| -> Option<&'static str> {
+            let left = c.x < rect.min.x + r;
+            let right = c.x > rect.max.x - r;
+            let top = c.y < rect.min.y + r;
+            let bot = c.y > rect.max.y - r;
+            match (left, right, top, bot) {
+                (true, _, true, _) => Some("nw"),
+                (_, true, true, _) => Some("ne"),
+                (_, true, _, true) => Some("se"),
+                (true, _, _, true) => Some("sw"),
+                _ => None,
+            }
+        };
+        for cs in &full.shapes {
+            if let egui::Shape::Rect(rs) = &cs.shape {
+                if rs.stroke.width > 0.0 {
+                    if let Some(corner) = classify(cs.clip_rect.center()) {
+                        hit.insert(corner);
+                    }
+                }
+            }
+        }
+        hit
+    }
+
+    #[test]
+    fn restore_outline_only_touches_masked_corners() {
+        // Regression: `restore_container_outline` used to redraw the rim on ALL four
+        // corners unconditionally, double-stroking the face's own rim on corners the
+        // (now per-corner) notch mask left clean — a light spur at the corner
+        // (visible on databound DataGrids / dropshadowed cards after egui 0.35).
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 150.0));
+        let r = 20.0;
+        let cr = crate::paint::cr8(r);
+
+        // Only the SW corner masked ⇒ only SW restored.
+        let sw_only = egui::CornerRadius { nw: 0, ne: 0, se: 0, sw: cr };
+        let hit = restored_corners(rect, r, sw_only);
+        assert_eq!(
+            hit.into_iter().collect::<Vec<_>>(),
+            vec!["sw"],
+            "restore must touch ONLY the masked (SW) corner, never the clean ones",
+        );
+
+        // Nothing masked ⇒ nothing restored (no spur on a container with a clean rim).
+        let hit = restored_corners(rect, r, egui::CornerRadius::ZERO);
+        assert!(
+            hit.is_empty(),
+            "no corner masked ⇒ restore must be a no-op, saw {hit:?}",
+        );
+    }
+
+    #[test]
+    fn datagrid_line_clip_keeps_lines_inside_the_arc() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 100.0));
+        let r = 20.0;
+        // A vertical separator hugging the left edge would poke into both left
+        // corner notches; clipping pulls its ends inside the arc.
+        let v = clip_datagrid_line_to_corners(rect, r, [pos2(2.0, 0.0), pos2(2.0, 100.0)]);
+        assert_eq!(v[0].x, 2.0);
+        assert!(
+            v[0].y > 0.5 && v[1].y < 99.5,
+            "near-edge vertical line must clip away from the corners, got {v:?}"
+        );
+        // A separator in the middle clears the corners → untouched.
+        let mid = clip_datagrid_line_to_corners(rect, r, [pos2(100.0, 0.0), pos2(100.0, 100.0)]);
+        assert_eq!(mid, [pos2(100.0, 0.0), pos2(100.0, 100.0)]);
+        // A horizontal line hugging the bottom is pulled in at both ends.
+        let h = clip_datagrid_line_to_corners(rect, r, [pos2(0.0, 98.0), pos2(200.0, 98.0)]);
+        assert!(
+            h[0].x > 0.5 && h[1].x < 199.5,
+            "near-bottom horizontal line must clip away from the corners, got {h:?}"
+        );
     }
 
     fn bound_repeating_group(count: i64) -> Vec<Control> {

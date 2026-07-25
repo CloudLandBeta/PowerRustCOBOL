@@ -1041,12 +1041,45 @@ fn resolve_project_path(project_root: &Path, rel: &str) -> PathBuf {
 
 /// Properties whose value differs from a fresh control of the same type — the ones
 /// worth showing the agent (defaults are implied by the type).
+/// The complete drop-shadow property group. When a control casts a shadow we
+/// surface every one of these — see the note in `non_default_props`.
+const SHADOW_KEYS: &[&str] = &[
+    "ShadowEnabled",
+    "ShadowOpacity",
+    "ShadowColor",
+    "ShadowLightColor",
+    "ShadowDirection",
+    "ShadowDistance",
+    "ShadowBlur",
+    "ShadowBlurStrength",
+];
+
 fn non_default_props(c: &Control) -> Vec<String> {
     let defaults = Control::new("_", c.control_type.clone(), 0, 0);
+    let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for (k, v) in &c.properties {
         if defaults.properties.get(k) != Some(v) {
+            seen.insert(k.clone());
             out.push(format!("{k}={}", prop_display(v)));
+        }
+    }
+    // When a control actually casts a drop shadow, surface its COMPLETE shadow
+    // configuration even where individual members are still at the type default.
+    // Otherwise a member left at its default (e.g. ShadowDirection="SouthEast")
+    // is invisible in the CONTEXT, and an instruction to "copy this control's
+    // drop shadow onto the others" structurally cannot copy what it never sees.
+    let casts_shadow = matches!(
+        c.properties.get("ShadowEnabled"),
+        Some(PropValue::Bool(true))
+    );
+    if casts_shadow {
+        for key in SHADOW_KEYS {
+            if !seen.contains(*key) {
+                if let Some(v) = c.properties.get(*key) {
+                    out.push(format!("{key}={}", prop_display(v)));
+                }
+            }
         }
     }
     out.sort();
@@ -1159,6 +1192,42 @@ mod tests {
         f.controls
             .push(Control::new("L1", ControlType::Label, 0, 0));
         f
+    }
+
+    /// A control that casts a drop shadow must expose its COMPLETE shadow group
+    /// in CONTEXT, including members still at the type default. Otherwise Grace
+    /// cannot copy a value like ShadowDirection="SouthEast" that it never sees —
+    /// the exact reason a "copy this control's drop shadow" request dropped the
+    /// direction while every other shadow property was applied.
+    #[test]
+    fn shadowed_control_surfaces_full_shadow_group_even_at_default() {
+        use cobolt_forms::{Control, PropValue};
+        // A chart with a shadow turned on but its direction left at the default.
+        let mut chart = Control::new("BarChart-1", ControlType::BarChart, 0, 0);
+        chart.set_prop("ShadowEnabled", PropValue::Bool(true));
+        chart.set_prop("ShadowDistance", PropValue::Int(11));
+        assert_eq!(
+            chart.get_prop("ShadowDirection").unwrap().as_str(),
+            "SouthEast",
+            "precondition: direction sits at the type default"
+        );
+
+        let props = non_default_props(&chart);
+        assert!(
+            props.iter().any(|p| p == "ShadowDirection=\"SouthEast\""),
+            "default-valued ShadowDirection must be surfaced for a shadowed \
+             control so it can be copied; got {props:?}"
+        );
+
+        // A control WITHOUT a shadow must not have the group forced in — the
+        // context stays compact for the common shadow-off case.
+        let plain = Control::new("L1", ControlType::Label, 0, 0);
+        assert!(
+            !non_default_props(&plain)
+                .iter()
+                .any(|p| p.starts_with("ShadowDirection=")),
+            "no shadow ⇒ default shadow members stay hidden"
+        );
     }
 
     #[test]

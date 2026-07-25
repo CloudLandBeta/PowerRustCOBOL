@@ -246,13 +246,18 @@ mod tests {
     use std::fs;
 
     fn tmp() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        // pid + nanos + a process-wide counter so parallel tests in the same
+        // nanosecond can't collide on the same temp dir (flaky-test guard).
         let base = std::env::temp_dir().join(format!(
-            "prc_fs_{}_{}",
+            "prc_fs_{}_{}_{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&base).unwrap();
         base

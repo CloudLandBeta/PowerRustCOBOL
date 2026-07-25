@@ -43,6 +43,120 @@ const GLOBAL_AI_HISTORY_MIN_HEIGHT: f32 = 48.0;
 const GLOBAL_AI_INPUT_HEIGHT: f32 = 170.0;
 const GLOBAL_AI_PANE_MIN_HEIGHT: f32 = GLOBAL_AI_HISTORY_MIN_HEIGHT + GLOBAL_AI_INPUT_HEIGHT + 24.0;
 
+// ── Collapsible designer chrome (spec 033) ──────────────────────────────────
+// Fixed geometry for the toolbox rail and properties drawer. These are CONSTANTS,
+// never derived from available/max space, so the collapsed/hidden states can't
+// self-inflate. The expanded widths live in `DesignerPanel::{toolbox,props}_width`
+// and are only ever written from the panel's own resized rect (a user drag).
+
+/// Default (seed) width of the expanded left sidebar (forms list + toolbox).
+pub const TOOLBOX_DEFAULT_W: f32 = 150.0;
+/// Minimum width the expanded left sidebar may be dragged to.
+pub const TOOLBOX_MIN_W: f32 = 130.0;
+/// Fixed width of the collapsed toolbox icon rail. Wide enough for one 49px icon
+/// button plus the side-panel frame margins (8+8) and a scrollbar.
+pub const TOOLBOX_RAIL_W: f32 = 78.0;
+
+/// Default (seed) width of the properties pane.
+pub const PROPS_DEFAULT_W: f32 = 300.0;
+/// Minimum width the properties pane may be dragged to.
+pub const PROPS_MIN_W: f32 = 220.0;
+/// Fixed width of the thin reopen/hide tab strip beside the properties pane —
+/// wide enough to hold the enlarged collapse chevron without clipping it.
+pub const PROPS_TAB_W: f32 = 30.0;
+/// Glyph size for every collapse/expand chevron (toolbox ◀/▶ and properties
+/// ◀/▶) so they are all the SAME size — ~2× the old `small_button` glyph.
+pub const COLLAPSE_CHEVRON_SIZE: f32 = 20.0;
+
+/// Clamp a captured expanded left-sidebar width into `[min, max]`.
+///
+/// The input is the panel's own resized outer width (user drag / persisted /
+/// default) — never available space — so this is a pure clamp, called once per
+/// frame to keep `toolbox_width` a faithful record of the user's chosen width.
+pub fn clamp_toolbox_width(width: f32, min: f32, max: f32) -> f32 {
+    clamp_pane_width(width, min, max, TOOLBOX_DEFAULT_W)
+}
+
+/// Clamp a captured properties-pane width into `[min, max]`. Same contract as
+/// [`clamp_toolbox_width`]. (The properties drawer now lets egui persist its own
+/// width per panel id, so this is retained only for its tests / future use.)
+#[allow(dead_code)]
+pub fn clamp_props_width(width: f32, min: f32, max: f32) -> f32 {
+    clamp_pane_width(width, min, max, PROPS_DEFAULT_W)
+}
+
+/// Shared width-restore helper: clamp `width` into `[min, max]`, falling back to
+/// `fallback` when the value is non-finite or non-positive (e.g. a transient
+/// zero rect on the first frame). Guarantees the stored width is always a sane,
+/// bounded seed for the next expand — never a runaway value.
+fn clamp_pane_width(width: f32, min: f32, max: f32, fallback: f32) -> f32 {
+    let hi = max.max(min);
+    if !width.is_finite() || width <= 0.0 {
+        return fallback.clamp(min, hi);
+    }
+    width.clamp(min, hi)
+}
+
+#[cfg(test)]
+mod collapsible_chrome_tests {
+    use super::*;
+
+    /// A user-dragged width is recorded verbatim (clamped to the pane's range),
+    /// so re-expanding restores exactly what the user set.
+    #[test]
+    fn dragged_width_is_recorded_within_range() {
+        assert_eq!(clamp_toolbox_width(210.0, TOOLBOX_MIN_W, 600.0), 210.0);
+        assert_eq!(clamp_props_width(420.0, PROPS_MIN_W, 800.0), 420.0);
+    }
+
+    /// Captured widths are clamped to the pane's min/max — never allowed to be a
+    /// runaway value that would let the pane grow past its bounds on re-expand.
+    #[test]
+    fn width_is_clamped_to_bounds() {
+        // Below min → snaps up to min.
+        assert_eq!(clamp_toolbox_width(10.0, TOOLBOX_MIN_W, 600.0), TOOLBOX_MIN_W);
+        // Above max → snaps down to max.
+        assert_eq!(clamp_props_width(5000.0, PROPS_MIN_W, 700.0), 700.0);
+    }
+
+    /// A transient zero / non-finite rect (e.g. first frame) falls back to the
+    /// sane default seed instead of poisoning the stored width with 0.
+    #[test]
+    fn non_positive_or_nan_falls_back_to_default() {
+        assert_eq!(
+            clamp_toolbox_width(0.0, TOOLBOX_MIN_W, 600.0),
+            TOOLBOX_DEFAULT_W
+        );
+        assert_eq!(
+            clamp_props_width(f32::NAN, PROPS_MIN_W, 700.0),
+            PROPS_DEFAULT_W
+        );
+    }
+
+    /// The restore contract: while collapsed we must NOT overwrite the stored
+    /// expanded width, so on expand `default_size` still opens at the user's
+    /// last width. This models the app-side capture guard.
+    #[test]
+    fn collapse_preserves_expanded_width() {
+        let mut stored = 265.0_f32;
+        let rail_rect_width = TOOLBOX_RAIL_W; // what the rail panel reports while collapsed
+
+        // Collapsed: capture is skipped → stored is untouched.
+        let collapsed = true;
+        if !collapsed {
+            stored = clamp_toolbox_width(rail_rect_width, TOOLBOX_MIN_W, 600.0);
+        }
+        assert_eq!(stored, 265.0, "collapse must not clobber the expanded width");
+
+        // Expanded again, user has not dragged: rect == stored → idempotent.
+        let collapsed = false;
+        if !collapsed {
+            stored = clamp_toolbox_width(stored, TOOLBOX_MIN_W, 600.0);
+        }
+        assert_eq!(stored, 265.0, "re-expand restores the user's width");
+    }
+}
+
 // The shared control renderer now lives in `cobolt_forms::paint` (007 T1) so the
 // designer, preview, run form and compiled binaries all draw identically.
 // Re-exported here so existing `designer::draw_control` call sites keep working.
@@ -1064,6 +1178,19 @@ pub struct DesignerPanel {
     pub toolbox: ToolboxPanel,
     pub properties: PropertiesPanel,
 
+    // ── Collapsible designer chrome (spec 033) ────────────────────────────────
+    /// When true the left sidebar shrinks to a narrow icon rail (toolbox only,
+    /// no labels / no forms list). Toggled by the toolbox chevron; the rail uses
+    /// a FIXED width so it never self-inflates.
+    pub toolbox_collapsed: bool,
+    /// The user's last expanded left-panel width. Seeds the panel's `default_size`
+    /// and is refreshed only from the panel's own resized rect (user drag), never
+    /// from available space — so re-expanding restores exactly what the user set.
+    pub toolbox_width: f32,
+    /// When true the right properties pane is slid away, leaving only a thin
+    /// reopen tab (fixed width — no self-inflation).
+    pub props_hidden: bool,
+
     // ── UI options ────────────────────────────────────────────────────────────
     pub show_grid: bool,
     pub glass_mode: bool,
@@ -1181,6 +1308,9 @@ impl DesignerPanel {
             create_user_control: None,
             toolbox: ToolboxPanel::new(),
             properties: PropertiesPanel::new(),
+            toolbox_collapsed: false,
+            toolbox_width: TOOLBOX_DEFAULT_W,
+            props_hidden: false,
             show_grid: true,
             glass_mode: true,
             anim_states: HashMap::new(),
@@ -1411,7 +1541,7 @@ impl DesignerPanel {
                     } else {
                         self.form
                             .find_control(control_id)
-                            .and_then(|c| c.properties.get(key).cloned())
+                            .and_then(|c| structural_prop_value(c, key))
                     };
                     cmds.push(Cmd::SetProperty {
                         id: control_id.clone(),
@@ -1460,6 +1590,11 @@ impl DesignerPanel {
 
         let n = cmds.len();
         if n > 0 {
+            // Containers move as a WHOLE and moved controls avoid overlaps: fold
+            // the carry + nudge moves into the SAME batch so undo and the move
+            // animation treat each container-and-children motion as one.
+            cmds.extend(self.plan_container_and_overlap_moves(cs, &status));
+
             // Snapshot positions BEFORE applying so we can animate the moves
             // (spec 035, R1). If an animation is already running, use each
             // control's CURRENT on-screen position as the "before" so a new
@@ -1482,6 +1617,190 @@ impl DesignerPanel {
             }
         }
         n
+    }
+
+    /// Plan the extra position moves that follow an agent change-set:
+    /// 1. **Container carry** — every control keeps its place inside a container
+    ///    the change-set repositions (a container and its children move as one).
+    /// 2. **Overlap avoidance** — a control the change-set moves is nudged off
+    ///    any same-level control it would land on; only the moved control (with
+    ///    its subtree) shifts, obstacles stay put.
+    ///
+    /// Returned as `MoveControl`s that go from each control's *staged* position
+    /// (after the change-set's own X/Y) to its *final* position, so folding them
+    /// into the same batch yields one undo and one animation. Manual drag already
+    /// carries children (`handle_drag`); this brings the agent path in line and
+    /// adds the overlap nudge on top.
+    fn plan_container_and_overlap_moves(
+        &self,
+        cs: &crate::agent::AgentChangeSet,
+        status: &[Option<String>],
+    ) -> Vec<Cmd> {
+        use crate::agent::AgentOp;
+        use std::collections::{HashMap, HashSet};
+        let to_i32 = |v: &serde_json::Value| -> Option<i32> {
+            v.as_i64()
+                .map(|n| n as i32)
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        };
+        // Explicit geometry the change-set sets, per control.
+        let mut explicit: HashSet<String> = HashSet::new();
+        let mut tgt_x: HashMap<String, i32> = HashMap::new();
+        let mut tgt_y: HashMap<String, i32> = HashMap::new();
+        let mut tgt_w: HashMap<String, i32> = HashMap::new();
+        let mut tgt_h: HashMap<String, i32> = HashMap::new();
+        for (op, err) in cs.operations.iter().zip(status.iter()) {
+            if err.is_some() {
+                continue;
+            }
+            if let AgentOp::SetProperty {
+                control_id,
+                key,
+                value,
+            } = op
+            {
+                let Some(v) = to_i32(value) else { continue };
+                match key.as_str() {
+                    "X" => {
+                        tgt_x.insert(control_id.clone(), v);
+                        explicit.insert(control_id.clone());
+                    }
+                    "Y" => {
+                        tgt_y.insert(control_id.clone(), v);
+                        explicit.insert(control_id.clone());
+                    }
+                    "Width" => {
+                        tgt_w.insert(control_id.clone(), v);
+                    }
+                    "Height" => {
+                        tgt_h.insert(control_id.clone(), v);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Staged rect = original rect with the change-set's own X/Y/W/H applied.
+        let staged = |c: &Control| -> (i32, i32, i32, i32) {
+            (
+                tgt_x.get(&c.id).copied().unwrap_or(c.rect.x),
+                tgt_y.get(&c.id).copied().unwrap_or(c.rect.y),
+                tgt_w.get(&c.id).copied().unwrap_or(c.rect.w),
+                tgt_h.get(&c.id).copied().unwrap_or(c.rect.h),
+            )
+        };
+        // Delta of every container the change-set actually moves.
+        let mut cont_delta: HashMap<String, (i32, i32)> = HashMap::new();
+        for c in &self.form.controls {
+            if !c.is_container() {
+                continue;
+            }
+            let d = (
+                tgt_x.get(&c.id).copied().unwrap_or(c.rect.x) - c.rect.x,
+                tgt_y.get(&c.id).copied().unwrap_or(c.rect.y) - c.rect.y,
+            );
+            if d != (0, 0) {
+                cont_delta.insert(c.id.clone(), d);
+            }
+        }
+        // Carry delta = delta of the nearest moved-container ancestor, unless the
+        // control is explicitly placed by the change-set itself.
+        let carry_of = |c: &Control| -> (i32, i32) {
+            if explicit.contains(&c.id) {
+                return (0, 0);
+            }
+            let mut cur = c.parent.clone();
+            while let Some(pid) = cur {
+                if let Some(d) = cont_delta.get(&pid) {
+                    return *d;
+                }
+                cur = self.form.find_control(&pid).and_then(|p| p.parent.clone());
+            }
+            (0, 0)
+        };
+
+        // Positions after staging + carry (before overlap nudging).
+        let mut pos: HashMap<String, (i32, i32, i32, i32)> = HashMap::new();
+        for c in &self.form.controls {
+            let (sx, sy, sw, sh) = staged(c);
+            let (cx, cy) = carry_of(c);
+            pos.insert(c.id.clone(), (sx + cx, sy + cy, sw, sh));
+        }
+
+        // Overlap avoidance: nudge each *moved root* (a control moved by its own
+        // explicit target or as a top-level move, not one merely carried) off any
+        // same-parent control it overlaps. The root drags its subtree along.
+        //
+        // A deliberate agent layout (two or more explicitly placed controls) is
+        // trusted as-is: the Form Designer computes non-overlapping coordinates,
+        // and the nudge would otherwise shove the one control whose slot happens
+        // to sit over a leftover, untouched control out of an otherwise clean grid
+        // ("all but one aligned"). A lone placed control still gets the drag-like
+        // nudge so it slides off a sibling it lands on.
+        let form_w = self.form.width as i32;
+        let form_h = self.form.height as i32;
+        let nudge_overlaps = explicit.len() < 2;
+        for (i, c) in self.form.controls.iter().enumerate() {
+            if !nudge_overlaps {
+                break;
+            }
+            let moved = {
+                let p = pos[&c.id];
+                (p.0, p.1) != (c.rect.x, c.rect.y)
+            };
+            if !moved {
+                continue;
+            }
+            if !explicit.contains(&c.id) && carry_of(c) != (0, 0) {
+                continue; // moves as part of its container's group
+            }
+            // Subtree ids (root + descendants) — they move rigidly together.
+            let mut subtree: HashSet<String> = HashSet::new();
+            subtree.insert(c.id.clone());
+            for d in super::containers::collect_descendants(&self.form.controls, i) {
+                subtree.insert(self.form.controls[d].id.clone());
+            }
+            // Obstacles = same-parent controls outside this subtree, at their
+            // planned positions.
+            let obstacles: Vec<(i32, i32, i32, i32)> = self
+                .form
+                .controls
+                .iter()
+                .filter(|o| o.parent == c.parent && !subtree.contains(&o.id))
+                .map(|o| pos[&o.id])
+                .collect();
+            let rroot = pos[&c.id];
+            // Keep top-level roots inside the form; nested roots are unbounded.
+            let bounds = c.parent.is_none().then_some((form_w, form_h));
+            let (nx, ny) =
+                nearest_free_offset(rroot, &obstacles, bounds, form_w.max(form_h));
+            if (nx, ny) == (0, 0) {
+                continue;
+            }
+            for id in subtree {
+                if let Some(p) = pos.get_mut(&id) {
+                    p.0 += nx;
+                    p.1 += ny;
+                }
+            }
+        }
+
+        // One MoveControl per control whose final pos differs from its staged pos
+        // (carry and/or nudge); the change-set itself already produced staged.
+        let mut moves = Vec::new();
+        for c in &self.form.controls {
+            let (sx, sy, _, _) = staged(c);
+            let (fx, fy, _, _) = pos[&c.id];
+            if (fx, fy) != (sx, sy) {
+                moves.push(Cmd::MoveControl {
+                    id: c.id.clone(),
+                    old_x: sx,
+                    old_y: sy,
+                    new_x: fx,
+                    new_y: fy,
+                });
+            }
+        }
+        moves
     }
 
     /// The current on-screen position of a control mid-animation, as integer
@@ -3847,7 +4166,27 @@ impl DesignerPanel {
                                         }
                                     }
                                 } else {
-                                    self.ai_history.push(crate::llm::ChatTurn::assistant(text));
+                                    // Grace answered in prose. A developer-facing
+                                    // clarification gets its OWN red balloon (role
+                                    // "question"), exactly like the project Grace
+                                    // chat surface — the RAD designer chat used a
+                                    // plain assistant balloon, so the same Grace
+                                    // looked different here. Surrounding context
+                                    // stays a normal assistant balloon.
+                                    let (context, questions) =
+                                        crate::grace_host::split_developer_questions(&text);
+                                    if questions.is_empty() {
+                                        self.ai_history.push(crate::llm::ChatTurn::assistant(text));
+                                    } else {
+                                        if !context.trim().is_empty() {
+                                            self.ai_history
+                                                .push(crate::llm::ChatTurn::assistant(context));
+                                        }
+                                        for q in questions {
+                                            self.ai_history
+                                                .push(crate::llm::ChatTurn::question(q));
+                                        }
+                                    }
                                 }
                             }
                             crate::llm::LlmResponse::Chunk(_) => {}
@@ -8329,6 +8668,77 @@ fn json_prop_i32(map: &serde_json::Map<String, serde_json::Value>, key: &str) ->
         .map(|n| n as i32)
 }
 
+/// `true` when two axis-aligned rects `(x, y, w, h)` overlap (share area).
+fn rects_overlap(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
+    a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
+}
+
+/// Smallest offset that moves `moving` clear of every `obstacle`, searched in an
+/// expanding ring (grid step `STEP`), preferring down/right for a natural layout
+/// flow. `bounds` — when `Some((w, h))` — keeps the moved rect inside the form.
+/// Returns `(0, 0)` if it is already clear, or if nothing within `max` pixels
+/// clears it (the caller then leaves the control where the agent put it rather
+/// than shoving it somewhere worse).
+fn nearest_free_offset(
+    moving: (i32, i32, i32, i32),
+    obstacles: &[(i32, i32, i32, i32)],
+    bounds: Option<(i32, i32)>,
+    max: i32,
+) -> (i32, i32) {
+    let clear = |dx: i32, dy: i32| -> bool {
+        let m = (moving.0 + dx, moving.1 + dy, moving.2, moving.3);
+        if let Some((bw, bh)) = bounds {
+            if m.0 < 0 || m.1 < 0 || m.0 + m.2 > bw || m.1 + m.3 > bh {
+                return false;
+            }
+        }
+        !obstacles.iter().any(|o| rects_overlap(m, *o))
+    };
+    if clear(0, 0) {
+        return (0, 0);
+    }
+    const STEP: i32 = 4;
+    let mut r = STEP;
+    while r <= max {
+        // Ring candidates ordered down, right, up, left, then the diagonals.
+        for (dx, dy) in [
+            (0, r),
+            (r, 0),
+            (0, -r),
+            (-r, 0),
+            (r, r),
+            (-r, r),
+            (r, -r),
+            (-r, -r),
+        ] {
+            if clear(dx, dy) {
+                return (dx, dy);
+            }
+        }
+        r += STEP;
+    }
+    (0, 0)
+}
+
+/// Current value of a property for undo capture. Structural properties (X, Y,
+/// Width, Height, Visible, …) live on `Control`'s own fields rather than in its
+/// `properties` map, so reading them from `properties` always yields `None` and
+/// leaves the change un-undoable. This mirrors `apply_structural_prop`'s key set
+/// and returns the live field value; everything else falls back to `properties`.
+fn structural_prop_value(ctrl: &Control, key: &str) -> Option<PropValue> {
+    match key.to_ascii_lowercase().as_str() {
+        "x" => Some(PropValue::Int(ctrl.rect.x as i64)),
+        "y" => Some(PropValue::Int(ctrl.rect.y as i64)),
+        "width" => Some(PropValue::Int(ctrl.rect.w as i64)),
+        "height" => Some(PropValue::Int(ctrl.rect.h as i64)),
+        "visible" => Some(PropValue::Bool(ctrl.visible)),
+        "enabled" => Some(PropValue::Bool(ctrl.enabled)),
+        "taborder" => Some(PropValue::Int(ctrl.tab_order as i64)),
+        "zorder" => Some(PropValue::Int(ctrl.z_order as i64)),
+        _ => ctrl.properties.get(key).cloned(),
+    }
+}
+
 fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
     let lower_key = key.to_ascii_lowercase();
     match lower_key.as_str() {
@@ -10794,6 +11204,240 @@ mod text_align_tests {
         // Redo re-applies it.
         d.redo();
         assert!(d.form.find_control("SAVE").is_some(), "redo re-applies");
+    }
+
+    #[test]
+    fn moving_a_container_carries_its_children() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        // A Panel at (10,10) holding a Button child at (20,20) and a Label
+        // grandchild-less sibling outside the panel that must NOT move.
+        let mut panel = Control::new("P1", ControlType::Panel, 10, 10);
+        panel.rect.w = 300;
+        panel.rect.h = 300;
+        let mut child = Control::new("C1", ControlType::Button, 20, 20);
+        child.parent = Some("P1".into());
+        let outside = Control::new("O1", ControlType::Label, 400, 400);
+        d.form.controls.push(panel);
+        d.form.controls.push(child);
+        d.form.controls.push(outside);
+
+        // Agent repositions the panel to (60,40): dx=50, dy=30.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: "P1".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(60),
+                },
+                AgentOp::SetProperty {
+                    control_id: "P1".into(),
+                    key: "Y".into(),
+                    value: serde_json::json!(40),
+                },
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+
+        let pos = |d: &DesignerPanel, id: &str| {
+            d.form.find_control(id).map(|c| (c.rect.x, c.rect.y))
+        };
+        assert_eq!(pos(&d, "P1"), Some((60, 40)), "panel moved to target");
+        assert_eq!(
+            pos(&d, "C1"),
+            Some((70, 50)),
+            "child carried by the same (50,30) delta, keeping its place inside"
+        );
+        assert_eq!(
+            pos(&d, "O1"),
+            Some((400, 400)),
+            "unrelated control outside the container stays put"
+        );
+
+        // The whole motion — container and child — reverts in ONE undo.
+        d.undo();
+        assert_eq!(pos(&d, "P1"), Some((10, 10)), "container restored");
+        assert_eq!(
+            pos(&d, "C1"),
+            Some((20, 20)),
+            "child restored with the container in a single undo"
+        );
+    }
+
+    #[test]
+    fn moving_a_container_leaves_an_explicitly_placed_child_alone() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        let mut panel = Control::new("P1", ControlType::Panel, 0, 0);
+        panel.rect.w = 300;
+        panel.rect.h = 300;
+        let mut child = Control::new("C1", ControlType::Button, 10, 10);
+        child.parent = Some("P1".into());
+        d.form.controls.push(panel);
+        d.form.controls.push(child);
+
+        // Panel moves by (100,0); the child is ALSO explicitly placed by the
+        // same change-set, so it must land at its explicit spot, not be shifted.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: "P1".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(100),
+                },
+                AgentOp::SetProperty {
+                    control_id: "C1".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(5),
+                },
+                AgentOp::SetProperty {
+                    control_id: "C1".into(),
+                    key: "Y".into(),
+                    value: serde_json::json!(5),
+                },
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+        let c = d.form.find_control("C1").unwrap();
+        assert_eq!(
+            (c.rect.x, c.rect.y),
+            (5, 5),
+            "explicitly repositioned child is not double-shifted by its container"
+        );
+    }
+
+    #[test]
+    fn nearest_free_offset_nudges_off_an_overlap() {
+        // Moving box overlaps an obstacle directly below-right; the search prefers
+        // "down", finding the smallest clear offset.
+        let moving = (0, 0, 20, 20);
+        let obstacles = [(10, 10, 20, 20)];
+        let (dx, dy) = nearest_free_offset(moving, &obstacles, None, 200);
+        assert!((dx, dy) != (0, 0), "an offset is found");
+        let cleared = (moving.0 + dx, moving.1 + dy, moving.2, moving.3);
+        assert!(
+            !rects_overlap(cleared, obstacles[0]),
+            "the chosen offset clears the overlap"
+        );
+    }
+
+    #[test]
+    fn nearest_free_offset_is_zero_when_already_clear() {
+        assert_eq!(
+            nearest_free_offset((0, 0, 10, 10), &[(100, 100, 10, 10)], None, 200),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn nearest_free_offset_respects_form_bounds() {
+        // An obstacle that blankets the whole form: no in-bounds spot clears it,
+        // so the moved control is left where it is rather than shoved off-canvas.
+        let moving = (0, 0, 40, 40);
+        let obstacles = [(-100, -100, 300, 300)];
+        assert_eq!(
+            nearest_free_offset(moving, &obstacles, Some((100, 100)), 200),
+            (0, 0),
+            "no in-bounds spot clears it → no nudge"
+        );
+    }
+
+    #[test]
+    fn agent_move_onto_a_sibling_is_nudged_off() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        // Two top-level buttons well apart.
+        d.form
+            .controls
+            .push(Control::new("A", ControlType::Button, 10, 10));
+        d.form
+            .controls
+            .push(Control::new("B", ControlType::Button, 300, 300));
+
+        // Agent drops B right on top of A.
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::SetProperty {
+                    control_id: "B".into(),
+                    key: "X".into(),
+                    value: serde_json::json!(10),
+                },
+                AgentOp::SetProperty {
+                    control_id: "B".into(),
+                    key: "Y".into(),
+                    value: serde_json::json!(10),
+                },
+            ],
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+
+        let a = d.form.find_control("A").unwrap();
+        let b = d.form.find_control("B").unwrap();
+        let ar = (a.rect.x, a.rect.y, a.rect.w, a.rect.h);
+        let br = (b.rect.x, b.rect.y, b.rect.w, b.rect.h);
+        assert!(
+            !rects_overlap(ar, br),
+            "B was nudged so it no longer overlaps A ({ar:?} vs {br:?})"
+        );
+        assert_eq!(
+            (a.rect.x, a.rect.y),
+            (10, 10),
+            "the obstacle A stayed put — only the moved control shifted"
+        );
+    }
+
+    #[test]
+    fn agent_batch_layout_trusts_coordinates_over_the_nudge() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        // A deliberate grid of two charts; the second slot lands on a leftover,
+        // untouched Label. The batch (≥2 explicitly placed controls) must be
+        // trusted verbatim — no chart is nudged off the label. Regression for the
+        // "all but one aligned" scatter.
+        let mut d = DesignerPanel::new(Form::new("F", "T", 1700, 2000));
+        d.form
+            .controls
+            .push(Control::new("BarChart-1", ControlType::BarChart, 0, 0));
+        d.form
+            .controls
+            .push(Control::new("AreaChart-1", ControlType::AreaChart, 0, 0));
+        // Stray label sitting inside AreaChart-1's target slot (656,868 320x220).
+        d.form
+            .controls
+            .push(Control::new("Label-6", ControlType::Label, 672, 1000));
+
+        let place = |id: &str, x: i32, y: i32| -> Vec<AgentOp> {
+            [("X", x), ("Y", y), ("Width", 320), ("Height", 220)]
+                .into_iter()
+                .map(|(k, v)| AgentOp::SetProperty {
+                    control_id: id.to_string(),
+                    key: k.to_string(),
+                    value: serde_json::json!(v),
+                })
+                .collect()
+        };
+        let mut operations = place("BarChart-1", 656, 624);
+        operations.extend(place("AreaChart-1", 656, 868));
+        let cs = AgentChangeSet {
+            operations,
+            note: None,
+        };
+        d.apply_agent_change_set(&cs);
+
+        let bar = d.form.find_control("BarChart-1").unwrap();
+        let area = d.form.find_control("AreaChart-1").unwrap();
+        assert_eq!(
+            (bar.rect.x, bar.rect.y),
+            (656, 624),
+            "row-1 chart landed on its computed slot"
+        );
+        assert_eq!(
+            (area.rect.x, area.rect.y),
+            (656, 868),
+            "row-2 chart stayed on its computed slot despite the stray label under it"
+        );
     }
 
     #[test]

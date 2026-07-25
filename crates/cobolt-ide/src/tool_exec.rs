@@ -241,6 +241,10 @@ Create or replace one complete definition with `indexed_file.write`:
 
 A finalized definition is LOCKED: any structural change (new/removed field, changed PIC, changed keys or storage) is refused and the write returns a confirmation-required result asking the developer to authorize destroying and recreating the file. Do NOT retry such a write unchanged and do NOT set `confirm_recreate` on your own. Only after Grace relays that the DEVELOPER explicitly confirmed the destroy-and-recreate may you repeat the write with `"confirm_recreate": true`, which overwrites the locked file with the new schema (its stored data is lost)."#;
 
+// spec 034 rollback: retained for a future redesign but no longer appended
+// (see `tool_contract_appendix`). Forms are edited via change-sets on the open
+// form, so name→path resolution does not fit that flow.
+#[allow(dead_code)]
 const PROJECT_TOOL_CONTRACT: &str = "\n\n--- Target selection (project tree, spec 034) ---\nBefore you CREATE or EDIT a named project element (a form, indexed file, common-code source, documentation file, or asset), you MUST first resolve WHICH target the developer means, because folders allow several elements to share a name. Call `project.select_target` with `{\"op\":\"create\"|\"edit\",\"kind\":\"form\"|\"indexed\"|\"source\"|\"documentation\"|\"asset\",\"name\":\"<the element name>\"}`. The TOOL RESULT returns one project-relative path: for `create` it is the destination FOLDER the developer picked (place the new element inside it); for `edit` it is the exact element FILE to modify. Use that returned path verbatim in your subsequent write. A `create` always prompts the developer; an `edit` prompts only when the name is ambiguous and otherwise returns the single match. If the result is a cancellation, STOP and do not create or edit anything.";
 
 /// How a Form Designer submission must encode its edits. Only this JSON shape
@@ -278,9 +282,12 @@ pub fn tool_contract_appendix(declared: &HashSet<String>) -> String {
     if declared.iter().any(|t| t.starts_with("indexed_file.")) {
         out.push_str(INDEXED_FILE_TOOL_CONTRACT);
     }
-    if declared.iter().any(|t| t == "project.select_target") {
-        out.push_str(PROJECT_TOOL_CONTRACT);
-    }
+    // NOTE (spec 034 rollback): the `project.select_target` contract is
+    // deliberately NOT appended. Forcing agents to resolve a target by name
+    // before every create/edit broke the Form Designer flow — that agent edits
+    // the OPEN form via change-sets applied by the IDE, never a resolved file
+    // path, so a name like "MAIN-FORM" fails to resolve and blocks the edit. The
+    // tool + picker mechanism stay in the codebase but are no longer mandated.
     out
 }
 

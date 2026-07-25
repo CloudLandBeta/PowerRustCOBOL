@@ -1059,7 +1059,6 @@ impl AgentsDb {
                     agent.tools = vec![
                         "egui.tree".into(),
                         "egui.rects".into(),
-                        "project.select_target".into(),
                     ];
                 }
                 let _ = self.save_all();
@@ -1068,6 +1067,42 @@ impl AgentsDb {
             }
             Err(_) => false,
         }
+    }
+
+    /// Seed the Form Designer Agent's built-in skill docs (container-carry and
+    /// overlap-free moves) into `skills/` and register them in the agent's
+    /// `skills` list. Idempotent, and repairs databases created before the
+    /// skills existed. User-edited skill files are preserved: content is written
+    /// only when the file is absent or empty.
+    pub fn ensure_form_designer_skills(&mut self) -> bool {
+        let Some(agent) = self.by_name(FORM_DESIGNER) else {
+            return false;
+        };
+        let name = agent.name.clone();
+        let skills_dir = self.dir(&name).join("skills");
+        let mut changed = false;
+        for (file, content) in crate::llm::form_designer_builtin_skills() {
+            let path = skills_dir.join(file);
+            let missing = std::fs::read_to_string(&path)
+                .map(|c| c.trim().is_empty())
+                .unwrap_or(true);
+            if missing {
+                let _ = std::fs::create_dir_all(&skills_dir);
+                if std::fs::write(&path, content).is_ok() {
+                    changed = true;
+                }
+            }
+            if let Some(a) = self.agents.iter_mut().find(|a| a.name == name) {
+                if !a.skills.iter().any(|s| s == file) {
+                    a.skills.push(file.to_string());
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            let _ = self.save_all();
+        }
+        changed
     }
 
     /// Ensure the Version Control Agent exists (repairs databases seeded before
@@ -1192,7 +1227,6 @@ impl AgentsDb {
                 "documentation.read",
                 "documentation.list",
                 "knowledge.search",
-                "project.select_target",
             ];
             let mut changed = false;
             if agent.kind != AgentKind::Specialist {
@@ -1267,7 +1301,6 @@ impl AgentsDb {
                         "documentation.read".into(),
                         "documentation.list".into(),
                         "knowledge.search".into(),
-                        "project.select_target".into(),
                     ];
                 }
                 let _ = self.save_all();
@@ -1287,7 +1320,6 @@ impl AgentsDb {
             "indexed_file.read",
             "indexed_file.write",
             "knowledge.search",
-            "project.select_target",
         ];
         if let Some(index) = self
             .agents
@@ -1475,7 +1507,7 @@ impl AgentsDb {
             FORM_DESIGNER_ROUTING,
             &["Receives: user form requests"],
             &form_prompt,
-            &["egui.tree", "egui.rects", "project.select_target"],
+            &["egui.tree", "egui.rects"],
             llm,
         ) as usize;
         changed += self.repair_builtin_definition(
@@ -1505,7 +1537,6 @@ impl AgentsDb {
                 "documentation.read",
                 "documentation.list",
                 "knowledge.search",
-                "project.select_target",
             ],
             llm,
         ) as usize;
@@ -1522,7 +1553,6 @@ impl AgentsDb {
                 "indexed_file.read",
                 "indexed_file.write",
                 "knowledge.search",
-                "project.select_target",
             ],
             llm,
         ) as usize;
@@ -1671,6 +1701,9 @@ impl AgentsDb {
             changed += 1;
         }
         if self.ensure_form_designer(llm) {
+            changed += 1;
+        }
+        if self.ensure_form_designer_skills() {
             changed += 1;
         }
         if self.ensure_event_handler(llm) {
@@ -2200,17 +2233,6 @@ mod tests {
                 && designer.tools.iter().any(|t| t == "egui.rects"),
             "Form Designer declares the egui observe tools"
         );
-        // spec 034: the create/edit specialists declare the target-picker tool.
-        for agent in [FORM_DESIGNER, DOCUMENTATION_AGENT, DATA_INDEXED_FILE_AGENT] {
-            assert!(
-                db.by_name(agent)
-                    .unwrap()
-                    .tools
-                    .iter()
-                    .any(|t| t == "project.select_target"),
-                "{agent} declares project.select_target"
-            );
-        }
         let data_agent = db.by_name(DATA_INDEXED_FILE_AGENT).unwrap();
         assert_eq!(data_agent.specialization, "indexed-files");
         assert!(data_agent
@@ -2659,6 +2681,50 @@ mod tests {
         assert!(db.dir(PEDANTIC_GRACE_REVIEWER).exists());
         assert!(db.dir(DOCUMENTATION_AGENT).exists());
         assert!(!db.dir(LEGACY_ORCHESTRATOR_REVIEWER).exists());
+        let _ = std::fs::remove_dir_all(proj);
+    }
+
+    #[test]
+    fn form_designer_gets_builtin_layout_skills() {
+        let proj = tmp_project();
+        let mut db = AgentsDb::load(&proj);
+        db.ensure_fixed_agents(&crate::llm::LlmConfig::load_defaults_for_test());
+
+        // Both built-in skills are registered on the agent...
+        let agent = db.by_name(FORM_DESIGNER).unwrap();
+        assert!(
+            agent
+                .skills
+                .iter()
+                .any(|s| s == "container-controls-move-as-a-whole.md"),
+            "container-carry skill registered"
+        );
+        assert!(
+            agent
+                .skills
+                .iter()
+                .any(|s| s == "overlap-free-control-moves.md"),
+            "overlap-free skill registered"
+        );
+
+        // ...seeded to disk and reachable through the LLM-call capabilities.
+        let caps = db.load_agent_capabilities(FORM_DESIGNER);
+        assert!(caps.contains("--- SKILL (container-controls-move-as-a-whole.md) ---"));
+        assert!(caps.contains("Container controls move as a whole"));
+        assert!(caps.contains("--- SKILL (overlap-free-control-moves.md) ---"));
+        assert!(caps.contains("Overlap-free control moves"));
+
+        // Idempotent: a second pass registers nothing new and does not duplicate.
+        db.ensure_form_designer_skills();
+        let dupes = db
+            .by_name(FORM_DESIGNER)
+            .unwrap()
+            .skills
+            .iter()
+            .filter(|s| *s == "overlap-free-control-moves.md")
+            .count();
+        assert_eq!(dupes, 1, "no duplicate skill registration");
+
         let _ = std::fs::remove_dir_all(proj);
     }
 

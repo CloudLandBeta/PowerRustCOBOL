@@ -4283,8 +4283,36 @@ impl CoboltApp {
                 }
                 ui.heading(&st.def.name);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Header action icons, enlarged 2× (22×18 → 44×36) with a two-word
+                    // caption beneath each so their purpose reads at a glance. `labeled`
+                    // stacks the (bigger) icon button over a small caption in a fixed cell
+                    // so the three line up evenly in the right-to-left header row.
+                    let icon_size = egui::vec2(44.0, 36.0);
+                    let cell_w = 68.0_f32;
+                    let mut labeled = |ui: &mut egui::Ui,
+                                       tip: &str,
+                                       caption: &str,
+                                       draw: &dyn Fn(&egui::Painter, egui::Rect, egui::Color32)|
+                     -> bool {
+                        let mut clicked = false;
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(cell_w, icon_size.y + 16.0),
+                            egui::Layout::top_down(egui::Align::Center),
+                            |ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                clicked = icon_btn(ui, icon_size, tip, draw);
+                                ui.label(
+                                    egui::RichText::new(caption)
+                                        .size(10.0)
+                                        .color(ui.visuals().weak_text_color()),
+                                );
+                            },
+                        );
+                        clicked
+                    };
+
                     // Close (X) - hand-written vector icon
-                    if icon_btn(ui, egui::vec2(22.0, 18.0), "Close inspector", &|p, r, c| {
+                    if labeled(ui, tr.idx_prop_close_tip, tr.idx_prop_close_cap, &|p, r, c| {
                         let s = egui::Stroke::new(1.8, c);
                         let q = r.shrink(r.width() * 0.22);
                         p.line_segment([q.left_top(), q.right_bottom()], s);
@@ -4295,7 +4323,7 @@ impl CoboltApp {
 
                     // Open Indexed File Browser - hand-written grid/table icon
                     let grid_tip = if st.def.finalized { tr.btn_open_grid_browser } else { tr.grid_requires_finalize };
-                    if icon_btn(ui, egui::vec2(22.0, 18.0), grid_tip, &|p, r, c| {
+                    if labeled(ui, grid_tip, tr.idx_prop_grid_cap, &|p, r, c| {
                         let col = if st.def.finalized { c } else {
                             egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 85)
                         };
@@ -4313,7 +4341,7 @@ impl CoboltApp {
                     }
 
                     // Edit record as text (raw) - hand-written document-with-lines icon
-                    if icon_btn(ui, egui::vec2(22.0, 18.0), "Edit record as text (raw COBOL)", &|p, r, c| {
+                    if labeled(ui, tr.idx_prop_raw_tip, tr.idx_prop_raw_cap, &|p, r, c| {
                         let s = egui::Stroke::new(1.5, c);
                         let body = egui::Rect::from_center_size(r.center(), egui::Vec2::new(r.width() * 0.60, r.height() * 0.68));
                         p.rect_stroke(body, 1.4, s, egui::StrokeKind::Middle);
@@ -4340,7 +4368,17 @@ impl CoboltApp {
                 ui.horizontal_top(|ui| {
                     // Left column: either raw text editor or the tree structure
                     ui.vertical(|ui| {
-                        let left_w = (remaining_rect.width() - 330.0).max(350.0);
+                        // The structure tree only needs room for the data-item names, so
+                        // sizing it to the whole pane (minus the property block) pushed the
+                        // property details far to the right of the item they describe. Give
+                        // the tree a moderate width so the details sit right beside the list.
+                        // The raw COBOL editor, by contrast, wants all the room it can get,
+                        // so it keeps the wide column.
+                        let left_w = if st.prefer_raw_editor {
+                            (remaining_rect.width() - 330.0).max(350.0)
+                        } else {
+                            380.0_f32.min((remaining_rect.width() - 330.0).max(300.0))
+                        };
                         ui.set_min_width(left_w);
                         ui.set_max_width(left_w);
                         ui.set_height(remaining_rect.height());
@@ -11075,18 +11113,69 @@ impl CoboltApp {
             .map(|project| project.user_controls.clone())
             .unwrap_or_default();
 
-        let (forms_list_action, toolbox_action) = egui::Panel::left(format!("dl_{idx}"))
+        // Collapsible left sidebar (spec 033): forms list + toolbox share one
+        // panel. We use egui 0.35's NATIVE drawer, `Panel::show_switched`, which
+        // animates between a thin collapsed panel (`dl_rail_*`, a FIXED-width icon
+        // rail) and the resizable expanded panel (`dl_*`). egui owns the collapse
+        // state via `&mut is_expanded` and persists each panel's size per id, so
+        // there is no hand-rolled id-swap fighting egui's own `PanelState`.
+        // Neither width comes from available/max space, so the sidebar cannot
+        // self-inflate; the expanded width is remembered by egui and seeded from
+        // `toolbox_width`.
+        use crate::panels::designer::{clamp_toolbox_width, TOOLBOX_MIN_W, TOOLBOX_RAIL_W};
+        let mut tb_expanded = !self.designers[idx].1.toolbox_collapsed;
+        let tb_width = self.designers[idx].1.toolbox_width;
+        let tb_max_w = (ctx.content_rect().width() * 0.5).max(320.0);
+
+        let tb_collapsed_panel = egui::Panel::left(format!("dl_rail_{idx}"))
+            .resizable(false)
+            .exact_size(TOOLBOX_RAIL_W);
+        let tb_expanded_panel = egui::Panel::left(format!("dl_{idx}"))
             .resizable(true)
-            .default_size(150.0)
-            .show(panel_ui, |ui| {
-                let forms_action = self.forms_list.show(ui, &open_path_refs, tr);
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(2.0);
-                let tb = self.designers[idx].1.toolbox.show(ui, tr, &user_controls);
+            .default_size(tb_width)
+            .min_size(TOOLBOX_MIN_W)
+            .max_size(tb_max_w);
+
+        let left_resp = egui::Panel::show_switched(
+            panel_ui,
+            &mut tb_expanded,
+            tb_collapsed_panel,
+            tb_expanded_panel,
+            |ui, expanded| {
+                // The forms list needs real width; at the icon-rail size it's
+                // hidden and returns on expand.
+                let forms_action = if expanded {
+                    let a = self.forms_list.show(ui, &open_path_refs, tr);
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(2.0);
+                    a
+                } else {
+                    None
+                };
+                let tb = self.designers[idx]
+                    .1
+                    .toolbox
+                    .show(ui, tr, &user_controls, !expanded);
                 (forms_action, tb)
-            })
-            .inner;
+            },
+        );
+        let (forms_list_action, toolbox_action) = left_resp.inner;
+
+        // Seed `toolbox_width` from the panel's OWN width when expanded (never
+        // from available space). egui's per-id `PanelState` is the authoritative
+        // store and overrides this seed once present, so a transient slide-frame
+        // value here can't affect the displayed width.
+        if tb_expanded {
+            self.designers[idx].1.toolbox_width =
+                clamp_toolbox_width(left_resp.response.rect.width(), TOOLBOX_MIN_W, tb_max_w);
+        }
+        // The chevron buttons (in the expanded header / the rail) flip the state;
+        // egui's drag-to-collapse already updated `tb_expanded` in place.
+        if toolbox_action.toggle_collapse {
+            tb_expanded = !tb_expanded;
+        }
+        self.designers[idx].1.toolbox_collapsed = !tb_expanded;
 
         if let Some(action) = forms_list_action {
             match action {
@@ -11331,23 +11420,79 @@ impl CoboltApp {
                 top: 6,
                 bottom: 6,
             });
-        let inspector_action = egui::Panel::right(format!("props_{idx}"))
-            .resizable(true)
-            .default_size(300.0)
-            .min_size(220.0)
-            .max_size(half_win)
-            .frame(props_frame)
+        // Properties DRAWER (spec 033), rebuilt to the operator's target layout:
+        //   form | [ ◀/▶ strip ] | [ properties content ]
+        // The collapse control lives on its OWN fixed-width strip that pushes the
+        // properties content to its right. The content is an ordinary resizable
+        // egui right panel: egui persists the user's dragged width per its id, so
+        // it opens at a CONSTANT default and only the user's drag changes it. We
+        // never read the rendered width back into `default_size`, so there is no
+        // self-inflation feedback loop (the previous bug: the pane grew every
+        // frame and could not be dragged smaller). When collapsed, only the strip
+        // remains and the form reclaims the width.
+        use crate::panels::designer::{PROPS_DEFAULT_W, PROPS_MIN_W, PROPS_TAB_W};
+        let props_hidden = self.designers[idx].1.props_hidden;
+
+        // Rightmost region: the resizable properties content (only when open).
+        let inspector_action = if !props_hidden {
+            egui::Panel::right(format!("props_{idx}"))
+                .resizable(true)
+                .default_size(PROPS_DEFAULT_W)
+                .min_size(PROPS_MIN_W)
+                .max_size(half_win)
+                .frame(props_frame)
+                .show(panel_ui, |ui| {
+                    // Sole vertical child of the pane (full width for its ScrollArea).
+                    let d = &mut self.designers[idx].1;
+                    let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
+                    // SAFETY: form and properties are different fields — field-level split.
+                    let form = &d.form as *const cobolt_forms::Form;
+                    let props = &mut d.properties;
+                    // SAFETY: we only read *form; no aliased write exists.
+                    props.show(ui, unsafe { &*form }, sel_ctrl, &indexed_files, tr)
+                })
+                .inner
+        } else {
+            crate::panels::properties::InspectorAction::default()
+        };
+
+        // The collapse strip — added AFTER the content so it sits to its LEFT — a
+        // fixed-width, non-resizable panel with a vertically-centered tab: ◀ hides
+        // the pane, ▶ reopens it. Fixed width ⇒ it can never drive a resize.
+        let strip_frame = egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(2);
+        let mut props_toggle = false;
+        egui::Panel::right(format!("props_strip_{idx}"))
+            .resizable(false)
+            .exact_size(PROPS_TAB_W)
+            .frame(strip_frame)
             .show(panel_ui, |ui| {
-                // Split-borrow: form (immutable) and properties (mutable) from DesignerPanel.
-                let d = &mut self.designers[idx].1;
-                let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
-                // SAFETY: form and properties are different fields — field-level borrow split.
-                let form = &d.form as *const cobolt_forms::Form;
-                let props = &mut d.properties;
-                // SAFETY: we only read *form; no aliased write to form or properties exists.
-                props.show(ui, unsafe { &*form }, sel_ctrl, &indexed_files, tr)
-            })
-            .inner;
+                // Cross-axis (height) read only — positions a fixed button, never
+                // sizes the strip's width.
+                let h = ui.available_height();
+                ui.add_space((h * 0.5 - 14.0).max(0.0));
+                ui.vertical_centered(|ui| {
+                    // ▶ when the pane is open (points toward hiding it right),
+                    // ◀ when hidden (points toward sliding it back in).
+                    let (glyph, tip) = if props_hidden {
+                        ("◀", tr.props_show)
+                    } else {
+                        ("▶", tr.props_hide)
+                    };
+                    if ui
+                        .button(
+                            egui::RichText::new(glyph)
+                                .size(crate::panels::designer::COLLAPSE_CHEVRON_SIZE),
+                        )
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        props_toggle = true;
+                    }
+                });
+            });
+        if props_toggle {
+            self.designers[idx].1.props_hidden = !props_hidden;
+        }
 
         // ── Apply inspector actions ───────────────────────────────────────────
         let mut preview_triggered = false;

@@ -347,11 +347,29 @@ pub fn spawn_contextual_request(
                 &mut no_target_picker,
             ) {
                 Ok((record, _)) => {
-                    let reply = crate::grace_host::workflow_chat_reply(
+                    // The contextual RAD-designer chat applies edits by PARSING
+                    // the reply text (designer.rs `parse_change_set`). The readable
+                    // workflow summary has the change-set operations stripped to
+                    // prose, so nothing would apply. When the workflow approved a
+                    // Form Designer change-set, send its RAW submission (which
+                    // carries the `{"operations":…}` block) so the designer parses
+                    // and applies it — this is what makes the agent's control
+                    // moves actually take effect (and animate). Otherwise fall
+                    // back to the readable summary. (The project-wide Grace chat
+                    // applies via `approved_form_change_sets` on the record; the
+                    // contextual path has no record on the main thread, so the
+                    // change-set must ride the reply.)
+                    let change_set_reply = crate::grace_host::approved_form_change_set_submission(
                         &record,
-                        preferred.as_deref(),
-                        llm.verbose_log,
+                        crate::agents_db::FORM_DESIGNER,
                     );
+                    let reply = change_set_reply.unwrap_or_else(|| {
+                        crate::grace_host::workflow_chat_reply(
+                            &record,
+                            preferred.as_deref(),
+                            llm.verbose_log,
+                        )
+                    });
                     let _ = tx.send(LlmResponse::Ok(reply));
                 }
                 Err(error) => {

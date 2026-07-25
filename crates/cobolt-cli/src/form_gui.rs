@@ -112,18 +112,35 @@ struct LiveState<'a> {
     state: &'a HashMap<String, CtrlState>,
 }
 
+impl<'a> LiveState<'a> {
+    /// Resolve `base.id` to its state entry case-INSENSITIVELY. Runtime updates
+    /// arrive with COBOL-cased ids (unquoted identifiers are upper-cased) and
+    /// databound repeating-group members are keyed by mixed-case mappings, so the
+    /// designed-case id the renderer draws with does not always byte-match the
+    /// state key. The in-IDE `RunState` (which drives Preview parity) already
+    /// resolves case-insensitively; this external run-form path must match it, or
+    /// a databound card's per-row values silently fail to merge and the card shows
+    /// its designed defaults (spec 015/024 × the split run-form process).
+    fn entry(&self, base: &cobolt_forms::Control) -> Option<&CtrlState> {
+        self.state
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(&base.id))
+            .and_then(|k| self.state.get(k))
+    }
+}
+
 impl<'a> cobolt_forms::render::FormState for LiveState<'a> {
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
-        match self.state.get(&base.id) {
+        match self.entry(base) {
             Some(s) => cobolt_forms::render::merge_props(base, s.props.iter()),
             None => base.clone(),
         }
     }
     fn visible(&self, base: &cobolt_forms::Control) -> bool {
-        self.state.get(&base.id).map(|s| s.visible).unwrap_or(true)
+        self.entry(base).map(|s| s.visible).unwrap_or(true)
     }
     fn enabled(&self, base: &cobolt_forms::Control) -> bool {
-        self.state.get(&base.id).map(|s| s.enabled).unwrap_or(true)
+        self.entry(base).map(|s| s.enabled).unwrap_or(true)
     }
 }
 
@@ -396,6 +413,7 @@ pub fn cmd_run_form(args: &[String]) {
         start: std::time::Instant::now(),
         lifecycle_sent: false,
         quit_sent: false,
+        db_dumped: false,
     };
 
     let mut viewport = egui::ViewportBuilder::default()
@@ -460,12 +478,72 @@ struct FormApp {
     start: std::time::Instant,
     lifecycle_sent: bool,
     quit_sent: bool,
+    /// One-shot guard for the `COBOLT_DATABIND_TRACE` render-side dump.
+    db_dumped: bool,
 }
 
 impl FormApp {
     fn send_event(&mut self, ev: FormEvent) {
         if self.ev_tx.send(ev).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Opt-in diagnostic (`COBOLT_DATABIND_TRACE=1`). For each repeating-group
+    /// member of instance 1, write the exact id the renderer looks up and whether
+    /// that id is present in `state` byte-exact vs. case-insensitively. A CI-only
+    /// hit means the value landed under a differently-cased key than the render
+    /// draws with — the classic run-form databind blank. Written once to
+    /// `/tmp/cobolt-databind-render.log`.
+    fn dump_databind_trace(&self) {
+        use std::io::Write;
+        let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/cobolt-databind-render.log")
+        else {
+            return;
+        };
+        let _ = writeln!(
+            f,
+            "\n=== RENDER-SIDE DATABIND TRACE ({}) ===",
+            self.form_name
+        );
+        let inst_keys = self.state.keys().filter(|k| k.contains('.')).count();
+        let _ = writeln!(f, "state has {inst_keys} instanced ('.') keys total");
+        for g in &self.controls {
+            let is_rep = matches!(g.control_type, cobolt_forms::ControlType::GroupBox)
+                && g.get_prop("IsRepeatingGroup")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(false);
+            if !is_rep {
+                continue;
+            }
+            let members: Vec<&cobolt_forms::Control> = self
+                .controls
+                .iter()
+                .filter(|c| c.parent.as_deref().map(|p| p.eq_ignore_ascii_case(&g.id)).unwrap_or(false))
+                .collect();
+            let _ = writeln!(
+                f,
+                "group '{}' members=[{}]",
+                g.id,
+                members.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(", ")
+            );
+            for m in &members {
+                let id = cobolt_forms::render::member_instance_id(&g.id, &m.id, 1);
+                let exact = self.state.contains_key(&id);
+                let ci = self.state.keys().find(|k| k.eq_ignore_ascii_case(&id)).cloned();
+                let _ = writeln!(
+                    f,
+                    "  lookup '{id}' -> exact={exact} ci_key={:?}",
+                    ci.filter(|k| *k != id)
+                );
+            }
+        }
+        let _ = writeln!(f, "sample instanced keys:");
+        for k in self.state.keys().filter(|k| k.contains('.')).take(8) {
+            let _ = writeln!(f, "  {k}");
         }
     }
 
@@ -565,6 +643,20 @@ impl eframe::App for FormApp {
             self.state.entry(key).or_default().set(&u.prop, u.value);
             drained += 1;
         }
+
+        // ── One-shot databind diagnostic (opt-in) ────────────────────────────
+        // Set COBOLT_DATABIND_TRACE=1 to write, once, the mismatch between the
+        // state keys the interpreter populated and the instanced ids the renderer
+        // will look up for each repeating-group member. Decisive for "cards show
+        // designed defaults in run-form but not in preview".
+        if !self.db_dumped
+            && std::env::var("COBOLT_DATABIND_TRACE").is_ok()
+            && self.state.keys().any(|k| k.contains('.'))
+        {
+            self.db_dumped = true;
+            self.dump_databind_trace();
+        }
+
         // DISPLAY output → stdout (the IDE pipes this into its Output pane).
         // Explicit flush: stdout is BLOCK-buffered when piped, so without it
         // DISPLAY lines sit in the buffer instead of reaching the IDE live.

@@ -268,6 +268,9 @@ const BTN_PAD_RIGHT: f32 = 10.0;
 pub struct ToolboxAction {
     pub dragged_type: Option<ControlType>,
     pub dragged_user_control: Option<String>,
+    /// The user clicked the collapse/expand chevron this frame. The owning
+    /// designer flips `DesignerPanel::toolbox_collapsed` in response.
+    pub toggle_collapse: bool,
 }
 
 pub struct ToolboxPanel {
@@ -288,11 +291,21 @@ impl ToolboxPanel {
         ui: &mut Ui,
         tr: &Tr,
         user_controls: &[UserControlDef],
+        collapsed: bool,
     ) -> ToolboxAction {
         let mut action = ToolboxAction {
             dragged_type: None,
             dragged_user_control: None,
+            toggle_collapse: false,
         };
+
+        // Collapsed: render only a narrow, vertically-scrolling ICON rail (plus
+        // the expand chevron). No labels, no search, no forms list — the rail is
+        // a FIXED-width panel (see `TOOLBOX_RAIL_W`) so it can't self-inflate.
+        if collapsed {
+            self.show_rail(ui, tr, &mut action);
+            return action;
+        }
 
         // Category header colour: the frosty light-blue reads fine on the
         // dark/glass chrome themes it was tuned for, but washes out ("too
@@ -306,7 +319,24 @@ impl ToolboxPanel {
         };
 
         ui.vertical(|ui| {
-            ui.heading("Toolbox");
+            ui.horizontal(|ui| {
+                ui.heading("Toolbox");
+                // Right-aligned collapse chevron: shrinks the sidebar to the
+                // icon rail. Points left (◀) — the pane collapses toward its
+                // fixed left edge.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(
+                            RichText::new("◀")
+                                .size(super::designer::COLLAPSE_CHEVRON_SIZE),
+                        )
+                        .on_hover_text(tr.toolbox_collapse)
+                        .clicked()
+                    {
+                        action.toggle_collapse = true;
+                    }
+                });
+            });
             ui.separator();
 
             ui.horizontal(|ui| {
@@ -384,6 +414,33 @@ impl ToolboxPanel {
         });
 
         action
+    }
+
+    /// Narrow icon-only rail shown when the toolbox is collapsed. Renders the
+    /// expand chevron then every tool as a single-column stack of draggable
+    /// icons. Reuses `icon_btn` so click-to-place and drag-to-place still work.
+    fn show_rail(&self, ui: &mut Ui, tr: &Tr, action: &mut ToolboxAction) {
+        ui.vertical_centered(|ui| {
+            // Points right (▶) — expanding grows the pane back toward the canvas.
+            if ui
+                .button(RichText::new("▶").size(super::designer::COLLAPSE_CHEVRON_SIZE))
+                .on_hover_text(tr.toolbox_expand)
+                .clicked()
+            {
+                action.toggle_collapse = true;
+            }
+        });
+        ui.separator();
+
+        egui::ScrollArea::vertical()
+            .id_salt("toolbox_rail_scroll")
+            .show(ui, |ui| {
+                // At the rail's fixed width `render_icon_grid` naturally computes
+                // a single column (one 59px cell won't fit twice), giving a clean
+                // vertical icon stack.
+                let all: Vec<&ToolEntry> = TOOLS.iter().collect();
+                render_icon_grid(ui, &all, action);
+            });
     }
 }
 
